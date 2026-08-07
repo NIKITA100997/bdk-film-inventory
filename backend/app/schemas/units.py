@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.units import UnitStatus
 from app.models.users import Area
+from app.schemas.dictionaries import MaterialSkuOut
 
 
 class ReceiveRequest(BaseModel):
@@ -26,10 +27,7 @@ class MaterialUnitOut(BaseModel):
     parent_id: int | None
     upd_number: str
     pallet_number: str
-    material: str
-    color: str
-    thickness: float
-    manufacturer: str
+    material_sku: MaterialSkuOut
     width_mm: float
     length_m: float
     status: UnitStatus

@@ -6,34 +6,36 @@ export interface Rack {
   id: number;
   code: string;
   type: RackType;
+  shelf_count: number;
 }
 
-export interface Shelf {
+export interface MacroZoneRule {
   id: number;
   rack_id: number;
-  number: number;
-  macro_zone: string | null;
+  from_shelf: number;
+  to_shelf: number;
+  material_id: number | null;
+  color_id: number | null;
+  thickness_id: number | null;
+  manufacturer_id: number | null;
 }
 
-export interface Cell {
-  id: number;
-  shelf_id: number;
-  number: number;
+export interface MacroZoneRuleCreate {
+  from_shelf: number;
+  to_shelf: number;
+  material?: string;
+  color?: string;
+  thickness?: number;
+  manufacturer?: string;
 }
 
 export const listRacks = async (): Promise<Rack[]> => (await apiClient.get<Rack[]>("/racks")).data;
 
-export const createRack = async (payload: { code: string; type: RackType }): Promise<Rack> =>
+export const createRack = async (payload: { code: string; type: RackType; shelf_count: number }): Promise<Rack> =>
   (await apiClient.post<Rack>("/racks", payload)).data;
 
-export const listShelves = async (rackId: number): Promise<Shelf[]> =>
-  (await apiClient.get<Shelf[]>(`/racks/${rackId}/shelves`)).data;
+export const listMacroZoneRules = async (rackId: number): Promise<MacroZoneRule[]> =>
+  (await apiClient.get<MacroZoneRule[]>(`/racks/${rackId}/macro-zone-rules`)).data;
 
-export const createShelf = async (rackId: number, payload: { number: number; macro_zone?: string }): Promise<Shelf> =>
-  (await apiClient.post<Shelf>(`/racks/${rackId}/shelves`, payload)).data;
-
-export const listCells = async (shelfId: number): Promise<Cell[]> =>
-  (await apiClient.get<Cell[]>(`/shelves/${shelfId}/cells`)).data;
-
-export const createCell = async (shelfId: number, payload: { number: number }): Promise<Cell> =>
-  (await apiClient.post<Cell>(`/shelves/${shelfId}/cells`, payload)).data;
+export const createMacroZoneRule = async (rackId: number, payload: MacroZoneRuleCreate): Promise<MacroZoneRule> =>
+  (await apiClient.post<MacroZoneRule>(`/racks/${rackId}/macro-zone-rules`, payload)).data;

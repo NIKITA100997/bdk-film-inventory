@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.storage import RackType
 
@@ -6,6 +6,7 @@ from app.models.storage import RackType
 class RackCreate(BaseModel):
     code: str
     type: RackType
+    shelf_count: int = Field(gt=0)
 
 
 class RackOut(BaseModel):
@@ -13,27 +14,25 @@ class RackOut(BaseModel):
     id: int
     code: str
     type: RackType
+    shelf_count: int
 
 
-class ShelfCreate(BaseModel):
-    number: int
-    macro_zone: str | None = None
+class MacroZoneRuleCreate(BaseModel):
+    from_shelf: int = Field(gt=0)
+    to_shelf: int = Field(gt=0)
+    material: str | None = None
+    color: str | None = None
+    thickness: float | None = None
+    manufacturer: str | None = None
 
 
-class ShelfOut(BaseModel):
+class MacroZoneRuleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     rack_id: int
-    number: int
-    macro_zone: str | None
-
-
-class CellCreate(BaseModel):
-    number: int
-
-
-class CellOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    shelf_id: int
-    number: int
+    from_shelf: int
+    to_shelf: int
+    material_id: int | None
+    color_id: int | None
+    thickness_id: int | None
+    manufacturer_id: int | None

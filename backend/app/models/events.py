@@ -30,9 +30,10 @@ class MaterialEvent(Base):
     event_id: Mapped[int] = mapped_column(primary_key=True)
     unit_id: Mapped[int] = mapped_column(ForeignKey("material_units.id"), index=True)
 
-    # материал+цвет+толщина+производитель — денормализовано на момент события
-    # для группировки в карточке материала без join на material_units.
-    material_key: Mapped[str] = mapped_column(String(600), index=True)
+    # Ссылка на позицию материала (2.1a ТЗ) — для группировки в карточке
+    # материала без пересчёта текстовых значений; SKU неизменяем, поэтому
+    # денормализация текстом (как раньше material_key) больше не нужна.
+    material_sku_id: Mapped[int] = mapped_column(ForeignKey("material_skus.id"), index=True)
 
     event_type: Mapped[EventType] = mapped_column(Enum(EventType, name="event_type"))
     area: Mapped[Area | None] = mapped_column(Enum(Area, name="area", create_type=False), nullable=True)
@@ -51,7 +52,3 @@ class MaterialEvent(Base):
 
     # Знак: положительный для приходов, отрицательный для списаний/выдач.
     quantity_delta_m: Mapped[float] = mapped_column(Numeric(12, 3))
-
-
-def build_material_key(material: str, color: str, thickness: float, manufacturer: str) -> str:
-    return f"{material}|{color}|{thickness}|{manufacturer}"

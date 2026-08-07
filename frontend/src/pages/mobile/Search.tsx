@@ -1,6 +1,6 @@
 import { Button, Card, Form, Input, InputNumber, Typography, Table } from "antd";
 import { useMutation } from "@tanstack/react-query";
-import { searchUnits, type MaterialUnit, type SearchParams } from "../../api/units";
+import { searchUnits, skuLabel, type MaterialUnit, type SearchParams } from "../../api/units";
 
 export default function Search() {
   const mutation = useMutation({ mutationFn: (params: SearchParams) => searchUnits(params) });
@@ -41,7 +41,7 @@ export default function Search() {
         locale={{ emptyText: mutation.isSuccess ? "Ничего не найдено" : "Задайте фильтры и нажмите «Найти»" }}
         columns={[
           { title: "ID", dataIndex: "id" },
-          { title: "Материал/цвет/толщина", render: (_, u) => `${u.material}, ${u.color}, ${u.thickness} мм` },
+          { title: "Материал/цвет/толщина", render: (_, u) => skuLabel(u.material_sku) },
           { title: "Ширина×длина", render: (_, u) => `${u.width_mm}×${u.length_m}` },
           { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
         ]}

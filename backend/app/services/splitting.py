@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.models.events import EventType, build_material_key
+from app.models.events import EventType
 from app.models.units import MaterialUnit, UnitStatus
 
 
@@ -22,10 +22,7 @@ class NewUnitSpec:
     parent_id: int
     upd_number: str
     pallet_number: str
-    material: str
-    color: str
-    thickness: float
-    manufacturer: str
+    material_sku_id: int
     width_mm: float
     length_m: float
     status: UnitStatus
@@ -39,7 +36,7 @@ class EventSpec:
     """
 
     unit_id: int | None
-    material_key: str
+    material_sku_id: int
     event_type: EventType
     width_mm: float
     from_length: float | None = None
@@ -76,16 +73,12 @@ def split_lengthwise(unit: MaterialUnit, separate_width_mm: float, *, new_unit_l
 
     remaining_width_mm = width_mm - separate_width_mm
     length_m = float(unit.length_m)
-    material_key = build_material_key(unit.material, unit.color, unit.thickness, unit.manufacturer)
 
     new_unit = NewUnitSpec(
         parent_id=unit.id,
         upd_number=unit.upd_number,
         pallet_number=unit.pallet_number,
-        material=unit.material,
-        color=unit.color,
-        thickness=unit.thickness,
-        manufacturer=unit.manufacturer,
+        material_sku_id=unit.material_sku_id,
         width_mm=separate_width_mm,
         length_m=length_m,
         status=UnitStatus.NA_KHRANENII,
@@ -94,7 +87,7 @@ def split_lengthwise(unit: MaterialUnit, separate_width_mm: float, *, new_unit_l
 
     parent_event = EventSpec(
         unit_id=unit.id,
-        material_key=material_key,
+        material_sku_id=unit.material_sku_id,
         event_type=EventType.PRODOLNAYA_REZKA,
         width_mm=remaining_width_mm,
         from_length=length_m,
@@ -103,7 +96,7 @@ def split_lengthwise(unit: MaterialUnit, separate_width_mm: float, *, new_unit_l
     )
     new_unit_event = EventSpec(
         unit_id=None,
-        material_key=material_key,
+        material_sku_id=unit.material_sku_id,
         event_type=EventType.PRODOLNAYA_REZKA,
         width_mm=separate_width_mm,
         to_length=length_m,
@@ -138,11 +131,10 @@ def cut_to_length(unit: MaterialUnit, cut_length_m: float, *, remainder_location
 
     remaining_length_m = length_m - cut_length_m
     width_mm = float(unit.width_mm)
-    material_key = build_material_key(unit.material, unit.color, unit.thickness, unit.manufacturer)
 
     parent_event = EventSpec(
         unit_id=unit.id,
-        material_key=material_key,
+        material_sku_id=unit.material_sku_id,
         event_type=EventType.RASKROY,
         width_mm=width_mm,
         from_length=length_m,

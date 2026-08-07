@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from app.models.events import EventType, MaterialEvent, build_material_key
+from app.models.events import EventType, MaterialEvent
 from app.models.units import MaterialUnit
 
 
@@ -20,7 +20,7 @@ def record_event(
     каждой операции над MaterialUnit, не роутерами напрямую."""
     event = MaterialEvent(
         unit_id=unit.id,
-        material_key=build_material_key(unit.material, unit.color, unit.thickness, unit.manufacturer),
+        material_sku_id=unit.material_sku_id,
         event_type=event_type,
         area=unit.area,
         user_id=user_id,

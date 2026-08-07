@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button, Card, Form, InputNumber, Typography, Descriptions, Alert, message } from "antd";
 import { useMutation } from "@tanstack/react-query";
-import { getUnit, returnUnit, type MaterialUnit } from "../../api/units";
+import { getUnit, returnUnit, skuLabel, type MaterialUnit } from "../../api/units";
 
 export default function Return() {
   const [unit, setUnit] = useState<MaterialUnit | null>(null);
@@ -52,9 +52,7 @@ export default function Return() {
         <>
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
             <Descriptions.Item label="ID">№ {unit.id}</Descriptions.Item>
-            <Descriptions.Item label="Материал">
-              {unit.material}, {unit.color}, {unit.thickness} мм
-            </Descriptions.Item>
+            <Descriptions.Item label="Материал">{skuLabel(unit.material_sku)}</Descriptions.Item>
             <Descriptions.Item label="Числится за">{unit.area ?? "—"}</Descriptions.Item>
             <Descriptions.Item label="Длина по учёту">{unit.length_m} м</Descriptions.Item>
           </Descriptions>

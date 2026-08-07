@@ -1,0 +1,58 @@
+from pydantic import BaseModel, ConfigDict
+
+
+class MaterialOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    is_active: bool
+
+
+class ColorOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    is_active: bool
+
+
+class ThicknessOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    value_mm: float
+    is_active: bool
+
+
+class ManufacturerOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    is_active: bool
+
+
+class MaterialSkuOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    material: MaterialOut
+    color: ColorOut
+    thickness: ThicknessOut
+    manufacturer: ManufacturerOut
+    supplier_code: str | None
+    native_width_mm: float | None
+    is_active: bool
+
+
+class NameCreate(BaseModel):
+    name: str
+
+
+class ThicknessCreate(BaseModel):
+    value_mm: float
+
+
+class MaterialSkuCreate(BaseModel):
+    material: str
+    color: str
+    thickness: float
+    manufacturer: str
+    supplier_code: str | None = None
+    native_width_mm: float | None = None

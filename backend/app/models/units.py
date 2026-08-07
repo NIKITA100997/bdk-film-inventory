@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base
+from app.models.dictionaries import MaterialSku
 from app.models.users import Area
 
 
@@ -30,10 +31,8 @@ class MaterialUnit(Base):
     upd_number: Mapped[str] = mapped_column(String(64), index=True)
     pallet_number: Mapped[str] = mapped_column(String(64))
 
-    material: Mapped[str] = mapped_column(String(255), index=True)
-    color: Mapped[str] = mapped_column(String(255), index=True)
-    thickness: Mapped[float] = mapped_column(Numeric(10, 3), index=True)
-    manufacturer: Mapped[str] = mapped_column(String(255), index=True)
+    material_sku_id: Mapped[int] = mapped_column(ForeignKey("material_skus.id"), index=True)
+    material_sku: Mapped[MaterialSku] = relationship()
 
     width_mm: Mapped[float] = mapped_column(Numeric(10, 2))
     length_m: Mapped[float] = mapped_column(Numeric(12, 3))

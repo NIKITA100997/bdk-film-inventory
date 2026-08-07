@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Typography, Descriptions, Alert, message } from "antd";
 import { useMutation } from "@tanstack/react-query";
-import { getUnit, cutUnit, type MaterialUnit } from "../../api/units";
+import { getUnit, cutUnit, skuLabel, type MaterialUnit } from "../../api/units";
 
 export default function Cut() {
   const [unit, setUnit] = useState<MaterialUnit | null>(null);
@@ -52,9 +52,7 @@ export default function Cut() {
         <>
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
             <Descriptions.Item label="ID">№ {unit.id}</Descriptions.Item>
-            <Descriptions.Item label="Материал">
-              {unit.material}, {unit.color}, {unit.thickness} мм
-            </Descriptions.Item>
+            <Descriptions.Item label="Материал">{skuLabel(unit.material_sku)}</Descriptions.Item>
             <Descriptions.Item label="Текущая длина">
               {unit.width_mm} мм × {unit.length_m} м
             </Descriptions.Item>

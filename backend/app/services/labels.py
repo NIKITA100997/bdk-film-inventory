@@ -63,9 +63,9 @@ def render_label_html(unit: MaterialUnit) -> str:
       <div class="qr-frame"><img class="qr" src="{qr_src}" alt="QR {unit.id}"></div>
       <div class="id">№ {unit.id}</div>
       <div class="attrs">
-        {unit.material}<br>
-        {unit.color}, {unit.thickness} мм<br>
-        {unit.manufacturer}
+        {unit.material_sku.material.name}<br>
+        {unit.material_sku.color.name}, {unit.material_sku.thickness.value_mm} мм<br>
+        {unit.material_sku.manufacturer.name}
       </div>
       <div class="meta">
         УПД {unit.upd_number}, паллета {unit.pallet_number}<br>

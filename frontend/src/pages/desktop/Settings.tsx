@@ -2,34 +2,25 @@ import { useState } from "react";
 import { Card, Typography, Table, Button, Form, Input, Select, Modal, InputNumber, Space, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  createCell,
+  createMacroZoneRule,
   createRack,
-  createShelf,
-  listCells,
+  listMacroZoneRules,
   listRacks,
-  listShelves,
+  type MacroZoneRuleCreate,
   type Rack,
-  type Shelf,
 } from "../../api/storage";
 
 export default function Settings() {
   const qc = useQueryClient();
   const [selectedRack, setSelectedRack] = useState<Rack | null>(null);
-  const [selectedShelf, setSelectedShelf] = useState<Shelf | null>(null);
   const [rackModalOpen, setRackModalOpen] = useState(false);
-  const [shelfModalOpen, setShelfModalOpen] = useState(false);
-  const [cellModalOpen, setCellModalOpen] = useState(false);
+  const [ruleModalOpen, setRuleModalOpen] = useState(false);
 
   const racksQuery = useQuery({ queryKey: ["racks"], queryFn: listRacks });
-  const shelvesQuery = useQuery({
-    queryKey: ["shelves", selectedRack?.id],
-    queryFn: () => listShelves(selectedRack!.id),
+  const rulesQuery = useQuery({
+    queryKey: ["macro-zone-rules", selectedRack?.id],
+    queryFn: () => listMacroZoneRules(selectedRack!.id),
     enabled: !!selectedRack,
-  });
-  const cellsQuery = useQuery({
-    queryKey: ["cells", selectedShelf?.id],
-    queryFn: () => listCells(selectedShelf!.id),
-    enabled: !!selectedShelf,
   });
 
   const createRackMutation = useMutation({
@@ -40,26 +31,19 @@ export default function Settings() {
       message.success("Стеллаж добавлен");
     },
   });
-  const createShelfMutation = useMutation({
-    mutationFn: (payload: { number: number; macro_zone?: string }) => createShelf(selectedRack!.id, payload),
+  const createRuleMutation = useMutation({
+    mutationFn: (payload: MacroZoneRuleCreate) => createMacroZoneRule(selectedRack!.id, payload),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["shelves", selectedRack?.id] });
-      setShelfModalOpen(false);
-      message.success("Полка добавлена");
+      qc.invalidateQueries({ queryKey: ["macro-zone-rules", selectedRack?.id] });
+      setRuleModalOpen(false);
+      message.success("Правило добавлено");
     },
-  });
-  const createCellMutation = useMutation({
-    mutationFn: (payload: { number: number }) => createCell(selectedShelf!.id, payload),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cells", selectedShelf?.id] });
-      setCellModalOpen(false);
-      message.success("Ячейка добавлена");
-    },
+    onError: () => message.error("Не удалось создать правило — проверьте, что значения есть в справочниках"),
   });
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Typography.Title level={4}>Настройки — справочник стеллажей и ячеек</Typography.Title>
+      <Typography.Title level={4}>Настройки — стеллажи и макрозонирование</Typography.Title>
 
       <Card
         title="Стеллажи"
@@ -74,57 +58,36 @@ export default function Settings() {
           loading={racksQuery.isLoading}
           dataSource={racksQuery.data ?? []}
           pagination={false}
-          onRow={(rack) => ({
-            onClick: () => {
-              setSelectedRack(rack);
-              setSelectedShelf(null);
-            },
-          })}
+          onRow={(rack) => ({ onClick: () => setSelectedRack(rack) })}
           columns={[
             { title: "Код", dataIndex: "code" },
             { title: "Тип", dataIndex: "type", render: (t: string) => (t === "roll" ? "Рулонный" : "Штрипсовый") },
+            { title: "Число полок", dataIndex: "shelf_count" },
           ]}
         />
       </Card>
 
       {selectedRack && (
         <Card
-          title={`Полки стеллажа ${selectedRack.code}`}
+          title={`Макрозонирование стеллажа ${selectedRack.code} (${selectedRack.shelf_count} полок)`}
           extra={
-            <Button type="primary" onClick={() => setShelfModalOpen(true)}>
-              Добавить полку
+            <Button type="primary" onClick={() => setRuleModalOpen(true)}>
+              Добавить правило
             </Button>
           }
         >
           <Table
             rowKey="id"
-            loading={shelvesQuery.isLoading}
-            dataSource={shelvesQuery.data ?? []}
+            loading={rulesQuery.isLoading}
+            dataSource={rulesQuery.data ?? []}
             pagination={false}
-            onRow={(shelf) => ({ onClick: () => setSelectedShelf(shelf) })}
             columns={[
-              { title: "№ полки", dataIndex: "number" },
-              { title: "Макрозона", dataIndex: "macro_zone" },
+              { title: "Полки", render: (_, r) => `${r.from_shelf}–${r.to_shelf}` },
+              { title: "Материал", dataIndex: "material_id", render: (v) => v ?? "любой" },
+              { title: "Цвет", dataIndex: "color_id", render: (v) => v ?? "любой" },
+              { title: "Толщина", dataIndex: "thickness_id", render: (v) => v ?? "любая" },
+              { title: "Производитель", dataIndex: "manufacturer_id", render: (v) => v ?? "любой" },
             ]}
-          />
-        </Card>
-      )}
-
-      {selectedRack?.type === "strip" && selectedShelf && (
-        <Card
-          title={`Ячейки полки № ${selectedShelf.number}`}
-          extra={
-            <Button type="primary" onClick={() => setCellModalOpen(true)}>
-              Добавить ячейку
-            </Button>
-          }
-        >
-          <Table
-            rowKey="id"
-            loading={cellsQuery.isLoading}
-            dataSource={cellsQuery.data ?? []}
-            pagination={false}
-            columns={[{ title: "№ ячейки", dataIndex: "number" }]}
           />
         </Card>
       )}
@@ -148,6 +111,9 @@ export default function Settings() {
               ]}
             />
           </Form.Item>
+          <Form.Item name="shelf_count" label="Число полок" rules={[{ required: true }]}>
+            <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
           <Button type="primary" htmlType="submit" loading={createRackMutation.isPending}>
             Создать
           </Button>
@@ -155,37 +121,35 @@ export default function Settings() {
       </Modal>
 
       <Modal
-        title="Новая полка"
-        open={shelfModalOpen}
-        onCancel={() => setShelfModalOpen(false)}
+        title="Новое правило зонирования"
+        open={ruleModalOpen}
+        onCancel={() => setRuleModalOpen(false)}
         footer={null}
         destroyOnHidden
       >
-        <Form layout="vertical" onFinish={(v) => createShelfMutation.mutate(v)}>
-          <Form.Item name="number" label="Номер полки" rules={[{ required: true }]}>
-            <InputNumber min={1} style={{ width: "100%" }} />
+        <Form layout="vertical" onFinish={(v) => createRuleMutation.mutate(v)}>
+          <Form.Item name="from_shelf" label="От полки" rules={[{ required: true }]}>
+            <InputNumber min={1} max={selectedRack?.shelf_count} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="macro_zone" label="Макрозона (материал+цвет)">
-            <Input />
+          <Form.Item name="to_shelf" label="До полки" rules={[{ required: true }]}>
+            <InputNumber min={1} max={selectedRack?.shelf_count} style={{ width: "100%" }} />
           </Form.Item>
-          <Button type="primary" htmlType="submit" loading={createShelfMutation.isPending}>
-            Создать
-          </Button>
-        </Form>
-      </Modal>
-
-      <Modal
-        title="Новая ячейка"
-        open={cellModalOpen}
-        onCancel={() => setCellModalOpen(false)}
-        footer={null}
-        destroyOnHidden
-      >
-        <Form layout="vertical" onFinish={(v) => createCellMutation.mutate(v)}>
-          <Form.Item name="number" label="Номер ячейки" rules={[{ required: true }]}>
-            <InputNumber min={1} style={{ width: "100%" }} />
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+            Пустое поле = «любое значение». Значения должны уже существовать в справочниках (заводятся при приёмке).
+          </Typography.Paragraph>
+          <Form.Item name="material" label="Материал">
+            <Input placeholder="ПВХ плёнка" />
           </Form.Item>
-          <Button type="primary" htmlType="submit" loading={createCellMutation.isPending}>
+          <Form.Item name="color" label="Цвет">
+            <Input placeholder="Дуб беленый" />
+          </Form.Item>
+          <Form.Item name="thickness" label="Толщина, мм">
+            <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="manufacturer" label="Производитель">
+            <Input placeholder="Классен" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={createRuleMutation.isPending}>
             Создать
           </Button>
         </Form>

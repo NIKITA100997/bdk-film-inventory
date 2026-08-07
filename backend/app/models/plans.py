@@ -20,16 +20,17 @@ class WeeklyPlan(Base):
 
 class FilmRequestLine(Base):
     """Позиция заявки на плёнку — в м², точные ширины на этом этапе обычно
-    ещё не известны (раздел 2.7 ТЗ)."""
+    ещё не известны, поэтому без производителя и без SKU целиком, только
+    материал+цвет+толщина из справочников (2.1a/2.7 ТЗ)."""
 
     __tablename__ = "film_request_lines"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     weekly_plan_id: Mapped[int] = mapped_column(ForeignKey("weekly_plans.id"))
 
-    material: Mapped[str] = mapped_column(String(255))
-    color: Mapped[str] = mapped_column(String(255))
-    thickness: Mapped[float] = mapped_column(Numeric(10, 3))
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))
+    color_id: Mapped[int] = mapped_column(ForeignKey("colors.id"))
+    thickness_id: Mapped[int] = mapped_column(ForeignKey("thicknesses.id"))
 
     planned_area_m2: Mapped[float] = mapped_column(Numeric(12, 2))
 

@@ -11,10 +11,7 @@ def make_unit(**overrides) -> MaterialUnit:
         parent_id=None,
         upd_number="UPD-1",
         pallet_number="1",
-        material="ПВХ",
-        color="Дуб сонома",
-        thickness=0.4,
-        manufacturer="Аляска",
+        material_sku_id=42,
         width_mm=1400,
         length_m=500,
         status=UnitStatus.NA_KHRANENII,
@@ -44,10 +41,7 @@ class TestSplitLengthwise:
     def test_material_attrs_inherited_by_new_unit(self):
         unit = make_unit()
         outcome = split_lengthwise(unit, separate_width_mm=400)
-        assert outcome.new_unit.material == unit.material
-        assert outcome.new_unit.color == unit.color
-        assert outcome.new_unit.thickness == unit.thickness
-        assert outcome.new_unit.manufacturer == unit.manufacturer
+        assert outcome.new_unit.material_sku_id == unit.material_sku_id
         assert outcome.new_unit.upd_number == unit.upd_number  # партионность (2.5)
 
     def test_events_recorded_for_both_parts(self):

@@ -1,14 +1,22 @@
 import { apiClient } from "./client";
 
+export interface MaterialSku {
+  id: number;
+  material: { id: number; name: string; is_active: boolean };
+  color: { id: number; name: string; is_active: boolean };
+  thickness: { id: number; value_mm: number; is_active: boolean };
+  manufacturer: { id: number; name: string; is_active: boolean };
+  supplier_code: string | null;
+  native_width_mm: number | null;
+  is_active: boolean;
+}
+
 export interface MaterialUnit {
   id: number;
   parent_id: number | null;
   upd_number: string;
   pallet_number: string;
-  material: string;
-  color: string;
-  thickness: number;
-  manufacturer: string;
+  material_sku: MaterialSku;
   width_mm: number;
   length_m: number;
   status: string;
@@ -16,6 +24,10 @@ export interface MaterialUnit {
   location_code: string | null;
   order_id: number | null;
   area_m2: number;
+}
+
+export function skuLabel(sku: MaterialSku): string {
+  return `${sku.material.name}, ${sku.color.name}, ${sku.thickness.value_mm} мм, ${sku.manufacturer.name}`;
 }
 
 export interface ReceiveRequest {

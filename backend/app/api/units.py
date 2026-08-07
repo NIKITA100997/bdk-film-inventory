@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session, joinedload
 
 from app.core.security import get_current_user, require_roles
 from app.db.session import get_db
+from app.models.dictionaries import MaterialSku
 from app.models.events import EventType
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import Area, User
@@ -16,10 +17,22 @@ from app.schemas.units import (
     SplitRequest,
     SplitResponse,
 )
+from app.services.dictionaries import find_or_create_sku, find_sku
 from app.services.events import record_event
 from app.services.splitting import cut_to_length, split_lengthwise
 
 router = APIRouter(prefix="/units", tags=["units"])
+
+
+def _with_sku(query: Query) -> Query:
+    """Единая точка eager-load цепочки material_sku → материал/цвет/толщина/
+    производитель, чтобы сериализация MaterialUnitOut не била по БД N+1 раз."""
+    return query.options(
+        joinedload(MaterialUnit.material_sku).joinedload(MaterialSku.material),
+        joinedload(MaterialUnit.material_sku).joinedload(MaterialSku.color),
+        joinedload(MaterialUnit.material_sku).joinedload(MaterialSku.thickness),
+        joinedload(MaterialUnit.material_sku).joinedload(MaterialSku.manufacturer),
+    )
 
 
 @router.post("/receive", response_model=list[MaterialUnitOut], status_code=status.HTTP_201_CREATED)
@@ -28,16 +41,19 @@ def receive(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles("operator_sklada")),
 ) -> list[MaterialUnit]:
-    """Приёмка партии (6.2 ТЗ): создаёт N единиц-рулонов под одним УПД/паллетой."""
+    """Приёмка партии (6.2 ТЗ): создаёт N единиц-рулонов под одним УПД/
+    паллетой. Позиция материала ищется в справочнике (2.1a) или создаётся на
+    лету, если такой комбинации ещё нет (5.6)."""
+    sku = find_or_create_sku(
+        db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
+    )
+
     created: list[MaterialUnit] = []
     for _ in range(payload.quantity):
         unit = MaterialUnit(
             upd_number=payload.upd_number,
             pallet_number=payload.pallet_number,
-            material=payload.material,
-            color=payload.color,
-            thickness=payload.thickness,
-            manufacturer=payload.manufacturer,
+            material_sku_id=sku.id,
             width_mm=payload.width_mm,
             length_m=payload.length_m,
             status=UnitStatus.NA_KHRANENII if payload.location_code else UnitStatus.PRINYAT,
@@ -56,9 +72,8 @@ def receive(
         )
         created.append(unit)
     db.commit()
-    for unit in created:
-        db.refresh(unit)
-    return created
+    ids = [u.id for u in created]
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id.in_(ids)).all()
 
 
 @router.get("/{unit_id}", response_model=MaterialUnitOut)
@@ -67,7 +82,7 @@ def get_unit(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> MaterialUnit:
-    unit = db.get(MaterialUnit, unit_id)
+    unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     return unit
@@ -104,8 +119,7 @@ def place_unit(
         to_cell=payload.location_code,
     )
     db.commit()
-    db.refresh(unit)
-    return unit
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 
 @router.post("/{unit_id}/split", response_model=SplitResponse)
@@ -145,10 +159,7 @@ def split_unit(
             parent_id=spec.parent_id,
             upd_number=spec.upd_number,
             pallet_number=spec.pallet_number,
-            material=spec.material,
-            color=spec.color,
-            thickness=spec.thickness,
-            manufacturer=spec.manufacturer,
+            material_sku_id=spec.material_sku_id,
             width_mm=spec.width_mm,
             length_m=spec.length_m,
             status=spec.status,
@@ -167,9 +178,9 @@ def split_unit(
         )
 
     db.commit()
-    db.refresh(unit)
+    unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit.id).first()
     if new_unit is not None:
-        db.refresh(new_unit)
+        new_unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == new_unit.id).first()
     return SplitResponse(parent=unit, new_unit=new_unit)
 
 
@@ -183,20 +194,22 @@ def issue_to_area(
     единиц на хранении. Донор-штрипс (класс B/C) и рекомендация резать новый
     рулон — этап 7 (ABC-анализ), здесь не реализуются: если точного
     совпадения нет, фронтенд предлагает оператору резать/выбрать вручную."""
-    candidate = (
-        db.query(MaterialUnit)
-        .filter(
-            MaterialUnit.status == UnitStatus.NA_KHRANENII,
-            MaterialUnit.material == payload.material,
-            MaterialUnit.color == payload.color,
-            MaterialUnit.thickness == payload.thickness,
-            MaterialUnit.manufacturer == payload.manufacturer,
-            MaterialUnit.width_mm == payload.width_mm,
-            MaterialUnit.length_m >= payload.length_m,
-        )
-        .order_by(MaterialUnit.length_m.asc())
-        .first()
+    sku = find_sku(
+        db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
     )
+    candidate = None
+    if sku is not None:
+        candidate = (
+            db.query(MaterialUnit)
+            .filter(
+                MaterialUnit.status == UnitStatus.NA_KHRANENII,
+                MaterialUnit.material_sku_id == sku.id,
+                MaterialUnit.width_mm == payload.width_mm,
+                MaterialUnit.length_m >= payload.length_m,
+            )
+            .order_by(MaterialUnit.length_m.asc())
+            .first()
+        )
     if candidate is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -217,8 +230,7 @@ def issue_to_area(
         from_cell=from_cell,
     )
     db.commit()
-    db.refresh(candidate)
-    return candidate
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == candidate.id).first()
 
 
 @router.post("/{unit_id}/cut", response_model=MaterialUnitOut)
@@ -261,8 +273,7 @@ def cut_unit(
         to_cell=outcome.parent_event.to_cell,
     )
     db.commit()
-    db.refresh(unit)
-    return unit
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 
 @router.post("/{unit_id}/return", response_model=MaterialUnitOut)
@@ -295,8 +306,7 @@ def return_unit(
         to_length=payload.actual_length_m,
     )
     db.commit()
-    db.refresh(unit)
-    return unit
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 
 @router.get("/search/available", response_model=list[MaterialUnitOut])
@@ -312,15 +322,15 @@ def search_units(
 ) -> list[MaterialUnit]:
     """Поиск остатка (5.3 "Поиск остатка", 6.7 "погонаж" ТЗ) — фильтр по
     минимальной длине задаётся в метрах при конкретной ширине, не в м²."""
-    query = db.query(MaterialUnit).filter(MaterialUnit.status == UnitStatus.NA_KHRANENII)
+    query = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.status == UnitStatus.NA_KHRANENII)
     if material:
-        query = query.filter(MaterialUnit.material == material)
+        query = query.filter(MaterialUnit.material_sku.has(MaterialSku.material.has(name=material)))
     if color:
-        query = query.filter(MaterialUnit.color == color)
+        query = query.filter(MaterialUnit.material_sku.has(MaterialSku.color.has(name=color)))
     if thickness is not None:
-        query = query.filter(MaterialUnit.thickness == thickness)
+        query = query.filter(MaterialUnit.material_sku.has(MaterialSku.thickness.has(value_mm=thickness)))
     if manufacturer:
-        query = query.filter(MaterialUnit.manufacturer == manufacturer)
+        query = query.filter(MaterialUnit.material_sku.has(MaterialSku.manufacturer.has(name=manufacturer)))
     if width_mm is not None:
         query = query.filter(MaterialUnit.width_mm == width_mm)
     if min_length_m is not None:
