@@ -19,6 +19,7 @@ import Dashboard from "./pages/desktop/Dashboard";
 import MaterialCard from "./pages/desktop/MaterialCard";
 import Orders from "./pages/desktop/Orders";
 import CuttingRecommendations from "./pages/desktop/CuttingRecommendations";
+import Reports from "./pages/desktop/Reports";
 import Settings from "./pages/desktop/Settings";
 
 export default function AppRoutes() {
@@ -92,6 +93,10 @@ export default function AppRoutes() {
               <CuttingRecommendations />
             </RequireRole>
           }
+        />
+        <Route
+          path="/reports"
+          element={<RequireRole roles={["logist", "nachalnik_tsekha"]}><Reports /></RequireRole>}
         />
         <Route
           path="/settings"

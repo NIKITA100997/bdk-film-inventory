@@ -288,6 +288,16 @@ def issue_to_area(
             )
             .scalar()
         )
+        # Фиксируем сам факт рекомендации (не выполнение!) — источник для
+        # отчёта "точность донор-рекомендаций" (5.5 ТЗ): считаем принятой,
+        # если донор впоследствии реально был разрезан (Продольная_резка).
+        record_event(
+            db,
+            unit=donor_unit,
+            event_type=EventType.DONOR_PREDLOZHEN,
+            user_id=user.id,
+        )
+        db.commit()
         return IssueResult(
             outcome="donor_suggested",
             donor=DonorSuggestion(

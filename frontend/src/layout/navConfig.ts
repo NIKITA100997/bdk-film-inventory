@@ -37,6 +37,7 @@ export const desktopNav: NavItem[] = [
     label: "Рекомендации по резке",
     roles: ["logist", "kladovshchik", "operator_sklada"],
   },
+  { key: "d-reports", path: "/reports", label: "Отчёты", roles: ["logist", "nachalnik_tsekha"] },
   { key: "d-settings", path: "/settings", label: "Настройки", roles: ["admin", "kladovshchik"] },
 ];
 
