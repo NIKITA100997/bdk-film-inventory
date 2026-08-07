@@ -5,7 +5,7 @@ from sqlalchemy.orm import Query, Session
 from app.core.security import require_roles
 from app.db.session import get_db
 from app.models.events import EventType, MaterialEvent
-from app.models.inventory import InventoryScopeType, InventorySession, InventoryStatus
+from app.models.inventory import InventoryScopeType, InventorySession, InventorySessionParticipant, InventoryStatus
 from app.models.storage import Rack
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
@@ -20,7 +20,7 @@ from app.schemas.inventory import (
 )
 from app.services.dictionaries import find_or_create_sku
 from app.services.events import record_event
-from app.services.inventory import ScanMatchKind, match_scan
+from app.services.inventory import ScanMatchKind, match_scan, resolve_participant_ids
 
 router = APIRouter(prefix="/inventory-sessions", tags=["inventory"])
 
@@ -76,6 +76,13 @@ def _get_session(db: Session, session_id: int) -> InventorySession:
     return inv_session
 
 
+def _participant_ids(db: Session, session_id: int) -> list[int]:
+    rows = db.execute(
+        select(InventorySessionParticipant.user_id).where(InventorySessionParticipant.session_id == session_id)
+    ).all()
+    return [r[0] for r in rows]
+
+
 def _to_out(db: Session, inv_session: InventorySession) -> InventorySessionOut:
     expected_count = _expected_units_query(db, inv_session).count()
     scanned_count = len(_scanned_unit_ids(db, inv_session.id))
@@ -90,6 +97,7 @@ def _to_out(db: Session, inv_session: InventorySession) -> InventorySessionOut:
         closed_at=inv_session.closed_at,
         expected_count=expected_count,
         scanned_count=scanned_count,
+        participant_ids=_participant_ids(db, inv_session.id),
     )
 
 
@@ -120,6 +128,9 @@ def start_session(
         started_by=user.id,
     )
     db.add(inv_session)
+    db.flush()
+    for participant_id in resolve_participant_ids(user.id, payload.participant_ids):
+        db.add(InventorySessionParticipant(session_id=inv_session.id, user_id=participant_id))
     db.commit()
     db.refresh(inv_session)
     return _to_out(db, inv_session)

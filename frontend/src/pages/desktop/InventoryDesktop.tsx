@@ -29,6 +29,7 @@ import {
 import { listRacks } from "../../api/storage";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { skuLabel } from "../../api/units";
+import { listUsers } from "../../api/users";
 
 const scopeOptions = [
   { value: "rack", label: "Стеллаж" },
@@ -46,6 +47,13 @@ export default function InventoryDesktop() {
   const sessionsQuery = useQuery({ queryKey: ["inventory-sessions"], queryFn: listSessions });
   const racksQuery = useQuery({ queryKey: ["racks"], queryFn: listRacks });
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
+  const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
+
+  const participantNames = (ids: number[]) =>
+    (usersQuery.data ?? [])
+      .filter((u) => ids.includes(u.id))
+      .map((u) => u.full_name)
+      .join(", ");
 
   const rackLabel = useMemo(() => {
     const map = new Map((racksQuery.data ?? []).map((r) => [r.id, r.code]));
@@ -126,6 +134,7 @@ export default function InventoryDesktop() {
             },
             { title: "Ожидалось", dataIndex: "expected_count" },
             { title: "Отсканировано", dataIndex: "scanned_count" },
+            { title: "Участники", render: (_, s) => participantNames(s.participant_ids) || "—" },
             { title: "Начата", dataIndex: "started_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
             {
               title: "Закрыта",
@@ -138,6 +147,11 @@ export default function InventoryDesktop() {
 
       {selected && (
         <Card title={`Сессия №${selected.id} — ${scopeLabel(selected)}`}>
+          {participantNames(selected.participant_ids) && (
+            <Typography.Paragraph type="secondary">
+              Участники: {participantNames(selected.participant_ids)}
+            </Typography.Paragraph>
+          )}
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col span={6}>
               <Statistic title="Ожидалось" value={selected.expected_count} />
@@ -226,7 +240,13 @@ export default function InventoryDesktop() {
       <Modal title="Новая сессия инвентаризации" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
         <Form
           layout="vertical"
-          onFinish={(v) => startMutation.mutate({ scope_type: v.scope_type, scope_ref_id: v.scope_ref_id })}
+          onFinish={(v) =>
+            startMutation.mutate({
+              scope_type: v.scope_type,
+              scope_ref_id: v.scope_ref_id,
+              participant_ids: v.participant_ids,
+            })
+          }
         >
           <Form.Item name="scope_type" label="Область" rules={[{ required: true }]} initialValue="rack">
             <Select options={scopeOptions} onChange={(v) => setScopeType(v)} />
@@ -244,6 +264,13 @@ export default function InventoryDesktop() {
               />
             </Form.Item>
           )}
+          <Form.Item name="participant_ids" label="Участники (кроме вас — вы добавляетесь автоматически)">
+            <Select
+              mode="multiple"
+              loading={usersQuery.isLoading}
+              options={(usersQuery.data ?? []).map((u) => ({ value: u.id, label: u.full_name }))}
+            />
+          </Form.Item>
           <Button type="primary" htmlType="submit" block loading={startMutation.isPending}>
             Открыть сессию
           </Button>

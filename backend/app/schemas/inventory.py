@@ -9,6 +9,7 @@ from app.schemas.units import MaterialUnitOut
 class InventorySessionCreate(BaseModel):
     scope_type: InventoryScopeType
     scope_ref_id: int | None = None
+    participant_ids: list[int] = []
 
     @model_validator(mode="after")
     def _scope_ref_required_unless_warehouse(self):
@@ -29,6 +30,7 @@ class InventorySessionOut(BaseModel):
     closed_at: datetime | None
     expected_count: int
     scanned_count: int
+    participant_ids: list[int]
 
 
 class ScanRequest(BaseModel):

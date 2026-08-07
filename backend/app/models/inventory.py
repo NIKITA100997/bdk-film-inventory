@@ -38,3 +38,16 @@ class InventorySession(Base):
     closed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class InventorySessionParticipant(Base):
+    """Участники сессии (5.4 ТЗ: "создание сессии (область, участники)") —
+    бригада, которая физически сканирует вместе с ответственным
+    (`started_by`); отдельная таблица вместо одиночного поля, чтобы не
+    ограничивать бригаду одним человеком."""
+
+    __tablename__ = "inventory_session_participants"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("inventory_sessions.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))

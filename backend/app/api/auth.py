@@ -23,3 +23,10 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)) -> User:
     return user
+
+
+@router.get("/users", response_model=list[UserOut])
+def list_users(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[User]:
+    """Список активных пользователей — нужен для выбора участников сессии
+    инвентаризации (5.4 ТЗ: "создание сессии (область, участники)")."""
+    return db.query(User).filter(User.is_active).order_by(User.full_name).all()

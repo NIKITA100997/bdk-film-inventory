@@ -2,7 +2,7 @@ from app.models.users import User, UserRole, Area
 from app.models.dictionaries import Material, Color, Thickness, Manufacturer, MaterialSku
 from app.models.storage import Rack, MacroZoneRule, RackType
 from app.models.orders import Order
-from app.models.inventory import InventorySession, InventoryScopeType, InventoryStatus
+from app.models.inventory import InventorySession, InventorySessionParticipant, InventoryScopeType, InventoryStatus
 from app.models.abc import WidthAbcClass, WidthClass, CalcSettings
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.events import MaterialEvent, EventType
@@ -23,6 +23,7 @@ __all__ = [
     "RackType",
     "Order",
     "InventorySession",
+    "InventorySessionParticipant",
     "InventoryScopeType",
     "InventoryStatus",
     "WidthAbcClass",

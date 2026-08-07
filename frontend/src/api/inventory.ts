@@ -15,6 +15,7 @@ export interface InventorySession {
   closed_at: string | null;
   expected_count: number;
   scanned_count: number;
+  participant_ids: number[];
 }
 
 export interface ScanRequest {
@@ -54,7 +55,11 @@ export async function listSessions(): Promise<InventorySession[]> {
   return data;
 }
 
-export async function startSession(payload: { scope_type: InventoryScopeType; scope_ref_id?: number }): Promise<InventorySession> {
+export async function startSession(payload: {
+  scope_type: InventoryScopeType;
+  scope_ref_id?: number;
+  participant_ids?: number[];
+}): Promise<InventorySession> {
   const { data } = await apiClient.post<InventorySession>("/inventory-sessions", payload);
   return data;
 }

@@ -30,6 +30,7 @@ import {
 import { listRacks } from "../../api/storage";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { skuLabel } from "../../api/units";
+import { listUsers } from "../../api/users";
 import DictAutoComplete from "../../components/DictAutoComplete";
 
 const scopeOptions = [
@@ -48,6 +49,7 @@ export default function Inventory() {
 
   const racksQuery = useQuery({ queryKey: ["racks"], queryFn: listRacks, enabled: scopeType === "rack" });
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus, enabled: scopeType === "material_sku" });
+  const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
 
   const startMutation = useMutation({
     mutationFn: startSession,
@@ -107,6 +109,7 @@ export default function Inventory() {
             startMutation.mutate({
               scope_type: v.scope_type,
               scope_ref_id: v.scope_ref_id,
+              participant_ids: v.participant_ids,
             })
           }
         >
@@ -129,6 +132,13 @@ export default function Inventory() {
               />
             </Form.Item>
           )}
+          <Form.Item name="participant_ids" label="Участники (кроме вас — вы добавляетесь автоматически)">
+            <Select
+              mode="multiple"
+              loading={usersQuery.isLoading}
+              options={(usersQuery.data ?? []).map((u) => ({ value: u.id, label: u.full_name }))}
+            />
+          </Form.Item>
           <Button type="primary" htmlType="submit" block loading={startMutation.isPending}>
             Начать сессию
           </Button>
@@ -197,9 +207,17 @@ export default function Inventory() {
     );
   }
 
+  const participantNames = (usersQuery.data ?? [])
+    .filter((u) => session.participant_ids.includes(u.id))
+    .map((u) => u.full_name)
+    .join(", ");
+
   return (
     <Card>
       <Typography.Title level={4}>Сессия №{session.id} — в процессе</Typography.Title>
+      {participantNames && (
+        <Typography.Paragraph type="secondary">Участники: {participantNames}</Typography.Paragraph>
+      )}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={12}>
           <Statistic title="Ожидалось" value={session.expected_count} />
