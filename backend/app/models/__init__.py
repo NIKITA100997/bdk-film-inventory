@@ -3,6 +3,7 @@ from app.models.dictionaries import Material, Color, Thickness, Manufacturer, Ma
 from app.models.storage import Rack, MacroZoneRule, RackType
 from app.models.orders import Order
 from app.models.inventory import InventorySession, InventoryScopeType, InventoryStatus
+from app.models.abc import WidthAbcClass, WidthClass, CalcSettings
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.events import MaterialEvent, EventType
 from app.models.plans import WeeklyPlan, FilmRequestLine
@@ -23,6 +24,9 @@ __all__ = [
     "InventorySession",
     "InventoryScopeType",
     "InventoryStatus",
+    "WidthAbcClass",
+    "WidthClass",
+    "CalcSettings",
     "MaterialUnit",
     "UnitStatus",
     "MaterialEvent",

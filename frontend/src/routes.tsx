@@ -18,6 +18,7 @@ import PlanFact from "./pages/desktop/PlanFact";
 import Dashboard from "./pages/desktop/Dashboard";
 import MaterialCard from "./pages/desktop/MaterialCard";
 import Orders from "./pages/desktop/Orders";
+import CuttingRecommendations from "./pages/desktop/CuttingRecommendations";
 import Settings from "./pages/desktop/Settings";
 
 export default function AppRoutes() {
@@ -84,6 +85,14 @@ export default function AppRoutes() {
           }
         />
         <Route path="/orders" element={<RequireRole roles={["logist"]}><Orders /></RequireRole>} />
+        <Route
+          path="/recommendations"
+          element={
+            <RequireRole roles={["logist", "kladovshchik", "operator_sklada"]}>
+              <CuttingRecommendations />
+            </RequireRole>
+          }
+        />
         <Route
           path="/settings"
           element={<RequireRole roles={["admin", "kladovshchik"]}><Settings /></RequireRole>}

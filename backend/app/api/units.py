@@ -3,13 +3,16 @@ from sqlalchemy.orm import Query, Session, joinedload
 
 from app.core.security import get_current_user, require_roles
 from app.db.session import get_db
+from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import MaterialSku
 from app.models.events import EventType
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import Area, User
 from app.schemas.units import (
     CutRequest,
+    DonorSuggestion,
     IssueRequest,
+    IssueResult,
     MaterialUnitOut,
     PlaceRequest,
     ReceiveRequest,
@@ -155,6 +158,10 @@ def split_unit(
     new_unit: MaterialUnit | None = None
     if outcome.new_unit is not None:
         spec = outcome.new_unit
+        settings = db.get(CalcSettings, 1)
+        min_useful_width = float(settings.min_useful_width_mm) if settings else 30.0
+        is_waste = spec.width_mm < min_useful_width
+
         new_unit = MaterialUnit(
             parent_id=spec.parent_id,
             upd_number=spec.upd_number,
@@ -162,8 +169,8 @@ def split_unit(
             material_sku_id=spec.material_sku_id,
             width_mm=spec.width_mm,
             length_m=spec.length_m,
-            status=spec.status,
-            location_code=spec.location_code,
+            status=UnitStatus.SPISAN if is_waste else spec.status,
+            location_code=None if is_waste else spec.location_code,
         )
         db.add(new_unit)
         db.flush()
@@ -174,8 +181,20 @@ def split_unit(
             user_id=user.id,
             quantity_delta_m=outcome.new_unit_event.quantity_delta_m,
             to_length=outcome.new_unit_event.to_length,
-            to_cell=outcome.new_unit_event.to_cell,
+            to_cell=None if is_waste else outcome.new_unit_event.to_cell,
         )
+        if is_waste:
+            # Ниже порога полезной ширины (5.6 ТЗ) — сразу отход, на
+            # штрипсовый стеллаж не идёт.
+            record_event(
+                db,
+                unit=new_unit,
+                event_type=EventType.SPISANIE,
+                user_id=user.id,
+                quantity_delta_m=-float(new_unit.length_m),
+                from_length=float(new_unit.length_m),
+                to_length=0,
+            )
 
     db.commit()
     unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit.id).first()
@@ -184,53 +203,104 @@ def split_unit(
     return SplitResponse(parent=unit, new_unit=new_unit)
 
 
-@router.post("/issue", response_model=MaterialUnitOut)
+@router.post("/issue", response_model=IssueResult)
 def issue_to_area(
     payload: IssueRequest,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles("operator_sklada")),
-) -> MaterialUnit:
-    """Выдача участку (2.9 п.1, 6.3 ТЗ) — точное совпадение по ширине среди
-    единиц на хранении. Донор-штрипс (класс B/C) и рекомендация резать новый
-    рулон — этап 7 (ABC-анализ), здесь не реализуются: если точного
-    совпадения нет, фронтенд предлагает оператору резать/выбрать вручную."""
+) -> IssueResult:
+    """Выдача участку — алгоритм подбора (2.9 п.1-3, 6.3 ТЗ):
+    1) точное совпадение по ширине → выдать;
+    2) нет — штрипс шире, класса B/C, с минимальным отходом → предложить
+       донора (не выполняется автоматически, оператор режет вручную через
+       /units/{id}/split и повторяет выдачу на результат);
+    3) донора тоже нет → "резать новый рулон" (вне системы)."""
     sku = find_sku(
         db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
     )
-    candidate = None
-    if sku is not None:
-        candidate = (
+    if sku is None:
+        return IssueResult(outcome="not_found")
+
+    exact = (
+        db.query(MaterialUnit)
+        .filter(
+            MaterialUnit.status == UnitStatus.NA_KHRANENII,
+            MaterialUnit.material_sku_id == sku.id,
+            MaterialUnit.width_mm == payload.width_mm,
+            MaterialUnit.length_m >= payload.length_m,
+        )
+        .order_by(MaterialUnit.length_m.asc())
+        .first()
+    )
+    if exact is not None:
+        from_cell = exact.location_code
+        exact.status = UnitStatus.VYDAN_UCHASTKU
+        exact.area = payload.area
+        exact.location_code = None
+        exact.order_id = payload.order_id
+        record_event(
+            db,
+            unit=exact,
+            event_type=EventType.VYDACHA_UCHASTKU,
+            user_id=user.id,
+            quantity_delta_m=-float(exact.length_m),
+            from_cell=from_cell,
+        )
+        db.commit()
+        unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == exact.id).first()
+        return IssueResult(outcome="issued", unit=unit)
+
+    # Точного совпадения нет — ищем донора класса B/C шире запроса с
+    # минимальным отходом среди тех, что физически есть на хранении.
+    eligible_widths = {
+        float(r.width_mm)
+        for r in db.query(WidthAbcClass.width_mm)
+        .filter(
+            WidthAbcClass.material_id == sku.material_id,
+            WidthAbcClass.color_id == sku.color_id,
+            WidthAbcClass.thickness_id == sku.thickness_id,
+            WidthAbcClass.width_class.in_([WidthClass.B, WidthClass.C]),
+            WidthAbcClass.width_mm > payload.width_mm,
+        )
+        .all()
+    }
+    donor_unit = None
+    if eligible_widths:
+        donor_unit = (
             db.query(MaterialUnit)
             .filter(
                 MaterialUnit.status == UnitStatus.NA_KHRANENII,
                 MaterialUnit.material_sku_id == sku.id,
-                MaterialUnit.width_mm == payload.width_mm,
+                MaterialUnit.width_mm.in_(eligible_widths),
                 MaterialUnit.length_m >= payload.length_m,
             )
-            .order_by(MaterialUnit.length_m.asc())
+            .order_by((MaterialUnit.width_mm - payload.width_mm).asc(), MaterialUnit.length_m.asc())
             .first()
         )
-    if candidate is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Точного совпадения по ширине нет — предложите донор-резку вручную или новый рулон",
+    if donor_unit is not None:
+        cls = (
+            db.query(WidthAbcClass.width_class)
+            .filter(
+                WidthAbcClass.material_id == sku.material_id,
+                WidthAbcClass.color_id == sku.color_id,
+                WidthAbcClass.thickness_id == sku.thickness_id,
+                WidthAbcClass.width_mm == donor_unit.width_mm,
+            )
+            .scalar()
+        )
+        return IssueResult(
+            outcome="donor_suggested",
+            donor=DonorSuggestion(
+                unit_id=donor_unit.id,
+                width_mm=float(donor_unit.width_mm),
+                length_m=float(donor_unit.length_m),
+                width_class=cls.value if cls else "?",
+                recommended_cut_mm=payload.width_mm,
+                waste_mm=round(float(donor_unit.width_mm) - payload.width_mm, 2),
+            ),
         )
 
-    from_cell = candidate.location_code
-    candidate.status = UnitStatus.VYDAN_UCHASTKU
-    candidate.area = payload.area
-    candidate.location_code = None
-    candidate.order_id = payload.order_id
-    record_event(
-        db,
-        unit=candidate,
-        event_type=EventType.VYDACHA_UCHASTKU,
-        user_id=user.id,
-        quantity_delta_m=-float(candidate.length_m),
-        from_cell=from_cell,
-    )
-    db.commit()
-    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == candidate.id).first()
+    return IssueResult(outcome="not_found")
 
 
 @router.post("/{unit_id}/cut", response_model=MaterialUnitOut)

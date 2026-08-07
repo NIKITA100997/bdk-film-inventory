@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Select, Typography, Alert, message } from "antd";
-import { isAxiosError } from "axios";
 import { useMutation } from "@tanstack/react-query";
-import { issueUnit, type IssueRequest, type MaterialUnit } from "../../api/units";
+import { useNavigate } from "react-router-dom";
+import { issueUnit, type IssueRequest, type IssueResult } from "../../api/units";
 
 const areaOptions = [
   { value: "okutka_tsargovykh", label: "Окутка царговых" },
@@ -11,25 +11,17 @@ const areaOptions = [
 ];
 
 export default function Issue() {
-  const [issued, setIssued] = useState<MaterialUnit | null>(null);
-  const [noMatch, setNoMatch] = useState(false);
+  const navigate = useNavigate();
+  const [result, setResult] = useState<IssueResult | null>(null);
   const [form] = Form.useForm<IssueRequest>();
 
   const mutation = useMutation({
     mutationFn: issueUnit,
-    onSuccess: (unit) => {
-      setIssued(unit);
-      setNoMatch(false);
-      message.success(`Выдана единица № ${unit.id}`);
+    onSuccess: (res) => {
+      setResult(res);
+      if (res.outcome === "issued") message.success(`Выдана единица № ${res.unit!.id}`);
     },
-    onError: (e) => {
-      if (isAxiosError(e) && e.response?.status === 404) {
-        setNoMatch(true);
-        setIssued(null);
-      } else {
-        message.error("Не удалось оформить выдачу");
-      }
-    },
+    onError: () => message.error("Не удалось оформить выдачу"),
   });
 
   return (
@@ -39,8 +31,7 @@ export default function Issue() {
         form={form}
         layout="vertical"
         onFinish={(values) => {
-          setNoMatch(false);
-          setIssued(null);
+          setResult(null);
           mutation.mutate(values);
         }}
       >
@@ -70,22 +61,37 @@ export default function Issue() {
         </Button>
       </Form>
 
-      {noMatch && (
+      {result?.outcome === "not_found" && (
         <Alert
           style={{ marginTop: 16 }}
           type="warning"
           showIcon
           message="Точного совпадения по ширине нет"
-          description="Подходящего штрипса на хранении не найдено. Отрежьте нужную ширину вручную через «Разделить рулон» от подходящего рулона/штрипса, либо режьте новый рулон."
+          description="Подходящего штрипса или донора на хранении не найдено. Режьте новый рулон."
         />
       )}
 
-      {issued && (
+      {result?.outcome === "donor_suggested" && result.donor && (
+        <Alert
+          style={{ marginTop: 16 }}
+          type="info"
+          showIcon
+          message={`Есть штрипс №${result.donor.unit_id}, ширина ${result.donor.width_mm} мм, класс ${result.donor.width_class} (используется редко)`}
+          description={`Рекомендуем отрезать ${result.donor.recommended_cut_mm} мм, отход ${result.donor.waste_mm} мм. Оператор режет вручную через «Разделить рулон» и затем повторяет выдачу на полученный кусок.`}
+          action={
+            <Button size="small" type="primary" onClick={() => navigate("/m/split")}>
+              Разделить рулон
+            </Button>
+          }
+        />
+      )}
+
+      {result?.outcome === "issued" && result.unit && (
         <Alert
           style={{ marginTop: 16 }}
           type="success"
           showIcon
-          message={`Выдано: № ${issued.id} — ${issued.width_mm} мм × ${issued.length_m} м`}
+          message={`Выдано: № ${result.unit.id} — ${result.unit.width_mm} мм × ${result.unit.length_m} м`}
         />
       )}
     </Card>

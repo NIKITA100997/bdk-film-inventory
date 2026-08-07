@@ -84,8 +84,23 @@ export interface IssueRequest {
   order_id?: number;
 }
 
-export async function issueUnit(payload: IssueRequest): Promise<MaterialUnit> {
-  const { data } = await apiClient.post<MaterialUnit>("/units/issue", payload);
+export interface DonorSuggestion {
+  unit_id: number;
+  width_mm: number;
+  length_m: number;
+  width_class: string;
+  recommended_cut_mm: number;
+  waste_mm: number;
+}
+
+export interface IssueResult {
+  outcome: "issued" | "donor_suggested" | "not_found";
+  unit: MaterialUnit | null;
+  donor: DonorSuggestion | null;
+}
+
+export async function issueUnit(payload: IssueRequest): Promise<IssueResult> {
+  const { data } = await apiClient.post<IssueResult>("/units/issue", payload);
   return data;
 }
 

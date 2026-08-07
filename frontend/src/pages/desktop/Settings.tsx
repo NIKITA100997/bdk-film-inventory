@@ -9,6 +9,7 @@ import {
   type MacroZoneRuleCreate,
   type Rack,
 } from "../../api/storage";
+import { getCalcSettings, updateCalcSettings } from "../../api/abc";
 
 export default function Settings() {
   const qc = useQueryClient();
@@ -39,6 +40,15 @@ export default function Settings() {
       message.success("Правило добавлено");
     },
     onError: () => message.error("Не удалось создать правило — проверьте, что значения есть в справочниках"),
+  });
+
+  const calcSettingsQuery = useQuery({ queryKey: ["calc-settings"], queryFn: getCalcSettings });
+  const calcSettingsMutation = useMutation({
+    mutationFn: updateCalcSettings,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["calc-settings"] });
+      message.success("Настройки сохранены");
+    },
   });
 
   return (
@@ -91,6 +101,26 @@ export default function Settings() {
           />
         </Card>
       )}
+
+      <Card title="Настройки расчётов" loading={calcSettingsQuery.isLoading}>
+        {calcSettingsQuery.data && (
+          <Form
+            layout="inline"
+            initialValues={calcSettingsQuery.data}
+            onFinish={(v) => calcSettingsMutation.mutate(v)}
+          >
+            <Form.Item name="min_useful_width_mm" label="Минимальная полезная ширина, мм" rules={[{ required: true }]}>
+              <InputNumber min={1} />
+            </Form.Item>
+            <Form.Item name="abc_recalc_period_days" label="Период пересчёта ABC, дни" rules={[{ required: true }]}>
+              <InputNumber min={1} />
+            </Form.Item>
+            <Button type="primary" htmlType="submit" loading={calcSettingsMutation.isPending}>
+              Сохранить
+            </Button>
+          </Form>
+        )}
+      </Card>
 
       <Modal
         title="Новый стеллаж"
