@@ -1,9 +1,0 @@
-INFO:     127.0.0.1:64412 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:64416 - "POST /auth/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:64416 - "GET /auth/me HTTP/1.1" 200 OK
-INFO:     127.0.0.1:64420 - "POST /units/receive HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:62208 - "GET /docs HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62208 - "GET /openapi.json HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54607 - "POST /auth/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54607 - "POST /units/receive HTTP/1.1" 201 Created
-INFO:     127.0.0.1:54607 - "GET /labels/1 HTTP/1.1" 200 OK
