@@ -49,6 +49,11 @@ export interface CloseSessionResult {
   shortages: Shortage[];
 }
 
+export async function listSessions(): Promise<InventorySession[]> {
+  const { data } = await apiClient.get<InventorySession[]>("/inventory-sessions");
+  return data;
+}
+
 export async function startSession(payload: { scope_type: InventoryScopeType; scope_ref_id?: number }): Promise<InventorySession> {
   const { data } = await apiClient.post<InventorySession>("/inventory-sessions", payload);
   return data;

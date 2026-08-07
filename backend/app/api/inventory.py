@@ -93,6 +93,17 @@ def _to_out(db: Session, inv_session: InventorySession) -> InventorySessionOut:
     )
 
 
+@router.get("", response_model=list[InventorySessionOut])
+def list_sessions(
+    db: Session = Depends(get_db),
+    user: User = Depends(manage_inventory),
+) -> list[InventorySessionOut]:
+    """Список сессий для десктопного обзора (6.8 ТЗ) — и открытых на
+    складе через мобильный экран, и запущенных с десктопа заранее."""
+    sessions = db.query(InventorySession).order_by(InventorySession.started_at.desc()).all()
+    return [_to_out(db, s) for s in sessions]
+
+
 @router.post("", response_model=InventorySessionOut, status_code=status.HTTP_201_CREATED)
 def start_session(
     payload: InventorySessionCreate,
