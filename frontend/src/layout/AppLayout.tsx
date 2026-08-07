@@ -1,7 +1,7 @@
 import { Layout, Menu, Space, Typography, Button } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { allNav } from "./navConfig";
+import { desktopSections, mobileBlocks, type NavItem } from "./navConfig";
 import { fontHeading, palette } from "../theme";
 
 const { Header, Sider, Content } = Layout;
@@ -13,9 +13,25 @@ export default function AppLayout() {
 
   if (!user) return null;
 
-  const items = allNav
-    .filter((item) => user.role === "admin" || item.roles.includes(user.role))
-    .map((item) => ({ key: item.path, label: item.label }));
+  const isVisible = (item: NavItem) => {
+    if (user.role !== "admin" && !item.roles.includes(user.role)) return false;
+    if (item.areas && !(user.area && item.areas.includes(user.area))) return false;
+    return true;
+  };
+
+  // Мобильные блоки и десктопные разделы (5.5 ТЗ) отрисовываются как группы
+  // в одном боковом меню — конкретному пользователю обычно видна только
+  // "своя" половина (складские/участковые роли — мобильные блоки, офисные —
+  // десктопные разделы), кроме admin, который видит всё.
+  const items = [...mobileBlocks, ...desktopSections]
+    .map((block) => ({ block, visibleItems: block.items.filter(isVisible) }))
+    .filter(({ visibleItems }) => visibleItems.length > 0)
+    .map(({ block, visibleItems }) => ({
+      key: block.key,
+      label: block.label,
+      type: "group" as const,
+      children: visibleItems.map((item) => ({ key: item.path, label: item.label })),
+    }));
 
   return (
     <Layout style={{ minHeight: "100vh" }}>

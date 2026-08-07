@@ -137,6 +137,11 @@ export async function searchUnits(params: SearchParams): Promise<MaterialUnit[]>
   return data;
 }
 
+export async function getMyAreaUnits(): Promise<MaterialUnit[]> {
+  const { data } = await apiClient.get<MaterialUnit[]>("/units/my-area");
+  return data;
+}
+
 export async function fetchLabelHtml(unitId: number): Promise<string> {
   const { data } = await apiClient.get<string>(`/labels/${unitId}`, { responseType: "text" });
   return data;

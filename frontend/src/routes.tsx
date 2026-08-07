@@ -12,6 +12,7 @@ import Return from "./pages/mobile/Return";
 import Search from "./pages/mobile/Search";
 import Place from "./pages/mobile/Place";
 import Inventory from "./pages/mobile/Inventory";
+import MyArea from "./pages/mobile/MyArea";
 
 import WeeklyPlan from "./pages/desktop/WeeklyPlan";
 import PlanFact from "./pages/desktop/PlanFact";
@@ -48,12 +49,18 @@ export default function AppRoutes() {
         />
         <Route
           path="/m/return"
-          element={<RequireRole roles={["nachalnik_uchastka", "kladovshchik"]}><Return /></RequireRole>}
+          element={
+            <RequireRole roles={["nachalnik_uchastka", "kladovshchik", "operator_sklada"]}>
+              <Return />
+            </RequireRole>
+          }
         />
         <Route
           path="/m/search"
           element={
-            <RequireRole roles={["kladovshchik", "operator_sklada", "nachalnik_uchastka", "logist"]}>
+            <RequireRole
+              roles={["kladovshchik", "operator_sklada", "nachalnik_uchastka", "logist", "nachalnik_tsekha", "snabzhenets"]}
+            >
               <Search />
             </RequireRole>
           }
@@ -65,6 +72,10 @@ export default function AppRoutes() {
         <Route
           path="/m/inventory"
           element={<RequireRole roles={["logist", "kladovshchik"]}><Inventory /></RequireRole>}
+        />
+        <Route
+          path="/m/my-area"
+          element={<RequireRole roles={["nachalnik_uchastka"]}><MyArea /></RequireRole>}
         />
 
         <Route path="/plan" element={<RequireRole roles={["nachalnik_tsekha"]}><WeeklyPlan /></RequireRole>} />
@@ -83,12 +94,14 @@ export default function AppRoutes() {
         <Route
           path="/materials"
           element={
-            <RequireRole roles={["logist", "nachalnik_tsekha", "snabzhenets"]}>
+            <RequireRole
+              roles={["operator_sklada", "kladovshchik", "nachalnik_uchastka", "nachalnik_tsekha", "logist", "snabzhenets"]}
+            >
               <MaterialCard />
             </RequireRole>
           }
         />
-        <Route path="/orders" element={<RequireRole roles={["logist"]}><Orders /></RequireRole>} />
+        <Route path="/orders" element={<RequireRole roles={["logist", "kladovshchik"]}><Orders /></RequireRole>} />
         <Route
           path="/recommendations"
           element={
