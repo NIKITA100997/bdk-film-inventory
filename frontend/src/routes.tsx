@@ -79,7 +79,10 @@ export default function AppRoutes() {
           }
         />
         <Route path="/orders" element={<RequireRole roles={["logist"]}><Orders /></RequireRole>} />
-        <Route path="/settings" element={<RequireRole roles={["admin"]}><Settings /></RequireRole>} />
+        <Route
+          path="/settings"
+          element={<RequireRole roles={["admin", "kladovshchik"]}><Settings /></RequireRole>}
+        />
       </Route>
     </Routes>
   );
