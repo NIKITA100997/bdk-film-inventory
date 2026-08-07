@@ -10,6 +10,7 @@ import {
   type Rack,
 } from "../../api/storage";
 import { getCalcSettings, updateCalcSettings } from "../../api/abc";
+import DictAutoComplete from "../../components/DictAutoComplete";
 
 export default function Settings() {
   const qc = useQueryClient();
@@ -168,16 +169,16 @@ export default function Settings() {
             Пустое поле = «любое значение». Значения должны уже существовать в справочниках (заводятся при приёмке).
           </Typography.Paragraph>
           <Form.Item name="material" label="Материал">
-            <Input placeholder="ПВХ плёнка" />
+            <DictAutoComplete kind="materials" placeholder="ПВХ плёнка" />
           </Form.Item>
           <Form.Item name="color" label="Цвет">
-            <Input placeholder="Дуб беленый" />
+            <DictAutoComplete kind="colors" placeholder="Дуб беленый" />
           </Form.Item>
           <Form.Item name="thickness" label="Толщина, мм">
             <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item name="manufacturer" label="Производитель">
-            <Input placeholder="Классен" />
+            <DictAutoComplete kind="manufacturers" placeholder="Классен" />
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={createRuleMutation.isPending}>
             Создать

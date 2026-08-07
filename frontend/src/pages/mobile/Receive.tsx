@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Typography, List, message } from "antd";
 import { useMutation } from "@tanstack/react-query";
 import { receiveUnits, printLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
+import DictAutoComplete from "../../components/DictAutoComplete";
 
 export default function Receive() {
   const [created, setCreated] = useState<MaterialUnit[]>([]);
@@ -28,16 +29,16 @@ export default function Receive() {
           <Input />
         </Form.Item>
         <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
-          <Input />
+          <DictAutoComplete kind="materials" />
         </Form.Item>
         <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
-          <Input />
+          <DictAutoComplete kind="colors" />
         </Form.Item>
         <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
           <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
-          <Input />
+          <DictAutoComplete kind="manufacturers" />
         </Form.Item>
         <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: "100%" }} />

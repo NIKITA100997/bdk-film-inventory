@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Card, Form, DatePicker, Input, InputNumber, Button, Table, Tag, Space, message } from "antd";
+import { Card, Form, DatePicker, InputNumber, Button, Table, Tag, Space, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import { createWeeklyPlan, addFilmRequestLine, getWeeklyPlan, listWeeklyPlans, type FilmRequestLineCreate } from "../../api/plans";
+import DictAutoComplete from "../../components/DictAutoComplete";
 
 export default function WeeklyPlan() {
   const qc = useQueryClient();
@@ -69,10 +70,10 @@ export default function WeeklyPlan() {
         <Card title={`Заявка на плёнку — план №${planId}`}>
           <Form form={lineForm} layout="inline" onFinish={(v) => addLineMutation.mutate(v)} style={{ marginBottom: 16 }}>
             <Form.Item name="material" rules={[{ required: true }]}>
-              <Input placeholder="Материал" />
+              <DictAutoComplete kind="materials" placeholder="Материал" />
             </Form.Item>
             <Form.Item name="color" rules={[{ required: true }]}>
-              <Input placeholder="Цвет" />
+              <DictAutoComplete kind="colors" placeholder="Цвет" />
             </Form.Item>
             <Form.Item name="thickness" rules={[{ required: true }]}>
               <InputNumber placeholder="Толщина, мм" min={0} step={0.01} />

@@ -1,6 +1,7 @@
-import { Button, Card, Form, Input, InputNumber, Typography, Table } from "antd";
+import { Button, Card, Form, InputNumber, Typography, Table } from "antd";
 import { useMutation } from "@tanstack/react-query";
 import { searchUnits, skuLabel, type MaterialUnit, type SearchParams } from "../../api/units";
+import DictAutoComplete from "../../components/DictAutoComplete";
 
 export default function Search() {
   const mutation = useMutation({ mutationFn: (params: SearchParams) => searchUnits(params) });
@@ -10,16 +11,16 @@ export default function Search() {
       <Typography.Title level={4}>Поиск остатка</Typography.Title>
       <Form layout="vertical" onFinish={(values) => mutation.mutate(values)}>
         <Form.Item name="material" label="Материал">
-          <Input />
+          <DictAutoComplete kind="materials" />
         </Form.Item>
         <Form.Item name="color" label="Цвет">
-          <Input />
+          <DictAutoComplete kind="colors" />
         </Form.Item>
         <Form.Item name="thickness" label="Толщина, мм">
           <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item name="manufacturer" label="Производитель">
-          <Input />
+          <DictAutoComplete kind="manufacturers" />
         </Form.Item>
         <Form.Item name="width_mm" label="Ширина, мм">
           <InputNumber min={1} style={{ width: "100%" }} />
