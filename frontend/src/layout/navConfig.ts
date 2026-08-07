@@ -39,6 +39,7 @@ export const desktopNav: NavItem[] = [
   },
   { key: "d-reports", path: "/reports", label: "Отчёты", roles: ["logist", "nachalnik_tsekha"] },
   { key: "d-settings", path: "/settings", label: "Настройки", roles: ["admin", "kladovshchik"] },
+  { key: "d-dictionaries", path: "/dictionaries", label: "Справочники", roles: ["admin", "kladovshchik"] },
 ];
 
 export const allNav = [...mobileNav, ...desktopNav];

@@ -56,3 +56,21 @@ class MaterialSkuCreate(BaseModel):
     manufacturer: str
     supplier_code: str | None = None
     native_width_mm: float | None = None
+
+
+class DictEntryUpdate(BaseModel):
+    name: str | None = None
+    is_active: bool | None = None
+
+
+class ThicknessUpdate(BaseModel):
+    value_mm: float | None = None
+    is_active: bool | None = None
+
+
+class DuplicateCandidateOut(BaseModel):
+    a_id: int
+    a_name: str
+    b_id: int
+    b_name: str
+    score: float
