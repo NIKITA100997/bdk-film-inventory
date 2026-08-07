@@ -11,6 +11,7 @@ import Issue from "./pages/mobile/Issue";
 import Return from "./pages/mobile/Return";
 import Search from "./pages/mobile/Search";
 import Place from "./pages/mobile/Place";
+import Inventory from "./pages/mobile/Inventory";
 
 import WeeklyPlan from "./pages/desktop/WeeklyPlan";
 import PlanFact from "./pages/desktop/PlanFact";
@@ -55,6 +56,10 @@ export default function AppRoutes() {
         <Route
           path="/m/place"
           element={<RequireRole roles={["kladovshchik", "operator_sklada"]}><Place /></RequireRole>}
+        />
+        <Route
+          path="/m/inventory"
+          element={<RequireRole roles={["logist", "kladovshchik"]}><Inventory /></RequireRole>}
         />
 
         <Route path="/plan" element={<RequireRole roles={["nachalnik_tsekha"]}><WeeklyPlan /></RequireRole>} />

@@ -21,6 +21,7 @@ export const mobileNav: NavItem[] = [
     roles: ["kladovshchik", "operator_sklada", "nachalnik_uchastka", "logist"],
   },
   { key: "m-place", path: "/m/place", label: "Размещение в ячейку", roles: ["kladovshchik", "operator_sklada"] },
+  { key: "m-inventory", path: "/m/inventory", label: "Инвентаризация", roles: ["logist", "kladovshchik"] },
 ];
 
 // Десктопные экраны снабжения/склада/руководства (5.4 ТЗ)

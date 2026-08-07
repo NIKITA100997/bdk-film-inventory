@@ -18,6 +18,10 @@ class EventType(str, enum.Enum):
     SPISANIE = "Списание"
     PRIVYAZKA_K_ZAKAZU = "Привязка_к_заказу"
     SNYATIE_PRIVYAZKI = "Снятие_привязки"
+    INVENTARIZATSIYA_PODTVERZHDENO = "Инвентаризация_подтверждено"
+    INVENTARIZATSIYA_PEREMESHCHENO = "Инвентаризация_перемещено"
+    INVENTARIZATSIYA_IZLISHEK = "Инвентаризация_излишек"
+    INVENTARIZATSIYA_NEDOSTACHA = "Инвентаризация_недостача"
 
 
 class MaterialEvent(Base):
@@ -49,6 +53,10 @@ class MaterialEvent(Base):
     to_cell: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
+
+    # Не из ТЗ буквально, но необходимо для отчёта по расхождениям на
+    # сессию (6.8 п.4) — без этого нельзя посчитать итоги конкретной сессии.
+    inventory_session_id: Mapped[int | None] = mapped_column(ForeignKey("inventory_sessions.id"), nullable=True)
 
     # Знак: положительный для приходов, отрицательный для списаний/выдач.
     quantity_delta_m: Mapped[float] = mapped_column(Numeric(12, 3))

@@ -15,6 +15,7 @@ def record_event(
     to_length: float | None = None,
     from_cell: str | None = None,
     to_cell: str | None = None,
+    inventory_session_id: int | None = None,
 ) -> MaterialEvent:
     """Единая точка записи в журнал (2.6 ТЗ) — вызывается сервисным слоем при
     каждой операции над MaterialUnit, не роутерами напрямую."""
@@ -31,6 +32,7 @@ def record_event(
         to_cell=to_cell,
         order_id=unit.order_id,
         quantity_delta_m=quantity_delta_m,
+        inventory_session_id=inventory_session_id,
     )
     db.add(event)
     return event
