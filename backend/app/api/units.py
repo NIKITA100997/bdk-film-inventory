@@ -5,10 +5,19 @@ from app.core.security import get_current_user, require_roles
 from app.db.session import get_db
 from app.models.events import EventType
 from app.models.units import MaterialUnit, UnitStatus
-from app.models.users import User
-from app.schemas.units import IssueRequest, MaterialUnitOut, PlaceRequest, ReceiveRequest, SplitRequest, SplitResponse
+from app.models.users import Area, User
+from app.schemas.units import (
+    CutRequest,
+    IssueRequest,
+    MaterialUnitOut,
+    PlaceRequest,
+    ReceiveRequest,
+    ReturnRequest,
+    SplitRequest,
+    SplitResponse,
+)
 from app.services.events import record_event
-from app.services.splitting import split_lengthwise
+from app.services.splitting import cut_to_length, split_lengthwise
 
 router = APIRouter(prefix="/units", tags=["units"])
 
@@ -210,3 +219,110 @@ def issue_to_area(
     db.commit()
     db.refresh(candidate)
     return candidate
+
+
+@router.post("/{unit_id}/cut", response_model=MaterialUnitOut)
+def cut_unit(
+    unit_id: int,
+    payload: CutRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("operator_sklada", "nachalnik_uchastka")),
+) -> MaterialUnit:
+    """Раскрой по длине (2.4/6.4 ТЗ) — на складе (единица ещё "На хранении",
+    совмещённая резка под цельнолистовые) либо на месте у цельнолистовых на
+    стеллаже Б (единица уже "Выдан участку", area=Цельнолистовые_двери).
+    Отрезанный кусок точного размера уходит в производство сразу — новая
+    единица не создаётся, только событие в журнале."""
+    unit = _get_storable_unit(db, unit_id)
+    on_site_at_tselnolistovye = unit.status == UnitStatus.VYDAN_UCHASTKU and unit.area == Area.TSELNOLISTOVYE_DVERI
+    if unit.status != UnitStatus.NA_KHRANENII and not on_site_at_tselnolistovye:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Раскрой по длине доступен только на складе или на месте у цельнолистовых дверей",
+        )
+
+    try:
+        outcome = cut_to_length(unit, payload.cut_length_m, remainder_location=payload.remainder_location)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
+    unit.length_m = outcome.parent_length_m
+    unit.status = outcome.parent_status
+    if payload.remainder_location:
+        unit.location_code = payload.remainder_location
+    record_event(
+        db,
+        unit=unit,
+        event_type=outcome.parent_event.event_type,
+        user_id=user.id,
+        quantity_delta_m=outcome.parent_event.quantity_delta_m,
+        from_length=outcome.parent_event.from_length,
+        to_length=outcome.parent_event.to_length,
+        to_cell=outcome.parent_event.to_cell,
+    )
+    db.commit()
+    db.refresh(unit)
+    return unit
+
+
+@router.post("/{unit_id}/return", response_model=MaterialUnitOut)
+def return_unit(
+    unit_id: int,
+    payload: ReturnRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("nachalnik_uchastka", "kladovshchik")),
+) -> MaterialUnit:
+    """Возврат остатка (2.4/6.5 ТЗ) — единый процесс для всех трёх участков,
+    момент решает регламент участка. Статус → На хранении, зона С, area
+    очищается; окончательное место на стеллаже задаётся позже через
+    /units/{id}/place."""
+    unit = _get_storable_unit(db, unit_id)
+    if unit.status != UnitStatus.VYDAN_UCHASTKU:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Вернуть можно только единицу, выданную участку")
+
+    old_length = float(unit.length_m)
+    unit.length_m = payload.actual_length_m
+    unit.status = UnitStatus.NA_KHRANENII
+    unit.area = None
+    unit.location_code = None
+    record_event(
+        db,
+        unit=unit,
+        event_type=EventType.VOZVRAT,
+        user_id=user.id,
+        quantity_delta_m=payload.actual_length_m - old_length,
+        from_length=old_length,
+        to_length=payload.actual_length_m,
+    )
+    db.commit()
+    db.refresh(unit)
+    return unit
+
+
+@router.get("/search/available", response_model=list[MaterialUnitOut])
+def search_units(
+    material: str | None = None,
+    color: str | None = None,
+    thickness: float | None = None,
+    manufacturer: str | None = None,
+    width_mm: float | None = None,
+    min_length_m: float | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[MaterialUnit]:
+    """Поиск остатка (5.3 "Поиск остатка", 6.7 "погонаж" ТЗ) — фильтр по
+    минимальной длине задаётся в метрах при конкретной ширине, не в м²."""
+    query = db.query(MaterialUnit).filter(MaterialUnit.status == UnitStatus.NA_KHRANENII)
+    if material:
+        query = query.filter(MaterialUnit.material == material)
+    if color:
+        query = query.filter(MaterialUnit.color == color)
+    if thickness is not None:
+        query = query.filter(MaterialUnit.thickness == thickness)
+    if manufacturer:
+        query = query.filter(MaterialUnit.manufacturer == manufacturer)
+    if width_mm is not None:
+        query = query.filter(MaterialUnit.width_mm == width_mm)
+    if min_length_m is not None:
+        query = query.filter(MaterialUnit.length_m >= min_length_m)
+    return query.order_by(MaterialUnit.width_mm.asc(), MaterialUnit.length_m.desc()).limit(200).all()

@@ -41,6 +41,11 @@ export async function getUnit(unitId: number): Promise<MaterialUnit> {
   return data;
 }
 
+export async function placeUnit(unitId: number, location_code: string): Promise<MaterialUnit> {
+  const { data } = await apiClient.patch<MaterialUnit>(`/units/${unitId}/place`, { location_code });
+  return data;
+}
+
 export interface SplitRequest {
   separate_width_mm: number;
   new_unit_location?: string;
@@ -69,6 +74,39 @@ export interface IssueRequest {
 
 export async function issueUnit(payload: IssueRequest): Promise<MaterialUnit> {
   const { data } = await apiClient.post<MaterialUnit>("/units/issue", payload);
+  return data;
+}
+
+export interface CutRequest {
+  cut_length_m: number;
+  remainder_location?: string;
+}
+
+export async function cutUnit(unitId: number, payload: CutRequest): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/cut`, payload);
+  return data;
+}
+
+export interface ReturnRequest {
+  actual_length_m: number;
+}
+
+export async function returnUnit(unitId: number, payload: ReturnRequest): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/return`, payload);
+  return data;
+}
+
+export interface SearchParams {
+  material?: string;
+  color?: string;
+  thickness?: number;
+  manufacturer?: string;
+  width_mm?: number;
+  min_length_m?: number;
+}
+
+export async function searchUnits(params: SearchParams): Promise<MaterialUnit[]> {
+  const { data } = await apiClient.get<MaterialUnit[]>("/units/search/available", { params });
   return data;
 }
 

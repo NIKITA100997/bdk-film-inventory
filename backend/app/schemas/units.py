@@ -68,3 +68,12 @@ class IssueRequest(BaseModel):
     length_m: float = Field(gt=0)
     area: Area
     order_id: int | None = None
+
+
+class CutRequest(BaseModel):
+    cut_length_m: float = Field(gt=0)
+    remainder_location: str | None = None
+
+
+class ReturnRequest(BaseModel):
+    actual_length_m: float = Field(ge=0)
