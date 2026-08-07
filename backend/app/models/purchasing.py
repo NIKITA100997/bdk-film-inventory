@@ -1,0 +1,28 @@
+"""Закупки (5.5/6.1 ТЗ) — заявка снабженцу/закупщику на недостающий
+материал. Привязана к группе материал+цвет+толщина (той же, что и строка
+недельной заявки на плёнку — производитель на этом этапе ещё не выбран).
+Закрывается вручную либо автоматически при ближайшей приёмке этой же
+группы материала (см. services/purchasing.py)."""
+
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Numeric, String
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
+
+from app.db.base import Base
+
+
+class PurchaseRequest(Base):
+    __tablename__ = "purchase_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))
+    color_id: Mapped[int] = mapped_column(ForeignKey("colors.id"))
+    thickness_id: Mapped[int] = mapped_column(ForeignKey("thicknesses.id"))
+    requested_area_m2: Mapped[float] = mapped_column(Numeric(12, 2))
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="open")  # open / closed
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

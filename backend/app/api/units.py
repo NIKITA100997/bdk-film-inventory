@@ -22,6 +22,7 @@ from app.schemas.units import (
 )
 from app.services.dictionaries import find_or_create_sku, find_sku
 from app.services.events import record_event
+from app.services.purchasing import auto_close_on_receipt
 from app.services.splitting import cut_to_length, split_lengthwise
 
 router = APIRouter(prefix="/units", tags=["units"])
@@ -74,6 +75,9 @@ def receive(
             to_cell=payload.location_code,
         )
         created.append(unit)
+    auto_close_on_receipt(
+        db, material_id=sku.material_id, color_id=sku.color_id, thickness_id=sku.thickness_id
+    )
     db.commit()
     ids = [u.id for u in created]
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id.in_(ids)).all()

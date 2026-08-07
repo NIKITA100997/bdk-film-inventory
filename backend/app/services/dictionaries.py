@@ -7,9 +7,11 @@
 плодила фантомные позиции.
 """
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
+from app.models.units import MaterialUnit, UnitStatus
 
 
 def _find_or_create(db: Session, model, **filters):
@@ -77,3 +79,21 @@ def find_sku(db: Session, *, material: str, color: str, thickness: float, manufa
         )
         .first()
     )
+
+
+def current_stock_m2(db: Session, *, material_id: int, color_id: int, thickness_id: int) -> float:
+    """Σ area_m2 по группе material+color+thickness (без производителя — и
+    заявка на плёнку, и заявка снабженцу оперируют группой, 2.7/5.5 ТЗ),
+    кроме списанных. Общий хелпер для плана/факта и закупок."""
+    total = (
+        db.query(func.sum(MaterialUnit.width_mm * MaterialUnit.length_m))
+        .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
+        .filter(
+            MaterialSku.material_id == material_id,
+            MaterialSku.color_id == color_id,
+            MaterialSku.thickness_id == thickness_id,
+            MaterialUnit.status != UnitStatus.SPISAN,
+        )
+        .scalar()
+    )
+    return round(float(total or 0) / 1000, 3)

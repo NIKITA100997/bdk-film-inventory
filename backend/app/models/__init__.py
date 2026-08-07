@@ -7,6 +7,7 @@ from app.models.abc import WidthAbcClass, WidthClass, CalcSettings
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.events import MaterialEvent, EventType
 from app.models.plans import WeeklyPlan, FilmRequestLine
+from app.models.purchasing import PurchaseRequest
 
 __all__ = [
     "User",
@@ -33,4 +34,5 @@ __all__ = [
     "EventType",
     "WeeklyPlan",
     "FilmRequestLine",
+    "PurchaseRequest",
 ]

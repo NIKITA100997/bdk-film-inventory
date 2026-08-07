@@ -31,6 +31,7 @@ export const desktopNav: NavItem[] = [
   { key: "d-dashboard", path: "/dashboard", label: "Дашборд остатков", roles: ["logist", "nachalnik_tsekha", "snabzhenets"] },
   { key: "d-materials", path: "/materials", label: "Карточка материала", roles: ["logist", "nachalnik_tsekha", "snabzhenets"] },
   { key: "d-orders", path: "/orders", label: "Заказы", roles: ["logist"] },
+  { key: "d-purchasing", path: "/purchasing", label: "Закупки", roles: ["snabzhenets"] },
   {
     key: "d-recommendations",
     path: "/recommendations",

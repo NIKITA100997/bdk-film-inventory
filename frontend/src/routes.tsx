@@ -23,6 +23,7 @@ import Reports from "./pages/desktop/Reports";
 import Settings from "./pages/desktop/Settings";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
 import InventoryDesktop from "./pages/desktop/InventoryDesktop";
+import Purchasing from "./pages/desktop/Purchasing";
 
 export default function AppRoutes() {
   return (
@@ -111,6 +112,10 @@ export default function AppRoutes() {
         <Route
           path="/inventory"
           element={<RequireRole roles={["logist", "kladovshchik"]}><InventoryDesktop /></RequireRole>}
+        />
+        <Route
+          path="/purchasing"
+          element={<RequireRole roles={["snabzhenets"]}><Purchasing /></RequireRole>}
         />
       </Route>
     </Routes>

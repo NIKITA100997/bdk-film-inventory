@@ -1,12 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_roles
 from app.db.session import get_db
-from app.models.dictionaries import Color, Material, MaterialSku, Thickness
+from app.models.dictionaries import Color, Material, Thickness
 from app.models.plans import FilmRequestLine, WeeklyPlan
-from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
 from app.schemas.plans import (
     FilmRequestLineCreate,
@@ -16,7 +14,7 @@ from app.schemas.plans import (
     WeeklyPlanCreate,
     WeeklyPlanOut,
 )
-from app.services.dictionaries import find_or_create_material_color_thickness
+from app.services.dictionaries import current_stock_m2, find_or_create_material_color_thickness
 from app.services.plan_fact import fetch_actual_for_group
 
 router = APIRouter(tags=["plans"])
@@ -24,26 +22,8 @@ router = APIRouter(tags=["plans"])
 manage_plans = require_roles("nachalnik_tsekha")
 
 
-def _current_stock_m2(db: Session, material_id: int, color_id: int, thickness_id: int) -> float:
-    """Σ area_m2 по всем единицам этой группы material+color+thickness
-    (без учёта производителя — заявка на плёнку не привязана к нему, 2.7
-    ТЗ), кроме списанных."""
-    total = (
-        db.query(func.sum(MaterialUnit.width_mm * MaterialUnit.length_m))
-        .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
-        .filter(
-            MaterialSku.material_id == material_id,
-            MaterialSku.color_id == color_id,
-            MaterialSku.thickness_id == thickness_id,
-            MaterialUnit.status != UnitStatus.SPISAN,
-        )
-        .scalar()
-    )
-    return round(float(total or 0) / 1000, 3)
-
-
 def _line_out(db: Session, line: FilmRequestLine) -> FilmRequestLineOut:
-    stock = _current_stock_m2(db, line.material_id, line.color_id, line.thickness_id)
+    stock = current_stock_m2(db, material_id=line.material_id, color_id=line.color_id, thickness_id=line.thickness_id)
     return FilmRequestLineOut(
         id=line.id,
         material=db.get(Material, line.material_id).name,
