@@ -43,3 +43,28 @@ class MaterialUnitOut(BaseModel):
     @property
     def area_m2(self) -> float:
         return round(float(self.width_mm) * float(self.length_m) / 1000, 3)
+
+
+class PlaceRequest(BaseModel):
+    location_code: str
+
+
+class SplitRequest(BaseModel):
+    separate_width_mm: float = Field(gt=0)
+    new_unit_location: str | None = None
+
+
+class SplitResponse(BaseModel):
+    parent: MaterialUnitOut
+    new_unit: MaterialUnitOut | None
+
+
+class IssueRequest(BaseModel):
+    material: str
+    color: str
+    thickness: float
+    manufacturer: str
+    width_mm: float = Field(gt=0)
+    length_m: float = Field(gt=0)
+    area: Area
+    order_id: int | None = None
