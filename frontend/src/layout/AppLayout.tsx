@@ -2,6 +2,7 @@ import { Layout, Menu, Space, Typography, Button } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { allNav } from "./navConfig";
+import { fontHeading, palette } from "../theme";
 
 const { Header, Sider, Content } = Layout;
 
@@ -19,14 +20,16 @@ export default function AppLayout() {
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <Header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Typography.Title level={4} style={{ color: "#fff", margin: 0 }}>
+        <Typography.Title level={4} style={{ color: "#fff", margin: 0, fontFamily: fontHeading }}>
           Учёт плёнки БДК
         </Typography.Title>
         <Space>
-          <Typography.Text style={{ color: "#fff" }}>
+          <Typography.Text style={{ color: palette.grayMuted }}>
             {user.full_name} · {user.role}
           </Typography.Text>
           <Button
+            type="text"
+            style={{ color: "#fff" }}
             onClick={() => {
               logout();
               navigate("/login");
@@ -39,6 +42,7 @@ export default function AppLayout() {
       <Layout>
         <Sider width={240} breakpoint="md" collapsedWidth={0}>
           <Menu
+            theme="dark"
             mode="inline"
             style={{ height: "100%" }}
             selectedKeys={[location.pathname]}

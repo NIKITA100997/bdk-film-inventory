@@ -58,16 +58,22 @@ export default function Receive() {
 
       {created.length > 0 && (
         <>
-          <Typography.Title level={5} style={{ marginTop: 24 }}>
-            Созданные единицы
-          </Typography.Title>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24 }}>
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              Созданные единицы
+            </Typography.Title>
+            <Button type="primary" onClick={() => created.forEach((u) => printLabel(u.id))}>
+              Печать всех этикеток
+            </Button>
+          </div>
           <List
             bordered
+            style={{ marginTop: 12 }}
             dataSource={created}
             renderItem={(unit) => (
               <List.Item
                 actions={[
-                  <Button key="print" onClick={() => printLabel(unit.id)}>
+                  <Button key="print" type="primary" onClick={() => printLabel(unit.id)}>
                     Печать этикетки
                   </Button>,
                 ]}
