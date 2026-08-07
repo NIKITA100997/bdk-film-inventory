@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button, Card, Form, Input, Typography, Alert } from "antd";
 import { useNavigate } from "react-router-dom";
+import { isAxiosError } from "axios";
 import { useAuth } from "../auth/AuthContext";
 
 export default function Login() {
@@ -15,8 +16,14 @@ export default function Login() {
     try {
       await login(values.username, values.password);
       navigate("/", { replace: true });
-    } catch {
-      setError("Неверный логин или пароль");
+    } catch (e) {
+      if (isAxiosError(e) && !e.response) {
+        setError("Нет связи с сервером — проверьте, что backend запущен");
+      } else if (isAxiosError(e) && e.response?.status === 401) {
+        setError("Неверный логин или пароль");
+      } else {
+        setError("Ошибка входа, попробуйте ещё раз");
+      }
     } finally {
       setLoading(false);
     }
