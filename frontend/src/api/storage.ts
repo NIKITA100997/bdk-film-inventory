@@ -39,3 +39,11 @@ export const listMacroZoneRules = async (rackId: number): Promise<MacroZoneRule[
 
 export const createMacroZoneRule = async (rackId: number, payload: MacroZoneRuleCreate): Promise<MacroZoneRule> =>
   (await apiClient.post<MacroZoneRule>(`/racks/${rackId}/macro-zone-rules`, payload)).data;
+
+export const suggestLocation = async (params: {
+  material_sku_id: number;
+  width_mm: number;
+  parent_id?: number | null;
+}): Promise<string | null> =>
+  (await apiClient.get<{ location_code: string | null }>("/storage/suggest-location", { params })).data
+    .location_code;

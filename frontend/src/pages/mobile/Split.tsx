@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Typography, Descriptions, Alert, message } from "antd";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getUnit, splitUnit, printLabel, skuLabel, type MaterialUnit, type SplitResponse } from "../../api/units";
+import { suggestLocation } from "../../api/storage";
 
 export default function Split() {
   const [unit, setUnit] = useState<MaterialUnit | null>(null);
   const [result, setResult] = useState<SplitResponse | null>(null);
   const [scanForm] = Form.useForm<{ id: number }>();
   const [splitForm] = Form.useForm<{ separate_width_mm: number; new_unit_location?: string }>();
+  const separateWidth = Form.useWatch("separate_width_mm", splitForm);
 
   const scanMutation = useMutation({
     mutationFn: (id: number) => getUnit(id),
@@ -16,6 +18,12 @@ export default function Split() {
       setResult(null);
     },
     onError: () => message.error("Единица не найдена"),
+  });
+
+  const suggestionQuery = useQuery({
+    queryKey: ["suggest-location", unit?.material_sku.id, separateWidth, unit?.id],
+    queryFn: () => suggestLocation({ material_sku_id: unit!.material_sku.id, width_mm: separateWidth, parent_id: unit!.id }),
+    enabled: !!unit && !!separateWidth && separateWidth > 0 && separateWidth < unit.width_mm,
   });
 
   const splitMutation = useMutation({
@@ -67,6 +75,21 @@ export default function Split() {
             >
               <InputNumber min={1} max={unit.width_mm - 1} style={{ width: "100%" }} />
             </Form.Item>
+
+            {suggestionQuery.data && (
+              <Alert
+                style={{ marginBottom: 16 }}
+                type="success"
+                showIcon
+                message={`Рекомендуем адрес: ${suggestionQuery.data}`}
+                action={
+                  <Button size="small" onClick={() => splitForm.setFieldValue("new_unit_location", suggestionQuery.data)}>
+                    Подставить
+                  </Button>
+                }
+              />
+            )}
+
             <Form.Item name="new_unit_location" label="Ячейка для отделяемой части (опционально)">
               <Input placeholder="Ш-2-04-06" />
             </Form.Item>

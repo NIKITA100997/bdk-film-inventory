@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Typography, Descriptions, Alert, message } from "antd";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getUnit, cutUnit, skuLabel, type MaterialUnit } from "../../api/units";
+import { suggestLocation } from "../../api/storage";
 
 export default function Cut() {
   const [unit, setUnit] = useState<MaterialUnit | null>(null);
@@ -17,6 +18,19 @@ export default function Cut() {
     },
     onError: () => message.error("Единица не найдена"),
   });
+
+  const suggestionQuery = useQuery({
+    queryKey: ["suggest-location", unit?.material_sku.id, unit?.width_mm, unit?.parent_id],
+    queryFn: () =>
+      suggestLocation({ material_sku_id: unit!.material_sku.id, width_mm: unit!.width_mm, parent_id: unit!.parent_id }),
+    enabled: !!unit,
+  });
+
+  useEffect(() => {
+    if (suggestionQuery.data) {
+      cutForm.setFieldValue("remainder_location", suggestionQuery.data);
+    }
+  }, [suggestionQuery.data, cutForm]);
 
   const cutMutation = useMutation({
     mutationFn: (values: { cut_length_m: number; remainder_location?: string }) => cutUnit(unit!.id, values),
@@ -57,6 +71,17 @@ export default function Cut() {
               {unit.width_mm} мм × {unit.length_m} м
             </Descriptions.Item>
           </Descriptions>
+
+          {suggestionQuery.data && (
+            <Alert
+              style={{ marginBottom: 16 }}
+              type="success"
+              showIcon
+              message={`Рекомендуем адрес для остатка: ${suggestionQuery.data}`}
+              description="Подставлено ниже — можно оставить как есть или указать другой (например, стеллаж Б)."
+            />
+          )}
+
           <Form form={cutForm} layout="vertical" onFinish={(v) => cutMutation.mutate(v)}>
             <Form.Item name="cut_length_m" label="Отрезать, м" rules={[{ required: true }]}>
               <InputNumber min={0.01} max={unit.length_m} step={0.01} style={{ width: "100%" }} />

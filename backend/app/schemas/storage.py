@@ -36,3 +36,7 @@ class MacroZoneRuleOut(BaseModel):
     color_id: int | None
     thickness_id: int | None
     manufacturer_id: int | None
+
+
+class LocationSuggestion(BaseModel):
+    location_code: str | None

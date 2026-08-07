@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_roles
 from app.db.session import get_db
-from app.models.dictionaries import Color, Manufacturer, Material, Thickness
+from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
 from app.models.storage import MacroZoneRule, Rack
-from app.schemas.storage import MacroZoneRuleCreate, MacroZoneRuleOut, RackCreate, RackOut
+from app.schemas.storage import LocationSuggestion, MacroZoneRuleCreate, MacroZoneRuleOut, RackCreate, RackOut
+from app.services.placement import suggest_location
 
 router = APIRouter(tags=["storage"])
 
@@ -77,3 +78,21 @@ def create_macro_zone_rule(
     db.commit()
     db.refresh(rule)
     return rule
+
+
+@router.get("/storage/suggest-location", response_model=LocationSuggestion)
+def suggest_location_endpoint(
+    material_sku_id: int,
+    width_mm: float,
+    parent_id: int | None = None,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> LocationSuggestion:
+    """Автоподбор места хранения (4.2 ТЗ) — рекомендация, а не резервирование:
+    вызывается заново при каждом подтверждении, гонки при параллельной
+    работе не приводят к сбою (следующий вызов просто увидит слот занятым)."""
+    sku = db.get(MaterialSku, material_sku_id)
+    if sku is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Позиция материала не найдена")
+    location = suggest_location(db, sku=sku, width_mm=width_mm, parent_id=parent_id)
+    return LocationSuggestion(location_code=location)

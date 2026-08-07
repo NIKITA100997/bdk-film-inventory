@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Typography, Descriptions, Alert, message } from "antd";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { getUnit, placeUnit, skuLabel, type MaterialUnit } from "../../api/units";
+import { suggestLocation } from "../../api/storage";
 
 export default function Place() {
   const [unit, setUnit] = useState<MaterialUnit | null>(null);
@@ -17,6 +18,19 @@ export default function Place() {
     },
     onError: () => message.error("Единица не найдена"),
   });
+
+  const suggestionQuery = useQuery({
+    queryKey: ["suggest-location", unit?.material_sku.id, unit?.width_mm, unit?.parent_id],
+    queryFn: () =>
+      suggestLocation({ material_sku_id: unit!.material_sku.id, width_mm: unit!.width_mm, parent_id: unit!.parent_id }),
+    enabled: !!unit,
+  });
+
+  useEffect(() => {
+    if (suggestionQuery.data) {
+      placeForm.setFieldValue("location_code", suggestionQuery.data);
+    }
+  }, [suggestionQuery.data, placeForm]);
 
   const placeMutation = useMutation({
     mutationFn: (values: { location_code: string }) => placeUnit(unit!.id, values.location_code),
@@ -58,6 +72,25 @@ export default function Place() {
             </Descriptions.Item>
             <Descriptions.Item label="Текущий адрес">{unit.location_code ?? "не размещена"}</Descriptions.Item>
           </Descriptions>
+
+          {suggestionQuery.data && (
+            <Alert
+              style={{ marginBottom: 16 }}
+              type="success"
+              showIcon
+              message={`Рекомендуем: ${suggestionQuery.data}`}
+              description="Подставлено в поле ниже — можно подтвердить как есть или вписать другой адрес."
+            />
+          )}
+          {suggestionQuery.isFetched && !suggestionQuery.data && (
+            <Alert
+              style={{ marginBottom: 16 }}
+              type="warning"
+              showIcon
+              message="Подходящего свободного места не найдено автоматически — укажите адрес вручную."
+            />
+          )}
+
           <Form form={placeForm} layout="vertical" onFinish={(v) => placeMutation.mutate(v)}>
             <Form.Item name="location_code" label="Адрес ячейки" rules={[{ required: true }]}>
               <Input placeholder="Р-3-07 или Ш-2-04-06" autoFocus />
