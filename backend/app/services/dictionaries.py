@@ -49,6 +49,17 @@ def find_or_create_sku(db: Session, *, material: str, color: str, thickness: flo
     return sku
 
 
+def find_or_create_material_color_thickness(
+    db: Session, *, material: str, color: str, thickness: float
+) -> tuple[Material, Color, Thickness]:
+    """Для заявки на плёнку (2.7 ТЗ) — без производителя, план не привязан к
+    конкретному поставщику."""
+    material_obj = _find_or_create(db, Material, name=material)
+    color_obj = _find_or_create(db, Color, name=color)
+    thickness_obj = _find_or_create(db, Thickness, value_mm=thickness)
+    return material_obj, color_obj, thickness_obj
+
+
 def find_sku(db: Session, *, material: str, color: str, thickness: float, manufacturer: str) -> MaterialSku | None:
     material_obj = db.query(Material).filter_by(name=material).first()
     color_obj = db.query(Color).filter_by(name=color).first()
