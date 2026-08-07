@@ -1,0 +1,29 @@
+<h2 class="sr-only">Форма добавления материала с автокомплитом из справочников и список самих справочников атрибутов</h2>
+<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:16px">
+<div style="background:var(--surface-2);border-radius:12px;border:0.5px solid var(--border);padding:16px 18px">
+  <p style="font-size:14px;font-weight:500;margin:0 0 12px">Новая позиция материала</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div>
+      <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Материал</label>
+      <input value="ПВХ плёнка">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Цвет</label>
+      <input placeholder="Дуб бел...">
+      <div style="background:var(--surface-1);border-radius:6px;margin-top:2px;padding:4px 8px;font-size:11.5px;color:var(--text-secondary)">Дуб беленый<br><span style="color:var(--text-accent)">+ Создать «Дуб беленый 2»</span></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Толщина</label><input value="0.35 мм"></div>
+    <div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Производитель</label><input value="Классен"></div>
+  </div>
+  <button style="width:100%;background:var(--fill-primary);color:var(--on-primary);border:none">Сохранить</button>
+</div>
+<div style="background:var(--surface-1);border-radius:12px;padding:16px 18px">
+  <p style="font-size:14px;font-weight:500;margin:0 0 10px">Справочники атрибутов</p>
+  <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border)"><span style="font-size:12.5px">Материалы</span><span style="font-size:11.5px;color:var(--text-muted)">3</span></div>
+  <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border)"><span style="font-size:12.5px">Цвета</span><span style="font-size:11.5px;color:var(--text-muted)">24</span></div>
+  <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border)"><span style="font-size:12.5px">Толщины</span><span style="font-size:11.5px;color:var(--text-muted)">6</span></div>
+  <div style="display:flex;justify-content:space-between;padding:8px 0"><span style="font-size:12.5px">Производители</span><span style="font-size:11.5px;color:var(--text-muted)">4</span></div>
+</div>
+</div>
