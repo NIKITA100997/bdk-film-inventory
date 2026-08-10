@@ -33,10 +33,13 @@ export const mobileBlocks: NavBlock[] = [
     label: "Склад",
     items: [
       { key: "m-receive", path: "/m/receive", label: "Приёмка", roles: ["operator_sklada"] },
-      { key: "m-split", path: "/m/split", label: "Разделить рулон", roles: ["operator_sklada"] },
       { key: "m-issue", path: "/m/issue", label: "Выдача участку", roles: ["operator_sklada"] },
-      { key: "m-place", path: "/m/place", label: "Размещение в ячейку", roles: ["kladovshchik", "operator_sklada"] },
-      { key: "m-transfer", path: "/m/return", label: "Перенести на склад", roles: ["kladovshchik", "operator_sklada"] },
+      {
+        key: "m-unit-card-warehouse",
+        path: "/m/unit-card",
+        label: "Карточка единицы",
+        roles: ["operator_sklada", "kladovshchik"],
+      },
       { key: "m-inventory", path: "/m/inventory", label: "Инвентаризация", roles: ["logist", "kladovshchik"] },
     ],
   },
@@ -45,14 +48,7 @@ export const mobileBlocks: NavBlock[] = [
     label: "Мой участок",
     items: [
       { key: "m-my-area", path: "/m/my-area", label: "Что у меня сейчас", roles: ["nachalnik_uchastka"] },
-      {
-        key: "m-cut",
-        path: "/m/cut",
-        label: "Раскрой",
-        roles: ["nachalnik_uchastka"],
-        areas: ["tselnolistovye_dveri"],
-      },
-      { key: "m-return", path: "/m/return", label: "Возврат", roles: ["nachalnik_uchastka"] },
+      { key: "m-unit-card-my-area", path: "/m/unit-card", label: "Карточка единицы", roles: ["nachalnik_uchastka"] },
     ],
   },
   {

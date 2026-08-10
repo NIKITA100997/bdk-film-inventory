@@ -1,0 +1,410 @@
+import { useEffect, useState } from "react";
+import {
+  Button,
+  Card,
+  Form,
+  Input,
+  InputNumber,
+  Typography,
+  Descriptions,
+  Alert,
+  Tag,
+  List,
+  Space,
+  Popconfirm,
+  message,
+} from "antd";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
+import {
+  getUnit,
+  splitUnit,
+  cutUnit,
+  returnUnit,
+  placeUnit,
+  writeOffUnit,
+  getUnitEvents,
+  printLabel,
+  skuLabel,
+  type MaterialUnit,
+} from "../../api/units";
+import { suggestLocation } from "../../api/storage";
+import { listUsers } from "../../api/users";
+
+type ActionKind = "place" | "split" | "cut" | "return" | "writeoff" | null;
+
+const areaLabels: Record<string, string> = {
+  okutka_tsargovykh: "Окутка царговых",
+  shchitovye_dveri: "Щитовые двери",
+  tselnolistovye_dveri: "Цельнолистовые двери",
+};
+
+const statusLabels: Record<string, string> = {
+  Принят: "Принят",
+  На_хранении: "На хранении",
+  Выдан_участку: "Выдан участку",
+  Списан: "Списан",
+};
+
+function availableActions(unit: MaterialUnit): Exclude<ActionKind, null>[] {
+  if (unit.status === "Принят") return ["place"];
+  if (unit.status === "На_хранении") return ["split", "cut", "place", "writeoff"];
+  if (unit.status === "Выдан_участку") {
+    return unit.area === "tselnolistovye_dveri" ? ["cut", "return"] : ["return"];
+  }
+  return [];
+}
+
+const actionLabels: Record<Exclude<ActionKind, null>, string> = {
+  place: "Разместить / переместить",
+  split: "Разделить",
+  cut: "Раскрой",
+  return: "Вернуть",
+  writeoff: "Списать",
+};
+
+export default function UnitCard() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [unit, setUnit] = useState<MaterialUnit | null>(null);
+  const [action, setAction] = useState<ActionKind>(null);
+  const [scanForm] = Form.useForm<{ id: number }>();
+  const [placeForm] = Form.useForm<{ location_code: string }>();
+  const [splitForm] = Form.useForm<{ separate_width_mm: number; new_unit_location?: string }>();
+  const [cutForm] = Form.useForm<{ cut_length_m: number; remainder_location?: string }>();
+  const [returnForm] = Form.useForm<{ actual_length_m: number }>();
+  const separateWidth = Form.useWatch("separate_width_mm", splitForm);
+
+  const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
+  const eventsQuery = useQuery({
+    queryKey: ["unit-events", unit?.id],
+    queryFn: () => getUnitEvents(unit!.id),
+    enabled: !!unit,
+  });
+
+  const placeSuggestion = useQuery({
+    queryKey: ["suggest-location", "place", unit?.material_sku.id, unit?.width_mm, unit?.parent_id],
+    queryFn: () =>
+      suggestLocation({ material_sku_id: unit!.material_sku.id, width_mm: unit!.width_mm, parent_id: unit!.parent_id }),
+    enabled: !!unit && action === "place",
+  });
+  const splitSuggestion = useQuery({
+    queryKey: ["suggest-location", "split", unit?.material_sku.id, separateWidth, unit?.id],
+    queryFn: () => suggestLocation({ material_sku_id: unit!.material_sku.id, width_mm: separateWidth, parent_id: unit!.id }),
+    enabled: !!unit && action === "split" && !!separateWidth && separateWidth > 0 && separateWidth < unit.width_mm,
+  });
+  const cutSuggestion = useQuery({
+    queryKey: ["suggest-location", "cut", unit?.material_sku.id, unit?.width_mm, unit?.parent_id],
+    queryFn: () =>
+      suggestLocation({ material_sku_id: unit!.material_sku.id, width_mm: unit!.width_mm, parent_id: unit!.parent_id }),
+    enabled: !!unit && action === "cut",
+  });
+
+  const scanMutation = useMutation({
+    mutationFn: (id: number) => getUnit(id),
+    onSuccess: (u) => {
+      setUnit(u);
+      setAction(null);
+    },
+    onError: () => message.error("Единица не найдена"),
+  });
+
+  useEffect(() => {
+    const preselectId = (location.state as { unitId?: number } | null)?.unitId;
+    if (preselectId) scanMutation.mutate(preselectId);
+    // scanMutation.mutate имеет стабильную идентичность между рендерами (react-query) — не в зависимостях намеренно
+  }, [location.state]);
+
+  const placeMutation = useMutation({
+    mutationFn: (values: { location_code: string }) => placeUnit(unit!.id, values.location_code),
+    onSuccess: (u) => {
+      setUnit(u);
+      setAction(null);
+      placeForm.resetFields();
+      message.success("Адрес сохранён");
+    },
+    onError: () => message.error("Не удалось разместить"),
+  });
+
+  const splitMutation = useMutation({
+    mutationFn: (values: { separate_width_mm: number; new_unit_location?: string }) => splitUnit(unit!.id, values),
+    onSuccess: (res) => {
+      setUnit(res.parent);
+      setAction(null);
+      splitForm.resetFields();
+      if (res.new_unit) {
+        message.success(
+          <>
+            Новый штрипс №{res.new_unit.id}: {res.new_unit.width_mm} мм, {res.new_unit.length_m} м —{" "}
+            <a onClick={() => printLabel(res.new_unit!.id)}>печать бирки</a>
+          </>,
+        );
+      } else {
+        message.success("Рулон разделён");
+      }
+    },
+    onError: () => message.error("Не удалось разделить — проверьте ширину и статус единицы"),
+  });
+
+  const cutMutation = useMutation({
+    mutationFn: (values: { cut_length_m: number; remainder_location?: string }) => cutUnit(unit!.id, values),
+    onSuccess: (u) => {
+      setUnit(u);
+      setAction(null);
+      cutForm.resetFields();
+      message.success(
+        u.length_m > 0 ? `Останется ${u.length_m} м — тот же ID №${u.id}` : `Единица №${u.id} полностью использована`,
+      );
+    },
+    onError: () => message.error("Не удалось выполнить раскрой — проверьте длину и статус единицы"),
+  });
+
+  const returnMutation = useMutation({
+    mutationFn: (values: { actual_length_m: number }) => returnUnit(unit!.id, values),
+    onSuccess: (u) => {
+      setUnit(u);
+      setAction(null);
+      returnForm.resetFields();
+      message.success("Остаток возвращён на хранение");
+    },
+    onError: () => message.error("Не удалось оформить возврат"),
+  });
+
+  const writeOffMutation = useMutation({
+    mutationFn: () => writeOffUnit(unit!.id),
+    onSuccess: (u) => {
+      setUnit(u);
+      setAction(null);
+      message.success("Единица списана");
+    },
+    onError: () => message.error("Не удалось списать"),
+  });
+
+  const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
+
+  return (
+    <Card>
+      <Typography.Title level={4}>Карточка единицы</Typography.Title>
+
+      {!unit && (
+        <Form form={scanForm} layout="inline" onFinish={(v) => scanMutation.mutate(v.id)}>
+          <Form.Item name="id" label="ID единицы (по бирке/QR)" rules={[{ required: true }]}>
+            <InputNumber autoFocus />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={scanMutation.isPending}>
+            Найти
+          </Button>
+        </Form>
+      )}
+
+      {unit && (
+        <>
+          <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
+            <Descriptions.Item label="ID">№ {unit.id}</Descriptions.Item>
+            <Descriptions.Item label="Материал">{skuLabel(unit.material_sku)}</Descriptions.Item>
+            <Descriptions.Item label="Ширина×длина">
+              {unit.width_mm} мм × {unit.length_m} м
+            </Descriptions.Item>
+            <Descriptions.Item label="Статус">
+              <Tag>{statusLabels[unit.status] ?? unit.status}</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Где сейчас">
+              {unit.location_code ?? (unit.area ? areaLabels[unit.area] : "—")}
+            </Descriptions.Item>
+            <Descriptions.Item label="УПД / паллета">
+              {unit.upd_number} / {unit.pallet_number}
+            </Descriptions.Item>
+            {unit.parent_id && <Descriptions.Item label="Из рулона">№ {unit.parent_id}</Descriptions.Item>}
+          </Descriptions>
+
+          {!action && (
+            <Space direction="vertical" style={{ width: "100%" }}>
+              <Space wrap>
+                {availableActions(unit).map((a) =>
+                  a === "writeoff" ? (
+                    <Popconfirm
+                      key={a}
+                      title="Списать единицу?"
+                      description="Отменить нельзя — используйте, если материал испорчен или физически отсутствует."
+                      onConfirm={() => writeOffMutation.mutate()}
+                    >
+                      <Button danger loading={writeOffMutation.isPending}>
+                        {actionLabels[a]}
+                      </Button>
+                    </Popconfirm>
+                  ) : (
+                    <Button key={a} type="primary" onClick={() => setAction(a)}>
+                      {actionLabels[a]}
+                    </Button>
+                  ),
+                )}
+                {unit.status === "На_хранении" && (
+                  <Button
+                    onClick={() =>
+                      navigate("/m/issue", {
+                        state: {
+                          material: unit.material_sku.material.name,
+                          color: unit.material_sku.color.name,
+                          thickness: unit.material_sku.thickness.value_mm,
+                          manufacturer: unit.material_sku.manufacturer.name,
+                        },
+                      })
+                    }
+                  >
+                    Выдать участку
+                  </Button>
+                )}
+                <Button onClick={() => printLabel(unit.id)}>Печать бирки</Button>
+                <Button
+                  onClick={() => {
+                    setUnit(null);
+                    scanForm.resetFields();
+                  }}
+                >
+                  Другая единица
+                </Button>
+              </Space>
+            </Space>
+          )}
+
+          {action === "place" && (
+            <Form form={placeForm} layout="vertical" onFinish={(v) => placeMutation.mutate(v)} style={{ marginTop: 16 }}>
+              {placeSuggestion.data && (
+                <Alert
+                  style={{ marginBottom: 16 }}
+                  type="success"
+                  showIcon
+                  message={`Рекомендуем: ${placeSuggestion.data}`}
+                  action={
+                    <Button size="small" onClick={() => placeForm.setFieldValue("location_code", placeSuggestion.data)}>
+                      Подставить
+                    </Button>
+                  }
+                />
+              )}
+              <Form.Item
+                name="location_code"
+                label="Адрес ячейки"
+                rules={[{ required: true }]}
+                initialValue={unit.location_code ?? undefined}
+              >
+                <Input placeholder="Р-3-07 или Ш-2-04-06" autoFocus />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" block loading={placeMutation.isPending}>
+                Сохранить адрес
+              </Button>
+              <Button block style={{ marginTop: 8 }} onClick={() => setAction(null)}>
+                Отмена
+              </Button>
+            </Form>
+          )}
+
+          {action === "split" && (
+            <Form form={splitForm} layout="vertical" onFinish={(v) => splitMutation.mutate(v)} style={{ marginTop: 16 }}>
+              <Form.Item name="separate_width_mm" label="Ширина отделяемой части, мм" rules={[{ required: true }]}>
+                <InputNumber min={1} max={unit.width_mm - 1} style={{ width: "100%" }} />
+              </Form.Item>
+              {splitSuggestion.data && (
+                <Alert
+                  style={{ marginBottom: 16 }}
+                  type="success"
+                  showIcon
+                  message={`Рекомендуем адрес: ${splitSuggestion.data}`}
+                  action={
+                    <Button size="small" onClick={() => splitForm.setFieldValue("new_unit_location", splitSuggestion.data)}>
+                      Подставить
+                    </Button>
+                  }
+                />
+              )}
+              <Form.Item name="new_unit_location" label="Ячейка для отделяемой части (опционально)">
+                <Input placeholder="Ш-2-04-06" />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" block loading={splitMutation.isPending}>
+                Разделить
+              </Button>
+              <Button block style={{ marginTop: 8 }} onClick={() => setAction(null)}>
+                Отмена
+              </Button>
+            </Form>
+          )}
+
+          {action === "cut" && (
+            <Form form={cutForm} layout="vertical" onFinish={(v) => cutMutation.mutate(v)} style={{ marginTop: 16 }}>
+              {cutSuggestion.data && (
+                <Alert
+                  style={{ marginBottom: 16 }}
+                  type="success"
+                  showIcon
+                  message={`Рекомендуем адрес для остатка: ${cutSuggestion.data}`}
+                  description="Подставлено ниже — можно оставить как есть или указать другой (например, стеллаж Б)."
+                />
+              )}
+              <Form.Item name="cut_length_m" label="Отрезать, м" rules={[{ required: true }]}>
+                <InputNumber min={0.01} max={unit.length_m} step={0.01} style={{ width: "100%" }} />
+              </Form.Item>
+              <Form.Item
+                name="remainder_location"
+                label="Ячейка для остатка (опционально)"
+                initialValue={cutSuggestion.data ?? undefined}
+              >
+                <Input placeholder="Б-1-02" />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" block loading={cutMutation.isPending}>
+                Списать отрезок без бирки
+              </Button>
+              <Button block style={{ marginTop: 8 }} onClick={() => setAction(null)}>
+                Отмена
+              </Button>
+            </Form>
+          )}
+
+          {action === "return" && (
+            <Form
+              form={returnForm}
+              layout="vertical"
+              onFinish={(v) => returnMutation.mutate(v)}
+              style={{ marginTop: 16 }}
+              initialValues={{ actual_length_m: unit.length_m }}
+            >
+              <Form.Item name="actual_length_m" label="Фактическая текущая длина, м" rules={[{ required: true }]}>
+                <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" block loading={returnMutation.isPending}>
+                Вернуть на склад
+              </Button>
+              <Button block style={{ marginTop: 8 }} onClick={() => setAction(null)}>
+                Отмена
+              </Button>
+            </Form>
+          )}
+
+          <Typography.Title level={5} style={{ marginTop: 24 }}>
+            История
+          </Typography.Title>
+          <List
+            size="small"
+            loading={eventsQuery.isLoading}
+            dataSource={eventsQuery.data ?? []}
+            locale={{ emptyText: "Событий пока нет" }}
+            renderItem={(ev) => (
+              <List.Item>
+                <Space direction="vertical" size={0}>
+                  <span>
+                    <Tag>{ev.event_type.replace(/_/g, " ")}</Tag>
+                    {new Date(ev.timestamp).toLocaleString("ru-RU")} — {userName(ev.user_id)}
+                  </span>
+                  {(ev.from_cell || ev.to_cell) && (
+                    <Typography.Text type="secondary">
+                      {ev.from_cell ?? "—"} → {ev.to_cell ?? "—"}
+                    </Typography.Text>
+                  )}
+                </Space>
+              </List.Item>
+            )}
+          />
+        </>
+      )}
+    </Card>
+  );
+}

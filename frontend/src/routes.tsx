@@ -5,12 +5,9 @@ import AppLayout from "./layout/AppLayout";
 import { RequireAuth, RequireRole } from "./auth/RoleGuard";
 
 import Receive from "./pages/mobile/Receive";
-import Split from "./pages/mobile/Split";
-import Cut from "./pages/mobile/Cut";
 import Issue from "./pages/mobile/Issue";
-import Return from "./pages/mobile/Return";
 import Search from "./pages/mobile/Search";
-import Place from "./pages/mobile/Place";
+import UnitCard from "./pages/mobile/UnitCard";
 import Inventory from "./pages/mobile/Inventory";
 import MyArea from "./pages/mobile/MyArea";
 
@@ -43,17 +40,12 @@ export default function AppRoutes() {
         <Route path="/" element={<Home />} />
 
         <Route path="/m/receive" element={<RequireRole roles={["operator_sklada"]}><Receive /></RequireRole>} />
-        <Route path="/m/split" element={<RequireRole roles={["operator_sklada"]}><Split /></RequireRole>} />
         <Route path="/m/issue" element={<RequireRole roles={["operator_sklada"]}><Issue /></RequireRole>} />
         <Route
-          path="/m/cut"
-          element={<RequireRole roles={["operator_sklada", "nachalnik_uchastka"]}><Cut /></RequireRole>}
-        />
-        <Route
-          path="/m/return"
+          path="/m/unit-card"
           element={
-            <RequireRole roles={["nachalnik_uchastka", "kladovshchik", "operator_sklada"]}>
-              <Return />
+            <RequireRole roles={["operator_sklada", "nachalnik_uchastka", "kladovshchik"]}>
+              <UnitCard />
             </RequireRole>
           }
         />
@@ -66,10 +58,6 @@ export default function AppRoutes() {
               <Search />
             </RequireRole>
           }
-        />
-        <Route
-          path="/m/place"
-          element={<RequireRole roles={["kladovshchik", "operator_sklada"]}><Place /></RequireRole>}
         />
         <Route
           path="/m/inventory"

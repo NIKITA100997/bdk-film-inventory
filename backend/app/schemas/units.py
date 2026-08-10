@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from app.models.events import EventType
 from app.models.units import UnitStatus
 from app.models.users import Area
 from app.schemas.dictionaries import MaterialSkuOut
@@ -94,3 +95,19 @@ class CutRequest(BaseModel):
 
 class ReturnRequest(BaseModel):
     actual_length_m: float = Field(ge=0)
+
+
+class UnitEventOut(BaseModel):
+    """История единицы для карточки единицы (2.1 раздел бэклога доработок)
+    — "кто и когда с ней что делал"."""
+
+    model_config = ConfigDict(from_attributes=True)
+    event_id: int
+    event_type: EventType
+    timestamp: datetime
+    user_id: int
+    from_length: float | None
+    to_length: float | None
+    from_cell: str | None
+    to_cell: str | None
+    quantity_delta_m: float

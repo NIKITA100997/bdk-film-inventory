@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button, Card, Form, InputNumber, Select, Typography, Alert, message } from "antd";
 import { useMutation } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { issueUnit, type IssueRequest, type IssueResult } from "../../api/units";
 import DictAutoComplete from "../../components/DictAutoComplete";
 
@@ -11,8 +11,17 @@ const areaOptions = [
   { value: "tselnolistovye_dveri", label: "Цельнолистовые двери" },
 ];
 
+interface IssuePrefill {
+  material?: string;
+  color?: string;
+  thickness?: number;
+  manufacturer?: string;
+}
+
 export default function Issue() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const prefill = (location.state as IssuePrefill | null) ?? undefined;
   const [result, setResult] = useState<IssueResult | null>(null);
   const [form] = Form.useForm<IssueRequest>();
 
@@ -31,6 +40,7 @@ export default function Issue() {
       <Form
         form={form}
         layout="vertical"
+        initialValues={prefill}
         onFinish={(values) => {
           setResult(null);
           mutation.mutate(values);
@@ -80,7 +90,11 @@ export default function Issue() {
           message={`Есть штрипс №${result.donor.unit_id}, ширина ${result.donor.width_mm} мм, класс ${result.donor.width_class} (используется редко)`}
           description={`Рекомендуем отрезать ${result.donor.recommended_cut_mm} мм, отход ${result.donor.waste_mm} мм. Оператор режет вручную через «Разделить рулон» и затем повторяет выдачу на полученный кусок.`}
           action={
-            <Button size="small" type="primary" onClick={() => navigate("/m/split")}>
+            <Button
+              size="small"
+              type="primary"
+              onClick={() => navigate("/m/unit-card", { state: { unitId: result.donor!.unit_id } })}
+            >
               Разделить рулон
             </Button>
           }

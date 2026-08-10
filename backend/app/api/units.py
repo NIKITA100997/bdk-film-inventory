@@ -5,7 +5,7 @@ from app.core.security import get_current_user, require_roles
 from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import MaterialSku
-from app.models.events import EventType
+from app.models.events import EventType, MaterialEvent
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import Area, User
 from app.schemas.units import (
@@ -19,6 +19,7 @@ from app.schemas.units import (
     ReturnRequest,
     SplitRequest,
     SplitResponse,
+    UnitEventOut,
 )
 from app.services.dictionaries import find_or_create_sku, find_sku
 from app.services.events import record_event
@@ -110,6 +111,52 @@ def get_unit(
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     return unit
+
+
+@router.get("/{unit_id}/events", response_model=list[UnitEventOut])
+def unit_events(
+    unit_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[MaterialEvent]:
+    """История единицы (2.1 раздел бэклога доработок) — для карточки
+    единицы, "кто и когда с ней что делал"."""
+    unit = db.get(MaterialUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
+    return (
+        db.query(MaterialEvent)
+        .filter(MaterialEvent.unit_id == unit_id)
+        .order_by(MaterialEvent.timestamp.desc())
+        .all()
+    )
+
+
+@router.post("/{unit_id}/write-off", response_model=MaterialUnitOut)
+def write_off_unit(
+    unit_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("operator_sklada", "kladovshchik")),
+) -> MaterialUnit:
+    """Списание вне инвентаризации (2.1 раздел бэклога доработок) — прямое
+    действие из карточки единицы для остатка На_хранении, который решили
+    не хранить дальше (порча, брак и т.п.)."""
+    unit = _get_storable_unit(db, unit_id)
+    if unit.status != UnitStatus.NA_KHRANENII:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Списать можно только единицу на хранении")
+    old_length = float(unit.length_m)
+    unit.status = UnitStatus.SPISAN
+    record_event(
+        db,
+        unit=unit,
+        event_type=EventType.SPISANIE,
+        user_id=user.id,
+        quantity_delta_m=-old_length,
+        from_length=old_length,
+        to_length=0,
+    )
+    db.commit()
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 
 def _get_storable_unit(db: Session, unit_id: int) -> MaterialUnit:

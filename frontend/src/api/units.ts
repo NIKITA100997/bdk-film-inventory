@@ -142,6 +142,28 @@ export async function getMyAreaUnits(): Promise<MaterialUnit[]> {
   return data;
 }
 
+export interface UnitEvent {
+  event_id: number;
+  event_type: string;
+  timestamp: string;
+  user_id: number;
+  from_length: number | null;
+  to_length: number | null;
+  from_cell: string | null;
+  to_cell: string | null;
+  quantity_delta_m: number;
+}
+
+export async function getUnitEvents(unitId: number): Promise<UnitEvent[]> {
+  const { data } = await apiClient.get<UnitEvent[]>(`/units/${unitId}/events`);
+  return data;
+}
+
+export async function writeOffUnit(unitId: number): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/write-off`);
+  return data;
+}
+
 export async function fetchLabelHtml(unitId: number): Promise<string> {
   const { data } = await apiClient.get<string>(`/labels/${unitId}`, { responseType: "text" });
   return data;
