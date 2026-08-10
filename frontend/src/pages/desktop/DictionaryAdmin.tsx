@@ -7,11 +7,108 @@ import {
   updateNameDictEntry,
   listAllThicknesses,
   updateThicknessEntry,
+  listAllMaterialSkus,
+  updateMaterialSku,
   type NameDictKind,
   type DictEntry,
   type DuplicateCandidate,
   type ThicknessEntry,
+  type MaterialSkuUpdate,
 } from "../../api/dictionaries";
+import type { MaterialSku } from "../../api/units";
+
+function NomenclatureTab() {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<Record<number, MaterialSkuUpdate>>({});
+  const skusQuery = useQuery({ queryKey: ["material-skus", "all"], queryFn: listAllMaterialSkus });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: MaterialSkuUpdate }) => updateMaterialSku(id, payload),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["material-skus"] });
+      setEditing((s) => {
+        const next = { ...s };
+        delete next[vars.id];
+        return next;
+      });
+      message.success("Сохранено");
+    },
+    onError: () => message.error("Не удалось сохранить"),
+  });
+
+  const setField = (id: number, patch: MaterialSkuUpdate) =>
+    setEditing((s) => ({ ...s, [id]: { ...s[id], ...patch } }));
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Typography.Paragraph type="secondary">
+        Это и есть номенклатура — каждая строка комбинация материал+цвет+толщина+производитель (справочники ниже
+        по вкладкам — только их отдельные составляющие). Код у поставщика и родная ширина рулона можно править
+        прямо здесь; сама комбинация атрибутов неизменна — заводится заново через приёмку или кнопку «+ Новое» на
+        «Остатках», если нужна другая.
+      </Typography.Paragraph>
+      <Table<MaterialSku>
+        rowKey="id"
+        loading={skusQuery.isLoading}
+        dataSource={skusQuery.data ?? []}
+        pagination={{ pageSize: 20 }}
+        columns={[
+          { title: "Материал", render: (_, s) => s.material.name },
+          { title: "Цвет", render: (_, s) => s.color.name },
+          { title: "Толщина, мм", render: (_, s) => s.thickness.value_mm },
+          { title: "Производитель", render: (_, s) => s.manufacturer.name },
+          {
+            title: "Код у поставщика",
+            render: (_, s) => (
+              <Input
+                size="small"
+                value={editing[s.id]?.supplier_code ?? s.supplier_code ?? ""}
+                onChange={(e) => setField(s.id, { supplier_code: e.target.value })}
+                style={{ maxWidth: 160 }}
+              />
+            ),
+          },
+          {
+            title: "Родная ширина, мм",
+            render: (_, s) => (
+              <InputNumber
+                size="small"
+                min={1}
+                value={editing[s.id]?.native_width_mm ?? s.native_width_mm ?? undefined}
+                onChange={(v) => setField(s.id, { native_width_mm: v ?? undefined })}
+              />
+            ),
+          },
+          {
+            title: "Статус",
+            dataIndex: "is_active",
+            render: (v: boolean) => (v ? <Tag color="green">Активна</Tag> : <Tag>В архиве</Tag>),
+          },
+          {
+            title: "",
+            render: (_, s) => (
+              <Space>
+                <Button
+                  size="small"
+                  disabled={!editing[s.id]}
+                  onClick={() => updateMutation.mutate({ id: s.id, payload: editing[s.id] })}
+                >
+                  Сохранить
+                </Button>
+                <Button
+                  size="small"
+                  onClick={() => updateMutation.mutate({ id: s.id, payload: { is_active: !s.is_active } })}
+                >
+                  {s.is_active ? "В архив" : "Восстановить"}
+                </Button>
+              </Space>
+            ),
+          },
+        ]}
+      />
+    </Space>
+  );
+}
 
 function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
   const qc = useQueryClient();
@@ -185,14 +282,15 @@ function ThicknessTab() {
 export default function DictionaryAdmin() {
   return (
     <Card>
-      <Typography.Title level={4}>Справочники — материалы, цвета, толщины, производители</Typography.Title>
+      <Typography.Title level={4}>Номенклатура и справочники</Typography.Title>
       <Typography.Paragraph type="secondary">
         Архивные значения пропадают из подсказок при вводе, но не удаляются — старые записи, где они уже
         использованы, остаются читаемыми.
       </Typography.Paragraph>
       <Tabs
         items={[
-          { key: "materials", label: "Материалы", children: <NameDictTab kind="materials" label="Материал" /> },
+          { key: "nomenclature", label: "Номенклатура", children: <NomenclatureTab /> },
+          { key: "materials", label: "Материалы (тип)", children: <NameDictTab kind="materials" label="Материал" /> },
           { key: "colors", label: "Цвета", children: <NameDictTab kind="colors" label="Цвет" /> },
           { key: "manufacturers", label: "Производители", children: <NameDictTab kind="manufacturers" label="Производитель" /> },
           { key: "thicknesses", label: "Толщины", children: <ThicknessTab /> },

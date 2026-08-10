@@ -13,6 +13,7 @@ from app.schemas.dictionaries import (
     MaterialOut,
     MaterialSkuCreate,
     MaterialSkuOut,
+    MaterialSkuUpdate,
     ThicknessOut,
     ThicknessUpdate,
 )
@@ -162,16 +163,41 @@ def create_material_sku(
     return sku
 
 
+def _skus_query(db: Session):
+    return db.query(MaterialSku).options(
+        joinedload(MaterialSku.material),
+        joinedload(MaterialSku.color),
+        joinedload(MaterialSku.thickness),
+        joinedload(MaterialSku.manufacturer),
+    )
+
+
 @router.get("/material-skus", response_model=list[MaterialSkuOut])
 def list_material_skus(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[MaterialSku]:
-    return (
-        db.query(MaterialSku)
-        .options(
-            joinedload(MaterialSku.material),
-            joinedload(MaterialSku.color),
-            joinedload(MaterialSku.thickness),
-            joinedload(MaterialSku.manufacturer),
-        )
-        .filter(MaterialSku.is_active)
-        .all()
-    )
+    return _skus_query(db).filter(MaterialSku.is_active).all()
+
+
+@router.get("/material-skus/all", response_model=list[MaterialSkuOut])
+def list_all_material_skus(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[MaterialSku]:
+    """Номенклатура целиком, включая архивные (1 раздел бэклога доработок,
+    пояснение по разделу 6 — это и есть каталог позиций, справочники
+    материала/цвета/толщины/производителя — только его 4 составляющих)."""
+    return _skus_query(db).all()
+
+
+@router.patch("/material-skus/{sku_id}", response_model=MaterialSkuOut)
+def update_material_sku(
+    sku_id: int, payload: MaterialSkuUpdate, db: Session = Depends(get_db), user=Depends(manage_dicts)
+) -> MaterialSku:
+    sku = db.get(MaterialSku, sku_id)
+    if sku is None:
+        raise HTTPException(404, "Позиция не найдена")
+    if payload.supplier_code is not None:
+        sku.supplier_code = payload.supplier_code
+    if payload.native_width_mm is not None:
+        sku.native_width_mm = payload.native_width_mm
+    if payload.is_active is not None:
+        sku.is_active = payload.is_active
+    db.commit()
+    db.refresh(sku)
+    return _skus_query(db).filter(MaterialSku.id == sku_id).first()

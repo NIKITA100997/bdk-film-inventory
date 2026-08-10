@@ -6,7 +6,7 @@ from app.db.session import get_db
 from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
 from app.models.storage import MacroZoneRule, Rack
-from app.schemas.storage import LocationSuggestion, MacroZoneRuleCreate, MacroZoneRuleOut, RackCreate, RackOut
+from app.schemas.storage import LocationSuggestion, MacroZoneRuleCreate, MacroZoneRuleOut, RackCreate, RackOut, RackUpdate
 from app.services.placement import suggest_location
 
 router = APIRouter(tags=["storage"])
@@ -32,6 +32,39 @@ def create_rack(payload: RackCreate, db: Session = Depends(get_db), user=Depends
     db.commit()
     db.refresh(rack)
     return rack
+
+
+@router.patch("/racks/{rack_id}", response_model=RackOut)
+def update_rack(
+    rack_id: int, payload: RackUpdate, db: Session = Depends(get_db), user=Depends(manage_storage)
+) -> Rack:
+    rack = db.get(Rack, rack_id)
+    if rack is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
+    if payload.code is not None and payload.code != rack.code:
+        if db.query(Rack).filter(Rack.code == payload.code, Rack.id != rack_id).first():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Стеллаж с таким кодом уже существует")
+        rack.code = payload.code
+    if payload.type is not None:
+        rack.type = payload.type
+    if payload.shelf_count is not None:
+        rack.shelf_count = payload.shelf_count
+    if payload.is_active is not None:
+        rack.is_active = payload.is_active
+    db.commit()
+    db.refresh(rack)
+    return rack
+
+
+@router.delete("/racks/{rack_id}/macro-zone-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_macro_zone_rule(
+    rack_id: int, rule_id: int, db: Session = Depends(get_db), user=Depends(manage_storage)
+) -> None:
+    rule = db.query(MacroZoneRule).filter(MacroZoneRule.id == rule_id, MacroZoneRule.rack_id == rack_id).first()
+    if rule is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Правило не найдено")
+    db.delete(rule)
+    db.commit()
 
 
 def _lookup_dict_id(db: Session, model, name_or_value: str | float | None, field: str) -> int | None:

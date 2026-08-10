@@ -7,6 +7,14 @@ export interface Rack {
   code: string;
   type: RackType;
   shelf_count: number;
+  is_active: boolean;
+}
+
+export interface RackUpdate {
+  code?: string;
+  type?: RackType;
+  shelf_count?: number;
+  is_active?: boolean;
 }
 
 export interface MacroZoneRule {
@@ -34,11 +42,18 @@ export const listRacks = async (): Promise<Rack[]> => (await apiClient.get<Rack[
 export const createRack = async (payload: { code: string; type: RackType; shelf_count: number }): Promise<Rack> =>
   (await apiClient.post<Rack>("/racks", payload)).data;
 
+export const updateRack = async (rackId: number, payload: RackUpdate): Promise<Rack> =>
+  (await apiClient.patch<Rack>(`/racks/${rackId}`, payload)).data;
+
 export const listMacroZoneRules = async (rackId: number): Promise<MacroZoneRule[]> =>
   (await apiClient.get<MacroZoneRule[]>(`/racks/${rackId}/macro-zone-rules`)).data;
 
 export const createMacroZoneRule = async (rackId: number, payload: MacroZoneRuleCreate): Promise<MacroZoneRule> =>
   (await apiClient.post<MacroZoneRule>(`/racks/${rackId}/macro-zone-rules`, payload)).data;
+
+export const deleteMacroZoneRule = async (rackId: number, ruleId: number): Promise<void> => {
+  await apiClient.delete(`/racks/${rackId}/macro-zone-rules/${ruleId}`);
+};
 
 export const suggestLocation = async (params: {
   material_sku_id: number;

@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Card, Typography, Table, Button, Form, Input, Select, Modal, InputNumber, Space, message } from "antd";
+import { Card, Typography, Table, Button, Tag, Popconfirm, Form, Input, Select, Modal, InputNumber, Space, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createMacroZoneRule,
   createRack,
+  deleteMacroZoneRule,
   listMacroZoneRules,
   listRacks,
+  updateRack,
   type MacroZoneRuleCreate,
   type Rack,
+  type RackUpdate,
 } from "../../api/storage";
 import { getCalcSettings, updateCalcSettings } from "../../api/abc";
 import DictAutoComplete from "../../components/DictAutoComplete";
@@ -16,7 +19,9 @@ export default function Settings() {
   const qc = useQueryClient();
   const [selectedRack, setSelectedRack] = useState<Rack | null>(null);
   const [rackModalOpen, setRackModalOpen] = useState(false);
+  const [editingRack, setEditingRack] = useState<Rack | null>(null);
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
+  const [editRackForm] = Form.useForm<RackUpdate>();
 
   const racksQuery = useQuery({ queryKey: ["racks"], queryFn: listRacks });
   const rulesQuery = useQuery({
@@ -33,6 +38,15 @@ export default function Settings() {
       message.success("Стеллаж добавлен");
     },
   });
+  const updateRackMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: RackUpdate }) => updateRack(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["racks"] });
+      setEditingRack(null);
+      message.success("Сохранено");
+    },
+    onError: () => message.error("Не удалось сохранить — код уже занят?"),
+  });
   const createRuleMutation = useMutation({
     mutationFn: (payload: MacroZoneRuleCreate) => createMacroZoneRule(selectedRack!.id, payload),
     onSuccess: () => {
@@ -41,6 +55,13 @@ export default function Settings() {
       message.success("Правило добавлено");
     },
     onError: () => message.error("Не удалось создать правило — проверьте, что значения есть в справочниках"),
+  });
+  const deleteRuleMutation = useMutation({
+    mutationFn: (ruleId: number) => deleteMacroZoneRule(selectedRack!.id, ruleId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["macro-zone-rules", selectedRack?.id] });
+      message.success("Правило удалено");
+    },
   });
 
   const calcSettingsQuery = useQuery({ queryKey: ["calc-settings"], queryFn: getCalcSettings });
@@ -69,11 +90,37 @@ export default function Settings() {
           loading={racksQuery.isLoading}
           dataSource={racksQuery.data ?? []}
           pagination={false}
-          onRow={(rack) => ({ onClick: () => setSelectedRack(rack) })}
           columns={[
-            { title: "Код", dataIndex: "code" },
+            { title: "Код", dataIndex: "code", render: (v, rack) => <a onClick={() => setSelectedRack(rack)}>{v}</a> },
             { title: "Тип", dataIndex: "type", render: (t: string) => (t === "roll" ? "Рулонный" : "Штрипсовый") },
             { title: "Число полок", dataIndex: "shelf_count" },
+            {
+              title: "Статус",
+              dataIndex: "is_active",
+              render: (v: boolean) => (v ? <Tag color="green">Активен</Tag> : <Tag>В архиве</Tag>),
+            },
+            {
+              title: "",
+              render: (_, rack) => (
+                <Space>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setEditingRack(rack);
+                      editRackForm.setFieldsValue({ code: rack.code, type: rack.type, shelf_count: rack.shelf_count });
+                    }}
+                  >
+                    Изменить
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => updateRackMutation.mutate({ id: rack.id, payload: { is_active: !rack.is_active } })}
+                  >
+                    {rack.is_active ? "В архив" : "Восстановить"}
+                  </Button>
+                </Space>
+              ),
+            },
           ]}
         />
       </Card>
@@ -98,6 +145,16 @@ export default function Settings() {
               { title: "Цвет", dataIndex: "color_id", render: (v) => v ?? "любой" },
               { title: "Толщина", dataIndex: "thickness_id", render: (v) => v ?? "любая" },
               { title: "Производитель", dataIndex: "manufacturer_id", render: (v) => v ?? "любой" },
+              {
+                title: "",
+                render: (_, rule) => (
+                  <Popconfirm title="Удалить правило?" onConfirm={() => deleteRuleMutation.mutate(rule.id)}>
+                    <Button size="small" danger>
+                      Удалить
+                    </Button>
+                  </Popconfirm>
+                ),
+              },
             ]}
           />
         </Card>
@@ -170,6 +227,38 @@ export default function Settings() {
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={createRackMutation.isPending}>
             Создать
+          </Button>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`Изменить стеллаж ${editingRack?.code ?? ""}`}
+        open={!!editingRack}
+        onCancel={() => setEditingRack(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Form
+          form={editRackForm}
+          layout="vertical"
+          onFinish={(v) => editingRack && updateRackMutation.mutate({ id: editingRack.id, payload: v })}
+        >
+          <Form.Item name="code" label="Код" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="type" label="Тип" rules={[{ required: true }]}>
+            <Select
+              options={[
+                { value: "roll", label: "Рулонный" },
+                { value: "strip", label: "Штрипсовый" },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="shelf_count" label="Число полок" rules={[{ required: true }]}>
+            <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={updateRackMutation.isPending}>
+            Сохранить
           </Button>
         </Form>
       </Modal>

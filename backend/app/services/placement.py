@@ -72,7 +72,7 @@ def suggest_location(
     (4.2 ТЗ, п.4). cells_per_strip_shelf — настраиваемое значение
     (CalcSettings, 5 раздел бэклога доработок), раньше было захардкожено."""
     rack_type = determine_rack_type(sku, width_mm, parent_id)
-    racks = db.query(Rack).filter(Rack.type == rack_type).all()
+    racks = db.query(Rack).filter(Rack.type == rack_type, Rack.is_active).all()
     if not racks:
         return None
     racks_by_id = {r.id: r for r in racks}

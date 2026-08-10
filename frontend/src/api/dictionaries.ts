@@ -28,6 +28,18 @@ export interface MaterialSkuCreate {
 export const createMaterialSku = async (payload: MaterialSkuCreate): Promise<MaterialSku> =>
   (await apiClient.post<MaterialSku>("/material-skus", payload)).data;
 
+export const listAllMaterialSkus = async (): Promise<MaterialSku[]> =>
+  (await apiClient.get<MaterialSku[]>("/material-skus/all")).data;
+
+export interface MaterialSkuUpdate {
+  supplier_code?: string;
+  native_width_mm?: number;
+  is_active?: boolean;
+}
+
+export const updateMaterialSku = async (id: number, payload: MaterialSkuUpdate): Promise<MaterialSku> =>
+  (await apiClient.patch<MaterialSku>(`/material-skus/${id}`, payload)).data;
+
 export const listMaterials = async (): Promise<DictEntry[]> => (await apiClient.get<DictEntry[]>("/materials")).data;
 export const listColors = async (): Promise<DictEntry[]> => (await apiClient.get<DictEntry[]>("/colors")).data;
 export const listManufacturers = async (): Promise<DictEntry[]> =>

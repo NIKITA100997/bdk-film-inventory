@@ -15,6 +15,14 @@ class RackOut(BaseModel):
     code: str
     type: RackType
     shelf_count: int
+    is_active: bool
+
+
+class RackUpdate(BaseModel):
+    code: str | None = None
+    type: RackType | None = None
+    shelf_count: int | None = Field(default=None, gt=0)
+    is_active: bool | None = None
 
 
 class MacroZoneRuleCreate(BaseModel):

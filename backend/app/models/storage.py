@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Enum, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -23,6 +23,12 @@ class Rack(Base):
     code: Mapped[str] = mapped_column(String(16), unique=True, index=True)  # "Р-3", "Ш-2"
     type: Mapped[RackType] = mapped_column(Enum(RackType, name="rack_type"))
     shelf_count: Mapped[int] = mapped_column(Integer)
+    # Архивирование вместо удаления (по итогам обратной связи после раздела 9
+    # бэклога доработок) — стеллаж мог годами копить историю событий по
+    # единицам, физически размещённым на нём; hard delete не удалит эти
+    # события (в них нет FK на Rack), но архивный стеллаж просто перестаёт
+    # предлагаться для новых размещений и сессий инвентаризации.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     macro_zone_rules: Mapped[list["MacroZoneRule"]] = relationship(
         back_populates="rack", cascade="all, delete-orphan"

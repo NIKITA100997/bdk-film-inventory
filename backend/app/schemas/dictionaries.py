@@ -58,6 +58,12 @@ class MaterialSkuCreate(BaseModel):
     native_width_mm: float | None = None
 
 
+class MaterialSkuUpdate(BaseModel):
+    supplier_code: str | None = None
+    native_width_mm: float | None = None
+    is_active: bool | None = None
+
+
 class DictEntryUpdate(BaseModel):
     name: str | None = None
     is_active: bool | None = None
