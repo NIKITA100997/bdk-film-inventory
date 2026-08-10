@@ -280,7 +280,10 @@ def issue_to_area(
             MaterialUnit.width_mm == payload.width_mm,
             MaterialUnit.length_m >= payload.length_m,
         )
-        .order_by(MaterialUnit.length_m.asc())
+        # Сначала самый старый остаток (дата прихода/нарезки — created_at,
+        # 9 раздел бэклога доработок), среди равных по возрасту — короче
+        # достаточного, чтобы не залёживались длинные куски.
+        .order_by(MaterialUnit.created_at.asc(), MaterialUnit.length_m.asc())
         .first()
     )
     if exact is not None:
@@ -325,7 +328,14 @@ def issue_to_area(
                 MaterialUnit.width_mm.in_(eligible_widths),
                 MaterialUnit.length_m >= payload.length_m,
             )
-            .order_by((MaterialUnit.width_mm - payload.width_mm).asc(), MaterialUnit.length_m.asc())
+            # Тот же приоритет возраста, что и у точного совпадения выше —
+            # донор-рекомендация в первую очередь выбирает самый старый
+            # подходящий остаток, а не просто минимальный отход.
+            .order_by(
+                MaterialUnit.created_at.asc(),
+                (MaterialUnit.width_mm - payload.width_mm).asc(),
+                MaterialUnit.length_m.asc(),
+            )
             .first()
         )
     if donor_unit is not None:
