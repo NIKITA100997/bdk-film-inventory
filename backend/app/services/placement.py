@@ -11,8 +11,6 @@ from app.models.dictionaries import MaterialSku
 from app.models.storage import MacroZoneRule, Rack, RackType
 from app.models.units import MaterialUnit, UnitStatus
 
-CELLS_PER_STRIP_SHELF = 10  # раздел 4: "до ~10, зависит от ширины" — берём верхнюю оценку
-
 
 def determine_rack_type(sku: MaterialSku, width_mm: float, parent_id: int | None) -> RackType:
     """Совпадает с "родной" шириной рулона от поставщика — целый рулон, на
@@ -49,7 +47,7 @@ def _occupied_codes(db: Session, rack_code: str) -> set[str]:
     return {r[0] for r in rows}
 
 
-def _find_free_slot(db: Session, rack: Rack, from_shelf: int, to_shelf: int) -> str | None:
+def _find_free_slot(db: Session, rack: Rack, from_shelf: int, to_shelf: int, cells_per_strip_shelf: int) -> str | None:
     occupied = _occupied_codes(db, rack.code)
     if rack.type == RackType.ROLL:
         for shelf in range(from_shelf, to_shelf + 1):
@@ -59,17 +57,20 @@ def _find_free_slot(db: Session, rack: Rack, from_shelf: int, to_shelf: int) -> 
         return None
 
     for shelf in range(from_shelf, to_shelf + 1):
-        for cell in range(1, CELLS_PER_STRIP_SHELF + 1):
+        for cell in range(1, cells_per_strip_shelf + 1):
             code = f"{rack.code}-{shelf:02d}-{cell:02d}"
             if code not in occupied:
                 return code
     return None
 
 
-def suggest_location(db: Session, *, sku: MaterialSku, width_mm: float, parent_id: int | None) -> str | None:
+def suggest_location(
+    db: Session, *, sku: MaterialSku, width_mm: float, parent_id: int | None, cells_per_strip_shelf: int = 10
+) -> str | None:
     """Возвращает рекомендованный адрес или None, если свободного места нет
     нигде — тогда операция не блокируется, адрес просто вводится вручную
-    (4.2 ТЗ, п.4)."""
+    (4.2 ТЗ, п.4). cells_per_strip_shelf — настраиваемое значение
+    (CalcSettings, 5 раздел бэклога доработок), раньше было захардкожено."""
     rack_type = determine_rack_type(sku, width_mm, parent_id)
     racks = db.query(Rack).filter(Rack.type == rack_type).all()
     if not racks:
@@ -86,7 +87,7 @@ def suggest_location(db: Session, *, sku: MaterialSku, width_mm: float, parent_i
         candidates.append((rack.id, 1, rack.shelf_count))
 
     for rack_id, from_shelf, to_shelf in candidates:
-        location = _find_free_slot(db, racks_by_id[rack_id], from_shelf, to_shelf)
+        location = _find_free_slot(db, racks_by_id[rack_id], from_shelf, to_shelf, cells_per_strip_shelf)
         if location:
             return location
     return None

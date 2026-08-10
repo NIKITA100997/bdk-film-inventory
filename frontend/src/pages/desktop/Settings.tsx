@@ -106,15 +106,38 @@ export default function Settings() {
       <Card title="Настройки расчётов" loading={calcSettingsQuery.isLoading}>
         {calcSettingsQuery.data && (
           <Form
-            layout="inline"
+            layout="vertical"
+            style={{ maxWidth: 480 }}
             initialValues={calcSettingsQuery.data}
             onFinish={(v) => calcSettingsMutation.mutate(v)}
           >
             <Form.Item name="min_useful_width_mm" label="Минимальная полезная ширина, мм" rules={[{ required: true }]}>
-              <InputNumber min={1} />
+              <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
             <Form.Item name="abc_recalc_period_days" label="Период пересчёта ABC, дни" rules={[{ required: true }]}>
-              <InputNumber min={1} />
+              <InputNumber min={1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item
+              name="cells_per_strip_shelf"
+              label="Ячеек на полке штрипсового стеллажа"
+              rules={[{ required: true }]}
+            >
+              <InputNumber min={1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item
+              name="stale_threshold_days"
+              label="Порог «давно не двигалась», дни"
+              rules={[{ required: true }]}
+            >
+              <InputNumber min={1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item
+              name="shortage_note_template"
+              label="Шаблон комментария заявки поставщику"
+              rules={[{ required: true }]}
+              extra="Плейсхолдеры: {material} {color} {thickness} {shortage_m2}"
+            >
+              <Input />
             </Form.Item>
             <Button type="primary" htmlType="submit" loading={calcSettingsMutation.isPending}>
               Сохранить

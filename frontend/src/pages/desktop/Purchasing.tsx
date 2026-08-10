@@ -10,6 +10,7 @@ import {
   type PurchaseRequestCreate,
 } from "../../api/purchasing";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import { getCalcSettings } from "../../api/abc";
 
 export default function Purchasing() {
   const qc = useQueryClient();
@@ -19,6 +20,7 @@ export default function Purchasing() {
 
   const plansQuery = useQuery({ queryKey: ["weekly-plans"], queryFn: listWeeklyPlans });
   const requestsQuery = useQuery({ queryKey: ["purchase-requests"], queryFn: () => listPurchaseRequests() });
+  const calcSettingsQuery = useQuery({ queryKey: ["calc-settings"], queryFn: getCalcSettings });
 
   const latestPlan = (plansQuery.data ?? [])[0];
   const shortages = (latestPlan?.lines ?? []).filter((l) => l.shortage);
@@ -44,11 +46,21 @@ export default function Purchasing() {
   });
 
   const openFromShortage = (line: FilmRequestLine) => {
+    const shortageM2 = Math.round((line.planned_area_m2 - line.current_stock_m2) * 100) / 100;
+    const template = calcSettingsQuery.data?.shortage_note_template;
+    const note = template
+      ? template
+          .replace("{material}", line.material)
+          .replace("{color}", line.color)
+          .replace("{thickness}", String(line.thickness))
+          .replace("{shortage_m2}", String(shortageM2))
+      : undefined;
     setPrefill({
       material: line.material,
       color: line.color,
       thickness: line.thickness,
-      requested_area_m2: Math.round((line.planned_area_m2 - line.current_stock_m2) * 100) / 100,
+      requested_area_m2: shortageM2,
+      note,
     });
     setCreateOpen(true);
   };

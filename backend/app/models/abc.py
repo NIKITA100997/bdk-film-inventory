@@ -3,7 +3,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -45,4 +45,17 @@ class CalcSettings(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     min_useful_width_mm: Mapped[float] = mapped_column(Numeric(10, 2), default=30)
     abc_recalc_period_days: Mapped[int] = mapped_column(Integer, default=90)
+    # Раздел 4.2 ТЗ: "до ~10, зависит от ширины" — было захардкожено в
+    # placement.py, теперь настраивается (5 раздел бэклога доработок).
+    cells_per_strip_shelf: Mapped[int] = mapped_column(Integer, default=10)
+    # Сколько дней единица На_хранении может пролежать без движения (без
+    # новых событий), прежде чем попасть в отчёт "Давно не двигались" —
+    # сигнал на внеплановую инвентаризацию/ревизию.
+    stale_threshold_days: Mapped[int] = mapped_column(Integer, default=60)
+    # Шаблон текста, которым предзаполняется комментарий заявки поставщику
+    # при создании из сигнала нехватки (раздел «Закупки», 6.1 ТЗ).
+    # Плейсхолдеры: {material} {color} {thickness} {shortage_m2}.
+    shortage_note_template: Mapped[str] = mapped_column(
+        String(255), default="Нехватка по плану: {material}, {color}, {thickness} мм — требуется ещё {shortage_m2} м²"
+    )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

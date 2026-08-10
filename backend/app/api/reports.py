@@ -6,11 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
 from app.db.session import get_db
+from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
 from app.models.events import EventType, MaterialEvent
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
-from app.schemas.reports import DonorAccuracyOut, MovementEntry, StockByWidthLine, StockSummaryLine
+from app.schemas.reports import DonorAccuracyOut, MovementEntry, StaleUnitLine, StockByWidthLine, StockSummaryLine
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -161,3 +162,47 @@ def donor_accuracy(
         accepted=accepted,
         accuracy_percent=round(accepted / suggested * 100, 1) if suggested else 0,
     )
+
+
+@router.get("/stale-units", response_model=list[StaleUnitLine])
+def stale_units(
+    threshold_days: int | None = Query(default=None, gt=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[StaleUnitLine]:
+    """«Давно не двигались» (5 раздел бэклога доработок) — единицы На_хранении
+    без единого события дольше threshold_days (по умолчанию из CalcSettings).
+    Сигнал на внеплановую ревизию/инвентаризацию, не блокирует работу."""
+    settings = db.get(CalcSettings, 1)
+    days = threshold_days or (settings.stale_threshold_days if settings else 60)
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
+
+    rows = (
+        db.query(Material.name, Color.name, Thickness.value_mm, Manufacturer.name, MaterialUnit)
+        .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
+        .join(Material, MaterialSku.material_id == Material.id)
+        .join(Color, MaterialSku.color_id == Color.id)
+        .join(Thickness, MaterialSku.thickness_id == Thickness.id)
+        .join(Manufacturer, MaterialSku.manufacturer_id == Manufacturer.id)
+        .filter(MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.updated_at < cutoff)
+        .order_by(MaterialUnit.updated_at.asc())
+        .limit(500)
+        .all()
+    )
+
+    now = dt.datetime.now(dt.timezone.utc)
+    return [
+        StaleUnitLine(
+            unit_id=unit.id,
+            material=m,
+            color=c,
+            thickness=float(t),
+            manufacturer=mf,
+            width_mm=float(unit.width_mm),
+            length_m=float(unit.length_m),
+            location_code=unit.location_code,
+            last_moved_at=unit.updated_at,
+            days_idle=(now - unit.updated_at).days,
+        )
+        for m, c, t, mf, unit in rows
+    ]

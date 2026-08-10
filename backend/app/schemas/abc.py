@@ -26,9 +26,15 @@ class CalcSettingsOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     min_useful_width_mm: float
     abc_recalc_period_days: int
+    cells_per_strip_shelf: int
+    stale_threshold_days: int
+    shortage_note_template: str
     updated_at: datetime
 
 
 class CalcSettingsUpdate(BaseModel):
     min_useful_width_mm: float = Field(gt=0)
     abc_recalc_period_days: int = Field(gt=0)
+    cells_per_strip_shelf: int = Field(gt=0)
+    stale_threshold_days: int = Field(gt=0)
+    shortage_note_template: str = Field(min_length=1, max_length=255)

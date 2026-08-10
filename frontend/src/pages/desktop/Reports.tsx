@@ -7,9 +7,11 @@ import {
   getStockByWidth,
   getMovement,
   getDonorAccuracy,
+  getStaleUnits,
   type StockSummaryLine,
   type StockByWidthLine,
   type MovementEntry,
+  type StaleUnitLine,
 } from "../../api/reports";
 
 function StockSummaryTab() {
@@ -108,6 +110,32 @@ function DonorAccuracyTab() {
   );
 }
 
+function StaleUnitsTab() {
+  const query = useQuery({ queryKey: ["report-stale-units"], queryFn: () => getStaleUnits() });
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <span style={{ color: "rgba(0,0,0,0.45)" }}>
+        Единицы На_хранении без единого события дольше порога из настроек (Настройки → «давно не двигалась») —
+        сигнал провести внеплановую ревизию адреса, а не ошибка.
+      </span>
+      <Table<StaleUnitLine>
+        rowKey="unit_id"
+        loading={query.isLoading}
+        dataSource={query.data ?? []}
+        pagination={{ pageSize: 20 }}
+        columns={[
+          { title: "№", dataIndex: "unit_id" },
+          { title: "Материал", render: (_, r) => `${r.material}, ${r.color}, ${r.thickness} мм, ${r.manufacturer}` },
+          { title: "Ширина×длина", render: (_, r) => `${r.width_mm}×${r.length_m}` },
+          { title: "Ячейка", dataIndex: "location_code", render: (v: string | null) => v ?? "—" },
+          { title: "Не двигалась, дней", dataIndex: "days_idle", render: (v: number) => <Tag color="orange">{v}</Tag> },
+          { title: "Последнее движение", dataIndex: "last_moved_at", render: (v: string) => new Date(v).toLocaleDateString("ru-RU") },
+        ]}
+      />
+    </Space>
+  );
+}
+
 export default function Reports() {
   return (
     <Card title="Отчёты">
@@ -117,6 +145,7 @@ export default function Reports() {
           { key: "width", label: "Остатки по ширине", children: <StockByWidthTab /> },
           { key: "movement", label: "Движение за период", children: <MovementTab /> },
           { key: "donor", label: <>Точность донор-рекомендаций <Tag color="blue">2.9</Tag></>, children: <DonorAccuracyTab /> },
+          { key: "stale", label: "Давно не двигались", children: <StaleUnitsTab /> },
         ]}
       />
     </Card>

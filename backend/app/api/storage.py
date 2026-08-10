@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_roles
 from app.db.session import get_db
+from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
 from app.models.storage import MacroZoneRule, Rack
 from app.schemas.storage import LocationSuggestion, MacroZoneRuleCreate, MacroZoneRuleOut, RackCreate, RackOut
@@ -96,5 +97,9 @@ def suggest_location_endpoint(
     sku = db.get(MaterialSku, material_sku_id)
     if sku is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Позиция материала не найдена")
-    location = suggest_location(db, sku=sku, width_mm=width_mm, parent_id=parent_id)
+    calc_settings = db.get(CalcSettings, 1)
+    cells_per_strip_shelf = calc_settings.cells_per_strip_shelf if calc_settings else 10
+    location = suggest_location(
+        db, sku=sku, width_mm=width_mm, parent_id=parent_id, cells_per_strip_shelf=cells_per_strip_shelf
+    )
     return LocationSuggestion(location_code=location)

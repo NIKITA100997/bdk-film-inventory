@@ -36,6 +36,9 @@ def update_calc_settings(
     settings = _get_settings(db)
     settings.min_useful_width_mm = payload.min_useful_width_mm
     settings.abc_recalc_period_days = payload.abc_recalc_period_days
+    settings.cells_per_strip_shelf = payload.cells_per_strip_shelf
+    settings.stale_threshold_days = payload.stale_threshold_days
+    settings.shortage_note_template = payload.shortage_note_template
     db.commit()
     db.refresh(settings)
     return settings

@@ -42,3 +42,16 @@ class DonorAccuracyOut(BaseModel):
     suggested: int
     accepted: int
     accuracy_percent: float
+
+
+class StaleUnitLine(BaseModel):
+    unit_id: int
+    material: str
+    color: str
+    thickness: float
+    manufacturer: str
+    width_mm: float
+    length_m: float
+    location_code: str | None
+    last_moved_at: datetime
+    days_idle: int
