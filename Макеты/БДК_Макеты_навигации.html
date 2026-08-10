@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>БДК — макеты навигации (раздел 8 бэклога)</title>
+<style>
+  :root {
+    --bg: #F2F3F5;
+    --surface: #FFFFFF;
+    --surface-alt: #F7F8FA;
+    --border: #E4E6EA;
+    --text: #1F2430;
+    --text-secondary: #5C6270;
+    --text-muted: #90959F;
+    --accent: #2F6FED;
+    --accent-bg: #EAF1FE;
+    --accent-text: #1D57C9;
+    --dark: #1B2130;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text);
+    padding: 40px 24px 80px;
+  }
+  h1.page-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+  p.page-sub {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin: 0 0 36px;
+    max-width: 720px;
+  }
+  section.block {
+    max-width: 1180px;
+    margin: 0 auto 64px;
+  }
+  h2.block-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2.block-title .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    background: var(--dark);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 12px;
+  }
+  p.block-note {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin: 0 0 18px;
+    max-width: 760px;
+  }
+  .frame {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(20,20,30,0.04);
+  }
+
+  /* ---------- Desktop layout ---------- */
+  .desktop { display: flex; min-height: 560px; }
+  .sidebar {
+    width: 226px;
+    flex-shrink: 0;
+    background: var(--surface-alt);
+    border-right: 1px solid var(--border);
+    padding: 14px 0;
+  }
+  .brand { padding: 0 16px 12px; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+  .nav-item {
+    padding: 9px 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: default;
+  }
+  .nav-item.active {
+    background: var(--accent-bg);
+    color: var(--accent-text);
+    font-weight: 600;
+    border-radius: 7px;
+    margin: 0 6px;
+    width: calc(100% - 12px);
+  }
+  .nav-group-label {
+    padding: 10px 16px 4px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-top: 6px;
+  }
+  .nav-sub { padding: 7px 16px 7px 28px; font-size: 13px; color: var(--text-secondary); }
+  .main { flex: 1; padding: 24px 28px; min-width: 0; background: var(--surface); }
+  .main h3 { font-size: 17px; margin: 0 0 4px; }
+  .main .sub { font-size: 12.5px; color: var(--text-muted); margin: 0 0 18px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .toggle { display: flex; background: var(--surface-alt); border-radius: 8px; padding: 3px; }
+  .toggle span { padding: 6px 14px; font-size: 12.5px; border-radius: 6px; color: var(--text-secondary); }
+  .toggle span.on { background: var(--accent); color: #fff; }
+  input.fake {
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: var(--surface);
+  }
+  table.data { width: 100%; border-collapse: collapse; background: var(--surface-alt); border-radius: 10px; overflow: hidden; }
+  table.data th {
+    text-align: left; font-size: 11px; color: var(--text-muted); font-weight: 600;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+  }
+  table.data td { padding: 12px 14px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  table.data tr:last-child td { border-bottom: none; }
+  tr.hot td { background: var(--accent-bg); color: var(--accent-text); font-weight: 600; }
+  .foot-note { font-size: 11.5px; color: var(--text-muted); margin-top: 10px; }
+
+  /* ---------- Mobile phones ---------- */
+  .phones { display: flex; gap: 36px; flex-wrap: wrap; padding: 8px 0 4px; }
+  .phone-col { text-align: center; }
+  .role-label { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .role-sub { font-size: 11.5px; color: var(--text-muted); margin-bottom: 14px; }
+  .phone {
+    width: 260px;
+    background: var(--dark);
+    border-radius: 26px;
+    padding: 14px;
+    display: inline-block;
+  }
+  .phone-screen { background: var(--surface-alt); border-radius: 14px; padding: 16px 14px; min-height: 420px; text-align: left; }
+  .phone-screen .app-name { font-size: 11px; color: var(--text-muted); margin: 0 0 2px; }
+  .phone-screen .persona { font-size: 14px; font-weight: 700; margin: 0 0 14px; }
+  .m-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 11px 13px;
+    font-size: 12.5px;
+    margin-bottom: 8px;
+  }
+  .m-item.disabled { opacity: .35; text-decoration: line-through; }
+  .m-item .hint { display: block; font-size: 10.5px; color: var(--text-muted); margin-top: 2px; text-decoration: none; }
+
+  /* ---------- Roles & permissions ---------- */
+  .roles-grid { display: grid; grid-template-columns: 220px 1fr; gap: 0; min-height: 520px; }
+  .role-list { background: var(--surface-alt); border-right: 1px solid var(--border); padding: 14px 0; }
+  .role-row { padding: 10px 16px; font-size: 13px; color: var(--text-secondary); display: flex; justify-content: space-between; align-items: center; }
+  .role-row.selected { background: var(--accent-bg); color: var(--accent-text); font-weight: 600; border-radius: 7px; margin: 0 6px; width: calc(100% - 12px); }
+  .role-row .badge { font-size: 10px; background: #FDEEDB; color: #A85E10; padding: 1px 7px; border-radius: 10px; }
+  .new-role-btn { margin: 10px 16px 0; border: 1px dashed var(--border); border-radius: 8px; padding: 8px; text-align: center; font-size: 12.5px; color: var(--accent-text); }
+  .perm-panel { padding: 22px 26px; }
+  .perm-panel h4 { font-size: 15px; margin: 0 0 2px; }
+  .perm-panel .p-sub { font-size: 12px; color: var(--text-muted); margin: 0 0 18px; }
+  .perm-group { margin-bottom: 16px; }
+  .perm-group .g-title { font-size: 11.5px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 8px; }
+  .perm-row { display: flex; align-items: center; gap: 9px; padding: 6px 0; font-size: 13px; }
+  .chk { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--border); flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; }
+  .chk.on { background: var(--accent); border-color: var(--accent); }
+  .save-btn { margin-top: 16px; background: var(--accent); color: #fff; display: inline-block; padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">БДК — учёт плёнки: макеты навигации</h1>
+<p class="page-sub">Раздел 8 бэклога — единое функциональное меню вместо параллельных мобильного/десктопного деревьев по ролям, карточки материала и единицы убраны из меню, роли и права создаются администратором.</p>
+
+<section class="block">
+  <h2 class="block-title"><span class="num">1</span>Десктоп — единое меню, "Остатки" как основной раздел</h2>
+  <p class="block-note">Один список разделов вместо семи блоков "по ролям". "Карточка материала" и "Карточка единицы" не пункты меню — попадаем в них только кликом по строке или сканом QR.</p>
+  <div class="frame desktop">
+    <div class="sidebar">
+      <div class="brand">БДК · учёт плёнки</div>
+      <div class="nav-item">Обзор</div>
+      <div class="nav-item active">Остатки</div>
+      <div class="nav-item">Приёмка</div>
+      <div class="nav-item">Выдача участку</div>
+      <div class="nav-item">Инвентаризация</div>
+      <div class="nav-group-label">Планирование</div>
+      <div class="nav-sub">Недельный план</div>
+      <div class="nav-sub">План/факт</div>
+      <div class="nav-item" style="margin-top:6px">Заказы</div>
+      <div class="nav-item">Закупки</div>
+      <div class="nav-item">Отчёты</div>
+      <div class="nav-group-label">Администрирование</div>
+      <div class="nav-sub">Пользователи</div>
+      <div class="nav-sub">Роли и права</div>
+      <div class="nav-sub">Справочники</div>
+      <div class="nav-sub">Стеллажи и ячейки</div>
+      <div class="nav-sub">Настройки расчётов</div>
+      <div class="nav-sub">Макет этикетки</div>
+    </div>
+    <div class="main">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div>
+          <h3 style="margin-bottom:0">Остатки</h3>
+        </div>
+        <div style="position:relative">
+          <div style="background:var(--accent);color:#fff;font-size:12.5px;font-weight:600;padding:8px 14px;border-radius:8px;display:flex;align-items:center;gap:6px">+ Новое ▾</div>
+          <div style="position:absolute;right:0;top:38px;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:0 4px 14px rgba(20,20,30,0.10);width:200px;overflow:hidden;z-index:2">
+            <div style="padding:10px 14px;font-size:12.5px;border-bottom:1px solid var(--border)">Материал <span style="display:block;font-size:10.5px;color:var(--text-muted);margin-top:1px">Позиция без рулона — под будущую поставку</span></div>
+            <div style="padding:10px 14px;font-size:12.5px;">Единица плёнки <span style="display:block;font-size:10.5px;color:var(--text-muted);margin-top:1px">Один физический рулон/штрипс вне сессии приёмки</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="sub">Единственное место, откуда ищут материал или единицу — карточек нет в меню, только здесь и по QR</p>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;background:var(--accent-bg);border:1px solid #C7DBFB;border-radius:9px;padding:10px 12px;">
+        <span style="font-size:15px">🔍</span>
+        <input class="fake" style="flex:1;border:none;background:transparent;color:var(--accent-text);font-weight:500;padding:0" value="Введите ID единицы (переход в карточку) или название материала…" readonly>
+      </div>
+      <div class="toolbar">
+        <div class="toggle"><span class="on">По позициям</span><span>По единицам</span></div>
+        <input class="fake" value="Материал" readonly>
+        <input class="fake" value="Цвет" readonly>
+        <input class="fake" value="Толщина, мм" readonly>
+      </div>
+      <table class="data">
+        <tr><th>Материал</th><th>Остаток, м²</th><th>Единиц</th></tr>
+        <tr class="hot"><td>Дуб беленый, ПВХ, 0.35 мм</td><td>612</td><td>4</td></tr>
+        <tr><td>Серый камень, ПВХ, 0.4 мм</td><td>180</td><td>2</td></tr>
+        <tr><td>Орех тёмный, ПВХ, 0.35 мм</td><td>96</td><td>3</td></tr>
+      </table>
+      <p class="foot-note">Клик по строке → карточка материала (список её единиц, план/факт, история). В режиме "По единицам" клик по строке → карточка единицы с действиями по статусу.<br>Число в строке поиска → сразу карточка единицы с этим ID, минуя список.</p>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <h2 class="block-title"><span class="num">2</span>Мобильный — одно дерево, но разный объём по правам</h2>
+  <p class="block-note">Не два разных набора пунктов для двух ролей (как сейчас в navConfig.ts) — одно и то же дерево, просто у роли без права на действие пункта нет вовсе. Оператор склада видит операционные экраны, начальник участка — почти только "Остатки" (действия теперь внутри карточки единицы, не в меню).</p>
+  <div class="frame" style="padding: 28px 24px;">
+    <div class="phones">
+      <div class="phone-col">
+        <div class="role-label">Оператор склада</div>
+        <div class="role-sub">Права на приёмку, выдачу, резку</div>
+        <div class="phone">
+          <div class="phone-screen">
+            <p class="app-name">БДК · учёт плёнки</p>
+            <p class="persona">Оператор склада</p>
+            <div class="m-item">Обзор</div>
+            <div class="m-item">Остатки</div>
+            <div class="m-item">Приёмка</div>
+            <div class="m-item">Выдача участку</div>
+            <div class="m-item">Инвентаризация</div>
+          </div>
+        </div>
+      </div>
+      <div class="phone-col">
+        <div class="role-label">Начальник участка</div>
+        <div class="role-sub">Права только на просмотр и возврат своих единиц</div>
+        <div class="phone">
+          <div class="phone-screen">
+            <p class="app-name">БДК · учёт плёнки</p>
+            <p class="persona">Начальник участка — Щитовые двери</p>
+            <div class="m-item">Обзор</div>
+            <div class="m-item">Остатки<span class="hint">по умолчанию отфильтровано на "мой участок"</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <h2 class="block-title"><span class="num">3</span>Администрирование — "Роли и права"</h2>
+  <p class="block-note">Роли не enum в коде, а создаваемые записи. Права — чекбоксы по каждому действию, сгруппированные по разделам. Пример: администратор завёл новую роль "Стажёр склада" с урезанным набором прав, не трогая код.</p>
+  <div class="frame roles-grid">
+    <div class="role-list">
+      <div class="role-row">Оператор склада</div>
+      <div class="role-row">Кладовщик</div>
+      <div class="role-row">Начальник участка</div>
+      <div class="role-row">Начальник цеха</div>
+      <div class="role-row">Логист / руководитель</div>
+      <div class="role-row">Снабженец / закупщик</div>
+      <div class="role-row selected">Стажёр склада <span class="badge">новая</span></div>
+      <div class="new-role-btn">+ Создать роль</div>
+    </div>
+    <div class="perm-panel">
+      <h4>Стажёр склада</h4>
+      <p class="p-sub">Права — по группам, как в разделах меню. Отмеченное определяет и доступ к API, и видимость пунктов навигации.</p>
+
+      <div class="perm-group">
+        <div class="g-title">Склад</div>
+        <div class="perm-row"><span class="chk on">✓</span>Приёмка партии</div>
+        <div class="perm-row"><span class="chk on">✓</span>Разместить / переместить</div>
+        <div class="perm-row"><span class="chk">&nbsp;</span>Разделить рулон</div>
+        <div class="perm-row"><span class="chk">&nbsp;</span>Раскрой</div>
+        <div class="perm-row"><span class="chk">&nbsp;</span>Списать единицу</div>
+      </div>
+
+      <div class="perm-group">
+        <div class="g-title">Планирование и заказы</div>
+        <div class="perm-row"><span class="chk">&nbsp;</span>Недельный план</div>
+        <div class="perm-row"><span class="chk">&nbsp;</span>Создание / закрытие заказов</div>
+      </div>
+
+      <div class="perm-group">
+        <div class="g-title">Администрирование</div>
+        <div class="perm-row"><span class="chk">&nbsp;</span>Пользователи и роли</div>
+        <div class="perm-row"><span class="chk">&nbsp;</span>Справочники, стеллажи, настройки</div>
+      </div>
+
+      <div class="save-btn">Сохранить роль</div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
