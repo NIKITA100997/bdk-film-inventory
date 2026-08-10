@@ -13,6 +13,7 @@ from app.api.purchasing import router as purchasing_router
 from app.api.reports import router as reports_router
 from app.api.storage import router as storage_router
 from app.api.units import router as units_router
+from app.api.users import router as users_router
 
 app = FastAPI(title="БДК — учёт плёнки")
 
@@ -35,6 +36,7 @@ app.include_router(orders_router)
 app.include_router(abc_router)
 app.include_router(reports_router)
 app.include_router(purchasing_router)
+app.include_router(users_router)
 
 
 @app.get("/health")

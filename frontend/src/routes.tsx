@@ -24,6 +24,7 @@ import Reports from "./pages/desktop/Reports";
 import Settings from "./pages/desktop/Settings";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
 import InventoryDesktop from "./pages/desktop/InventoryDesktop";
+import UserAdmin from "./pages/desktop/UserAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
 
 export default function AppRoutes() {
@@ -125,6 +126,10 @@ export default function AppRoutes() {
         <Route
           path="/dictionaries"
           element={<RequireRole roles={["logist"]}><DictionaryAdmin /></RequireRole>}
+        />
+        <Route
+          path="/users"
+          element={<RequireRole roles={["logist"]}><UserAdmin /></RequireRole>}
         />
         <Route
           path="/inventory"
