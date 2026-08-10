@@ -77,13 +77,13 @@ export default function MaterialCard() {
                 {cardQuery.data.plan_fact ? (
                   <>
                     <Statistic
-                      title="Факт/план недели"
+                      title={`Факт/план по заказам (${cardQuery.data.plan_fact.order_count})`}
                       value={`${cardQuery.data.plan_fact.actual_area_m2} / ${cardQuery.data.plan_fact.planned_area_m2} м²`}
                     />
                     <Progress percent={Math.min(cardQuery.data.plan_fact.percent_complete, 100)} size="small" />
                   </>
                 ) : (
-                  <Statistic title="Факт/план недели" value="нет плана на неделю" />
+                  <Statistic title="Факт/план по заказам" value="нет открытых заказов с этим материалом" />
                 )}
               </Col>
               <Col span={8}>

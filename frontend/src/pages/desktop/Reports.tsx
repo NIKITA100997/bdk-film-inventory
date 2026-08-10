@@ -9,6 +9,7 @@ import {
   getDonorAccuracy,
   getStaleUnits,
 } from "../../api/reports";
+import { getOrdersReport } from "../../api/orders";
 import ReportTable, { type ReportColumn } from "../../components/ReportTable";
 import DictAutoComplete from "../../components/DictAutoComplete";
 
@@ -194,6 +195,48 @@ function StaleUnitsTab() {
   );
 }
 
+function OrdersReportTab() {
+  const query = useQuery({ queryKey: ["report-orders"], queryFn: getOrdersReport });
+  const rows = query.data ?? [];
+  const columns: ReportColumn<(typeof rows)[number]>[] = [
+    { key: "number", header: "Номер", render: (r) => r.number, printValue: (r) => r.number },
+    {
+      key: "status",
+      header: "Статус",
+      render: (r) => (r.status === "closed" ? <Tag>Закрыт</Tag> : <Tag color="green">Открыт</Tag>),
+      printValue: (r) => (r.status === "closed" ? "Закрыт" : "Открыт"),
+    },
+    { key: "planned_area_m2", header: "План, м²", render: (r) => r.planned_area_m2, printValue: (r) => r.planned_area_m2, sorter: (a, b) => a.planned_area_m2 - b.planned_area_m2 },
+    { key: "actual_area_m2", header: "Факт, м²", render: (r) => r.actual_area_m2, printValue: (r) => r.actual_area_m2, sorter: (a, b) => a.actual_area_m2 - b.actual_area_m2 },
+    { key: "percent_complete", header: "% выполнения", render: (r) => `${r.percent_complete}%`, printValue: (r) => r.percent_complete, sorter: (a, b) => a.percent_complete - b.percent_complete },
+    {
+      key: "created_at",
+      header: "Создан",
+      render: (r) => new Date(r.created_at).toLocaleDateString("ru-RU"),
+      printValue: (r) => new Date(r.created_at).toLocaleDateString("ru-RU"),
+      sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      defaultSortOrder: "descend",
+    },
+  ];
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <span style={{ color: "rgba(0,0,0,0.45)" }}>
+        Сводка по всем заказам (4 раздел обратной связи) — план/факт по каждому заказу считается отдельно на
+        экране «Заказы», здесь только общая картина.
+      </span>
+      <ReportTable
+        title="По заказам"
+        filename="po-zakazam.csv"
+        rowKey="id"
+        columns={columns}
+        data={rows}
+        loading={query.isLoading}
+      />
+    </Space>
+  );
+}
+
 export default function Reports() {
   return (
     <Card title="Отчёты">
@@ -204,6 +247,7 @@ export default function Reports() {
           { key: "movement", label: "Движение за период", children: <MovementTab /> },
           { key: "donor", label: <>Точность донор-рекомендаций <Tag color="blue">2.9</Tag></>, children: <DonorAccuracyTab /> },
           { key: "stale", label: "Давно не двигались", children: <StaleUnitsTab /> },
+          { key: "orders", label: "По заказам", children: <OrdersReportTab /> },
         ]}
       />
     </Card>

@@ -1,12 +1,11 @@
 from app.models.users import User, UserRole, Area
 from app.models.dictionaries import Material, Color, Thickness, Manufacturer, MaterialSku
 from app.models.storage import Rack, MacroZoneRule, RackType
-from app.models.orders import Order
+from app.models.orders import Order, OrderMaterialLine
 from app.models.inventory import InventorySession, InventorySessionParticipant, InventoryScopeType, InventoryStatus
 from app.models.abc import WidthAbcClass, WidthClass, CalcSettings
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.events import MaterialEvent, EventType
-from app.models.plans import WeeklyPlan, FilmRequestLine
 from app.models.purchasing import PurchaseRequest
 from app.models.labels import LabelTemplate
 
@@ -23,6 +22,7 @@ __all__ = [
     "MacroZoneRule",
     "RackType",
     "Order",
+    "OrderMaterialLine",
     "InventorySession",
     "InventorySessionParticipant",
     "InventoryScopeType",
@@ -34,8 +34,6 @@ __all__ = [
     "UnitStatus",
     "MaterialEvent",
     "EventType",
-    "WeeklyPlan",
-    "FilmRequestLine",
     "PurchaseRequest",
     "LabelTemplate",
 ]

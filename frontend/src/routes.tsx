@@ -9,8 +9,6 @@ import Issue from "./pages/mobile/Issue";
 import UnitCard from "./pages/mobile/UnitCard";
 import Inventory from "./pages/mobile/Inventory";
 
-import WeeklyPlan from "./pages/desktop/WeeklyPlan";
-import PlanFact from "./pages/desktop/PlanFact";
 import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
 import MaterialCard from "./pages/desktop/MaterialCard";
 import Orders from "./pages/desktop/Orders";
@@ -51,11 +49,6 @@ export default function AppRoutes() {
           element={<RequireRole roles={["logist", "kladovshchik"]}><Inventory /></RequireRole>}
         />
 
-        <Route path="/plan" element={<RequireRole roles={["nachalnik_tsekha"]}><WeeklyPlan /></RequireRole>} />
-        <Route
-          path="/plan-fact"
-          element={<RequireRole roles={["nachalnik_tsekha", "logist"]}><PlanFact /></RequireRole>}
-        />
         <Route
           path="/stock"
           element={
@@ -79,7 +72,10 @@ export default function AppRoutes() {
             </RequireRole>
           }
         />
-        <Route path="/orders" element={<RequireRole roles={["logist", "kladovshchik"]}><Orders /></RequireRole>} />
+        <Route
+          path="/orders"
+          element={<RequireRole roles={["logist", "kladovshchik", "nachalnik_tsekha"]}><Orders /></RequireRole>}
+        />
         <Route
           path="/reports"
           element={<RequireRole roles={["logist", "nachalnik_tsekha"]}><Reports /></RequireRole>}

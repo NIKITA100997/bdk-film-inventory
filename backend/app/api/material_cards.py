@@ -1,5 +1,3 @@
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
@@ -7,12 +5,11 @@ from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.dictionaries import MaterialSku
 from app.models.events import MaterialEvent
-from app.models.plans import FilmRequestLine, WeeklyPlan
+from app.models.orders import Order, OrderMaterialLine
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
-from app.schemas.material_cards import MaterialCardOut
-from app.schemas.plans import PlanFactLine
-from app.services.plan_fact import fetch_actual_for_group
+from app.schemas.material_cards import MaterialCardOut, MaterialCardPlanFact
+from app.services.plan_fact import fetch_actual_for_orders
 
 router = APIRouter(prefix="/material-cards", tags=["material-cards"])
 
@@ -57,38 +54,33 @@ def get_material_card(sku_id: int, db: Session = Depends(get_db), user: User = D
         .all()
     )
 
-    # План/факт (2.6 ТЗ): берём самый свежий план, покрывающий сегодняшнюю
-    # дату, у которого есть позиция с этим material/color/thickness.
-    today = date.today()
-    plan_fact_line: PlanFactLine | None = None
-    line = (
-        db.query(FilmRequestLine)
-        .join(WeeklyPlan, FilmRequestLine.weekly_plan_id == WeeklyPlan.id)
+    # План/факт (2.6 ТЗ, 4 раздел обратной связи): агрегат по всем ОТКРЫТЫМ
+    # заказам, у которых есть строка с этим material/color/thickness —
+    # раньше брался один самый свежий недельный план, теперь заказов может
+    # быть несколько сразу, план/факт суммируется по ним.
+    plan_fact_line: MaterialCardPlanFact | None = None
+    lines = (
+        db.query(OrderMaterialLine)
+        .join(Order, OrderMaterialLine.order_id == Order.id)
         .filter(
-            FilmRequestLine.material_id == sku.material_id,
-            FilmRequestLine.color_id == sku.color_id,
-            FilmRequestLine.thickness_id == sku.thickness_id,
-            WeeklyPlan.week_start <= today,
-            WeeklyPlan.week_end >= today,
+            Order.status == "open",
+            OrderMaterialLine.material_id == sku.material_id,
+            OrderMaterialLine.color_id == sku.color_id,
+            OrderMaterialLine.thickness_id == sku.thickness_id,
         )
-        .order_by(WeeklyPlan.week_start.desc())
-        .first()
+        .all()
     )
-    if line is not None:
-        actual = fetch_actual_for_group(
+    if lines:
+        planned = sum(float(line.planned_area_m2) for line in lines)
+        actual = fetch_actual_for_orders(
             db,
+            order_ids=[line.order_id for line in lines],
             material_id=sku.material_id,
             color_id=sku.color_id,
             thickness_id=sku.thickness_id,
-            date_from=line.weekly_plan.week_start,
-            date_to=line.weekly_plan.week_end,
         )
-        planned = float(line.planned_area_m2)
-        plan_fact_line = PlanFactLine(
-            line_id=line.id,
-            material=sku.material.name,
-            color=sku.color.name,
-            thickness=float(sku.thickness.value_mm),
+        plan_fact_line = MaterialCardPlanFact(
+            order_count=len(lines),
             planned_area_m2=planned,
             actual_area_m2=actual.total_area_m2,
             percent_complete=round(actual.total_area_m2 / planned * 100, 1) if planned else 0,

@@ -1,6 +1,13 @@
 import { apiClient } from "./client";
 import type { MaterialSku, MaterialUnit } from "./units";
-import type { PlanFactLine } from "./plans";
+
+export interface MaterialCardPlanFact {
+  order_count: number;
+  planned_area_m2: number;
+  actual_area_m2: number;
+  percent_complete: number;
+  by_width: Record<string, number>;
+}
 
 export interface MaterialEvent {
   event_id: number;
@@ -21,7 +28,7 @@ export interface MaterialCard {
   sku: MaterialSku;
   total_area_m2: number;
   units: MaterialUnit[];
-  plan_fact: PlanFactLine | null;
+  plan_fact: MaterialCardPlanFact | null;
   events: MaterialEvent[];
 }
 

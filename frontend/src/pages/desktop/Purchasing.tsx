@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Card, Table, Tag, Button, Modal, Form, InputNumber, Input, Space, Typography, Empty, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listWeeklyPlans, type FilmRequestLine } from "../../api/plans";
+import { listShortages, type OrderShortageLine } from "../../api/orders";
 import {
   listPurchaseRequests,
   createPurchaseRequest,
@@ -18,12 +18,11 @@ export default function Purchasing() {
   const [prefill, setPrefill] = useState<Partial<PurchaseRequestCreate> | null>(null);
   const [form] = Form.useForm<PurchaseRequestCreate>();
 
-  const plansQuery = useQuery({ queryKey: ["weekly-plans"], queryFn: listWeeklyPlans });
+  const shortagesQuery = useQuery({ queryKey: ["order-shortages"], queryFn: listShortages });
   const requestsQuery = useQuery({ queryKey: ["purchase-requests"], queryFn: () => listPurchaseRequests() });
   const calcSettingsQuery = useQuery({ queryKey: ["calc-settings"], queryFn: getCalcSettings });
 
-  const latestPlan = (plansQuery.data ?? [])[0];
-  const shortages = (latestPlan?.lines ?? []).filter((l) => l.shortage);
+  const shortages = shortagesQuery.data ?? [];
 
   const createMutation = useMutation({
     mutationFn: createPurchaseRequest,
@@ -45,7 +44,7 @@ export default function Purchasing() {
     onError: () => message.error("Не удалось закрыть заявку"),
   });
 
-  const openFromShortage = (line: FilmRequestLine) => {
+  const openFromShortage = (line: OrderShortageLine) => {
     const shortageM2 = Math.round((line.planned_area_m2 - line.current_stock_m2) * 100) / 100;
     const template = calcSettingsQuery.data?.shortage_note_template;
     const note = template
@@ -67,19 +66,21 @@ export default function Purchasing() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Card title="Сигналы нехватки" loading={plansQuery.isLoading}>
+      <Card title="Сигналы нехватки" loading={shortagesQuery.isLoading}>
         <Typography.Paragraph type="secondary">
-          Строки последнего недельного плана, где остаток на складе меньше плановой потребности (2.7 ТЗ).
+          Строки потребности всех открытых заказов, где остаток на складе меньше плановой потребности (2.7 ТЗ, 4
+          раздел обратной связи — источник теперь заказы, не «последний недельный план»).
         </Typography.Paragraph>
         {shortages.length === 0 ? (
           <Empty description="Нехватки не обнаружены" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         ) : (
-          <Table<FilmRequestLine>
-            rowKey="id"
+          <Table<OrderShortageLine>
+            rowKey="line_id"
             size="small"
             pagination={false}
             dataSource={shortages}
             columns={[
+              { title: "Заказ", dataIndex: "order_number" },
               { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
               { title: "План, м²", dataIndex: "planned_area_m2" },
               { title: "Остаток, м²", dataIndex: "current_stock_m2" },

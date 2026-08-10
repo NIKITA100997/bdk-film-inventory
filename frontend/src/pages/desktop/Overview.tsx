@@ -3,9 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import { useAuth } from "../../auth/AuthContext";
-import { listWeeklyPlans } from "../../api/plans";
 import { listPurchaseRequests } from "../../api/purchasing";
-import { listOrders } from "../../api/orders";
+import { listOrders, getOrdersReport } from "../../api/orders";
 import { listSessions } from "../../api/inventory";
 import { getDonorAccuracy, getStaleUnits } from "../../api/reports";
 
@@ -27,7 +26,7 @@ export default function Overview() {
   const showDonorAccuracy = role === "logist" || role === "nachalnik_tsekha" || role === "admin";
   const showStale = role === "logist" || role === "kladovshchik" || role === "admin";
 
-  const plansQuery = useQuery({ queryKey: ["weekly-plans"], queryFn: listWeeklyPlans, enabled: showPlanning });
+  const ordersReportQuery = useQuery({ queryKey: ["orders-report", "overview"], queryFn: getOrdersReport, enabled: showPlanning });
   const purchasingQuery = useQuery({
     queryKey: ["purchase-requests", "open"],
     queryFn: () => listPurchaseRequests("open"),
@@ -42,7 +41,9 @@ export default function Overview() {
   });
   const staleQuery = useQuery({ queryKey: ["stale-units", "overview"], queryFn: () => getStaleUnits(), enabled: showStale });
 
-  const shortageCount = (plansQuery.data ?? [])[0]?.lines.filter((l) => l.shortage).length ?? 0;
+  const shortageCount = (ordersReportQuery.data ?? [])
+    .filter((o) => o.status !== "closed")
+    .reduce((sum, o) => sum + o.shortage_line_count, 0);
   const openOrdersCount = (ordersQuery.data ?? []).filter((o) => o.status !== "closed").length;
   const openSessionsCount = (sessionsQuery.data ?? []).filter((s) => s.status === "in_progress").length;
 
@@ -59,8 +60,8 @@ export default function Overview() {
       <Row gutter={[16, 16]}>
         {showPlanning && (
           <Col span={6}>
-            <Card loading={plansQuery.isLoading} {...clickableProps("/plan-fact")}>
-              <Statistic title="Сигналов нехватки в плане" value={shortageCount} valueStyle={{ color: shortageCount > 0 ? "#C97A2B" : undefined }} />
+            <Card loading={ordersReportQuery.isLoading} {...clickableProps("/orders")}>
+              <Statistic title="Дефицитных позиций по заказам" value={shortageCount} valueStyle={{ color: shortageCount > 0 ? "#C97A2B" : undefined }} />
             </Card>
           </Col>
         )}

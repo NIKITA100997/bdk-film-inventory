@@ -57,18 +57,13 @@ export const navTree: NavBlock[] = [
     ],
   },
   {
-    key: "planning",
-    label: "Планирование",
-    items: [
-      { key: "plan", path: "/plan", label: "Недельный план", roles: ["nachalnik_tsekha"] },
-      { key: "plan-fact", path: "/plan-fact", label: "План/факт", roles: ["nachalnik_tsekha", "logist"] },
-    ],
-  },
-  {
     key: "orders-purchasing-reports",
     label: "",
     items: [
-      { key: "orders", path: "/orders", label: "Заказы", roles: ["logist", "kladovshchik"] },
+      // Заказ — единица планирования (4 раздел обратной связи, заменяет
+      // собой недельный план): свои строки потребности + план/факт по
+      // заказу, поэтому начальник цеха тоже сюда, а не в отдельный раздел.
+      { key: "orders", path: "/orders", label: "Заказы", roles: ["logist", "kladovshchik", "nachalnik_tsekha"] },
       { key: "purchasing", path: "/purchasing", label: "Закупки", roles: ["snabzhenets"] },
       { key: "reports", path: "/reports", label: "Отчёты", roles: ["logist", "nachalnik_tsekha"] },
     ],

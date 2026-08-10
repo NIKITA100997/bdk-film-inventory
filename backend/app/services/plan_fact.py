@@ -1,11 +1,11 @@
-"""Агрегация факта расхода по позиции плана (2.8 ТЗ) — чистая функция без
-БД, по образцу splitting.py: принимает уже выбранные из журнала пары
-(width_mm, quantity_delta_m) и считает м², не заботясь о том, как они
-получены."""
+"""Агрегация факта расхода по строке заказа (2.8 ТЗ, 4 раздел обратной
+связи — план/факт считается по заказу, не по календарной неделе). Чистая
+функция без БД, по образцу splitting.py: принимает уже выбранные из
+журнала пары (width_mm, quantity_delta_m) и считает м², не заботясь о
+том, как они получены."""
 
 from __future__ import annotations
 
-import datetime as dt
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -19,8 +19,8 @@ class ActualAggregate:
 
 def aggregate_actual(events: list[tuple[float, float]]) -> ActualAggregate:
     """`events` — пары (width_mm, quantity_delta_m) событий Выдача_участку/
-    Списание за период (2.8 ТЗ). quantity_delta_m у этих событий
-    отрицательный — берём модуль, факт расхода не может быть отрицательным."""
+    Списание. quantity_delta_m у этих событий отрицательный — берём модуль,
+    факт расхода не может быть отрицательным."""
     total_area_m2 = 0.0
     by_width: dict[float, float] = {}
     for width_mm, quantity_delta_m in events:
@@ -30,20 +30,22 @@ def aggregate_actual(events: list[tuple[float, float]]) -> ActualAggregate:
     return ActualAggregate(total_area_m2=round(total_area_m2, 3), by_width=by_width)
 
 
-def fetch_actual_for_group(
+def fetch_actual_for_orders(
     db: Session,
     *,
+    order_ids: list[int],
     material_id: int,
     color_id: int,
     thickness_id: int,
-    date_from: dt.date,
-    date_to: dt.date,
 ) -> ActualAggregate:
-    """Тянет из журнала события Выдача_участку/Списание за период для
-    группы material+color+thickness (без производителя, 2.8 ТЗ) и считает
-    факт через aggregate_actual. Общая точка для plan-fact и карточки
-    материала — чтобы не дублировать запрос."""
-    from sqlalchemy import func
+    """Тянет из журнала события Выдача_участку/Списание, помеченные одним
+    из указанных заказов (MaterialEvent.order_id — уже проставляется при
+    каждой операции, см. services/events.py), для группы
+    material+color+thickness (без производителя, как и сама строка
+    потребности). Общая точка для план/факта заказа (один order_id) и
+    карточки материала (несколько открытых заказов сразу)."""
+    if not order_ids:
+        return ActualAggregate(total_area_m2=0.0)
 
     from app.models.dictionaries import MaterialSku
     from app.models.events import EventType, MaterialEvent
@@ -52,12 +54,11 @@ def fetch_actual_for_group(
         db.query(MaterialEvent.width_mm, MaterialEvent.quantity_delta_m)
         .join(MaterialSku, MaterialEvent.material_sku_id == MaterialSku.id)
         .filter(
+            MaterialEvent.order_id.in_(order_ids),
             MaterialSku.material_id == material_id,
             MaterialSku.color_id == color_id,
             MaterialSku.thickness_id == thickness_id,
             MaterialEvent.event_type.in_([EventType.VYDACHA_UCHASTKU, EventType.SPISANIE]),
-            func.date(MaterialEvent.timestamp) >= date_from,
-            func.date(MaterialEvent.timestamp) <= date_to,
         )
         .all()
     )
