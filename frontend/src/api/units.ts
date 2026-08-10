@@ -141,11 +141,6 @@ export async function searchUnits(params: SearchParams): Promise<MaterialUnit[]>
   return data;
 }
 
-export async function getMyAreaUnits(): Promise<MaterialUnit[]> {
-  const { data } = await apiClient.get<MaterialUnit[]>("/units/my-area");
-  return data;
-}
-
 export interface UnitEvent {
   event_id: number;
   event_type: string;

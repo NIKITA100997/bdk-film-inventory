@@ -8,7 +8,6 @@ import Receive from "./pages/mobile/Receive";
 import Issue from "./pages/mobile/Issue";
 import UnitCard from "./pages/mobile/UnitCard";
 import Inventory from "./pages/mobile/Inventory";
-import MyArea from "./pages/mobile/MyArea";
 
 import WeeklyPlan from "./pages/desktop/WeeklyPlan";
 import PlanFact from "./pages/desktop/PlanFact";
@@ -51,10 +50,6 @@ export default function AppRoutes() {
           path="/m/inventory"
           element={<RequireRole roles={["logist", "kladovshchik"]}><Inventory /></RequireRole>}
         />
-        <Route
-          path="/m/my-area"
-          element={<RequireRole roles={["nachalnik_uchastka"]}><MyArea /></RequireRole>}
-        />
 
         <Route path="/plan" element={<RequireRole roles={["nachalnik_tsekha"]}><WeeklyPlan /></RequireRole>} />
         <Route
@@ -74,10 +69,9 @@ export default function AppRoutes() {
         <Route
           path="/materials"
           element={
-            // Доступен и с десктопного раздела "Материалы" (сузили до
-            // operator_sklada/kladovshchik/logist — 5.5 ТЗ), и с мобильного
-            // блока "Общее" (там пункт открыт всем ролям), поэтому здесь
-            // держим полный список, чтобы не сломать мобильный вход.
+            // Не пункт меню (8.1 раздел бэклога доработок) — вход только
+            // кликом по строке в "Остатках" или сканом QR, поэтому доступ
+            // держим широким, как раньше был у самого /stock.
             <RequireRole
               roles={["operator_sklada", "kladovshchik", "nachalnik_uchastka", "nachalnik_tsekha", "logist", "snabzhenets"]}
             >

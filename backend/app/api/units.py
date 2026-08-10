@@ -84,23 +84,6 @@ def receive(
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id.in_(ids)).all()
 
 
-@router.get("/my-area", response_model=list[MaterialUnitOut])
-def my_area_units(
-    db: Session = Depends(get_db),
-    user: User = Depends(require_roles("nachalnik_uchastka")),
-) -> list[MaterialUnit]:
-    """"Что у меня сейчас" (5.5 ТЗ, блок "Мой участок") — единицы, числящиеся
-    прямо сейчас за участком, которым руководит текущий пользователь."""
-    if user.area is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Для вашей учётной записи не задан участок")
-    return (
-        _with_sku(db.query(MaterialUnit))
-        .filter(MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU, MaterialUnit.area == user.area)
-        .order_by(MaterialUnit.updated_at.desc())
-        .all()
-    )
-
-
 @router.get("/{unit_id}", response_model=MaterialUnitOut)
 def get_unit(
     unit_id: int,

@@ -1,7 +1,7 @@
 import { Layout, Menu, Space, Typography, Button } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { desktopSections, mobileBlocks, type NavItem } from "./navConfig";
+import { navTree, type NavItem } from "./navConfig";
 import { fontHeading, palette } from "../theme";
 
 const { Header, Sider, Content } = Layout;
@@ -19,19 +19,24 @@ export default function AppLayout() {
     return true;
   };
 
-  // Мобильные блоки и десктопные разделы (5.5 ТЗ) отрисовываются как группы
-  // в одном боковом меню — конкретному пользователю обычно видна только
-  // "своя" половина (складские/участковые роли — мобильные блоки, офисные —
-  // десктопные разделы), кроме admin, который видит всё.
-  const items = [...mobileBlocks, ...desktopSections]
+  // Единое функциональное дерево (8.2 раздел бэклога доработок) — блоки без
+  // заголовка отрисовываются как плоские пункты верхнего уровня, блоки с
+  // заголовком ("Планирование", "Администрирование") — как группа.
+  const items = navTree
     .map((block) => ({ block, visibleItems: block.items.filter(isVisible) }))
     .filter(({ visibleItems }) => visibleItems.length > 0)
-    .map(({ block, visibleItems }) => ({
-      key: block.key,
-      label: block.label,
-      type: "group" as const,
-      children: visibleItems.map((item) => ({ key: item.path, label: item.label })),
-    }));
+    .flatMap(({ block, visibleItems }) =>
+      block.label
+        ? [
+            {
+              key: block.key,
+              label: block.label,
+              type: "group" as const,
+              children: visibleItems.map((item) => ({ key: item.path, label: item.label })),
+            },
+          ]
+        : visibleItems.map((item) => ({ key: item.path, label: item.label })),
+    );
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
