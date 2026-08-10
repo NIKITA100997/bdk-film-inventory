@@ -201,7 +201,21 @@ export default function UnitCard() {
         <>
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
             <Descriptions.Item label="ID">№ {unit.id}</Descriptions.Item>
-            <Descriptions.Item label="Материал">{skuLabel(unit.material_sku)}</Descriptions.Item>
+            <Descriptions.Item label="Материал">
+              <a
+                onClick={() =>
+                  navigate("/materials", {
+                    state: {
+                      material: unit.material_sku.material.name,
+                      color: unit.material_sku.color.name,
+                      thickness: unit.material_sku.thickness.value_mm,
+                    },
+                  })
+                }
+              >
+                {skuLabel(unit.material_sku)}
+              </a>
+            </Descriptions.Item>
             <Descriptions.Item label="Ширина×длина">
               {unit.width_mm} мм × {unit.length_m} м
             </Descriptions.Item>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, Select, Row, Col, Statistic, Table, Space, Progress, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { getMaterialCard } from "../../api/materialCards";
 import { skuLabel } from "../../api/units";
@@ -14,6 +14,7 @@ interface MaterialCardPrefill {
 
 export default function MaterialCard() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [skuId, setSkuId] = useState<number | null>(null);
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
 
@@ -120,6 +121,10 @@ export default function MaterialCard() {
               size="small"
               pagination={{ pageSize: 10 }}
               dataSource={cardQuery.data.units}
+              onRow={(u) => ({
+                onClick: () => navigate("/m/unit-card", { state: { unitId: u.id } }),
+                style: { cursor: "pointer" },
+              })}
               columns={[
                 { title: "ID", dataIndex: "id" },
                 { title: "Ширина×длина", render: (_, u) => `${u.width_mm}×${u.length_m}` },
