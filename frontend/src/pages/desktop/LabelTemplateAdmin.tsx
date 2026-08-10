@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { Card, Typography, InputNumber, Select, Switch, Button, Space, List, Tag, Modal, message } from "antd";
+import { HolderOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   getLabelTemplate,
   listAvailableLabelFields,
@@ -8,6 +12,7 @@ import {
   previewLabelTemplate,
   type LabelFieldConfig,
   type FieldSize,
+  type AvailableField,
 } from "../../api/labels";
 
 const sizeOptions: { value: FieldSize; label: string }[] = [
@@ -16,10 +21,57 @@ const sizeOptions: { value: FieldSize; label: string }[] = [
   { value: "lg", label: "Крупный" },
 ];
 
+function SortableFieldItem({
+  field,
+  meta,
+  onRemove,
+  onSizeChange,
+  onBoldChange,
+}: {
+  field: LabelFieldConfig;
+  meta?: AvailableField;
+  onRemove: () => void;
+  onSizeChange: (v: FieldSize) => void;
+  onBoldChange: (v: boolean) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.key });
+  const isText = meta?.kind === "text";
+
+  return (
+    <List.Item
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1, background: "#fff" }}
+      actions={[
+        <Button key="remove" size="small" danger onClick={onRemove}>
+          Убрать
+        </Button>,
+      ]}
+    >
+      <Space>
+        <span {...attributes} {...listeners} style={{ cursor: "grab", touchAction: "none", color: "rgba(0,0,0,0.45)" }}>
+          <HolderOutlined />
+        </span>
+        <span>{meta?.label ?? field.key}</span>
+        {meta?.stale_warning && <Tag color="orange">теряет актуальность</Tag>}
+        {isText && (
+          <Select size="small" style={{ width: 110 }} value={field.size} options={sizeOptions} onChange={onSizeChange} />
+        )}
+        {isText && (
+          <Space size={4}>
+            <Switch size="small" checked={field.bold} onChange={onBoldChange} />
+            <Typography.Text type="secondary">жирный</Typography.Text>
+          </Space>
+        )}
+      </Space>
+    </List.Item>
+  );
+}
+
 export default function LabelTemplateAdmin() {
   const qc = useQueryClient();
   const templateQuery = useQuery({ queryKey: ["label-template"], queryFn: getLabelTemplate });
   const fieldsQuery = useQuery({ queryKey: ["label-template", "available-fields"], queryFn: listAvailableLabelFields });
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const [widthMm, setWidthMm] = useState(60);
   const [heightMm, setHeightMm] = useState(90);
@@ -69,24 +121,25 @@ export default function LabelTemplateAdmin() {
   };
 
   const removeField = (index: number) => setFields((f) => f.filter((_, i) => i !== index));
-  const moveField = (index: number, dir: -1 | 1) => {
-    setFields((f) => {
-      const next = [...f];
-      const target = index + dir;
-      if (target < 0 || target >= next.length) return f;
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
-    });
-  };
   const updateField = (index: number, patch: Partial<LabelFieldConfig>) =>
     setFields((f) => f.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setFields((f) => {
+      const oldIndex = f.findIndex((x) => x.key === active.id);
+      const newIndex = f.findIndex((x) => x.key === over.id);
+      return arrayMove(f, oldIndex, newIndex);
+    });
+  };
 
   return (
     <Card loading={templateQuery.isLoading || fieldsQuery.isLoading}>
       <Typography.Title level={4}>Макет этикетки</Typography.Title>
       <Typography.Paragraph type="secondary">
-        Список полей сверху вниз — так они лягут на бирку. Ширина и длина по умолчанию не печатаются (4.1 ТЗ):
-        они меняются при каждом разделении, а этикетка не перепечатывается.
+        Перетащите поля за {"⠿"}, чтобы изменить порядок — так они лягут на бирку сверху вниз. Ширина и длина по
+        умолчанию не печатаются (4.1 ТЗ): они меняются при каждом разделении, а этикетка не перепечатывается.
       </Typography.Paragraph>
 
       <Space size="large" style={{ marginBottom: 20 }}>
@@ -100,50 +153,25 @@ export default function LabelTemplateAdmin() {
         </Space>
       </Space>
 
-      <List
-        bordered
-        dataSource={fields}
-        locale={{ emptyText: "Полей нет — этикетка будет пустой" }}
-        renderItem={(field, index) => {
-          const meta = fieldMeta(field.key);
-          const isText = meta?.kind === "text";
-          return (
-            <List.Item
-              actions={[
-                <Button key="up" size="small" disabled={index === 0} onClick={() => moveField(index, -1)}>
-                  Вверх
-                </Button>,
-                <Button key="down" size="small" disabled={index === fields.length - 1} onClick={() => moveField(index, 1)}>
-                  Вниз
-                </Button>,
-                <Button key="remove" size="small" danger onClick={() => removeField(index)}>
-                  Убрать
-                </Button>,
-              ]}
-            >
-              <Space>
-                <span>{meta?.label ?? field.key}</span>
-                {meta?.stale_warning && <Tag color="orange">теряет актуальность</Tag>}
-                {isText && (
-                  <Select
-                    size="small"
-                    style={{ width: 110 }}
-                    value={field.size}
-                    options={sizeOptions}
-                    onChange={(v) => updateField(index, { size: v })}
-                  />
-                )}
-                {isText && (
-                  <Space size={4}>
-                    <Switch size="small" checked={field.bold} onChange={(v) => updateField(index, { bold: v })} />
-                    <Typography.Text type="secondary">жирный</Typography.Text>
-                  </Space>
-                )}
-              </Space>
-            </List.Item>
-          );
-        }}
-      />
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={fields.map((f) => f.key)} strategy={verticalListSortingStrategy}>
+          <List
+            bordered
+            dataSource={fields}
+            locale={{ emptyText: "Полей нет — этикетка будет пустой" }}
+            renderItem={(field, index) => (
+              <SortableFieldItem
+                key={field.key}
+                field={field}
+                meta={fieldMeta(field.key)}
+                onRemove={() => removeField(index)}
+                onSizeChange={(v) => updateField(index, { size: v })}
+                onBoldChange={(v) => updateField(index, { bold: v })}
+              />
+            )}
+          />
+        </SortableContext>
+      </DndContext>
 
       <Space style={{ marginTop: 16 }}>
         <Select
