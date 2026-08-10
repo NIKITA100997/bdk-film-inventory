@@ -117,6 +117,7 @@ export const desktopSections: NavBlock[] = [
       { key: "d-settings", path: "/settings", label: "Настройки", roles: ["logist"] },
       { key: "d-dictionaries", path: "/dictionaries", label: "Справочники", roles: ["logist"] },
       { key: "d-users", path: "/users", label: "Пользователи", roles: ["logist"] },
+      { key: "d-label-template", path: "/label-template", label: "Макет этикетки", roles: ["logist"] },
     ],
   },
 ];

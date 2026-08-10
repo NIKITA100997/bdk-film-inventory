@@ -25,6 +25,7 @@ import Settings from "./pages/desktop/Settings";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
 import InventoryDesktop from "./pages/desktop/InventoryDesktop";
 import UserAdmin from "./pages/desktop/UserAdmin";
+import LabelTemplateAdmin from "./pages/desktop/LabelTemplateAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
 
 export default function AppRoutes() {
@@ -130,6 +131,10 @@ export default function AppRoutes() {
         <Route
           path="/users"
           element={<RequireRole roles={["logist"]}><UserAdmin /></RequireRole>}
+        />
+        <Route
+          path="/label-template"
+          element={<RequireRole roles={["logist"]}><LabelTemplateAdmin /></RequireRole>}
         />
         <Route
           path="/inventory"
