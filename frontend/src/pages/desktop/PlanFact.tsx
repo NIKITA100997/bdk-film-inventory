@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card, Space, Button, Table, Progress } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { listWeeklyPlans, getPlanFact, type PlanFactLine } from "../../api/plans";
+import EmptyHint from "../../components/EmptyHint";
 
 export default function PlanFact() {
   const [weekId, setWeekId] = useState<number | null>(null);
@@ -15,13 +16,17 @@ export default function PlanFact() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card title="План/факт">
-        <Space wrap>
-          {(plansQuery.data ?? []).map((p) => (
-            <Button key={p.id} type={p.id === weekId ? "primary" : "default"} onClick={() => setWeekId(p.id)}>
-              {p.week_start} — {p.week_end}
-            </Button>
-          ))}
-        </Space>
+        {!plansQuery.isLoading && (plansQuery.data ?? []).length === 0 ? (
+          <EmptyHint description="Планов пока нет — сначала создайте недельный план в разделе «Планирование»" />
+        ) : (
+          <Space wrap>
+            {(plansQuery.data ?? []).map((p) => (
+              <Button key={p.id} type={p.id === weekId ? "primary" : "default"} onClick={() => setWeekId(p.id)}>
+                {p.week_start} — {p.week_end}
+              </Button>
+            ))}
+          </Space>
+        )}
       </Card>
 
       {weekId && (

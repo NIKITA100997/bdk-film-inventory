@@ -1,6 +1,7 @@
 import { Card, Table, Form, Input, Button, Tag, Space, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listOrders, createOrder, closeOrder, type Order } from "../../api/orders";
+import EmptyHint from "../../components/EmptyHint";
 
 export default function Orders() {
   const qc = useQueryClient();
@@ -42,6 +43,7 @@ export default function Orders() {
           loading={ordersQuery.isLoading}
           dataSource={ordersQuery.data ?? []}
           pagination={{ pageSize: 20 }}
+          locale={{ emptyText: <EmptyHint description="Заказов пока нет — создайте первый выше" /> }}
           columns={[
             { title: "Номер", dataIndex: "number" },
             {

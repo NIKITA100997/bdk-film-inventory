@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import { createWeeklyPlan, addFilmRequestLine, getWeeklyPlan, listWeeklyPlans, type FilmRequestLineCreate } from "../../api/plans";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import EmptyHint from "../../components/EmptyHint";
 
 export default function WeeklyPlan() {
   const qc = useQueryClient();
@@ -39,13 +40,17 @@ export default function WeeklyPlan() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card title="Недельный план">
-        <Space wrap style={{ marginBottom: 16 }}>
-          {(plansQuery.data ?? []).map((p) => (
-            <Button key={p.id} type={p.id === planId ? "primary" : "default"} onClick={() => setPlanId(p.id)}>
-              {p.week_start} — {p.week_end}
-            </Button>
-          ))}
-        </Space>
+        {!plansQuery.isLoading && (plansQuery.data ?? []).length === 0 ? (
+          <EmptyHint description="Планов пока нет — создайте первый ниже" />
+        ) : (
+          <Space wrap style={{ marginBottom: 16 }}>
+            {(plansQuery.data ?? []).map((p) => (
+              <Button key={p.id} type={p.id === planId ? "primary" : "default"} onClick={() => setPlanId(p.id)}>
+                {p.week_start} — {p.week_end}
+              </Button>
+            ))}
+          </Space>
+        )}
 
         <Form
           form={createForm}

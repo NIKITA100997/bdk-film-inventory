@@ -33,6 +33,7 @@ import { listAbcClasses, recomputeAbc } from "../../api/abc";
 import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionaries";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { useAuth } from "../../auth/AuthContext";
+import { exportToCsv } from "../../utils/csv";
 
 const statusOptions: { value: UnitStatusValue; label: string }[] = [
   { value: "Принят", label: "Принят" },
@@ -237,7 +238,27 @@ export default function MaterialsExplorer() {
       </Card>
 
       {viewMode === "positions" ? (
-        <Card>
+        <Card
+          extra={
+            <Button
+              onClick={() =>
+                exportToCsv(
+                  "ostatki-po-pozitsiyam.csv",
+                  filteredPositions,
+                  [
+                    { key: "material", header: "Материал" },
+                    { key: "color", header: "Цвет" },
+                    { key: "thickness", header: "Толщина, мм" },
+                    { key: "total_area_m2", header: "Остаток, м²" },
+                    { key: "unit_count", header: "Единиц" },
+                  ],
+                )
+              }
+            >
+              Экспорт в Excel
+            </Button>
+          }
+        >
           <Table<StockSummaryLine>
             rowKey={(r) => `${r.material}-${r.color}-${r.thickness}`}
             loading={positionsQuery.isLoading}
@@ -255,7 +276,35 @@ export default function MaterialsExplorer() {
           />
         </Card>
       ) : (
-        <Card>
+        <Card
+          extra={
+            <Button
+              onClick={() =>
+                exportToCsv(
+                  "ostatki-po-edinitsam.csv",
+                  displayedUnits.map((u) => ({
+                    id: u.id,
+                    material: skuLabel(u.material_sku),
+                    width_mm: u.width_mm,
+                    length_m: u.length_m,
+                    status: u.status.replace(/_/g, " "),
+                    location: u.location_code ?? (u.area ? areaLabels[u.area] : "") ?? "",
+                  })),
+                  [
+                    { key: "id", header: "ID" },
+                    { key: "material", header: "Материал" },
+                    { key: "width_mm", header: "Ширина, мм" },
+                    { key: "length_m", header: "Длина, м" },
+                    { key: "status", header: "Статус" },
+                    { key: "location", header: "Адрес/участок" },
+                  ],
+                )
+              }
+            >
+              Экспорт в Excel
+            </Button>
+          }
+        >
           <Table<MaterialUnit>
             rowKey="id"
             loading={unitsQuery.isLoading}
