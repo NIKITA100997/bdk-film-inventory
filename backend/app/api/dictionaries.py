@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -11,11 +11,13 @@ from app.schemas.dictionaries import (
     DuplicateCandidateOut,
     ManufacturerOut,
     MaterialOut,
+    MaterialSkuCreate,
     MaterialSkuOut,
     ThicknessOut,
     ThicknessUpdate,
 )
 from app.services.dict_admin import find_fuzzy_duplicates
+from app.services.dictionaries import find_or_create_sku
 
 router = APIRouter(tags=["dictionaries"])
 
@@ -138,6 +140,26 @@ def update_manufacturer(
     manufacturer_id: int, payload: DictEntryUpdate, db: Session = Depends(get_db), user=Depends(manage_dicts)
 ) -> Manufacturer:
     return _update_name_entry(db, Manufacturer, manufacturer_id, payload)
+
+
+@router.post("/material-skus", response_model=MaterialSkuOut, status_code=status.HTTP_201_CREATED)
+def create_material_sku(
+    payload: MaterialSkuCreate,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles("operator_sklada", "logist")),
+) -> MaterialSku:
+    """Голая позиция без физической единицы (8.5 раздел бэклога доработок)
+    — завести номенклатуру заранее, до фактической поставки."""
+    sku = find_or_create_sku(
+        db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
+    )
+    if payload.supplier_code is not None:
+        sku.supplier_code = payload.supplier_code
+    if payload.native_width_mm is not None:
+        sku.native_width_mm = payload.native_width_mm
+    db.commit()
+    db.refresh(sku)
+    return sku
 
 
 @router.get("/material-skus", response_model=list[MaterialSkuOut])

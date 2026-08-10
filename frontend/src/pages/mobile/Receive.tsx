@@ -1,21 +1,10 @@
 import { useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Typography, List, Row, Col, Statistic, message } from "antd";
 import { useMutation } from "@tanstack/react-query";
-import { receiveUnits, placeUnit, printLabel, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
-import { suggestLocation } from "../../api/storage";
+import { receiveAndAutoPlace, printLabel, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import DictAutoComplete from "../../components/DictAutoComplete";
 
 type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code">;
-
-async function addLineAndPlace(upd_number: string, pallet_number: string, values: LineValues): Promise<MaterialUnit[]> {
-  const created = await receiveUnits({ ...values, upd_number, pallet_number });
-  const placed: MaterialUnit[] = [];
-  for (const unit of created) {
-    const suggestion = await suggestLocation({ material_sku_id: unit.material_sku.id, width_mm: unit.width_mm, parent_id: null });
-    placed.push(suggestion ? await placeUnit(unit.id, suggestion) : unit);
-  }
-  return placed;
-}
 
 export default function Receive() {
   const [sessionStarted, setSessionStarted] = useState(false);
@@ -27,7 +16,7 @@ export default function Receive() {
   const [lineForm] = Form.useForm<LineValues>();
 
   const addLineMutation = useMutation({
-    mutationFn: (values: LineValues) => addLineAndPlace(upd, pallet, values),
+    mutationFn: (values: LineValues) => receiveAndAutoPlace({ ...values, upd_number: upd, pallet_number: pallet }),
     onSuccess: (units) => {
       setSessionUnits((s) => [...s, ...units]);
       const unplaced = units.filter((u) => !u.location_code).length;

@@ -16,6 +16,18 @@ export interface ThicknessEntry {
 export const listMaterialSkus = async (): Promise<MaterialSku[]> =>
   (await apiClient.get<MaterialSku[]>("/material-skus")).data;
 
+export interface MaterialSkuCreate {
+  material: string;
+  color: string;
+  thickness: number;
+  manufacturer: string;
+  supplier_code?: string;
+  native_width_mm?: number;
+}
+
+export const createMaterialSku = async (payload: MaterialSkuCreate): Promise<MaterialSku> =>
+  (await apiClient.post<MaterialSku>("/material-skus", payload)).data;
+
 export const listMaterials = async (): Promise<DictEntry[]> => (await apiClient.get<DictEntry[]>("/materials")).data;
 export const listColors = async (): Promise<DictEntry[]> => (await apiClient.get<DictEntry[]>("/colors")).data;
 export const listManufacturers = async (): Promise<DictEntry[]> =>
