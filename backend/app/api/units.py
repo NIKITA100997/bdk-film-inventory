@@ -11,6 +11,7 @@ from app.models.users import Area, User
 from app.schemas.units import (
     CutRequest,
     DonorSuggestion,
+    IssueDirectRequest,
     IssueRequest,
     IssueResult,
     MaterialUnitOut,
@@ -252,6 +253,36 @@ def split_unit(
     if new_unit is not None:
         new_unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == new_unit.id).first()
     return SplitResponse(parent=unit, new_unit=new_unit)
+
+
+@router.post("/{unit_id}/issue", response_model=MaterialUnitOut)
+def issue_unit_direct(
+    unit_id: int,
+    payload: IssueDirectRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("operator_sklada")),
+) -> MaterialUnit:
+    """Выдача конкретной единицы напрямую (3 раздел обратной связи) —
+    оператор выбирает готовый рулон/штрипс из списка "в наличии" в карточке
+    позиции материала, вместо поиска по атрибутам+ширине через /units/issue."""
+    unit = _get_storable_unit(db, unit_id)
+    if unit.status != UnitStatus.NA_KHRANENII:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Выдать можно только единицу на хранении")
+    from_cell = unit.location_code
+    unit.status = UnitStatus.VYDAN_UCHASTKU
+    unit.area = payload.area
+    unit.location_code = None
+    unit.order_id = payload.order_id
+    record_event(
+        db,
+        unit=unit,
+        event_type=EventType.VYDACHA_UCHASTKU,
+        user_id=user.id,
+        quantity_delta_m=-float(unit.length_m),
+        from_cell=from_cell,
+    )
+    db.commit()
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 
 @router.post("/issue", response_model=IssueResult)

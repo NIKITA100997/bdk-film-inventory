@@ -69,6 +69,15 @@ class IssueRequest(BaseModel):
     order_id: int | None = None
 
 
+class IssueDirectRequest(BaseModel):
+    """Выдача конкретной единицы напрямую (3 раздел обратной связи) —
+    оператор выбирает готовый рулон/штрипс из списка "в наличии" вместо
+    поиска по атрибутам+ширине."""
+
+    area: Area
+    order_id: int | None = None
+
+
 class DonorSuggestion(BaseModel):
     """Рекомендация "донор-штрипс" (2.9 п.2 ТЗ) — не выполняется
     автоматически, только предлагается; оператор режет вручную через

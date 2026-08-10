@@ -120,6 +120,13 @@ export async function issueUnit(payload: IssueRequest): Promise<IssueResult> {
   return data;
 }
 
+export type AreaValue = "okutka_tsargovykh" | "shchitovye_dveri" | "tselnolistovye_dveri";
+
+export async function issueUnitDirect(unitId: number, area: AreaValue, orderId?: number): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/issue`, { area, order_id: orderId });
+  return data;
+}
+
 export interface CutRequest {
   cut_length_m: number;
   remainder_location?: string;
