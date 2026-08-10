@@ -55,7 +55,7 @@ export const mobileBlocks: NavBlock[] = [
     key: "common",
     label: "Общее",
     items: [
-      { key: "m-search", path: "/m/search", label: "Поиск остатка", roles: ALL_ROLES },
+      { key: "m-stock", path: "/stock", label: "Остатки", roles: ALL_ROLES },
       { key: "m-material-card", path: "/materials", label: "Карточка материала", roles: ALL_ROLES },
     ],
   },
@@ -73,13 +73,7 @@ export const desktopSections: NavBlock[] = [
     label: "Материалы",
     items: [
       { key: "d-materials", path: "/materials", label: "Карточка материала", roles: ["operator_sklada", "kladovshchik", "logist"] },
-      { key: "d-dashboard", path: "/dashboard", label: "Дашборд остатков", roles: ["operator_sklada", "kladovshchik", "logist"] },
-      {
-        key: "d-recommendations",
-        path: "/recommendations",
-        label: "Рекомендации по резке",
-        roles: ["logist", "kladovshchik", "operator_sklada"],
-      },
+      { key: "d-stock", path: "/stock", label: "Остатки", roles: ["operator_sklada", "kladovshchik", "logist"] },
       { key: "d-inventory", path: "/inventory", label: "Инвентаризация", roles: ["logist", "kladovshchik"] },
     ],
   },

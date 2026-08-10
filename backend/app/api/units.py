@@ -465,12 +465,25 @@ def search_units(
     manufacturer: str | None = None,
     width_mm: float | None = None,
     min_length_m: float | None = None,
+    status: UnitStatus | None = None,
+    area: Area | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[MaterialUnit]:
     """Поиск остатка (5.3 "Поиск остатка", 6.7 "погонаж" ТЗ) — фильтр по
-    минимальной длине задаётся в метрах при конкретной ширине, не в м²."""
-    query = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.status == UnitStatus.NA_KHRANENII)
+    минимальной длине задаётся в метрах при конкретной ширине, не в м².
+
+    Без явного `status` отдаёт всё, кроме списанного (2.2 раздел бэклога
+    доработок — единый список материалов вместо трёх параллельных
+    реализаций); мобильный «Поиск остатка» передаёт status=На_хранении
+    явно, чтобы сохранить прежнее поведение "что реально доступно"."""
+    query = _with_sku(db.query(MaterialUnit))
+    if status is not None:
+        query = query.filter(MaterialUnit.status == status)
+    else:
+        query = query.filter(MaterialUnit.status != UnitStatus.SPISAN)
+    if area is not None:
+        query = query.filter(MaterialUnit.area == area)
     if material:
         query = query.filter(MaterialUnit.material_sku.has(MaterialSku.material.has(name=material)))
     if color:

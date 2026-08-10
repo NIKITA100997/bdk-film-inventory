@@ -1,13 +1,33 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, Select, Row, Col, Statistic, Table, Space, Progress, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "react-router-dom";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { getMaterialCard } from "../../api/materialCards";
 import { skuLabel } from "../../api/units";
 
+interface MaterialCardPrefill {
+  material?: string;
+  color?: string;
+  thickness?: number;
+}
+
 export default function MaterialCard() {
+  const location = useLocation();
   const [skuId, setSkuId] = useState<number | null>(null);
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
+
+  useEffect(() => {
+    const prefill = location.state as MaterialCardPrefill | null;
+    if (!prefill || !skusQuery.data || skuId !== null) return;
+    const match = skusQuery.data.find(
+      (s) => s.material.name === prefill.material && s.color.name === prefill.color && s.thickness.value_mm === prefill.thickness,
+    );
+    if (match) setSkuId(match.id);
+    // Приходим сюда по клику из агрегатной строки "Материалы" (2.2 раздел
+    // бэклога доработок) — предвыбираем первую подходящую позицию по
+    // материалу/цвету/толщине (без учёта производителя, как и сама агрегация).
+  }, [location.state, skusQuery.data, skuId]);
   const cardQuery = useQuery({
     queryKey: ["material-card", skuId],
     queryFn: () => getMaterialCard(skuId!),

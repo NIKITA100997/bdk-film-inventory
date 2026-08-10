@@ -123,6 +123,8 @@ export async function returnUnit(unitId: number, payload: ReturnRequest): Promis
   return data;
 }
 
+export type UnitStatusValue = "Принят" | "На_хранении" | "Выдан_участку" | "Списан";
+
 export interface SearchParams {
   material?: string;
   color?: string;
@@ -130,6 +132,8 @@ export interface SearchParams {
   manufacturer?: string;
   width_mm?: number;
   min_length_m?: number;
+  status?: UnitStatusValue;
+  area?: "okutka_tsargovykh" | "shchitovye_dveri" | "tselnolistovye_dveri";
 }
 
 export async function searchUnits(params: SearchParams): Promise<MaterialUnit[]> {

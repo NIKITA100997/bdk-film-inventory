@@ -6,17 +6,15 @@ import { RequireAuth, RequireRole } from "./auth/RoleGuard";
 
 import Receive from "./pages/mobile/Receive";
 import Issue from "./pages/mobile/Issue";
-import Search from "./pages/mobile/Search";
 import UnitCard from "./pages/mobile/UnitCard";
 import Inventory from "./pages/mobile/Inventory";
 import MyArea from "./pages/mobile/MyArea";
 
 import WeeklyPlan from "./pages/desktop/WeeklyPlan";
 import PlanFact from "./pages/desktop/PlanFact";
-import Dashboard from "./pages/desktop/Dashboard";
+import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
 import MaterialCard from "./pages/desktop/MaterialCard";
 import Orders from "./pages/desktop/Orders";
-import CuttingRecommendations from "./pages/desktop/CuttingRecommendations";
 import Reports from "./pages/desktop/Reports";
 import Settings from "./pages/desktop/Settings";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
@@ -50,16 +48,6 @@ export default function AppRoutes() {
           }
         />
         <Route
-          path="/m/search"
-          element={
-            <RequireRole
-              roles={["kladovshchik", "operator_sklada", "nachalnik_uchastka", "logist", "nachalnik_tsekha", "snabzhenets"]}
-            >
-              <Search />
-            </RequireRole>
-          }
-        />
-        <Route
           path="/m/inventory"
           element={<RequireRole roles={["logist", "kladovshchik"]}><Inventory /></RequireRole>}
         />
@@ -74,10 +62,12 @@ export default function AppRoutes() {
           element={<RequireRole roles={["nachalnik_tsekha", "logist"]}><PlanFact /></RequireRole>}
         />
         <Route
-          path="/dashboard"
+          path="/stock"
           element={
-            <RequireRole roles={["operator_sklada", "kladovshchik", "logist"]}>
-              <Dashboard />
+            <RequireRole
+              roles={["operator_sklada", "kladovshchik", "nachalnik_uchastka", "nachalnik_tsekha", "logist", "snabzhenets"]}
+            >
+              <MaterialsExplorer />
             </RequireRole>
           }
         />
@@ -96,14 +86,6 @@ export default function AppRoutes() {
           }
         />
         <Route path="/orders" element={<RequireRole roles={["logist", "kladovshchik"]}><Orders /></RequireRole>} />
-        <Route
-          path="/recommendations"
-          element={
-            <RequireRole roles={["logist", "kladovshchik", "operator_sklada"]}>
-              <CuttingRecommendations />
-            </RequireRole>
-          }
-        />
         <Route
           path="/reports"
           element={<RequireRole roles={["logist", "nachalnik_tsekha"]}><Reports /></RequireRole>}
