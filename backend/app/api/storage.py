@@ -11,8 +11,10 @@ from app.services.placement import suggest_location
 router = APIRouter(tags=["storage"])
 
 # Справочник ячеек (4.1 п.5, 4.2 ТЗ) — заводится один раз при вводе стеллажа в
-# эксплуатацию, дальше расширяется по мере роста склада.
-manage_storage = require_roles("admin", "kladovshchik")
+# эксплуатацию, дальше расширяется по мере роста склада. Часть
+# администрирования (5.6 ТЗ) — доступ только логисту/руководителю, кладовщик
+# размещает по уже готовым макрозонам, но не заводит их сам.
+manage_storage = require_roles("logist")
 
 
 @router.get("/racks", response_model=list[RackOut])

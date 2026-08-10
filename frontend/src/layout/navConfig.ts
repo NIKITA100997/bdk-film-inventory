@@ -76,8 +76,8 @@ export const desktopSections: NavBlock[] = [
     key: "materials",
     label: "Материалы",
     items: [
-      { key: "d-materials", path: "/materials", label: "Карточка материала", roles: ["logist", "nachalnik_tsekha", "snabzhenets"] },
-      { key: "d-dashboard", path: "/dashboard", label: "Дашборд остатков", roles: ["logist", "nachalnik_tsekha", "snabzhenets"] },
+      { key: "d-materials", path: "/materials", label: "Карточка материала", roles: ["operator_sklada", "kladovshchik", "logist"] },
+      { key: "d-dashboard", path: "/dashboard", label: "Дашборд остатков", roles: ["operator_sklada", "kladovshchik", "logist"] },
       {
         key: "d-recommendations",
         path: "/recommendations",
@@ -114,8 +114,8 @@ export const desktopSections: NavBlock[] = [
     key: "admin",
     label: "Администрирование",
     items: [
-      { key: "d-settings", path: "/settings", label: "Настройки", roles: ["admin", "kladovshchik"] },
-      { key: "d-dictionaries", path: "/dictionaries", label: "Справочники", roles: ["admin", "kladovshchik"] },
+      { key: "d-settings", path: "/settings", label: "Настройки", roles: ["logist"] },
+      { key: "d-dictionaries", path: "/dictionaries", label: "Справочники", roles: ["logist"] },
     ],
   },
 ];

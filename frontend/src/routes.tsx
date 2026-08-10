@@ -86,7 +86,7 @@ export default function AppRoutes() {
         <Route
           path="/dashboard"
           element={
-            <RequireRole roles={["logist", "nachalnik_tsekha", "snabzhenets"]}>
+            <RequireRole roles={["operator_sklada", "kladovshchik", "logist"]}>
               <Dashboard />
             </RequireRole>
           }
@@ -94,6 +94,10 @@ export default function AppRoutes() {
         <Route
           path="/materials"
           element={
+            // Доступен и с десктопного раздела "Материалы" (сузили до
+            // operator_sklada/kladovshchik/logist — 5.5 ТЗ), и с мобильного
+            // блока "Общее" (там пункт открыт всем ролям), поэтому здесь
+            // держим полный список, чтобы не сломать мобильный вход.
             <RequireRole
               roles={["operator_sklada", "kladovshchik", "nachalnik_uchastka", "nachalnik_tsekha", "logist", "snabzhenets"]}
             >
@@ -116,11 +120,11 @@ export default function AppRoutes() {
         />
         <Route
           path="/settings"
-          element={<RequireRole roles={["admin", "kladovshchik"]}><Settings /></RequireRole>}
+          element={<RequireRole roles={["logist"]}><Settings /></RequireRole>}
         />
         <Route
           path="/dictionaries"
-          element={<RequireRole roles={["admin", "kladovshchik"]}><DictionaryAdmin /></RequireRole>}
+          element={<RequireRole roles={["logist"]}><DictionaryAdmin /></RequireRole>}
         />
         <Route
           path="/inventory"

@@ -19,7 +19,7 @@ from app.services.dict_admin import find_fuzzy_duplicates
 
 router = APIRouter(tags=["dictionaries"])
 
-manage_dicts = require_roles("admin", "kladovshchik")
+manage_dicts = require_roles("logist")
 
 
 def _update_name_entry(db: Session, model, entry_id: int, payload: DictEntryUpdate):
