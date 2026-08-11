@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
@@ -86,7 +86,7 @@ def movement(
     date_to: dt.date = Query(...),
     material_sku_id: int | None = None,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("reports.view")),
 ) -> list[MovementEntry]:
     """Движение за период (5.4 ТЗ) — журнал событий по всем позициям, с
     опциональным фильтром по одной позиции материала."""
@@ -126,7 +126,7 @@ def donor_accuracy(
     date_from: dt.date = Query(...),
     date_to: dt.date = Query(...),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("reports.view")),
 ) -> DonorAccuracyOut:
     """Точность донор-рекомендаций (5.5 ТЗ) — доля предложенных доноров,
     которые оператор реально пустил в резку (Продольная_резка после
@@ -168,7 +168,7 @@ def donor_accuracy(
 def stale_units(
     threshold_days: int | None = Query(default=None, gt=0),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("reports.view")),
 ) -> list[StaleUnitLine]:
     """«Давно не двигались» (5 раздел бэклога доработок) — единицы На_хранении
     без единого события дольше threshold_days (по умолчанию из CalcSettings).

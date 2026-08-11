@@ -96,7 +96,9 @@ def list_shortages(db: Session = Depends(get_db), user: User = Depends(get_curre
 
 
 @router.get("/report", response_model=list[OrderReportLine])
-def orders_report(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[OrderReportLine]:
+def orders_report(
+    db: Session = Depends(get_db), user: User = Depends(require_permission("reports.view"))
+) -> list[OrderReportLine]:
     """Сводный отчёт по всем заказам (4 раздел обратной связи) — отдельно
     от карточки конкретного заказа, для «Отчётов»."""
     orders = db.query(Order).order_by(Order.created_at.desc()).limit(200).all()
