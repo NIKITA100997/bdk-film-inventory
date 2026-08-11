@@ -19,6 +19,7 @@ import InventoryDesktop from "./pages/desktop/InventoryDesktop";
 import UserAdmin from "./pages/desktop/UserAdmin";
 import LabelTemplateAdmin from "./pages/desktop/LabelTemplateAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
+import SalesCalculator from "./pages/desktop/SalesCalculator";
 
 export default function AppRoutes() {
   return (
@@ -53,7 +54,7 @@ export default function AppRoutes() {
           path="/stock"
           element={
             <RequireRole
-              roles={["operator_sklada", "kladovshchik", "nachalnik_uchastka", "nachalnik_tsekha", "logist", "snabzhenets"]}
+              roles={["operator_sklada", "kladovshchik", "nachalnik_uchastka", "nachalnik_tsekha", "logist", "snabzhenets", "prodazhnik"]}
             >
               <MaterialsExplorer />
             </RequireRole>
@@ -66,7 +67,7 @@ export default function AppRoutes() {
             // кликом по строке в "Остатках" или сканом QR, поэтому доступ
             // держим широким, как раньше был у самого /stock.
             <RequireRole
-              roles={["operator_sklada", "kladovshchik", "nachalnik_uchastka", "nachalnik_tsekha", "logist", "snabzhenets"]}
+              roles={["operator_sklada", "kladovshchik", "nachalnik_uchastka", "nachalnik_tsekha", "logist", "snabzhenets", "prodazhnik"]}
             >
               <MaterialCard />
             </RequireRole>
@@ -103,6 +104,10 @@ export default function AppRoutes() {
         <Route
           path="/purchasing"
           element={<RequireRole roles={["snabzhenets"]}><Purchasing /></RequireRole>}
+        />
+        <Route
+          path="/sales-calculator"
+          element={<RequireRole roles={["prodazhnik"]}><SalesCalculator /></RequireRole>}
         />
       </Route>
     </Routes>

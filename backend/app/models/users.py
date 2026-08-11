@@ -14,6 +14,9 @@ class UserRole(str, enum.Enum):
     SNABZHENETS = "snabzhenets"
     LOGIST = "logist"
     ADMIN = "admin"
+    # Продажник (8 раздел обратной связи) — считает заказ клиенту и видит
+    # предложения аналогов из неликвида; не работает со складскими операциями.
+    PRODAZHNIK = "prodazhnik"
 
 
 class Area(str, enum.Enum):

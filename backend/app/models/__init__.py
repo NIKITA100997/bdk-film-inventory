@@ -1,5 +1,5 @@
 from app.models.users import User, UserRole, Area
-from app.models.dictionaries import Material, Color, Thickness, Manufacturer, MaterialSku
+from app.models.dictionaries import Material, Color, Thickness, Manufacturer, MaterialSku, SkuAnalog
 from app.models.storage import Rack, MacroZoneRule, RackType
 from app.models.orders import Order, OrderMaterialLine
 from app.models.inventory import InventorySession, InventorySessionParticipant, InventoryScopeType, InventoryStatus
@@ -18,6 +18,7 @@ __all__ = [
     "Thickness",
     "Manufacturer",
     "MaterialSku",
+    "SkuAnalog",
     "Rack",
     "MacroZoneRule",
     "RackType",

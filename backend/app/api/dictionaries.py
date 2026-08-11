@@ -1,11 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.config import settings
 from app.core.security import get_current_user, require_roles
 from app.db.session import get_db
-from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
+from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, SkuAnalog, Thickness
 from app.schemas.dictionaries import (
+    AnalogEntryOut,
     ColorOut,
     DictEntryUpdate,
     DuplicateCandidateOut,
@@ -14,8 +19,18 @@ from app.schemas.dictionaries import (
     MaterialSkuCreate,
     MaterialSkuOut,
     MaterialSkuUpdate,
+    SkuAnalogCreate,
+    SkuWithAnalogsOut,
     ThicknessOut,
     ThicknessUpdate,
+)
+from app.services.analogs import (
+    analog_sku_of,
+    create_analog_link,
+    get_stale_threshold_days,
+    list_analog_links,
+    sku_stale_days,
+    sku_stock_m2,
 )
 from app.services.dict_admin import find_fuzzy_duplicates
 from app.services.dictionaries import find_or_create_sku
@@ -23,6 +38,8 @@ from app.services.dictionaries import find_or_create_sku
 router = APIRouter(tags=["dictionaries"])
 
 manage_dicts = require_roles("logist")
+
+_PHOTO_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 
 
 def _update_name_entry(db: Session, model, entry_id: int, payload: DictEntryUpdate):
@@ -200,4 +217,101 @@ def update_material_sku(
         sku.is_active = payload.is_active
     db.commit()
     db.refresh(sku)
+    return _skus_query(db).filter(MaterialSku.id == sku_id).first()
+
+
+def _get_sku_or_404(db: Session, sku_id: int) -> MaterialSku:
+    sku = _skus_query(db).filter(MaterialSku.id == sku_id).first()
+    if sku is None:
+        raise HTTPException(404, "Позиция не найдена")
+    return sku
+
+
+def _analog_entry(db: Session, link: SkuAnalog, sku_id: int, stale_threshold_days: int) -> AnalogEntryOut:
+    other = analog_sku_of(link, sku_id)
+    stale_days = sku_stale_days(db, other.id, stale_threshold_days)
+    return AnalogEntryOut(
+        link_id=link.id,
+        sku=other,
+        note=link.note,
+        stock_m2=sku_stock_m2(db, other.id),
+        is_illiquid=stale_days is not None,
+        stale_days=stale_days,
+    )
+
+
+@router.get("/material-skus/{sku_id}/analogs", response_model=SkuWithAnalogsOut)
+def get_sku_analogs(sku_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)) -> SkuWithAnalogsOut:
+    """Аналоги позиции с готовым сигналом неликвида (8 раздел обратной связи)
+    — использует калькулятор продажника и админка номенклатуры."""
+    sku = _get_sku_or_404(db, sku_id)
+    threshold = get_stale_threshold_days(db)
+    links = list_analog_links(db, sku_id)
+    return SkuWithAnalogsOut(
+        sku=sku,
+        stock_m2=sku_stock_m2(db, sku_id),
+        analogs=[_analog_entry(db, link, sku_id, threshold) for link in links],
+    )
+
+
+@router.post("/material-skus/{sku_id}/analogs", response_model=AnalogEntryOut, status_code=status.HTTP_201_CREATED)
+def add_sku_analog(
+    sku_id: int, payload: SkuAnalogCreate, db: Session = Depends(get_db), user=Depends(manage_dicts)
+) -> AnalogEntryOut:
+    if payload.analog_sku_id == sku_id:
+        raise HTTPException(400, "Позиция не может быть аналогом самой себе")
+    _get_sku_or_404(db, sku_id)
+    _get_sku_or_404(db, payload.analog_sku_id)
+    link = create_analog_link(db, sku_id=sku_id, analog_sku_id=payload.analog_sku_id, note=payload.note)
+    threshold = get_stale_threshold_days(db)
+    return _analog_entry(db, link, sku_id, threshold)
+
+
+@router.delete("/material-skus/{sku_id}/analogs/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_sku_analog(sku_id: int, link_id: int, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> None:
+    link = db.get(SkuAnalog, link_id)
+    if link is None or sku_id not in (link.sku_id, link.analog_sku_id):
+        raise HTTPException(404, "Связь не найдена")
+    db.delete(link)
+    db.commit()
+
+
+@router.post("/material-skus/{sku_id}/photo", response_model=MaterialSkuOut)
+async def upload_sku_photo(
+    sku_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(manage_dicts)
+) -> MaterialSku:
+    """Фото плёнки на диске сервера (8 раздел обратной связи) — отдаётся
+    статикой из main.py по /uploads, во внешнем хранилище нужды нет."""
+    sku = db.get(MaterialSku, sku_id)
+    if sku is None:
+        raise HTTPException(404, "Позиция не найдена")
+    ext = _PHOTO_EXTENSIONS.get(file.content_type)
+    if ext is None:
+        raise HTTPException(400, "Допустимы только изображения JPEG/PNG/WebP")
+
+    upload_root = Path(settings.upload_dir) / "skus"
+    upload_root.mkdir(parents=True, exist_ok=True)
+    if sku.photo_path:
+        (Path(settings.upload_dir) / sku.photo_path).unlink(missing_ok=True)
+
+    relative_path = f"skus/{sku_id}_{uuid.uuid4().hex}{ext}"
+    contents = await file.read()
+    (Path(settings.upload_dir) / relative_path).write_bytes(contents)
+
+    sku.photo_path = relative_path
+    db.commit()
+    db.refresh(sku)
+    return _skus_query(db).filter(MaterialSku.id == sku_id).first()
+
+
+@router.delete("/material-skus/{sku_id}/photo", response_model=MaterialSkuOut)
+def delete_sku_photo(sku_id: int, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> MaterialSku:
+    sku = db.get(MaterialSku, sku_id)
+    if sku is None:
+        raise HTTPException(404, "Позиция не найдена")
+    if sku.photo_path:
+        (Path(settings.upload_dir) / sku.photo_path).unlink(missing_ok=True)
+        sku.photo_path = None
+        db.commit()
+        db.refresh(sku)
     return _skus_query(db).filter(MaterialSku.id == sku_id).first()

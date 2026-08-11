@@ -21,3 +21,7 @@ Thumbs.db
 
 # Dev server logs
 *.log
+
+# Загруженные файлы (фото плёнки, 8 раздел обратной связи) — на диске
+# сервера, не в git
+backend/uploads/

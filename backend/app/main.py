@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.abc import router as abc_router
 from app.api.auth import router as auth_router
@@ -13,8 +16,12 @@ from app.api.reports import router as reports_router
 from app.api.storage import router as storage_router
 from app.api.units import router as units_router
 from app.api.users import router as users_router
+from app.core.config import settings
 
 app = FastAPI(title="БДК — учёт плёнки")
+
+Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
 
 app.add_middleware(
     CORSMiddleware,

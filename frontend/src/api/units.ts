@@ -9,6 +9,7 @@ export interface MaterialSku {
   manufacturer: { id: number; name: string; is_active: boolean };
   supplier_code: string | null;
   native_width_mm: number | null;
+  photo_path: string | null;
   is_active: boolean;
 }
 

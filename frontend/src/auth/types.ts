@@ -5,7 +5,8 @@ export type UserRole =
   | "kladovshchik"
   | "snabzhenets"
   | "logist"
-  | "admin";
+  | "admin"
+  | "prodazhnik";
 
 export type Area = "okutka_tsargovykh" | "shchitovye_dveri" | "tselnolistovye_dveri";
 

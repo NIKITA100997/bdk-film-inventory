@@ -7,6 +7,7 @@ import { listPurchaseRequests } from "../../api/purchasing";
 import { listOrders, getOrdersReport } from "../../api/orders";
 import { listSessions } from "../../api/inventory";
 import { getDonorAccuracy, getStaleUnits } from "../../api/reports";
+import { listMaterialSkus } from "../../api/dictionaries";
 
 /** Обзор (5.5 ТЗ) — сводка сигналов по роли: у каждой роли своя выборка
  * карточек, собранная из уже существующих отчётов/списков (без нового
@@ -25,6 +26,7 @@ export default function Overview() {
   const showInventory = role === "logist" || role === "kladovshchik" || role === "admin";
   const showDonorAccuracy = role === "logist" || role === "nachalnik_tsekha" || role === "admin";
   const showStale = role === "logist" || role === "kladovshchik" || role === "admin";
+  const showSales = role === "prodazhnik" || role === "admin";
 
   const ordersReportQuery = useQuery({ queryKey: ["orders-report", "overview"], queryFn: getOrdersReport, enabled: showPlanning });
   const purchasingQuery = useQuery({
@@ -40,6 +42,7 @@ export default function Overview() {
     enabled: showDonorAccuracy,
   });
   const staleQuery = useQuery({ queryKey: ["stale-units", "overview"], queryFn: () => getStaleUnits(), enabled: showStale });
+  const skusQuery = useQuery({ queryKey: ["material-skus", "overview"], queryFn: listMaterialSkus, enabled: showSales });
 
   const shortageCount = (ordersReportQuery.data ?? [])
     .filter((o) => o.status !== "closed")
@@ -104,9 +107,16 @@ export default function Overview() {
             </Card>
           </Col>
         )}
+        {showSales && (
+          <Col span={6}>
+            <Card loading={skusQuery.isLoading} {...clickableProps("/sales-calculator")}>
+              <Statistic title="Позиций в номенклатуре — открыть калькулятор" value={(skusQuery.data ?? []).length} />
+            </Card>
+          </Col>
+        )}
       </Row>
 
-      {!showPlanning && !showPurchasing && !showOrders && !showInventory && (
+      {!showPlanning && !showPurchasing && !showOrders && !showInventory && !showDonorAccuracy && !showStale && !showSales && (
         <Typography.Paragraph type="secondary">
           Для вашей роли пока нет отдельных сигналов на обзорном экране.
         </Typography.Paragraph>

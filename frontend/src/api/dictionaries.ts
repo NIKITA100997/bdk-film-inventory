@@ -76,3 +76,49 @@ export const updateThicknessEntry = async (
   id: number,
   payload: { value_mm?: number; is_active?: boolean },
 ): Promise<ThicknessEntry> => (await apiClient.patch<ThicknessEntry>(`/thicknesses/${id}`, payload)).data;
+
+// Аналоги позиций и фото плёнки (8 раздел обратной связи) — ручная привязка
+// логистом/админом, признак неликвида считает бэкенд (services/analogs.py).
+export interface AnalogEntry {
+  link_id: number;
+  sku: MaterialSku;
+  note: string | null;
+  stock_m2: number;
+  is_illiquid: boolean;
+  stale_days: number | null;
+}
+
+export interface SkuWithAnalogs {
+  sku: MaterialSku;
+  stock_m2: number;
+  analogs: AnalogEntry[];
+}
+
+export const getSkuAnalogs = async (skuId: number): Promise<SkuWithAnalogs> =>
+  (await apiClient.get<SkuWithAnalogs>(`/material-skus/${skuId}/analogs`)).data;
+
+export const addSkuAnalog = async (
+  skuId: number,
+  payload: { analog_sku_id: number; note?: string },
+): Promise<AnalogEntry> => (await apiClient.post<AnalogEntry>(`/material-skus/${skuId}/analogs`, payload)).data;
+
+export const removeSkuAnalog = async (skuId: number, linkId: number): Promise<void> => {
+  await apiClient.delete(`/material-skus/${skuId}/analogs/${linkId}`);
+};
+
+export const uploadSkuPhoto = async (skuId: number, file: File): Promise<MaterialSku> => {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await apiClient.post<MaterialSku>(`/material-skus/${skuId}/photo`, form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+};
+
+export const deleteSkuPhoto = async (skuId: number): Promise<MaterialSku> =>
+  (await apiClient.delete<MaterialSku>(`/material-skus/${skuId}/photo`)).data;
+
+export function skuPhotoUrl(photoPath: string | null): string | null {
+  if (!photoPath) return null;
+  return `${apiClient.defaults.baseURL}/uploads/${photoPath}`;
+}

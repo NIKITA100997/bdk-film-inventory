@@ -23,6 +23,7 @@ const ALL_ROLES: UserRole[] = [
   "nachalnik_tsekha",
   "logist",
   "snabzhenets",
+  "prodazhnik",
 ];
 
 // Единое функциональное дерево (8.2 раздел бэклога доработок) — раньше
@@ -66,6 +67,9 @@ export const navTree: NavBlock[] = [
       { key: "orders", path: "/orders", label: "Заказы", roles: ["logist", "kladovshchik", "nachalnik_tsekha"] },
       { key: "purchasing", path: "/purchasing", label: "Закупки", roles: ["snabzhenets"] },
       { key: "reports", path: "/reports", label: "Отчёты", roles: ["logist", "nachalnik_tsekha"] },
+      // Калькулятор заказа для продажника (8 раздел обратной связи) —
+      // считает потребность и сразу предлагает аналог из неликвида.
+      { key: "sales-calculator", path: "/sales-calculator", label: "Калькулятор заказа", roles: ["prodazhnik"] },
     ],
   },
   {

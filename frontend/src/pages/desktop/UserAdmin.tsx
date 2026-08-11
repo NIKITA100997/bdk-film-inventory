@@ -20,6 +20,7 @@ const roleLabels: Record<UserRole, string> = {
   logist: "Логист/руководитель",
   snabzhenets: "Снабженец/закупщик",
   admin: "Администратор",
+  prodazhnik: "Продажник",
 };
 
 const areaLabels: Record<Area, string> = {

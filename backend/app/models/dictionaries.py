@@ -4,8 +4,11 @@
 материала: конкретная комбинация значений из всех четырёх + данные
 поставщика."""
 
-from sqlalchemy import Boolean, ForeignKey, Numeric, String, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
 
 from app.db.base import Base
 
@@ -58,6 +61,9 @@ class MaterialSku(Base):
     manufacturer_id: Mapped[int] = mapped_column(ForeignKey("manufacturers.id"))
     supplier_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     native_width_mm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    # Путь фото плёнки на диске сервера (8 раздел обратной связи), относительно
+    # UPLOAD_DIR — отдаётся статикой, во внешнем хранилище нужды пока нет.
+    photo_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     material: Mapped[Material] = relationship()
@@ -68,3 +74,23 @@ class MaterialSku(Base):
     @property
     def display_name(self) -> str:
         return f"{self.material.name}, {self.color.name}, {self.thickness.value_mm} мм, {self.manufacturer.name}"
+
+
+class SkuAnalog(Base):
+    """Ручная привязка аналогов между позициями номенклатуры (8 раздел
+    обратной связи) — заводит логист/админ, не автоматика по атрибутам.
+    Связь ненаправленная по смыслу (A аналог B ⇒ B аналог A), но хранится
+    один раз как направленная пара; читается в обе стороны — см.
+    services/analogs.list_analogs_for_sku."""
+
+    __tablename__ = "sku_analogs"
+    __table_args__ = (UniqueConstraint("sku_id", "analog_sku_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sku_id: Mapped[int] = mapped_column(ForeignKey("material_skus.id"))
+    analog_sku_id: Mapped[int] = mapped_column(ForeignKey("material_skus.id"))
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    sku: Mapped[MaterialSku] = relationship(foreign_keys=[sku_id])
+    analog_sku: Mapped[MaterialSku] = relationship(foreign_keys=[analog_sku_id])

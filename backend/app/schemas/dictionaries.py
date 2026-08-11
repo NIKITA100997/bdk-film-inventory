@@ -38,6 +38,7 @@ class MaterialSkuOut(BaseModel):
     manufacturer: ManufacturerOut
     supplier_code: str | None
     native_width_mm: float | None
+    photo_path: str | None
     is_active: bool
 
 
@@ -80,3 +81,27 @@ class DuplicateCandidateOut(BaseModel):
     b_id: int
     b_name: str
     score: float
+
+
+class SkuAnalogCreate(BaseModel):
+    analog_sku_id: int
+    note: str | None = None
+
+
+class AnalogEntryOut(BaseModel):
+    """Одна строка аналога с готовым сигналом неликвида — калькулятору
+    продажника и админке номенклатуры не нужно считать это самим (8 раздел
+    обратной связи)."""
+
+    link_id: int
+    sku: MaterialSkuOut
+    note: str | None
+    stock_m2: float
+    is_illiquid: bool
+    stale_days: int | None
+
+
+class SkuWithAnalogsOut(BaseModel):
+    sku: MaterialSkuOut
+    stock_m2: float
+    analogs: list[AnalogEntryOut]
