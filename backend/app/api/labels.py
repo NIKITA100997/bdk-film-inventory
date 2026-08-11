@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_user, require_roles
+from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.labels import LabelTemplate
 from app.models.units import MaterialUnit
@@ -20,7 +20,7 @@ from app.services.labels import (
 router = APIRouter(tags=["labels"])
 
 # Часть администрирования (5.6 ТЗ) — доступ только логисту/руководителю.
-manage_labels = require_roles("logist")
+manage_labels = require_permission("labels.manage")
 
 
 def _get_template(db: Session) -> LabelTemplate:

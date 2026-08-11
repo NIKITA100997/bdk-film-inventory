@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import require_roles
+from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
 from app.models.purchasing import PurchaseRequest
@@ -13,7 +13,7 @@ from app.services.dictionaries import current_stock_m2, find_or_create_material_
 
 router = APIRouter(prefix="/purchase-requests", tags=["purchasing"])
 
-manage_purchasing = require_roles("snabzhenets")
+manage_purchasing = require_permission("purchasing.manage")
 
 
 def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:

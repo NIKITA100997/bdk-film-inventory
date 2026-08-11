@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Query, Session, joinedload
 
-from app.core.security import get_current_user, require_roles
+from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import MaterialSku
@@ -45,7 +45,7 @@ def _with_sku(query: Query) -> Query:
 def receive(
     payload: ReceiveRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("operator_sklada")),
+    user: User = Depends(require_permission("units.receive")),
 ) -> list[MaterialUnit]:
     """Приёмка партии (6.2 ТЗ): создаёт N единиц-рулонов под одним УПД/
     паллетой. Позиция материала ищется в справочнике (2.1a) или создаётся на
@@ -120,7 +120,7 @@ def unit_events(
 def write_off_unit(
     unit_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("operator_sklada", "kladovshchik")),
+    user: User = Depends(require_permission("units.writeoff")),
 ) -> MaterialUnit:
     """Списание вне инвентаризации (2.1 раздел бэклога доработок) — прямое
     действие из карточки единицы для остатка На_хранении, который решили
@@ -155,7 +155,7 @@ def place_unit(
     unit_id: int,
     payload: PlaceRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("operator_sklada", "kladovshchik")),
+    user: User = Depends(require_permission("units.place")),
 ) -> MaterialUnit:
     """Размещение в ячейку (4/5.3 ТЗ) — переводит только что принятую
     единицу в статус "На хранении" с адресом на складе."""
@@ -182,7 +182,7 @@ def split_unit(
     unit_id: int,
     payload: SplitRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("operator_sklada")),
+    user: User = Depends(require_permission("units.split")),
 ) -> SplitResponse:
     """Продольная резка (2.3/2.4 ТЗ) — всегда на складе, из статуса "На
     хранении". Одна часть остаётся тем же ID, другая — новой единицей."""
@@ -260,7 +260,7 @@ def issue_unit_direct(
     unit_id: int,
     payload: IssueDirectRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("operator_sklada")),
+    user: User = Depends(require_permission("units.issue")),
 ) -> MaterialUnit:
     """Выдача конкретной единицы напрямую (3 раздел обратной связи) —
     оператор выбирает готовый рулон/штрипс из списка "в наличии" в карточке
@@ -289,7 +289,7 @@ def issue_unit_direct(
 def issue_to_area(
     payload: IssueRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("operator_sklada")),
+    user: User = Depends(require_permission("units.issue")),
 ) -> IssueResult:
     """Выдача участку — алгоритм подбора (2.9 п.1-3, 6.3 ТЗ):
     1) точное совпадение по ширине → выдать;
@@ -410,7 +410,7 @@ def cut_unit(
     unit_id: int,
     payload: CutRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("operator_sklada", "nachalnik_uchastka")),
+    user: User = Depends(require_permission("units.cut")),
 ) -> MaterialUnit:
     """Раскрой по длине (2.4/6.4 ТЗ) — на складе (единица ещё "На хранении",
     совмещённая резка под цельнолистовые) либо на месте у цельнолистовых на
@@ -453,7 +453,7 @@ def return_unit(
     unit_id: int,
     payload: ReturnRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("nachalnik_uchastka", "kladovshchik", "operator_sklada")),
+    user: User = Depends(require_permission("units.return")),
 ) -> MaterialUnit:
     """Возврат остатка (2.4/6.5 ТЗ) — единый процесс для всех трёх участков,
     момент решает регламент участка. Статус → На хранении, зона С, area

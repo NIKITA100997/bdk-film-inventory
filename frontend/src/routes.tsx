@@ -2,7 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import AppLayout from "./layout/AppLayout";
-import { RequireAuth, RequireRole } from "./auth/RoleGuard";
+import { RequireAuth, RequirePermission } from "./auth/RoleGuard";
 
 import Receive from "./pages/mobile/Receive";
 import Issue from "./pages/mobile/Issue";
@@ -17,6 +17,7 @@ import Settings from "./pages/desktop/Settings";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
 import InventoryDesktop from "./pages/desktop/InventoryDesktop";
 import UserAdmin from "./pages/desktop/UserAdmin";
+import RoleAdmin from "./pages/desktop/RoleAdmin";
 import LabelTemplateAdmin from "./pages/desktop/LabelTemplateAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
 import SalesCalculator from "./pages/desktop/SalesCalculator";
@@ -35,79 +36,73 @@ export default function AppRoutes() {
       >
         <Route path="/" element={<Home />} />
 
-        <Route path="/m/receive" element={<RequireRole roles={["operator_sklada"]}><Receive /></RequireRole>} />
-        <Route path="/m/issue" element={<RequireRole roles={["operator_sklada"]}><Issue /></RequireRole>} />
+        <Route path="/m/receive" element={<RequirePermission permissions={["units.receive"]}><Receive /></RequirePermission>} />
+        <Route path="/m/issue" element={<RequirePermission permissions={["units.issue"]}><Issue /></RequirePermission>} />
         <Route
           path="/m/unit-card"
           element={
-            <RequireRole roles={["operator_sklada", "nachalnik_uchastka", "kladovshchik"]}>
+            <RequirePermission
+              permissions={["units.place", "units.writeoff", "units.split", "units.issue", "units.cut", "units.return"]}
+            >
               <UnitCard />
-            </RequireRole>
+            </RequirePermission>
           }
         />
         <Route
           path="/m/inventory"
-          element={<RequireRole roles={["logist", "kladovshchik"]}><Inventory /></RequireRole>}
+          element={<RequirePermission permissions={["inventory.manage"]}><Inventory /></RequirePermission>}
         />
 
-        <Route
-          path="/stock"
-          element={
-            <RequireRole
-              roles={["operator_sklada", "kladovshchik", "nachalnik_uchastka", "nachalnik_tsekha", "logist", "snabzhenets", "prodazhnik"]}
-            >
-              <MaterialsExplorer />
-            </RequireRole>
-          }
-        />
-        <Route
-          path="/materials"
-          element={
-            // Не пункт меню (8.1 раздел бэклога доработок) — вход только
-            // кликом по строке в "Остатках" или сканом QR, поэтому доступ
-            // держим широким, как раньше был у самого /stock.
-            <RequireRole
-              roles={["operator_sklada", "kladovshchik", "nachalnik_uchastka", "nachalnik_tsekha", "logist", "snabzhenets", "prodazhnik"]}
-            >
-              <MaterialCard />
-            </RequireRole>
-          }
-        />
+        {/* "Остатки"/"Карточка материала" видны любому аутентифицированному
+        пользователю (как раньше ALL_ROLES) — /materials не пункт меню (8.1
+        раздел бэклога доработок), вход только кликом по строке или сканом QR,
+        поэтому доступ держим таким же широким, как у самого /stock. */}
+        <Route path="/stock" element={<MaterialsExplorer />} />
+        <Route path="/materials" element={<MaterialCard />} />
+
         <Route
           path="/orders"
-          element={<RequireRole roles={["logist", "kladovshchik", "nachalnik_tsekha"]}><Orders /></RequireRole>}
+          element={
+            <RequirePermission permissions={["orders.plan", "orders.manage", "orders.close"]}>
+              <Orders />
+            </RequirePermission>
+          }
         />
         <Route
           path="/reports"
-          element={<RequireRole roles={["logist", "nachalnik_tsekha"]}><Reports /></RequireRole>}
+          element={<RequirePermission permissions={["reports.view"]}><Reports /></RequirePermission>}
         />
         <Route
           path="/settings"
-          element={<RequireRole roles={["logist"]}><Settings /></RequireRole>}
+          element={<RequirePermission permissions={["storage.manage", "calc_settings.manage"]}><Settings /></RequirePermission>}
         />
         <Route
           path="/dictionaries"
-          element={<RequireRole roles={["logist"]}><DictionaryAdmin /></RequireRole>}
+          element={<RequirePermission permissions={["materials.manage"]}><DictionaryAdmin /></RequirePermission>}
         />
         <Route
           path="/users"
-          element={<RequireRole roles={["logist"]}><UserAdmin /></RequireRole>}
+          element={<RequirePermission permissions={["users.manage"]}><UserAdmin /></RequirePermission>}
+        />
+        <Route
+          path="/roles"
+          element={<RequirePermission permissions={["users.manage"]}><RoleAdmin /></RequirePermission>}
         />
         <Route
           path="/label-template"
-          element={<RequireRole roles={["logist"]}><LabelTemplateAdmin /></RequireRole>}
+          element={<RequirePermission permissions={["labels.manage"]}><LabelTemplateAdmin /></RequirePermission>}
         />
         <Route
           path="/inventory"
-          element={<RequireRole roles={["logist", "kladovshchik"]}><InventoryDesktop /></RequireRole>}
+          element={<RequirePermission permissions={["inventory.manage"]}><InventoryDesktop /></RequirePermission>}
         />
         <Route
           path="/purchasing"
-          element={<RequireRole roles={["snabzhenets"]}><Purchasing /></RequireRole>}
+          element={<RequirePermission permissions={["purchasing.manage"]}><Purchasing /></RequirePermission>}
         />
         <Route
           path="/sales-calculator"
-          element={<RequireRole roles={["prodazhnik"]}><SalesCalculator /></RequireRole>}
+          element={<RequirePermission permissions={["sales_calculator.view"]}><SalesCalculator /></RequirePermission>}
         />
       </Route>
     </Routes>

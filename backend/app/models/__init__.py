@@ -1,4 +1,5 @@
 from app.models.users import User, UserRole, Area
+from app.models.roles import Role, Permission
 from app.models.dictionaries import Material, Color, Thickness, Manufacturer, MaterialSku, SkuAnalog
 from app.models.storage import Rack, MacroZoneRule, RackType
 from app.models.orders import Order, OrderMaterialLine
@@ -13,6 +14,8 @@ __all__ = [
     "User",
     "UserRole",
     "Area",
+    "Role",
+    "Permission",
     "Material",
     "Color",
     "Thickness",

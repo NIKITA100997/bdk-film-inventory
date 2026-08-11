@@ -64,8 +64,8 @@ export default function MaterialsExplorer() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const canManageAbc = user?.role === "logist" || user?.role === "admin";
-  const isUchastka = user?.role === "nachalnik_uchastka";
+  const canManageAbc = !!user?.is_superuser || !!user?.permissions.includes("calc_settings.manage");
+  const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
 
   const [viewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
   const [donorOnly, setDonorOnly] = useState(false);

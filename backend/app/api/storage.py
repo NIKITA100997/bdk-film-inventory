@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_user, require_roles
+from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
@@ -15,7 +15,7 @@ router = APIRouter(tags=["storage"])
 # эксплуатацию, дальше расширяется по мере роста склада. Часть
 # администрирования (5.6 ТЗ) — доступ только логисту/руководителю, кладовщик
 # размещает по уже готовым макрозонам, но не заводит их сам.
-manage_storage = require_roles("logist")
+manage_storage = require_permission("storage.manage")
 
 
 @router.get("/racks", response_model=list[RackOut])

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_user, require_roles
+from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
 from app.models.orders import Order, OrderMaterialLine
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 
 # Строки потребности заказа — та же роль, что раньше вела недельный план
 # (2.7 ТЗ), теперь просто на уровне заказа, а не календарной недели.
-manage_order_lines = require_roles("nachalnik_tsekha")
+manage_order_lines = require_permission("orders.plan")
 
 
 def _line_out(db: Session, line: OrderMaterialLine) -> OrderLineOut:
@@ -57,7 +57,9 @@ def list_orders(db: Session = Depends(get_db), user: User = Depends(get_current_
 
 
 @router.post("", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
-def create_order(payload: OrderCreate, db: Session = Depends(get_db), user: User = Depends(require_roles("logist"))) -> Order:
+def create_order(
+    payload: OrderCreate, db: Session = Depends(get_db), user: User = Depends(require_permission("orders.manage"))
+) -> Order:
     if db.query(Order).filter(Order.number == payload.number).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Заказ с таким номером уже существует")
     order = Order(number=payload.number)
@@ -174,7 +176,7 @@ def add_order_line(
 
 @router.post("/{order_id}/close", response_model=OrderOut)
 def close_order(
-    order_id: int, db: Session = Depends(get_db), user: User = Depends(require_roles("logist", "kladovshchik"))
+    order_id: int, db: Session = Depends(get_db), user: User = Depends(require_permission("orders.close"))
 ) -> Order:
     """Закрытие заказа (6.6 ТЗ) — основной путь, ручная кнопка."""
     order = db.get(Order, order_id)

@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
-from app.core.security import get_current_user, require_roles
+from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, SkuAnalog, Thickness
 from app.schemas.dictionaries import (
@@ -37,7 +37,7 @@ from app.services.dictionaries import find_or_create_sku
 
 router = APIRouter(tags=["dictionaries"])
 
-manage_dicts = require_roles("logist")
+manage_dicts = require_permission("materials.manage")
 
 _PHOTO_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 
@@ -164,7 +164,7 @@ def update_manufacturer(
 def create_material_sku(
     payload: MaterialSkuCreate,
     db: Session = Depends(get_db),
-    user=Depends(require_roles("operator_sklada", "logist")),
+    user=Depends(require_permission("units.receive", "materials.manage")),
 ) -> MaterialSku:
     """Голая позиция без физической единицы (8.5 раздел бэклога доработок)
     — завести номенклатуру заранее, до фактической поставки."""

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Table, Tag, Button, Modal, Form, Input, Select, Space, Popconfirm, Typography, message } from "antd";
+import { Card, Table, Tag, Button, Modal, Form, Input, Select, Checkbox, Space, Popconfirm, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listAllUsers,
@@ -10,18 +10,8 @@ import {
   type UserUpdatePayload,
 } from "../../api/users";
 import type { UserSummary } from "../../api/users";
-import type { Area, UserRole } from "../../auth/types";
-
-const roleLabels: Record<UserRole, string> = {
-  operator_sklada: "Оператор склада",
-  kladovshchik: "Кладовщик",
-  nachalnik_uchastka: "Начальник участка",
-  nachalnik_tsekha: "Начальник цеха",
-  logist: "Логист/руководитель",
-  snabzhenets: "Снабженец/закупщик",
-  admin: "Администратор",
-  prodazhnik: "Продажник",
-};
+import { listRoles } from "../../api/roles";
+import type { Area } from "../../auth/types";
 
 const areaLabels: Record<Area, string> = {
   okutka_tsargovykh: "Окутка царговых",
@@ -29,24 +19,42 @@ const areaLabels: Record<Area, string> = {
   tselnolistovye_dveri: "Цельнолистовые двери",
 };
 
-const roleOptions = Object.entries(roleLabels).map(([value, label]) => ({ value, label }));
 const areaOptions = Object.entries(areaLabels).map(([value, label]) => ({ value, label }));
+
+type UserFormValues = {
+  full_name: string;
+  username?: string;
+  role_ids: number[];
+  is_superuser: boolean;
+  area?: Area;
+  password?: string;
+};
 
 export default function UserAdmin() {
   const qc = useQueryClient();
-  const [roleFilter, setRoleFilter] = useState<UserRole | null>(null);
+  const [roleFilter, setRoleFilter] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<UserSummary | null>(null);
   const [tempPassword, setTempPassword] = useState<{ username: string; password: string } | null>(null);
-  const [createForm] = Form.useForm<UserCreatePayload>();
-  const [editForm] = Form.useForm<UserUpdatePayload>();
-  const createRole = Form.useWatch("role", createForm);
-  const editRole = Form.useWatch("role", editForm);
+  const [createForm] = Form.useForm<UserFormValues>();
+  const [editForm] = Form.useForm<UserFormValues>();
+  const createRoleIds = Form.useWatch("role_ids", createForm) ?? [];
+  const editRoleIds = Form.useWatch("role_ids", editForm) ?? [];
 
   const usersQuery = useQuery({ queryKey: ["users", "all"], queryFn: listAllUsers });
+  const rolesQuery = useQuery({ queryKey: ["roles"], queryFn: listRoles });
+  const roles = rolesQuery.data ?? [];
+  const roleOptions = roles.map((r) => ({ value: r.id, label: r.name }));
+
+  // Участок — независимый атрибут (8.3 раздел бэклога доработок), но
+  // поле показываем только когда среди выбранных ролей есть "начальник
+  // участка" — определяем по системному коду, не по названию (роль могли
+  // переименовать).
+  const hasUchastkaRole = (roleIds: number[]) =>
+    roles.some((r) => r.code === "nachalnik_uchastka" && roleIds.includes(r.id));
 
   const createMutation = useMutation({
-    mutationFn: createUser,
+    mutationFn: (payload: UserCreatePayload) => createUser(payload),
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["users", "all"] });
       setCreateOpen(false);
@@ -76,7 +84,7 @@ export default function UserAdmin() {
     onError: () => message.error("Не удалось сбросить пароль"),
   });
 
-  const filtered = (usersQuery.data ?? []).filter((u) => !roleFilter || u.role === roleFilter);
+  const filtered = (usersQuery.data ?? []).filter((u) => !roleFilter || u.roles.some((r) => r.id === roleFilter));
 
   return (
     <Card>
@@ -103,7 +111,17 @@ export default function UserAdmin() {
         columns={[
           { title: "ФИО", dataIndex: "full_name" },
           { title: "Логин", dataIndex: "username" },
-          { title: "Роль", render: (_, u) => roleLabels[u.role] },
+          {
+            title: "Роль",
+            render: (_, u) => (
+              <Space size={4} wrap>
+                {u.is_superuser && <Tag color="gold">Суперпользователь</Tag>}
+                {u.roles.map((r) => (
+                  <Tag key={r.id}>{r.name}</Tag>
+                ))}
+              </Space>
+            ),
+          },
           { title: "Участок", render: (_, u) => (u.area ? areaLabels[u.area] : "—") },
           {
             title: "Статус",
@@ -117,7 +135,12 @@ export default function UserAdmin() {
                   size="small"
                   onClick={() => {
                     setEditing(u);
-                    editForm.setFieldsValue({ full_name: u.full_name, role: u.role, area: u.area ?? undefined });
+                    editForm.setFieldsValue({
+                      full_name: u.full_name,
+                      role_ids: u.roles.map((r) => r.id),
+                      is_superuser: u.is_superuser,
+                      area: u.area ?? undefined,
+                    });
                   }}
                 >
                   Изменить
@@ -139,17 +162,25 @@ export default function UserAdmin() {
       />
 
       <Modal title="Новый пользователь" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
-        <Form form={createForm} layout="vertical" onFinish={(v) => createMutation.mutate(v)}>
+        <Form
+          form={createForm}
+          layout="vertical"
+          initialValues={{ role_ids: [], is_superuser: false }}
+          onFinish={(v) => createMutation.mutate({ ...v, area: hasUchastkaRole(v.role_ids) ? v.area : undefined })}
+        >
           <Form.Item name="full_name" label="ФИО" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <Form.Item name="username" label="Логин" rules={[{ required: true }]}>
             <Input autoComplete="off" />
           </Form.Item>
-          <Form.Item name="role" label="Роль" rules={[{ required: true }]}>
-            <Select options={roleOptions} />
+          <Form.Item name="role_ids" label="Роли">
+            <Select mode="multiple" options={roleOptions} loading={rolesQuery.isLoading} />
           </Form.Item>
-          {createRole === "nachalnik_uchastka" && (
+          <Form.Item name="is_superuser" valuePropName="checked">
+            <Checkbox>Суперпользователь (полный доступ, минуя роли)</Checkbox>
+          </Form.Item>
+          {hasUchastkaRole(createRoleIds) && (
             <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
               <Select options={areaOptions} />
             </Form.Item>
@@ -167,15 +198,20 @@ export default function UserAdmin() {
         <Form
           form={editForm}
           layout="vertical"
-          onFinish={(v) => editing && updateMutation.mutate({ id: editing.id, payload: v })}
+          onFinish={(v) =>
+            editing && updateMutation.mutate({ id: editing.id, payload: { ...v, area: hasUchastkaRole(v.role_ids) ? v.area : null } })
+          }
         >
           <Form.Item name="full_name" label="ФИО" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="role" label="Роль" rules={[{ required: true }]}>
-            <Select options={roleOptions} />
+          <Form.Item name="role_ids" label="Роли">
+            <Select mode="multiple" options={roleOptions} loading={rolesQuery.isLoading} />
           </Form.Item>
-          {editRole === "nachalnik_uchastka" && (
+          <Form.Item name="is_superuser" valuePropName="checked">
+            <Checkbox>Суперпользователь (полный доступ, минуя роли)</Checkbox>
+          </Form.Item>
+          {hasUchastkaRole(editRoleIds) && (
             <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
               <Select options={areaOptions} />
             </Form.Item>

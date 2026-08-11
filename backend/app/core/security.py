@@ -48,9 +48,21 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
 
 
-def require_roles(*roles: str):
+def get_permission_codes(user: User) -> set[str]:
+    """Объединение прав по всем ролям пользователя (8.3 раздел бэклога
+    доработок) — суперпользователь сюда не заходит, у него отдельный флаг."""
+    return {perm.code for role in user.roles if role.is_active for perm in role.permissions}
+
+
+def require_permission(*permission_codes: str):
+    """Замена require_roles(*roles) — семантика "любое из перечисленных"
+    сохранена 1:1, только источник теперь назначаемые права, а не хардкод
+    имён ролей."""
+
     def dependency(user: User = Depends(get_current_user)) -> User:
-        if user.role.value not in roles and user.role.value != "admin":
+        if user.is_superuser:
+            return user
+        if get_permission_codes(user).isdisjoint(permission_codes):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Недостаточно прав")
         return user
 

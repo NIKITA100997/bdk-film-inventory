@@ -1,11 +1,12 @@
 import { apiClient } from "./client";
-import type { Area, UserRole } from "../auth/types";
+import type { Area, RoleSummary } from "../auth/types";
 
 export interface UserSummary {
   id: number;
   username: string;
   full_name: string;
-  role: UserRole;
+  roles: RoleSummary[];
+  is_superuser: boolean;
   area: Area | null;
   is_active: boolean;
 }
@@ -18,7 +19,8 @@ export async function listUsers(): Promise<UserSummary[]> {
 export interface UserCreatePayload {
   username: string;
   full_name: string;
-  role: UserRole;
+  role_ids: number[];
+  is_superuser?: boolean;
   area?: Area | null;
   password?: string;
 }
@@ -30,7 +32,8 @@ export interface UserCreateResult {
 
 export interface UserUpdatePayload {
   full_name?: string;
-  role?: UserRole;
+  role_ids?: number[];
+  is_superuser?: boolean;
   area?: Area | null;
   is_active?: boolean;
 }

@@ -18,15 +18,15 @@ import { listMaterialSkus } from "../../api/dictionaries";
 export default function Overview() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const role = user?.role;
+  const has = (permission: string) => !!user?.is_superuser || !!user?.permissions.includes(permission);
 
-  const showPlanning = role === "nachalnik_tsekha" || role === "logist" || role === "admin";
-  const showPurchasing = role === "snabzhenets" || role === "admin";
-  const showOrders = role === "logist" || role === "kladovshchik" || role === "admin";
-  const showInventory = role === "logist" || role === "kladovshchik" || role === "admin";
-  const showDonorAccuracy = role === "logist" || role === "nachalnik_tsekha" || role === "admin";
-  const showStale = role === "logist" || role === "kladovshchik" || role === "admin";
-  const showSales = role === "prodazhnik" || role === "admin";
+  const showPlanning = has("reports.view");
+  const showPurchasing = has("purchasing.manage");
+  const showOrders = has("orders.close");
+  const showInventory = has("inventory.manage");
+  const showDonorAccuracy = has("reports.view");
+  const showStale = has("inventory.manage");
+  const showSales = has("sales_calculator.view");
 
   const ordersReportQuery = useQuery({ queryKey: ["orders-report", "overview"], queryFn: getOrdersReport, enabled: showPlanning });
   const purchasingQuery = useQuery({

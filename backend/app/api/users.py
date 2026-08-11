@@ -2,19 +2,20 @@ import secrets
 import string
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from app.core.security import hash_password, require_roles
+from app.core.security import hash_password, require_permission
 from app.db.session import get_db
-from app.models.users import User, UserRole
+from app.models.roles import Role
+from app.models.users import User
 from app.schemas.users import ResetPasswordResult, UserCreate, UserCreateResult, UserOut, UserUpdate
 from app.services.users import area_is_missing, resolve_area
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 # Администрирование пользователей (5.6 ТЗ) — доступ только логисту/
-# руководителю (admin проходит всегда через require_roles).
-manage_users = require_roles("logist")
+# руководителю (суперпользователь проходит всегда через require_permission).
+manage_users = require_permission("users.manage")
 
 
 def _generate_temp_password() -> str:
@@ -22,11 +23,24 @@ def _generate_temp_password() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(10))
 
 
+def _users_query(db: Session):
+    return db.query(User).options(joinedload(User.roles))
+
+
+def _resolve_roles(db: Session, role_ids: list[int]) -> list[Role]:
+    if not role_ids:
+        return []
+    roles = db.query(Role).filter(Role.id.in_(role_ids)).all()
+    if len(roles) != len(set(role_ids)):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Одна или несколько ролей не найдены")
+    return roles
+
+
 @router.get("", response_model=list[UserOut])
 def list_all_users(db: Session = Depends(get_db), user: User = Depends(manage_users)) -> list[User]:
     """Полный список для администрирования, включая отключённых — в отличие
     от GET /auth/users (только активные, для выбора участников сессии)."""
-    return db.query(User).order_by(User.full_name).all()
+    return _users_query(db).order_by(User.full_name).all()
 
 
 @router.post("", response_model=UserCreateResult, status_code=status.HTTP_201_CREATED)
@@ -35,13 +49,23 @@ def create_user(
 ) -> UserCreateResult:
     if db.query(User).filter(User.username == payload.username).first():
         raise HTTPException(status.HTTP_409_CONFLICT, "Логин уже занят")
+    if not payload.is_superuser and not payload.role_ids:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Нужно выбрать хотя бы одну роль или отметить суперпользователя")
+
+    roles = _resolve_roles(db, payload.role_ids)
+    role_codes = {r.code for r in roles if r.code}
+    resolved_area = resolve_area(role_codes, payload.area)
+    if area_is_missing(role_codes, resolved_area):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Для роли «начальник участка» нужно указать участок")
+
     temp_password = payload.password or _generate_temp_password()
     new_user = User(
         username=payload.username,
         password_hash=hash_password(temp_password),
         full_name=payload.full_name,
-        role=payload.role,
-        area=payload.area,
+        roles=roles,
+        is_superuser=payload.is_superuser,
+        area=resolved_area,
         is_active=True,
     )
     db.add(new_user)
@@ -54,21 +78,28 @@ def create_user(
 def update_user(
     user_id: int, payload: UserUpdate, db: Session = Depends(get_db), user: User = Depends(manage_users)
 ) -> User:
-    target = db.get(User, user_id)
+    target = _users_query(db).filter(User.id == user_id).first()
     if target is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Пользователь не найден")
 
     if payload.full_name is not None:
         target.full_name = payload.full_name
 
-    effective_role = payload.role if payload.role is not None else target.role
-    resolved_area = resolve_area(effective_role, payload.area, target.area)
-    if area_is_missing(effective_role, resolved_area):
+    effective_is_superuser = payload.is_superuser if payload.is_superuser is not None else target.is_superuser
+    effective_roles = _resolve_roles(db, payload.role_ids) if payload.role_ids is not None else target.roles
+    if not effective_is_superuser and not effective_roles:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Нужно выбрать хотя бы одну роль или отметить суперпользователя")
+
+    role_codes = {r.code for r in effective_roles if r.code}
+    resolved_area = resolve_area(role_codes, payload.area, target.area)
+    if area_is_missing(role_codes, resolved_area):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Для роли «начальник участка» нужно указать участок")
     target.area = resolved_area
 
-    if payload.role is not None:
-        target.role = payload.role
+    if payload.role_ids is not None:
+        target.roles = effective_roles
+    if payload.is_superuser is not None:
+        target.is_superuser = payload.is_superuser
     if payload.is_active is not None:
         target.is_active = payload.is_active
 

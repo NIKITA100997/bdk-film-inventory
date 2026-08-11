@@ -14,7 +14,9 @@ export default function AppLayout() {
   if (!user) return null;
 
   const isVisible = (item: NavItem) => {
-    if (user.role !== "admin" && !item.roles.includes(user.role)) return false;
+    if (!user.is_superuser && item.permissions?.length && !item.permissions.some((p) => user.permissions.includes(p))) {
+      return false;
+    }
     if (item.areas && !(user.area && item.areas.includes(user.area))) return false;
     return true;
   };
@@ -46,7 +48,7 @@ export default function AppLayout() {
         </Typography.Title>
         <Space>
           <Typography.Text style={{ color: palette.grayMuted }}>
-            {user.full_name} · {user.role}
+            {user.full_name} · {user.is_superuser ? "Суперпользователь" : user.roles.map((r) => r.name).join(", ") || "без роли"}
           </Typography.Text>
           <Button
             type="text"

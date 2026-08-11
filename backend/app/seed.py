@@ -4,7 +4,7 @@
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
-from app.models.users import User, UserRole
+from app.models.users import User
 
 
 def main() -> None:
@@ -17,7 +17,7 @@ def main() -> None:
             username="admin",
             password_hash=hash_password("admin"),
             full_name="Администратор",
-            role=UserRole.ADMIN,
+            is_superuser=True,
             is_active=True,
         )
         db.add(admin)

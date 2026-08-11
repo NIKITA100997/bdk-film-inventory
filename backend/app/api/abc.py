@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_user, require_roles
+from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import Color, Material, Thickness
@@ -11,7 +11,7 @@ from app.services.abc_analysis import recompute_abc_classes
 
 router = APIRouter(tags=["abc"])
 
-manage_calc_settings = require_roles("logist", "admin")
+manage_calc_settings = require_permission("calc_settings.manage")
 
 
 def _get_settings(db: Session) -> CalcSettings:

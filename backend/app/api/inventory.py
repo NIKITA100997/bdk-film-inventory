@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Query, Session
 
-from app.core.security import require_roles
+from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.events import EventType, MaterialEvent
 from app.models.inventory import InventoryScopeType, InventorySession, InventorySessionParticipant, InventoryStatus
@@ -24,7 +24,7 @@ from app.services.inventory import ScanMatchKind, match_scan, resolve_participan
 
 router = APIRouter(prefix="/inventory-sessions", tags=["inventory"])
 
-manage_inventory = require_roles("logist", "kladovshchik")
+manage_inventory = require_permission("inventory.manage")
 
 
 def _expected_units_query(db: Session, inv_session: InventorySession) -> Query:
