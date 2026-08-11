@@ -1,24 +1,5 @@
 import { useState } from "react";
-import {
-  Card,
-  Tabs,
-  Table,
-  Button,
-  Input,
-  InputNumber,
-  Select,
-  Tag,
-  Space,
-  Popconfirm,
-  Typography,
-  Empty,
-  Modal,
-  Upload,
-  Image,
-  message,
-} from "antd";
-import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
-import type { UploadProps } from "antd";
+import { Card, Tabs, Table, Button, Input, InputNumber, Tag, Space, Popconfirm, Typography, Empty, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listAllNameDict,
@@ -26,291 +7,11 @@ import {
   updateNameDictEntry,
   listAllThicknesses,
   updateThicknessEntry,
-  listAllMaterialSkus,
-  updateMaterialSku,
-  getSkuAnalogs,
-  addSkuAnalog,
-  removeSkuAnalog,
-  uploadSkuPhoto,
-  deleteSkuPhoto,
-  skuPhotoUrl,
   type NameDictKind,
   type DictEntry,
   type DuplicateCandidate,
   type ThicknessEntry,
-  type MaterialSkuUpdate,
-  type AnalogEntry,
 } from "../../api/dictionaries";
-import type { MaterialSku } from "../../api/units";
-import { skuLabel } from "../../api/units";
-
-function SkuAnalogsModal({ sku, allSkus, onClose }: { sku: MaterialSku; allSkus: MaterialSku[]; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [pickedAnalogId, setPickedAnalogId] = useState<number | undefined>();
-  const [note, setNote] = useState("");
-
-  const analogsQuery = useQuery({ queryKey: ["sku-analogs", sku.id], queryFn: () => getSkuAnalogs(sku.id) });
-
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["sku-analogs", sku.id] });
-    qc.invalidateQueries({ queryKey: ["material-skus"] });
-  };
-
-  const addMutation = useMutation({
-    mutationFn: () => addSkuAnalog(sku.id, { analog_sku_id: pickedAnalogId!, note: note || undefined }),
-    onSuccess: () => {
-      invalidate();
-      setPickedAnalogId(undefined);
-      setNote("");
-      message.success("Аналог добавлен");
-    },
-    onError: () => message.error("Не удалось добавить аналог"),
-  });
-
-  const removeMutation = useMutation({
-    mutationFn: (linkId: number) => removeSkuAnalog(sku.id, linkId),
-    onSuccess: () => {
-      invalidate();
-      message.success("Связь удалена");
-    },
-  });
-
-  const photoMutation = useMutation({
-    mutationFn: (file: File) => uploadSkuPhoto(sku.id, file),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["material-skus"] });
-      message.success("Фото загружено");
-    },
-    onError: () => message.error("Не удалось загрузить фото"),
-  });
-
-  const deletePhotoMutation = useMutation({
-    mutationFn: () => deleteSkuPhoto(sku.id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["material-skus"] });
-      message.success("Фото удалено");
-    },
-  });
-
-  const linkedIds = new Set((analogsQuery.data?.analogs ?? []).map((a) => a.sku.id));
-  const candidateSkus = allSkus.filter((s) => s.id !== sku.id && s.is_active && !linkedIds.has(s.id));
-  const photoUrl = skuPhotoUrl(sku.photo_path);
-
-  const uploadProps: UploadProps = {
-    accept: "image/jpeg,image/png,image/webp",
-    showUploadList: false,
-    beforeUpload: (file) => {
-      photoMutation.mutate(file);
-      return false;
-    },
-  };
-
-  return (
-    <Modal title={`Аналоги и фото: ${skuLabel(sku)}`} open onCancel={onClose} footer={null} width={640} destroyOnHidden>
-      <Space direction="vertical" size="large" style={{ width: "100%" }}>
-        <Card size="small" title="Фото плёнки">
-          <Space align="start">
-            {photoUrl ? (
-              <Image src={photoUrl} width={120} height={120} style={{ objectFit: "cover" }} />
-            ) : (
-              <div
-                style={{
-                  width: 120,
-                  height: 120,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "#f5f5f5",
-                  color: "#999",
-                }}
-              >
-                <PictureOutlined style={{ fontSize: 32 }} />
-              </div>
-            )}
-            <Space direction="vertical">
-              <Upload {...uploadProps}>
-                <Button icon={<UploadOutlined />} loading={photoMutation.isPending}>
-                  {photoUrl ? "Заменить фото" : "Загрузить фото"}
-                </Button>
-              </Upload>
-              {photoUrl && (
-                <Popconfirm title="Удалить фото?" onConfirm={() => deletePhotoMutation.mutate()}>
-                  <Button danger size="small">
-                    Удалить фото
-                  </Button>
-                </Popconfirm>
-              )}
-            </Space>
-          </Space>
-        </Card>
-
-        <Card size="small" title="Аналоги" loading={analogsQuery.isLoading}>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-            Ручная привязка — используется калькулятором продажника, чтобы предложить замену неликвидом (8 раздел
-            обратной связи). Связь видна с обеих позиций.
-          </Typography.Paragraph>
-          {(analogsQuery.data?.analogs ?? []).length === 0 ? (
-            <Empty description="Аналоги не привязаны" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          ) : (
-            <Table<AnalogEntry>
-              rowKey="link_id"
-              size="small"
-              pagination={false}
-              dataSource={analogsQuery.data?.analogs}
-              columns={[
-                { title: "Позиция", render: (_, a) => skuLabel(a.sku) },
-                { title: "Остаток, м²", dataIndex: "stock_m2" },
-                {
-                  title: "Неликвид",
-                  render: (_, a) =>
-                    a.is_illiquid ? <Tag color="orange">Давно не движется ({a.stale_days} дн.)</Tag> : <Tag>—</Tag>,
-                },
-                { title: "Комментарий", dataIndex: "note", render: (v: string | null) => v ?? "—" },
-                {
-                  title: "",
-                  render: (_, a) => (
-                    <Button size="small" danger onClick={() => removeMutation.mutate(a.link_id)}>
-                      Удалить
-                    </Button>
-                  ),
-                },
-              ]}
-            />
-          )}
-
-          <Space style={{ marginTop: 12 }} wrap>
-            <Select
-              placeholder="Выбрать позицию"
-              style={{ width: 320 }}
-              value={pickedAnalogId}
-              onChange={setPickedAnalogId}
-              showSearch
-              optionFilterProp="label"
-              options={candidateSkus.map((s) => ({ value: s.id, label: skuLabel(s) }))}
-            />
-            <Input placeholder="Комментарий (необязательно)" value={note} onChange={(e) => setNote(e.target.value)} style={{ width: 200 }} />
-            <Button type="primary" disabled={!pickedAnalogId} loading={addMutation.isPending} onClick={() => addMutation.mutate()}>
-              + Добавить аналог
-            </Button>
-          </Space>
-        </Card>
-      </Space>
-    </Modal>
-  );
-}
-
-function NomenclatureTab() {
-  const qc = useQueryClient();
-  const [editing, setEditing] = useState<Record<number, MaterialSkuUpdate>>({});
-  const [analogsForId, setAnalogsForId] = useState<number | null>(null);
-  const skusQuery = useQuery({ queryKey: ["material-skus", "all"], queryFn: listAllMaterialSkus });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: MaterialSkuUpdate }) => updateMaterialSku(id, payload),
-    onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: ["material-skus"] });
-      setEditing((s) => {
-        const next = { ...s };
-        delete next[vars.id];
-        return next;
-      });
-      message.success("Сохранено");
-    },
-    onError: () => message.error("Не удалось сохранить"),
-  });
-
-  const setField = (id: number, patch: MaterialSkuUpdate) =>
-    setEditing((s) => ({ ...s, [id]: { ...s[id], ...patch } }));
-
-  return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Typography.Paragraph type="secondary">
-        Это и есть номенклатура — каждая строка комбинация материал+цвет+толщина+производитель (справочники ниже
-        по вкладкам — только их отдельные составляющие). Код у поставщика и родная ширина рулона можно править
-        прямо здесь; сама комбинация атрибутов неизменна — заводится заново через приёмку или кнопку «+ Новое» на
-        «Остатках», если нужна другая.
-      </Typography.Paragraph>
-      <Table<MaterialSku>
-        rowKey="id"
-        loading={skusQuery.isLoading}
-        dataSource={skusQuery.data ?? []}
-        pagination={{ pageSize: 20 }}
-        columns={[
-          {
-            title: "",
-            width: 48,
-            render: (_, s) =>
-              skuPhotoUrl(s.photo_path) ? (
-                <Image src={skuPhotoUrl(s.photo_path)!} width={36} height={36} style={{ objectFit: "cover" }} preview={{ mask: false }} />
-              ) : (
-                <PictureOutlined style={{ color: "#ccc", fontSize: 18 }} />
-              ),
-          },
-          { title: "Материал", render: (_, s) => s.material.name },
-          { title: "Цвет", render: (_, s) => s.color.name },
-          { title: "Толщина, мм", render: (_, s) => s.thickness.value_mm },
-          { title: "Производитель", render: (_, s) => s.manufacturer.name },
-          {
-            title: "Код у поставщика",
-            render: (_, s) => (
-              <Input
-                size="small"
-                value={editing[s.id]?.supplier_code ?? s.supplier_code ?? ""}
-                onChange={(e) => setField(s.id, { supplier_code: e.target.value })}
-                style={{ maxWidth: 160 }}
-              />
-            ),
-          },
-          {
-            title: "Родная ширина, мм",
-            render: (_, s) => (
-              <InputNumber
-                size="small"
-                min={1}
-                value={editing[s.id]?.native_width_mm ?? s.native_width_mm ?? undefined}
-                onChange={(v) => setField(s.id, { native_width_mm: v ?? undefined })}
-              />
-            ),
-          },
-          {
-            title: "Статус",
-            dataIndex: "is_active",
-            render: (v: boolean) => (v ? <Tag color="green">Активна</Tag> : <Tag>В архиве</Tag>),
-          },
-          {
-            title: "",
-            render: (_, s) => (
-              <Space>
-                <Button
-                  size="small"
-                  disabled={!editing[s.id]}
-                  onClick={() => updateMutation.mutate({ id: s.id, payload: editing[s.id] })}
-                >
-                  Сохранить
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() => updateMutation.mutate({ id: s.id, payload: { is_active: !s.is_active } })}
-                >
-                  {s.is_active ? "В архив" : "Восстановить"}
-                </Button>
-                <Button size="small" onClick={() => setAnalogsForId(s.id)}>
-                  Аналоги/фото
-                </Button>
-              </Space>
-            ),
-          },
-        ]}
-      />
-      {analogsForId && (() => {
-        const sku = (skusQuery.data ?? []).find((s) => s.id === analogsForId);
-        return sku ? (
-          <SkuAnalogsModal sku={sku} allSkus={skusQuery.data ?? []} onClose={() => setAnalogsForId(null)} />
-        ) : null;
-      })()}
-    </Space>
-  );
-}
 
 function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
   const qc = useQueryClient();
@@ -488,17 +189,24 @@ function ThicknessTab() {
   );
 }
 
+/** Справочники (2.1a ТЗ) — только атомарные составляющие позиции материала
+ * (материал/цвет/производитель/толщина), не сама номенклатура. Раньше здесь
+ * же была вкладка "Номенклатура" — таблица позиций (материал+цвет+толщина+
+ * производитель), дублировавшая список на "Остатках"; по итогам продуктового
+ * разбора объединены — редактирование позиции (код у поставщика, родная
+ * ширина, архив, аналоги/фото) переехало в карточку материала
+ * (MaterialCard.tsx), куда и так уже вёл клик по строке на "Остатках". */
 export default function DictionaryAdmin() {
   return (
     <Card>
-      <Typography.Title level={4}>Номенклатура и справочники</Typography.Title>
+      <Typography.Title level={4}>Справочники</Typography.Title>
       <Typography.Paragraph type="secondary">
         Архивные значения пропадают из подсказок при вводе, но не удаляются — старые записи, где они уже
-        использованы, остаются читаемыми.
+        использованы, остаются читаемыми. Саму номенклатуру (позиции материала) редактируйте в карточке материала —
+        откройте её кликом по строке на «Остатках».
       </Typography.Paragraph>
       <Tabs
         items={[
-          { key: "nomenclature", label: "Номенклатура", children: <NomenclatureTab /> },
           { key: "materials", label: "Материалы (тип)", children: <NameDictTab kind="materials" label="Материал" /> },
           { key: "colors", label: "Цвета", children: <NameDictTab kind="colors" label="Цвет" /> },
           { key: "manufacturers", label: "Производители", children: <NameDictTab kind="manufacturers" label="Производитель" /> },
