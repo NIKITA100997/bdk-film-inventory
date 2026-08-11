@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   Radio,
@@ -18,7 +18,7 @@ import {
 } from "antd";
 import { DownOutlined, SearchOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   searchUnits,
   receiveAndAutoPlace,
@@ -63,6 +63,7 @@ type UnitLineValues = {
 export default function MaterialsExplorer() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const qc = useQueryClient();
   const canManageAbc = !!user?.is_superuser || !!user?.permissions.includes("calc_settings.manage");
   const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
@@ -73,6 +74,17 @@ export default function MaterialsExplorer() {
     isUchastka ? { status: "Выдан_участку", area: user?.area ?? undefined } : {},
   );
   const [globalQuery, setGlobalQuery] = useState("");
+
+  // Запрос из глобального поиска в шапке (9.7 раздел бэклога доработок) —
+  // AppLayout передаёт текст через location.state, а не query-параметр,
+  // чтобы не плодить читаемый в адресной строке дубль состояния фильтров.
+  // Реагируем на сам объект state (не только на маунт), иначе повторный
+  // поиск из шапки, когда "Остатки" уже открыты, не долетал бы.
+  useEffect(() => {
+    const stateQuery = (location.state as { globalQuery?: string } | null)?.globalQuery;
+    if (stateQuery) setGlobalQuery(stateQuery);
+  }, [location.state]);
+
   const [createPositionOpen, setCreatePositionOpen] = useState(false);
   const [createUnitOpen, setCreateUnitOpen] = useState(false);
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);

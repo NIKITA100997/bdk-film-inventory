@@ -1,4 +1,6 @@
-import { Layout, Menu, Space, Typography, Button } from "antd";
+import { useState } from "react";
+import { Layout, Menu, Space, Typography, Button, Input } from "antd";
+import { SearchOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { navTree, type NavItem } from "./navConfig";
@@ -10,8 +12,23 @@ export default function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [headerQuery, setHeaderQuery] = useState("");
 
   if (!user) return null;
+
+  // Глобальный поиск в шапке (9.7 раздел бэклога доработок) — виден на
+  // любом экране, не только на "Остатках". Число — трактуем как ID единицы
+  // и сразу открываем карточку единицы; текст — уходим на "Остатки" с этим
+  // запросом (MaterialsExplorer сам подхватывает location.state.globalQuery).
+  const runHeaderSearch = () => {
+    const query = headerQuery.trim();
+    if (!query) return;
+    if (/^\d+$/.test(query)) {
+      navigate("/m/unit-card", { state: { unitId: Number(query) } });
+    } else {
+      navigate("/stock", { state: { globalQuery: query } });
+    }
+  };
 
   const isVisible = (item: NavItem) => {
     if (!user.is_superuser && item.permissions?.length && !item.permissions.some((p) => user.permissions.includes(p))) {
@@ -43,9 +60,17 @@ export default function AppLayout() {
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <Header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Typography.Title level={4} style={{ color: "#fff", margin: 0, fontFamily: fontHeading }}>
+        <Typography.Title level={4} style={{ color: "#fff", margin: 0, fontFamily: fontHeading, whiteSpace: "nowrap" }}>
           Учёт плёнки БДК
         </Typography.Title>
+        <Input
+          prefix={<SearchOutlined />}
+          placeholder="ID единицы или материал…"
+          value={headerQuery}
+          onChange={(e) => setHeaderQuery(e.target.value)}
+          onPressEnter={runHeaderSearch}
+          style={{ maxWidth: 320, margin: "0 16px" }}
+        />
         <Space>
           <Typography.Text style={{ color: palette.grayMuted }}>
             {user.full_name} · {user.is_superuser ? "Суперпользователь" : user.roles.map((r) => r.name).join(", ") || "без роли"}
