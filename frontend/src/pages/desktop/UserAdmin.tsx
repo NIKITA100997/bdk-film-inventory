@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Card, Table, Tag, Button, Modal, Form, Input, Select, Checkbox, Space, Popconfirm, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,7 +11,7 @@ import {
   type UserUpdatePayload,
 } from "../../api/users";
 import type { UserSummary } from "../../api/users";
-import { listRoles } from "../../api/roles";
+import { listRoles, createRole } from "../../api/roles";
 import type { Area } from "../../auth/types";
 
 const areaLabels: Record<Area, string> = {
@@ -40,6 +41,9 @@ export default function UserAdmin() {
   const [editForm] = Form.useForm<UserFormValues>();
   const createRoleIds = Form.useWatch("role_ids", createForm) ?? [];
   const editRoleIds = Form.useWatch("role_ids", editForm) ?? [];
+
+  const [roleCreateFor, setRoleCreateFor] = useState<"create" | "edit" | null>(null);
+  const [newRoleForm] = Form.useForm<{ name: string }>();
 
   const usersQuery = useQuery({ queryKey: ["users", "all"], queryFn: listAllUsers });
   const rolesQuery = useQuery({ queryKey: ["roles"], queryFn: listRoles });
@@ -84,11 +88,53 @@ export default function UserAdmin() {
     onError: () => message.error("Не удалось сбросить пароль"),
   });
 
+  // "+ Создать роль" прямо из формы пользователя (раздел разбора — раньше
+  // роль без прав приходилось заводить на отдельном экране "Роли и права",
+  // теряя контекст создания пользователя) — добавляет новую роль сразу в
+  // список выбранных на той форме, с которой её вызвали.
+  const createRoleMutation = useMutation({
+    mutationFn: (name: string) => createRole(name),
+    onSuccess: (role) => {
+      qc.invalidateQueries({ queryKey: ["roles"] });
+      const form = roleCreateFor === "edit" ? editForm : createForm;
+      const current: number[] = form.getFieldValue("role_ids") ?? [];
+      form.setFieldValue("role_ids", [...current, role.id]);
+      setRoleCreateFor(null);
+      newRoleForm.resetFields();
+      message.success("Роль создана и добавлена в выбранные");
+    },
+    onError: () => message.error("Не удалось создать — название уже занято?"),
+  });
+
+  // Выдача суперправ — не рутинное редактирование (раздел разбора):
+  // подтверждение перед отправкой формы, только когда флаг реально
+  // включается (не при сохранении уже суперпользователя без изменений).
+  const confirmSuperuserIfNeeded = (values: UserFormValues, wasSuperuser: boolean, onOk: () => void) => {
+    if (values.is_superuser && !wasSuperuser) {
+      Modal.confirm({
+        title: "Выдать права суперпользователя?",
+        content: "Полный доступ ко всей системе в обход ролей и прав. Можно будет отменить позже, сняв флажок.",
+        okText: "Выдать",
+        okButtonProps: { danger: true },
+        cancelText: "Отмена",
+        onOk,
+      });
+    } else {
+      onOk();
+    }
+  };
+
   const filtered = (usersQuery.data ?? []).filter((u) => !roleFilter || u.roles.some((r) => r.id === roleFilter));
 
   return (
     <Card>
-      <Typography.Title level={4}>Пользователи</Typography.Title>
+      <Space align="baseline" style={{ marginBottom: 4 }}>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Пользователи
+        </Typography.Title>
+        <Link to="/roles">Роли и права →</Link>
+      </Space>
+      <div style={{ marginBottom: 12 }} />
       <Space style={{ marginBottom: 16 }} wrap>
         <Select
           allowClear
@@ -166,7 +212,11 @@ export default function UserAdmin() {
           form={createForm}
           layout="vertical"
           initialValues={{ role_ids: [], is_superuser: false }}
-          onFinish={(v) => createMutation.mutate({ ...v, area: hasUchastkaRole(v.role_ids) ? v.area : undefined })}
+          onFinish={(v) =>
+            confirmSuperuserIfNeeded(v, false, () =>
+              createMutation.mutate({ ...v, area: hasUchastkaRole(v.role_ids) ? v.area : undefined }),
+            )
+          }
         >
           <Form.Item name="full_name" label="ФИО" rules={[{ required: true }]}>
             <Input />
@@ -174,8 +224,13 @@ export default function UserAdmin() {
           <Form.Item name="username" label="Логин" rules={[{ required: true }]}>
             <Input autoComplete="off" />
           </Form.Item>
-          <Form.Item name="role_ids" label="Роли">
-            <Select mode="multiple" options={roleOptions} loading={rolesQuery.isLoading} />
+          <Form.Item label="Роли">
+            <Space.Compact block>
+              <Form.Item name="role_ids" noStyle>
+                <Select mode="multiple" options={roleOptions} loading={rolesQuery.isLoading} style={{ width: "100%" }} />
+              </Form.Item>
+              <Button onClick={() => setRoleCreateFor("create")}>+ Роль</Button>
+            </Space.Compact>
           </Form.Item>
           <Form.Item name="is_superuser" valuePropName="checked">
             <Checkbox>Суперпользователь (полный доступ, минуя роли)</Checkbox>
@@ -199,14 +254,21 @@ export default function UserAdmin() {
           form={editForm}
           layout="vertical"
           onFinish={(v) =>
-            editing && updateMutation.mutate({ id: editing.id, payload: { ...v, area: hasUchastkaRole(v.role_ids) ? v.area : null } })
+            confirmSuperuserIfNeeded(v, editing?.is_superuser ?? false, () =>
+              editing && updateMutation.mutate({ id: editing.id, payload: { ...v, area: hasUchastkaRole(v.role_ids) ? v.area : null } }),
+            )
           }
         >
           <Form.Item name="full_name" label="ФИО" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="role_ids" label="Роли">
-            <Select mode="multiple" options={roleOptions} loading={rolesQuery.isLoading} />
+          <Form.Item label="Роли">
+            <Space.Compact block>
+              <Form.Item name="role_ids" noStyle>
+                <Select mode="multiple" options={roleOptions} loading={rolesQuery.isLoading} style={{ width: "100%" }} />
+              </Form.Item>
+              <Button onClick={() => setRoleCreateFor("edit")}>+ Роль</Button>
+            </Space.Compact>
           </Form.Item>
           <Form.Item name="is_superuser" valuePropName="checked">
             <Checkbox>Суперпользователь (полный доступ, минуя роли)</Checkbox>
@@ -234,6 +296,26 @@ export default function UserAdmin() {
         <Typography.Paragraph copyable style={{ fontSize: 20, fontFamily: "monospace" }}>
           {tempPassword?.password}
         </Typography.Paragraph>
+      </Modal>
+
+      <Modal
+        title="Новая роль"
+        open={!!roleCreateFor}
+        onCancel={() => setRoleCreateFor(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Form form={newRoleForm} layout="vertical" onFinish={(v) => createRoleMutation.mutate(v.name)}>
+          <Form.Item name="name" label="Название" rules={[{ required: true }]}>
+            <Input autoFocus />
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+            Права роли настраиваются отдельно, в «Роли и права» — здесь только название, роль сразу добавится к выбранным.
+          </Typography.Paragraph>
+          <Button type="primary" htmlType="submit" block loading={createRoleMutation.isPending}>
+            Создать
+          </Button>
+        </Form>
       </Modal>
     </Card>
   );

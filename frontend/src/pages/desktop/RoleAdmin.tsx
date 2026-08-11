@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Card, Table, Tag, Button, Modal, Form, Input, Checkbox, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listRoles, createRole, updateRole, updateRolePermissions, listPermissions, type Role } from "../../api/roles";
@@ -54,7 +55,12 @@ export default function RoleAdmin() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Typography.Title level={4}>Роли и права</Typography.Title>
+      <Space align="baseline">
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Роли и права
+        </Typography.Title>
+        <Link to="/users">← Пользователи</Link>
+      </Space>
 
       <Card
         title="Роли"

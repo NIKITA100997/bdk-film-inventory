@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Table, Form, Input, InputNumber, Button, Tag, Space, Progress, message } from "antd";
+import { Card, Table, Form, Input, InputNumber, Button, Tag, Space, Progress, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listOrders,
@@ -13,13 +13,27 @@ import {
 } from "../../api/orders";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import EmptyHint from "../../components/EmptyHint";
+import { useAuth } from "../../auth/AuthContext";
 
 /** Заказы (4 раздел обратной связи) — заказ теперь единица планирования:
  * свои строки потребности в материале и план/факт по нему самому, вместо
  * отдельного недельного плана. Сводный отчёт по всем заказам — во вкладке
- * "По заказам" в "Отчётах". */
+ * "По заказам" в "Отчётах".
+ *
+ * Один и тот же экран даёт разный набор действий в зависимости от роли
+ * (orders.manage — создание, orders.plan — строки потребности, orders.close
+ * — закрытие) — по итогам продуктового разбора кнопки/формы скрываются по
+ * фактическому праву, а не просто отрисовываются всем: раньше, например,
+ * начальник цеха (только orders.plan) видел кнопку "Создать заказ" и получал
+ * 403 при клике с сообщением "номер уже существует?", хотя дело было не в
+ * номере, а в отсутствии права. */
 export default function Orders() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const has = (permission: string) => !!user?.is_superuser || !!user?.permissions.includes(permission);
+  const canManage = has("orders.manage");
+  const canPlan = has("orders.plan");
+  const canClose = has("orders.close");
   const [orderId, setOrderId] = useState<number | null>(null);
   const [createForm] = Form.useForm<{ number: string }>();
   const [lineForm] = Form.useForm<OrderLineCreate>();
@@ -63,14 +77,19 @@ export default function Orders() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card title="Заказы">
-        <Form form={createForm} layout="inline" onFinish={(v) => createMutation.mutate(v)} style={{ marginBottom: 16 }}>
-          <Form.Item name="number" rules={[{ required: true }]}>
-            <Input placeholder="Номер заказа" />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" loading={createMutation.isPending}>
-            Создать
-          </Button>
-        </Form>
+        {!canManage && !canPlan && !canClose && (
+          <Typography.Paragraph type="secondary">Доступен только просмотр — создание, строки потребности и закрытие вам не назначены.</Typography.Paragraph>
+        )}
+        {canManage && (
+          <Form form={createForm} layout="inline" onFinish={(v) => createMutation.mutate(v)} style={{ marginBottom: 16 }}>
+            <Form.Item name="number" rules={[{ required: true }]}>
+              <Input placeholder="Номер заказа" />
+            </Form.Item>
+            <Button type="primary" htmlType="submit" loading={createMutation.isPending}>
+              Создать
+            </Button>
+          </Form>
+        )}
 
         <Table<Order>
           rowKey="id"
@@ -88,7 +107,7 @@ export default function Orders() {
             {
               title: "",
               render: (_, o) =>
-                o.status !== "closed" && (
+                canClose && o.status !== "closed" && (
                   <Button
                     size="small"
                     onClick={(e) => {
@@ -107,23 +126,25 @@ export default function Orders() {
 
       {orderId && (
         <Card title={`Заказ №${orderQuery.data?.number ?? ""} — потребность в материале и план/факт`} loading={orderQuery.isLoading}>
-          <Form form={lineForm} layout="inline" onFinish={(v) => addLineMutation.mutate(v)} style={{ marginBottom: 16 }}>
-            <Form.Item name="material" rules={[{ required: true }]}>
-              <DictAutoComplete kind="materials" placeholder="Материал" />
-            </Form.Item>
-            <Form.Item name="color" rules={[{ required: true }]}>
-              <DictAutoComplete kind="colors" placeholder="Цвет" />
-            </Form.Item>
-            <Form.Item name="thickness" rules={[{ required: true }]}>
-              <InputNumber placeholder="Толщина, мм" min={0} step={0.01} />
-            </Form.Item>
-            <Form.Item name="planned_area_m2" rules={[{ required: true }]}>
-              <InputNumber placeholder="Плановая площадь, м²" min={0} />
-            </Form.Item>
-            <Button type="primary" htmlType="submit" loading={addLineMutation.isPending}>
-              Добавить позицию
-            </Button>
-          </Form>
+          {canPlan && (
+            <Form form={lineForm} layout="inline" onFinish={(v) => addLineMutation.mutate(v)} style={{ marginBottom: 16 }}>
+              <Form.Item name="material" rules={[{ required: true }]}>
+                <DictAutoComplete kind="materials" placeholder="Материал" />
+              </Form.Item>
+              <Form.Item name="color" rules={[{ required: true }]}>
+                <DictAutoComplete kind="colors" placeholder="Цвет" />
+              </Form.Item>
+              <Form.Item name="thickness" rules={[{ required: true }]}>
+                <InputNumber placeholder="Толщина, мм" min={0} step={0.01} />
+              </Form.Item>
+              <Form.Item name="planned_area_m2" rules={[{ required: true }]}>
+                <InputNumber placeholder="Плановая площадь, м²" min={0} />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" loading={addLineMutation.isPending}>
+                Добавить позицию
+              </Button>
+            </Form>
+          )}
 
           <Table<OrderLine>
             rowKey="id"
