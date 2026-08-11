@@ -1,4 +1,5 @@
-import { Card, Col, Row, Statistic, Typography, Space } from "antd";
+import { useState } from "react";
+import { Card, Col, Row, Statistic, Typography, Space, Button, Input } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
@@ -8,6 +9,7 @@ import { listOrders, getOrdersReport } from "../../api/orders";
 import { listSessions } from "../../api/inventory";
 import { getDonorAccuracy, getStaleUnits } from "../../api/reports";
 import { listMaterialSkus } from "../../api/dictionaries";
+import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
 
 /** Обзор (5.5 ТЗ) — сводка сигналов по роли: у каждой роли своя выборка
  * карточек, собранная из уже существующих отчётов/списков (без нового
@@ -27,6 +29,9 @@ export default function Overview() {
   const showDonorAccuracy = has("reports.view");
   const showStale = has("inventory.manage");
   const showSales = has("sales_calculator.view");
+  const hasReceive = has("units.receive");
+  const hasIssue = has("units.issue");
+  const [quickQuery, setQuickQuery] = useState("");
 
   const ordersReportQuery = useQuery({ queryKey: ["orders-report", "overview"], queryFn: getOrdersReport, enabled: showPlanning });
   const purchasingQuery = useQuery({
@@ -117,9 +122,35 @@ export default function Overview() {
       </Row>
 
       {!showPlanning && !showPurchasing && !showOrders && !showInventory && !showDonorAccuracy && !showStale && !showSales && (
-        <Typography.Paragraph type="secondary">
-          Для вашей роли пока нет отдельных сигналов на обзорном экране.
-        </Typography.Paragraph>
+        <Card>
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            <Typography.Text type="secondary">
+              Для вашей роли пока нет отдельных сигналов на обзорном экране — вот быстрые действия.
+            </Typography.Text>
+            {(hasReceive || hasIssue) && (
+              <Space wrap>
+                {hasReceive && (
+                  <Button type="primary" onClick={() => navigate("/m/receive")}>
+                    Начать приёмку
+                  </Button>
+                )}
+                {hasIssue && (
+                  <Button type="primary" onClick={() => navigate("/m/issue")}>
+                    Выдача участку
+                  </Button>
+                )}
+              </Space>
+            )}
+            <Input.Search
+              placeholder="ID единицы или материал…"
+              enterButton="Найти"
+              style={{ maxWidth: 360 }}
+              value={quickQuery}
+              onChange={(e) => setQuickQuery(e.target.value)}
+              onSearch={(v) => runUnitOrMaterialSearch(v, navigate)}
+            />
+          </Space>
+        </Card>
       )}
     </Space>
   );

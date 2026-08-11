@@ -5,6 +5,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { navTree, type NavItem } from "./navConfig";
 import { fontHeading, palette } from "../theme";
+import { runUnitOrMaterialSearch } from "../utils/unitSearch";
 
 const { Header, Sider, Content } = Layout;
 
@@ -17,18 +18,8 @@ export default function AppLayout() {
   if (!user) return null;
 
   // Глобальный поиск в шапке (9.7 раздел бэклога доработок) — виден на
-  // любом экране, не только на "Остатках". Число — трактуем как ID единицы
-  // и сразу открываем карточку единицы; текст — уходим на "Остатки" с этим
-  // запросом (MaterialsExplorer сам подхватывает location.state.globalQuery).
-  const runHeaderSearch = () => {
-    const query = headerQuery.trim();
-    if (!query) return;
-    if (/^\d+$/.test(query)) {
-      navigate("/m/unit-card", { state: { unitId: Number(query) } });
-    } else {
-      navigate("/stock", { state: { globalQuery: query } });
-    }
-  };
+  // любом экране, не только на "Остатках".
+  const runHeaderSearch = () => runUnitOrMaterialSearch(headerQuery, navigate);
 
   const isVisible = (item: NavItem) => {
     if (!user.is_superuser && item.permissions?.length && !item.permissions.some((p) => user.permissions.includes(p))) {
