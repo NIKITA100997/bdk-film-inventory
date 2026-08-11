@@ -37,6 +37,7 @@ export const navTree: NavBlock[] = [
     items: [
       { key: "overview", path: "/", label: "Обзор" },
       { key: "stock", path: "/stock", label: "Остатки" },
+      { key: "storage", path: "/storage", label: "Стеллажи" },
       { key: "receive", path: "/m/receive", label: "Приёмка", permissions: ["units.receive"] },
       { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue"] },
       {
@@ -76,10 +77,13 @@ export const navTree: NavBlock[] = [
       { key: "users", path: "/users", label: "Пользователи", permissions: ["users.manage"] },
       { key: "roles", path: "/roles", label: "Роли и права", permissions: ["users.manage"] },
       { key: "dictionaries", path: "/dictionaries", label: "Справочники", permissions: ["materials.manage"] },
-      // Настройки объединяют стеллажи/зонирование (storage.manage) и
-      // настройки расчётов (calc_settings.manage) на одном экране — виден
-      // при наличии любого из двух, как и раньше давала одна роль logist.
-      { key: "settings", path: "/settings", label: "Настройки", permissions: ["storage.manage", "calc_settings.manage"] },
+      // Раньше один экран "Настройки" держал стеллажи (storage.manage) и
+      // пороги расчётов (calc_settings.manage) вместе только потому, что
+      // обоими правами владела одна роль — по итогам продуктового разбора
+      // разделены: стеллажи переехали в "Стеллажи" (виден всем, наравне с
+      // "Остатками" — там же теперь и схема размещения), здесь остаются
+      // только пороги расчётов.
+      { key: "calc-settings", path: "/calc-settings", label: "Параметры расчётов", permissions: ["calc_settings.manage"] },
       { key: "label-template", path: "/label-template", label: "Макет этикетки", permissions: ["labels.manage"] },
     ],
   },

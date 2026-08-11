@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import type { MaterialUnit } from "./units";
 
 export type RackType = "roll" | "strip";
 
@@ -54,6 +55,16 @@ export const createMacroZoneRule = async (rackId: number, payload: MacroZoneRule
 export const deleteMacroZoneRule = async (rackId: number, ruleId: number): Promise<void> => {
   await apiClient.delete(`/racks/${rackId}/macro-zone-rules/${ruleId}`);
 };
+
+export interface RackOccupancyCell {
+  shelf: number;
+  cell: number | null;
+  location_code: string;
+  unit: MaterialUnit | null;
+}
+
+export const getRackOccupancy = async (rackId: number): Promise<RackOccupancyCell[]> =>
+  (await apiClient.get<RackOccupancyCell[]>(`/racks/${rackId}/occupancy`)).data;
 
 export const suggestLocation = async (params: {
   material_sku_id: number;

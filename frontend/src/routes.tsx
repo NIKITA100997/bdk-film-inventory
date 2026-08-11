@@ -13,7 +13,8 @@ import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
 import MaterialCard from "./pages/desktop/MaterialCard";
 import Orders from "./pages/desktop/Orders";
 import Reports from "./pages/desktop/Reports";
-import Settings from "./pages/desktop/Settings";
+import StorageMap from "./pages/desktop/StorageMap";
+import CalcSettingsAdmin from "./pages/desktop/CalcSettingsAdmin";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
 import InventoryDesktop from "./pages/desktop/InventoryDesktop";
 import UserAdmin from "./pages/desktop/UserAdmin";
@@ -72,9 +73,12 @@ export default function AppRoutes() {
           path="/reports"
           element={<RequirePermission permissions={["reports.view"]}><Reports /></RequirePermission>}
         />
+        {/* "Стеллажи" видны всем (как "Остатки") — вкладка "Управление" внутри
+        сама решает, показываться ли, по storage.manage. */}
+        <Route path="/storage" element={<StorageMap />} />
         <Route
-          path="/settings"
-          element={<RequirePermission permissions={["storage.manage", "calc_settings.manage"]}><Settings /></RequirePermission>}
+          path="/calc-settings"
+          element={<RequirePermission permissions={["calc_settings.manage"]}><CalcSettingsAdmin /></RequirePermission>}
         />
         <Route
           path="/dictionaries"

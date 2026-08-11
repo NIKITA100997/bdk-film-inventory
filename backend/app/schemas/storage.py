@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.storage import RackType
+from app.schemas.units import MaterialUnitOut
 
 
 class RackCreate(BaseModel):
@@ -48,3 +49,14 @@ class MacroZoneRuleOut(BaseModel):
 
 class LocationSuggestion(BaseModel):
     location_code: str | None
+
+
+class RackOccupancyCellOut(BaseModel):
+    """Одна физическая ячейка адресации (4.1 ТЗ) для схемы стеллажа —
+    полка целиком для рулонного стеллажа (`cell=None`), полка+ячейка для
+    штрипсового. `unit=None` — ячейка свободна."""
+
+    shelf: int
+    cell: int | None
+    location_code: str
+    unit: MaterialUnitOut | None

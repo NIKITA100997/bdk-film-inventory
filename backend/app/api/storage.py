@@ -1,12 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
-from app.models.storage import MacroZoneRule, Rack
-from app.schemas.storage import LocationSuggestion, MacroZoneRuleCreate, MacroZoneRuleOut, RackCreate, RackOut, RackUpdate
+from app.models.storage import MacroZoneRule, Rack, RackType
+from app.models.units import MaterialUnit, UnitStatus
+from app.schemas.storage import (
+    LocationSuggestion,
+    MacroZoneRuleCreate,
+    MacroZoneRuleOut,
+    RackCreate,
+    RackOccupancyCellOut,
+    RackOut,
+    RackUpdate,
+)
 from app.services.placement import suggest_location
 
 router = APIRouter(tags=["storage"])
@@ -21,6 +30,49 @@ manage_storage = require_permission("storage.manage")
 @router.get("/racks", response_model=list[RackOut])
 def list_racks(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[Rack]:
     return db.query(Rack).order_by(Rack.code).all()
+
+
+@router.get("/racks/{rack_id}/occupancy", response_model=list[RackOccupancyCellOut])
+def rack_occupancy(rack_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[RackOccupancyCellOut]:
+    """Схема стеллажа (объединение "Остатки"/"Номенклатура" — по итогам
+    разбора продукта) — та же адресация, что и в services/placement.py
+    (suggest_location), только вместо поиска одного свободного места отдаём
+    всю сетку сразу, с юнитом в каждой занятой ячейке. Открыт любому
+    авторизованному — это те же данные о размещении, что уже видны в
+    "Остатках", просто в виде сетки, а не таблицы."""
+    rack = db.get(Rack, rack_id)
+    if rack is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
+    calc_settings = db.get(CalcSettings, 1)
+    cells_per_strip_shelf = calc_settings.cells_per_strip_shelf if calc_settings else 10
+
+    units = (
+        db.query(MaterialUnit)
+        .options(
+            joinedload(MaterialUnit.material_sku).joinedload(MaterialSku.material),
+            joinedload(MaterialUnit.material_sku).joinedload(MaterialSku.color),
+            joinedload(MaterialUnit.material_sku).joinedload(MaterialSku.thickness),
+            joinedload(MaterialUnit.material_sku).joinedload(MaterialSku.manufacturer),
+        )
+        .filter(
+            MaterialUnit.location_code.like(f"{rack.code}-%"),
+            MaterialUnit.status.in_([UnitStatus.NA_KHRANENII, UnitStatus.PRINYAT]),
+        )
+        .all()
+    )
+    units_by_code = {u.location_code: u for u in units}
+
+    cells: list[RackOccupancyCellOut] = []
+    if rack.type == RackType.ROLL:
+        for shelf in range(1, rack.shelf_count + 1):
+            code = f"{rack.code}-{shelf:02d}"
+            cells.append(RackOccupancyCellOut(shelf=shelf, cell=None, location_code=code, unit=units_by_code.get(code)))
+    else:
+        for shelf in range(1, rack.shelf_count + 1):
+            for cell in range(1, cells_per_strip_shelf + 1):
+                code = f"{rack.code}-{shelf:02d}-{cell:02d}"
+                cells.append(RackOccupancyCellOut(shelf=shelf, cell=cell, location_code=code, unit=units_by_code.get(code)))
+    return cells
 
 
 @router.post("/racks", response_model=RackOut, status_code=status.HTTP_201_CREATED)
