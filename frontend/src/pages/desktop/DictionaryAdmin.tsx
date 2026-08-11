@@ -323,8 +323,14 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
     mutationFn: ({ id, payload }: { id: number; payload: { name?: string; is_active?: boolean } }) =>
       updateNameDictEntry(kind, id, payload),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [kind, "all"] });
-      qc.invalidateQueries({ queryKey: [kind, "duplicates"] });
+      // [kind] (без "all") — отдельный ключ кэша автокомплита (DictAutoComplete),
+      // ["material-skus"] — везде, где название подтягивается через позицию
+      // материала (Остатки, карточка материала, выдача, инвентаризация,
+      // калькулятор продажника). Без этих двух инвалидаций переименование
+      // применялось только на этой вкладке — старое название висело в кэше
+      // остальных экранов до перезагрузки страницы целиком.
+      qc.invalidateQueries({ queryKey: [kind] });
+      qc.invalidateQueries({ queryKey: ["material-skus"] });
       message.success("Сохранено");
     },
     onError: () => message.error("Не удалось сохранить — проверьте, что значение не занято"),
@@ -424,7 +430,8 @@ function ThicknessTab() {
     mutationFn: ({ id, payload }: { id: number; payload: { value_mm?: number; is_active?: boolean } }) =>
       updateThicknessEntry(id, payload),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["thicknesses", "all"] });
+      qc.invalidateQueries({ queryKey: ["thicknesses"] });
+      qc.invalidateQueries({ queryKey: ["material-skus"] });
       message.success("Сохранено");
     },
     onError: () => message.error("Не удалось сохранить — такая толщина уже есть"),
