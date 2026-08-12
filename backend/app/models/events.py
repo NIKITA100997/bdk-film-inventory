@@ -25,6 +25,20 @@ class EventType(str, enum.Enum):
     DONOR_PREDLOZHEN = "Донор_предложен"
 
 
+class WriteOffReason(str, enum.Enum):
+    """Причина списания (раздел про учёт брака) — на SPISANIE-события,
+    ручные (списание единицы со склада) и одно автоматическое: CUTTING_WASTE
+    у отхода при продольной резке ниже порога полезной ширины (services/
+    splitting.py) — не предлагается пользователю в форме списания, только
+    проставляется системой."""
+
+    SUPPLIER_DEFECT = "Брак поставщика"
+    WAREHOUSE_DAMAGE = "Повреждение на складе"
+    WRONG_GRADE = "Пересорт"
+    CUTTING_WASTE = "Отход при раскрое"
+    OTHER = "Другое"
+
+
 class MaterialEvent(Base):
     """Журнал движений (раздел 2.6 ТЗ) — источник данных для карточки
     материала и план/факт. Пишется автоматически сервисным слоем, а не
@@ -54,6 +68,12 @@ class MaterialEvent(Base):
     to_cell: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
+    # Раздел про производственные задания — какую строку задания эта
+    # выдача закрывает, для прослеживаемости (тот же приём, что order_id:
+    # копируется из unit.production_task_line_id в record_event()).
+    production_task_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("production_task_lines.id"), nullable=True
+    )
 
     # Не из ТЗ буквально, но необходимо для отчёта по расхождениям на
     # сессию (6.8 п.4) — без этого нельзя посчитать итоги конкретной сессии.
@@ -61,3 +81,9 @@ class MaterialEvent(Base):
 
     # Знак: положительный для приходов, отрицательный для списаний/выдач.
     quantity_delta_m: Mapped[float] = mapped_column(Numeric(12, 3))
+
+    # Раздел про учёт брака — только у SPISANIE-событий, причина списания.
+    write_off_reason: Mapped[WriteOffReason | None] = mapped_column(
+        Enum(WriteOffReason, name="write_off_reason"), nullable=True
+    )
+    write_off_note: Mapped[str | None] = mapped_column(String(255), nullable=True)

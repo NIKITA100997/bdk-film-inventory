@@ -275,6 +275,7 @@ def issue_unit_direct(
     unit.area = payload.area
     unit.location_code = None
     unit.order_id = payload.order_id
+    unit.production_task_line_id = payload.production_task_line_id
     record_event(
         db,
         unit=unit,
@@ -325,6 +326,7 @@ def issue_to_area(
         exact.area = payload.area
         exact.location_code = None
         exact.order_id = payload.order_id
+        exact.production_task_line_id = payload.production_task_line_id
         record_event(
             db,
             unit=exact,
@@ -455,6 +457,7 @@ def issue_donor_atomic(
         status=UnitStatus.VYDAN_UCHASTKU,
         area=payload.area,
         order_id=payload.order_id,
+        production_task_line_id=payload.production_task_line_id,
         location_code=None,
     )
     db.add(issued_unit)

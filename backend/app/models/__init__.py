@@ -6,10 +6,17 @@ from app.models.orders import Order, OrderMaterialLine
 from app.models.inventory import InventorySession, InventorySessionParticipant, InventoryScopeType, InventoryStatus
 from app.models.abc import WidthAbcClass, WidthClass, CalcSettings
 from app.models.units import MaterialUnit, UnitStatus
-from app.models.events import MaterialEvent, EventType
+from app.models.events import MaterialEvent, EventType, WriteOffReason
 from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.labels import LabelTemplate
-from app.models.production import ProductionLine, ProductModel, ProductModelPart, ProductionTask, ProductionTaskLine
+from app.models.production import (
+    ProductionLine,
+    ProductModel,
+    ProductModelPart,
+    ProductionTask,
+    ProductionTaskLine,
+    ProductionTaskLineReport,
+)
 
 __all__ = [
     "User",
@@ -40,6 +47,7 @@ __all__ = [
     "UnitStatus",
     "MaterialEvent",
     "EventType",
+    "WriteOffReason",
     "PurchaseRequest",
     "Supplier",
     "LabelTemplate",
@@ -48,4 +56,5 @@ __all__ = [
     "ProductModelPart",
     "ProductionTask",
     "ProductionTaskLine",
+    "ProductionTaskLineReport",
 ]

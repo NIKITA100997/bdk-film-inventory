@@ -31,6 +31,7 @@ def record_event(
         from_cell=from_cell,
         to_cell=to_cell,
         order_id=unit.order_id,
+        production_task_line_id=unit.production_task_line_id,
         quantity_delta_m=quantity_delta_m,
         inventory_session_id=inventory_session_id,
     )

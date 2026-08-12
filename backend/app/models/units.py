@@ -45,6 +45,12 @@ class MaterialUnit(Base):
     location_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
+    # Раздел про производственные задания — какую строку задания закрывает
+    # выдача этой единицы (тег для прослеживаемости, копируется в
+    # MaterialEvent при выдаче — см. services/events.py::record_event).
+    production_task_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("production_task_lines.id"), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

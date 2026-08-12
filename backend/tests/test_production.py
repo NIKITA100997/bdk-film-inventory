@@ -1,4 +1,4 @@
-from app.services.production import BomPart, explode_task
+from app.services.production import BomPart, compute_remaining_pieces, explode_task
 
 
 def test_empty_parts_returns_empty_list():
@@ -49,3 +49,20 @@ def test_zero_quantity_gives_zero_pieces_but_keeps_rows():
     parts = [BomPart(line_id=1, material_id=10, color_id=20, thickness_id=30, qty_per_unit=2)]
     result = explode_task(parts, 0)
     assert result[0].quantity_pieces == 0
+
+
+class TestComputeRemainingPieces:
+    """Раздел про брак в производстве — остаток строки задания после
+    отчётов о факте производства."""
+
+    def test_no_production_yet_remaining_equals_target(self):
+        assert compute_remaining_pieces(500, 0) == 500
+
+    def test_partial_production_reduces_remaining(self):
+        assert compute_remaining_pieces(500, 400) == 100
+
+    def test_full_production_leaves_zero_remaining(self):
+        assert compute_remaining_pieces(500, 500) == 0
+
+    def test_overproduction_does_not_go_negative(self):
+        assert compute_remaining_pieces(500, 600) == 0

@@ -1,10 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
-from app.models.production import ProductionLine, ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
+from app.models.production import (
+    ProductionLine,
+    ProductionTask,
+    ProductionTaskLine,
+    ProductionTaskLineReport,
+    ProductModel,
+    ProductModelPart,
+)
 from app.models.users import User
 from app.schemas.production import (
     ProductionLineCreate,
@@ -12,6 +20,9 @@ from app.schemas.production import (
     ProductionLineUpdate,
     ProductionTaskCreate,
     ProductionTaskLineOut,
+    ProductionTaskLineReportCreate,
+    ProductionTaskLineReportOut,
+    ProductionTaskManualCreate,
     ProductionTaskOut,
     ProductModelCreate,
     ProductModelOut,
@@ -20,7 +31,7 @@ from app.schemas.production import (
     ProductModelUpdate,
 )
 from app.services.dictionaries import find_or_create_material_color_thickness
-from app.services.production import BomPart, explode_task
+from app.services.production import BomPart, compute_remaining_pieces, explode_task
 
 router = APIRouter(tags=["production"])
 
@@ -28,6 +39,10 @@ router = APIRouter(tags=["production"])
 # продукции/BOM и сами задания заводит начальник цеха, та же по духу
 # зона ответственности, что и orders.plan (строки потребности заказа).
 manage_production = require_permission("production_tasks.manage")
+# Отчёт о факте производства/браке (раздел про брак в производстве) —
+# начальник участка (уже смотрит задания своего участка) или начальник
+# цеха.
+report_production = require_permission("production_tasks.manage", "production_tasks.report")
 
 
 def _line_out(line: ProductionLine) -> ProductionLineOut:
@@ -58,7 +73,7 @@ def _model_out(db: Session, model: ProductModel) -> ProductModelOut:
     )
 
 
-def _task_line_out(db: Session, line: ProductionTaskLine) -> ProductionTaskLineOut:
+def _task_line_out(db: Session, line: ProductionTaskLine, good: float, defect: float) -> ProductionTaskLineOut:
     prod_line = db.get(ProductionLine, line.line_id)
     return ProductionTaskLineOut(
         id=line.id,
@@ -68,20 +83,43 @@ def _task_line_out(db: Session, line: ProductionTaskLine) -> ProductionTaskLineO
         color=db.get(Color, line.color_id).name,
         thickness=float(db.get(Thickness, line.thickness_id).value_mm),
         quantity_pieces=float(line.quantity_pieces),
+        produced_good_pieces=good,
+        defect_pieces=defect,
+        remaining_pieces=compute_remaining_pieces(float(line.quantity_pieces), good),
     )
 
 
+def _line_report_aggregates(db: Session, line_ids: list[int]) -> dict[int, tuple[float, float]]:
+    """Σ good_pieces/defect_pieces по строке задания (раздел про брак в
+    производстве) — один запрос на все строки задания, не N+1."""
+    if not line_ids:
+        return {}
+    rows = (
+        db.query(
+            ProductionTaskLineReport.task_line_id,
+            func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
+            func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
+        )
+        .filter(ProductionTaskLineReport.task_line_id.in_(line_ids))
+        .group_by(ProductionTaskLineReport.task_line_id)
+        .all()
+    )
+    return {row[0]: (float(row[1]), float(row[2])) for row in rows}
+
+
 def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
-    model = db.get(ProductModel, task.product_model_id)
+    model = db.get(ProductModel, task.product_model_id) if task.product_model_id else None
+    aggregates = _line_report_aggregates(db, [l.id for l in task.lines])
     return ProductionTaskOut(
         id=task.id,
         product_model_id=task.product_model_id,
-        product_model_name=model.name if model else "—",
-        product_model_area=model.area,
+        product_model_name=model.name if model else None,
+        name=task.name,
+        area=task.area,
         quantity=task.quantity,
         created_by=task.created_by,
         created_at=task.created_at,
-        lines=[_task_line_out(db, l) for l in task.lines],
+        lines=[_task_line_out(db, l, *aggregates.get(l.id, (0.0, 0.0))) for l in task.lines],
     )
 
 
@@ -257,7 +295,7 @@ def create_production_task(
     ]
     exploded = explode_task(bom_parts, payload.quantity)
 
-    task = ProductionTask(product_model_id=model.id, quantity=payload.quantity, created_by=user.id)
+    task = ProductionTask(product_model_id=model.id, quantity=payload.quantity, area=model.area, created_by=user.id)
     db.add(task)
     db.flush()
     for line in exploded:
@@ -274,3 +312,98 @@ def create_production_task(
     db.commit()
     db.refresh(task)
     return _task_out(db, task)
+
+
+@router.post("/production-tasks/manual", response_model=ProductionTaskOut, status_code=status.HTTP_201_CREATED)
+def create_production_task_manual(
+    payload: ProductionTaskManualCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductionTaskOut:
+    """Ручной ввод задания (раздел про ручной режим) — пока не все модели
+    продукции описаны в BOM: строки задаются напрямую, без модели и без
+    explode_task — строки уже готовы, разбирать нечего."""
+    task = ProductionTask(product_model_id=None, quantity=None, name=payload.name, area=payload.area, created_by=user.id)
+    db.add(task)
+    db.flush()
+    for line_payload in payload.lines:
+        line = db.get(ProductionLine, line_payload.line_id)
+        if line is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Линия не найдена")
+        if line.area != payload.area:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Линия принадлежит другому участку, чем задание"
+            )
+        material, color, thickness = find_or_create_material_color_thickness(
+            db, material=line_payload.material, color=line_payload.color, thickness=line_payload.thickness
+        )
+        db.add(
+            ProductionTaskLine(
+                task_id=task.id,
+                line_id=line_payload.line_id,
+                material_id=material.id,
+                color_id=color.id,
+                thickness_id=thickness.id,
+                quantity_pieces=line_payload.quantity_pieces,
+            )
+        )
+    db.commit()
+    db.refresh(task)
+    return _task_out(db, task)
+
+
+# --- Брак в производстве -------------------------------------------------
+
+
+def _get_task_line(db: Session, task_id: int, line_id: int) -> ProductionTaskLine:
+    line = (
+        db.query(ProductionTaskLine)
+        .filter(ProductionTaskLine.id == line_id, ProductionTaskLine.task_id == task_id)
+        .first()
+    )
+    if line is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
+    return line
+
+
+@router.get("/production-tasks/{task_id}/lines/{line_id}/reports", response_model=list[ProductionTaskLineReportOut])
+def list_task_line_reports(
+    task_id: int, line_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> list[ProductionTaskLineReport]:
+    _get_task_line(db, task_id, line_id)
+    return (
+        db.query(ProductionTaskLineReport)
+        .filter(ProductionTaskLineReport.task_line_id == line_id)
+        .order_by(ProductionTaskLineReport.reported_at.desc())
+        .all()
+    )
+
+
+@router.post(
+    "/production-tasks/{task_id}/lines/{line_id}/reports",
+    response_model=ProductionTaskLineReportOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_task_line_report(
+    task_id: int,
+    line_id: int,
+    payload: ProductionTaskLineReportCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(report_production),
+) -> ProductionTaskLineReport:
+    """Отчёт о факте производства (раздел про брак в производстве) — не
+    мутирует ProductionTaskLine.quantity_pieces (неизменная цель),
+    накопительный журнал, остаток считается на лету при сборке
+    ProductionTaskOut (см. _line_report_aggregates) — так остаток
+    "видит" сумму по нескольким отчётам (например, за разные смены)."""
+    _get_task_line(db, task_id, line_id)
+    report = ProductionTaskLineReport(
+        task_line_id=line_id,
+        good_pieces=payload.good_pieces,
+        defect_pieces=payload.defect_pieces,
+        defect_reason=payload.defect_reason,
+        note=payload.note,
+        reported_by=user.id,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+    return report

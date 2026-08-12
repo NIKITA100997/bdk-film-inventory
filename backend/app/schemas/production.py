@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.events import WriteOffReason
 from app.models.users import Area
 
 
@@ -67,6 +68,45 @@ class ProductionTaskCreate(BaseModel):
     quantity: int = Field(gt=0)
 
 
+class ProductionTaskLineManualCreate(BaseModel):
+    line_id: int
+    material: str
+    color: str
+    thickness: float
+    quantity_pieces: float = Field(gt=0)
+
+
+class ProductionTaskManualCreate(BaseModel):
+    """Ручное создание задания (раздел про ручной режим) — пока не все
+    модели продукции описаны в BOM: строки задаются напрямую, без модели."""
+
+    name: str
+    area: Area
+    lines: list[ProductionTaskLineManualCreate] = Field(min_length=1)
+
+
+class ProductionTaskLineReportCreate(BaseModel):
+    """Отчёт о факте производства по строке задания (раздел про брак в
+    производстве) — брак обнаруживается в процессе окутки, на уровне
+    готовых деталей, не привязан к конкретному рулону."""
+
+    good_pieces: float = Field(ge=0)
+    defect_pieces: float = Field(ge=0)
+    defect_reason: WriteOffReason | None = None
+    note: str | None = None
+
+
+class ProductionTaskLineReportOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    good_pieces: float
+    defect_pieces: float
+    defect_reason: WriteOffReason | None
+    note: str | None
+    reported_by: int
+    reported_at: datetime
+
+
 class ProductionTaskLineOut(BaseModel):
     id: int
     line_id: int
@@ -75,14 +115,21 @@ class ProductionTaskLineOut(BaseModel):
     color: str
     thickness: float
     quantity_pieces: float
+    # Агрегаты по ProductionTaskLineReport (раздел про брак в
+    # производстве) — quantity_pieces сама не мутируется, остаток считается
+    # на лету из накопительного журнала отчётов.
+    produced_good_pieces: float
+    defect_pieces: float
+    remaining_pieces: float
 
 
 class ProductionTaskOut(BaseModel):
     id: int
-    product_model_id: int
-    product_model_name: str
-    product_model_area: Area
-    quantity: int
+    product_model_id: int | None
+    product_model_name: str | None
+    name: str | None
+    area: Area
+    quantity: int | None
     created_by: int
     created_at: datetime
     lines: list[ProductionTaskLineOut]

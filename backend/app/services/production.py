@@ -40,3 +40,12 @@ def explode_task(parts: list[BomPart], quantity: int) -> list[TaskLineResult]:
         TaskLineResult(line_id=line_id, material_id=material_id, color_id=color_id, thickness_id=thickness_id, quantity_pieces=qty)
         for (line_id, material_id, color_id, thickness_id), qty in totals.items()
     ]
+
+
+def compute_remaining_pieces(quantity_pieces: float, produced_good_pieces: float) -> float:
+    """Остаток строки задания (раздел про брак в производстве) — цель
+    (quantity_pieces) не мутируется, отчёты о браке лишь снижают
+    "засчитанное" произведённое количество; не уходит в минус при
+    перевыполнении (несколько отчётов, суммарно давших больше, чем
+    требовалось)."""
+    return max(0.0, quantity_pieces - produced_good_pieces)
