@@ -11,6 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
+from app.models.purchasing import Supplier
 from app.models.units import MaterialUnit, UnitStatus
 
 
@@ -60,6 +61,12 @@ def find_or_create_material_color_thickness(
     color_obj = _find_or_create(db, Color, name=color)
     thickness_obj = _find_or_create(db, Thickness, value_mm=thickness)
     return material_obj, color_obj, thickness_obj
+
+
+def find_or_create_supplier(db: Session, name: str) -> Supplier:
+    """Поставщик (раздел про историю цен и сроков) — тот же паттерн
+    текст-с-автокомплитом-создаёт-справочник, что и остальные атрибуты."""
+    return _find_or_create(db, Supplier, name=name)
 
 
 def find_sku(db: Session, *, material: str, color: str, thickness: float, manufacturer: str) -> MaterialSku | None:

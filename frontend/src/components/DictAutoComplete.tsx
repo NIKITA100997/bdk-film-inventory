@@ -2,20 +2,23 @@ import { useMemo } from "react";
 import { AutoComplete, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { listColors, listManufacturers, listMaterials } from "../api/dictionaries";
+import { listSuppliers } from "../api/suppliers";
 import { stringSimilarity } from "../utils/similarity";
 
-export type DictKind = "materials" | "colors" | "manufacturers";
+export type DictKind = "materials" | "colors" | "manufacturers" | "suppliers";
 
 const fetchers: Record<DictKind, () => Promise<{ name: string }[]>> = {
   materials: listMaterials,
   colors: listColors,
   manufacturers: listManufacturers,
+  suppliers: listSuppliers,
 };
 
 const kindLabels: Record<DictKind, string> = {
   materials: "материал",
   colors: "цвет",
   manufacturers: "производитель",
+  suppliers: "поставщик",
 };
 
 const FUZZY_THRESHOLD = 0.82;

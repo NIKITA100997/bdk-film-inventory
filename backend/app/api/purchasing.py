@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
-from app.models.purchasing import PurchaseRequest
+from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.users import User
-from app.schemas.purchasing import PurchaseRequestCreate, PurchaseRequestOut
-from app.services.dictionaries import current_stock_m2, find_or_create_material_color_thickness
+from app.schemas.purchasing import PurchaseRequestCreate, PurchaseRequestOut, PurchaseRequestUpdate
+from app.services.dictionaries import current_stock_m2, find_or_create_material_color_thickness, find_or_create_supplier
 
 router = APIRouter(prefix="/purchase-requests", tags=["purchasing"])
 
@@ -30,6 +30,8 @@ def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:
         created_by=req.created_by,
         created_at=req.created_at,
         closed_at=req.closed_at,
+        supplier=db.get(Supplier, req.supplier_id).name if req.supplier_id else None,
+        price_per_m2=float(req.price_per_m2) if req.price_per_m2 is not None else None,
     )
 
 
@@ -58,6 +60,7 @@ def create_purchase_request(
     material, color, thickness = find_or_create_material_color_thickness(
         db, material=payload.material, color=payload.color, thickness=payload.thickness
     )
+    supplier = find_or_create_supplier(db, payload.supplier) if payload.supplier else None
     req = PurchaseRequest(
         material_id=material.id,
         color_id=color.id,
@@ -65,8 +68,31 @@ def create_purchase_request(
         requested_area_m2=payload.requested_area_m2,
         note=payload.note,
         created_by=user.id,
+        supplier_id=supplier.id if supplier else None,
+        price_per_m2=payload.price_per_m2,
     )
     db.add(req)
+    db.commit()
+    db.refresh(req)
+    return _out(db, req)
+
+
+@router.patch("/{request_id}", response_model=PurchaseRequestOut)
+def update_purchase_request(
+    request_id: int,
+    payload: PurchaseRequestUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(manage_purchasing),
+) -> PurchaseRequestOut:
+    """Цена/поставщик согласованы позже создания заявки (раздел про историю
+    цен и сроков поставщика) — материал/цвет/толщина/объём неизменны."""
+    req = db.get(PurchaseRequest, request_id)
+    if req is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Заявка не найдена")
+    if payload.supplier is not None:
+        req.supplier_id = find_or_create_supplier(db, payload.supplier).id
+    if payload.price_per_m2 is not None:
+        req.price_per_m2 = payload.price_per_m2
     db.commit()
     db.refresh(req)
     return _out(db, req)

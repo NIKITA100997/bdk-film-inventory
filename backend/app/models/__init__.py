@@ -7,7 +7,7 @@ from app.models.inventory import InventorySession, InventorySessionParticipant, 
 from app.models.abc import WidthAbcClass, WidthClass, CalcSettings
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.events import MaterialEvent, EventType
-from app.models.purchasing import PurchaseRequest
+from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.labels import LabelTemplate
 
 __all__ = [
@@ -39,5 +39,6 @@ __all__ = [
     "MaterialEvent",
     "EventType",
     "PurchaseRequest",
+    "Supplier",
     "LabelTemplate",
 ]

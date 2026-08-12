@@ -12,6 +12,8 @@ export interface PurchaseRequest {
   created_by: number;
   created_at: string;
   closed_at: string | null;
+  supplier: string | null;
+  price_per_m2: number | null;
 }
 
 export interface PurchaseRequestCreate {
@@ -20,6 +22,13 @@ export interface PurchaseRequestCreate {
   thickness: number;
   requested_area_m2: number;
   note?: string;
+  supplier?: string;
+  price_per_m2?: number;
+}
+
+export interface PurchaseRequestUpdate {
+  supplier?: string;
+  price_per_m2?: number;
 }
 
 export async function listPurchaseRequests(statusFilter?: string): Promise<PurchaseRequest[]> {
@@ -31,6 +40,11 @@ export async function listPurchaseRequests(statusFilter?: string): Promise<Purch
 
 export async function createPurchaseRequest(payload: PurchaseRequestCreate): Promise<PurchaseRequest> {
   const { data } = await apiClient.post<PurchaseRequest>("/purchase-requests", payload);
+  return data;
+}
+
+export async function updatePurchaseRequest(id: number, payload: PurchaseRequestUpdate): Promise<PurchaseRequest> {
+  const { data } = await apiClient.patch<PurchaseRequest>(`/purchase-requests/${id}`, payload);
   return data;
 }
 
