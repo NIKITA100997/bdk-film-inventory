@@ -14,6 +14,7 @@ import {
   Modal,
   Form,
   List,
+  Popconfirm,
   message,
 } from "antd";
 import { DownOutlined, SearchOutlined } from "@ant-design/icons";
@@ -23,6 +24,7 @@ import {
   searchUnits,
   receiveAndAutoPlace,
   printLabel,
+  writeOffUnit,
   skuLabel,
   type MaterialUnit,
   type SearchParams,
@@ -66,6 +68,7 @@ export default function MaterialsExplorer() {
   const location = useLocation();
   const qc = useQueryClient();
   const canManageAbc = !!user?.is_superuser || !!user?.permissions.includes("calc_settings.manage");
+  const canWriteOff = !!user?.is_superuser || !!user?.permissions.includes("units.writeoff");
   const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
 
   const [viewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
@@ -85,6 +88,7 @@ export default function MaterialsExplorer() {
     if (stateQuery) setGlobalQuery(stateQuery);
   }, [location.state]);
 
+  const [selectedUnitIds, setSelectedUnitIds] = useState<number[]>([]);
   const [createPositionOpen, setCreatePositionOpen] = useState(false);
   const [createUnitOpen, setCreateUnitOpen] = useState(false);
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
@@ -135,6 +139,22 @@ export default function MaterialsExplorer() {
       message.success(`Единица №${units[0].id} зарегистрирована`);
     },
     onError: () => message.error("Не удалось зарегистрировать единицу"),
+  });
+
+  // Пакетные операции (раздел про ускорение работы) — списание нескольких
+  // единиц за один заход вместо карточки на каждую. Backend-эндпоинт под
+  // это заводить не стали — цикл по уже существующему одиночному
+  // writeOffUnit, тот же клиентский паттерн, что уже в receiveAndAutoPlace.
+  const bulkWriteOffMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      for (const id of ids) await writeOffUnit(id);
+    },
+    onSuccess: (_, ids) => {
+      qc.invalidateQueries({ queryKey: ["materials-explorer"] });
+      message.success(`Списано единиц: ${ids.length}`);
+      setSelectedUnitIds([]);
+    },
+    onError: () => message.error("Не удалось списать часть единиц — проверьте статусы"),
   });
 
   const classCKeys = useMemo(() => {
@@ -318,13 +338,40 @@ export default function MaterialsExplorer() {
             </Button>
           }
         >
+          {canWriteOff && selectedUnitIds.length > 0 && (
+            <Space style={{ marginBottom: 12 }}>
+              <Typography.Text>Выбрано: {selectedUnitIds.length}</Typography.Text>
+              <Popconfirm
+                title={`Списать ${selectedUnitIds.length} единиц(ы)?`}
+                description="Отменить нельзя — используйте для повреждённых/испорченных партий."
+                okText="Списать"
+                okType="danger"
+                cancelText="Отмена"
+                onConfirm={() => bulkWriteOffMutation.mutate(selectedUnitIds)}
+              >
+                <Button danger loading={bulkWriteOffMutation.isPending}>
+                  Списать выбранные ({selectedUnitIds.length})
+                </Button>
+              </Popconfirm>
+            </Space>
+          )}
           <Table<MaterialUnit>
             rowKey="id"
             loading={unitsQuery.isLoading}
             dataSource={displayedUnits}
             pagination={{ pageSize: 20 }}
             scroll={{ x: "max-content" }}
-            onRow={(u) => ({ onClick: () => navigate("/m/unit-card", { state: { unitId: u.id } }) })}
+            rowSelection={
+              canWriteOff
+                ? { selectedRowKeys: selectedUnitIds, onChange: (keys) => setSelectedUnitIds(keys as number[]) }
+                : undefined
+            }
+            onRow={(u) => ({
+              onClick: (e) => {
+                if ((e.target as HTMLElement).closest(".ant-checkbox-wrapper")) return;
+                navigate("/m/unit-card", { state: { unitId: u.id } });
+              },
+            })}
             columns={[
               { title: "ID", dataIndex: "id", sorter: (a, b) => a.id - b.id },
               { title: "Материал", render: (_, u) => skuLabel(u.material_sku) },
