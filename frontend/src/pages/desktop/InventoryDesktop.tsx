@@ -116,6 +116,7 @@ export default function InventoryDesktop() {
           rowKey="id"
           loading={sessionsQuery.isLoading}
           dataSource={sessionsQuery.data ?? []}
+          scroll={{ x: "max-content" }}
           onRow={(s) => ({
             onClick: () => {
               setSelectedId(s.id);

@@ -116,6 +116,7 @@ export default function Purchasing() {
           loading={requestsQuery.isLoading}
           dataSource={requestsQuery.data ?? []}
           pagination={{ pageSize: 20 }}
+          scroll={{ x: "max-content" }}
           columns={[
             { title: "Материал", render: (_, r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
             { title: "Запрошено, м²", dataIndex: "requested_area_m2" },

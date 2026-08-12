@@ -154,6 +154,7 @@ export default function UserAdmin() {
         loading={usersQuery.isLoading}
         dataSource={filtered}
         pagination={{ pageSize: 20 }}
+        scroll={{ x: "max-content" }}
         columns={[
           { title: "ФИО", dataIndex: "full_name" },
           { title: "Логин", dataIndex: "username" },
@@ -214,7 +215,7 @@ export default function UserAdmin() {
           initialValues={{ role_ids: [], is_superuser: false }}
           onFinish={(v) =>
             confirmSuperuserIfNeeded(v, false, () =>
-              createMutation.mutate({ ...v, area: hasUchastkaRole(v.role_ids) ? v.area : undefined }),
+              createMutation.mutate({ ...v, username: v.username ?? "", area: hasUchastkaRole(v.role_ids) ? v.area : undefined }),
             )
           }
         >

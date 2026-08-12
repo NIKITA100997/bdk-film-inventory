@@ -276,6 +276,7 @@ export default function MaterialsExplorer() {
             loading={positionsQuery.isLoading}
             dataSource={filteredPositions}
             pagination={{ pageSize: 20 }}
+            scroll={{ x: "max-content" }}
             onRow={(r) => ({
               onClick: () =>
                 navigate("/materials", { state: { material: r.material, color: r.color, thickness: r.thickness } }),
@@ -322,6 +323,7 @@ export default function MaterialsExplorer() {
             loading={unitsQuery.isLoading}
             dataSource={displayedUnits}
             pagination={{ pageSize: 20 }}
+            scroll={{ x: "max-content" }}
             onRow={(u) => ({ onClick: () => navigate("/m/unit-card", { state: { unitId: u.id } }) })}
             columns={[
               { title: "ID", dataIndex: "id", sorter: (a, b) => a.id - b.id },

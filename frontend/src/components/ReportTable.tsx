@@ -57,7 +57,14 @@ export default function ReportTable<T extends object>({ title, filename, rowKey,
           Печать
         </Button>
       </Space>
-      <Table<T> rowKey={rowKey} loading={loading} dataSource={data} columns={antdColumns} pagination={{ pageSize: 20 }} />
+      <Table<T>
+        rowKey={rowKey}
+        loading={loading}
+        dataSource={data}
+        columns={antdColumns}
+        pagination={{ pageSize: 20 }}
+        scroll={{ x: "max-content" }}
+      />
     </Space>
   );
 }

@@ -268,6 +268,7 @@ function ManageTab() {
           loading={racksQuery.isLoading}
           dataSource={racksQuery.data ?? []}
           pagination={false}
+          scroll={{ x: "max-content" }}
           columns={[
             { title: "Код", dataIndex: "code", render: (v, rack) => <a onClick={() => setSelectedRack(rack)}>{v}</a> },
             { title: "Тип", dataIndex: "type", render: (t: string) => (t === "roll" ? "Рулонный" : "Штрипсовый") },

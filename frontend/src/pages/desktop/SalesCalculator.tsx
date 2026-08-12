@@ -119,6 +119,7 @@ export default function SalesCalculator() {
               rowKey="link_id"
               pagination={false}
               dataSource={analogs}
+              scroll={{ x: "max-content" }}
               rowClassName={(a) => (a.is_illiquid ? "sales-calc-illiquid-row" : "")}
               columns={[
                 { title: "", width: 64, render: (_, a) => <Photo sku={a.sku} /> },

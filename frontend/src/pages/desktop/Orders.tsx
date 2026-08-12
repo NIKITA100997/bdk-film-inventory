@@ -96,6 +96,7 @@ export default function Orders() {
           loading={ordersQuery.isLoading}
           dataSource={ordersQuery.data ?? []}
           pagination={{ pageSize: 20 }}
+          scroll={{ x: "max-content" }}
           onRow={(o) => ({ onClick: () => setOrderId(o.id), style: { cursor: "pointer" } })}
           locale={{ emptyText: <EmptyHint description="Заказов пока нет — создайте первый выше" /> }}
           columns={[
@@ -150,6 +151,7 @@ export default function Orders() {
             rowKey="id"
             dataSource={orderQuery.data?.lines ?? []}
             pagination={false}
+            scroll={{ x: "max-content" }}
             locale={{ emptyText: <EmptyHint description="Позиций пока нет — добавьте потребность в материале выше" /> }}
             columns={[
               { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },

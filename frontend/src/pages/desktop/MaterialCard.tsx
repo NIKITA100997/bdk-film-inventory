@@ -358,6 +358,7 @@ export default function MaterialCard() {
               rowKey="width_mm"
               pagination={false}
               dataSource={byWidth}
+              scroll={{ x: "max-content" }}
               columns={[
                 { title: "Ширина, мм", dataIndex: "width_mm" },
                 { title: "Метры", dataIndex: "length_m" },
@@ -382,6 +383,7 @@ export default function MaterialCard() {
               size="small"
               pagination={{ pageSize: 10 }}
               dataSource={cardQuery.data.units}
+              scroll={{ x: "max-content" }}
               onRow={(u) => ({
                 onClick: () => navigate("/m/unit-card", { state: { unitId: u.id } }),
                 style: { cursor: "pointer" },
@@ -401,6 +403,7 @@ export default function MaterialCard() {
               size="small"
               pagination={{ pageSize: 10 }}
               dataSource={cardQuery.data.events}
+              scroll={{ x: "max-content" }}
               columns={[
                 { title: "Когда", dataIndex: "timestamp", render: (v) => new Date(v).toLocaleString("ru-RU") },
                 { title: "Событие", dataIndex: "event_type" },

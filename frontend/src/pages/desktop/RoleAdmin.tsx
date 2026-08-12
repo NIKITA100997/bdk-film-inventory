@@ -75,6 +75,7 @@ export default function RoleAdmin() {
           loading={rolesQuery.isLoading}
           dataSource={rolesQuery.data ?? []}
           pagination={false}
+          scroll={{ x: "max-content" }}
           columns={[
             { title: "Название", dataIndex: "name", render: (v, r) => <a onClick={() => setSelectedRoleId(r.id)}>{v}</a> },
             { title: "Прав назначено", render: (_, r) => r.permissions.length },
