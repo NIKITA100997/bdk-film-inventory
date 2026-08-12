@@ -1,8 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
-from app.models.events import EventType
+from app.models.events import EventType, WriteOffReason
 from app.models.units import UnitStatus
 from app.models.users import Area
 from app.schemas.dictionaries import MaterialSkuOut
@@ -43,6 +43,21 @@ class MaterialUnitOut(BaseModel):
     @property
     def area_m2(self) -> float:
         return round(float(self.width_mm) * float(self.length_m) / 1000, 3)
+
+
+class WriteOffRequest(BaseModel):
+    """CUTTING_WASTE зарезервирована для автоматического списания отхода при
+    раскрое (split_unit) — вручную через это тело её выбрать нельзя."""
+
+    reason: WriteOffReason
+    note: str | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def _no_cutting_waste(cls, v: WriteOffReason) -> WriteOffReason:
+        if v == WriteOffReason.CUTTING_WASTE:
+            raise ValueError("Причина 'Отход при раскрое' выставляется автоматически, не вручную")
+        return v
 
 
 class PlaceRequest(BaseModel):
@@ -136,3 +151,5 @@ class UnitEventOut(BaseModel):
     from_cell: str | None
     to_cell: str | None
     quantity_delta_m: float
+    write_off_reason: WriteOffReason | None
+    write_off_note: str | None

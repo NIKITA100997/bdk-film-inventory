@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from app.models.events import EventType, MaterialEvent
+from app.models.events import EventType, MaterialEvent, WriteOffReason
 from app.models.units import MaterialUnit
 
 
@@ -16,6 +16,8 @@ def record_event(
     from_cell: str | None = None,
     to_cell: str | None = None,
     inventory_session_id: int | None = None,
+    write_off_reason: WriteOffReason | None = None,
+    write_off_note: str | None = None,
 ) -> MaterialEvent:
     """Единая точка записи в журнал (2.6 ТЗ) — вызывается сервисным слоем при
     каждой операции над MaterialUnit, не роутерами напрямую."""
@@ -34,6 +36,8 @@ def record_event(
         production_task_line_id=unit.production_task_line_id,
         quantity_delta_m=quantity_delta_m,
         inventory_session_id=inventory_session_id,
+        write_off_reason=write_off_reason,
+        write_off_note=write_off_note,
     )
     db.add(event)
     return event

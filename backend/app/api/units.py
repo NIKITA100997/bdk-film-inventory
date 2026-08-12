@@ -5,7 +5,7 @@ from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import MaterialSku
-from app.models.events import EventType, MaterialEvent
+from app.models.events import EventType, MaterialEvent, WriteOffReason
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import Area, User
 from app.schemas.units import (
@@ -23,6 +23,7 @@ from app.schemas.units import (
     SplitRequest,
     SplitResponse,
     UnitEventOut,
+    WriteOffRequest,
 )
 from app.services.dictionaries import find_or_create_sku, find_sku
 from app.services.events import record_event
@@ -121,12 +122,14 @@ def unit_events(
 @router.post("/{unit_id}/write-off", response_model=MaterialUnitOut)
 def write_off_unit(
     unit_id: int,
+    payload: WriteOffRequest,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("units.writeoff")),
 ) -> MaterialUnit:
     """Списание вне инвентаризации (2.1 раздел бэклога доработок) — прямое
     действие из карточки единицы для остатка На_хранении, который решили
-    не хранить дальше (порча, брак и т.п.)."""
+    не хранить дальше (порча, брак и т.п.). Причина обязательна — данные
+    для будущих претензий поставщику (10 раздел обратной связи)."""
     unit = _get_storable_unit(db, unit_id)
     if unit.status != UnitStatus.NA_KHRANENII:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Списать можно только единицу на хранении")
@@ -140,6 +143,8 @@ def write_off_unit(
         quantity_delta_m=-old_length,
         from_length=old_length,
         to_length=0,
+        write_off_reason=payload.reason,
+        write_off_note=payload.note,
     )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
@@ -248,6 +253,7 @@ def split_unit(
                 quantity_delta_m=-float(new_unit.length_m),
                 from_length=float(new_unit.length_m),
                 to_length=0,
+                write_off_reason=WriteOffReason.CUTTING_WASTE,
             )
 
     db.commit()
