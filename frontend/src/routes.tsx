@@ -22,6 +22,7 @@ import RoleAdmin from "./pages/desktop/RoleAdmin";
 import LabelTemplateAdmin from "./pages/desktop/LabelTemplateAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
 import SalesCalculator from "./pages/desktop/SalesCalculator";
+import ProductionTasks from "./pages/desktop/ProductionTasks";
 
 export default function AppRoutes() {
   return (
@@ -99,6 +100,14 @@ export default function AppRoutes() {
         <Route
           path="/inventory"
           element={<RequirePermission permissions={["inventory.manage"]}><InventoryDesktop /></RequirePermission>}
+        />
+        <Route
+          path="/production-tasks"
+          element={
+            <RequirePermission permissions={["production_tasks.manage", "production_tasks.view"]}>
+              <ProductionTasks />
+            </RequirePermission>
+          }
         />
         <Route
           path="/purchasing"

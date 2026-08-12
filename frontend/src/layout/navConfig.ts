@@ -63,6 +63,16 @@ export const navTree: NavBlock[] = [
       // заказу, поэтому виден и тем, кто планирует (orders.plan), и тем,
       // кто создаёт/закрывает заказы (orders.manage/orders.close).
       { key: "orders", path: "/orders", label: "Заказы", permissions: ["orders.plan", "orders.manage", "orders.close"] },
+      // Пилот: окутка царговых (раздел про производственные задания) —
+      // начальник цеха заводит модели/BOM и создаёт задания
+      // (production_tasks.manage), начальник участка смотрит готовое
+      // задание своего участка (production_tasks.view).
+      {
+        key: "production-tasks",
+        path: "/production-tasks",
+        label: "Производственные задания",
+        permissions: ["production_tasks.manage", "production_tasks.view"],
+      },
       { key: "purchasing", path: "/purchasing", label: "Закупки", permissions: ["purchasing.manage"] },
       { key: "reports", path: "/reports", label: "Отчёты", permissions: ["reports.view"] },
       // Калькулятор заказа для продажника (8 раздел обратной связи) —
