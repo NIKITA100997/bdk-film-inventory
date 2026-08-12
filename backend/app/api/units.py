@@ -9,6 +9,8 @@ from app.models.events import EventType, MaterialEvent
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import Area, User
 from app.schemas.units import (
+    AtomicDonorIssueRequest,
+    AtomicDonorIssueResponse,
     CutRequest,
     DonorSuggestion,
     IssueDirectRequest,
@@ -403,6 +405,83 @@ def issue_to_area(
         )
 
     return IssueResult(outcome="not_found")
+
+
+@router.post("/issue-donor-atomic", response_model=AtomicDonorIssueResponse)
+def issue_donor_atomic(
+    payload: AtomicDonorIssueRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.issue")),
+) -> AtomicDonorIssueResponse:
+    """Атомарная резка донора и выдача в 1 клик (раздел 6 бэклога доработок):
+    берет донорский рулон/штрипс на хранении, отделяет от него кусок requested_width_mm,
+    мгновенно выдает отделенный кусок участку, а остаток оставляет/размещает на складе."""
+    unit = _get_storable_unit(db, payload.donor_unit_id)
+    if unit.status != UnitStatus.NA_KHRANENII:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Донор должен быть в статусе 'На хранении'")
+    if payload.requested_width_mm >= unit.width_mm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Запрашиваемая ширина должна быть меньше ширины донора"
+        )
+
+    try:
+        outcome = split_lengthwise(unit, payload.requested_width_mm)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
+    unit.width_mm = outcome.parent_width_mm
+    unit.length_m = outcome.parent_length_m
+    record_event(
+        db,
+        unit=unit,
+        event_type=outcome.parent_event.event_type,
+        user_id=user.id,
+        quantity_delta_m=outcome.parent_event.quantity_delta_m,
+        from_length=outcome.parent_event.from_length,
+        to_length=outcome.parent_event.to_length,
+    )
+
+    spec = outcome.new_unit
+    if spec is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Не удалось отделить кусок донора")
+
+    issued_unit = MaterialUnit(
+        parent_id=spec.parent_id,
+        upd_number=spec.upd_number,
+        pallet_number=spec.pallet_number,
+        material_sku_id=spec.material_sku_id,
+        width_mm=spec.width_mm,
+        length_m=spec.length_m,
+        status=UnitStatus.VYDAN_UCHASTKU,
+        area=payload.area,
+        order_id=payload.order_id,
+        location_code=None,
+    )
+    db.add(issued_unit)
+    db.flush()
+
+    record_event(
+        db,
+        unit=issued_unit,
+        event_type=outcome.new_unit_event.event_type,
+        user_id=user.id,
+        quantity_delta_m=outcome.new_unit_event.quantity_delta_m,
+        to_length=outcome.new_unit_event.to_length,
+    )
+    record_event(
+        db,
+        unit=issued_unit,
+        event_type=EventType.VYDACHA_UCHASTKU,
+        user_id=user.id,
+        quantity_delta_m=-float(issued_unit.length_m),
+    )
+
+    db.commit()
+
+    issued_unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == issued_unit.id).first()
+    remainder_unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit.id).first()
+
+    return AtomicDonorIssueResponse(issued_unit=issued_unit, remainder_unit=remainder_unit)
 
 
 @router.post("/{unit_id}/cut", response_model=MaterialUnitOut)

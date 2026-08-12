@@ -3,6 +3,7 @@ import { Button, Card, Form, InputNumber, Select, Typography, Alert, Table, Spac
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  issueDonorAtomic,
   issueUnit,
   issueUnitDirect,
   searchUnits,
@@ -26,11 +27,6 @@ interface IssuePrefill {
   manufacturer?: string;
 }
 
-/** Выдача участку (3 раздел обратной связи) — одна позиция вместо четырёх
- * раздельных выпадающих списков материал/цвет/толщина/производитель.
- * После выбора позиции сразу видно, что реально есть на хранении — можно
- * выдать конкретный рулон/штрипс напрямую, а можно запросить нужный размер
- * и получить либо точное совпадение, либо предложение донора (как раньше). */
 export default function Issue() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -101,12 +97,26 @@ export default function Issue() {
     onError: () => message.error("Не удалось оформить выдачу"),
   });
 
+  const atomicDonorMutation = useMutation({
+    mutationFn: (values: { donor_unit_id: number; requested_width_mm: number; area: AreaValue }) =>
+      issueDonorAtomic(values),
+    onSuccess: (res) => {
+      message.success(
+        `Донор разрезан и выдан! Выдана единица №${res.issued_unit.id} (${res.issued_unit.width_mm} мм). Остаток №${res.remainder_unit?.id ?? "—"} обновлен на хранении.`,
+      );
+      qc.invalidateQueries({ queryKey: ["issue-available-units", skuId] });
+      setResult({ outcome: "issued", unit: res.issued_unit, donor: null });
+    },
+    onError: () => message.error("Не удалось разрезать и выдать донора"),
+  });
+
   return (
     <Card>
       <Typography.Title level={4}>Выдача участку</Typography.Title>
 
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space direction="vertical" size="large" style={{ width: "100%" }}>
         <Select
+          size="large"
           style={{ width: "100%" }}
           showSearch
           placeholder="Позиция материала — материал, цвет, толщина, производитель"
@@ -120,7 +130,8 @@ export default function Issue() {
           }}
         />
         <Select
-          placeholder="Участок"
+          size="large"
+          placeholder="Выбрать участок выдачи"
           style={{ width: "100%" }}
           options={areaOptions}
           value={area ?? undefined}
@@ -130,15 +141,16 @@ export default function Issue() {
         {selectedSku && (
           <>
             <Typography.Title level={5} style={{ marginBottom: 0 }}>
-              В наличии
+              В наличии на хранении
             </Typography.Title>
             <Table<MaterialUnit>
-              size="small"
+              size="middle"
               rowKey="id"
               loading={availableQuery.isLoading}
               dataSource={availableQuery.data ?? []}
               pagination={false}
-              locale={{ emptyText: "Ничего нет на хранении — попробуйте найти по размеру ниже" }}
+              scroll={{ x: "max-content" }}
+              locale={{ emptyText: "Ничего нет на хранении — укажите нужный размер ниже" }}
               columns={[
                 { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
                 { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
@@ -146,7 +158,7 @@ export default function Issue() {
                   title: "",
                   render: (_, u) => (
                     <Button
-                      size="small"
+                      size="middle"
                       type="primary"
                       disabled={!area}
                       loading={directMutation.isPending}
@@ -160,18 +172,26 @@ export default function Issue() {
             />
 
             <Typography.Title level={5} style={{ marginBottom: 0, marginTop: 8 }}>
-              Или укажите нужный размер
+              Или укажите нужный размер для автоподбора
             </Typography.Title>
-            <Form form={findForm} layout="inline" onFinish={(v) => findMutation.mutate(v)}>
-              <Form.Item name="width_mm" rules={[{ required: true }]}>
-                <InputNumber placeholder="Ширина, мм" min={1} />
-              </Form.Item>
-              <Form.Item name="length_m" rules={[{ required: true }]}>
-                <InputNumber placeholder="Длина, м" min={0.1} step={0.1} />
-              </Form.Item>
-              <Button type="primary" htmlType="submit" disabled={!area} loading={findMutation.isPending}>
-                Найти и выдать
-              </Button>
+            <Form form={findForm} layout="vertical" onFinish={(v) => findMutation.mutate(v)}>
+              <Space style={{ width: "100%", flexWrap: "wrap" }}>
+                <Form.Item name="width_mm" rules={[{ required: true }]} style={{ marginBottom: 0 }}>
+                  <InputNumber size="large" placeholder="Ширина, мм" min={1} style={{ width: 160 }} />
+                </Form.Item>
+                <Form.Item name="length_m" rules={[{ required: true }]} style={{ marginBottom: 0 }}>
+                  <InputNumber size="large" placeholder="Длина, м" min={0.1} step={0.1} style={{ width: 160 }} />
+                </Form.Item>
+                <Button
+                  size="large"
+                  type="primary"
+                  htmlType="submit"
+                  disabled={!area}
+                  loading={findMutation.isPending}
+                >
+                  Найти и выдать
+                </Button>
+              </Space>
             </Form>
           </>
         )}
@@ -192,16 +212,35 @@ export default function Issue() {
           style={{ marginTop: 16 }}
           type="info"
           showIcon
-          message={`Есть штрипс №${result.donor.unit_id}, ширина ${result.donor.width_mm} мм, класс ${result.donor.width_class} (используется редко)`}
-          description={`Рекомендуем отрезать ${result.donor.recommended_cut_mm} мм, отход ${result.donor.waste_mm} мм. Оператор режет вручную через «Разделить рулон» и затем повторяет выдачу на полученный кусок.`}
-          action={
-            <Button
-              size="small"
-              type="primary"
-              onClick={() => navigate("/m/unit-card", { state: { unitId: result.donor!.unit_id } })}
-            >
-              Разделить рулон
-            </Button>
+          message={`Есть донор штрипс №${result.donor.unit_id}, ширина ${result.donor.width_mm} мм, класс ${result.donor.width_class}`}
+          description={
+            <Space direction="vertical" style={{ width: "100%", marginTop: 8 }}>
+              <div>
+                Рекомендуем отрезать <strong>{result.donor.recommended_cut_mm} мм</strong> (отход {result.donor.waste_mm} мм).
+              </div>
+              <Space flex-wrap="wrap">
+                <Button
+                  size="large"
+                  type="primary"
+                  loading={atomicDonorMutation.isPending}
+                  onClick={() =>
+                    atomicDonorMutation.mutate({
+                      donor_unit_id: result.donor!.unit_id,
+                      requested_width_mm: result.donor!.recommended_cut_mm,
+                      area: area!,
+                    })
+                  }
+                >
+                  ⚡ Выдать донора в 1 клик (разрезать и выдать)
+                </Button>
+                <Button
+                  size="large"
+                  onClick={() => navigate("/m/unit-card", { state: { unitId: result.donor!.unit_id } })}
+                >
+                  Открыть карточку донора
+                </Button>
+              </Space>
+            </Space>
           }
         />
       )}
@@ -211,7 +250,7 @@ export default function Issue() {
           style={{ marginTop: 16 }}
           type="success"
           showIcon
-          message={`Выдано: № ${result.unit.id} — ${result.unit.width_mm} мм × ${result.unit.length_m} м`}
+          message={`Успешно выдано: №${result.unit.id} — ${result.unit.width_mm} мм × ${result.unit.length_m} м`}
         />
       )}
     </Card>

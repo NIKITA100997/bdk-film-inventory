@@ -97,6 +97,18 @@ class IssueResult(BaseModel):
     donor: DonorSuggestion | None = None
 
 
+class AtomicDonorIssueRequest(BaseModel):
+    donor_unit_id: int
+    requested_width_mm: float = Field(gt=0)
+    area: Area
+    order_id: int | None = None
+
+
+class AtomicDonorIssueResponse(BaseModel):
+    issued_unit: MaterialUnitOut
+    remainder_unit: MaterialUnitOut | None = None
+
+
 class CutRequest(BaseModel):
     cut_length_m: float = Field(gt=0)
     remainder_location: str | None = None
