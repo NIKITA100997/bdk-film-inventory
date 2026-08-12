@@ -13,6 +13,7 @@ import {
   type MaterialUnit,
 } from "../../api/units";
 import { listMaterialSkus } from "../../api/dictionaries";
+import { listProductionTasks } from "../../api/production";
 
 const areaOptions: { value: AreaValue; label: string }[] = [
   { value: "okutka_tsargovykh", label: "Окутка царговых" },
@@ -35,11 +36,28 @@ export default function Issue() {
 
   const [skuId, setSkuId] = useState<number | null>(null);
   const [area, setArea] = useState<AreaValue | null>(null);
+  const [taskLineId, setTaskLineId] = useState<number | undefined>(undefined);
   const [result, setResult] = useState<IssueResult | null>(null);
   const [findForm] = Form.useForm<{ width_mm: number; length_m: number }>();
 
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
   const selectedSku = skusQuery.data?.find((s) => s.id === skuId) ?? null;
+
+  // Раздел про производственные задания — необязательная привязка выдачи к
+  // строке задания (для прослеживаемости и видимости остатка "ещё нужно
+  // довыдать" — брак в производстве уменьшает "засчитанное" произведённое,
+  // строка с остатком > 0 естественно остаётся в списке).
+  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks, enabled: !!area });
+  const taskLineOptions = (tasksQuery.data ?? [])
+    .filter((t) => t.area === area)
+    .flatMap((t) =>
+      t.lines
+        .filter((l) => l.remaining_pieces > 0)
+        .map((l) => ({
+          value: l.id,
+          label: `${t.product_model_name ?? t.name ?? "Задание"} — ${l.line_name} — ${l.material}, ${l.color}, ${l.thickness} мм — осталось ${l.remaining_pieces} шт`,
+        })),
+    );
 
   useEffect(() => {
     if (!prefill || !skusQuery.data || skuId !== null) return;
@@ -67,7 +85,7 @@ export default function Issue() {
   });
 
   const directMutation = useMutation({
-    mutationFn: (unitId: number) => issueUnitDirect(unitId, area!),
+    mutationFn: (unitId: number) => issueUnitDirect(unitId, area!, undefined, taskLineId),
     onSuccess: (unit) => {
       message.success(`Выдана единица №${unit.id}`);
       qc.invalidateQueries({ queryKey: ["issue-available-units", skuId] });
@@ -86,6 +104,7 @@ export default function Issue() {
         width_mm: v.width_mm,
         length_m: v.length_m,
         area: area!,
+        production_task_line_id: taskLineId,
       }),
     onSuccess: (res) => {
       setResult(res);
@@ -99,7 +118,7 @@ export default function Issue() {
 
   const atomicDonorMutation = useMutation({
     mutationFn: (values: { donor_unit_id: number; requested_width_mm: number; area: AreaValue }) =>
-      issueDonorAtomic(values),
+      issueDonorAtomic({ ...values, production_task_line_id: taskLineId }),
     onSuccess: (res) => {
       message.success(
         `Донор разрезан и выдан! Выдана единица №${res.issued_unit.id} (${res.issued_unit.width_mm} мм). Остаток №${res.remainder_unit?.id ?? "—"} обновлен на хранении.`,
@@ -135,8 +154,25 @@ export default function Issue() {
           style={{ width: "100%" }}
           options={areaOptions}
           value={area ?? undefined}
-          onChange={setArea}
+          onChange={(v) => {
+            setArea(v);
+            setTaskLineId(undefined);
+          }}
         />
+
+        {area && (
+          <Select
+            size="large"
+            allowClear
+            placeholder="Производственное задание (опционально)"
+            style={{ width: "100%" }}
+            loading={tasksQuery.isLoading}
+            options={taskLineOptions}
+            value={taskLineId}
+            onChange={setTaskLineId}
+            notFoundContent="Нет открытых заданий с остатком на этом участке"
+          />
+        )}
 
         {selectedSku && (
           <>

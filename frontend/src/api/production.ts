@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { AreaValue } from "./units";
+import type { AreaValue, WriteOffReasonValue } from "./units";
 
 export interface ProductionLine {
   id: number;
@@ -65,14 +65,18 @@ export interface ProductionTaskLine {
   color: string;
   thickness: number;
   quantity_pieces: number;
+  produced_good_pieces: number;
+  defect_pieces: number;
+  remaining_pieces: number;
 }
 
 export interface ProductionTask {
   id: number;
-  product_model_id: number;
-  product_model_name: string;
-  product_model_area: AreaValue;
-  quantity: number;
+  product_model_id: number | null;
+  product_model_name: string | null;
+  name: string | null;
+  area: AreaValue;
+  quantity: number | null;
   created_by: number;
   created_at: string;
   lines: ProductionTaskLine[];
@@ -81,6 +85,37 @@ export interface ProductionTask {
 export interface ProductionTaskCreate {
   product_model_id: number;
   quantity: number;
+}
+
+export interface ProductionTaskLineManualCreate {
+  line_id: number;
+  material: string;
+  color: string;
+  thickness: number;
+  quantity_pieces: number;
+}
+
+export interface ProductionTaskManualCreate {
+  name: string;
+  area: AreaValue;
+  lines: ProductionTaskLineManualCreate[];
+}
+
+export interface ProductionTaskLineReport {
+  id: number;
+  good_pieces: number;
+  defect_pieces: number;
+  defect_reason: WriteOffReasonValue | null;
+  note: string | null;
+  reported_by: number;
+  reported_at: string;
+}
+
+export interface ProductionTaskLineReportCreate {
+  good_pieces: number;
+  defect_pieces: number;
+  defect_reason?: WriteOffReasonValue;
+  note?: string;
 }
 
 export const listProductionLines = async (): Promise<ProductionLine[]> =>
@@ -116,3 +151,16 @@ export const listProductionTasks = async (): Promise<ProductionTask[]> =>
 
 export const createProductionTask = async (payload: ProductionTaskCreate): Promise<ProductionTask> =>
   (await apiClient.post<ProductionTask>("/production-tasks", payload)).data;
+
+export const createProductionTaskManual = async (payload: ProductionTaskManualCreate): Promise<ProductionTask> =>
+  (await apiClient.post<ProductionTask>("/production-tasks/manual", payload)).data;
+
+export const listTaskLineReports = async (taskId: number, lineId: number): Promise<ProductionTaskLineReport[]> =>
+  (await apiClient.get<ProductionTaskLineReport[]>(`/production-tasks/${taskId}/lines/${lineId}/reports`)).data;
+
+export const createTaskLineReport = async (
+  taskId: number,
+  lineId: number,
+  payload: ProductionTaskLineReportCreate,
+): Promise<ProductionTaskLineReport> =>
+  (await apiClient.post<ProductionTaskLineReport>(`/production-tasks/${taskId}/lines/${lineId}/reports`, payload)).data;

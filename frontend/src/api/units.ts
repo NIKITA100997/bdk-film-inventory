@@ -25,6 +25,7 @@ export interface MaterialUnit {
   area: string | null;
   location_code: string | null;
   order_id: number | null;
+  production_task_line_id: number | null;
   area_m2: number;
 }
 
@@ -107,6 +108,7 @@ export interface IssueRequest {
   length_m: number;
   area: "okutka_tsargovykh" | "shchitovye_dveri" | "tselnolistovye_dveri";
   order_id?: number;
+  production_task_line_id?: number;
 }
 
 export interface DonorSuggestion {
@@ -131,8 +133,32 @@ export async function issueUnit(payload: IssueRequest): Promise<IssueResult> {
 
 export type AreaValue = "okutka_tsargovykh" | "shchitovye_dveri" | "tselnolistovye_dveri";
 
-export async function issueUnitDirect(unitId: number, area: AreaValue, orderId?: number): Promise<MaterialUnit> {
-  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/issue`, { area, order_id: orderId });
+// Раздел про учёт брака — причина списания единицы и, отдельно, причина
+// брака в производстве (ProductionTaskLineReport) переиспользуют один и
+// тот же набор значений на бэкенде (WriteOffReason), кроме "Отход при
+// раскрое" — тот выставляется только системой при продольной резке, не
+// предлагается ни в одной из форм на фронте. Значение и есть готовая
+// подпись (в отличие от AreaValue) — отдельная labels-карта не нужна.
+export type WriteOffReasonValue = "Брак поставщика" | "Повреждение на складе" | "Пересорт" | "Другое";
+
+export const WRITE_OFF_REASON_OPTIONS: WriteOffReasonValue[] = [
+  "Брак поставщика",
+  "Повреждение на складе",
+  "Пересорт",
+  "Другое",
+];
+
+export async function issueUnitDirect(
+  unitId: number,
+  area: AreaValue,
+  orderId?: number,
+  productionTaskLineId?: number,
+): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/issue`, {
+    area,
+    order_id: orderId,
+    production_task_line_id: productionTaskLineId,
+  });
   return data;
 }
 
@@ -141,6 +167,7 @@ export interface AtomicDonorIssueRequest {
   requested_width_mm: number;
   area: AreaValue;
   order_id?: number;
+  production_task_line_id?: number;
 }
 
 export interface AtomicDonorIssueResponse {

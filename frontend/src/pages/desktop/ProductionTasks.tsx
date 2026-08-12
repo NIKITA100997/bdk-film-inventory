@@ -13,8 +13,10 @@ import {
   Modal,
   Typography,
   Empty,
+  Dropdown,
   message,
 } from "antd";
+import { DownOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProductionLines,
@@ -27,14 +29,19 @@ import {
   deleteProductModelPart,
   listProductionTasks,
   createProductionTask,
+  createProductionTaskManual,
+  createTaskLineReport,
   type ProductionLine,
   type ProductionLineUpdate,
   type ProductModel,
   type ProductModelPartCreate,
   type ProductionTask,
+  type ProductionTaskLine,
+  type ProductionTaskLineManualCreate,
+  type ProductionTaskLineReportCreate,
 } from "../../api/production";
 import { listUsers } from "../../api/users";
-import type { AreaValue } from "../../api/units";
+import { WRITE_OFF_REASON_OPTIONS, type AreaValue, type WriteOffReasonValue } from "../../api/units";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -53,17 +60,28 @@ function TasksTab() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canReport = canManage || !!user?.permissions.includes("production_tasks.report");
   const [createOpen, setCreateOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualLines, setManualLines] = useState<ProductionTaskLineManualCreate[]>([]);
+  const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
   const [form] = Form.useForm<{ product_model_id: number; quantity: number }>();
+  const [manualForm] = Form.useForm<{ name: string; area: AreaValue }>();
+  const [manualRowForm] = Form.useForm<ProductionTaskLineManualCreate>();
+  const [reportForm] = Form.useForm<ProductionTaskLineReportCreate>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
+  const linesQuery = useQuery({ queryKey: ["production-lines"], queryFn: listProductionLines });
   const usersQuery = useQuery({ queryKey: ["users-summary"], queryFn: listUsers });
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
+  const lineName = (id: number) => linesQuery.data?.find((l) => l.id === id)?.name ?? `#${id}`;
 
   const activeModels = (modelsQuery.data ?? []).filter((m) => m.is_active && m.parts.length > 0);
+  const manualArea = Form.useWatch("area", manualForm);
+  const linesForManualArea = (linesQuery.data ?? []).filter((l) => l.is_active && l.area === manualArea);
 
-  const tasks = (tasksQuery.data ?? []).filter((t) => !user?.area || t.product_model_area === user.area);
+  const tasks = (tasksQuery.data ?? []).filter((t) => !user?.area || t.area === user.area);
 
   const createMutation = useMutation({
     mutationFn: createProductionTask,
@@ -76,14 +94,54 @@ function TasksTab() {
     onError: () => message.error("Не удалось создать задание"),
   });
 
+  const manualCreateMutation = useMutation({
+    mutationFn: createProductionTaskManual,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      setManualOpen(false);
+      manualForm.resetFields();
+      manualRowForm.resetFields();
+      setManualLines([]);
+      message.success("Задание создано");
+    },
+    onError: () => message.error("Не удалось создать задание"),
+  });
+
+  const reportMutation = useMutation({
+    mutationFn: (v: ProductionTaskLineReportCreate) => createTaskLineReport(reportTarget!.taskId, reportTarget!.line.id, v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      setReportTarget(null);
+      reportForm.resetFields();
+      message.success("Отчёт сохранён");
+    },
+    onError: () => message.error("Не удалось сохранить отчёт"),
+  });
+
+  const addManualLine = (v: ProductionTaskLineManualCreate) => {
+    setManualLines((lines) => [...lines, v]);
+    manualRowForm.resetFields();
+  };
+  const removeManualLine = (index: number) => setManualLines((lines) => lines.filter((_, i) => i !== index));
+
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card
         extra={
           canManage && (
-            <Button type="primary" onClick={() => setCreateOpen(true)}>
-              Создать задание
-            </Button>
+            <Dropdown
+              menu={{
+                items: [
+                  { key: "bom", label: "По модели (BOM)" },
+                  { key: "manual", label: "Вручную" },
+                ],
+                onClick: ({ key }) => (key === "bom" ? setCreateOpen(true) : setManualOpen(true)),
+              }}
+            >
+              <Button type="primary">
+                Создать задание <DownOutlined />
+              </Button>
+            </Dropdown>
           )
         }
       >
@@ -105,7 +163,7 @@ function TasksTab() {
             scroll={{ x: "max-content" }}
             expandable={{
               expandedRowRender: (task) => (
-                <Table
+                <Table<ProductionTaskLine>
                   rowKey="id"
                   size="small"
                   pagination={false}
@@ -113,15 +171,37 @@ function TasksTab() {
                   columns={[
                     { title: "Линия", dataIndex: "line_name" },
                     { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
-                    { title: "Количество, шт", dataIndex: "quantity_pieces" },
+                    { title: "Нужно, шт", dataIndex: "quantity_pieces" },
+                    { title: "Произведено", dataIndex: "produced_good_pieces" },
+                    { title: "Брак", dataIndex: "defect_pieces" },
+                    {
+                      title: "Осталось",
+                      dataIndex: "remaining_pieces",
+                      render: (v: number) => <Typography.Text strong={v > 0}>{v}</Typography.Text>,
+                    },
+                    {
+                      title: "",
+                      render: (_, l) =>
+                        canReport && (
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setReportTarget({ taskId: task.id, line: l });
+                              reportForm.resetFields();
+                            }}
+                          >
+                            Отчитаться
+                          </Button>
+                        ),
+                    },
                   ]}
                 />
               ),
             }}
             columns={[
-              { title: "Модель", dataIndex: "product_model_name" },
-              { title: "Участок", dataIndex: "product_model_area", render: (v: string) => areaLabels[v] ?? v },
-              { title: "Количество", dataIndex: "quantity" },
+              { title: "Модель", render: (_, t) => t.product_model_name ?? t.name ?? "—" },
+              { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
+              { title: "Количество", render: (_, t) => t.quantity ?? "—" },
               { title: "Автор", dataIndex: "created_by", render: (id: number) => userName(id) },
               { title: "Создано", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
             ]}
@@ -129,7 +209,7 @@ function TasksTab() {
         )}
       </Card>
 
-      <Modal title="Новое производственное задание" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
+      <Modal title="Новое производственное задание — по модели" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
         <Form layout="vertical" form={form} onFinish={(v) => createMutation.mutate(v)}>
           <Form.Item name="product_model_id" label="Модель продукции" rules={[{ required: true }]}>
             <Select
@@ -145,6 +225,133 @@ function TasksTab() {
             Создать и разбить по линиям
           </Button>
         </Form>
+      </Modal>
+
+      <Modal
+        title="Новое производственное задание — вручную"
+        open={manualOpen}
+        onCancel={() => {
+          setManualOpen(false);
+          setManualLines([]);
+        }}
+        footer={null}
+        destroyOnHidden
+        width={640}
+      >
+        <Typography.Paragraph type="secondary">
+          Пока не все модели описаны в BOM — задайте строки напрямую (линия, плёнка, количество). Когда составы
+          будут заведены, вернитесь к созданию «По модели».
+        </Typography.Paragraph>
+        <Form layout="vertical" form={manualForm}>
+          <Form.Item name="name" label="Название задания" rules={[{ required: true }]}>
+            <Input placeholder="Партия 500 дверей — вручную" />
+          </Form.Item>
+          <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
+            <Select options={areaOptions} />
+          </Form.Item>
+        </Form>
+
+        {manualLines.length > 0 && (
+          <Table
+            rowKey={(_, i) => String(i)}
+            size="small"
+            pagination={false}
+            dataSource={manualLines}
+            style={{ marginBottom: 16 }}
+            columns={[
+              { title: "Линия", render: (_, l) => lineName(l.line_id) },
+              { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
+              { title: "Кол-во, шт", dataIndex: "quantity_pieces" },
+              {
+                title: "",
+                render: (_, __, index) => (
+                  <Button size="small" danger onClick={() => removeManualLine(index)}>
+                    Убрать
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        )}
+
+        <Typography.Title level={5}>Добавить строку</Typography.Title>
+        <Form form={manualRowForm} layout="vertical" onFinish={addManualLine}>
+          <Form.Item name="line_id" label="Линия" rules={[{ required: true }]}>
+            <Select
+              disabled={!manualArea}
+              placeholder={manualArea ? "Выберите линию" : "Сначала выберите участок выше"}
+              options={linesForManualArea.map((l) => ({ value: l.id, label: l.name }))}
+            />
+          </Form.Item>
+          <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
+            <DictAutoComplete kind="materials" />
+          </Form.Item>
+          <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
+            <DictAutoComplete kind="colors" />
+          </Form.Item>
+          <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
+            <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
+            <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Button htmlType="submit" block>
+            Добавить строку в задание
+          </Button>
+        </Form>
+
+        <Button
+          type="primary"
+          block
+          style={{ marginTop: 16 }}
+          disabled={manualLines.length === 0}
+          loading={manualCreateMutation.isPending}
+          onClick={() => {
+            manualForm
+              .validateFields()
+              .then((v) => manualCreateMutation.mutate({ ...v, lines: manualLines }))
+              .catch(() => {});
+          }}
+        >
+          Создать задание ({manualLines.length} строк(и))
+        </Button>
+      </Modal>
+
+      <Modal
+        title={reportTarget ? `Отчёт по линии «${reportTarget.line.line_name}»` : ""}
+        open={!!reportTarget}
+        onCancel={() => setReportTarget(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        {reportTarget && (
+          <>
+            <Typography.Paragraph type="secondary">
+              Нужно: {reportTarget.line.quantity_pieces} шт, уже произведено: {reportTarget.line.produced_good_pieces} шт,
+              остаток: {reportTarget.line.remaining_pieces} шт.
+            </Typography.Paragraph>
+            <Form layout="vertical" form={reportForm} onFinish={(v) => reportMutation.mutate(v)}>
+              <Form.Item name="good_pieces" label="Хороших деталей, шт" rules={[{ required: true }]}>
+                <InputNumber min={0} style={{ width: "100%" }} />
+              </Form.Item>
+              <Form.Item name="defect_pieces" label="Брака, шт" initialValue={0} rules={[{ required: true }]}>
+                <InputNumber min={0} style={{ width: "100%" }} />
+              </Form.Item>
+              <Form.Item name="defect_reason" label="Причина брака (если есть)">
+                <Select
+                  allowClear
+                  options={WRITE_OFF_REASON_OPTIONS.map((r) => ({ value: r, label: r }))}
+                />
+              </Form.Item>
+              <Form.Item name="note" label="Заметка (опционально)">
+                <Input.TextArea rows={2} />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" block loading={reportMutation.isPending}>
+                Сохранить отчёт
+              </Button>
+            </Form>
+          </>
+        )}
       </Modal>
     </Space>
   );
