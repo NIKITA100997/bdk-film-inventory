@@ -117,33 +117,39 @@ def indicator_color(data: LabelData) -> str:
 
 def render_field_value(data: LabelData, key: str) -> str | None:
     """None — поле нечего показывать (например, единица не резалась из
-    родителя) — тогда строка в теле этикетки просто пропускается."""
+    родителя) — тогда строка в теле этикетки просто пропускается.
+
+    Каждое поле печатается с подписью ("Ширина: 1400 мм", а не голое
+    "1400 мм") — на маленькой бирке значение без подписи неоднозначно.
+    Исключения — unit_id и parent_ref: подпись у них уже встроена в саму
+    формулировку ("№ 42", "Из рулона №7"), отдельная приставка была бы
+    задвоением."""
     if key == "unit_id":
         return f"№ {data.unit_id}"
     if key == "material":
-        return data.material
+        return f"Материал: {data.material}"
     if key == "color":
-        return data.color
+        return f"Цвет: {data.color}"
     if key == "thickness":
-        return f"{data.thickness_mm} мм"
+        return f"Толщина: {data.thickness_mm} мм"
     if key == "manufacturer":
-        return data.manufacturer
+        return f"Производитель: {data.manufacturer}"
     if key == "upd_number":
-        return f"УПД {data.upd_number}"
+        return f"УПД: {data.upd_number}"
     if key == "pallet_number":
-        return f"паллета {data.pallet_number}"
+        return f"Паллета: {data.pallet_number}"
     if key == "received_date":
-        return data.received_date.strftime("%d.%m.%Y") if data.received_date else ""
+        return f"Дата приёмки: {data.received_date.strftime('%d.%m.%Y')}" if data.received_date else ""
     if key == "supplier_code":
-        return data.supplier_code or ""
+        return f"Код у поставщика: {data.supplier_code}" if data.supplier_code else ""
     if key == "native_width":
-        return f"{data.native_width_mm} мм" if data.native_width_mm is not None else ""
+        return f"Родная ширина: {data.native_width_mm} мм" if data.native_width_mm is not None else ""
     if key == "parent_ref":
         return f"Из рулона №{data.parent_id}" if data.parent_id else None
     if key == "width_mm":
-        return f"{data.width_mm} мм"
+        return f"Ширина: {data.width_mm} мм"
     if key == "length_m":
-        return f"{data.length_m} м"
+        return f"Длина: {data.length_m} м"
     return None
 
 
