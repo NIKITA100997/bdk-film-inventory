@@ -3,6 +3,7 @@ import { Button, Card, Form, Input, InputNumber, Typography, List, Row, Col, Sta
 import { useMutation } from "@tanstack/react-query";
 import { receiveAndAutoPlace, printLabel, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import { useDraftForm } from "../../hooks/useDraftForm";
 
 type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code">;
 
@@ -21,6 +22,8 @@ export default function Receive() {
   const [finished, setFinished] = useState(false);
   const [headerForm] = Form.useForm<{ upd_number: string; pallet_number: string }>();
   const [lineForm] = Form.useForm<LineValues>();
+  const headerDraft = useDraftForm("draft:receive-header", headerForm);
+  const lineDraft = useDraftForm("draft:receive-line", lineForm);
 
   const addLineMutation = useMutation({
     mutationFn: (values: LineValues) => receiveAndAutoPlace({ ...values, upd_number: upd, pallet_number: pallet }),
@@ -36,6 +39,7 @@ export default function Receive() {
       // того же цвета (2.3 раздел бэклога доработок) — сбрасываем только
       // ширину/длину/количество.
       lineForm.setFieldsValue({ width_mm: undefined, length_m: undefined, quantity: 1 });
+      lineDraft.clearDraft();
     },
     onError: () => message.error("Не удалось добавить рулон(ы) — проверьте данные"),
   });
@@ -45,6 +49,7 @@ export default function Receive() {
     setPallet(v.pallet_number);
     setSessionStarted(true);
     localStorage.setItem(LAST_PALLET_STORAGE_KEY, v.pallet_number);
+    headerDraft.clearDraft();
   };
 
   const newSession = () => {
@@ -67,6 +72,7 @@ export default function Receive() {
           form={headerForm}
           layout="vertical"
           onFinish={startSession}
+          onValuesChange={headerDraft.handleValuesChange}
           initialValues={{ pallet_number: lastPalletNumber }}
         >
           <Form.Item name="upd_number" label="Номер УПД" rules={[{ required: true }]}>
@@ -88,7 +94,13 @@ export default function Receive() {
             автоматически, материал/цвет/толщина/производитель остаются для следующей строки.
           </Typography.Paragraph>
 
-          <Form form={lineForm} layout="vertical" onFinish={(v) => addLineMutation.mutate(v)} initialValues={{ quantity: 1 }}>
+          <Form
+            form={lineForm}
+            layout="vertical"
+            onFinish={(v) => addLineMutation.mutate(v)}
+            onValuesChange={lineDraft.handleValuesChange}
+            initialValues={{ quantity: 1 }}
+          >
             <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
               <DictAutoComplete kind="materials" />
             </Form.Item>

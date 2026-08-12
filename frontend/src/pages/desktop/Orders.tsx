@@ -14,6 +14,7 @@ import {
 import DictAutoComplete from "../../components/DictAutoComplete";
 import EmptyHint from "../../components/EmptyHint";
 import { useAuth } from "../../auth/AuthContext";
+import { useDraftForm } from "../../hooks/useDraftForm";
 
 /** Заказы (4 раздел обратной связи) — заказ теперь единица планирования:
  * свои строки потребности в материале и план/факт по нему самому, вместо
@@ -37,6 +38,7 @@ export default function Orders() {
   const [orderId, setOrderId] = useState<number | null>(null);
   const [createForm] = Form.useForm<{ number: string }>();
   const [lineForm] = Form.useForm<OrderLineCreate>();
+  const lineDraft = useDraftForm(`draft:order-line:${orderId ?? "none"}`, lineForm);
 
   const ordersQuery = useQuery({ queryKey: ["orders"], queryFn: listOrders });
   const orderQuery = useQuery({
@@ -61,6 +63,7 @@ export default function Orders() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["order", orderId] });
       lineForm.resetFields();
+      lineDraft.clearDraft();
       message.success("Позиция добавлена");
     },
   });
@@ -128,7 +131,13 @@ export default function Orders() {
       {orderId && (
         <Card title={`Заказ №${orderQuery.data?.number ?? ""} — потребность в материале и план/факт`} loading={orderQuery.isLoading}>
           {canPlan && (
-            <Form form={lineForm} layout="inline" onFinish={(v) => addLineMutation.mutate(v)} style={{ marginBottom: 16 }}>
+            <Form
+              form={lineForm}
+              layout="inline"
+              onFinish={(v) => addLineMutation.mutate(v)}
+              onValuesChange={lineDraft.handleValuesChange}
+              style={{ marginBottom: 16 }}
+            >
               <Form.Item name="material" rules={[{ required: true }]}>
                 <DictAutoComplete kind="materials" placeholder="Материал" />
               </Form.Item>
