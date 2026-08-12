@@ -227,6 +227,8 @@ export interface UnitEvent {
   from_cell: string | null;
   to_cell: string | null;
   quantity_delta_m: number;
+  write_off_reason: WriteOffReasonValue | null;
+  write_off_note: string | null;
 }
 
 export async function getUnitEvents(unitId: number): Promise<UnitEvent[]> {
@@ -234,8 +236,8 @@ export async function getUnitEvents(unitId: number): Promise<UnitEvent[]> {
   return data;
 }
 
-export async function writeOffUnit(unitId: number): Promise<MaterialUnit> {
-  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/write-off`);
+export async function writeOffUnit(unitId: number, reason: WriteOffReasonValue, note?: string): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/write-off`, { reason, note });
   return data;
 }
 

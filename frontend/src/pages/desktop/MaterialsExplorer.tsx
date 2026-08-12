@@ -14,7 +14,7 @@ import {
   Modal,
   Form,
   List,
-  Popconfirm,
+  Alert,
   message,
 } from "antd";
 import { DownOutlined, SearchOutlined } from "@ant-design/icons";
@@ -26,9 +26,11 @@ import {
   printLabel,
   writeOffUnit,
   skuLabel,
+  WRITE_OFF_REASON_OPTIONS,
   type MaterialUnit,
   type SearchParams,
   type UnitStatusValue,
+  type WriteOffReasonValue,
 } from "../../api/units";
 import { getStockSummary, type StockSummaryLine } from "../../api/reports";
 import { listAbcClasses, recomputeAbc } from "../../api/abc";
@@ -91,9 +93,11 @@ export default function MaterialsExplorer() {
   const [selectedUnitIds, setSelectedUnitIds] = useState<number[]>([]);
   const [createPositionOpen, setCreatePositionOpen] = useState(false);
   const [createUnitOpen, setCreateUnitOpen] = useState(false);
+  const [writeOffOpen, setWriteOffOpen] = useState(false);
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
   const [positionForm] = Form.useForm<MaterialSkuCreate>();
   const [unitForm] = Form.useForm<UnitLineValues>();
+  const [writeOffForm] = Form.useForm<{ reason: WriteOffReasonValue; note?: string }>();
 
   const positionsQuery = useQuery({ queryKey: ["materials-explorer", "positions"], queryFn: getStockSummary, enabled: viewMode === "positions" });
   const unitsQuery = useQuery({
@@ -146,13 +150,15 @@ export default function MaterialsExplorer() {
   // это заводить не стали — цикл по уже существующему одиночному
   // writeOffUnit, тот же клиентский паттерн, что уже в receiveAndAutoPlace.
   const bulkWriteOffMutation = useMutation({
-    mutationFn: async (ids: number[]) => {
-      for (const id of ids) await writeOffUnit(id);
+    mutationFn: async (values: { reason: WriteOffReasonValue; note?: string }) => {
+      for (const id of selectedUnitIds) await writeOffUnit(id, values.reason, values.note);
     },
-    onSuccess: (_, ids) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["materials-explorer"] });
-      message.success(`Списано единиц: ${ids.length}`);
+      message.success(`Списано единиц: ${selectedUnitIds.length}`);
       setSelectedUnitIds([]);
+      setWriteOffOpen(false);
+      writeOffForm.resetFields();
     },
     onError: () => message.error("Не удалось списать часть единиц — проверьте статусы"),
   });
@@ -341,18 +347,9 @@ export default function MaterialsExplorer() {
           {canWriteOff && selectedUnitIds.length > 0 && (
             <Space style={{ marginBottom: 12 }}>
               <Typography.Text>Выбрано: {selectedUnitIds.length}</Typography.Text>
-              <Popconfirm
-                title={`Списать ${selectedUnitIds.length} единиц(ы)?`}
-                description="Отменить нельзя — используйте для повреждённых/испорченных партий."
-                okText="Списать"
-                okType="danger"
-                cancelText="Отмена"
-                onConfirm={() => bulkWriteOffMutation.mutate(selectedUnitIds)}
-              >
-                <Button danger loading={bulkWriteOffMutation.isPending}>
-                  Списать выбранные ({selectedUnitIds.length})
-                </Button>
-              </Popconfirm>
+              <Button danger onClick={() => setWriteOffOpen(true)}>
+                Списать выбранные ({selectedUnitIds.length})
+              </Button>
             </Space>
           )}
           <Table<MaterialUnit>
@@ -467,6 +464,34 @@ export default function MaterialsExplorer() {
             )}
           />
         )}
+      </Modal>
+
+      <Modal
+        title={`Списать выбранные (${selectedUnitIds.length})`}
+        open={writeOffOpen}
+        onCancel={() => setWriteOffOpen(false)}
+        onOk={() => writeOffForm.submit()}
+        okButtonProps={{ danger: true, loading: bulkWriteOffMutation.isPending }}
+        okText="Списать"
+        destroyOnHidden
+      >
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="warning"
+          showIcon
+          message="Отменить нельзя — используйте для повреждённых/испорченных партий. Причина и заметка применятся ко всем выбранным единицам."
+        />
+        <Form form={writeOffForm} layout="vertical" onFinish={(v) => bulkWriteOffMutation.mutate(v)}>
+          <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
+            <Select
+              options={WRITE_OFF_REASON_OPTIONS.map((r) => ({ value: r, label: r }))}
+              placeholder="Выберите причину"
+            />
+          </Form.Item>
+          <Form.Item name="note" label="Заметка (опционально)">
+            <Input.TextArea rows={2} placeholder="Детали для претензии поставщику" />
+          </Form.Item>
+        </Form>
       </Modal>
     </Space>
   );

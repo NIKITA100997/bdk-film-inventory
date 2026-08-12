@@ -11,10 +11,11 @@ import {
   Tag,
   List,
   Space,
-  Popconfirm,
+  Modal,
+  Select,
   message,
 } from "antd";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   getUnit,
@@ -26,7 +27,9 @@ import {
   getUnitEvents,
   printLabel,
   skuLabel,
+  WRITE_OFF_REASON_OPTIONS,
   type MaterialUnit,
+  type WriteOffReasonValue,
 } from "../../api/units";
 import { suggestLocation } from "../../api/storage";
 import { listUsers } from "../../api/users";
@@ -67,13 +70,16 @@ const actionLabels: Record<Exclude<ActionKind, null>, string> = {
 export default function UnitCard() {
   const navigate = useNavigate();
   const location = useLocation();
+  const qc = useQueryClient();
   const [unit, setUnit] = useState<MaterialUnit | null>(null);
   const [action, setAction] = useState<ActionKind>(null);
+  const [writeOffOpen, setWriteOffOpen] = useState(false);
   const [scanForm] = Form.useForm<{ id: number }>();
   const [placeForm] = Form.useForm<{ location_code: string }>();
   const [splitForm] = Form.useForm<{ separate_width_mm: number; new_unit_location?: string }>();
   const [cutForm] = Form.useForm<{ cut_length_m: number; remainder_location?: string }>();
   const [returnForm] = Form.useForm<{ actual_length_m: number }>();
+  const [writeOffForm] = Form.useForm<{ reason: WriteOffReasonValue; note?: string }>();
   const separateWidth = Form.useWatch("separate_width_mm", splitForm);
 
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
@@ -172,10 +178,14 @@ export default function UnitCard() {
   });
 
   const writeOffMutation = useMutation({
-    mutationFn: () => writeOffUnit(unit!.id),
+    mutationFn: (values: { reason: WriteOffReasonValue; note?: string }) =>
+      writeOffUnit(unit!.id, values.reason, values.note),
     onSuccess: (u) => {
       setUnit(u);
       setAction(null);
+      setWriteOffOpen(false);
+      writeOffForm.resetFields();
+      qc.invalidateQueries({ queryKey: ["unit-events", u.id] });
       message.success("Единица списана");
     },
     onError: () => message.error("Не удалось списать"),
@@ -254,16 +264,9 @@ export default function UnitCard() {
               <Space wrap size="middle">
                 {availableActions(unit).map((a) =>
                   a === "writeoff" ? (
-                    <Popconfirm
-                      key={a}
-                      title="Списать единицу?"
-                      description="Отменить нельзя — используйте, если материал испорчен или физически отсутствует."
-                      onConfirm={() => writeOffMutation.mutate()}
-                    >
-                      <Button size="large" danger loading={writeOffMutation.isPending}>
-                        {actionLabels[a]}
-                      </Button>
-                    </Popconfirm>
+                    <Button key={a} size="large" danger onClick={() => setWriteOffOpen(true)}>
+                      {actionLabels[a]}
+                    </Button>
                   ) : (
                     <Button size="large" key={a} type="primary" onClick={() => setAction(a)}>
                       {actionLabels[a]}
@@ -432,12 +435,46 @@ export default function UnitCard() {
                       {ev.from_cell ?? "—"} → {ev.to_cell ?? "—"}
                     </Typography.Text>
                   )}
+                  {ev.write_off_reason && (
+                    <Typography.Text type="secondary">
+                      Причина: {ev.write_off_reason}
+                      {ev.write_off_note ? ` — ${ev.write_off_note}` : ""}
+                    </Typography.Text>
+                  )}
                 </Space>
               </List.Item>
             )}
           />
         </>
       )}
+
+      <Modal
+        title="Списать единицу"
+        open={writeOffOpen}
+        onCancel={() => setWriteOffOpen(false)}
+        onOk={() => writeOffForm.submit()}
+        okButtonProps={{ danger: true, loading: writeOffMutation.isPending }}
+        okText="Списать"
+        destroyOnHidden
+      >
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="warning"
+          showIcon
+          message="Отменить нельзя — используйте, если материал испорчен или физически отсутствует."
+        />
+        <Form form={writeOffForm} layout="vertical" onFinish={(v) => writeOffMutation.mutate(v)}>
+          <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
+            <Select
+              options={WRITE_OFF_REASON_OPTIONS.map((r) => ({ value: r, label: r }))}
+              placeholder="Выберите причину"
+            />
+          </Form.Item>
+          <Form.Item name="note" label="Заметка (опционально)">
+            <Input.TextArea rows={2} placeholder="Детали для претензии поставщику" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Card>
   );
 }
