@@ -8,6 +8,7 @@ import { fontHeading, palette } from "../theme";
 import { runUnitOrMaterialSearch } from "../utils/unitSearch";
 import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
+import NotificationBell from "../components/NotificationBell";
 
 const { Header, Sider, Content } = Layout;
 
@@ -70,6 +71,7 @@ export default function AppLayout() {
             tooltip="Сканировать QR камерой"
             type="primary"
           />
+          <NotificationBell />
         </Space>
         <Space>
           <Typography.Text style={{ color: palette.grayMuted }}>
