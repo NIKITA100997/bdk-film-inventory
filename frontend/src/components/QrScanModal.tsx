@@ -9,6 +9,28 @@ interface QrScanModalProps {
   title?: string;
 }
 
+/** Короткий бип через Web Audio API — без файла-ассета, генерируется на
+ * лету. AudioContext может быть заблокирован браузером до первого жеста
+ * пользователя — это не критично, звук просто не сыграет в этом случае. */
+function playBeep() {
+  try {
+    const AudioCtx =
+      window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioCtx();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.15);
+    oscillator.onended = () => ctx.close();
+  } catch {
+    // недоступно/заблокировано — не критично, сканирование продолжает работать
+  }
+}
+
 export default function QrScanModal({
   open,
   onClose,
@@ -28,38 +50,24 @@ export default function QrScanModal({
 
     const config = { fps: 10, qrbox: { width: 250, height: 250 } };
 
-    html5Qrcode
-      .start(
-        { facingMode: "environment" },
-        config,
-        (decodedText) => {
-          onScan(decodedText);
-          if (scannerRef.current && scannerRef.current.isScanning) {
-            scannerRef.current.stop().catch(() => {});
-          }
-          onClose();
-        },
-        () => {},
-      )
-      .catch((err) => {
-        console.warn("Camera start environment failed, trying default camera...", err);
-        html5Qrcode
-          .start(
-            { facingMode: "user" },
-            config,
-            (decodedText) => {
-              onScan(decodedText);
-              if (scannerRef.current && scannerRef.current.isScanning) {
-                scannerRef.current.stop().catch(() => {});
-              }
-              onClose();
-            },
-            () => {},
-          )
-          .catch(() => {
-            setErrorMessage("Не удалось получить доступ к камере. Проверьте разрешения в браузере.");
-          });
-      });
+    const handleDecoded = (decodedText: string) => {
+      playBeep();
+      navigator.vibrate?.(200);
+      onScan(decodedText);
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch(() => {});
+      }
+      onClose();
+    };
+
+    html5Qrcode.start({ facingMode: "environment" }, config, handleDecoded, () => {}).catch((err) => {
+      console.warn("Camera start environment failed, trying default camera...", err);
+      html5Qrcode
+        .start({ facingMode: "user" }, config, handleDecoded, () => {})
+        .catch(() => {
+          setErrorMessage("Не удалось получить доступ к камере. Проверьте разрешения в браузере.");
+        });
+    });
 
     return () => {
       if (scannerRef.current && scannerRef.current.isScanning) {
