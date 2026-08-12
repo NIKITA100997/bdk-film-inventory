@@ -128,6 +128,23 @@ export async function issueUnitDirect(unitId: number, area: AreaValue, orderId?:
   return data;
 }
 
+export interface AtomicDonorIssueRequest {
+  donor_unit_id: number;
+  requested_width_mm: number;
+  area: AreaValue;
+  order_id?: number;
+}
+
+export interface AtomicDonorIssueResponse {
+  issued_unit: MaterialUnit;
+  remainder_unit: MaterialUnit | null;
+}
+
+export async function issueDonorAtomic(payload: AtomicDonorIssueRequest): Promise<AtomicDonorIssueResponse> {
+  const { data } = await apiClient.post<AtomicDonorIssueResponse>("/units/issue-donor-atomic", payload);
+  return data;
+}
+
 export interface CutRequest {
   cut_length_m: number;
   remainder_location?: string;
@@ -187,17 +204,16 @@ export async function writeOffUnit(unitId: number): Promise<MaterialUnit> {
   return data;
 }
 
-export async function fetchLabelHtml(unitId: number): Promise<string> {
-  const { data } = await apiClient.get<string>(`/labels/${unitId}`, { responseType: "text" });
-  return data;
-}
-
+// Настоящий PDF, не HTML-страница (раздел обратной связи по печати на
+// термопринтере Codex G500 — прямая печать HTML из браузера ненадёжна,
+// драйвер может обрезать нестандартный размер страницы или не напечатать
+// вовсе; печать уже готового PDF — тот же путь, что у "Сохранить как PDF",
+// эмпирически подтверждён рабочим). Открываем blob-URL в новой вкладке —
+// браузер показывает свой родной PDF-просмотрщик с кнопкой печати, тем же
+// путём, что подтверждённо работает.
 export function printLabel(unitId: number): void {
-  fetchLabelHtml(unitId).then((html) => {
-    const w = window.open("", "_blank", "width=400,height=600");
-    if (!w) return;
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
+  apiClient.get(`/labels/${unitId}`, { responseType: "blob" }).then(({ data }) => {
+    const url = URL.createObjectURL(data as Blob);
+    window.open(url, "_blank");
   });
 }

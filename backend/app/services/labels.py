@@ -6,11 +6,18 @@
 данные без реальной единицы в базе."""
 
 import base64
+import os
 from dataclasses import dataclass
 from datetime import date
 from io import BytesIO
 
 import qrcode
+from reportlab.lib.colors import HexColor
+from reportlab.lib.units import mm as MM
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas as pdfcanvas
 
 from app.models.units import MaterialUnit
 
@@ -24,8 +31,8 @@ GREEN = "#1D9E75"
 
 SIZE_PT = {"sm": 8, "md": 10, "lg": 16}
 
-DEFAULT_WIDTH_MM = 60
-DEFAULT_HEIGHT_MM = 90
+DEFAULT_WIDTH_MM = 100
+DEFAULT_HEIGHT_MM = 40
 
 # Плейсхолдер для нового макета — тот же порядок/состав полей, что и в
 # исходном хардкоженном шаблоне, чтобы обновление ничего не сломало.
@@ -140,11 +147,15 @@ def render_field_value(data: LabelData, key: str) -> str | None:
     return None
 
 
-def qr_data_uri(payload: str) -> str:
+def qr_png_bytes(payload: str) -> bytes:
     img = qrcode.make(payload, border=1)
     buf = BytesIO()
     img.save(buf, format="PNG")
-    encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+    return buf.getvalue()
+
+
+def qr_data_uri(payload: str) -> str:
+    encoded = base64.b64encode(qr_png_bytes(payload)).decode("ascii")
     return f"data:image/png;base64,{encoded}"
 
 
@@ -159,60 +170,261 @@ def render_label_html(
     color = indicator_color(data)
     qr_src = qr_data_uri(str(data.unit_id))
 
-    body_parts: list[str] = []
-    has_stripe = False
+    is_landscape = width_mm >= height_mm
+    has_stripe = any(f["key"] == "status_stripe" for f in fields)
+    has_qr = any(f["key"] == "qr" for f in fields)
+
+    rendered_fields: list[tuple[dict, str]] = []
     for f in fields:
         key = f["key"]
-        if key == "status_stripe":
-            has_stripe = True
-        elif key == "qr":
-            body_parts.append(
-                f'<div class="qr-frame"><img class="qr" src="{qr_src}" alt="QR {data.unit_id}"></div>'
-            )
-        else:
-            value = render_field_value(data, key)
-            if not value:
-                continue
+        if key in ("status_stripe", "qr"):
+            continue
+        val = render_field_value(data, key)
+        if val:
+            rendered_fields.append((f, val))
+
+    if is_landscape:
+        # ПРЯМОУГОЛЬНЫЙ / АЛЬБОМНЫЙ МАКЕТ (например 100×40 мм)
+        # QR-код слева в отдельной ячейке таблицы, текстовые поля справа в отдельной ячейке
+        stripe_html = f'<td class="stripe-td" style="background:{color}; width:4mm;"></td>' if has_stripe else ""
+
+        qr_size_mm = max(min(height_mm - 6, 34), 16)
+        qr_html = (
+            f'<td class="qr-td" style="width:{qr_size_mm + 4}mm; text-align:center; vertical-align:middle; padding:1mm;">'
+            f'<img src="{qr_src}" alt="QR {data.unit_id}" style="width:{qr_size_mm}mm; height:{qr_size_mm}mm; display:block; margin:0 auto;">'
+            f'</td>'
+            if has_qr
+            else ""
+        )
+
+        text_html_items = []
+        for f, val in rendered_fields:
             size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
             weight = "bold" if f.get("bold") else "normal"
-            css_class = "id" if key == "unit_id" else ""
-            body_parts.append(
-                f'<div class="{css_class}" style="font-size:{size_pt}pt;font-weight:{weight};">{value}</div>'
+            is_id = f["key"] == "unit_id"
+            font_family = 'font-family:"Cambria", Georgia, serif;' if is_id else ""
+            margin = "margin-bottom:1mm;" if is_id else "margin-bottom:0.5mm;"
+            text_html_items.append(
+                f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{val}</div>'
             )
 
-    stripe_html = f'<div class="bar" style="background:{color}"></div>' if has_stripe else ""
-    label_width_mm = max(width_mm - 6, 20)
-
-    return f"""<!doctype html>
+        return f"""<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
 <title>Этикетка №{data.unit_id}</title>
 <style>
-  @page {{ size: {width_mm}mm {height_mm}mm; margin: 3mm; }}
-  body {{ font-family: "Calibri", "Segoe UI", Arial, sans-serif; margin: 0; color: {NAVY}; }}
-  .label {{ width: {label_width_mm}mm; text-align: center; border: 1px solid {BORDER}; border-radius: 10px; overflow: hidden; }}
-  .bar {{ height: 6mm; }}
-  .body {{ padding: 3mm; }}
-  .qr-frame {{ width: 34mm; height: 34mm; margin: 0 auto; background: #F5F5F4; border-radius: 6px; display: flex; align-items: center; justify-content: center; }}
-  .qr {{ width: 30mm; height: 30mm; }}
-  .id {{ font-family: "Cambria", Georgia, serif; margin: 2mm 0; }}
-  .body > div {{ line-height: 1.3; }}
+  @page {{ size: {width_mm}mm {height_mm}mm; margin: 0; }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ width: {width_mm}mm; height: {height_mm}mm; margin: 0; padding: 0; font-family: "Calibri", "Segoe UI", Arial, sans-serif; color: {NAVY}; background: #fff; overflow: hidden; }}
+  table.label-table {{ width: {width_mm}mm; height: {height_mm}mm; border-collapse: collapse; table-layout: fixed; border: 1px solid {BORDER}; border-radius: 4px; overflow: hidden; }}
+  td.stripe-td {{ height: 100%; padding: 0; }}
+  td.qr-td {{ vertical-align: middle; text-align: center; }}
+  td.text-td {{ vertical-align: middle; text-align: left; padding: 2mm 3mm 2mm 1mm; overflow: hidden; word-break: break-word; }}
   @media print {{ .no-print {{ display: none; }} }}
 </style>
 </head>
 <body>
-  <div class="label">
-    {stripe_html}
-    <div class="body">
-      {"".join(body_parts)}
-    </div>
-  </div>
-  <div class="no-print">
+  <table class="label-table">
+    <tr>
+      {stripe_html}
+      {qr_html}
+      <td class="text-td">
+        {"".join(text_html_items)}
+      </td>
+    </tr>
+  </table>
+  <div class="no-print" style="margin-top: 8px;">
     <button onclick="window.print()">Печать</button>
   </div>
 </body>
 </html>"""
+    else:
+        # ВЕРТИКАЛЬНЫЙ МАКЕТ (например 60×90 мм)
+        stripe_html = f'<div class="stripe-h" style="background:{color}; height:5mm; width:100%;"></div>' if has_stripe else ""
+
+        body_items = []
+        for f in fields:
+            key = f["key"]
+            if key == "status_stripe":
+                continue
+            if key == "qr":
+                body_items.append(
+                    f'<div style="margin: 1mm 0; text-align:center;">'
+                    f'<img src="{qr_src}" alt="QR {data.unit_id}" style="width:28mm; height:28mm; display:block; margin:0 auto;">'
+                    f'</div>'
+                )
+            else:
+                val = render_field_value(data, key)
+                if val:
+                    size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
+                    weight = "bold" if f.get("bold") else "normal"
+                    is_id = f["key"] == "unit_id"
+                    font_family = 'font-family:"Cambria", Georgia, serif;' if is_id else ""
+                    body_items.append(
+                        f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{val}</div>'
+                    )
+
+        return f"""<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Этикетка №{data.unit_id}</title>
+<style>
+  @page {{ size: {width_mm}mm {height_mm}mm; margin: 0; }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ width: {width_mm}mm; height: {height_mm}mm; margin: 0; padding: 0; font-family: "Calibri", "Segoe UI", Arial, sans-serif; color: {NAVY}; background: #fff; overflow: hidden; }}
+  .label-box {{ width: {width_mm}mm; height: {height_mm}mm; border: 1px solid {BORDER}; border-radius: 6px; overflow: hidden; display: block; position: relative; }}
+  .content-box {{ padding: 2mm; text-align: center; }}
+  @media print {{ .no-print {{ display: none; }} }}
+</style>
+</head>
+<body>
+  <div class="label-box">
+    {stripe_html}
+    <div class="content-box">
+      {"".join(body_items)}
+    </div>
+  </div>
+  <div class="no-print" style="margin-top: 8px;">
+    <button onclick="window.print()">Печать</button>
+  </div>
+</body>
+</html>"""
+
+
+_PDF_FONTS_REGISTERED = False
+_PDF_BODY_FONT = "Helvetica"
+_PDF_BODY_FONT_BOLD = "Helvetica-Bold"
+_PDF_HEADING_FONT_BOLD = "Helvetica-Bold"
+
+
+def _register_pdf_fonts() -> None:
+    """Встроенные PDF-шрифты (Helvetica и весь "base 14" набор) не знают
+    кириллицы — без этого текст на PDF-этикетке печатался бы квадратами.
+    Регистрируем те же шрифты, что и в вебе (Calibri/Cambria, theme.ts),
+    прямо из системной папки шрифтов Windows: копировать сами файлы в
+    репозиторий нельзя (лицензия Microsoft на сами файлы шрифта), а
+    ссылаться на уже установленную вместе с ОС копию — можно, ровно так
+    это делает и сама система. Кэшируем результат на уровне модуля — файлы
+    шрифтов читаются с диска один раз за жизнь процесса, не на каждую
+    этикетку. Если файлов нет (не Windows) — тихий откat на Helvetica:
+    кириллица не отобразится, но PDF всё равно сгенерируется, не упадёт."""
+    global _PDF_FONTS_REGISTERED, _PDF_BODY_FONT, _PDF_BODY_FONT_BOLD, _PDF_HEADING_FONT_BOLD
+    if _PDF_FONTS_REGISTERED:
+        return
+    _PDF_FONTS_REGISTERED = True
+    fonts_dir = r"C:\Windows\Fonts"
+    try:
+        pdfmetrics.registerFont(TTFont("Calibri", os.path.join(fonts_dir, "calibri.ttf")))
+        pdfmetrics.registerFont(TTFont("Calibri-Bold", os.path.join(fonts_dir, "calibrib.ttf")))
+        pdfmetrics.registerFont(TTFont("Cambria-Bold", os.path.join(fonts_dir, "cambriab.ttf")))
+        _PDF_BODY_FONT = "Calibri"
+        _PDF_BODY_FONT_BOLD = "Calibri-Bold"
+        _PDF_HEADING_FONT_BOLD = "Cambria-Bold"
+    except Exception:
+        pass
+
+
+def render_label_pdf(
+    data: LabelData,
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_WIDTH_MM,
+    height_mm: int = DEFAULT_HEIGHT_MM,
+) -> bytes:
+    """PDF-версия той же этикетки — по итогам полевого тестирования печати
+    (раздел обратной связи): прямая печать HTML-страницы из браузера на
+    часть термопринтеров (проверено на Codex G500) ненадёжна — драйвер может
+    молча обрезать нестандартный размер страницы или не напечатать вовсе, в
+    то время как печать уже готового PDF-файла (тот же путь, что у
+    браузерного "Сохранить как PDF") на том же принтере отрабатывает
+    надёжно. Поэтому теперь это основной способ получить бирку, не HTML.
+
+    Упрощённая версия макета: встроенные PDF-шрифты (Helvetica) вместо
+    Cambria/Calibri и без переноса длинных строк — здесь важнее
+    предсказуемая печать, чем пиксель-в-пиксель повтор HTML-варианта
+    (который остаётся для просмотра в браузере)."""
+    _register_pdf_fonts()
+    fields = fields if fields is not None else DEFAULT_FIELDS
+    color = indicator_color(data)
+    is_landscape = width_mm >= height_mm
+    has_stripe = any(f["key"] == "status_stripe" for f in fields)
+    has_qr = any(f["key"] == "qr" for f in fields)
+
+    rendered_fields: list[tuple[dict, str]] = []
+    for f in fields:
+        key = f["key"]
+        if key in ("status_stripe", "qr"):
+            continue
+        val = render_field_value(data, key)
+        if val:
+            rendered_fields.append((f, val))
+
+    width_pt, height_pt = width_mm * MM, height_mm * MM
+    buf = BytesIO()
+    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
+    c.setStrokeColor(HexColor(BORDER))
+    c.setLineWidth(0.5)
+    c.roundRect(0.3 * MM, 0.3 * MM, width_pt - 0.6 * MM, height_pt - 0.6 * MM, 1.5 * MM, stroke=1, fill=0)
+
+    qr_reader = ImageReader(BytesIO(qr_png_bytes(str(data.unit_id)))) if has_qr else None
+
+    def draw_text_lines(left_mm: float, top_mm: float, max_width_mm: float, *, center: bool = False) -> None:
+        y = height_pt - top_mm * MM
+        for f, val in rendered_fields:
+            size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
+            if f["key"] == "unit_id":
+                font_name = _PDF_HEADING_FONT_BOLD
+            elif f.get("bold"):
+                font_name = _PDF_BODY_FONT_BOLD
+            else:
+                font_name = _PDF_BODY_FONT
+            c.setFont(font_name, size_pt)
+            c.setFillColor(HexColor(NAVY))
+            y -= size_pt * 1.15
+            if center:
+                c.drawCentredString((left_mm + max_width_mm / 2) * MM, y, val)
+            else:
+                c.drawString(left_mm * MM, y, val)
+
+    def text_block_height_mm() -> float:
+        return sum(SIZE_PT.get(f.get("size", "sm"), 8) * 1.15 * 0.3528 for f, _ in rendered_fields)
+
+    if is_landscape:
+        stripe_w_mm = 4 if has_stripe else 0
+        if has_stripe:
+            c.setFillColor(HexColor(color))
+            c.rect(0, 0, stripe_w_mm * MM, height_pt, fill=1, stroke=0)
+
+        qr_col_w_mm = 0.0
+        if has_qr and qr_reader is not None:
+            qr_size_mm = max(min(height_mm - 6, 34), 16)
+            qr_col_w_mm = qr_size_mm + 4
+            qr_x_mm = stripe_w_mm + (qr_col_w_mm - qr_size_mm) / 2
+            qr_y_mm = (height_mm - qr_size_mm) / 2
+            c.drawImage(qr_reader, qr_x_mm * MM, qr_y_mm * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
+
+        text_x_mm = stripe_w_mm + qr_col_w_mm + 2
+        text_w_mm = max(width_mm - text_x_mm - 2, 5)
+        top_mm = max((height_mm - text_block_height_mm()) / 2, 2)
+        draw_text_lines(text_x_mm, top_mm, text_w_mm)
+    else:
+        top_mm = 3.0
+        if has_stripe:
+            c.setFillColor(HexColor(color))
+            c.rect(0, height_pt - 5 * MM, width_pt, 5 * MM, fill=1, stroke=0)
+            top_mm = 8.0
+        if has_qr and qr_reader is not None:
+            qr_size_mm = 28.0
+            qr_x_mm = (width_mm - qr_size_mm) / 2
+            c.drawImage(qr_reader, qr_x_mm * MM, height_pt - (top_mm + qr_size_mm) * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
+            top_mm += qr_size_mm + 2
+        draw_text_lines(4, top_mm, max(width_mm - 8, 5), center=True)
+
+    c.showPage()
+    c.save()
+    return buf.getvalue()
 
 
 PREVIEW_DATA = LabelData(

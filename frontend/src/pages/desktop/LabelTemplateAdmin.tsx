@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, Typography, InputNumber, Select, Switch, Button, Space, List, Tag, Modal, message } from "antd";
+import { Card, Typography, InputNumber, Select, Switch, Button, Space, List, Tag, Modal, Alert, message } from "antd";
 import { HolderOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -73,15 +73,17 @@ export default function LabelTemplateAdmin() {
   const fieldsQuery = useQuery({ queryKey: ["label-template", "available-fields"], queryFn: listAvailableLabelFields });
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  const [widthMm, setWidthMm] = useState(60);
-  const [heightMm, setHeightMm] = useState(90);
+  const [widthMm, setWidthMm] = useState(100);
+  const [heightMm, setHeightMm] = useState(40);
   const [fields, setFields] = useState<LabelFieldConfig[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (templateQuery.data && !loaded) {
-      setWidthMm(templateQuery.data.width_mm);
-      setHeightMm(templateQuery.data.height_mm);
+      const w = templateQuery.data.width_mm === 60 && templateQuery.data.height_mm === 90 ? 100 : templateQuery.data.width_mm;
+      const h = templateQuery.data.width_mm === 60 && templateQuery.data.height_mm === 90 ? 40 : templateQuery.data.height_mm;
+      setWidthMm(w);
+      setHeightMm(h);
       setFields(templateQuery.data.fields);
       setLoaded(true);
     }
@@ -99,6 +101,10 @@ export default function LabelTemplateAdmin() {
     onError: () => message.error("Не удалось сохранить макет"),
   });
 
+  // Превью и тестовая печать — теперь одно действие: открывает настоящий PDF
+  // в новой вкладке (родной просмотрщик браузера, печать — его собственной
+  // кнопкой), тем же путём, что подтверждённо надёжно печатает даже на
+  // капризных термопринтерах (раздел обратной связи про Codex G500).
   const previewMutation = useMutation({
     mutationFn: () => previewLabelTemplate({ width_mm: widthMm, height_mm: heightMm, fields }),
   });
@@ -142,7 +148,7 @@ export default function LabelTemplateAdmin() {
         умолчанию не печатаются (4.1 ТЗ): они меняются при каждом разделении, а этикетка не перепечатывается.
       </Typography.Paragraph>
 
-      <Space size="large" style={{ marginBottom: 20 }}>
+      <Space size="large" style={{ marginBottom: 20 }} align="center">
         <Space direction="vertical" size={4}>
           <Typography.Text type="secondary">Ширина этикетки, мм</Typography.Text>
           <InputNumber min={20} max={200} value={widthMm} onChange={(v) => setWidthMm(v ?? 60)} />
@@ -151,6 +157,15 @@ export default function LabelTemplateAdmin() {
           <Typography.Text type="secondary">Высота этикетки, мм</Typography.Text>
           <InputNumber min={20} max={200} value={heightMm} onChange={(v) => setHeightMm(v ?? 90)} />
         </Space>
+        {widthMm > heightMm && (
+          <Alert
+            type="info"
+            showIcon
+            message={`Горизонтальный макет ${widthMm}×${heightMm} мм`}
+            description="QR-код автоматически размещается слева, а текстовая информация — справа."
+            style={{ margin: 0 }}
+          />
+        )}
       </Space>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -184,10 +199,10 @@ export default function LabelTemplateAdmin() {
       </Space>
 
       <Space style={{ marginTop: 24 }}>
-        <Button loading={previewMutation.isPending} onClick={() => previewMutation.mutate()}>
-          Превью
+        <Button type="primary" loading={previewMutation.isPending} onClick={() => previewMutation.mutate()}>
+          Открыть PDF / печать
         </Button>
-        <Button type="primary" loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
+        <Button loading={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
           Сохранить макет
         </Button>
       </Space>

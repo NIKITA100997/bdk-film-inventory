@@ -8,6 +8,7 @@ from app.services.labels import (
     label_data_from_unit,
     render_field_value,
     render_label_html,
+    render_label_pdf,
 )
 
 SAMPLE = LabelData(
@@ -109,3 +110,29 @@ class TestRenderLabelHtml:
         fields = [{"key": "parent_ref", "size": "sm", "bold": False}]
         html = render_label_html(SAMPLE, fields=fields)
         assert "Из рулона" not in html
+
+
+class TestRenderLabelPdf:
+    """PDF — основной путь печати с раздела обратной связи по Codex G500
+    (прямая печать HTML из браузера на термопринтер ненадёжна). Бинарный
+    формат не даёт проверить текст по подстроке, как для HTML — тесты
+    проверяют, что рендер не падает на разных конфигурациях полей/размеров
+    и производит валидный PDF-поток."""
+
+    def test_produces_valid_pdf_bytes_landscape(self):
+        pdf = render_label_pdf(SAMPLE, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40)
+        assert pdf.startswith(b"%PDF-")
+        assert pdf.rstrip().endswith(b"%%EOF")
+
+    def test_produces_valid_pdf_bytes_portrait(self):
+        pdf = render_label_pdf(SAMPLE, fields=DEFAULT_FIELDS, width_mm=60, height_mm=90)
+        assert pdf.startswith(b"%PDF-")
+
+    def test_empty_fields_still_renders(self):
+        pdf = render_label_pdf(SAMPLE, fields=[], width_mm=100, height_mm=40)
+        assert pdf.startswith(b"%PDF-")
+
+    def test_no_qr_no_stripe_still_renders(self):
+        fields = [f for f in DEFAULT_FIELDS if f["key"] not in ("qr", "status_stripe")]
+        pdf = render_label_pdf(SAMPLE, fields=fields, width_mm=100, height_mm=40)
+        assert pdf.startswith(b"%PDF-")

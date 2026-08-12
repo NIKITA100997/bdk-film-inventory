@@ -30,31 +30,17 @@ export const listAvailableLabelFields = async (): Promise<AvailableField[]> =>
 export const updateLabelTemplate = async (payload: LabelTemplate): Promise<LabelTemplate> =>
   (await apiClient.patch<LabelTemplate>("/label-template", payload)).data;
 
+// Настоящий PDF, не HTML (раздел обратной связи по печати на термопринтере
+// Codex G500 — прямая печать HTML из браузера ненадёжна: драйвер может
+// обрезать нестандартный размер страницы или не напечатать вовсе, тогда как
+// печать уже готового PDF-файла — тот же путь, что у "Сохранить как PDF",
+// эмпирически подтверждён рабочим). Превью и тестовая печать — теперь одно
+// и то же действие: открыть PDF в новой вкладке в родном просмотрщике
+// браузера и напечатать оттуда его собственной кнопкой "Печать" — тем же
+// путём, что и подтверждённо работает, без автоматического window.print()
+// (это ещё и убирает саму гонку document.write+print, а не просто чинит её).
 export async function previewLabelTemplate(payload: LabelTemplate): Promise<void> {
-  const { data } = await apiClient.post<string>("/label-template/preview", payload, { responseType: "text" });
-  const w = window.open("", "_blank", "width=400,height=600");
-  if (!w) return;
-  w.document.open();
-  w.document.write(data);
-  w.document.close();
-}
-
-export async function printTestLabelTemplate(payload: LabelTemplate): Promise<void> {
-  const { data } = await apiClient.post<string>("/label-template/preview", payload, { responseType: "text" });
-  const w = window.open("", "_blank", "width=400,height=600");
-  if (!w) return;
-  w.document.open();
-  w.document.write(data);
-  w.document.close();
-  // w.print() сразу после document.write() — гонка: браузер может открыть
-  // диалог печати раньше, чем применит @page/мм-размеры и отрисует QR
-  // (data:-изображение тоже требует декодирования), и тогда печать уйдёт
-  // с настройками страницы по умолчанию вместо макета этикетки — отсюда
-  // разбивка на несколько листов и наложение текста на QR. window.onload
-  // здесь гарантированно наступает после полной загрузки записанного через
-  // document.write документа (в т.ч. изображений).
-  w.onload = () => {
-    w.focus();
-    w.print();
-  };
+  const { data } = await apiClient.post("/label-template/preview", payload, { responseType: "blob" });
+  const url = URL.createObjectURL(data as Blob);
+  window.open(url, "_blank");
 }

@@ -1,5 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_permission
@@ -14,7 +13,7 @@ from app.services.labels import (
     FIELD_META,
     PREVIEW_DATA,
     label_data_from_unit,
-    render_label_html,
+    render_label_pdf,
 )
 
 router = APIRouter(tags=["labels"])
@@ -28,6 +27,11 @@ def _get_template(db: Session) -> LabelTemplate:
     if template is None:
         template = LabelTemplate(id=1, width_mm=DEFAULT_WIDTH_MM, height_mm=DEFAULT_HEIGHT_MM, fields=DEFAULT_FIELDS)
         db.add(template)
+        db.commit()
+        db.refresh(template)
+    elif template.width_mm == 60 and template.height_mm == 90:
+        template.width_mm = 100
+        template.height_mm = 40
         db.commit()
         db.refresh(template)
     return template
@@ -56,24 +60,36 @@ def update_label_template(
     return template
 
 
-@router.post("/label-template/preview", response_class=HTMLResponse)
-def preview_label_template(payload: LabelTemplateUpdate, user=Depends(manage_labels)) -> str:
+@router.post("/label-template/preview")
+def preview_label_template(payload: LabelTemplateUpdate, user=Depends(manage_labels)) -> Response:
     """Превью макета на синтетических данных (4 раздел бэклога доработок) —
-    не требует реальной единицы и не сохраняет изменения."""
-    return render_label_html(
+    не требует реальной единицы и не сохраняет изменения.
+
+    Отдаёт настоящий PDF, не HTML-страницу (по итогам полевого тестирования
+    печати на термопринтере Codex G500 — прямая печать HTML из браузера
+    оказалась ненадёжной, тот же путь, что у "Сохранить как PDF", уже
+    подтверждён рабочим). Превью показывает ровно то, что реально уйдёт на
+    печать, без расхождений между просмотром и печатью."""
+    pdf_bytes = render_label_pdf(
         PREVIEW_DATA,
         fields=[f.model_dump() for f in payload.fields],
         width_mm=payload.width_mm,
         height_mm=payload.height_mm,
     )
+    return Response(content=pdf_bytes, media_type="application/pdf")
 
 
-@router.get("/labels/{unit_id}", response_class=HTMLResponse, dependencies=[Depends(get_current_user)])
-def get_label(unit_id: int, db: Session = Depends(get_db)) -> str:
+@router.get("/labels/{unit_id}", dependencies=[Depends(get_current_user)])
+def get_label(unit_id: int, db: Session = Depends(get_db)) -> Response:
     unit = db.get(MaterialUnit, unit_id)
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     template = _get_template(db)
-    return render_label_html(
+    pdf_bytes = render_label_pdf(
         label_data_from_unit(unit), fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="label-{unit_id}.pdf"'},
     )
