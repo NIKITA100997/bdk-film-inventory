@@ -6,7 +6,14 @@ import DictAutoComplete from "../../components/DictAutoComplete";
 
 type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code">;
 
+// Память на частый ввод: при повторной приёмке в тот же день паллеты часто
+// идут подряд — предзаполняем последний номер, поле остаётся редактируемым.
+// УПД не запоминаем — это номер конкретного документа поставщика,
+// предзаполнение создало бы риск случайного дубля.
+const LAST_PALLET_STORAGE_KEY = "bdk:lastPalletNumber";
+
 export default function Receive() {
+  const lastPalletNumber = localStorage.getItem(LAST_PALLET_STORAGE_KEY) ?? undefined;
   const [sessionStarted, setSessionStarted] = useState(false);
   const [upd, setUpd] = useState("");
   const [pallet, setPallet] = useState("");
@@ -37,6 +44,7 @@ export default function Receive() {
     setUpd(v.upd_number);
     setPallet(v.pallet_number);
     setSessionStarted(true);
+    localStorage.setItem(LAST_PALLET_STORAGE_KEY, v.pallet_number);
   };
 
   const newSession = () => {
@@ -55,7 +63,12 @@ export default function Receive() {
       <Typography.Title level={4}>Приёмка партии</Typography.Title>
 
       {!sessionStarted && (
-        <Form form={headerForm} layout="vertical" onFinish={startSession}>
+        <Form
+          form={headerForm}
+          layout="vertical"
+          onFinish={startSession}
+          initialValues={{ pallet_number: lastPalletNumber }}
+        >
           <Form.Item name="upd_number" label="Номер УПД" rules={[{ required: true }]}>
             <Input size="large" />
           </Form.Item>
