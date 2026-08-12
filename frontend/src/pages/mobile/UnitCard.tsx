@@ -30,6 +30,7 @@ import {
 } from "../../api/units";
 import { suggestLocation } from "../../api/storage";
 import { listUsers } from "../../api/users";
+import QrScanButton from "../../components/QrScanButton";
 
 type ActionKind = "place" | "split" | "cut" | "return" | "writeoff" | null;
 
@@ -187,13 +188,30 @@ export default function UnitCard() {
       <Typography.Title level={4}>Карточка единицы</Typography.Title>
 
       {!unit && (
-        <Form form={scanForm} layout="inline" onFinish={(v) => scanMutation.mutate(v.id)}>
+        <Form
+          form={scanForm}
+          layout="vertical"
+          onFinish={(v) => scanMutation.mutate(v.id)}
+          style={{ marginTop: 16 }}
+        >
           <Form.Item name="id" label="ID единицы (по бирке/QR)" rules={[{ required: true }]}>
-            <InputNumber autoFocus />
+            <InputNumber size="large" autoFocus style={{ width: "100%" }} placeholder="Введите ID или отсканируйте" />
           </Form.Item>
-          <Button type="primary" htmlType="submit" loading={scanMutation.isPending}>
-            Найти
-          </Button>
+          <Space style={{ width: "100%" }}>
+            <Button size="large" type="primary" htmlType="submit" loading={scanMutation.isPending}>
+              Найти по ID
+            </Button>
+            <QrScanButton
+              size="large"
+              type="default"
+              buttonText="Сканировать QR"
+              onScan={(code) => {
+                const parsedId = parseInt(code.replace(/\D/g, ""), 10);
+                if (parsedId) scanMutation.mutate(parsedId);
+                else message.error("QR не содержит числового ID единицы");
+              }}
+            />
+          </Space>
         </Form>
       )}
 
@@ -220,7 +238,7 @@ export default function UnitCard() {
               {unit.width_mm} мм × {unit.length_m} м
             </Descriptions.Item>
             <Descriptions.Item label="Статус">
-              <Tag>{statusLabels[unit.status] ?? unit.status}</Tag>
+              <Tag color="blue">{statusLabels[unit.status] ?? unit.status}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Где сейчас">
               {unit.location_code ?? (unit.area ? areaLabels[unit.area] : "—")}
@@ -232,8 +250,8 @@ export default function UnitCard() {
           </Descriptions>
 
           {!action && (
-            <Space direction="vertical" style={{ width: "100%" }}>
-              <Space wrap>
+            <Space direction="vertical" style={{ width: "100%" }} size="middle">
+              <Space wrap size="middle">
                 {availableActions(unit).map((a) =>
                   a === "writeoff" ? (
                     <Popconfirm
@@ -242,18 +260,19 @@ export default function UnitCard() {
                       description="Отменить нельзя — используйте, если материал испорчен или физически отсутствует."
                       onConfirm={() => writeOffMutation.mutate()}
                     >
-                      <Button danger loading={writeOffMutation.isPending}>
+                      <Button size="large" danger loading={writeOffMutation.isPending}>
                         {actionLabels[a]}
                       </Button>
                     </Popconfirm>
                   ) : (
-                    <Button key={a} type="primary" onClick={() => setAction(a)}>
+                    <Button size="large" key={a} type="primary" onClick={() => setAction(a)}>
                       {actionLabels[a]}
                     </Button>
                   ),
                 )}
                 {unit.status === "На_хранении" && (
                   <Button
+                    size="large"
                     onClick={() =>
                       navigate("/m/issue", {
                         state: {

@@ -57,12 +57,12 @@ export default function Receive() {
       {!sessionStarted && (
         <Form form={headerForm} layout="vertical" onFinish={startSession}>
           <Form.Item name="upd_number" label="Номер УПД" rules={[{ required: true }]}>
-            <Input />
+            <Input size="large" />
           </Form.Item>
           <Form.Item name="pallet_number" label="Номер паллеты" rules={[{ required: true }]}>
-            <Input />
+            <Input size="large" />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block>
+          <Button size="large" type="primary" htmlType="submit" block>
             Начать приёмку
           </Button>
         </Form>
@@ -83,21 +83,21 @@ export default function Receive() {
               <DictAutoComplete kind="colors" />
             </Form.Item>
             <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
-              <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+              <InputNumber size="large" min={0} step={0.01} style={{ width: "100%" }} />
             </Form.Item>
             <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
               <DictAutoComplete kind="manufacturers" />
             </Form.Item>
             <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
-              <InputNumber min={1} style={{ width: "100%" }} autoFocus />
+              <InputNumber size="large" min={1} style={{ width: "100%" }} autoFocus />
             </Form.Item>
             <Form.Item name="length_m" label="Длина, м" rules={[{ required: true }]}>
-              <InputNumber min={0.1} step={0.1} style={{ width: "100%" }} />
+              <InputNumber size="large" min={0.1} step={0.1} style={{ width: "100%" }} />
             </Form.Item>
             <Form.Item name="quantity" label="Количество одинаковых рулонов" rules={[{ required: true }]}>
-              <InputNumber min={1} max={200} style={{ width: "100%" }} />
+              <InputNumber size="large" min={1} max={200} style={{ width: "100%" }} />
             </Form.Item>
-            <Button type="primary" htmlType="submit" block loading={addLineMutation.isPending}>
+            <Button size="large" type="primary" htmlType="submit" block loading={addLineMutation.isPending}>
               Добавить и дальше
             </Button>
           </Form>

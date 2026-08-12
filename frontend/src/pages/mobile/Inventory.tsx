@@ -14,9 +14,12 @@ import {
   Tag,
   Alert,
   message,
+  Modal,
+  Space,
   Divider,
 } from "antd";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import QrScanButton from "../../components/QrScanButton";
 import {
   startSession,
   scanUnit,
@@ -263,7 +266,17 @@ export default function Inventory() {
 
         {unitIdKnown ? (
           <Form.Item name="unit_id" label="ID единицы (по бирке/QR)" rules={[{ required: true }]}>
-            <InputNumber style={{ width: "100%" }} autoFocus />
+            <Space style={{ width: "100%" }}>
+              <InputNumber size="large" style={{ width: "100%" }} placeholder="Введите ID" autoFocus />
+              <QrScanButton
+                size="large"
+                onScan={(code) => {
+                  const parsedId = parseInt(code.replace(/\D/g, ""), 10);
+                  if (parsedId) scanForm.setFieldsValue({ unit_id: parsedId });
+                  else message.error("QR не содержит числового ID единицы");
+                }}
+              />
+            </Space>
           </Form.Item>
         ) : (
           <>
@@ -274,21 +287,21 @@ export default function Inventory() {
               <DictAutoComplete kind="colors" />
             </Form.Item>
             <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
-              <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+              <InputNumber size="large" min={0} step={0.01} style={{ width: "100%" }} />
             </Form.Item>
             <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
               <DictAutoComplete kind="manufacturers" />
             </Form.Item>
             <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
-              <InputNumber min={1} style={{ width: "100%" }} />
+              <InputNumber size="large" min={1} style={{ width: "100%" }} />
             </Form.Item>
             <Form.Item name="length_m" label="Длина, м" rules={[{ required: true }]}>
-              <InputNumber min={0.1} step={0.1} style={{ width: "100%" }} />
+              <InputNumber size="large" min={0.1} step={0.1} style={{ width: "100%" }} />
             </Form.Item>
           </>
         )}
 
-        <Button type="primary" htmlType="submit" block loading={scanMutation.isPending}>
+        <Button size="large" type="primary" htmlType="submit" block loading={scanMutation.isPending}>
           Отсканировать
         </Button>
       </Form>
@@ -318,7 +331,21 @@ export default function Inventory() {
         message="Закрытие сессии"
         description="После закрытия всё, что осталось не отсканированным из ожидаемого списка, попадёт в недостачи."
         action={
-          <Button danger size="small" loading={closeMutation.isPending} onClick={() => closeMutation.mutate()}>
+          <Button
+            danger
+            size="middle"
+            loading={closeMutation.isPending}
+            onClick={() => {
+              Modal.confirm({
+                title: "Закрыть сессию инвентаризации?",
+                content: "Все не отсканированные единицы сформируют список недостач.",
+                okText: "Закрыть сессию",
+                okType: "danger",
+                cancelText: "Отмена",
+                onOk: () => closeMutation.mutate(),
+              });
+            }}
+          >
             Закрыть сессию
           </Button>
         }

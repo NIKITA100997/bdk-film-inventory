@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { navTree, type NavItem } from "./navConfig";
 import { fontHeading, palette } from "../theme";
 import { runUnitOrMaterialSearch } from "../utils/unitSearch";
+import QrScanButton from "../components/QrScanButton";
 
 const { Header, Sider, Content } = Layout;
 
@@ -54,14 +55,21 @@ export default function AppLayout() {
         <Typography.Title level={4} style={{ color: "#fff", margin: 0, fontFamily: fontHeading, whiteSpace: "nowrap" }}>
           Учёт плёнки БДК
         </Typography.Title>
-        <Input
-          prefix={<SearchOutlined />}
-          placeholder="ID единицы или материал…"
-          value={headerQuery}
-          onChange={(e) => setHeaderQuery(e.target.value)}
-          onPressEnter={runHeaderSearch}
-          style={{ maxWidth: 320, margin: "0 16px" }}
-        />
+        <Space style={{ margin: "0 16px" }}>
+          <Input
+            prefix={<SearchOutlined />}
+            placeholder="ID единицы или материал…"
+            value={headerQuery}
+            onChange={(e) => setHeaderQuery(e.target.value)}
+            onPressEnter={runHeaderSearch}
+            style={{ maxWidth: 280 }}
+          />
+          <QrScanButton
+            onScan={(code) => runUnitOrMaterialSearch(code, navigate)}
+            tooltip="Сканировать QR камерой"
+            type="primary"
+          />
+        </Space>
         <Space>
           <Typography.Text style={{ color: palette.grayMuted }}>
             {user.full_name} · {user.is_superuser ? "Суперпользователь" : user.roles.map((r) => r.name).join(", ") || "без роли"}
