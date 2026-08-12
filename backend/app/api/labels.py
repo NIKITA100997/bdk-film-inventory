@@ -5,7 +5,7 @@ from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.labels import LabelTemplate
 from app.models.units import MaterialUnit
-from app.schemas.labels import AvailableFieldOut, LabelTemplateOut, LabelTemplateUpdate
+from app.schemas.labels import AvailableFieldOut, LabelBatchRequest, LabelTemplateOut, LabelTemplateUpdate
 from app.services.labels import (
     DEFAULT_FIELDS,
     DEFAULT_HEIGHT_MM,
@@ -14,6 +14,7 @@ from app.services.labels import (
     PREVIEW_DATA,
     label_data_from_unit,
     render_label_pdf,
+    render_labels_pdf_batch,
 )
 
 router = APIRouter(tags=["labels"])
@@ -92,4 +93,28 @@ def get_label(unit_id: int, db: Session = Depends(get_db)) -> Response:
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="label-{unit_id}.pdf"'},
+    )
+
+
+@router.post("/labels/batch", dependencies=[Depends(get_current_user)])
+def get_labels_batch(payload: LabelBatchRequest, db: Session = Depends(get_db)) -> Response:
+    """Очередь печати (раздел про ускорение работы): один PDF на несколько
+    единиц вместо открытия отдельной вкладки/запроса на каждую — актуально
+    после сессии приёмки на партию из N рулонов."""
+    units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
+    units_by_id = {u.id: u for u in units}
+    ordered_units = [units_by_id[uid] for uid in payload.unit_ids if uid in units_by_id]
+    if not ordered_units:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
+    template = _get_template(db)
+    pdf_bytes = render_labels_pdf_batch(
+        [label_data_from_unit(u) for u in ordered_units],
+        fields=template.fields,
+        width_mm=template.width_mm,
+        height_mm=template.height_mm,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="labels-batch.pdf"'},
     )

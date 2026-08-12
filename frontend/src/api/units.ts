@@ -225,3 +225,19 @@ export function printLabel(unitId: number): void {
     });
   });
 }
+
+// Очередь печати (раздел про ускорение работы) — один PDF на несколько
+// этикеток вместо printLabel в цикле: после приёмки партии из N рулонов
+// одна вкладка с N страницами вместо N открытых вкладок печати.
+export function printLabelsBatch(unitIds: number[]): void {
+  if (unitIds.length === 0) return;
+  apiClient.post("/labels/batch", { unit_ids: unitIds }, { responseType: "blob" }).then(({ data }) => {
+    const url = URL.createObjectURL(data as Blob);
+    const w = window.open(url, "_blank");
+    if (!w) return;
+    w.addEventListener("load", () => {
+      w.focus();
+      w.print();
+    });
+  });
+}

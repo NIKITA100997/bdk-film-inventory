@@ -9,6 +9,7 @@ from app.services.labels import (
     render_field_value,
     render_label_html,
     render_label_pdf,
+    render_labels_pdf_batch,
 )
 
 SAMPLE = LabelData(
@@ -142,4 +143,29 @@ class TestRenderLabelPdf:
     def test_no_qr_no_stripe_still_renders(self):
         fields = [f for f in DEFAULT_FIELDS if f["key"] not in ("qr", "status_stripe")]
         pdf = render_label_pdf(SAMPLE, fields=fields, width_mm=100, height_mm=40)
+        assert pdf.startswith(b"%PDF-")
+
+
+class TestRenderLabelsPdfBatch:
+    """Очередь печати (раздел про ускорение работы) — один PDF на несколько
+    единиц вместо N отдельных запросов/вкладок."""
+
+    def test_single_item_produces_valid_pdf(self):
+        pdf = render_labels_pdf_batch([SAMPLE], fields=DEFAULT_FIELDS, width_mm=100, height_mm=40)
+        assert pdf.startswith(b"%PDF-")
+        assert pdf.rstrip().endswith(b"%%EOF")
+
+    def test_multiple_items_produce_valid_pdf(self):
+        other = SAMPLE.__class__(**{**SAMPLE.__dict__, "unit_id": 43})
+        pdf = render_labels_pdf_batch([SAMPLE, other, SAMPLE], fields=DEFAULT_FIELDS, width_mm=100, height_mm=40)
+        assert pdf.startswith(b"%PDF-")
+        assert pdf.rstrip().endswith(b"%%EOF")
+
+    def test_more_items_produce_larger_pdf(self):
+        one = render_labels_pdf_batch([SAMPLE], fields=DEFAULT_FIELDS, width_mm=100, height_mm=40)
+        three = render_labels_pdf_batch([SAMPLE] * 3, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40)
+        assert len(three) > len(one)
+
+    def test_empty_list_still_produces_valid_pdf(self):
+        pdf = render_labels_pdf_batch([], fields=DEFAULT_FIELDS, width_mm=100, height_mm=40)
         assert pdf.startswith(b"%PDF-")

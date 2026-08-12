@@ -35,3 +35,7 @@ class AvailableFieldOut(BaseModel):
     label: str
     kind: str
     stale_warning: bool = False
+
+
+class LabelBatchRequest(BaseModel):
+    unit_ids: list[int] = Field(min_length=1)

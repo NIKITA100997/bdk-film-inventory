@@ -332,27 +332,18 @@ def _register_pdf_fonts() -> None:
         pass
 
 
-def render_label_pdf(
+def _draw_label_page(
+    c: pdfcanvas.Canvas,
     data: LabelData,
-    *,
-    fields: list[dict] | None = None,
-    width_mm: int = DEFAULT_WIDTH_MM,
-    height_mm: int = DEFAULT_HEIGHT_MM,
-) -> bytes:
-    """PDF-версия той же этикетки — по итогам полевого тестирования печати
-    (раздел обратной связи): прямая печать HTML-страницы из браузера на
-    часть термопринтеров (проверено на Codex G500) ненадёжна — драйвер может
-    молча обрезать нестандартный размер страницы или не напечатать вовсе, в
-    то время как печать уже готового PDF-файла (тот же путь, что у
-    браузерного "Сохранить как PDF") на том же принтере отрабатывает
-    надёжно. Поэтому теперь это основной способ получить бирку, не HTML.
-
-    Упрощённая версия макета: встроенные PDF-шрифты (Helvetica) вместо
-    Cambria/Calibri и без переноса длинных строк — здесь важнее
-    предсказуемая печать, чем пиксель-в-пиксель повтор HTML-варианта
-    (который остаётся для просмотра в браузере)."""
-    _register_pdf_fonts()
-    fields = fields if fields is not None else DEFAULT_FIELDS
+    fields: list[dict],
+    width_mm: int,
+    height_mm: int,
+) -> None:
+    """Рисует одну этикетку на уже открытой странице канваса — не создаёт
+    Canvas и не вызывает showPage/save, чтобы один и тот же код рисования
+    использовался и для одиночной этикетки (render_label_pdf), и для пакета
+    в несколько страниц (render_labels_pdf_batch, раздел про очередь
+    печати)."""
     color = indicator_color(data)
     is_landscape = width_mm >= height_mm
     has_stripe = any(f["key"] == "status_stripe" for f in fields)
@@ -368,8 +359,6 @@ def render_label_pdf(
             rendered_fields.append((f, val))
 
     width_pt, height_pt = width_mm * MM, height_mm * MM
-    buf = BytesIO()
-    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
     c.setStrokeColor(HexColor(BORDER))
     c.setLineWidth(0.5)
     c.roundRect(0.3 * MM, 0.3 * MM, width_pt - 0.6 * MM, height_pt - 0.6 * MM, 1.5 * MM, stroke=1, fill=0)
@@ -428,7 +417,58 @@ def render_label_pdf(
             top_mm += qr_size_mm + 2
         draw_text_lines(4, top_mm, max(width_mm - 8, 5), center=True)
 
+
+def render_label_pdf(
+    data: LabelData,
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_WIDTH_MM,
+    height_mm: int = DEFAULT_HEIGHT_MM,
+) -> bytes:
+    """PDF-версия этикетки — по итогам полевого тестирования печати (раздел
+    обратной связи): прямая печать HTML-страницы из браузера на часть
+    термопринтеров (проверено на Codex G500) ненадёжна — драйвер может
+    молча обрезать нестандартный размер страницы или не напечатать вовсе, в
+    то время как печать уже готового PDF-файла (тот же путь, что у
+    браузерного "Сохранить как PDF") на том же принтере отрабатывает
+    надёжно. Поэтому теперь это основной способ получить бирку, не HTML.
+
+    Упрощённая версия макета: встроенные PDF-шрифты (Helvetica) вместо
+    Cambria/Calibri и без переноса длинных строк — здесь важнее
+    предсказуемая печать, чем пиксель-в-пиксель повтор HTML-варианта
+    (который остаётся для просмотра в браузере)."""
+    _register_pdf_fonts()
+    fields = fields if fields is not None else DEFAULT_FIELDS
+    width_pt, height_pt = width_mm * MM, height_mm * MM
+    buf = BytesIO()
+    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
+    _draw_label_page(c, data, fields, width_mm, height_mm)
     c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def render_labels_pdf_batch(
+    items: list[LabelData],
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_WIDTH_MM,
+    height_mm: int = DEFAULT_HEIGHT_MM,
+) -> bytes:
+    """Один PDF на несколько этикеток вместо N отдельных — очередь печати
+    (раздел про ускорение работы): при приёмке партии из N рулонов кнопка
+    "Печать всех этикеток" открывала N вкладок браузера, каждая со своим
+    диалогом печати. Термопринтер одинаково хорошо печатает многостраничный
+    PDF постранично, так что один файл с N страницами даёт тот же
+    результат за один клик вместо N."""
+    _register_pdf_fonts()
+    fields = fields if fields is not None else DEFAULT_FIELDS
+    width_pt, height_pt = width_mm * MM, height_mm * MM
+    buf = BytesIO()
+    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
+    for data in items:
+        _draw_label_page(c, data, fields, width_mm, height_mm)
+        c.showPage()
     c.save()
     return buf.getvalue()
 

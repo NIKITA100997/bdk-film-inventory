@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Typography, List, Row, Col, Statistic, message } from "antd";
 import { useMutation } from "@tanstack/react-query";
-import { receiveAndAutoPlace, printLabel, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
+import { receiveAndAutoPlace, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { useDraftForm } from "../../hooks/useDraftForm";
 
@@ -163,7 +163,7 @@ export default function Receive() {
               <Statistic title="Без места" value={unplacedCount} valueStyle={unplacedCount ? { color: "#C97A2B" } : undefined} />
             </Col>
           </Row>
-          <Button type="primary" block onClick={() => sessionUnits.forEach((u) => printLabel(u.id))}>
+          <Button type="primary" block onClick={() => printLabelsBatch(sessionUnits.map((u) => u.id))}>
             Печать всех этикеток
           </Button>
           <Button block style={{ marginTop: 8 }} onClick={newSession}>
