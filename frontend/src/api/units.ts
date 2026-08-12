@@ -209,11 +209,19 @@ export async function writeOffUnit(unitId: number): Promise<MaterialUnit> {
 // драйвер может обрезать нестандартный размер страницы или не напечатать
 // вовсе; печать уже готового PDF — тот же путь, что у "Сохранить как PDF",
 // эмпирически подтверждён рабочим). Открываем blob-URL в новой вкладке —
-// браузер показывает свой родной PDF-просмотрщик с кнопкой печати, тем же
-// путём, что подтверждённо работает.
+// браузер показывает свой родной PDF-просмотрщик — и сразу вызываем печать,
+// как только вкладка прогрузится: диалог печати открывается сам, без
+// дополнительного клика по кнопке "Печать" в просмотрщике. w.print() не
+// вызывается синхронно сразу после window.open — гонка (PDF ещё не
+// прогружен), поэтому ждём load, как и с прежней HTML-версией.
 export function printLabel(unitId: number): void {
   apiClient.get(`/labels/${unitId}`, { responseType: "blob" }).then(({ data }) => {
     const url = URL.createObjectURL(data as Blob);
-    window.open(url, "_blank");
+    const w = window.open(url, "_blank");
+    if (!w) return;
+    w.addEventListener("load", () => {
+      w.focus();
+      w.print();
+    });
   });
 }
