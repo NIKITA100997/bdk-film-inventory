@@ -1,0 +1,276 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session, joinedload
+
+from app.core.security import get_current_user, require_permission
+from app.db.session import get_db
+from app.models.dictionaries import Color, Material, Thickness
+from app.models.production import ProductionLine, ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
+from app.models.users import User
+from app.schemas.production import (
+    ProductionLineCreate,
+    ProductionLineOut,
+    ProductionLineUpdate,
+    ProductionTaskCreate,
+    ProductionTaskLineOut,
+    ProductionTaskOut,
+    ProductModelCreate,
+    ProductModelOut,
+    ProductModelPartCreate,
+    ProductModelPartOut,
+    ProductModelUpdate,
+)
+from app.services.dictionaries import find_or_create_material_color_thickness
+from app.services.production import BomPart, explode_task
+
+router = APIRouter(tags=["production"])
+
+# Пилот: окутка царговых (раздел про производственные задания) — модели
+# продукции/BOM и сами задания заводит начальник цеха, та же по духу
+# зона ответственности, что и orders.plan (строки потребности заказа).
+manage_production = require_permission("production_tasks.manage")
+
+
+def _line_out(line: ProductionLine) -> ProductionLineOut:
+    return ProductionLineOut.model_validate(line)
+
+
+def _part_out(db: Session, part: ProductModelPart) -> ProductModelPartOut:
+    line = db.get(ProductionLine, part.line_id)
+    return ProductModelPartOut(
+        id=part.id,
+        line_id=part.line_id,
+        line_name=line.name if line else "—",
+        material=db.get(Material, part.material_id).name,
+        color=db.get(Color, part.color_id).name,
+        thickness=float(db.get(Thickness, part.thickness_id).value_mm),
+        qty_per_unit=float(part.qty_per_unit),
+        part_name=part.part_name,
+    )
+
+
+def _model_out(db: Session, model: ProductModel) -> ProductModelOut:
+    return ProductModelOut(
+        id=model.id,
+        name=model.name,
+        area=model.area,
+        is_active=model.is_active,
+        parts=[_part_out(db, p) for p in model.parts],
+    )
+
+
+def _task_line_out(db: Session, line: ProductionTaskLine) -> ProductionTaskLineOut:
+    prod_line = db.get(ProductionLine, line.line_id)
+    return ProductionTaskLineOut(
+        id=line.id,
+        line_id=line.line_id,
+        line_name=prod_line.name if prod_line else "—",
+        material=db.get(Material, line.material_id).name,
+        color=db.get(Color, line.color_id).name,
+        thickness=float(db.get(Thickness, line.thickness_id).value_mm),
+        quantity_pieces=float(line.quantity_pieces),
+    )
+
+
+def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
+    model = db.get(ProductModel, task.product_model_id)
+    return ProductionTaskOut(
+        id=task.id,
+        product_model_id=task.product_model_id,
+        product_model_name=model.name if model else "—",
+        product_model_area=model.area,
+        quantity=task.quantity,
+        created_by=task.created_by,
+        created_at=task.created_at,
+        lines=[_task_line_out(db, l) for l in task.lines],
+    )
+
+
+# --- Линии -------------------------------------------------------------
+
+
+@router.get("/production-lines", response_model=list[ProductionLineOut])
+def list_production_lines(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[ProductionLine]:
+    return db.query(ProductionLine).order_by(ProductionLine.name).all()
+
+
+@router.post("/production-lines", response_model=ProductionLineOut, status_code=status.HTTP_201_CREATED)
+def create_production_line(
+    payload: ProductionLineCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductionLine:
+    if db.query(ProductionLine).filter(ProductionLine.name == payload.name).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Линия с таким названием уже есть")
+    line = ProductionLine(name=payload.name, area=payload.area)
+    db.add(line)
+    db.commit()
+    db.refresh(line)
+    return line
+
+
+@router.patch("/production-lines/{line_id}", response_model=ProductionLineOut)
+def update_production_line(
+    line_id: int, payload: ProductionLineUpdate, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductionLine:
+    line = db.get(ProductionLine, line_id)
+    if line is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Линия не найдена")
+    if payload.name is not None and payload.name != line.name:
+        if db.query(ProductionLine).filter(ProductionLine.name == payload.name, ProductionLine.id != line_id).first():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Линия с таким названием уже есть")
+        line.name = payload.name
+    if payload.area is not None:
+        line.area = payload.area
+    if payload.is_active is not None:
+        line.is_active = payload.is_active
+    db.commit()
+    db.refresh(line)
+    return line
+
+
+# --- Модели продукции ---------------------------------------------------
+
+
+@router.get("/product-models", response_model=list[ProductModelOut])
+def list_product_models(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[ProductModelOut]:
+    models = db.query(ProductModel).options(joinedload(ProductModel.parts)).order_by(ProductModel.name).all()
+    return [_model_out(db, m) for m in models]
+
+
+@router.get("/product-models/{model_id}", response_model=ProductModelOut)
+def get_product_model(model_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> ProductModelOut:
+    model = db.get(ProductModel, model_id)
+    if model is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Модель не найдена")
+    return _model_out(db, model)
+
+
+@router.post("/product-models", response_model=ProductModelOut, status_code=status.HTTP_201_CREATED)
+def create_product_model(
+    payload: ProductModelCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductModelOut:
+    if db.query(ProductModel).filter(ProductModel.name == payload.name).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Модель с таким названием уже есть")
+    model = ProductModel(name=payload.name, area=payload.area)
+    db.add(model)
+    db.commit()
+    db.refresh(model)
+    return _model_out(db, model)
+
+
+@router.patch("/product-models/{model_id}", response_model=ProductModelOut)
+def update_product_model(
+    model_id: int, payload: ProductModelUpdate, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductModelOut:
+    model = db.get(ProductModel, model_id)
+    if model is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Модель не найдена")
+    if payload.name is not None and payload.name != model.name:
+        if db.query(ProductModel).filter(ProductModel.name == payload.name, ProductModel.id != model_id).first():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Модель с таким названием уже есть")
+        model.name = payload.name
+    if payload.is_active is not None:
+        model.is_active = payload.is_active
+    db.commit()
+    db.refresh(model)
+    return _model_out(db, model)
+
+
+@router.post("/product-models/{model_id}/parts", response_model=ProductModelPartOut, status_code=status.HTTP_201_CREATED)
+def add_product_model_part(
+    model_id: int, payload: ProductModelPartCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductModelPartOut:
+    model = db.get(ProductModel, model_id)
+    if model is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Модель не найдена")
+    line = db.get(ProductionLine, payload.line_id)
+    if line is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Линия не найдена")
+    if line.area != model.area:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Линия принадлежит другому участку, чем модель"
+        )
+    material, color, thickness = find_or_create_material_color_thickness(
+        db, material=payload.material, color=payload.color, thickness=payload.thickness
+    )
+    part = ProductModelPart(
+        product_model_id=model_id,
+        line_id=payload.line_id,
+        material_id=material.id,
+        color_id=color.id,
+        thickness_id=thickness.id,
+        qty_per_unit=payload.qty_per_unit,
+        part_name=payload.part_name,
+    )
+    db.add(part)
+    db.commit()
+    db.refresh(part)
+    return _part_out(db, part)
+
+
+@router.delete("/product-models/{model_id}/parts/{part_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_product_model_part(
+    model_id: int, part_id: int, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> None:
+    part = db.query(ProductModelPart).filter(ProductModelPart.id == part_id, ProductModelPart.product_model_id == model_id).first()
+    if part is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Деталь не найдена")
+    db.delete(part)
+    db.commit()
+
+
+# --- Производственные задания -------------------------------------------
+
+
+@router.get("/production-tasks", response_model=list[ProductionTaskOut])
+def list_production_tasks(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[ProductionTaskOut]:
+    tasks = (
+        db.query(ProductionTask)
+        .options(joinedload(ProductionTask.lines))
+        .order_by(ProductionTask.created_at.desc())
+        .all()
+    )
+    return [_task_out(db, t) for t in tasks]
+
+
+@router.post("/production-tasks", response_model=ProductionTaskOut, status_code=status.HTTP_201_CREATED)
+def create_production_task(
+    payload: ProductionTaskCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductionTaskOut:
+    """Разбор 'N штук модели X' на задания по линиям (раздел про
+    производственные задания, пилот — окутка царговых). Считается один раз
+    при создании — не пересчитывается на лету, т.к. BOM модели мог
+    измениться между заданиями."""
+    model = db.get(ProductModel, payload.product_model_id)
+    if model is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Модель не найдена")
+    if not model.parts:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="У модели нет ни одной детали (BOM пуст)")
+
+    bom_parts = [
+        BomPart(
+            line_id=p.line_id,
+            material_id=p.material_id,
+            color_id=p.color_id,
+            thickness_id=p.thickness_id,
+            qty_per_unit=float(p.qty_per_unit),
+        )
+        for p in model.parts
+    ]
+    exploded = explode_task(bom_parts, payload.quantity)
+
+    task = ProductionTask(product_model_id=model.id, quantity=payload.quantity, created_by=user.id)
+    db.add(task)
+    db.flush()
+    for line in exploded:
+        db.add(
+            ProductionTaskLine(
+                task_id=task.id,
+                line_id=line.line_id,
+                material_id=line.material_id,
+                color_id=line.color_id,
+                thickness_id=line.thickness_id,
+                quantity_pieces=line.quantity_pieces,
+            )
+        )
+    db.commit()
+    db.refresh(task)
+    return _task_out(db, task)

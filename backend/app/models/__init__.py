@@ -9,6 +9,7 @@ from app.models.units import MaterialUnit, UnitStatus
 from app.models.events import MaterialEvent, EventType
 from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.labels import LabelTemplate
+from app.models.production import ProductionLine, ProductModel, ProductModelPart, ProductionTask, ProductionTaskLine
 
 __all__ = [
     "User",
@@ -42,4 +43,9 @@ __all__ = [
     "PurchaseRequest",
     "Supplier",
     "LabelTemplate",
+    "ProductionLine",
+    "ProductModel",
+    "ProductModelPart",
+    "ProductionTask",
+    "ProductionTaskLine",
 ]
