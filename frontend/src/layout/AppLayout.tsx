@@ -7,6 +7,7 @@ import { navTree, type NavItem } from "./navConfig";
 import { fontHeading, palette } from "../theme";
 import { runUnitOrMaterialSearch } from "../utils/unitSearch";
 import QrScanButton from "../components/QrScanButton";
+import OfflineBanner from "../components/OfflineBanner";
 
 const { Header, Sider, Content } = Layout;
 
@@ -86,6 +87,7 @@ export default function AppLayout() {
           </Button>
         </Space>
       </Header>
+      <OfflineBanner />
       <Layout>
         <Sider width={240} breakpoint="md" collapsedWidth={0}>
           <Menu
