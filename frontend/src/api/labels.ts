@@ -38,3 +38,23 @@ export async function previewLabelTemplate(payload: LabelTemplate): Promise<void
   w.document.write(data);
   w.document.close();
 }
+
+export async function printTestLabelTemplate(payload: LabelTemplate): Promise<void> {
+  const { data } = await apiClient.post<string>("/label-template/preview", payload, { responseType: "text" });
+  const w = window.open("", "_blank", "width=400,height=600");
+  if (!w) return;
+  w.document.open();
+  w.document.write(data);
+  w.document.close();
+  // w.print() сразу после document.write() — гонка: браузер может открыть
+  // диалог печати раньше, чем применит @page/мм-размеры и отрисует QR
+  // (data:-изображение тоже требует декодирования), и тогда печать уйдёт
+  // с настройками страницы по умолчанию вместо макета этикетки — отсюда
+  // разбивка на несколько листов и наложение текста на QR. window.onload
+  // здесь гарантированно наступает после полной загрузки записанного через
+  // document.write документа (в т.ч. изображений).
+  w.onload = () => {
+    w.focus();
+    w.print();
+  };
+}
