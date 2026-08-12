@@ -22,15 +22,20 @@ import { useNavigate } from "react-router-dom";
 import {
   createMacroZoneRule,
   createRack,
+  createWarehouse,
   deleteMacroZoneRule,
   getRackOccupancy,
   listMacroZoneRules,
   listRacks,
+  listWarehouses,
   updateRack,
+  updateWarehouse,
   type MacroZoneRuleCreate,
   type Rack,
   type RackOccupancyCell,
   type RackUpdate,
+  type Warehouse,
+  type WarehouseUpdate,
 } from "../../api/storage";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { skuLabel } from "../../api/units";
@@ -44,8 +49,18 @@ import { useAuth } from "../../auth/AuthContext";
  * отдельно от бэкенда. */
 function SchemeTab() {
   const navigate = useNavigate();
-  const racksQuery = useQuery({ queryKey: ["racks"], queryFn: listRacks });
-  const activeRacks = (racksQuery.data ?? []).filter((r) => r.is_active);
+  const racksQuery = useQuery({ queryKey: ["racks"], queryFn: () => listRacks() });
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
+  // Фильтр по складу — только если складов больше одного, чтобы не
+  // добавлять лишний клик в типичном случае одного склада (раздел про
+  // мультисклад).
+  const [warehouseId, setWarehouseId] = useState<number | null>(null);
+  const allActiveRacks = (racksQuery.data ?? []).filter((r) => r.is_active);
+  const activeRacks =
+    activeWarehouses.length > 1 && warehouseId
+      ? allActiveRacks.filter((r) => r.warehouse_id === warehouseId)
+      : allActiveRacks;
   const [rackId, setRackId] = useState<number | null>(null);
   const selectedRack = activeRacks.find((r) => r.id === rackId) ?? activeRacks[0] ?? null;
 
@@ -81,6 +96,19 @@ function SchemeTab() {
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      {activeWarehouses.length > 1 && (
+        <Select
+          style={{ width: 280 }}
+          placeholder="Склад — все"
+          allowClear
+          value={warehouseId ?? undefined}
+          onChange={(v) => {
+            setWarehouseId(v ?? null);
+            setRackId(null);
+          }}
+          options={activeWarehouses.map((w) => ({ value: w.id, label: w.name }))}
+        />
+      )}
       <Select
         style={{ width: 280 }}
         loading={racksQuery.isLoading}
@@ -212,7 +240,9 @@ function ManageTab() {
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
   const [editRackForm] = Form.useForm<RackUpdate>();
 
-  const racksQuery = useQuery({ queryKey: ["racks"], queryFn: listRacks });
+  const racksQuery = useQuery({ queryKey: ["racks"], queryFn: () => listRacks() });
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  const warehouseName = (id: number) => warehousesQuery.data?.find((w) => w.id === id)?.name ?? "—";
   const rulesQuery = useQuery({
     queryKey: ["macro-zone-rules", selectedRack?.id],
     queryFn: () => listMacroZoneRules(selectedRack!.id),
@@ -273,6 +303,7 @@ function ManageTab() {
             { title: "Код", dataIndex: "code", render: (v, rack) => <a onClick={() => setSelectedRack(rack)}>{v}</a> },
             { title: "Тип", dataIndex: "type", render: (t: string) => (t === "roll" ? "Рулонный" : "Штрипсовый") },
             { title: "Число полок", dataIndex: "shelf_count" },
+            { title: "Склад", dataIndex: "warehouse_id", render: (id: number) => warehouseName(id) },
             {
               title: "Статус",
               dataIndex: "is_active",
@@ -286,7 +317,12 @@ function ManageTab() {
                     size="small"
                     onClick={() => {
                       setEditingRack(rack);
-                      editRackForm.setFieldsValue({ code: rack.code, type: rack.type, shelf_count: rack.shelf_count });
+                      editRackForm.setFieldsValue({
+                        code: rack.code,
+                        type: rack.type,
+                        shelf_count: rack.shelf_count,
+                        warehouse_id: rack.warehouse_id,
+                      });
                     }}
                   >
                     Изменить
@@ -355,6 +391,9 @@ function ManageTab() {
           <Form.Item name="shelf_count" label="Число полок" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
+          <Form.Item name="warehouse_id" label="Склад" rules={[{ required: true }]}>
+            <Select options={(warehousesQuery.data ?? []).map((w) => ({ value: w.id, label: w.name }))} />
+          </Form.Item>
           <Button type="primary" htmlType="submit" loading={createRackMutation.isPending}>
             Создать
           </Button>
@@ -376,6 +415,9 @@ function ManageTab() {
           </Form.Item>
           <Form.Item name="shelf_count" label="Число полок" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="warehouse_id" label="Склад" rules={[{ required: true }]}>
+            <Select options={(warehousesQuery.data ?? []).map((w) => ({ value: w.id, label: w.name }))} />
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={updateRackMutation.isPending}>
             Сохранить
@@ -415,6 +457,127 @@ function ManageTab() {
   );
 }
 
+function WarehousesTab() {
+  const qc = useQueryClient();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null);
+  const [form] = Form.useForm<{ name: string; address?: string }>();
+  const [editForm] = Form.useForm<WarehouseUpdate>();
+
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+
+  const createMutation = useMutation({
+    mutationFn: createWarehouse,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["warehouses"] });
+      setModalOpen(false);
+      form.resetFields();
+      message.success("Склад добавлен");
+    },
+    onError: () => message.error("Не удалось добавить — название уже занято?"),
+  });
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: WarehouseUpdate }) => updateWarehouse(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["warehouses"] });
+      setEditingWarehouse(null);
+      message.success("Сохранено");
+    },
+    onError: () => message.error("Не удалось сохранить — название уже занято?"),
+  });
+
+  return (
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Card
+        title="Склады"
+        extra={
+          <Button type="primary" onClick={() => setModalOpen(true)}>
+            Добавить склад
+          </Button>
+        }
+      >
+        <Typography.Paragraph type="secondary">
+          Физическая площадка, на которой стоят стеллажи — код стеллажа остаётся уникальным во всей системе, склад
+          лишь группирует стеллажи (раздел про мультисклад).
+        </Typography.Paragraph>
+        <Table<Warehouse>
+          rowKey="id"
+          loading={warehousesQuery.isLoading}
+          dataSource={warehousesQuery.data ?? []}
+          pagination={false}
+          scroll={{ x: "max-content" }}
+          columns={[
+            { title: "Название", dataIndex: "name" },
+            { title: "Адрес", dataIndex: "address", render: (v: string | null) => v ?? "—" },
+            {
+              title: "Статус",
+              dataIndex: "is_active",
+              render: (v: boolean) => (v ? <Tag color="green">Активен</Tag> : <Tag>В архиве</Tag>),
+            },
+            {
+              title: "",
+              render: (_, w) => (
+                <Space>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setEditingWarehouse(w);
+                      editForm.setFieldsValue({ name: w.name, address: w.address ?? undefined });
+                    }}
+                  >
+                    Изменить
+                  </Button>
+                  <Button size="small" onClick={() => updateMutation.mutate({ id: w.id, payload: { is_active: !w.is_active } })}>
+                    {w.is_active ? "В архив" : "Восстановить"}
+                  </Button>
+                </Space>
+              ),
+            },
+          ]}
+        />
+      </Card>
+
+      <Modal title="Новый склад" open={modalOpen} onCancel={() => setModalOpen(false)} footer={null} destroyOnHidden>
+        <Form layout="vertical" form={form} onFinish={(v) => createMutation.mutate(v)}>
+          <Form.Item name="name" label="Название" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="address" label="Адрес (опционально)">
+            <Input />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
+            Создать
+          </Button>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`Изменить склад ${editingWarehouse?.name ?? ""}`}
+        open={!!editingWarehouse}
+        onCancel={() => setEditingWarehouse(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={(v) => editingWarehouse && updateMutation.mutate({ id: editingWarehouse.id, payload: v })}
+        >
+          <Form.Item name="name" label="Название" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="address" label="Адрес">
+            <Input />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={updateMutation.isPending}>
+            Сохранить
+          </Button>
+        </Form>
+      </Modal>
+    </Space>
+  );
+}
+
 export default function StorageMap() {
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("storage.manage");
@@ -425,7 +588,12 @@ export default function StorageMap() {
       <Tabs
         items={[
           { key: "scheme", label: "Схема", children: <SchemeTab /> },
-          ...(canManage ? [{ key: "manage", label: "Управление", children: <ManageTab /> }] : []),
+          ...(canManage
+            ? [
+                { key: "manage", label: "Управление", children: <ManageTab /> },
+                { key: "warehouses", label: "Склады", children: <WarehousesTab /> },
+              ]
+            : []),
         ]}
       />
     </Card>

@@ -5,7 +5,7 @@ from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
-from app.models.storage import MacroZoneRule, Rack, RackType
+from app.models.storage import MacroZoneRule, Rack, RackType, Warehouse
 from app.models.units import MaterialUnit, UnitStatus
 from app.schemas.storage import (
     LocationSuggestion,
@@ -15,6 +15,9 @@ from app.schemas.storage import (
     RackOccupancyCellOut,
     RackOut,
     RackUpdate,
+    WarehouseCreate,
+    WarehouseOut,
+    WarehouseUpdate,
 )
 from app.services.placement import suggest_location
 
@@ -27,9 +30,52 @@ router = APIRouter(tags=["storage"])
 manage_storage = require_permission("storage.manage")
 
 
+@router.get("/warehouses", response_model=list[WarehouseOut])
+def list_warehouses(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[Warehouse]:
+    return db.query(Warehouse).order_by(Warehouse.name).all()
+
+
+@router.post("/warehouses", response_model=WarehouseOut, status_code=status.HTTP_201_CREATED)
+def create_warehouse(
+    payload: WarehouseCreate, db: Session = Depends(get_db), user=Depends(manage_storage)
+) -> Warehouse:
+    if db.query(Warehouse).filter(Warehouse.name == payload.name).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Склад с таким названием уже есть")
+    warehouse = Warehouse(name=payload.name, address=payload.address)
+    db.add(warehouse)
+    db.commit()
+    db.refresh(warehouse)
+    return warehouse
+
+
+@router.patch("/warehouses/{warehouse_id}", response_model=WarehouseOut)
+def update_warehouse(
+    warehouse_id: int, payload: WarehouseUpdate, db: Session = Depends(get_db), user=Depends(manage_storage)
+) -> Warehouse:
+    warehouse = db.get(Warehouse, warehouse_id)
+    if warehouse is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Склад не найден")
+    if payload.name is not None and payload.name != warehouse.name:
+        if db.query(Warehouse).filter(Warehouse.name == payload.name, Warehouse.id != warehouse_id).first():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Склад с таким названием уже есть")
+        warehouse.name = payload.name
+    if payload.address is not None:
+        warehouse.address = payload.address
+    if payload.is_active is not None:
+        warehouse.is_active = payload.is_active
+    db.commit()
+    db.refresh(warehouse)
+    return warehouse
+
+
 @router.get("/racks", response_model=list[RackOut])
-def list_racks(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[Rack]:
-    return db.query(Rack).order_by(Rack.code).all()
+def list_racks(
+    warehouse_id: int | None = None, db: Session = Depends(get_db), user=Depends(get_current_user)
+) -> list[Rack]:
+    query = db.query(Rack)
+    if warehouse_id is not None:
+        query = query.filter(Rack.warehouse_id == warehouse_id)
+    return query.order_by(Rack.code).all()
 
 
 @router.get("/racks/{rack_id}/occupancy", response_model=list[RackOccupancyCellOut])
@@ -79,7 +125,9 @@ def rack_occupancy(rack_id: int, db: Session = Depends(get_db), user=Depends(get
 def create_rack(payload: RackCreate, db: Session = Depends(get_db), user=Depends(manage_storage)) -> Rack:
     if db.query(Rack).filter(Rack.code == payload.code).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Стеллаж с таким кодом уже существует")
-    rack = Rack(code=payload.code, type=payload.type, shelf_count=payload.shelf_count)
+    if db.get(Warehouse, payload.warehouse_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Склад не найден")
+    rack = Rack(code=payload.code, type=payload.type, shelf_count=payload.shelf_count, warehouse_id=payload.warehouse_id)
     db.add(rack)
     db.commit()
     db.refresh(rack)
@@ -101,6 +149,10 @@ def update_rack(
         rack.type = payload.type
     if payload.shelf_count is not None:
         rack.shelf_count = payload.shelf_count
+    if payload.warehouse_id is not None:
+        if db.get(Warehouse, payload.warehouse_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Склад не найден")
+        rack.warehouse_id = payload.warehouse_id
     if payload.is_active is not None:
         rack.is_active = payload.is_active
     db.commit()
@@ -173,18 +225,26 @@ def suggest_location_endpoint(
     material_sku_id: int,
     width_mm: float,
     parent_id: int | None = None,
+    warehouse_id: int | None = None,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ) -> LocationSuggestion:
     """Автоподбор места хранения (4.2 ТЗ) — рекомендация, а не резервирование:
     вызывается заново при каждом подтверждении, гонки при параллельной
-    работе не приводят к сбою (следующий вызов просто увидит слот занятым)."""
+    работе не приводят к сбою (следующий вызов просто увидит слот занятым).
+    warehouse_id — раздел про мультисклад, необязателен для обратной
+    совместимости (без него ищет по всем складам)."""
     sku = db.get(MaterialSku, material_sku_id)
     if sku is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Позиция материала не найдена")
     calc_settings = db.get(CalcSettings, 1)
     cells_per_strip_shelf = calc_settings.cells_per_strip_shelf if calc_settings else 10
     location = suggest_location(
-        db, sku=sku, width_mm=width_mm, parent_id=parent_id, cells_per_strip_shelf=cells_per_strip_shelf
+        db,
+        sku=sku,
+        width_mm=width_mm,
+        parent_id=parent_id,
+        cells_per_strip_shelf=cells_per_strip_shelf,
+        warehouse_id=warehouse_id,
     )
     return LocationSuggestion(location_code=location)

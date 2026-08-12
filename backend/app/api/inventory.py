@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import false, or_, select
 from sqlalchemy.orm import Query, Session
 
 from app.core.security import require_permission
@@ -44,7 +44,14 @@ def _expected_units_query(db: Session, inv_session: InventorySession) -> Query:
         query = query.filter(MaterialUnit.location_code.like(f"{rack.code}-%"))
     elif inv_session.scope_type == InventoryScopeType.MATERIAL_SKU:
         query = query.filter(MaterialUnit.material_sku_id == inv_session.scope_ref_id)
-    # WAREHOUSE — без дополнительного фильтра, весь склад.
+    elif inv_session.scope_type == InventoryScopeType.WAREHOUSE and inv_session.scope_ref_id is not None:
+        # Раздел про мультисклад: если при создании сессии выбран конкретный
+        # склад (scope_ref_id), фильтруем по стеллажам этого склада — тем же
+        # LIKE-разбором кода, что и для RACK-области. Если склад не выбран
+        # (единственный склад, как раньше) — без фильтра, обратная
+        # совместимость с уже созданными до появления складов сессиями.
+        rack_codes = [r.code for r in db.query(Rack).filter(Rack.warehouse_id == inv_session.scope_ref_id).all()]
+        query = query.filter(or_(*[MaterialUnit.location_code.like(f"{code}-%") for code in rack_codes])) if rack_codes else query.filter(false())
     return query
 
 

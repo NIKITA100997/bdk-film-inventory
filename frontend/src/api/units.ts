@@ -52,14 +52,22 @@ export async function receiveUnits(payload: ReceiveRequest): Promise<MaterialUni
 
 /** Приёмка с автоподбором и автоматическим размещением по каждой созданной
  * единице (2.3/8.5 разделы бэклога доработок) — общая для сессии приёмки
- * (Receive.tsx) и одиночной регистрации единицы вне сессии (MaterialsExplorer.tsx). */
+ * (Receive.tsx) и одиночной регистрации единицы вне сессии (MaterialsExplorer.tsx).
+ * warehouseId — раздел про мультисклад, необязателен (без него автоподбор
+ * ищет по всем складам, как раньше). */
 export async function receiveAndAutoPlace(
   payload: Omit<ReceiveRequest, "location_code">,
+  warehouseId?: number,
 ): Promise<MaterialUnit[]> {
   const created = await receiveUnits(payload);
   const placed: MaterialUnit[] = [];
   for (const unit of created) {
-    const suggestion = await suggestLocation({ material_sku_id: unit.material_sku.id, width_mm: unit.width_mm, parent_id: null });
+    const suggestion = await suggestLocation({
+      material_sku_id: unit.material_sku.id,
+      width_mm: unit.width_mm,
+      parent_id: null,
+      warehouse_id: warehouseId,
+    });
     placed.push(suggestion ? await placeUnit(unit.id, suggestion) : unit);
   }
   return placed;

@@ -11,6 +11,22 @@ class RackType(str, enum.Enum):
     STRIP = "strip"  # штрипсовый (включая стеллаж Б): полка делится на ячейки
 
 
+class Warehouse(Base):
+    """Склад (раздел про мультисклад) — физическая площадка, на которой
+    стоят стеллажи. Код стеллажа (Rack.code) остаётся глобально уникальным
+    (не только в рамках склада) — так весь существующий разбор адреса
+    ("Р-3-07" → стеллаж по LIKE-префиксу в placement.py/api/storage.py) не
+    меняется ни на строку, склад — это только дополнительный тег у
+    стеллажа, не часть формата адреса."""
+
+    __tablename__ = "warehouses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class Rack(Base):
     """Стеллаж (раздел 4/4.1 ТЗ). Полки — не отдельные строки в БД, а просто
     числа 1..shelf_count: адрес единицы ("Р-3-07") — свободная строка,
@@ -23,6 +39,7 @@ class Rack(Base):
     code: Mapped[str] = mapped_column(String(16), unique=True, index=True)  # "Р-3", "Ш-2"
     type: Mapped[RackType] = mapped_column(Enum(RackType, name="rack_type"))
     shelf_count: Mapped[int] = mapped_column(Integer)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"))
     # Архивирование вместо удаления (по итогам обратной связи после раздела 9
     # бэклога доработок) — стеллаж мог годами копить историю событий по
     # единицам, физически размещённым на нём; hard delete не удалит эти
@@ -30,6 +47,7 @@ class Rack(Base):
     # предлагаться для новых размещений и сессий инвентаризации.
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    warehouse: Mapped[Warehouse] = relationship()
     macro_zone_rules: Mapped[list["MacroZoneRule"]] = relationship(
         back_populates="rack", cascade="all, delete-orphan"
     )

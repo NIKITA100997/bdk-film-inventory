@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Button, Card, Form, Input, InputNumber, Typography, List, Row, Col, Statistic, message } from "antd";
-import { useMutation } from "@tanstack/react-query";
+import { Button, Card, Form, Input, InputNumber, Select, Typography, List, Row, Col, Statistic, message } from "antd";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { receiveAndAutoPlace, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
+import { listWarehouses } from "../../api/storage";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { useDraftForm } from "../../hooks/useDraftForm";
 
 type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code">;
+type HeaderValues = { upd_number: string; pallet_number: string; warehouse_id?: number };
 
 // Память на частый ввод: при повторной приёмке в тот же день паллеты часто
 // идут подряд — предзаполняем последний номер, поле остаётся редактируемым.
@@ -20,13 +22,20 @@ export default function Receive() {
   const [pallet, setPallet] = useState("");
   const [sessionUnits, setSessionUnits] = useState<MaterialUnit[]>([]);
   const [finished, setFinished] = useState(false);
-  const [headerForm] = Form.useForm<{ upd_number: string; pallet_number: string }>();
+  const [warehouseId, setWarehouseId] = useState<number | undefined>(undefined);
+  const [headerForm] = Form.useForm<HeaderValues>();
   const [lineForm] = Form.useForm<LineValues>();
   const headerDraft = useDraftForm("draft:receive-header", headerForm);
   const lineDraft = useDraftForm("draft:receive-line", lineForm);
 
+  // Выбор склада — только если складов больше одного (раздел про
+  // мультисклад), иначе используется молча без лишнего поля в форме.
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
+
   const addLineMutation = useMutation({
-    mutationFn: (values: LineValues) => receiveAndAutoPlace({ ...values, upd_number: upd, pallet_number: pallet }),
+    mutationFn: (values: LineValues) =>
+      receiveAndAutoPlace({ ...values, upd_number: upd, pallet_number: pallet }, warehouseId),
     onSuccess: (units) => {
       setSessionUnits((s) => [...s, ...units]);
       const unplaced = units.filter((u) => !u.location_code).length;
@@ -44,9 +53,10 @@ export default function Receive() {
     onError: () => message.error("Не удалось добавить рулон(ы) — проверьте данные"),
   });
 
-  const startSession = (v: { upd_number: string; pallet_number: string }) => {
+  const startSession = (v: HeaderValues) => {
     setUpd(v.upd_number);
     setPallet(v.pallet_number);
+    setWarehouseId(v.warehouse_id);
     setSessionStarted(true);
     localStorage.setItem(LAST_PALLET_STORAGE_KEY, v.pallet_number);
     headerDraft.clearDraft();
@@ -56,6 +66,7 @@ export default function Receive() {
     setSessionStarted(false);
     setSessionUnits([]);
     setFinished(false);
+    setWarehouseId(undefined);
     headerForm.resetFields();
     lineForm.resetFields();
   };
@@ -81,6 +92,11 @@ export default function Receive() {
           <Form.Item name="pallet_number" label="Номер паллеты" rules={[{ required: true }]}>
             <Input size="large" />
           </Form.Item>
+          {activeWarehouses.length > 1 && (
+            <Form.Item name="warehouse_id" label="Склад" rules={[{ required: true }]}>
+              <Select size="large" options={activeWarehouses.map((w) => ({ value: w.id, label: w.name }))} />
+            </Form.Item>
+          )}
           <Button size="large" type="primary" htmlType="submit" block>
             Начать приёмку
           </Button>

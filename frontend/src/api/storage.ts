@@ -3,11 +3,30 @@ import type { MaterialUnit } from "./units";
 
 export type RackType = "roll" | "strip";
 
+export interface Warehouse {
+  id: number;
+  name: string;
+  address: string | null;
+  is_active: boolean;
+}
+
+export interface WarehouseCreate {
+  name: string;
+  address?: string;
+}
+
+export interface WarehouseUpdate {
+  name?: string;
+  address?: string;
+  is_active?: boolean;
+}
+
 export interface Rack {
   id: number;
   code: string;
   type: RackType;
   shelf_count: number;
+  warehouse_id: number;
   is_active: boolean;
 }
 
@@ -15,8 +34,18 @@ export interface RackUpdate {
   code?: string;
   type?: RackType;
   shelf_count?: number;
+  warehouse_id?: number;
   is_active?: boolean;
 }
+
+export const listWarehouses = async (): Promise<Warehouse[]> =>
+  (await apiClient.get<Warehouse[]>("/warehouses")).data;
+
+export const createWarehouse = async (payload: WarehouseCreate): Promise<Warehouse> =>
+  (await apiClient.post<Warehouse>("/warehouses", payload)).data;
+
+export const updateWarehouse = async (warehouseId: number, payload: WarehouseUpdate): Promise<Warehouse> =>
+  (await apiClient.patch<Warehouse>(`/warehouses/${warehouseId}`, payload)).data;
 
 export interface MacroZoneRule {
   id: number;
@@ -38,10 +67,15 @@ export interface MacroZoneRuleCreate {
   manufacturer?: string;
 }
 
-export const listRacks = async (): Promise<Rack[]> => (await apiClient.get<Rack[]>("/racks")).data;
+export const listRacks = async (warehouseId?: number): Promise<Rack[]> =>
+  (await apiClient.get<Rack[]>("/racks", { params: warehouseId ? { warehouse_id: warehouseId } : undefined })).data;
 
-export const createRack = async (payload: { code: string; type: RackType; shelf_count: number }): Promise<Rack> =>
-  (await apiClient.post<Rack>("/racks", payload)).data;
+export const createRack = async (payload: {
+  code: string;
+  type: RackType;
+  shelf_count: number;
+  warehouse_id: number;
+}): Promise<Rack> => (await apiClient.post<Rack>("/racks", payload)).data;
 
 export const updateRack = async (rackId: number, payload: RackUpdate): Promise<Rack> =>
   (await apiClient.patch<Rack>(`/racks/${rackId}`, payload)).data;
@@ -70,6 +104,7 @@ export const suggestLocation = async (params: {
   material_sku_id: number;
   width_mm: number;
   parent_id?: number | null;
+  warehouse_id?: number;
 }): Promise<string | null> =>
   (await apiClient.get<{ location_code: string | null }>("/storage/suggest-location", { params })).data
     .location_code;

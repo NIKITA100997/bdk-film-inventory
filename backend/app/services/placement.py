@@ -65,14 +65,26 @@ def _find_free_slot(db: Session, rack: Rack, from_shelf: int, to_shelf: int, cel
 
 
 def suggest_location(
-    db: Session, *, sku: MaterialSku, width_mm: float, parent_id: int | None, cells_per_strip_shelf: int = 10
+    db: Session,
+    *,
+    sku: MaterialSku,
+    width_mm: float,
+    parent_id: int | None,
+    cells_per_strip_shelf: int = 10,
+    warehouse_id: int | None = None,
 ) -> str | None:
     """Возвращает рекомендованный адрес или None, если свободного места нет
     нигде — тогда операция не блокируется, адрес просто вводится вручную
     (4.2 ТЗ, п.4). cells_per_strip_shelf — настраиваемое значение
-    (CalcSettings, 5 раздел бэклога доработок), раньше было захардкожено."""
+    (CalcSettings, 5 раздел бэклога доработок), раньше было захардкожено.
+    warehouse_id — раздел про мультисклад: если передан, ищем только среди
+    стеллажей этого склада; если нет — среди всех (обратная совместимость
+    для вызовов до появления складов)."""
     rack_type = determine_rack_type(sku, width_mm, parent_id)
-    racks = db.query(Rack).filter(Rack.type == rack_type, Rack.is_active).all()
+    query = db.query(Rack).filter(Rack.type == rack_type, Rack.is_active)
+    if warehouse_id is not None:
+        query = query.filter(Rack.warehouse_id == warehouse_id)
+    racks = query.all()
     if not racks:
         return None
     racks_by_id = {r.id: r for r in racks}

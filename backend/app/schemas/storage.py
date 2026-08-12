@@ -4,10 +4,30 @@ from app.models.storage import RackType
 from app.schemas.units import MaterialUnitOut
 
 
+class WarehouseCreate(BaseModel):
+    name: str
+    address: str | None = None
+
+
+class WarehouseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    address: str | None
+    is_active: bool
+
+
+class WarehouseUpdate(BaseModel):
+    name: str | None = None
+    address: str | None = None
+    is_active: bool | None = None
+
+
 class RackCreate(BaseModel):
     code: str
     type: RackType
     shelf_count: int = Field(gt=0)
+    warehouse_id: int
 
 
 class RackOut(BaseModel):
@@ -16,6 +36,7 @@ class RackOut(BaseModel):
     code: str
     type: RackType
     shelf_count: int
+    warehouse_id: int
     is_active: bool
 
 
@@ -23,6 +44,7 @@ class RackUpdate(BaseModel):
     code: str | None = None
     type: RackType | None = None
     shelf_count: int | None = Field(default=None, gt=0)
+    warehouse_id: int | None = None
     is_active: bool | None = None
 
 
