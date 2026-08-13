@@ -654,6 +654,7 @@ def search_units(
     min_length_m: float | None = None,
     status: UnitStatus | None = None,
     area: Area | None = None,
+    unplaced: bool | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[MaterialUnit]:
@@ -663,12 +664,23 @@ def search_units(
     Без явного `status` отдаёт всё, кроме списанного (2.2 раздел бэклога
     доработок — единый список материалов вместо трёх параллельных
     реализаций); мобильный «Поиск остатка» передаёт status=На_хранении
-    явно, чтобы сохранить прежнее поведение "что реально доступно"."""
+    явно, чтобы сохранить прежнее поведение "что реально доступно".
+
+    unplaced=true (раздел про нераспределённые остатки без стеллажей) —
+    единицы физически на складе (Принят/На_хранении), но без ячейки:
+    зависли посреди приёмки, после возврата (адрес всегда сбрасывается,
+    см. return_unit) или после резки без указанного места для остатка.
+    Выдан_участку/Списан намеренно не в счёт — у них отсутствие ячейки не
+    аномалия, а нормальное состояние."""
     query = _with_sku(db.query(MaterialUnit))
     if status is not None:
         query = query.filter(MaterialUnit.status == status)
+    elif unplaced:
+        query = query.filter(MaterialUnit.status.in_([UnitStatus.PRINYAT, UnitStatus.NA_KHRANENII]))
     else:
         query = query.filter(MaterialUnit.status != UnitStatus.SPISAN)
+    if unplaced:
+        query = query.filter(MaterialUnit.location_code.is_(None))
     if area is not None:
         query = query.filter(MaterialUnit.area == area)
     if material:

@@ -29,6 +29,7 @@ import {
   listMacroZoneRules,
   listRacks,
   listWarehouses,
+  suggestLocation,
   updateRack,
   updateWarehouse,
   type MacroZoneRule,
@@ -42,7 +43,7 @@ import {
 } from "../../api/storage";
 import { listColors, listManufacturers, listMaterials, listThicknesses } from "../../api/dictionaries";
 import DictAutoComplete from "../../components/DictAutoComplete";
-import { skuLabel } from "../../api/units";
+import { placeUnit, searchUnits, skuLabel, type MaterialUnit } from "../../api/units";
 import { useAuth } from "../../auth/AuthContext";
 
 const typeLabels: Record<RackType, string> = { roll: "рулонный", strip: "штрипсовый" };
@@ -224,6 +225,7 @@ function RacksConsole() {
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <UnplacedUnitsCard />
       <Space style={{ width: "100%", justifyContent: "space-between" }}>
         <Space>
           <Space.Compact>
@@ -464,6 +466,88 @@ function RacksConsole() {
         </Form>
       </Modal>
     </Space>
+  );
+}
+
+/** Нераспределённые остатки без стеллажей — единицы физически на складе
+ * (Принят/На_хранении), но без ячейки: зависли посреди приёмки, после
+ * возврата (адрес всегда сбрасывается) или после резки без указанного
+ * места для остатка. Без этой карточки они не видны нигде в "Стеллажах",
+ * потому что не привязаны ни к одному стеллажу. */
+function UnplacedUnitsCard() {
+  const unplacedQuery = useQuery({ queryKey: ["units-unplaced"], queryFn: () => searchUnits({ unplaced: true }) });
+  if (!unplacedQuery.data || unplacedQuery.data.length === 0) return null;
+
+  return (
+    <Card
+      size="small"
+      style={{ background: "#FBEAE7", borderColor: "#E3B5AC" }}
+      title={`⚠️ Без места: ${unplacedQuery.data.length}`}
+    >
+      <Space direction="vertical" style={{ width: "100%" }} size={6}>
+        {unplacedQuery.data.map((u) => (
+          <UnplacedRow key={u.id} unit={u} />
+        ))}
+      </Space>
+    </Card>
+  );
+}
+
+function UnplacedRow({ unit }: { unit: MaterialUnit }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const suggestion = useQuery({
+    queryKey: ["suggest-location", "unplaced", unit.id],
+    queryFn: () => suggestLocation({ material_sku_id: unit.material_sku.id, width_mm: unit.width_mm, parent_id: unit.parent_id }),
+  });
+  const placeMutation = useMutation({
+    mutationFn: (locationCode: string) => placeUnit(unit.id, locationCode),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["units-unplaced"] });
+      qc.invalidateQueries({ queryKey: ["rack-occupancy"] });
+      message.success(`№${unit.id} размещён`);
+    },
+    onError: () => message.error("Не удалось разместить"),
+  });
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        background: "#fff",
+        border: "1px solid #E3B5AC",
+        borderRadius: 8,
+        padding: "7px 12px",
+      }}
+    >
+      <Space size={12}>
+        <Typography.Text strong>№{unit.id}</Typography.Text>
+        <Typography.Text>{skuLabel(unit.material_sku)}</Typography.Text>
+        <Typography.Text type="secondary">
+          {unit.width_mm}×{unit.length_m} м
+        </Typography.Text>
+        <Tag>{unit.status.replace(/_/g, " ")}</Tag>
+      </Space>
+      <Space size={8}>
+        {suggestion.data ? (
+          <>
+            <Tag color="orange">{suggestion.data}</Tag>
+            <Button size="small" type="primary" loading={placeMutation.isPending} onClick={() => placeMutation.mutate(suggestion.data!)}>
+              Разместить
+            </Button>
+          </>
+        ) : (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {suggestion.isLoading ? "подбираем ячейку…" : "нет подходящего правила"}
+          </Typography.Text>
+        )}
+        <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: unit.id } })}>
+          Вручную
+        </Button>
+      </Space>
+    </div>
   );
 }
 

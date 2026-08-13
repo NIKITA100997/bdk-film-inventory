@@ -222,6 +222,7 @@ export interface SearchParams {
   min_length_m?: number;
   status?: UnitStatusValue;
   area?: "okutka_tsargovykh" | "shchitovye_dveri" | "tselnolistovye_dveri";
+  unplaced?: boolean;
 }
 
 export async function searchUnits(params: SearchParams): Promise<MaterialUnit[]> {
