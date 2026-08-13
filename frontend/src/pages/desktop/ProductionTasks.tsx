@@ -13,10 +13,8 @@ import {
   Modal,
   Typography,
   Empty,
-  Dropdown,
   message,
 } from "antd";
-import { DownOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProductionLines,
@@ -28,7 +26,6 @@ import {
   addProductModelPart,
   deleteProductModelPart,
   listProductionTasks,
-  createProductionTask,
   createProductionTaskManual,
   createTaskLineReport,
   type ProductionLine,
@@ -61,13 +58,12 @@ function TasksTab() {
   const qc = useQueryClient();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const canReport = canManage || !!user?.permissions.includes("production_tasks.report");
-  const [createOpen, setCreateOpen] = useState(false);
-  const [manualOpen, setManualOpen] = useState(false);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [manualLines, setManualLines] = useState<ProductionTaskLineManualCreate[]>([]);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
-  const [form] = Form.useForm<{ product_model_id: number; quantity: number }>();
   const [manualForm] = Form.useForm<{ name: string; area: AreaValue }>();
   const [manualRowForm] = Form.useForm<ProductionTaskLineManualCreate>();
+  const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number; color: string }>();
   const [reportForm] = Form.useForm<ProductionTaskLineReportCreate>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
@@ -80,32 +76,52 @@ function TasksTab() {
   const activeModels = (modelsQuery.data ?? []).filter((m) => m.is_active && m.parts.length > 0);
   const manualArea = Form.useWatch("area", manualForm);
   const linesForManualArea = (linesQuery.data ?? []).filter((l) => l.is_active && l.area === manualArea);
+  const bomProductModelId = Form.useWatch("product_model_id", bomForm);
 
   const tasks = (tasksQuery.data ?? []).filter((t) => !user?.area || t.area === user.area);
 
-  const createMutation = useMutation({
-    mutationFn: createProductionTask,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["production-tasks"] });
-      setCreateOpen(false);
-      form.resetFields();
-      message.success("Задание создано");
-    },
-    onError: () => message.error("Не удалось создать задание"),
-  });
+  const closeTaskModal = () => {
+    setTaskModalOpen(false);
+    manualForm.resetFields();
+    manualRowForm.resetFields();
+    bomForm.resetFields();
+    setManualLines([]);
+  };
 
   const manualCreateMutation = useMutation({
     mutationFn: createProductionTaskManual,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
-      setManualOpen(false);
-      manualForm.resetFields();
-      manualRowForm.resetFields();
-      setManualLines([]);
+      closeTaskModal();
       message.success("Задание создано");
     },
     onError: () => message.error("Не удалось создать задание"),
   });
+
+  const loadLinesFromBom = () => {
+    bomForm
+      .validateFields()
+      .then(({ product_model_id, quantity, color }) => {
+        const model = activeModels.find((m) => m.id === product_model_id);
+        if (!model) return;
+        const loaded: ProductionTaskLineManualCreate[] = model.parts.map((p) => ({
+          line_id: p.line_id,
+          material: p.material,
+          color,
+          thickness: p.thickness,
+          quantity_pieces: p.qty_per_unit * quantity,
+          width_mm: p.width_mm,
+          length_m: p.length_m,
+          part_name: p.part_name ?? undefined,
+        }));
+        setManualLines((lines) => [...lines, ...loaded]);
+        manualForm.setFieldsValue({
+          name: manualForm.getFieldValue("name") || `${model.name} — ${quantity} шт`,
+          area: model.area,
+        });
+      })
+      .catch(() => {});
+  };
 
   const reportMutation = useMutation({
     mutationFn: (v: ProductionTaskLineReportCreate) => createTaskLineReport(reportTarget!.taskId, reportTarget!.line.id, v),
@@ -129,19 +145,9 @@ function TasksTab() {
       <Card
         extra={
           canManage && (
-            <Dropdown
-              menu={{
-                items: [
-                  { key: "bom", label: "По модели (BOM)" },
-                  { key: "manual", label: "Вручную" },
-                ],
-                onClick: ({ key }) => (key === "bom" ? setCreateOpen(true) : setManualOpen(true)),
-              }}
-            >
-              <Button type="primary">
-                Создать задание <DownOutlined />
-              </Button>
-            </Dropdown>
+            <Button type="primary" onClick={() => setTaskModalOpen(true)}>
+              Создать задание
+            </Button>
           )
         }
       >
@@ -169,6 +175,7 @@ function TasksTab() {
                   pagination={false}
                   dataSource={task.lines}
                   columns={[
+                    { title: "Деталь", render: (_, l) => l.part_name ?? "—" },
                     { title: "Линия", dataIndex: "line_name" },
                     { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
                     { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
@@ -213,8 +220,23 @@ function TasksTab() {
         )}
       </Card>
 
-      <Modal title="Новое производственное задание — по модели" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
-        <Form layout="vertical" form={form} onFinish={(v) => createMutation.mutate(v)}>
+      <Modal
+        title="Новое производственное задание"
+        open={taskModalOpen}
+        onCancel={closeTaskModal}
+        footer={null}
+        destroyOnHidden
+        width={640}
+      >
+        <Typography.Paragraph type="secondary">
+          Строки задания — общий редактируемый список ниже: заполните их из состава модели (цвет и линию для
+          состава выбираете здесь — в BOM это только предложение по умолчанию) и/или добавьте вручную. Одну деталь
+          можно раздробить на несколько строк с разными линиями — уберите предложенную строку и добавьте вместо
+          неё несколько своих с нужным распределением количества.
+        </Typography.Paragraph>
+
+        <Typography.Title level={5}>Начать из модели (BOM)</Typography.Title>
+        <Form form={bomForm} layout="vertical">
           <Form.Item name="product_model_id" label="Модель продукции" rules={[{ required: true }]}>
             <Select
               placeholder="Выберите модель"
@@ -225,30 +247,20 @@ function TasksTab() {
           <Form.Item name="quantity" label="Количество, шт" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
-            Создать и разбить по линиям
+          <Form.Item name="color" label="Цвет плёнки" rules={[{ required: true }]}>
+            <DictAutoComplete kind="colors" />
+          </Form.Item>
+          <Button block disabled={!bomProductModelId} onClick={loadLinesFromBom}>
+            Загрузить строки из состава
           </Button>
         </Form>
-      </Modal>
 
-      <Modal
-        title="Новое производственное задание — вручную"
-        open={manualOpen}
-        onCancel={() => {
-          setManualOpen(false);
-          setManualLines([]);
-        }}
-        footer={null}
-        destroyOnHidden
-        width={640}
-      >
-        <Typography.Paragraph type="secondary">
-          Пока не все модели описаны в BOM — задайте строки напрямую (линия, плёнка, количество). Когда составы
-          будут заведены, вернитесь к созданию «По модели».
-        </Typography.Paragraph>
+        <Typography.Title level={5} style={{ marginTop: 24 }}>
+          Название и участок задания
+        </Typography.Title>
         <Form layout="vertical" form={manualForm}>
           <Form.Item name="name" label="Название задания" rules={[{ required: true }]}>
-            <Input placeholder="Партия 500 дверей — вручную" />
+            <Input placeholder="Партия 500 дверей" />
           </Form.Item>
           <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
             <Select options={areaOptions} />
@@ -263,6 +275,7 @@ function TasksTab() {
             dataSource={manualLines}
             style={{ marginBottom: 16 }}
             columns={[
+              { title: "Деталь", render: (_, l) => l.part_name ?? "—" },
               { title: "Линия", render: (_, l) => lineName(l.line_id) },
               { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
               { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
@@ -281,6 +294,9 @@ function TasksTab() {
 
         <Typography.Title level={5}>Добавить строку</Typography.Title>
         <Form form={manualRowForm} layout="vertical" onFinish={addManualLine}>
+          <Form.Item name="part_name" label="Название детали (опционально)">
+            <Input placeholder="Стоевая" />
+          </Form.Item>
           <Form.Item name="line_id" label="Линия" rules={[{ required: true }]}>
             <Select
               disabled={!manualArea}
@@ -320,7 +336,14 @@ function TasksTab() {
           onClick={() => {
             manualForm
               .validateFields()
-              .then((v) => manualCreateMutation.mutate({ ...v, lines: manualLines }))
+              .then((v) =>
+                manualCreateMutation.mutate({
+                  ...v,
+                  product_model_id: bomProductModelId || undefined,
+                  quantity: bomForm.getFieldValue("quantity") || undefined,
+                  lines: manualLines,
+                }),
+              )
               .catch(() => {});
           }}
         >

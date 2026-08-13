@@ -56,7 +56,9 @@ export default function Issue() {
     // Раздел про размер детали — размер куска на деталь (для реза/подбора)
     // и остаток сразу в метрах (не только в штуках) — так кладовщик видит,
     // сколько погонных метров ещё довыдать под эту строку задания.
-    label: `${t.product_model_name ?? t.name ?? "Задание"} — ${l.line_name} — ${l.material}, ${l.color}, ${l.thickness} мм — ${l.width_mm} мм × ${l.length_m} м/шт — осталось ${l.remaining_pieces} шт (${l.remaining_length_m} м)`,
+    // Раздел про распределение по линиям — название детали в начале
+    // подписи, чтобы отличать строки одного задания на разных линиях.
+    label: `${l.part_name ? l.part_name + " — " : ""}${t.product_model_name ?? t.name ?? "Задание"} — ${l.line_name} — ${l.material}, ${l.color}, ${l.thickness} мм — ${l.width_mm} мм × ${l.length_m} м/шт — осталось ${l.remaining_pieces} шт (${l.remaining_length_m} м)`,
   }));
 
   useEffect(() => {

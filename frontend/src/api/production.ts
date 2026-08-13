@@ -71,6 +71,7 @@ export interface ProductionTaskLine {
   quantity_pieces: number;
   width_mm: number;
   length_m: number;
+  part_name: string | null;
   produced_good_pieces: number;
   defect_pieces: number;
   remaining_pieces: number;
@@ -89,11 +90,6 @@ export interface ProductionTask {
   lines: ProductionTaskLine[];
 }
 
-export interface ProductionTaskCreate {
-  product_model_id: number;
-  quantity: number;
-}
-
 export interface ProductionTaskLineManualCreate {
   line_id: number;
   material: string;
@@ -102,11 +98,14 @@ export interface ProductionTaskLineManualCreate {
   quantity_pieces: number;
   width_mm: number;
   length_m: number;
+  part_name?: string;
 }
 
 export interface ProductionTaskManualCreate {
   name: string;
   area: AreaValue;
+  product_model_id?: number;
+  quantity?: number;
   lines: ProductionTaskLineManualCreate[];
 }
 
@@ -157,9 +156,6 @@ export const deleteProductModelPart = async (modelId: number, partId: number): P
 
 export const listProductionTasks = async (): Promise<ProductionTask[]> =>
   (await apiClient.get<ProductionTask[]>("/production-tasks")).data;
-
-export const createProductionTask = async (payload: ProductionTaskCreate): Promise<ProductionTask> =>
-  (await apiClient.post<ProductionTask>("/production-tasks", payload)).data;
 
 export const createProductionTaskManual = async (payload: ProductionTaskManualCreate): Promise<ProductionTask> =>
   (await apiClient.post<ProductionTask>("/production-tasks/manual", payload)).data;
