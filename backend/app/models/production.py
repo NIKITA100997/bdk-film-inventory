@@ -39,9 +39,11 @@ class ProductModel(Base):
 
 class ProductModelPart(Base):
     """Строка BOM — сколько плёнки какого цвета нужно на линии X на одну
-    деталь. part_name — только для читаемости в админке, в разбивке
-    задания не участвует (несколько деталей на одной линии с одной плёнкой
-    складываются в одну строку — см. services/production.py::explode_task)."""
+    деталь, и какого размера кусок на эту деталь (width_mm/length_m —
+    раздел про размер детали). part_name — только для читаемости в
+    админке, в разбивке задания не участвует (несколько деталей на одной
+    линии с одной плёнкой И одним размером складываются в одну строку —
+    см. services/production.py::explode_task)."""
 
     __tablename__ = "product_model_parts"
 
@@ -54,6 +56,8 @@ class ProductModelPart(Base):
     thickness_id: Mapped[int] = mapped_column(ForeignKey("thicknesses.id"))
 
     qty_per_unit: Mapped[float] = mapped_column(Numeric(10, 2))
+    width_mm: Mapped[float] = mapped_column(Numeric(10, 2))
+    length_m: Mapped[float] = mapped_column(Numeric(12, 3))
     part_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     product_model: Mapped[ProductModel] = relationship(back_populates="parts")
@@ -101,6 +105,11 @@ class ProductionTaskLine(Base):
     thickness_id: Mapped[int] = mapped_column(ForeignKey("thicknesses.id"))
 
     quantity_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
+    # Раздел про размер детали — ширина/длина куска плёнки НА ОДНУ деталь
+    # (не на всю строку); склад видит их на "Выдаче участку", чтобы знать,
+    # какого размера штрипс резать/выдавать под эту строку задания.
+    width_mm: Mapped[float] = mapped_column(Numeric(10, 2))
+    length_m: Mapped[float] = mapped_column(Numeric(12, 3))
 
     task: Mapped[ProductionTask] = relationship(back_populates="lines")
     reports: Mapped[list["ProductionTaskLineReport"]] = relationship(

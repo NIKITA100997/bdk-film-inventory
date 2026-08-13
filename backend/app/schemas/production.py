@@ -41,6 +41,8 @@ class ProductModelPartCreate(BaseModel):
     color: str
     thickness: float
     qty_per_unit: float = Field(gt=0)
+    width_mm: float = Field(gt=0)
+    length_m: float = Field(gt=0)
     part_name: str | None = None
 
 
@@ -52,6 +54,8 @@ class ProductModelPartOut(BaseModel):
     color: str
     thickness: float
     qty_per_unit: float
+    width_mm: float
+    length_m: float
     part_name: str | None
 
 
@@ -74,6 +78,8 @@ class ProductionTaskLineManualCreate(BaseModel):
     color: str
     thickness: float
     quantity_pieces: float = Field(gt=0)
+    width_mm: float = Field(gt=0)
+    length_m: float = Field(gt=0)
 
 
 class ProductionTaskManualCreate(BaseModel):
@@ -115,12 +121,17 @@ class ProductionTaskLineOut(BaseModel):
     color: str
     thickness: float
     quantity_pieces: float
+    # Раздел про размер детали — размер куска плёнки на одну деталь; склад
+    # видит их на "Выдаче участку", чтобы знать, что резать/выдавать.
+    width_mm: float
+    length_m: float
     # Агрегаты по ProductionTaskLineReport (раздел про брак в
     # производстве) — quantity_pieces сама не мутируется, остаток считается
     # на лету из накопительного журнала отчётов.
     produced_good_pieces: float
     defect_pieces: float
     remaining_pieces: float
+    remaining_length_m: float
 
 
 class ProductionTaskOut(BaseModel):

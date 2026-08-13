@@ -31,7 +31,7 @@ from app.schemas.production import (
     ProductModelUpdate,
 )
 from app.services.dictionaries import find_or_create_material_color_thickness
-from app.services.production import BomPart, compute_remaining_pieces, explode_task
+from app.services.production import BomPart, compute_remaining_length_m, compute_remaining_pieces, explode_task
 
 router = APIRouter(tags=["production"])
 
@@ -59,6 +59,8 @@ def _part_out(db: Session, part: ProductModelPart) -> ProductModelPartOut:
         color=db.get(Color, part.color_id).name,
         thickness=float(db.get(Thickness, part.thickness_id).value_mm),
         qty_per_unit=float(part.qty_per_unit),
+        width_mm=float(part.width_mm),
+        length_m=float(part.length_m),
         part_name=part.part_name,
     )
 
@@ -75,6 +77,7 @@ def _model_out(db: Session, model: ProductModel) -> ProductModelOut:
 
 def _task_line_out(db: Session, line: ProductionTaskLine, good: float, defect: float) -> ProductionTaskLineOut:
     prod_line = db.get(ProductionLine, line.line_id)
+    remaining_pieces = compute_remaining_pieces(float(line.quantity_pieces), good)
     return ProductionTaskLineOut(
         id=line.id,
         line_id=line.line_id,
@@ -83,9 +86,12 @@ def _task_line_out(db: Session, line: ProductionTaskLine, good: float, defect: f
         color=db.get(Color, line.color_id).name,
         thickness=float(db.get(Thickness, line.thickness_id).value_mm),
         quantity_pieces=float(line.quantity_pieces),
+        width_mm=float(line.width_mm),
+        length_m=float(line.length_m),
         produced_good_pieces=good,
         defect_pieces=defect,
-        remaining_pieces=compute_remaining_pieces(float(line.quantity_pieces), good),
+        remaining_pieces=remaining_pieces,
+        remaining_length_m=compute_remaining_length_m(float(line.length_m), remaining_pieces),
     )
 
 
@@ -236,6 +242,8 @@ def add_product_model_part(
         color_id=color.id,
         thickness_id=thickness.id,
         qty_per_unit=payload.qty_per_unit,
+        width_mm=payload.width_mm,
+        length_m=payload.length_m,
         part_name=payload.part_name,
     )
     db.add(part)
@@ -290,6 +298,8 @@ def create_production_task(
             color_id=p.color_id,
             thickness_id=p.thickness_id,
             qty_per_unit=float(p.qty_per_unit),
+            width_mm=float(p.width_mm),
+            length_m=float(p.length_m),
         )
         for p in model.parts
     ]
@@ -307,6 +317,8 @@ def create_production_task(
                 color_id=line.color_id,
                 thickness_id=line.thickness_id,
                 quantity_pieces=line.quantity_pieces,
+                width_mm=line.width_mm,
+                length_m=line.length_m,
             )
         )
     db.commit()
@@ -343,6 +355,8 @@ def create_production_task_manual(
                 color_id=color.id,
                 thickness_id=thickness.id,
                 quantity_pieces=line_payload.quantity_pieces,
+                width_mm=line_payload.width_mm,
+                length_m=line_payload.length_m,
             )
         )
     db.commit()
