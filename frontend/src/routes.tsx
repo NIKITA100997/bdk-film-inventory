@@ -7,7 +7,6 @@ import { RequireAuth, RequirePermission } from "./auth/RoleGuard";
 import Receive from "./pages/mobile/Receive";
 import Issue from "./pages/mobile/Issue";
 import UnitCard from "./pages/mobile/UnitCard";
-import Inventory from "./pages/mobile/Inventory";
 
 import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
 import MaterialCard from "./pages/desktop/MaterialCard";
@@ -50,11 +49,6 @@ export default function AppRoutes() {
             </RequirePermission>
           }
         />
-        <Route
-          path="/m/inventory"
-          element={<RequirePermission permissions={["inventory.manage"]}><Inventory /></RequirePermission>}
-        />
-
         {/* "Остатки"/"Карточка материала" видны любому аутентифицированному
         пользователю (как раньше ALL_ROLES) — /materials не пункт меню (8.1
         раздел бэклога доработок), вход только кликом по строке или сканом QR,

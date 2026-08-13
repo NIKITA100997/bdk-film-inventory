@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Card, Form, Input, InputNumber, Select, Typography, List, Row, Col, Statistic, message } from "antd";
+import { Alert, Button, Card, Form, Input, InputNumber, Select, Typography, List, Row, Col, Statistic, message } from "antd";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { receiveAndAutoPlace, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import { listWarehouses } from "../../api/storage";
@@ -21,6 +21,7 @@ export default function Receive() {
   const [upd, setUpd] = useState("");
   const [pallet, setPallet] = useState("");
   const [sessionUnits, setSessionUnits] = useState<MaterialUnit[]>([]);
+  const [lastAdded, setLastAdded] = useState<MaterialUnit[] | null>(null);
   const [finished, setFinished] = useState(false);
   const [warehouseId, setWarehouseId] = useState<number | undefined>(undefined);
   const [headerForm] = Form.useForm<HeaderValues>();
@@ -38,12 +39,7 @@ export default function Receive() {
       receiveAndAutoPlace({ ...values, upd_number: upd, pallet_number: pallet }, warehouseId),
     onSuccess: (units) => {
       setSessionUnits((s) => [...s, ...units]);
-      const unplaced = units.filter((u) => !u.location_code).length;
-      message.success(
-        unplaced
-          ? `Добавлено ${units.length}, без места автоматически: ${unplaced} — разместите вручную позже`
-          : `Добавлено и размещено: ${units.length}`,
-      );
+      setLastAdded(units);
       // Сохраняем все параметры рулона (ширину/длину/материал/цвет) для быстрой
       // повторной приёмки одинаковых рулонов с той же паллеты.
       lineForm.setFieldsValue({ quantity: 1 });
@@ -64,6 +60,7 @@ export default function Receive() {
   const newSession = () => {
     setSessionStarted(false);
     setSessionUnits([]);
+    setLastAdded(null);
     setFinished(false);
     setWarehouseId(undefined);
     headerForm.resetFields();
@@ -150,6 +147,21 @@ export default function Receive() {
               Добавить и дальше
             </Button>
           </Form>
+
+          {lastAdded && (
+            <Alert
+              style={{ marginTop: 16 }}
+              showIcon
+              type={lastAdded.every((u) => u.location_code) ? "success" : "warning"}
+              message={
+                lastAdded.every((u) => u.location_code)
+                  ? lastAdded.length === 1
+                    ? `№${lastAdded[0].id} → ячейка ${lastAdded[0].location_code}`
+                    : `${lastAdded.length} рулонов размещено: ${lastAdded.map((u) => u.location_code).join(", ")}`
+                  : `Без места автоматически: ${lastAdded.filter((u) => !u.location_code).length} из ${lastAdded.length} — разместите вручную через карточку единицы после завершения приёмки`
+              }
+            />
+          )}
 
           {sessionUnits.length > 0 && (
             <>
