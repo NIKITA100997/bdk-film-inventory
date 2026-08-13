@@ -18,7 +18,6 @@ from app.schemas.production import (
     ProductionLineCreate,
     ProductionLineOut,
     ProductionLineUpdate,
-    ProductionTaskCreate,
     ProductionTaskLineOut,
     ProductionTaskLineReportCreate,
     ProductionTaskLineReportOut,
@@ -31,7 +30,7 @@ from app.schemas.production import (
     ProductModelUpdate,
 )
 from app.services.dictionaries import find_or_create_material_color_thickness
-from app.services.production import BomPart, compute_remaining_length_m, compute_remaining_pieces, explode_task
+from app.services.production import compute_remaining_length_m, compute_remaining_pieces
 
 router = APIRouter(tags=["production"])
 
@@ -88,6 +87,7 @@ def _task_line_out(db: Session, line: ProductionTaskLine, good: float, defect: f
         quantity_pieces=float(line.quantity_pieces),
         width_mm=float(line.width_mm),
         length_m=float(line.length_m),
+        part_name=line.part_name,
         produced_good_pieces=good,
         defect_pieces=defect,
         remaining_pieces=remaining_pieces,
@@ -277,63 +277,23 @@ def list_production_tasks(db: Session = Depends(get_db), user: User = Depends(ge
     return [_task_out(db, t) for t in tasks]
 
 
-@router.post("/production-tasks", response_model=ProductionTaskOut, status_code=status.HTTP_201_CREATED)
-def create_production_task(
-    payload: ProductionTaskCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
-) -> ProductionTaskOut:
-    """Разбор 'N штук модели X' на задания по линиям (раздел про
-    производственные задания, пилот — окутка царговых). Считается один раз
-    при создании — не пересчитывается на лету, т.к. BOM модели мог
-    измениться между заданиями."""
-    model = db.get(ProductModel, payload.product_model_id)
-    if model is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Модель не найдена")
-    if not model.parts:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="У модели нет ни одной детали (BOM пуст)")
-
-    bom_parts = [
-        BomPart(
-            line_id=p.line_id,
-            material_id=p.material_id,
-            color_id=p.color_id,
-            thickness_id=p.thickness_id,
-            qty_per_unit=float(p.qty_per_unit),
-            width_mm=float(p.width_mm),
-            length_m=float(p.length_m),
-        )
-        for p in model.parts
-    ]
-    exploded = explode_task(bom_parts, payload.quantity)
-
-    task = ProductionTask(product_model_id=model.id, quantity=payload.quantity, area=model.area, created_by=user.id)
-    db.add(task)
-    db.flush()
-    for line in exploded:
-        db.add(
-            ProductionTaskLine(
-                task_id=task.id,
-                line_id=line.line_id,
-                material_id=line.material_id,
-                color_id=line.color_id,
-                thickness_id=line.thickness_id,
-                quantity_pieces=line.quantity_pieces,
-                width_mm=line.width_mm,
-                length_m=line.length_m,
-            )
-        )
-    db.commit()
-    db.refresh(task)
-    return _task_out(db, task)
-
-
 @router.post("/production-tasks/manual", response_model=ProductionTaskOut, status_code=status.HTTP_201_CREATED)
 def create_production_task_manual(
     payload: ProductionTaskManualCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
 ) -> ProductionTaskOut:
-    """Ручной ввод задания (раздел про ручной режим) — пока не все модели
-    продукции описаны в BOM: строки задаются напрямую, без модели и без
-    explode_task — строки уже готовы, разбирать нечего."""
-    task = ProductionTask(product_model_id=None, quantity=None, name=payload.name, area=payload.area, created_by=user.id)
+    """Единый способ создания задания (раздел про распределение по линиям)
+    — строки приходят уже готовыми: либо введены с нуля, либо предложены из
+    BOM модели и раздроблены/отредактированы на фронтенде (одна деталь BOM
+    может породить несколько строк с разными линиями и количествами —
+    сервер это не считает, ему всё равно, откуда взялся список).
+    product_model_id/quantity — необязательны, только для отображения."""
+    task = ProductionTask(
+        product_model_id=payload.product_model_id,
+        quantity=payload.quantity,
+        name=payload.name,
+        area=payload.area,
+        created_by=user.id,
+    )
     db.add(task)
     db.flush()
     for line_payload in payload.lines:
@@ -357,6 +317,7 @@ def create_production_task_manual(
                 quantity_pieces=line_payload.quantity_pieces,
                 width_mm=line_payload.width_mm,
                 length_m=line_payload.length_m,
+                part_name=line_payload.part_name,
             )
         )
     db.commit()

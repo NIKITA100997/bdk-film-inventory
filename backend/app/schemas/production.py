@@ -67,11 +67,6 @@ class ProductModelOut(BaseModel):
     parts: list[ProductModelPartOut] = []
 
 
-class ProductionTaskCreate(BaseModel):
-    product_model_id: int
-    quantity: int = Field(gt=0)
-
-
 class ProductionTaskLineManualCreate(BaseModel):
     line_id: int
     material: str
@@ -80,14 +75,21 @@ class ProductionTaskLineManualCreate(BaseModel):
     quantity_pieces: float = Field(gt=0)
     width_mm: float = Field(gt=0)
     length_m: float = Field(gt=0)
+    part_name: str | None = None
 
 
 class ProductionTaskManualCreate(BaseModel):
-    """Ручное создание задания (раздел про ручной режим) — пока не все
-    модели продукции описаны в BOM: строки задаются напрямую, без модели."""
+    """Раздел про распределение по линиям — единый способ создания задания:
+    строки задаются напрямую (либо вручную с нуля, либо предложены из BOM
+    модели и затем отредактированы/раздроблены по линиям на фронтенде —
+    сервер не различает эти два случая, ему приходит уже готовый список
+    строк). product_model_id/quantity — необязательны, только для
+    отображения "из какой модели и на какое количество" в списке заданий."""
 
     name: str
     area: Area
+    product_model_id: int | None = None
+    quantity: int | None = None
     lines: list[ProductionTaskLineManualCreate] = Field(min_length=1)
 
 
@@ -125,6 +127,9 @@ class ProductionTaskLineOut(BaseModel):
     # видит их на "Выдаче участку", чтобы знать, что резать/выдавать.
     width_mm: float
     length_m: float
+    # Раздел про распределение по линиям — название детали ("Стоевая" и
+    # т.п.), чтобы строки различались не только цифрами размера.
+    part_name: str | None
     # Агрегаты по ProductionTaskLineReport (раздел про брак в
     # производстве) — quantity_pieces сама не мутируется, остаток считается
     # на лету из накопительного журнала отчётов.
