@@ -13,8 +13,10 @@ import {
   Modal,
   Typography,
   Empty,
+  DatePicker,
   message,
 } from "antd";
+import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProductionLines,
@@ -28,6 +30,8 @@ import {
   listProductionTasks,
   createProductionTaskManual,
   createTaskLineReport,
+  listTaskLineAssignments,
+  createTaskLineAssignment,
   type ProductionLine,
   type ProductionLineUpdate,
   type ProductModel,
@@ -36,10 +40,11 @@ import {
   type ProductionTaskLine,
   type ProductionTaskLineManualCreate,
   type ProductionTaskLineReportCreate,
+  type ProductionTaskLineAssignmentCreate,
 } from "../../api/production";
 import { listUsers } from "../../api/users";
-import { WRITE_OFF_REASON_OPTIONS, type AreaValue, type WriteOffReasonValue } from "../../api/units";
-import DictAutoComplete from "../../components/DictAutoComplete";
+import { listMaterialSkus } from "../../api/dictionaries";
+import { WRITE_OFF_REASON_OPTIONS, skuLabel, type AreaValue, type MaterialSku, type WriteOffReasonValue } from "../../api/units";
 import { useAuth } from "../../auth/AuthContext";
 
 const areaLabels: Record<string, string> = {
@@ -53,6 +58,8 @@ const areaOptions = Object.entries(areaLabels).map(([value, label]) => ({ value,
  * линиям (пилот: окутка царговых). Начальник участка (есть свой user.area)
  * видит только задания своего участка — тот же принцип, что уже в
  * MaterialsExplorer/Overview для остальных area-скоупированных экранов. */
+type ManualRowFormValues = ProductionTaskLineManualCreate & { sku_id?: number };
+
 function TasksTab() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -61,24 +68,30 @@ function TasksTab() {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [manualLines, setManualLines] = useState<ProductionTaskLineManualCreate[]>([]);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
+  const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
   const [manualForm] = Form.useForm<{ name: string; area: AreaValue }>();
-  const [manualRowForm] = Form.useForm<ProductionTaskLineManualCreate>();
-  const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number; color: string }>();
+  const [manualRowForm] = Form.useForm<ManualRowFormValues>();
+  const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number; sku_id: number }>();
   const [reportForm] = Form.useForm<ProductionTaskLineReportCreate>();
+  const [assignForm] = Form.useForm<{ line_id: number; date: dayjs.Dayjs; employee_names: string; quantity_pieces: number }>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
   const linesQuery = useQuery({ queryKey: ["production-lines"], queryFn: listProductionLines });
+  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
   const usersQuery = useQuery({ queryKey: ["users-summary"], queryFn: listUsers });
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
-  const lineName = (id: number) => linesQuery.data?.find((l) => l.id === id)?.name ?? `#${id}`;
+  const skuOptions = (skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }));
 
   const activeModels = (modelsQuery.data ?? []).filter((m) => m.is_active && m.parts.length > 0);
-  const manualArea = Form.useWatch("area", manualForm);
-  const linesForManualArea = (linesQuery.data ?? []).filter((l) => l.is_active && l.area === manualArea);
   const bomProductModelId = Form.useWatch("product_model_id", bomForm);
 
   const tasks = (tasksQuery.data ?? []).filter((t) => !user?.area || t.area === user.area);
+
+  const applySkuFields = (form: typeof manualRowForm, sku: MaterialSku | undefined) => {
+    if (!sku) return;
+    form.setFieldsValue({ material: sku.material.name, color: sku.color.name, thickness: sku.thickness.value_mm });
+  };
 
   const closeTaskModal = () => {
     setTaskModalOpen(false);
@@ -101,14 +114,14 @@ function TasksTab() {
   const loadLinesFromBom = () => {
     bomForm
       .validateFields()
-      .then(({ product_model_id, quantity, color }) => {
+      .then(({ product_model_id, quantity, sku_id }) => {
         const model = activeModels.find((m) => m.id === product_model_id);
-        if (!model) return;
+        const sku = skusQuery.data?.find((s) => s.id === sku_id);
+        if (!model || !sku) return;
         const loaded: ProductionTaskLineManualCreate[] = model.parts.map((p) => ({
-          line_id: p.line_id,
-          material: p.material,
-          color,
-          thickness: p.thickness,
+          material: sku.material.name,
+          color: sku.color.name,
+          thickness: sku.thickness.value_mm,
           quantity_pieces: p.qty_per_unit * quantity,
           width_mm: p.width_mm,
           length_m: p.length_m,
@@ -119,6 +132,8 @@ function TasksTab() {
           name: manualForm.getFieldValue("name") || `${model.name} — ${quantity} шт`,
           area: model.area,
         });
+        manualRowForm.setFieldsValue({ sku_id });
+        applySkuFields(manualRowForm, sku);
       })
       .catch(() => {});
   };
@@ -134,9 +149,34 @@ function TasksTab() {
     onError: () => message.error("Не удалось сохранить отчёт"),
   });
 
-  const addManualLine = (v: ProductionTaskLineManualCreate) => {
-    setManualLines((lines) => [...lines, v]);
+  const assignmentsQuery = useQuery({
+    queryKey: ["task-line-assignments", assignTarget?.task.id, assignTarget?.line.id],
+    queryFn: () => listTaskLineAssignments(assignTarget!.task.id, assignTarget!.line.id),
+    enabled: !!assignTarget,
+  });
+  const linesForAssignTask = (linesQuery.data ?? []).filter((l) => l.is_active && l.area === assignTarget?.task.area);
+  const assignedSoFar = (assignmentsQuery.data ?? []).reduce((sum, a) => sum + a.quantity_pieces, 0);
+
+  const assignMutation = useMutation({
+    mutationFn: (v: ProductionTaskLineAssignmentCreate) => createTaskLineAssignment(assignTarget!.task.id, assignTarget!.line.id, v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-line-assignments", assignTarget?.task.id, assignTarget?.line.id] });
+      assignForm.resetFields();
+      message.success("Распределение сохранено");
+    },
+    onError: () => message.error("Не удалось сохранить распределение"),
+  });
+
+  const addManualLine = (v: ManualRowFormValues) => {
+    const { sku_id: _skuId, ...rest } = v;
+    setManualLines((lines) => [...lines, rest]);
+    const defaultSkuId = bomForm.getFieldValue("sku_id");
     manualRowForm.resetFields();
+    if (defaultSkuId) {
+      manualRowForm.setFieldsValue({ sku_id: defaultSkuId });
+      applySkuFields(manualRowForm, skusQuery.data?.find((s) => s.id === defaultSkuId));
+    }
   };
   const removeManualLine = (index: number) => setManualLines((lines) => lines.filter((_, i) => i !== index));
 
@@ -191,18 +231,27 @@ function TasksTab() {
                       ),
                     },
                     {
+                      title: "Распределено",
+                      render: (_, l) => `${l.assigned_pieces} из ${l.quantity_pieces} шт`,
+                    },
+                    {
                       title: "",
                       render: (_, l) =>
                         canReport && (
-                          <Button
-                            size="small"
-                            onClick={() => {
-                              setReportTarget({ taskId: task.id, line: l });
-                              reportForm.resetFields();
-                            }}
-                          >
-                            Отчитаться
-                          </Button>
+                          <Space size={4}>
+                            <Button size="small" onClick={() => setAssignTarget({ task, line: l })}>
+                              Распределить
+                            </Button>
+                            <Button
+                              size="small"
+                              onClick={() => {
+                                setReportTarget({ taskId: task.id, line: l });
+                                reportForm.resetFields();
+                              }}
+                            >
+                              Отчитаться
+                            </Button>
+                          </Space>
                         ),
                     },
                   ]}
@@ -229,10 +278,10 @@ function TasksTab() {
         width={640}
       >
         <Typography.Paragraph type="secondary">
-          Строки задания — общий редактируемый список ниже: заполните их из состава модели (цвет и линию для
-          состава выбираете здесь — в BOM это только предложение по умолчанию) и/или добавьте вручную. Одну деталь
-          можно раздробить на несколько строк с разными линиями — уберите предложенную строку и добавьте вместо
-          неё несколько своих с нужным распределением количества.
+          Строки задания — общий редактируемый список ниже: заполните их из состава модели (номенклатуру плёнки для
+          состава выбираете здесь — в BOM цвет/материал не фиксируется) и/или добавьте вручную. Линия не выбирается
+          здесь — задание ставится на участок, а по линиям/дням/сотрудникам его распределяет начальник участка
+          отдельно (кнопка «Распределить» у уже созданного задания).
         </Typography.Paragraph>
 
         <Typography.Title level={5}>Начать из модели (BOM)</Typography.Title>
@@ -247,8 +296,8 @@ function TasksTab() {
           <Form.Item name="quantity" label="Количество, шт" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="color" label="Цвет плёнки" rules={[{ required: true }]}>
-            <DictAutoComplete kind="colors" />
+          <Form.Item name="sku_id" label="Материал (номенклатура)" rules={[{ required: true }]}>
+            <Select showSearch placeholder="Выберите позицию материала" options={skuOptions} optionFilterProp="label" />
           </Form.Item>
           <Button block disabled={!bomProductModelId} onClick={loadLinesFromBom}>
             Загрузить строки из состава
@@ -276,7 +325,6 @@ function TasksTab() {
             style={{ marginBottom: 16 }}
             columns={[
               { title: "Деталь", render: (_, l) => l.part_name ?? "—" },
-              { title: "Линия", render: (_, l) => lineName(l.line_id) },
               { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
               { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
               { title: "Кол-во, шт", dataIndex: "quantity_pieces" },
@@ -297,21 +345,23 @@ function TasksTab() {
           <Form.Item name="part_name" label="Название детали (опционально)">
             <Input placeholder="Стоевая" />
           </Form.Item>
-          <Form.Item name="line_id" label="Линия" rules={[{ required: true }]}>
+          <Form.Item name="sku_id" label="Материал (номенклатура)" rules={[{ required: true }]}>
             <Select
-              disabled={!manualArea}
-              placeholder={manualArea ? "Выберите линию" : "Сначала выберите участок выше"}
-              options={linesForManualArea.map((l) => ({ value: l.id, label: l.name }))}
+              showSearch
+              placeholder="Выберите позицию материала"
+              options={skuOptions}
+              optionFilterProp="label"
+              onChange={(skuId) => applySkuFields(manualRowForm, skusQuery.data?.find((s) => s.id === skuId))}
             />
           </Form.Item>
-          <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
-            <DictAutoComplete kind="materials" />
+          <Form.Item name="material" hidden rules={[{ required: true }]}>
+            <Input />
           </Form.Item>
-          <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
-            <DictAutoComplete kind="colors" />
+          <Form.Item name="color" hidden rules={[{ required: true }]}>
+            <Input />
           </Form.Item>
-          <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
-            <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+          <Form.Item name="thickness" hidden rules={[{ required: true }]}>
+            <InputNumber />
           </Form.Item>
           <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
@@ -387,6 +437,58 @@ function TasksTab() {
           </>
         )}
       </Modal>
+
+      <Modal
+        title={assignTarget ? `Распределение строки «${assignTarget.line.part_name ?? assignTarget.line.material}»` : ""}
+        open={!!assignTarget}
+        onCancel={() => setAssignTarget(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        {assignTarget && (
+          <>
+            <Typography.Paragraph type="secondary">
+              Нужно всего: {assignTarget.line.quantity_pieces} шт. Распределено по линиям:{" "}
+              <Typography.Text strong>{assignedSoFar}</Typography.Text> из {assignTarget.line.quantity_pieces} шт.
+            </Typography.Paragraph>
+
+            <Table
+              rowKey="id"
+              size="small"
+              loading={assignmentsQuery.isLoading}
+              dataSource={assignmentsQuery.data ?? []}
+              pagination={false}
+              locale={{ emptyText: "Пока не распределено ни по одной линии" }}
+              style={{ marginBottom: 16 }}
+              columns={[
+                { title: "Линия", dataIndex: "line_name" },
+                { title: "Дата", render: (_, a) => dayjs(a.date).format("DD.MM.YYYY") },
+                { title: "Сотрудники", dataIndex: "employee_names" },
+                { title: "Кол-во, шт", dataIndex: "quantity_pieces" },
+              ]}
+            />
+
+            <Typography.Title level={5}>Добавить распределение</Typography.Title>
+            <Form layout="vertical" form={assignForm} onFinish={(v) => assignMutation.mutate({ ...v, date: v.date.format("YYYY-MM-DD") })}>
+              <Form.Item name="line_id" label="Линия" rules={[{ required: true }]}>
+                <Select options={linesForAssignTask.map((l) => ({ value: l.id, label: l.name }))} />
+              </Form.Item>
+              <Form.Item name="date" label="Дата" rules={[{ required: true }]} initialValue={dayjs()}>
+                <DatePicker style={{ width: "100%" }} format="DD.MM.YYYY" />
+              </Form.Item>
+              <Form.Item name="employee_names" label="Сотрудники" rules={[{ required: true }]}>
+                <Input placeholder="Иванов, Петров" />
+              </Form.Item>
+              <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
+                <InputNumber min={1} style={{ width: "100%" }} />
+              </Form.Item>
+              <Button type="primary" htmlType="submit" block loading={assignMutation.isPending}>
+                Добавить
+              </Button>
+            </Form>
+          </>
+        )}
+      </Modal>
     </Space>
   );
 }
@@ -400,7 +502,6 @@ function ModelsTab() {
   const [partForm] = Form.useForm<ProductModelPartCreate>();
 
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
-  const linesQuery = useQuery({ queryKey: ["production-lines"], queryFn: listProductionLines });
 
   const createMutation = useMutation({
     mutationFn: createProductModel,
@@ -425,7 +526,7 @@ function ModelsTab() {
       partForm.resetFields();
       message.success("Деталь добавлена");
     },
-    onError: () => message.error("Не удалось добавить — линия с другого участка?"),
+    onError: () => message.error("Не удалось добавить деталь"),
   });
   const deletePartMutation = useMutation({
     mutationFn: (partId: number) => deleteProductModelPart(selectedModel!.id, partId),
@@ -434,8 +535,6 @@ function ModelsTab() {
       setSelectedModel((m) => (m ? { ...m, parts: m.parts.filter((p) => p.id !== partId) } : m));
     },
   });
-
-  const linesForModelArea = (linesQuery.data ?? []).filter((l) => l.is_active && l.area === selectedModel?.area);
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -489,8 +588,7 @@ function ModelsTab() {
             pagination={false}
             columns={[
               { title: "Деталь", dataIndex: "part_name", render: (v: string | null) => v ?? "—" },
-              { title: "Линия", dataIndex: "line_name" },
-              { title: "Материал", render: (_, p) => `${p.material}, ${p.color}, ${p.thickness} мм` },
+              { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
               { title: "Размер детали", render: (_, p) => `${p.width_mm} мм × ${p.length_m} м` },
               { title: "Кол-во на единицу", dataIndex: "qty_per_unit" },
               {
@@ -520,25 +618,29 @@ function ModelsTab() {
         </Form>
       </Modal>
 
-      <Modal title="Новая деталь BOM" open={partModalOpen} onCancel={() => setPartModalOpen(false)} footer={null} destroyOnHidden>
-        <Form layout="vertical" form={partForm} onFinish={(v) => addPartMutation.mutate(v)}>
+      <Modal
+        title="Новая деталь BOM"
+        open={partModalOpen}
+        onCancel={() => setPartModalOpen(false)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Form
+          layout="vertical"
+          form={partForm}
+          initialValues={{ area: selectedModel?.area }}
+          onFinish={(v) => addPartMutation.mutate(v)}
+        >
           <Form.Item name="part_name" label="Название детали (опционально)">
             <Input placeholder="Верхняя царга" />
           </Form.Item>
-          <Form.Item name="line_id" label="Линия" rules={[{ required: true }]}>
-            <Select
-              options={linesForModelArea.map((l) => ({ value: l.id, label: l.name }))}
-              notFoundContent={<Typography.Text type="secondary">Нет линий на этом участке — заведите на вкладке «Линии»</Typography.Text>}
-            />
-          </Form.Item>
-          <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
-            <DictAutoComplete kind="materials" />
-          </Form.Item>
-          <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
-            <DictAutoComplete kind="colors" />
-          </Form.Item>
-          <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
-            <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+          <Form.Item
+            name="area"
+            label="Участок"
+            rules={[{ required: true }]}
+            help="По умолчанию — участок модели, можно изменить, если эта деталь делается на другом участке"
+          >
+            <Select options={areaOptions} />
           </Form.Item>
           <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />

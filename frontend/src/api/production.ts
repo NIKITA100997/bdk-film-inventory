@@ -21,11 +21,7 @@ export interface ProductionLineUpdate {
 
 export interface ProductModelPart {
   id: number;
-  line_id: number;
-  line_name: string;
-  material: string;
-  color: string;
-  thickness: number;
+  area: AreaValue;
   qty_per_unit: number;
   width_mm: number;
   length_m: number;
@@ -33,10 +29,7 @@ export interface ProductModelPart {
 }
 
 export interface ProductModelPartCreate {
-  line_id: number;
-  material: string;
-  color: string;
-  thickness: number;
+  area: AreaValue;
   qty_per_unit: number;
   width_mm: number;
   length_m: number;
@@ -63,7 +56,7 @@ export interface ProductModelUpdate {
 
 export interface ProductionTaskLine {
   id: number;
-  line_id: number;
+  line_id: number | null;
   line_name: string;
   material: string;
   color: string;
@@ -76,6 +69,8 @@ export interface ProductionTaskLine {
   defect_pieces: number;
   remaining_pieces: number;
   remaining_length_m: number;
+  assigned_pieces: number;
+  unassigned_pieces: number;
 }
 
 export interface ProductionTask {
@@ -91,7 +86,9 @@ export interface ProductionTask {
 }
 
 export interface ProductionTaskLineManualCreate {
-  line_id: number;
+  // Раздел про распределение по линиям — линия не выбирается при
+  // постановке задания, это отдельный шаг начальника участка.
+  line_id?: number;
   material: string;
   color: string;
   thickness: number;
@@ -169,3 +166,39 @@ export const createTaskLineReport = async (
   payload: ProductionTaskLineReportCreate,
 ): Promise<ProductionTaskLineReport> =>
   (await apiClient.post<ProductionTaskLineReport>(`/production-tasks/${taskId}/lines/${lineId}/reports`, payload)).data;
+
+export interface ProductionTaskLineAssignment {
+  id: number;
+  line_id: number;
+  line_name: string;
+  date: string;
+  employee_names: string;
+  quantity_pieces: number;
+  created_by: number;
+  created_at: string;
+}
+
+export interface ProductionTaskLineAssignmentCreate {
+  line_id: number;
+  date: string;
+  employee_names: string;
+  quantity_pieces: number;
+}
+
+export const listTaskLineAssignments = async (
+  taskId: number,
+  lineId: number,
+): Promise<ProductionTaskLineAssignment[]> =>
+  (await apiClient.get<ProductionTaskLineAssignment[]>(`/production-tasks/${taskId}/lines/${lineId}/assignments`)).data;
+
+export const createTaskLineAssignment = async (
+  taskId: number,
+  lineId: number,
+  payload: ProductionTaskLineAssignmentCreate,
+): Promise<ProductionTaskLineAssignment> =>
+  (
+    await apiClient.post<ProductionTaskLineAssignment>(
+      `/production-tasks/${taskId}/lines/${lineId}/assignments`,
+      payload,
+    )
+  ).data;
