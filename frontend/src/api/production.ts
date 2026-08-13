@@ -25,6 +25,7 @@ export interface ProductModelPart {
   qty_per_unit: number;
   width_mm: number;
   length_m: number;
+  strip_width_mm: number | null;
   part_name: string | null;
 }
 
@@ -33,6 +34,7 @@ export interface ProductModelPartCreate {
   qty_per_unit: number;
   width_mm: number;
   length_m: number;
+  strip_width_mm?: number;
   part_name?: string;
 }
 
@@ -64,6 +66,7 @@ export interface ProductionTaskLine {
   quantity_pieces: number;
   width_mm: number;
   length_m: number;
+  strip_width_mm: number | null;
   part_name: string | null;
   produced_good_pieces: number;
   defect_pieces: number;
@@ -71,6 +74,7 @@ export interface ProductionTaskLine {
   remaining_length_m: number;
   assigned_pieces: number;
   unassigned_pieces: number;
+  assignments: ProductionTaskLineAssignment[];
 }
 
 export interface ProductionTask {
@@ -80,14 +84,13 @@ export interface ProductionTask {
   name: string | null;
   area: AreaValue;
   quantity: number | null;
+  order_id: number | null;
   created_by: number;
   created_at: string;
   lines: ProductionTaskLine[];
 }
 
 export interface ProductionTaskLineManualCreate {
-  // Раздел про распределение по линиям — линия не выбирается при
-  // постановке задания, это отдельный шаг начальника участка.
   line_id?: number;
   material: string;
   color: string;
@@ -95,6 +98,7 @@ export interface ProductionTaskLineManualCreate {
   quantity_pieces: number;
   width_mm: number;
   length_m: number;
+  strip_width_mm?: number;
   part_name?: string;
 }
 
@@ -103,11 +107,13 @@ export interface ProductionTaskManualCreate {
   area: AreaValue;
   product_model_id?: number;
   quantity?: number;
+  order_id?: number;
   lines: ProductionTaskLineManualCreate[];
 }
 
 export interface ProductionTaskLineReport {
   id: number;
+  assignment_id: number | null;
   good_pieces: number;
   defect_pieces: number;
   defect_reason: WriteOffReasonValue | null;
@@ -117,6 +123,7 @@ export interface ProductionTaskLineReport {
 }
 
 export interface ProductionTaskLineReportCreate {
+  assignment_id: number;
   good_pieces: number;
   defect_pieces: number;
   defect_reason?: WriteOffReasonValue;
@@ -147,6 +154,13 @@ export const updateProductModel = async (modelId: number, payload: ProductModelU
 export const addProductModelPart = async (modelId: number, payload: ProductModelPartCreate): Promise<ProductModelPart> =>
   (await apiClient.post<ProductModelPart>(`/product-models/${modelId}/parts`, payload)).data;
 
+export const updateProductModelPart = async (
+  modelId: number,
+  partId: number,
+  payload: ProductModelPartCreate,
+): Promise<ProductModelPart> =>
+  (await apiClient.put<ProductModelPart>(`/product-models/${modelId}/parts/${partId}`, payload)).data;
+
 export const deleteProductModelPart = async (modelId: number, partId: number): Promise<void> => {
   await apiClient.delete(`/product-models/${modelId}/parts/${partId}`);
 };
@@ -176,6 +190,8 @@ export interface ProductionTaskLineAssignment {
   quantity_pieces: number;
   created_by: number;
   created_at: string;
+  produced_good_pieces: number;
+  defect_pieces: number;
 }
 
 export interface ProductionTaskLineAssignmentCreate {
@@ -202,3 +218,11 @@ export const createTaskLineAssignment = async (
       payload,
     )
   ).data;
+
+export const deleteProductionTask = async (taskId: number): Promise<void> => {
+  await apiClient.delete(`/production-tasks/${taskId}`);
+};
+
+export const deleteProductModel = async (modelId: number): Promise<void> => {
+  await apiClient.delete(`/product-models/${modelId}`);
+};

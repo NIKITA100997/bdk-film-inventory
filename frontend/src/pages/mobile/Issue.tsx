@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Form, InputNumber, Select, Typography, Alert, Table, Space, message } from "antd";
+import { Button, Card, Form, InputNumber, Select, Typography, Alert, Table, Space, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
+import { isAxiosError } from "axios";
 import {
   issueDonorAtomic,
   issueUnit,
@@ -14,6 +15,13 @@ import {
 } from "../../api/units";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { listProductionTasks } from "../../api/production";
+import { getOrderRequirements, listOrders, type OrderRequirement } from "../../api/orders";
+
+const areaLabels: Record<string, string> = {
+  okutka_tsargovykh: "Окутка царговых",
+  shchitovye_dveri: "Щитовые двери",
+  tselnolistovye_dveri: "Цельнолистовые двери",
+};
 
 const areaOptions: { value: AreaValue; label: string }[] = [
   { value: "okutka_tsargovykh", label: "Окутка царговых" },
@@ -21,11 +29,20 @@ const areaOptions: { value: AreaValue; label: string }[] = [
   { value: "tselnolistovye_dveri", label: "Цельнолистовые двери" },
 ];
 
+function issueErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
+
 interface IssuePrefill {
   material?: string;
   color?: string;
   thickness?: number;
   manufacturer?: string;
+  taskLineId?: number;
+  area?: AreaValue;
+  strip_width_mm?: number;
+  length_m?: number;
 }
 
 export default function Issue() {
@@ -35,43 +52,84 @@ export default function Issue() {
   const prefill = (location.state as IssuePrefill | null) ?? undefined;
 
   const [skuId, setSkuId] = useState<number | null>(null);
-  const [area, setArea] = useState<AreaValue | null>(null);
-  const [taskLineId, setTaskLineId] = useState<number | undefined>(undefined);
+  const [area, setArea] = useState<AreaValue | null>(prefill?.area ?? null);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | undefined>(undefined);
+  const [taskLineId, setTaskLineId] = useState<number | undefined>(prefill?.taskLineId ?? undefined);
   const [result, setResult] = useState<IssueResult | null>(null);
   const [findForm] = Form.useForm<{ width_mm: number; length_m: number }>();
 
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
+  const ordersQuery = useQuery({ queryKey: ["orders"], queryFn: listOrders });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const selectedSku = skusQuery.data?.find((s) => s.id === skuId) ?? null;
 
-  // Раздел про производственные задания — необязательная привязка выдачи к
-  // строке задания (для прослеживаемости и видимости остатка "ещё нужно
-  // довыдать" — брак в производстве уменьшает "засчитанное" произведённое,
-  // строка с остатком > 0 естественно остаётся в списке).
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks, enabled: !!area });
-  const taskLines = (tasksQuery.data ?? [])
-    .filter((t) => t.area === area)
-    .flatMap((t) => t.lines.filter((l) => l.remaining_pieces > 0).map((l) => ({ task: t, line: l })));
-  const taskLineOptions = taskLines.map(({ task: t, line: l }) => ({
-    value: l.id,
-    // Раздел про размер детали — размер куска на деталь (для реза/подбора)
-    // и остаток сразу в метрах (не только в штуках) — так кладовщик видит,
-    // сколько погонных метров ещё довыдать под эту строку задания.
-    // Раздел про распределение по линиям — название детали в начале
-    // подписи, чтобы отличать строки одного задания на разных линиях.
-    label: `${l.part_name ? l.part_name + " — " : ""}${t.product_model_name ?? t.name ?? "Задание"} — ${l.line_name} — ${l.material}, ${l.color}, ${l.thickness} мм — ${l.width_mm} мм × ${l.length_m} м/шт — осталось ${l.remaining_pieces} шт (${l.remaining_length_m} м)`,
-  }));
+  const allTaskLines = (tasksQuery.data ?? []).flatMap((t) =>
+    t.lines.filter((l) => l.remaining_pieces > 0).map((l) => ({ task: t, line: l })),
+  );
 
-  useEffect(() => {
-    if (!prefill || !skusQuery.data || skuId !== null) return;
-    const match = skusQuery.data.find(
+  const orderRequirementsQuery = useQuery({
+    queryKey: ["order-requirements", selectedOrderId],
+    queryFn: () => getOrderRequirements(selectedOrderId!),
+    enabled: !!selectedOrderId,
+  });
+
+  const handleTaskChange = (selectedLineId?: number) => {
+    setTaskLineId(selectedLineId);
+    setSelectedOrderId(undefined);
+    if (!selectedLineId) return;
+    const found = allTaskLines.find(({ line }) => line.id === selectedLineId);
+    if (!found) return;
+    const { task, line } = found;
+    setArea(task.area);
+    if (skusQuery.data) {
+      const match = skusQuery.data.find(
+        (s) =>
+          s.material.name.toLowerCase() === line.material.toLowerCase() &&
+          s.color.name.toLowerCase() === line.color.toLowerCase() &&
+          Math.abs(s.thickness.value_mm - line.thickness) < 0.01,
+      );
+      if (match) setSkuId(match.id);
+    }
+    const sw = line.strip_width_mm || line.width_mm;
+    findForm.setFieldsValue({ width_mm: sw, length_m: line.length_m });
+    message.success(`Подтянуто задание: ${line.part_name ?? "Деталь"} — штрипс ${sw} мм, ${line.length_m} м`);
+  };
+
+  const handleOrderChange = (orderId?: number) => {
+    setSelectedOrderId(orderId);
+    // Заказ может покрывать несколько разных штрипсов сразу (раздел про
+    // потребности по всему заказу) — не подтягиваем ничего автоматически,
+    // оператор выбирает конкретную строку потребности ниже.
+  };
+
+  const handleRequirementSelect = (req: OrderRequirement) => {
+    setTaskLineId(undefined);
+    const match = skusQuery.data?.find(
       (s) =>
-        s.material.name === prefill.material &&
-        s.color.name === prefill.color &&
-        s.thickness.value_mm === prefill.thickness &&
-        s.manufacturer.name === prefill.manufacturer,
+        s.material.name.toLowerCase() === req.material.toLowerCase() &&
+        s.color.name.toLowerCase() === req.color.toLowerCase() &&
+        Math.abs(s.thickness.value_mm - req.thickness) < 0.01,
     );
     if (match) setSkuId(match.id);
-  }, [prefill, skusQuery.data, skuId]);
+    findForm.setFieldsValue({ width_mm: req.strip_width_mm, length_m: req.length_m });
+    message.success(`Подтянута потребность заказа: ${req.part_name ?? "деталь"} — штрипс ${req.strip_width_mm} мм, ${req.length_m} м`);
+  };
+
+  useEffect(() => {
+    if (!prefill || !skusQuery.data) return;
+    if (prefill.material && prefill.color && prefill.thickness) {
+      const match = skusQuery.data.find(
+        (s) =>
+          s.material.name.toLowerCase() === prefill.material!.toLowerCase() &&
+          s.color.name.toLowerCase() === prefill.color!.toLowerCase() &&
+          Math.abs(s.thickness.value_mm - prefill.thickness!) < 0.01,
+      );
+      if (match) setSkuId(match.id);
+    }
+    if (prefill.strip_width_mm || prefill.length_m) {
+      findForm.setFieldsValue({ width_mm: prefill.strip_width_mm, length_m: prefill.length_m });
+    }
+  }, [prefill, skusQuery.data, findForm]);
 
   const availableQuery = useQuery({
     queryKey: ["issue-available-units", skuId],
@@ -87,13 +145,13 @@ export default function Issue() {
   });
 
   const directMutation = useMutation({
-    mutationFn: (unitId: number) => issueUnitDirect(unitId, area!, undefined, taskLineId),
+    mutationFn: (unitId: number) => issueUnitDirect(unitId, area!, selectedOrderId, taskLineId),
     onSuccess: (unit) => {
       message.success(`Выдана единица №${unit.id}`);
       qc.invalidateQueries({ queryKey: ["issue-available-units", skuId] });
       setResult({ outcome: "issued", unit, donor: null });
     },
-    onError: () => message.error("Не удалось выдать"),
+    onError: (e) => message.error(issueErrorMessage(e, "Не удалось выдать")),
   });
 
   const findMutation = useMutation({
@@ -106,6 +164,7 @@ export default function Issue() {
         width_mm: v.width_mm,
         length_m: v.length_m,
         area: area!,
+        order_id: selectedOrderId,
         production_task_line_id: taskLineId,
       }),
     onSuccess: (res) => {
@@ -115,12 +174,12 @@ export default function Issue() {
         qc.invalidateQueries({ queryKey: ["issue-available-units", skuId] });
       }
     },
-    onError: () => message.error("Не удалось оформить выдачу"),
+    onError: (e) => message.error(issueErrorMessage(e, "Не удалось оформить выдачу")),
   });
 
   const atomicDonorMutation = useMutation({
     mutationFn: (values: { donor_unit_id: number; requested_width_mm: number; area: AreaValue }) =>
-      issueDonorAtomic({ ...values, production_task_line_id: taskLineId }),
+      issueDonorAtomic({ ...values, order_id: selectedOrderId, production_task_line_id: taskLineId }),
     onSuccess: (res) => {
       message.success(
         `Донор разрезан и выдан! Выдана единица №${res.issued_unit.id} (${res.issued_unit.width_mm} мм). Остаток №${res.remainder_unit?.id ?? "—"} обновлен на хранении.`,
@@ -128,14 +187,83 @@ export default function Issue() {
       qc.invalidateQueries({ queryKey: ["issue-available-units", skuId] });
       setResult({ outcome: "issued", unit: res.issued_unit, donor: null });
     },
-    onError: () => message.error("Не удалось разрезать и выдать донора"),
+    onError: (e) => message.error(issueErrorMessage(e, "Не удалось разрезать и выдать донора")),
   });
 
   return (
     <Card>
       <Typography.Title level={4}>Выдача участку</Typography.Title>
 
-      <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Space style={{ display: "flex", flexDirection: "column", width: "100%" }} size="large">
+        <Card size="small" title="📋 Активные заявки и задания цеха на выдачу" style={{ background: "#fafafa" }}>
+          <Table
+            size="small"
+            rowKey={(r) => r.line.id}
+            dataSource={allTaskLines}
+            pagination={{ pageSize: 5 }}
+            scroll={{ x: "max-content" }}
+            columns={[
+              { title: "Задание / Модель", render: (_, r) => r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}` },
+              { title: "Деталь", render: (_, r) => r.line.part_name ?? "—" },
+              { title: "Участок", render: (_, r) => areaLabels[r.task.area] ?? r.task.area },
+              { title: "Материал плёнки", render: (_, r) => `${r.line.material}, ${r.line.color}, ${r.line.thickness} мм` },
+              { title: "Штрипс", render: (_, r) => <Tag color="blue">{r.line.strip_width_mm || r.line.width_mm} мм</Tag> },
+              { title: "Осталось", render: (_, r) => `${r.line.remaining_pieces} шт (${r.line.remaining_length_m} м)` },
+              {
+                title: "Выбор",
+                render: (_, r) => (
+                  <Button
+                    size="small"
+                    type="primary"
+                    onClick={() => handleTaskChange(r.line.id)}
+                  >
+                    ⚡ Выбрать
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        </Card>
+
+        <Card size="small" title="📦 Потребности по заказу" style={{ background: "#fafafa" }}>
+          <Select
+            size="large"
+            allowClear
+            showSearch
+            style={{ width: "100%", marginBottom: 12 }}
+            placeholder="Заказ (опционально) — увидеть все нужные штрипсы разом"
+            options={(ordersQuery.data ?? []).map((o) => ({ value: o.id, label: o.number }))}
+            filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+            value={selectedOrderId}
+            onChange={handleOrderChange}
+          />
+          {selectedOrderId && (
+            <Table
+              size="small"
+              rowKey={(_, i) => String(i)}
+              loading={orderRequirementsQuery.isLoading}
+              dataSource={orderRequirementsQuery.data ?? []}
+              pagination={false}
+              scroll={{ x: "max-content" }}
+              locale={{ emptyText: "По этому заказу нет незакрытых потребностей" }}
+              columns={[
+                { title: "Деталь", render: (_, r) => r.part_name ?? "—" },
+                { title: "Материал плёнки", render: (_, r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
+                { title: "Штрипс", render: (_, r) => <Tag color="blue">{r.strip_width_mm} мм</Tag> },
+                { title: "Нужно", render: (_, r) => `${r.remaining_pieces} шт (${r.remaining_length_m} м)` },
+                {
+                  title: "Выбор",
+                  render: (_, r) => (
+                    <Button size="small" type="primary" onClick={() => handleRequirementSelect(r)}>
+                      ⚡ Выбрать
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+          )}
+        </Card>
+
         <Select
           size="large"
           style={{ width: "100%" }}
@@ -152,36 +280,12 @@ export default function Issue() {
         />
         <Select
           size="large"
-          placeholder="Выбрать участок выдачи"
+          placeholder="Участок выдачи"
           style={{ width: "100%" }}
           options={areaOptions}
           value={area ?? undefined}
-          onChange={(v) => {
-            setArea(v);
-            setTaskLineId(undefined);
-          }}
+          onChange={(v) => setArea(v)}
         />
-
-        {area && (
-          <Select
-            size="large"
-            allowClear
-            placeholder="Производственное задание (опционально)"
-            style={{ width: "100%" }}
-            loading={tasksQuery.isLoading}
-            options={taskLineOptions}
-            value={taskLineId}
-            onChange={(v) => {
-              setTaskLineId(v);
-              // Подставляем размер детали в форму автоподбора ниже — так
-              // "Найти и выдать" сразу ищет нужный кусок, не только
-              // показывает размер текстом в подписи опции.
-              const found = taskLines.find(({ line }) => line.id === v)?.line;
-              if (found) findForm.setFieldsValue({ width_mm: found.width_mm, length_m: found.length_m });
-            }}
-            notFoundContent="Нет открытых заданий с остатком на этом участке"
-          />
-        )}
 
         {selectedSku && (
           <>
@@ -200,18 +304,43 @@ export default function Issue() {
                 { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
                 { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
                 {
-                  title: "",
-                  render: (_, u) => (
-                    <Button
-                      size="middle"
-                      type="primary"
-                      disabled={!area}
-                      loading={directMutation.isPending}
-                      onClick={() => directMutation.mutate(u.id)}
-                    >
-                      Выдать эту
-                    </Button>
-                  ),
+                  title: "Действие выдачи",
+                  render: (_, u) => {
+                    const targetW = findForm.getFieldValue("width_mm");
+                    if (targetW && u.width_mm > targetW) {
+                      return (
+                        <Button
+                          size="middle"
+                          type="primary"
+                          disabled={!area}
+                          loading={atomicDonorMutation.isPending}
+                          onClick={() =>
+                            atomicDonorMutation.mutate({
+                              donor_unit_id: u.id,
+                              requested_width_mm: targetW,
+                              area: area!,
+                            })
+                          }
+                        >
+                          ⚡ Разрезать на {targetW} мм и выдать
+                        </Button>
+                      );
+                    }
+                    if (targetW && u.width_mm < targetW) {
+                      return <Tag color="warning">Ширина {u.width_mm} меньше {targetW} мм</Tag>;
+                    }
+                    return (
+                      <Button
+                        size="middle"
+                        type="primary"
+                        disabled={!area}
+                        loading={directMutation.isPending}
+                        onClick={() => directMutation.mutate(u.id)}
+                      >
+                        Выдать рулон целиком
+                      </Button>
+                    );
+                  },
                 },
               ]}
             />
@@ -257,7 +386,14 @@ export default function Issue() {
           style={{ marginTop: 16 }}
           type="info"
           showIcon
-          message={`Есть донор штрипс №${result.donor.unit_id}, ширина ${result.donor.width_mm} мм, класс ${result.donor.width_class}`}
+          message={
+            <Space flex-wrap="wrap">
+              <span>Есть донор штрипс №{result.donor.unit_id}, ширина {result.donor.width_mm} мм (Класс {result.donor.width_class})</span>
+              {result.donor.days_in_storage !== undefined && (
+                <Tag color="volcano">⚠️ Лежалый остаток ({result.donor.days_in_storage} дн.)</Tag>
+              )}
+            </Space>
+          }
           description={
             <Space direction="vertical" style={{ width: "100%", marginTop: 8 }}>
               <div>

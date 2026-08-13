@@ -22,6 +22,7 @@ import {
   splitUnit,
   cutUnit,
   returnUnit,
+  getReturnPreview,
   placeUnit,
   writeOffUnit,
   getUnitEvents,
@@ -106,6 +107,11 @@ export default function UnitCard() {
       suggestLocation({ material_sku_id: unit!.material_sku.id, width_mm: unit!.width_mm, parent_id: unit!.parent_id }),
     enabled: !!unit && action === "cut",
   });
+  const returnPreviewQuery = useQuery({
+    queryKey: ["return-preview", unit?.id],
+    queryFn: () => getReturnPreview(unit!.id),
+    enabled: !!unit && action === "return" && !!unit.production_task_line_id,
+  });
 
   const scanMutation = useMutation({
     mutationFn: (id: number) => getUnit(id),
@@ -170,9 +176,17 @@ export default function UnitCard() {
     mutationFn: (values: { actual_length_m: number }) => returnUnit(unit!.id, values),
     onSuccess: (u) => {
       setUnit(u);
-      setAction(null);
+      // Раздел про возврат остатка — сразу переходим к размещению
+      // (placeSuggestion уже подхватит новую ширину/остаток единицы), а
+      // не закрываем карточку: один поток "вернули → куда положить →
+      // напечатали бирку" вместо трёх отдельных действий.
+      setAction("place");
       returnForm.resetFields();
-      message.success("Остаток возвращён на хранение");
+      message.success(
+        <>
+          Остаток возвращён на хранение — <a onClick={() => printLabel(u.id)}>печать бирки</a>
+        </>,
+      );
     },
     onError: () => message.error("Не удалось оформить возврат"),
   });
@@ -399,10 +413,44 @@ export default function UnitCard() {
             <Form
               form={returnForm}
               layout="vertical"
-              onFinish={(v) => returnMutation.mutate(v)}
+              onFinish={(v) => {
+                const expected = returnPreviewQuery.data?.expected_return_length_m;
+                if (expected != null) {
+                  const tolerance = Math.max(0.1, expected * 0.05);
+                  if (Math.abs(v.actual_length_m - expected) > tolerance) {
+                    Modal.confirm({
+                      title: "Длина заметно отличается от расчётной",
+                      content: `Введено ${v.actual_length_m} м, по расчёту должно остаться ${expected} м (хорошие и брак за смену уже учтены). Всё равно сохранить?`,
+                      okText: "Сохранить как есть",
+                      cancelText: "Отмена",
+                      onOk: () => returnMutation.mutate(v),
+                    });
+                    return;
+                  }
+                }
+                returnMutation.mutate(v);
+              }}
               style={{ marginTop: 16 }}
               initialValues={{ actual_length_m: unit.length_m }}
             >
+              {returnPreviewQuery.data?.expected_return_length_m != null && (
+                <Alert
+                  style={{ marginBottom: 16 }}
+                  type="info"
+                  showIcon
+                  message={`По расчёту должно остаться: ${returnPreviewQuery.data.expected_return_length_m} м (хороших ${returnPreviewQuery.data.good_pieces} шт, брака ${returnPreviewQuery.data.defect_pieces} шт)`}
+                  action={
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        returnForm.setFieldValue("actual_length_m", returnPreviewQuery.data!.expected_return_length_m)
+                      }
+                    >
+                      Подставить
+                    </Button>
+                  }
+                />
+              )}
               <Form.Item name="actual_length_m" label="Фактическая текущая длина, м" rules={[{ required: true }]}>
                 <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
               </Form.Item>

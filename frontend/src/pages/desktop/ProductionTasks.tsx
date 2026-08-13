@@ -27,6 +27,9 @@ import {
   updateProductModel,
   addProductModelPart,
   deleteProductModelPart,
+  updateProductModelPart,
+  deleteProductModel,
+  deleteProductionTask,
   listProductionTasks,
   createProductionTaskManual,
   createTaskLineReport,
@@ -35,6 +38,7 @@ import {
   type ProductionLine,
   type ProductionLineUpdate,
   type ProductModel,
+  type ProductModelPart,
   type ProductModelPartCreate,
   type ProductionTask,
   type ProductionTaskLine,
@@ -43,6 +47,7 @@ import {
 } from "../../api/production";
 import { listUsers } from "../../api/users";
 import { listMaterialSkus } from "../../api/dictionaries";
+import { listOrders } from "../../api/orders";
 import { WRITE_OFF_REASON_OPTIONS, skuLabel, type AreaValue, type MaterialSku, type WriteOffReasonValue } from "../../api/units";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -67,13 +72,10 @@ function TasksTab() {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [manualLines, setManualLines] = useState<ProductionTaskLineManualCreate[]>([]);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
-  const [defectRows, setDefectRows] = useState<{ reason: WriteOffReasonValue; qty: number; note?: string }[]>([]);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
-  const [manualForm] = Form.useForm<{ name: string; area: AreaValue }>();
+  const [manualForm] = Form.useForm<{ name: string; area: AreaValue; order_id?: number }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
   const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number; sku_id: number }>();
-  const [reportForm] = Form.useForm<{ good_pieces: number }>();
-  const [defectRowForm] = Form.useForm<{ reason: WriteOffReasonValue; qty: number; note?: string }>();
   const [assignForm] = Form.useForm<{ line_id: number; date: dayjs.Dayjs; employee_names: string; quantity_pieces: number }>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
@@ -81,7 +83,9 @@ function TasksTab() {
   const linesQuery = useQuery({ queryKey: ["production-lines"], queryFn: listProductionLines });
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
   const usersQuery = useQuery({ queryKey: ["users-summary"], queryFn: listUsers });
+  const ordersQuery = useQuery({ queryKey: ["orders"], queryFn: listOrders });
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
+  const orderNumber = (id: number | null) => (id ? ordersQuery.data?.find((o) => o.id === id)?.number ?? `#${id}` : null);
   const skuOptions = (skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }));
 
   const activeModels = (modelsQuery.data ?? []).filter((m) => m.is_active && m.parts.length > 0);
@@ -139,46 +143,6 @@ function TasksTab() {
       .catch(() => {});
   };
 
-  const addDefectRow = (v: { reason: WriteOffReasonValue; qty: number; note?: string }) => {
-    setDefectRows((rows) => [...rows, v]);
-    defectRowForm.resetFields();
-  };
-  const removeDefectRow = (index: number) => setDefectRows((rows) => rows.filter((_, i) => i !== index));
-
-  const reportMutation = useMutation({
-    // Раздел про несколько причин брака в одном отчёте — накопительный
-    // журнал (ProductionTaskLineReport) уже это поддерживает: просто шлём
-    // несколько строк вместо одной (хорошие детали отдельной строкой,
-    // затем по одной строке на каждую причину брака), агрегаты суммируют
-    // их на бэкенде так же, как если бы это были отчёты за разные смены.
-    mutationFn: async () => {
-      const good = reportForm.getFieldValue("good_pieces") ?? 0;
-      const calls: Promise<unknown>[] = [];
-      if (good > 0) {
-        calls.push(createTaskLineReport(reportTarget!.taskId, reportTarget!.line.id, { good_pieces: good, defect_pieces: 0 }));
-      }
-      for (const row of defectRows) {
-        calls.push(
-          createTaskLineReport(reportTarget!.taskId, reportTarget!.line.id, {
-            good_pieces: 0,
-            defect_pieces: row.qty,
-            defect_reason: row.reason,
-            note: row.note,
-          }),
-        );
-      }
-      await Promise.all(calls);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["production-tasks"] });
-      setReportTarget(null);
-      reportForm.resetFields();
-      setDefectRows([]);
-      message.success("Отчёт сохранён");
-    },
-    onError: () => message.error("Не удалось сохранить отчёт"),
-  });
-
   const assignmentsQuery = useQuery({
     queryKey: ["task-line-assignments", assignTarget?.task.id, assignTarget?.line.id],
     queryFn: () => listTaskLineAssignments(assignTarget!.task.id, assignTarget!.line.id),
@@ -198,6 +162,14 @@ function TasksTab() {
     onError: () => message.error("Не удалось сохранить распределение"),
   });
 
+  const deleteTaskMutation = useMutation({
+    mutationFn: (id: number) => deleteProductionTask(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      message.success("Задание удалено");
+    },
+  });
+
   const addManualLine = (v: ManualRowFormValues) => {
     const { sku_id: _skuId, ...rest } = v;
     setManualLines((lines) => [...lines, rest]);
@@ -211,7 +183,7 @@ function TasksTab() {
   const removeManualLine = (index: number) => setManualLines((lines) => lines.filter((_, i) => i !== index));
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space style={{ display: "flex", flexDirection: "column", width: "100%" }} size="large">
       <Card
         extra={
           canManage && (
@@ -265,23 +237,15 @@ function TasksTab() {
                       render: (_, l) => `${l.assigned_pieces} из ${l.quantity_pieces} шт`,
                     },
                     {
-                      title: "",
+                      title: "Действия мастера",
                       render: (_, l) =>
                         canReport && (
                           <Space size={4}>
-                            <Button size="small" onClick={() => setAssignTarget({ task, line: l })}>
-                              Распределить
+                            <Button size="small" type="primary" ghost onClick={() => setAssignTarget({ task, line: l })}>
+                              📅 Распределить по дням
                             </Button>
-                            <Button
-                              size="small"
-                              onClick={() => {
-                                setReportTarget({ taskId: task.id, line: l });
-                                reportForm.resetFields();
-                                defectRowForm.resetFields();
-                                setDefectRows([]);
-                              }}
-                            >
-                              Отчитаться
+                            <Button size="small" onClick={() => setReportTarget({ taskId: task.id, line: l })}>
+                              Отчитаться о производстве
                             </Button>
                           </Space>
                         ),
@@ -294,8 +258,26 @@ function TasksTab() {
               { title: "Модель", render: (_, t) => t.product_model_name ?? t.name ?? "—" },
               { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
               { title: "Количество", render: (_, t) => t.quantity ?? "—" },
+              { title: "Заказ", render: (_, t) => orderNumber(t.order_id) ?? "—" },
               { title: "Автор", dataIndex: "created_by", render: (id: number) => userName(id) },
               { title: "Создано", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
+              {
+                title: "Действия",
+                render: (_, t) =>
+                  canManage && (
+                    <Button
+                      size="small"
+                      danger
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteTaskMutation.mutate(t.id);
+                      }}
+                      loading={deleteTaskMutation.isPending}
+                    >
+                      🗑️ Удалить задание
+                    </Button>
+                  ),
+              },
             ]}
           />
         )}
@@ -345,6 +327,15 @@ function TasksTab() {
           </Form.Item>
           <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
             <Select options={areaOptions} />
+          </Form.Item>
+          <Form.Item name="order_id" label="Заказ (опционально)">
+            <Select
+              allowClear
+              showSearch
+              placeholder="Привязать к заказу покупателя"
+              options={(ordersQuery.data ?? []).map((o) => ({ value: o.id, label: o.number }))}
+              optionFilterProp="label"
+            />
           </Form.Item>
         </Form>
 
@@ -433,94 +424,13 @@ function TasksTab() {
         </Button>
       </Modal>
 
-      <Modal
-        title={reportTarget ? `Отчёт по линии «${reportTarget.line.line_name}»` : ""}
-        open={!!reportTarget}
-        onCancel={() => {
-          setReportTarget(null);
-          setDefectRows([]);
-        }}
-        footer={null}
-        destroyOnHidden
-      >
-        {reportTarget && (
-          <>
-            <Typography.Paragraph type="secondary">
-              Нужно: {reportTarget.line.quantity_pieces} шт, уже произведено: {reportTarget.line.produced_good_pieces} шт,
-              остаток: {reportTarget.line.remaining_pieces} шт.
-            </Typography.Paragraph>
-            <Form layout="vertical" form={reportForm}>
-              <Form.Item name="good_pieces" label="Хороших деталей, шт" initialValue={0} rules={[{ required: true }]}>
-                <InputNumber min={0} style={{ width: "100%" }} />
-              </Form.Item>
-            </Form>
-
-            {defectRows.length > 0 && (
-              <Table
-                rowKey={(_, i) => String(i)}
-                size="small"
-                pagination={false}
-                dataSource={defectRows}
-                style={{ marginBottom: 16 }}
-                columns={[
-                  { title: "Причина брака", dataIndex: "reason" },
-                  { title: "Кол-во, шт", dataIndex: "qty" },
-                  { title: "Заметка", render: (_, r) => r.note ?? "—" },
-                  {
-                    title: "",
-                    render: (_, __, index) => (
-                      <Button size="small" danger onClick={() => removeDefectRow(index)}>
-                        Убрать
-                      </Button>
-                    ),
-                  },
-                ]}
-              />
-            )}
-
-            <Typography.Title level={5}>Добавить причину брака</Typography.Title>
-            <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-              Брак может быть по нескольким причинам сразу — например, 1 деталь мусор под плёнкой, 2 деталь
-              царапины: добавьте отдельную строку на каждую причину.
-            </Typography.Paragraph>
-            <Form form={defectRowForm} layout="vertical" onFinish={addDefectRow}>
-              <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
-                <Select options={WRITE_OFF_REASON_OPTIONS.map((r) => ({ value: r, label: r }))} />
-              </Form.Item>
-              <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>
-                <InputNumber min={1} style={{ width: "100%" }} />
-              </Form.Item>
-              <Form.Item name="note" label="Заметка (опционально)">
-                <Input placeholder="Например: мусор под плёнкой" />
-              </Form.Item>
-              <Button htmlType="submit" block>
-                Добавить причину
-              </Button>
-            </Form>
-
-            <Button
-              type="primary"
-              block
-              style={{ marginTop: 16 }}
-              loading={reportMutation.isPending}
-              onClick={() => {
-                reportForm
-                  .validateFields()
-                  .then((v) => {
-                    if ((v.good_pieces ?? 0) <= 0 && defectRows.length === 0) {
-                      message.warning("Укажите хотя бы хорошие детали или причину брака");
-                      return;
-                    }
-                    reportMutation.mutate();
-                  })
-                  .catch(() => {});
-              }}
-            >
-              Сохранить отчёт
-            </Button>
-          </>
-        )}
-      </Modal>
+      {reportTarget && (
+        <ReportModal
+          taskId={reportTarget.taskId}
+          line={reportTarget.line}
+          onClose={() => setReportTarget(null)}
+        />
+      )}
 
       <Modal
         title={assignTarget ? `Распределение строки «${assignTarget.line.part_name ?? assignTarget.line.material}»` : ""}
@@ -577,11 +487,170 @@ function TasksTab() {
   );
 }
 
+/** Отчёт о производстве/браке — раздел про брак по дням: отчёт всегда
+ * привязан к конкретной записи распределения (день/линия/сотрудники), не
+ * к строке задания целиком, поэтому используется и из общего списка
+ * заданий (мастер сам выбирает распределение из списка строки), и из
+ * «Плана на день» (распределение уже известно — presetAssignmentId). */
+function ReportModal({
+  taskId,
+  line,
+  presetAssignmentId,
+  onClose,
+}: {
+  taskId: number;
+  line: ProductionTaskLine;
+  presetAssignmentId?: number;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [defectRows, setDefectRows] = useState<{ reason: WriteOffReasonValue; qty: number; note?: string }[]>([]);
+  const [reportForm] = Form.useForm<{ assignment_id: number; good_pieces: number }>();
+  const [defectRowForm] = Form.useForm<{ reason: WriteOffReasonValue; qty: number; note?: string }>();
+
+  const addDefectRow = (v: { reason: WriteOffReasonValue; qty: number; note?: string }) => {
+    setDefectRows((rows) => [...rows, v]);
+    defectRowForm.resetFields();
+  };
+  const removeDefectRow = (index: number) => setDefectRows((rows) => rows.filter((_, i) => i !== index));
+
+  const reportMutation = useMutation({
+    // Раздел про несколько причин брака в одном отчёте — накопительный
+    // журнал (ProductionTaskLineReport) уже это поддерживает: просто шлём
+    // несколько строк вместо одной (хорошие детали отдельной строкой,
+    // затем по одной строке на каждую причину брака), агрегаты суммируют
+    // их на бэкенде так же, как если бы это были отчёты за разные смены.
+    mutationFn: async (v: { assignment_id: number; good_pieces: number }) => {
+      const calls: Promise<unknown>[] = [];
+      if (v.good_pieces > 0) {
+        calls.push(
+          createTaskLineReport(taskId, line.id, {
+            assignment_id: v.assignment_id,
+            good_pieces: v.good_pieces,
+            defect_pieces: 0,
+          }),
+        );
+      }
+      for (const row of defectRows) {
+        calls.push(
+          createTaskLineReport(taskId, line.id, {
+            assignment_id: v.assignment_id,
+            good_pieces: 0,
+            defect_pieces: row.qty,
+            defect_reason: row.reason,
+            note: row.note,
+          }),
+        );
+      }
+      await Promise.all(calls);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      message.success("Отчёт сохранён");
+      onClose();
+    },
+    onError: () => message.error("Не удалось сохранить отчёт"),
+  });
+
+  return (
+    <Modal title={`Отчёт по линии «${line.part_name ?? line.line_name}»`} open onCancel={onClose} footer={null} destroyOnHidden>
+      <Typography.Paragraph type="secondary">
+        Нужно: {line.quantity_pieces} шт, уже произведено: {line.produced_good_pieces} шт, остаток: {line.remaining_pieces} шт.
+      </Typography.Paragraph>
+      <Form layout="vertical" form={reportForm} initialValues={{ assignment_id: presetAssignmentId, good_pieces: 0 }}>
+        <Form.Item name="assignment_id" label="Распределение (день/линия)" rules={[{ required: true }]}>
+          <Select
+            disabled={!!presetAssignmentId}
+            placeholder="Выберите день/линию распределения"
+            options={line.assignments.map((a) => ({
+              value: a.id,
+              label: `${dayjs(a.date).format("DD.MM.YYYY")} — ${a.line_name} (${a.employee_names}), план ${a.quantity_pieces} шт`,
+            }))}
+            notFoundContent={
+              <Typography.Text type="secondary">
+                Сначала распределите строку по дням — кнопка «Распределить по дням»
+              </Typography.Text>
+            }
+          />
+        </Form.Item>
+        <Form.Item name="good_pieces" label="Хороших деталей, шт" rules={[{ required: true }]}>
+          <InputNumber min={0} style={{ width: "100%" }} />
+        </Form.Item>
+      </Form>
+
+      {defectRows.length > 0 && (
+        <Table
+          rowKey={(_, i) => String(i)}
+          size="small"
+          pagination={false}
+          dataSource={defectRows}
+          style={{ marginBottom: 16 }}
+          columns={[
+            { title: "Причина брака", dataIndex: "reason" },
+            { title: "Кол-во, шт", dataIndex: "qty" },
+            { title: "Заметка", render: (_, r) => r.note ?? "—" },
+            {
+              title: "",
+              render: (_, __, index) => (
+                <Button size="small" danger onClick={() => removeDefectRow(index)}>
+                  Убрать
+                </Button>
+              ),
+            },
+          ]}
+        />
+      )}
+
+      <Typography.Title level={5}>Добавить причину брака</Typography.Title>
+      <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
+        Брак может быть по нескольким причинам сразу — например, 1 деталь мусор под плёнкой, 2 деталь царапины:
+        добавьте отдельную строку на каждую причину.
+      </Typography.Paragraph>
+      <Form form={defectRowForm} layout="vertical" onFinish={addDefectRow}>
+        <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
+          <Select options={WRITE_OFF_REASON_OPTIONS.map((r) => ({ value: r, label: r }))} />
+        </Form.Item>
+        <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>
+          <InputNumber min={1} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="note" label="Заметка (опционально)">
+          <Input placeholder="Например: мусор под плёнкой" />
+        </Form.Item>
+        <Button htmlType="submit" block>
+          Добавить причину
+        </Button>
+      </Form>
+
+      <Button
+        type="primary"
+        block
+        style={{ marginTop: 16 }}
+        loading={reportMutation.isPending}
+        onClick={() => {
+          reportForm
+            .validateFields()
+            .then((v) => {
+              if ((v.good_pieces ?? 0) <= 0 && defectRows.length === 0) {
+                message.warning("Укажите хотя бы хорошие детали или причину брака");
+                return;
+              }
+              reportMutation.mutate(v);
+            })
+            .catch(() => {});
+        }}
+      >
+        Сохранить отчёт
+      </Button>
+    </Modal>
+  );
+}
+
 function ModelsTab() {
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ProductModel | null>(null);
   const [partModalOpen, setPartModalOpen] = useState(false);
+  const [editingPart, setEditingPart] = useState<ProductModelPart | null>(null);
   const [form] = Form.useForm<{ name: string; area: string }>();
   const [partForm] = Form.useForm<ProductModelPartCreate>();
 
@@ -597,31 +666,72 @@ function ModelsTab() {
     },
     onError: () => message.error("Не удалось создать — название уже занято?"),
   });
+
+  const deleteModelMutation = useMutation({
+    mutationFn: (id: number) => deleteProductModel(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["product-models"] });
+      message.success("Модель удалена");
+    },
+  });
+
   const archiveMutation = useMutation({
     mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) => updateProductModel(id, { is_active }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["product-models"] }),
   });
-  const addPartMutation = useMutation({
-    mutationFn: (payload: ProductModelPartCreate) => addProductModelPart(selectedModel!.id, payload),
+
+  const savePartMutation = useMutation({
+    mutationFn: (payload: ProductModelPartCreate) =>
+      editingPart
+        ? updateProductModelPart(selectedModel!.id, editingPart.id, payload)
+        : addProductModelPart(selectedModel!.id, payload),
     onSuccess: (part) => {
       qc.invalidateQueries({ queryKey: ["product-models"] });
-      setSelectedModel((m) => (m ? { ...m, parts: [...m.parts, part] } : m));
+      setSelectedModel((m) => {
+        if (!m) return m;
+        const exists = m.parts.some((p) => p.id === part.id);
+        const parts = exists ? m.parts.map((p) => (p.id === part.id ? part : p)) : [...m.parts, part];
+        return { ...m, parts };
+      });
       setPartModalOpen(false);
+      setEditingPart(null);
       partForm.resetFields();
-      message.success("Деталь добавлена");
+      message.success(editingPart ? "Деталь обновлена" : "Деталь добавлена");
     },
-    onError: () => message.error("Не удалось добавить деталь"),
+    onError: () => message.error("Не удалось сохранить деталь"),
   });
+
   const deletePartMutation = useMutation({
     mutationFn: (partId: number) => deleteProductModelPart(selectedModel!.id, partId),
     onSuccess: (_, partId) => {
       qc.invalidateQueries({ queryKey: ["product-models"] });
       setSelectedModel((m) => (m ? { ...m, parts: m.parts.filter((p) => p.id !== partId) } : m));
+      message.success("Деталь удалена из состава");
     },
   });
 
+  const openAddPart = () => {
+    setEditingPart(null);
+    partForm.resetFields();
+    partForm.setFieldsValue({ area: selectedModel?.area });
+    setPartModalOpen(true);
+  };
+
+  const openEditPart = (part: ProductModelPart) => {
+    setEditingPart(part);
+    partForm.setFieldsValue({
+      part_name: part.part_name ?? undefined,
+      area: part.area,
+      width_mm: part.width_mm,
+      length_m: part.length_m,
+      strip_width_mm: part.strip_width_mm ?? undefined,
+      qty_per_unit: part.qty_per_unit,
+    });
+    setPartModalOpen(true);
+  };
+
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space style={{ display: "flex", flexDirection: "column", width: "100%" }} size="large">
       <Card
         title="Модели продукции"
         extra={
@@ -637,35 +747,63 @@ function ModelsTab() {
           pagination={false}
           scroll={{ x: "max-content" }}
           columns={[
-            { title: "Название", dataIndex: "name", render: (v, m) => <a onClick={() => setSelectedModel(m)}>{v}</a> },
+            {
+              title: "Название",
+              dataIndex: "name",
+              render: (v, m) => (
+                <Button type="link" onClick={() => setSelectedModel(m)}>
+                  {v}
+                </Button>
+              ),
+            },
             { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
             { title: "Деталей в BOM", render: (_, m) => m.parts.length },
+            {
+              title: "Состав BOM",
+              render: (_, m) => (
+                <Button size="small" type="primary" ghost onClick={() => setSelectedModel(m)}>
+                  ⚙️ Состав модели ({m.parts.length})
+                </Button>
+              ),
+            },
             {
               title: "Статус",
               dataIndex: "is_active",
               render: (v: boolean) => (v ? <Tag color="green">Активна</Tag> : <Tag>В архиве</Tag>),
             },
             {
-              title: "",
+              title: "Действия",
               render: (_, m) => (
-                <Button size="small" onClick={() => archiveMutation.mutate({ id: m.id, is_active: !m.is_active })}>
-                  {m.is_active ? "В архив" : "Восстановить"}
-                </Button>
+                <Space>
+                  <Button size="small" onClick={() => archiveMutation.mutate({ id: m.id, is_active: !m.is_active })}>
+                    {m.is_active ? "В архив" : "Восстановить"}
+                  </Button>
+                  <Button size="small" danger onClick={() => deleteModelMutation.mutate(m.id)}>
+                    🗑️ Удалить
+                  </Button>
+                </Space>
               ),
             },
           ]}
         />
       </Card>
 
-      {selectedModel && (
-        <Card
-          title={`BOM модели «${selectedModel.name}» (${areaLabels[selectedModel.area]})`}
-          extra={
-            <Button type="primary" onClick={() => setPartModalOpen(true)}>
-              Добавить деталь
-            </Button>
-          }
-        >
+      {/* Модальное окно просмотра и редактирования состава модели (BOM) */}
+      <Modal
+        title={selectedModel ? `⚙️ Состав детализации BOM «${selectedModel.name}» (${areaLabels[selectedModel.area]})` : ""}
+        open={!!selectedModel}
+        onCancel={() => setSelectedModel(null)}
+        width={800}
+        footer={[
+          <Button key="add" type="primary" onClick={openAddPart}>
+            + Добавить деталь в состав
+          </Button>,
+          <Button key="close" onClick={() => setSelectedModel(null)}>
+            Закрыть
+          </Button>,
+        ]}
+      >
+        {selectedModel && (
           <Table
             rowKey="id"
             dataSource={selectedModel.parts}
@@ -673,20 +811,32 @@ function ModelsTab() {
             columns={[
               { title: "Деталь", dataIndex: "part_name", render: (v: string | null) => v ?? "—" },
               { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
-              { title: "Размер детали", render: (_, p) => `${p.width_mm} мм × ${p.length_m} м` },
-              { title: "Кол-во на единицу", dataIndex: "qty_per_unit" },
               {
-                title: "",
+                title: "Штрипс (укутка), мм",
+                dataIndex: "strip_width_mm",
+                render: (v: number | null, p) => (
+                  <Tag color="blue">{v ?? p.width_mm} мм</Tag>
+                ),
+              },
+              { title: "Размер детали", render: (_, p) => `${p.width_mm} мм × ${p.length_m} м` },
+              { title: "Кол-во на 1 дверь", dataIndex: "qty_per_unit" },
+              {
+                title: "Действия",
                 render: (_, p) => (
-                  <Button size="small" danger onClick={() => deletePartMutation.mutate(p.id)}>
-                    Удалить
-                  </Button>
+                  <Space>
+                    <Button size="small" onClick={() => openEditPart(p)}>
+                      Редактировать
+                    </Button>
+                    <Button size="small" danger onClick={() => deletePartMutation.mutate(p.id)}>
+                      Удалить
+                    </Button>
+                  </Space>
                 ),
               },
             ]}
           />
-        </Card>
-      )}
+        )}
+      </Modal>
 
       <Modal title="Новая модель продукции" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
         <Form layout="vertical" form={form} onFinish={(v) => createMutation.mutate(v as { name: string; area: AreaValue })}>
@@ -702,41 +852,46 @@ function ModelsTab() {
         </Form>
       </Modal>
 
+      {/* Модальное окно создания/редактирования детали BOM */}
       <Modal
-        title="Новая деталь BOM"
+        title={editingPart ? "Редактировать деталь BOM" : "Новая деталь BOM"}
         open={partModalOpen}
-        onCancel={() => setPartModalOpen(false)}
+        onCancel={() => {
+          setPartModalOpen(false);
+          setEditingPart(null);
+        }}
         footer={null}
         destroyOnHidden
       >
-        <Form
-          layout="vertical"
-          form={partForm}
-          initialValues={{ area: selectedModel?.area }}
-          onFinish={(v) => addPartMutation.mutate(v)}
-        >
-          <Form.Item name="part_name" label="Название детали (опционально)">
-            <Input placeholder="Верхняя царга" />
+        <Form layout="vertical" form={partForm} onFinish={(v) => savePartMutation.mutate(v)}>
+          <Form.Item name="part_name" label="Название детали (Стоевая / Поперечная / Планка)">
+            <Input
+              placeholder="Стоевая 36х110"
+              onChange={(e) => {
+                const val = e.target.value.toLowerCase();
+                if (val.includes("стоевая")) partForm.setFieldValue("strip_width_mm", 292);
+                else if (val.includes("поперечная")) partForm.setFieldValue("strip_width_mm", 285);
+                else if (val.includes("планка")) partForm.setFieldValue("strip_width_mm", 140);
+              }}
+            />
           </Form.Item>
-          <Form.Item
-            name="area"
-            label="Участок"
-            rules={[{ required: true }]}
-            help="По умолчанию — участок модели, можно изменить, если эта деталь делается на другом участке"
-          >
+          <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
             <Select options={areaOptions} />
           </Form.Item>
-          <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
+          <Form.Item name="width_mm" label="Ширина детали (мм)" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="length_m" label="Длина детали, м" rules={[{ required: true }]}>
+          <Form.Item name="strip_width_mm" label="Ширина штрипса плёнки для укутки (мм)" help="Авторасчёт: Стоевая 292 мм, Поперечная 285 мм, Планка 140/100 мм">
+            <InputNumber min={1} style={{ width: "100%" }} placeholder="292" />
+          </Form.Item>
+          <Form.Item name="length_m" label="Длина детали с допуском (м)" rules={[{ required: true }]}>
             <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="qty_per_unit" label="Количество деталей на одну единицу модели" rules={[{ required: true }]}>
+          <Form.Item name="qty_per_unit" label="Количество деталей на 1 дверь" rules={[{ required: true }]}>
             <InputNumber min={0.01} step={1} style={{ width: "100%" }} />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block loading={addPartMutation.isPending}>
-            Добавить
+          <Button type="primary" htmlType="submit" block loading={savePartMutation.isPending}>
+            {editingPart ? "Сохранить изменения" : "Добавить деталь"}
           </Button>
         </Form>
       </Modal>
@@ -774,7 +929,7 @@ function LinesTab() {
   });
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space style={{ display: "flex", flexDirection: "column", width: "100%" }} size="large">
       <Card
         title="Производственные линии"
         extra={
@@ -849,20 +1004,117 @@ function LinesTab() {
   );
 }
 
+function DailyPlanTab() {
+  const { user } = useAuth();
+  const canReport =
+    !!user?.is_superuser ||
+    !!user?.permissions.includes("production_tasks.manage") ||
+    !!user?.permissions.includes("production_tasks.report");
+  const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
+  const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine; assignmentId: number } | null>(
+    null,
+  );
+
+  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasks = (tasksQuery.data ?? []).filter((t) => !user?.area || t.area === user.area);
+
+  const dateStr = selectedDate.format("YYYY-MM-DD");
+
+  const dailyItems = tasks.flatMap((task) =>
+    task.lines.flatMap((line) => {
+      const lineAssignments = line.assignments?.filter((a) => a.date === dateStr) ?? [];
+      if (lineAssignments.length === 0) return [];
+      return lineAssignments.map((a) => ({
+        task,
+        line,
+        assignment: a,
+      }));
+    }),
+  );
+
+  return (
+    <Space style={{ display: "flex", flexDirection: "column", width: "100%" }} size="large">
+      <Card
+        title={`📅 Суточный план участка на ${selectedDate.format("DD.MM.YYYY")}`}
+        extra={
+          <Space>
+            <Typography.Text>Дата смены:</Typography.Text>
+            <DatePicker value={selectedDate} onChange={(d) => d && setSelectedDate(d)} format="DD.MM.YYYY" allowClear={false} />
+          </Space>
+        }
+      >
+        {dailyItems.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={`На ${selectedDate.format("DD.MM.YYYY")} нет запланированных задач по линиям`}
+          />
+        ) : (
+          <Table
+            rowKey={(r) => `${r.line.id}-${r.assignment.id}`}
+            dataSource={dailyItems}
+            pagination={false}
+            scroll={{ x: "max-content" }}
+            columns={[
+              { title: "Модель / Задание", render: (_, r) => r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}` },
+              { title: "Деталь", render: (_, r) => r.line.part_name ?? "—" },
+              { title: "Линия", render: (_, r) => r.assignment.line_name },
+              { title: "Плёнка (номенклатура)", render: (_, r) => `${r.line.material}, ${r.line.color}, ${r.line.thickness} мм` },
+              { title: "Штрипс", render: (_, r) => `${r.line.strip_width_mm || r.line.width_mm} мм` },
+              { title: "План на день", render: (_, r) => <Tag color="blue">{r.assignment.quantity_pieces} шт</Tag> },
+              { title: "Сотрудники линии", render: (_, r) => r.assignment.employee_names },
+              {
+                title: "Хорошие/Брак за день",
+                render: (_, r) => (
+                  <Space size={4}>
+                    <Tag color="green">{r.assignment.produced_good_pieces} шт</Tag>
+                    {r.assignment.defect_pieces > 0 && <Tag color="red">брак {r.assignment.defect_pieces} шт</Tag>}
+                  </Space>
+                ),
+              },
+              {
+                title: "Действия",
+                render: (_, r) =>
+                  canReport && (
+                    <Button
+                      size="small"
+                      onClick={() => setReportTarget({ taskId: r.task.id, line: r.line, assignmentId: r.assignment.id })}
+                    >
+                      Отчитаться
+                    </Button>
+                  ),
+              },
+            ]}
+          />
+        )}
+      </Card>
+
+      {reportTarget && (
+        <ReportModal
+          taskId={reportTarget.taskId}
+          line={reportTarget.line}
+          presetAssignmentId={reportTarget.assignmentId}
+          onClose={() => setReportTarget(null)}
+        />
+      )}
+    </Space>
+  );
+}
+
 export default function ProductionTasks() {
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
 
   return (
     <Card>
-      <Typography.Title level={4}>Производственные задания</Typography.Title>
+      <Typography.Title level={4}>Производственные задания цеха</Typography.Title>
       <Tabs
         items={[
-          { key: "tasks", label: "Задания", children: <TasksTab /> },
+          { key: "daily-plan", label: "📅 План на день (Мастер)", children: <DailyPlanTab /> },
+          { key: "tasks", label: "📋 Все задания (Неделя)", children: <TasksTab /> },
           ...(canManage
             ? [
-                { key: "models", label: "Модели продукции", children: <ModelsTab /> },
-                { key: "lines", label: "Линии", children: <LinesTab /> },
+                { key: "models", label: "⚙️ Модели продукции (BOM)", children: <ModelsTab /> },
+                { key: "lines", label: "🏭 Линии цеха", children: <LinesTab /> },
               ]
             : []),
         ]}

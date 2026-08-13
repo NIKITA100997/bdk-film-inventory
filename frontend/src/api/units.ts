@@ -118,6 +118,7 @@ export interface DonorSuggestion {
   width_class: string;
   recommended_cut_mm: number;
   waste_mm: number;
+  days_in_storage?: number;
 }
 
 export interface IssueResult {
@@ -196,6 +197,17 @@ export interface ReturnRequest {
 
 export async function returnUnit(unitId: number, payload: ReturnRequest): Promise<MaterialUnit> {
   const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/return`, payload);
+  return data;
+}
+
+export interface ReturnPreview {
+  expected_return_length_m: number | null;
+  good_pieces: number;
+  defect_pieces: number;
+}
+
+export async function getReturnPreview(unitId: number): Promise<ReturnPreview> {
+  const { data } = await apiClient.get<ReturnPreview>(`/units/${unitId}/return-preview`);
   return data;
 }
 
