@@ -307,23 +307,35 @@ function RacksConsole() {
               )}
             </Space>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: `56px repeat(${columns}, 44px)`,
-                gap: 6,
-                alignItems: "center",
-                background: "#fff",
-                border: "1px solid #DEDEDA",
-                borderRadius: 10,
-                padding: 14,
-                marginBottom: 8,
-              }}
-            >
-              {byShelf.map(([shelf, cells]) => (
-                <FragmentRow key={shelf} shelf={shelf} cells={cells} columns={columns} navigate={navigate} />
-              ))}
-            </div>
+            {selectedRack.type === "roll" ? (
+              // Рулонный стеллаж — на полке всегда один рулон, простраственная
+              // сетка тут почти ничего не говорит (только "занято/свободно").
+              // Вместо тесной колонки боксов — строка на полку с содержимым
+              // сразу видно, без клика по каждой ячейке; та же рамка/цвета,
+              // что у штрипсовой сетки, чтобы экран не выглядел двумя разными
+              // интерфейсами.
+              <div style={{ background: "#fff", border: "1px solid #DEDEDA", borderRadius: 10, padding: 14, marginBottom: 8 }}>
+                <RollShelfRows byShelf={byShelf} navigate={navigate} />
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "inline-grid",
+                  gridTemplateColumns: `56px repeat(${columns}, 44px)`,
+                  gap: 6,
+                  alignItems: "center",
+                  background: "#fff",
+                  border: "1px solid #DEDEDA",
+                  borderRadius: 10,
+                  padding: 14,
+                  marginBottom: 8,
+                }}
+              >
+                {byShelf.map(([shelf, cells]) => (
+                  <FragmentRow key={shelf} shelf={shelf} cells={cells} columns={columns} navigate={navigate} />
+                ))}
+              </div>
+            )}
             <Space style={{ marginBottom: 20 }} size="middle">
               <LegendSwatch color="#f0f0f0" border="#d9d9d9" label="свободно" />
               <LegendSwatch color="#e7f5ee" border="#1D9E75" label="занято" />
@@ -430,6 +442,60 @@ function RacksConsole() {
         </Form>
       </Modal>
     </Space>
+  );
+}
+
+function RollShelfRows({
+  byShelf,
+  navigate,
+}: {
+  byShelf: [number, RackOccupancyCell[]][];
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {byShelf.map(([shelf, cells]) => {
+        const cellData = cells[0];
+        const occupied = !!cellData?.unit;
+        return (
+          <div key={shelf} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Typography.Text style={{ width: 56, fontSize: 12, textAlign: "right", flexShrink: 0 }} type="secondary">
+              полка {shelf}
+            </Typography.Text>
+            <div
+              style={{
+                flex: 1,
+                borderRadius: 8,
+                border: `1px solid ${occupied ? "#1D9E75" : "#d9d9d9"}`,
+                background: occupied ? "#e7f5ee" : "#fafafa",
+                padding: "7px 14px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                minHeight: 32,
+              }}
+            >
+              {occupied ? (
+                <>
+                  <Space size={14}>
+                    <Typography.Text strong>№{cellData!.unit!.id}</Typography.Text>
+                    <Typography.Text>{skuLabel(cellData!.unit!.material_sku)}</Typography.Text>
+                    <Typography.Text type="secondary">
+                      {cellData!.unit!.width_mm}×{cellData!.unit!.length_m} м
+                    </Typography.Text>
+                  </Space>
+                  <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: cellData!.unit!.id } })}>
+                    Карточка
+                  </Button>
+                </>
+              ) : (
+                <Typography.Text type="secondary">{cellData?.location_code ?? ""} — свободно</Typography.Text>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
