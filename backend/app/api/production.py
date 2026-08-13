@@ -49,14 +49,9 @@ def _line_out(line: ProductionLine) -> ProductionLineOut:
 
 
 def _part_out(db: Session, part: ProductModelPart) -> ProductModelPartOut:
-    line = db.get(ProductionLine, part.line_id)
     return ProductModelPartOut(
         id=part.id,
-        line_id=part.line_id,
-        line_name=line.name if line else "—",
-        material=db.get(Material, part.material_id).name,
-        color=db.get(Color, part.color_id).name,
-        thickness=float(db.get(Thickness, part.thickness_id).value_mm),
+        area=part.area,
         qty_per_unit=float(part.qty_per_unit),
         width_mm=float(part.width_mm),
         length_m=float(part.length_m),
@@ -225,22 +220,9 @@ def add_product_model_part(
     model = db.get(ProductModel, model_id)
     if model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Модель не найдена")
-    line = db.get(ProductionLine, payload.line_id)
-    if line is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Линия не найдена")
-    if line.area != model.area:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Линия принадлежит другому участку, чем модель"
-        )
-    material, color, thickness = find_or_create_material_color_thickness(
-        db, material=payload.material, color=payload.color, thickness=payload.thickness
-    )
     part = ProductModelPart(
         product_model_id=model_id,
-        line_id=payload.line_id,
-        material_id=material.id,
-        color_id=color.id,
-        thickness_id=thickness.id,
+        area=payload.area,
         qty_per_unit=payload.qty_per_unit,
         width_mm=payload.width_mm,
         length_m=payload.length_m,

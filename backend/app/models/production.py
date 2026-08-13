@@ -1,10 +1,10 @@
-"""Производственные задания (пилот: окутка царговых) — разбор «N штук
-модели X» на задания по производственным линиям. «Линия» здесь называет
-одновременно и физическую линию, и вид детали, который она обрабатывает
-(«поперечная» = и линия, и вид детали) — отдельной сущности «деталь» не
-заводим, точность без пользы на пилоте. Требование плёнки на деталь — тот
-же паттерн material_id+color_id+thickness_id без производителя, что и у
-OrderMaterialLine: на этапе BOM конкретный SKU ещё не важен."""
+"""Производственные задания (пилот: окутка царговых). Три отдельных
+момента выбора: BOM (ProductModelPart) фиксирует только физическую форму
+детали и участок; при создании задания выбирается номенклатура плёнки
+(SKU) — material_id/color_id/thickness_id появляются только на
+ProductionTaskLine; распределение по конкретным линиям/дням/сотрудникам —
+отдельный шаг начальника участка поверх уже созданного задания
+(ProductionTaskLineAssignment)."""
 
 from datetime import datetime
 
@@ -38,23 +38,18 @@ class ProductModel(Base):
 
 
 class ProductModelPart(Base):
-    """Строка BOM — сколько плёнки какого цвета нужно на линии X на одну
-    деталь, и какого размера кусок на эту деталь (width_mm/length_m —
-    раздел про размер детали). line_id/color здесь — только предложение по
-    умолчанию: цвет и распределение по линиям выбираются заново при
-    создании конкретного задания (раздел про распределение по линиям),
-    т.к. BOM не знает ни цвета реального заказа, ни того, как задание
-    распределят по доступным линиям."""
+    """Строка BOM — физическая форма детали (сколько штук на изделие,
+    какого размера кусок плёнки на неё) и участок, где её делают. Ни
+    материал/цвет плёнки, ни конкретная линия здесь не фиксируются — это
+    решается заново при создании конкретного задания (материал/цвет —
+    выбором номенклатуры) и при распределении по линиям (начальник
+    участка, по дням) соответственно, BOM про них не знает."""
 
     __tablename__ = "product_model_parts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_model_id: Mapped[int] = mapped_column(ForeignKey("product_models.id"))
-    line_id: Mapped[int] = mapped_column(ForeignKey("production_lines.id"))
-
-    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))
-    color_id: Mapped[int] = mapped_column(ForeignKey("colors.id"))
-    thickness_id: Mapped[int] = mapped_column(ForeignKey("thicknesses.id"))
+    area: Mapped[Area] = mapped_column(Enum(Area, name="area", create_type=False))
 
     qty_per_unit: Mapped[float] = mapped_column(Numeric(10, 2))
     width_mm: Mapped[float] = mapped_column(Numeric(10, 2))

@@ -36,10 +36,7 @@ class ProductModelUpdate(BaseModel):
 
 
 class ProductModelPartCreate(BaseModel):
-    line_id: int
-    material: str
-    color: str
-    thickness: float
+    area: Area
     qty_per_unit: float = Field(gt=0)
     width_mm: float = Field(gt=0)
     length_m: float = Field(gt=0)
@@ -48,11 +45,7 @@ class ProductModelPartCreate(BaseModel):
 
 class ProductModelPartOut(BaseModel):
     id: int
-    line_id: int
-    line_name: str
-    material: str
-    color: str
-    thickness: float
+    area: Area
     qty_per_unit: float
     width_mm: float
     length_m: float
