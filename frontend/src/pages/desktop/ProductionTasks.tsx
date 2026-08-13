@@ -39,7 +39,6 @@ import {
   type ProductionTask,
   type ProductionTaskLine,
   type ProductionTaskLineManualCreate,
-  type ProductionTaskLineReportCreate,
   type ProductionTaskLineAssignmentCreate,
 } from "../../api/production";
 import { listUsers } from "../../api/users";
@@ -68,11 +67,13 @@ function TasksTab() {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [manualLines, setManualLines] = useState<ProductionTaskLineManualCreate[]>([]);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
+  const [defectRows, setDefectRows] = useState<{ reason: WriteOffReasonValue; qty: number; note?: string }[]>([]);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
   const [manualForm] = Form.useForm<{ name: string; area: AreaValue }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
   const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number; sku_id: number }>();
-  const [reportForm] = Form.useForm<ProductionTaskLineReportCreate>();
+  const [reportForm] = Form.useForm<{ good_pieces: number }>();
+  const [defectRowForm] = Form.useForm<{ reason: WriteOffReasonValue; qty: number; note?: string }>();
   const [assignForm] = Form.useForm<{ line_id: number; date: dayjs.Dayjs; employee_names: string; quantity_pieces: number }>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
@@ -138,12 +139,41 @@ function TasksTab() {
       .catch(() => {});
   };
 
+  const addDefectRow = (v: { reason: WriteOffReasonValue; qty: number; note?: string }) => {
+    setDefectRows((rows) => [...rows, v]);
+    defectRowForm.resetFields();
+  };
+  const removeDefectRow = (index: number) => setDefectRows((rows) => rows.filter((_, i) => i !== index));
+
   const reportMutation = useMutation({
-    mutationFn: (v: ProductionTaskLineReportCreate) => createTaskLineReport(reportTarget!.taskId, reportTarget!.line.id, v),
+    // Раздел про несколько причин брака в одном отчёте — накопительный
+    // журнал (ProductionTaskLineReport) уже это поддерживает: просто шлём
+    // несколько строк вместо одной (хорошие детали отдельной строкой,
+    // затем по одной строке на каждую причину брака), агрегаты суммируют
+    // их на бэкенде так же, как если бы это были отчёты за разные смены.
+    mutationFn: async () => {
+      const good = reportForm.getFieldValue("good_pieces") ?? 0;
+      const calls: Promise<unknown>[] = [];
+      if (good > 0) {
+        calls.push(createTaskLineReport(reportTarget!.taskId, reportTarget!.line.id, { good_pieces: good, defect_pieces: 0 }));
+      }
+      for (const row of defectRows) {
+        calls.push(
+          createTaskLineReport(reportTarget!.taskId, reportTarget!.line.id, {
+            good_pieces: 0,
+            defect_pieces: row.qty,
+            defect_reason: row.reason,
+            note: row.note,
+          }),
+        );
+      }
+      await Promise.all(calls);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       setReportTarget(null);
       reportForm.resetFields();
+      setDefectRows([]);
       message.success("Отчёт сохранён");
     },
     onError: () => message.error("Не удалось сохранить отчёт"),
@@ -247,6 +277,8 @@ function TasksTab() {
                               onClick={() => {
                                 setReportTarget({ taskId: task.id, line: l });
                                 reportForm.resetFields();
+                                defectRowForm.resetFields();
+                                setDefectRows([]);
                               }}
                             >
                               Отчитаться
@@ -404,7 +436,10 @@ function TasksTab() {
       <Modal
         title={reportTarget ? `Отчёт по линии «${reportTarget.line.line_name}»` : ""}
         open={!!reportTarget}
-        onCancel={() => setReportTarget(null)}
+        onCancel={() => {
+          setReportTarget(null);
+          setDefectRows([]);
+        }}
         footer={null}
         destroyOnHidden
       >
@@ -414,26 +449,75 @@ function TasksTab() {
               Нужно: {reportTarget.line.quantity_pieces} шт, уже произведено: {reportTarget.line.produced_good_pieces} шт,
               остаток: {reportTarget.line.remaining_pieces} шт.
             </Typography.Paragraph>
-            <Form layout="vertical" form={reportForm} onFinish={(v) => reportMutation.mutate(v)}>
-              <Form.Item name="good_pieces" label="Хороших деталей, шт" rules={[{ required: true }]}>
+            <Form layout="vertical" form={reportForm}>
+              <Form.Item name="good_pieces" label="Хороших деталей, шт" initialValue={0} rules={[{ required: true }]}>
                 <InputNumber min={0} style={{ width: "100%" }} />
               </Form.Item>
-              <Form.Item name="defect_pieces" label="Брака, шт" initialValue={0} rules={[{ required: true }]}>
-                <InputNumber min={0} style={{ width: "100%" }} />
+            </Form>
+
+            {defectRows.length > 0 && (
+              <Table
+                rowKey={(_, i) => String(i)}
+                size="small"
+                pagination={false}
+                dataSource={defectRows}
+                style={{ marginBottom: 16 }}
+                columns={[
+                  { title: "Причина брака", dataIndex: "reason" },
+                  { title: "Кол-во, шт", dataIndex: "qty" },
+                  { title: "Заметка", render: (_, r) => r.note ?? "—" },
+                  {
+                    title: "",
+                    render: (_, __, index) => (
+                      <Button size="small" danger onClick={() => removeDefectRow(index)}>
+                        Убрать
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
+            )}
+
+            <Typography.Title level={5}>Добавить причину брака</Typography.Title>
+            <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
+              Брак может быть по нескольким причинам сразу — например, 1 деталь мусор под плёнкой, 2 деталь
+              царапины: добавьте отдельную строку на каждую причину.
+            </Typography.Paragraph>
+            <Form form={defectRowForm} layout="vertical" onFinish={addDefectRow}>
+              <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
+                <Select options={WRITE_OFF_REASON_OPTIONS.map((r) => ({ value: r, label: r }))} />
               </Form.Item>
-              <Form.Item name="defect_reason" label="Причина брака (если есть)">
-                <Select
-                  allowClear
-                  options={WRITE_OFF_REASON_OPTIONS.map((r) => ({ value: r, label: r }))}
-                />
+              <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>
+                <InputNumber min={1} style={{ width: "100%" }} />
               </Form.Item>
               <Form.Item name="note" label="Заметка (опционально)">
-                <Input.TextArea rows={2} />
+                <Input placeholder="Например: мусор под плёнкой" />
               </Form.Item>
-              <Button type="primary" htmlType="submit" block loading={reportMutation.isPending}>
-                Сохранить отчёт
+              <Button htmlType="submit" block>
+                Добавить причину
               </Button>
             </Form>
+
+            <Button
+              type="primary"
+              block
+              style={{ marginTop: 16 }}
+              loading={reportMutation.isPending}
+              onClick={() => {
+                reportForm
+                  .validateFields()
+                  .then((v) => {
+                    if ((v.good_pieces ?? 0) <= 0 && defectRows.length === 0) {
+                      message.warning("Укажите хотя бы хорошие детали или причину брака");
+                      return;
+                    }
+                    reportMutation.mutate();
+                  })
+                  .catch(() => {});
+              }}
+            >
+              Сохранить отчёт
+            </Button>
           </>
         )}
       </Modal>
