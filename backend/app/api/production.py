@@ -34,6 +34,7 @@ from app.schemas.production import (
     ProductModelUpdate,
 )
 from app.services.dictionaries import find_or_create_material_color_thickness
+from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.production import calc_default_strip_width, compute_remaining_length_m, compute_remaining_pieces
 
 router = APIRouter(tags=["production"])
@@ -86,6 +87,7 @@ def _task_line_out(
     defect: float,
     assigned: float,
     assignment_report_aggs: dict[int, tuple[float, float]] | None = None,
+    issued_length_m: float = 0.0,
 ) -> ProductionTaskLineOut:
     assignment_report_aggs = assignment_report_aggs or {}
     prod_line = db.get(ProductionLine, line.line_id) if line.line_id else None
@@ -116,6 +118,7 @@ def _task_line_out(
         assignments=[
             _assignment_out(db, a, *assignment_report_aggs.get(a.id, (0.0, 0.0))) for a in line.assignments
         ],
+        issued_length_m=issued_length_m,
     )
 
 
@@ -182,6 +185,7 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
     assignment_aggregates = _line_assignment_aggregates(db, line_ids)
     assignment_ids = [a.id for l in task.lines for a in l.assignments]
     assignment_report_aggs = _assignment_report_aggregates(db, assignment_ids)
+    issued_length_by_line = fetch_issued_length_by_task_line(db, line_ids)
     return ProductionTaskOut(
         id=task.id,
         product_model_id=task.product_model_id,
@@ -199,6 +203,7 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
                 *report_aggregates.get(l.id, (0.0, 0.0)),
                 assignment_aggregates.get(l.id, 0.0),
                 assignment_report_aggs,
+                issued_length_by_line.get(l.id, 0.0),
             )
             for l in task.lines
         ],

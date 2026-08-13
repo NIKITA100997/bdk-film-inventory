@@ -138,6 +138,17 @@ export default function Issue() {
     [activeLines, linesWithTodayAssignment],
   );
 
+  // "Выдано по заданиям" — по всем строкам, не только активным
+  // (remaining_pieces > 0): завершённая строка с уже выданной плёнкой
+  // остаётся в ленте расхода, это не список "что ещё нужно выдать".
+  const issuedLines = useMemo(
+    () =>
+      (tasksQuery.data ?? []).flatMap((task) =>
+        task.lines.filter((line) => line.issued_length_m > 0).map((line) => ({ task, line })),
+      ),
+    [tasksQuery.data],
+  );
+
   const matchesFilter = (task: ProductionTask, line: ProductionTaskLine) => {
     if (areaFilter && task.area !== areaFilter) return false;
     if (search.trim()) {
@@ -734,6 +745,31 @@ export default function Issue() {
           </div>
         </Col>
       </Row>
+
+      {issuedLines.length > 0 && (
+        <Card style={{ marginTop: 20 }} title="📦 Выдано по заданиям — расход плёнки">
+          <Table
+            size="small"
+            rowKey={(r) => r.line.id}
+            dataSource={issuedLines}
+            pagination={{ pageSize: 10 }}
+            scroll={{ x: "max-content" }}
+            columns={[
+              { title: "Задание", render: (_, r) => r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}` },
+              { title: "Деталь", render: (_, r) => r.line.part_name ?? "—" },
+              { title: "Участок", render: (_, r) => areaLabels[r.task.area] ?? r.task.area },
+              { title: "Плёнка", render: (_, r) => `${r.line.material}, ${r.line.color}, ${r.line.thickness} мм` },
+              { title: "Выдано, м", render: (_, r) => r.line.issued_length_m.toFixed(1) },
+              { title: "Хороших, шт", render: (_, r) => <Tag color="green">{r.line.produced_good_pieces}</Tag> },
+              {
+                title: "Брак, шт",
+                render: (_, r) => (r.line.defect_pieces > 0 ? <Tag color="red">{r.line.defect_pieces}</Tag> : "—"),
+              },
+              { title: "Остаток задания, шт", render: (_, r) => r.line.remaining_pieces },
+            ]}
+          />
+        </Card>
+      )}
     </div>
   );
 }

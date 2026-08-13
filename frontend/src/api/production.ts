@@ -75,6 +75,7 @@ export interface ProductionTaskLine {
   assigned_pieces: number;
   unassigned_pieces: number;
   assignments: ProductionTaskLineAssignment[];
+  issued_length_m: number;
 }
 
 export interface ProductionTask {

@@ -155,6 +155,10 @@ class ProductionTaskLineOut(BaseModel):
     assigned_pieces: float
     unassigned_pieces: float
     assignments: list[ProductionTaskLineAssignmentOut] = []
+    # Раздел "Выдано по заданиям" на экране "Выдача участку" — сколько
+    # метров плёнки реально выдано складом под эту строку (журнал
+    # Выдача_участку), независимо от того, что с этим потом стало.
+    issued_length_m: float = 0.0
 
 
 class ProductionTaskOut(BaseModel):
