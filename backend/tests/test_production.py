@@ -1,4 +1,8 @@
-from app.services.production import compute_remaining_length_m, compute_remaining_pieces
+from app.services.production import (
+    compute_expected_return_length_m,
+    compute_remaining_length_m,
+    compute_remaining_pieces,
+)
 
 
 class TestComputeRemainingPieces:
@@ -27,3 +31,20 @@ class TestComputeRemainingLengthM:
 
     def test_zero_remaining_pieces_gives_zero_length(self):
         assert compute_remaining_length_m(2.4, 0) == 0
+
+
+class TestComputeExpectedReturnLengthM:
+    """Раздел про возврат остатка — хорошие и бракованные детали одинаково
+    списывают полную длину детали из выданной длины."""
+
+    def test_no_production_yet_full_length_expected_back(self):
+        assert compute_expected_return_length_m(100, 2.4, 0, 0) == 100
+
+    def test_good_pieces_reduce_expected_return(self):
+        assert compute_expected_return_length_m(100, 2.4, 10, 0) == 100 - 24
+
+    def test_defect_pieces_also_reduce_expected_return(self):
+        assert compute_expected_return_length_m(100, 2.4, 10, 5) == 100 - 24 - 12
+
+    def test_does_not_go_negative_if_production_exceeds_issued_length(self):
+        assert compute_expected_return_length_m(10, 2.4, 10, 0) == 0

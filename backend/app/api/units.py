@@ -1,4 +1,7 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Query, Session, joinedload
 
 from app.core.security import get_current_user, require_permission
@@ -6,6 +9,7 @@ from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import MaterialSku
 from app.models.events import EventType, MaterialEvent, WriteOffReason
+from app.models.production import ProductionTaskLine, ProductionTaskLineReport
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import Area, User
 from app.schemas.units import (
@@ -19,6 +23,7 @@ from app.schemas.units import (
     MaterialUnitOut,
     PlaceRequest,
     ReceiveRequest,
+    ReturnPreviewOut,
     ReturnRequest,
     SplitRequest,
     SplitResponse,
@@ -27,10 +32,33 @@ from app.schemas.units import (
 )
 from app.services.dictionaries import find_or_create_sku, find_sku
 from app.services.events import record_event
+from app.services.production import calc_default_strip_width, compute_expected_return_length_m
 from app.services.purchasing import auto_close_on_receipt
 from app.services.splitting import cut_to_length, split_lengthwise
 
 router = APIRouter(prefix="/units", tags=["units"])
+
+
+def _validate_matches_task_line(db: Session, task_line_id: int, sku: MaterialSku, width_mm: float) -> None:
+    """Строгое соответствие плёнки строке задания (раздел про строгую
+    выдачу) — склад не может выдать не ту номенклатуру/ширину, что
+    требует конкретная строка задания, даже если оператор вручную поменял
+    поля после автоподстановки на фронте."""
+    line = db.get(ProductionTaskLine, task_line_id)
+    if line is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
+    if (sku.material_id, sku.color_id, sku.thickness_id) != (line.material_id, line.color_id, line.thickness_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Плёнка не соответствует материалу строки задания")
+    expected_w = (
+        float(line.strip_width_mm)
+        if line.strip_width_mm is not None
+        else calc_default_strip_width(line.part_name, float(line.width_mm))
+    )
+    if abs(width_mm - expected_w) > 0.01:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Ширина не соответствует строке задания: нужно {expected_w} мм, запрошено {width_mm} мм",
+        )
 
 
 def _with_sku(query: Query) -> Query:
@@ -276,6 +304,8 @@ def issue_unit_direct(
     unit = _get_storable_unit(db, unit_id)
     if unit.status != UnitStatus.NA_KHRANENII:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Выдать можно только единицу на хранении")
+    if payload.production_task_line_id is not None:
+        _validate_matches_task_line(db, payload.production_task_line_id, unit.material_sku, float(unit.width_mm))
     from_cell = unit.location_code
     unit.status = UnitStatus.VYDAN_UCHASTKU
     unit.area = payload.area
@@ -311,6 +341,8 @@ def issue_to_area(
     )
     if sku is None:
         return IssueResult(outcome="not_found")
+    if payload.production_task_line_id is not None:
+        _validate_matches_task_line(db, payload.production_task_line_id, sku, payload.width_mm)
 
     exact = (
         db.query(MaterialUnit)
@@ -400,6 +432,8 @@ def issue_to_area(
             user_id=user.id,
         )
         db.commit()
+        created_at_utc = donor_unit.created_at.replace(tzinfo=timezone.utc) if donor_unit.created_at.tzinfo is None else donor_unit.created_at
+        days = max((datetime.now(timezone.utc) - created_at_utc).days, 0)
         return IssueResult(
             outcome="donor_suggested",
             donor=DonorSuggestion(
@@ -409,6 +443,7 @@ def issue_to_area(
                 width_class=cls.value if cls else "?",
                 recommended_cut_mm=payload.width_mm,
                 waste_mm=round(float(donor_unit.width_mm) - payload.width_mm, 2),
+                days_in_storage=days,
             ),
         )
 
@@ -431,6 +466,8 @@ def issue_donor_atomic(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Запрашиваемая ширина должна быть меньше ширины донора"
         )
+    if payload.production_task_line_id is not None:
+        _validate_matches_task_line(db, payload.production_task_line_id, unit.material_sku, payload.requested_width_mm)
 
     try:
         outcome = split_lengthwise(unit, payload.requested_width_mm)
@@ -536,6 +573,32 @@ def cut_unit(
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 
+@router.get("/{unit_id}/return-preview", response_model=ReturnPreviewOut)
+def return_preview(
+    unit_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> ReturnPreviewOut:
+    """Подсказка перед возвратом (раздел про возврат остатка) — сколько
+    плёнки должно остаться по расчёту, до того как оператор физически
+    обмерит и введёт фактическую длину в /units/{id}/return."""
+    unit = _get_storable_unit(db, unit_id)
+    if not unit.production_task_line_id:
+        return ReturnPreviewOut(expected_return_length_m=None, good_pieces=0.0, defect_pieces=0.0)
+    line = db.get(ProductionTaskLine, unit.production_task_line_id)
+    good, defect = (
+        db.query(
+            func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
+            func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
+        )
+        .filter(ProductionTaskLineReport.task_line_id == unit.production_task_line_id)
+        .one()
+    )
+    good, defect = float(good), float(defect)
+    expected = (
+        compute_expected_return_length_m(float(unit.length_m), float(line.length_m), good, defect) if line else None
+    )
+    return ReturnPreviewOut(expected_return_length_m=expected, good_pieces=good, defect_pieces=defect)
+
+
 @router.post("/{unit_id}/return", response_model=MaterialUnitOut)
 def return_unit(
     unit_id: int,
@@ -550,6 +613,18 @@ def return_unit(
     unit = _get_storable_unit(db, unit_id)
     if unit.status != UnitStatus.VYDAN_UCHASTKU:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Вернуть можно только единицу, выданную участку")
+
+    if unit.production_task_line_id:
+        report_exists = (
+            db.query(ProductionTaskLineReport)
+            .filter(ProductionTaskLineReport.task_line_id == unit.production_task_line_id)
+            .first()
+        )
+        if not report_exists:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Возврат рулона невозможно выполнить: мастер участка ещё не внёс отчёт о произведённых деталях и браке!",
+            )
 
     old_length = float(unit.length_m)
     unit.length_m = payload.actual_length_m

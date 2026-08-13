@@ -1,12 +1,14 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
 from app.models.orders import Order, OrderMaterialLine
+from app.models.production import ProductionTask, ProductionTaskLineReport
 from app.models.users import User
 from app.schemas.orders import (
     OrderCreate,
@@ -15,10 +17,12 @@ from app.schemas.orders import (
     OrderLineOut,
     OrderOut,
     OrderReportLine,
+    OrderRequirementOut,
     OrderShortageLine,
 )
 from app.services.dictionaries import current_stock_m2, find_or_create_material_color_thickness
 from app.services.plan_fact import fetch_actual_for_orders
+from app.services.production import calc_default_strip_width, compute_remaining_length_m, compute_remaining_pieces
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -60,9 +64,19 @@ def list_orders(db: Session = Depends(get_db), user: User = Depends(get_current_
 def create_order(
     payload: OrderCreate, db: Session = Depends(get_db), user: User = Depends(require_permission("orders.manage"))
 ) -> Order:
-    if db.query(Order).filter(Order.number == payload.number).first():
+    number = payload.number.strip() if payload.number and payload.number.strip() else None
+    if not number:
+        year = datetime.now(timezone.utc).year
+        max_id = db.query(func.max(Order.id)).scalar() or 0
+        candidate_num = max_id + 1
+        number = f"ЗК-{year}-{candidate_num:03d}"
+        while db.query(Order).filter(Order.number == number).first():
+            candidate_num += 1
+            number = f"ЗК-{year}-{candidate_num:03d}"
+    elif db.query(Order).filter(Order.number == number).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Заказ с таким номером уже существует")
-    order = Order(number=payload.number)
+
+    order = Order(number=number)
     db.add(order)
     db.commit()
     db.refresh(order)
@@ -176,6 +190,70 @@ def add_order_line(
     return _line_out(db, line)
 
 
+@router.get("/{order_id}/requirements", response_model=list[OrderRequirementOut])
+def get_order_requirements(order_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[OrderRequirementOut]:
+    """Потребность по всему заказу (раздел про потребности по всему заказу)
+    — реальные штрипсы/длины/остатки из строк заданий (ProductionTaskLine),
+    привязанных к заказу через ProductionTask.order_id, сгруппированные по
+    материалу+ширине штрипса+длине детали (не грубая оценка из м²)."""
+    order = db.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Заказ не найден")
+
+    tasks = (
+        db.query(ProductionTask)
+        .options(joinedload(ProductionTask.lines))
+        .filter(ProductionTask.order_id == order_id)
+        .all()
+    )
+    lines = [line for task in tasks for line in task.lines]
+    line_ids = [line.id for line in lines]
+    good_by_line: dict[int, float] = {}
+    if line_ids:
+        rows = (
+            db.query(
+                ProductionTaskLineReport.task_line_id,
+                func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
+            )
+            .filter(ProductionTaskLineReport.task_line_id.in_(line_ids))
+            .group_by(ProductionTaskLineReport.task_line_id)
+            .all()
+        )
+        good_by_line = {row[0]: float(row[1]) for row in rows}
+
+    grouped: dict[tuple[int, int, int, float, float], dict] = {}
+    for line in lines:
+        remaining_pieces = compute_remaining_pieces(float(line.quantity_pieces), good_by_line.get(line.id, 0.0))
+        if remaining_pieces <= 0:
+            continue
+        strip_width_mm = (
+            float(line.strip_width_mm)
+            if line.strip_width_mm is not None
+            else calc_default_strip_width(line.part_name, float(line.width_mm))
+        )
+        key = (line.material_id, line.color_id, line.thickness_id, strip_width_mm, float(line.length_m))
+        bucket = grouped.setdefault(key, {"remaining_pieces": 0.0, "remaining_length_m": 0.0, "part_names": set()})
+        bucket["remaining_pieces"] += remaining_pieces
+        bucket["remaining_length_m"] += compute_remaining_length_m(float(line.length_m), remaining_pieces)
+        bucket["part_names"].add(line.part_name or "—")
+
+    reqs: list[OrderRequirementOut] = []
+    for (material_id, color_id, thickness_id, strip_width_mm, length_m), bucket in grouped.items():
+        reqs.append(
+            OrderRequirementOut(
+                part_name=", ".join(sorted(bucket["part_names"])),
+                material=db.get(Material, material_id).name,
+                color=db.get(Color, color_id).name,
+                thickness=float(db.get(Thickness, thickness_id).value_mm),
+                strip_width_mm=strip_width_mm,
+                length_m=length_m,
+                remaining_pieces=bucket["remaining_pieces"],
+                remaining_length_m=round(bucket["remaining_length_m"], 2),
+            )
+        )
+    return reqs
+
+
 @router.post("/{order_id}/close", response_model=OrderOut)
 def close_order(
     order_id: int, db: Session = Depends(get_db), user: User = Depends(require_permission("orders.close"))
@@ -191,3 +269,25 @@ def close_order(
     db.commit()
     db.refresh(order)
     return order
+
+
+@router.delete("/{order_id}")
+def delete_order(
+    order_id: int, db: Session = Depends(get_db), user: User = Depends(require_permission("orders.manage"))
+):
+    order = db.get(Order, order_id)
+    if order is not None:
+        db.delete(order)
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/{order_id}/lines/{line_id}")
+def delete_order_line(
+    order_id: int, line_id: int, db: Session = Depends(get_db), user: User = Depends(require_permission("orders.manage"))
+):
+    line = db.query(OrderMaterialLine).filter(OrderMaterialLine.id == line_id, OrderMaterialLine.order_id == order_id).first()
+    if line is not None:
+        db.delete(line)
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

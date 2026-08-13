@@ -107,6 +107,7 @@ class DonorSuggestion(BaseModel):
     width_class: str
     recommended_cut_mm: float
     waste_mm: float
+    days_in_storage: int = 0
 
 
 class IssueResult(BaseModel):
@@ -135,6 +136,18 @@ class CutRequest(BaseModel):
 
 class ReturnRequest(BaseModel):
     actual_length_m: float = Field(ge=0)
+
+
+class ReturnPreviewOut(BaseModel):
+    """Подсказка перед возвратом (раздел про возврат остатка) — сколько
+    плёнки должно остаться по расчёту (выдано минус хорошие и брак),
+    прежде чем оператор физически обмерит и введёт фактическую длину.
+    expected_return_length_m=None, если единица не привязана к строке
+    задания — считать не из чего."""
+
+    expected_return_length_m: float | None
+    good_pieces: float
+    defect_pieces: float
 
 
 class UnitEventOut(BaseModel):

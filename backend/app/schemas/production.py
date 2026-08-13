@@ -40,6 +40,7 @@ class ProductModelPartCreate(BaseModel):
     qty_per_unit: float = Field(gt=0)
     width_mm: float = Field(gt=0)
     length_m: float = Field(gt=0)
+    strip_width_mm: float | None = None
     part_name: str | None = None
 
 
@@ -49,6 +50,7 @@ class ProductModelPartOut(BaseModel):
     qty_per_unit: float
     width_mm: float
     length_m: float
+    strip_width_mm: float | None = None
     part_name: str | None
 
 
@@ -61,9 +63,6 @@ class ProductModelOut(BaseModel):
 
 
 class ProductionTaskLineManualCreate(BaseModel):
-    # Раздел про распределение по линиям — линия не выбирается при
-    # постановке задания (это делает начальник участка отдельно, см.
-    # ProductionTaskLineAssignment), только опционально на будущее.
     line_id: int | None = None
     material: str
     color: str
@@ -71,29 +70,25 @@ class ProductionTaskLineManualCreate(BaseModel):
     quantity_pieces: float = Field(gt=0)
     width_mm: float = Field(gt=0)
     length_m: float = Field(gt=0)
+    strip_width_mm: float | None = None
     part_name: str | None = None
 
 
 class ProductionTaskManualCreate(BaseModel):
-    """Раздел про распределение по линиям — единый способ создания задания:
-    строки задаются напрямую (либо вручную с нуля, либо предложены из BOM
-    модели и затем отредактированы/раздроблены по линиям на фронтенде —
-    сервер не различает эти два случая, ему приходит уже готовый список
-    строк). product_model_id/quantity — необязательны, только для
-    отображения "из какой модели и на какое количество" в списке заданий."""
-
     name: str
     area: Area
     product_model_id: int | None = None
     quantity: int | None = None
+    # Заказ, для которого создано задание (раздел про потребности по всему
+    # заказу) — необязательно, как product_model_id/quantity.
+    order_id: int | None = None
     lines: list[ProductionTaskLineManualCreate] = Field(min_length=1)
 
 
 class ProductionTaskLineReportCreate(BaseModel):
-    """Отчёт о факте производства по строке задания (раздел про брак в
-    производстве) — брак обнаруживается в процессе окутки, на уровне
-    готовых деталей, не привязан к конкретному рулону."""
-
+    # Раздел про брак по дням — отчёт всегда за конкретную запись
+    # распределения (день/линия/сотрудники), не за строку задания целиком.
+    assignment_id: int
     good_pieces: float = Field(ge=0)
     defect_pieces: float = Field(ge=0)
     defect_reason: WriteOffReason | None = None
@@ -103,6 +98,7 @@ class ProductionTaskLineReportCreate(BaseModel):
 class ProductionTaskLineReportOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    assignment_id: int | None
     good_pieces: float
     defect_pieces: float
     defect_reason: WriteOffReason | None
@@ -112,10 +108,6 @@ class ProductionTaskLineReportOut(BaseModel):
 
 
 class ProductionTaskLineAssignmentCreate(BaseModel):
-    """Раздел про распределение по линиям — запись начальника участка:
-    сколько штук строки задания берёт в работу такая-то линия в такой-то
-    день, силами таких-то людей."""
-
     line_id: int
     date: date
     employee_names: str = Field(min_length=1)
@@ -131,24 +123,25 @@ class ProductionTaskLineAssignmentOut(BaseModel):
     quantity_pieces: float
     created_by: int
     created_at: datetime
+    # Агрегаты по ProductionTaskLineReport, отфильтрованным по этой
+    # конкретной записи распределения (раздел про брак по дням) — именно
+    # это позволяет видеть факт/брак за конкретный день, а не за всю
+    # строку задания.
+    produced_good_pieces: float = 0.0
+    defect_pieces: float = 0.0
 
 
 class ProductionTaskLineOut(BaseModel):
     id: int
-    # Раздел про распределение по линиям — line_id пуст, пока начальник
-    # участка не распределил строку по линиям/дням (см. assignments ниже).
     line_id: int | None
     line_name: str
     material: str
     color: str
     thickness: float
     quantity_pieces: float
-    # Раздел про размер детали — размер куска плёнки на одну деталь; склад
-    # видит их на "Выдаче участку", чтобы знать, что резать/выдавать.
     width_mm: float
     length_m: float
-    # Раздел про распределение по линиям — название детали ("Стоевая" и
-    # т.п.), чтобы строки различались не только цифрами размера.
+    strip_width_mm: float | None = None
     part_name: str | None
     # Агрегаты по ProductionTaskLineReport (раздел про брак в
     # производстве) — quantity_pieces сама не мутируется, остаток считается
@@ -161,6 +154,7 @@ class ProductionTaskLineOut(BaseModel):
     # линиям) — сколько из quantity_pieces уже расписано по линиям/дням.
     assigned_pieces: float
     unassigned_pieces: float
+    assignments: list[ProductionTaskLineAssignmentOut] = []
 
 
 class ProductionTaskOut(BaseModel):
@@ -170,6 +164,7 @@ class ProductionTaskOut(BaseModel):
     name: str | None
     area: Area
     quantity: int | None
+    order_id: int | None
     created_by: int
     created_at: datetime
     lines: list[ProductionTaskLineOut]

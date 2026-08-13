@@ -54,6 +54,7 @@ class ProductModelPart(Base):
     qty_per_unit: Mapped[float] = mapped_column(Numeric(10, 2))
     width_mm: Mapped[float] = mapped_column(Numeric(10, 2))
     length_m: Mapped[float] = mapped_column(Numeric(12, 3))
+    strip_width_mm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     part_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     product_model: Mapped[ProductModel] = relationship(back_populates="parts")
@@ -75,6 +76,10 @@ class ProductionTask(Base):
     quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)  # "500 дверей" — пусто у ручных заданий
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)  # ярлык ручного задания
     area: Mapped[Area] = mapped_column(Enum(Area, name="area", create_type=False))
+    # Заказ, для которого создано задание (раздел про потребности по всему
+    # заказу) — необязательно, как product_model_id/quantity: не все
+    # задания шьются под конкретный заказ покупателя.
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -109,6 +114,7 @@ class ProductionTaskLine(Base):
     # какого размера штрипс резать/выдавать под эту строку задания.
     width_mm: Mapped[float] = mapped_column(Numeric(10, 2))
     length_m: Mapped[float] = mapped_column(Numeric(12, 3))
+    strip_width_mm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     # Название детали (раздел про распределение по линиям) — "Стоевая",
     # "Поперечная" и т.п., чтобы строки задания различались не только по
     # цифрам размера; переносится из ProductModelPart.part_name при
@@ -138,6 +144,11 @@ class ProductionTaskLineReport(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     task_line_id: Mapped[int] = mapped_column(ForeignKey("production_task_lines.id"))
+    # Привязка к конкретной записи распределения (раздел про брак по дням)
+    # — с этой доработки отчёт всегда за конкретный день/линию/смену, не
+    # размазан по всей строке задания. Nullable — отчёты, заведённые до
+    # этой доработки, остаются без привязки, задним числом не проставляем.
+    assignment_id: Mapped[int | None] = mapped_column(ForeignKey("production_task_line_assignments.id"), nullable=True)
 
     good_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
     defect_pieces: Mapped[float] = mapped_column(Numeric(12, 2), default=0)

@@ -18,3 +18,32 @@ def compute_remaining_length_m(length_m: float, remaining_pieces: float) -> floa
     remaining_pieces уже учитывает произведённое/брак, просто переводим
     остаток из штук в метры через длину одной детали."""
     return length_m * remaining_pieces
+
+
+def calc_default_strip_width(part_name: str | None, width_mm: float) -> float:
+    """Дефолтная ширина штрипса под укутку по названию детали, когда
+    strip_width_mm не задан явно ни на детали BOM, ни на строке задания
+    (раздел про размер штрипса) — используется и при выводе моделей/
+    заданий, и при строгой проверке соответствия плёнки на выдаче
+    (units.py)."""
+    if not part_name:
+        return width_mm
+    name_lower = part_name.lower()
+    if "стоевая" in name_lower:
+        return 292.0
+    if "поперечная" in name_lower:
+        return 285.0
+    if "планка" in name_lower:
+        return 140.0 if width_mm >= 40 else 100.0
+    return width_mm
+
+
+def compute_expected_return_length_m(
+    issued_length_m: float, length_m_per_piece: float, good_pieces: float, defect_pieces: float
+) -> float:
+    """Ожидаемая длина остатка при возврате (раздел про возврат остатка) —
+    хорошие и бракованные детали одинаково списывают полную длину детали
+    из выданной длины (брак тоже расходует плёнку, просто не идёт в
+    готовое изделие). Не уходит в минус, если факт производства почему-то
+    превысил выданную длину."""
+    return max(0.0, issued_length_m - length_m_per_piece * (good_pieces + defect_pieces))

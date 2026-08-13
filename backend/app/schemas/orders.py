@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class OrderCreate(BaseModel):
-    number: str
+    number: str | None = None
 
 
 class OrderOut(BaseModel):
@@ -59,9 +59,6 @@ class OrderShortageLine(BaseModel):
 
 
 class OrderReportLine(BaseModel):
-    """Сводный отчёт по всем заказам (4 раздел обратной связи) — отдельно
-    от карточки конкретного заказа."""
-
     id: int
     number: str
     status: str
@@ -71,3 +68,19 @@ class OrderReportLine(BaseModel):
     actual_area_m2: float
     percent_complete: float
     shortage_line_count: int
+
+
+class OrderRequirementOut(BaseModel):
+    """Потребность заказа в плёнке (раздел про потребности по всему
+    заказу) — агрегат по строкам заданий (ProductionTaskLine), связанных с
+    заказом через ProductionTask.order_id, а не грубая оценка из м²:
+    реальные штрипсы/длины/остатки, как их видит склад на "Выдаче"."""
+
+    part_name: str | None
+    material: str
+    color: str
+    thickness: float
+    strip_width_mm: float
+    length_m: float
+    remaining_pieces: float
+    remaining_length_m: float

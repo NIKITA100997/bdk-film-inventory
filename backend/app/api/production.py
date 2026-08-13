@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -33,7 +33,7 @@ from app.schemas.production import (
     ProductModelUpdate,
 )
 from app.services.dictionaries import find_or_create_material_color_thickness
-from app.services.production import compute_remaining_length_m, compute_remaining_pieces
+from app.services.production import calc_default_strip_width, compute_remaining_length_m, compute_remaining_pieces
 
 router = APIRouter(tags=["production"])
 
@@ -52,12 +52,18 @@ def _line_out(line: ProductionLine) -> ProductionLineOut:
 
 
 def _part_out(db: Session, part: ProductModelPart) -> ProductModelPartOut:
+    sw = (
+        float(part.strip_width_mm)
+        if part.strip_width_mm is not None
+        else calc_default_strip_width(part.part_name, float(part.width_mm))
+    )
     return ProductModelPartOut(
         id=part.id,
         area=part.area,
         qty_per_unit=float(part.qty_per_unit),
         width_mm=float(part.width_mm),
         length_m=float(part.length_m),
+        strip_width_mm=sw,
         part_name=part.part_name,
     )
 
@@ -73,10 +79,21 @@ def _model_out(db: Session, model: ProductModel) -> ProductModelOut:
 
 
 def _task_line_out(
-    db: Session, line: ProductionTaskLine, good: float, defect: float, assigned: float
+    db: Session,
+    line: ProductionTaskLine,
+    good: float,
+    defect: float,
+    assigned: float,
+    assignment_report_aggs: dict[int, tuple[float, float]] | None = None,
 ) -> ProductionTaskLineOut:
+    assignment_report_aggs = assignment_report_aggs or {}
     prod_line = db.get(ProductionLine, line.line_id) if line.line_id else None
     remaining_pieces = compute_remaining_pieces(float(line.quantity_pieces), good)
+    sw = (
+        float(line.strip_width_mm)
+        if line.strip_width_mm is not None
+        else calc_default_strip_width(line.part_name, float(line.width_mm))
+    )
     return ProductionTaskLineOut(
         id=line.id,
         line_id=line.line_id,
@@ -87,6 +104,7 @@ def _task_line_out(
         quantity_pieces=float(line.quantity_pieces),
         width_mm=float(line.width_mm),
         length_m=float(line.length_m),
+        strip_width_mm=sw,
         part_name=line.part_name,
         produced_good_pieces=good,
         defect_pieces=defect,
@@ -94,6 +112,9 @@ def _task_line_out(
         remaining_length_m=compute_remaining_length_m(float(line.length_m), remaining_pieces),
         assigned_pieces=assigned,
         unassigned_pieces=compute_remaining_pieces(float(line.quantity_pieces), assigned),
+        assignments=[
+            _assignment_out(db, a, *assignment_report_aggs.get(a.id, (0.0, 0.0))) for a in line.assignments
+        ],
     )
 
 
@@ -133,11 +154,33 @@ def _line_assignment_aggregates(db: Session, line_ids: list[int]) -> dict[int, f
     return {row[0]: float(row[1]) for row in rows}
 
 
+def _assignment_report_aggregates(db: Session, assignment_ids: list[int]) -> dict[int, tuple[float, float]]:
+    """Σ good_pieces/defect_pieces по конкретной записи распределения
+    (раздел про брак по дням) — тот же батч-приём, что
+    _line_report_aggregates, только группировка по assignment_id, не
+    task_line_id, чтобы видеть факт/брак за конкретный день/линию."""
+    if not assignment_ids:
+        return {}
+    rows = (
+        db.query(
+            ProductionTaskLineReport.assignment_id,
+            func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
+            func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
+        )
+        .filter(ProductionTaskLineReport.assignment_id.in_(assignment_ids))
+        .group_by(ProductionTaskLineReport.assignment_id)
+        .all()
+    )
+    return {row[0]: (float(row[1]), float(row[2])) for row in rows}
+
+
 def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
     model = db.get(ProductModel, task.product_model_id) if task.product_model_id else None
     line_ids = [l.id for l in task.lines]
     report_aggregates = _line_report_aggregates(db, line_ids)
     assignment_aggregates = _line_assignment_aggregates(db, line_ids)
+    assignment_ids = [a.id for l in task.lines for a in l.assignments]
+    assignment_report_aggs = _assignment_report_aggregates(db, assignment_ids)
     return ProductionTaskOut(
         id=task.id,
         product_model_id=task.product_model_id,
@@ -145,10 +188,17 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
         name=task.name,
         area=task.area,
         quantity=task.quantity,
+        order_id=task.order_id,
         created_by=task.created_by,
         created_at=task.created_at,
         lines=[
-            _task_line_out(db, l, *report_aggregates.get(l.id, (0.0, 0.0)), assignment_aggregates.get(l.id, 0.0))
+            _task_line_out(
+                db,
+                l,
+                *report_aggregates.get(l.id, (0.0, 0.0)),
+                assignment_aggregates.get(l.id, 0.0),
+                assignment_report_aggs,
+            )
             for l in task.lines
         ],
     )
@@ -250,15 +300,36 @@ def add_product_model_part(
     model = db.get(ProductModel, model_id)
     if model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Модель не найдена")
+    sw = payload.strip_width_mm if payload.strip_width_mm is not None else calc_default_strip_width(payload.part_name, payload.width_mm)
     part = ProductModelPart(
         product_model_id=model_id,
         area=payload.area,
         qty_per_unit=payload.qty_per_unit,
         width_mm=payload.width_mm,
         length_m=payload.length_m,
+        strip_width_mm=sw,
         part_name=payload.part_name,
     )
     db.add(part)
+    db.commit()
+    db.refresh(part)
+    return _part_out(db, part)
+
+
+@router.put("/product-models/{model_id}/parts/{part_id}", response_model=ProductModelPartOut)
+def update_product_model_part(
+    model_id: int, part_id: int, payload: ProductModelPartCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductModelPartOut:
+    part = db.query(ProductModelPart).filter(ProductModelPart.id == part_id, ProductModelPart.product_model_id == model_id).first()
+    if part is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Деталь не найдена")
+    sw = payload.strip_width_mm if payload.strip_width_mm is not None else calc_default_strip_width(payload.part_name, payload.width_mm)
+    part.area = payload.area
+    part.qty_per_unit = payload.qty_per_unit
+    part.width_mm = payload.width_mm
+    part.length_m = payload.length_m
+    part.strip_width_mm = sw
+    part.part_name = payload.part_name
     db.commit()
     db.refresh(part)
     return _part_out(db, part)
@@ -293,17 +364,12 @@ def list_production_tasks(db: Session = Depends(get_db), user: User = Depends(ge
 def create_production_task_manual(
     payload: ProductionTaskManualCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
 ) -> ProductionTaskOut:
-    """Единый способ создания задания (раздел про распределение по линиям)
-    — строки приходят уже готовыми: либо введены с нуля, либо предложены из
-    BOM модели и раздроблены/отредактированы на фронтенде (одна деталь BOM
-    может породить несколько строк с разными линиями и количествами —
-    сервер это не считает, ему всё равно, откуда взялся список).
-    product_model_id/quantity — необязательны, только для отображения."""
     task = ProductionTask(
         product_model_id=payload.product_model_id,
         quantity=payload.quantity,
         name=payload.name,
         area=payload.area,
+        order_id=payload.order_id,
         created_by=user.id,
     )
     db.add(task)
@@ -320,6 +386,11 @@ def create_production_task_manual(
         material, color, thickness = find_or_create_material_color_thickness(
             db, material=line_payload.material, color=line_payload.color, thickness=line_payload.thickness
         )
+        sw = (
+            line_payload.strip_width_mm
+            if line_payload.strip_width_mm is not None
+            else calc_default_strip_width(line_payload.part_name, line_payload.width_mm)
+        )
         db.add(
             ProductionTaskLine(
                 task_id=task.id,
@@ -330,6 +401,7 @@ def create_production_task_manual(
                 quantity_pieces=line_payload.quantity_pieces,
                 width_mm=line_payload.width_mm,
                 length_m=line_payload.length_m,
+                strip_width_mm=sw,
                 part_name=line_payload.part_name,
             )
         )
@@ -381,10 +453,17 @@ def create_task_line_report(
     мутирует ProductionTaskLine.quantity_pieces (неизменная цель),
     накопительный журнал, остаток считается на лету при сборке
     ProductionTaskOut (см. _line_report_aggregates) — так остаток
-    "видит" сумму по нескольким отчётам (например, за разные смены)."""
+    "видит" сумму по нескольким отчётам (например, за разные смены).
+    Обязательно привязан к конкретной записи распределения (раздел про
+    брак по дням) — мастер отчитывается за конкретный день/линию, не за
+    строку задания в целом."""
     _get_task_line(db, task_id, line_id)
+    assignment = db.get(ProductionTaskLineAssignment, payload.assignment_id)
+    if assignment is None or assignment.task_line_id != line_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Распределение не найдено для этой строки задания")
     report = ProductionTaskLineReport(
         task_line_id=line_id,
+        assignment_id=payload.assignment_id,
         good_pieces=payload.good_pieces,
         defect_pieces=payload.defect_pieces,
         defect_reason=payload.defect_reason,
@@ -400,7 +479,9 @@ def create_task_line_report(
 # --- Распределение по линиям ---------------------------------------------
 
 
-def _assignment_out(db: Session, a: ProductionTaskLineAssignment) -> ProductionTaskLineAssignmentOut:
+def _assignment_out(
+    db: Session, a: ProductionTaskLineAssignment, produced_good_pieces: float = 0.0, defect_pieces: float = 0.0
+) -> ProductionTaskLineAssignmentOut:
     line = db.get(ProductionLine, a.line_id)
     return ProductionTaskLineAssignmentOut(
         id=a.id,
@@ -411,6 +492,8 @@ def _assignment_out(db: Session, a: ProductionTaskLineAssignment) -> ProductionT
         quantity_pieces=float(a.quantity_pieces),
         created_by=a.created_by,
         created_at=a.created_at,
+        produced_good_pieces=produced_good_pieces,
+        defect_pieces=defect_pieces,
     )
 
 
@@ -427,7 +510,8 @@ def list_task_line_assignments(
         .order_by(ProductionTaskLineAssignment.date.desc(), ProductionTaskLineAssignment.created_at.desc())
         .all()
     )
-    return [_assignment_out(db, a) for a in assignments]
+    report_aggs = _assignment_report_aggregates(db, [a.id for a in assignments])
+    return [_assignment_out(db, a, *report_aggs.get(a.id, (0.0, 0.0))) for a in assignments]
 
 
 @router.post(
@@ -467,3 +551,33 @@ def create_task_line_assignment(
     db.commit()
     db.refresh(assignment)
     return _assignment_out(db, assignment)
+
+
+@router.get("/production-tasks/{task_id}", response_model=ProductionTaskOut)
+def get_production_task(task_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> ProductionTaskOut:
+    task = db.get(ProductionTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+    return _task_out(db, task)
+
+
+@router.delete("/production-tasks/{task_id}")
+def delete_production_task(
+    task_id: int, db: Session = Depends(get_db), user: User = Depends(manage_production)
+):
+    task = db.get(ProductionTask, task_id)
+    if task is not None:
+        db.delete(task)
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/product-models/{model_id}")
+def delete_product_model(
+    model_id: int, db: Session = Depends(get_db), user: User = Depends(manage_production)
+):
+    model = db.get(ProductModel, model_id)
+    if model is not None:
+        db.delete(model)
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
