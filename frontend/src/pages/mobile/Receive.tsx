@@ -44,10 +44,9 @@ export default function Receive() {
           ? `Добавлено ${units.length}, без места автоматически: ${unplaced} — разместите вручную позже`
           : `Добавлено и размещено: ${units.length}`,
       );
-      // Материал/цвет/толщина/производитель остаются для следующего рулона
-      // того же цвета (2.3 раздел бэклога доработок) — сбрасываем только
-      // ширину/длину/количество.
-      lineForm.setFieldsValue({ width_mm: undefined, length_m: undefined, quantity: 1 });
+      // Сохраняем все параметры рулона (ширину/длину/материал/цвет) для быстрой
+      // повторной приёмки одинаковых рулонов с той же паллеты.
+      lineForm.setFieldsValue({ quantity: 1 });
       lineDraft.clearDraft();
     },
     onError: () => message.error("Не удалось добавить рулон(ы) — проверьте данные"),
@@ -138,6 +137,15 @@ export default function Receive() {
             <Form.Item name="quantity" label="Количество одинаковых рулонов" rules={[{ required: true }]}>
               <InputNumber size="large" min={1} max={200} style={{ width: "100%" }} />
             </Form.Item>
+            <Row gutter={8} style={{ marginBottom: 16 }}>
+              {[1, 5, 9, 10].map((num) => (
+                <Col key={num} span={6}>
+                  <Button block size="large" onClick={() => lineForm.setFieldValue("quantity", num)}>
+                    {num} шт
+                  </Button>
+                </Col>
+              ))}
+            </Row>
             <Button size="large" type="primary" htmlType="submit" block loading={addLineMutation.isPending}>
               Добавить и дальше
             </Button>

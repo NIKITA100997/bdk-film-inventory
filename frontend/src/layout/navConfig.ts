@@ -32,52 +32,37 @@ export interface NavBlock {
 // кликом по строке в "Остатках" или сканом QR.
 export const navTree: NavBlock[] = [
   {
-    key: "top",
-    label: "",
+    key: "main",
+    label: "Основное",
     items: [
       { key: "overview", path: "/", label: "Обзор" },
-      { key: "stock", path: "/stock", label: "Остатки" },
-      { key: "storage", path: "/storage", label: "Стеллажи" },
-      { key: "receive", path: "/m/receive", label: "Приёмка", permissions: ["units.receive"] },
-      { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue"] },
-      {
-        key: "inventory-scan",
-        path: "/m/inventory",
-        label: "Инвентаризация — сканирование",
-        permissions: ["inventory.manage"],
-      },
-      {
-        key: "inventory-sessions",
-        path: "/inventory",
-        label: "Инвентаризация — сессии",
-        permissions: ["inventory.manage"],
-      },
+      { key: "stock", path: "/stock", label: "Остатки плёнки" },
+      { key: "sales-calculator", path: "/sales-calculator", label: "Калькулятор заказа", permissions: ["sales_calculator.view"] },
     ],
   },
   {
-    key: "orders-purchasing-reports",
-    label: "",
+    key: "warehouse",
+    label: "Складские операции",
     items: [
-      // Заказ — единица планирования (4 раздел обратной связи, заменяет
-      // собой недельный план): свои строки потребности + план/факт по
-      // заказу, поэтому виден и тем, кто планирует (orders.plan), и тем,
-      // кто создаёт/закрывает заказы (orders.manage/orders.close).
-      { key: "orders", path: "/orders", label: "Заказы", permissions: ["orders.plan", "orders.manage", "orders.close"] },
-      // Пилот: окутка царговых (раздел про производственные задания) —
-      // начальник цеха заводит модели/BOM и создаёт задания
-      // (production_tasks.manage), начальник участка смотрит готовое
-      // задание своего участка (production_tasks.view).
+      { key: "receive", path: "/m/receive", label: "Приёмка плёнки", permissions: ["units.receive"] },
+      { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue"] },
+      { key: "storage", path: "/storage", label: "Стеллажи и ячейки" },
+      { key: "inventory", path: "/inventory", label: "Инвентаризация", permissions: ["inventory.manage"] },
+    ],
+  },
+  {
+    key: "production",
+    label: "Производство и Заказы",
+    items: [
+      { key: "orders", path: "/orders", label: "Заказы покупателей", permissions: ["orders.plan", "orders.manage", "orders.close"] },
       {
         key: "production-tasks",
         path: "/production-tasks",
-        label: "Производственные задания",
+        label: "Задания цеха (План на день)",
         permissions: ["production_tasks.manage", "production_tasks.view"],
       },
-      { key: "purchasing", path: "/purchasing", label: "Закупки", permissions: ["purchasing.manage"] },
+      { key: "purchasing", path: "/purchasing", label: "Закупки плёнки", permissions: ["purchasing.manage"] },
       { key: "reports", path: "/reports", label: "Отчёты", permissions: ["reports.view"] },
-      // Калькулятор заказа для продажника (8 раздел обратной связи) —
-      // считает потребность и сразу предлагает аналог из неликвида.
-      { key: "sales-calculator", path: "/sales-calculator", label: "Калькулятор заказа", permissions: ["sales_calculator.view"] },
     ],
   },
   {
@@ -87,14 +72,8 @@ export const navTree: NavBlock[] = [
       { key: "users", path: "/users", label: "Пользователи", permissions: ["users.manage"] },
       { key: "roles", path: "/roles", label: "Роли и права", permissions: ["users.manage"] },
       { key: "dictionaries", path: "/dictionaries", label: "Справочники", permissions: ["materials.manage"] },
-      // Раньше один экран "Настройки" держал стеллажи (storage.manage) и
-      // пороги расчётов (calc_settings.manage) вместе только потому, что
-      // обоими правами владела одна роль — по итогам продуктового разбора
-      // разделены: стеллажи переехали в "Стеллажи" (виден всем, наравне с
-      // "Остатками" — там же теперь и схема размещения), здесь остаются
-      // только пороги расчётов.
+      { key: "label-template", path: "/label-template", label: "Макет этикетки (100×40)", permissions: ["labels.manage"] },
       { key: "calc-settings", path: "/calc-settings", label: "Параметры расчётов", permissions: ["calc_settings.manage"] },
-      { key: "label-template", path: "/label-template", label: "Макет этикетки", permissions: ["labels.manage"] },
     ],
   },
 ];

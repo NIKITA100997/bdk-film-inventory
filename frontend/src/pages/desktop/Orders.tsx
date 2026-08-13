@@ -7,6 +7,8 @@ import {
   createOrder,
   addOrderLine,
   closeOrder,
+  deleteOrder,
+  deleteOrderLine,
   type Order,
   type OrderLine,
   type OrderLineCreate,
@@ -77,19 +79,36 @@ export default function Orders() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteOrder(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      if (orderId) setOrderId(null);
+      message.success("Заказ удалён");
+    },
+  });
+
+  const deleteLineMutation = useMutation({
+    mutationFn: (lineId: number) => deleteOrderLine(orderId!, lineId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["order", orderId] });
+      message.success("Позиция удалена");
+    },
+  });
+
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Card title="Заказы">
+      <Card title="Заказы покупателей">
         {!canManage && !canPlan && !canClose && (
           <Typography.Paragraph type="secondary">Доступен только просмотр — создание, строки потребности и закрытие вам не назначены.</Typography.Paragraph>
         )}
         {canManage && (
           <Form form={createForm} layout="inline" onFinish={(v) => createMutation.mutate(v)} style={{ marginBottom: 16 }}>
-            <Form.Item name="number" rules={[{ required: true }]}>
-              <Input placeholder="Номер заказа" />
+            <Form.Item name="number">
+              <Input placeholder="Номер заказа (пусто = автогенерация ЗК-2026-...)" style={{ width: 340 }} />
             </Form.Item>
             <Button type="primary" htmlType="submit" loading={createMutation.isPending}>
-              Создать
+              Создать заказ
             </Button>
           </Form>
         )}
@@ -109,20 +128,30 @@ export default function Orders() {
               render: (_, o) => (o.status === "closed" ? <Tag>Закрыт</Tag> : <Tag color="green">Открыт</Tag>),
             },
             {
-              title: "",
-              render: (_, o) =>
-                canClose && o.status !== "closed" && (
-                  <Button
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeMutation.mutate(o.id);
-                    }}
-                    loading={closeMutation.isPending}
-                  >
-                    Закрыть заказ
-                  </Button>
-                ),
+              title: "Действия",
+              render: (_, o) => (
+                <Space onClick={(e) => e.stopPropagation()}>
+                  {canClose && o.status !== "closed" && (
+                    <Button
+                      size="small"
+                      onClick={() => closeMutation.mutate(o.id)}
+                      loading={closeMutation.isPending}
+                    >
+                      Закрыть
+                    </Button>
+                  )}
+                  {canManage && (
+                    <Button
+                      size="small"
+                      danger
+                      onClick={() => deleteMutation.mutate(o.id)}
+                      loading={deleteMutation.isPending}
+                    >
+                      🗑️ Удалить
+                    </Button>
+                  )}
+                </Space>
+              ),
             },
           ]}
         />
@@ -176,6 +205,20 @@ export default function Orders() {
               {
                 title: "Статус",
                 render: (_, l) => (l.shortage ? <Tag color="orange">Не хватает</Tag> : <Tag color="green">Хватает</Tag>),
+              },
+              {
+                title: "",
+                render: (_, l) =>
+                  canPlan && (
+                    <Button
+                      size="small"
+                      danger
+                      onClick={() => deleteLineMutation.mutate(l.id)}
+                      loading={deleteLineMutation.isPending}
+                    >
+                      🗑️ Удалить
+                    </Button>
+                  ),
               },
             ]}
           />

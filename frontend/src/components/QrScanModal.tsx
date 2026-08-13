@@ -93,7 +93,7 @@ export default function QrScanModal({
         </Button>,
       ]}
       title={title}
-      destroyOnClose
+      destroyOnHidden
     >
       {errorMessage ? (
         <Alert message={errorMessage} type="error" showIcon style={{ marginBottom: 16 }} />

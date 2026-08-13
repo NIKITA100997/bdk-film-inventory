@@ -92,11 +92,12 @@ def suggest_location(
     rules = db.query(MacroZoneRule).filter(MacroZoneRule.rack_id.in_(racks_by_id.keys())).all()
     matching = sorted((r for r in rules if _rule_matches(r, sku)), key=_rule_specificity, reverse=True)
 
+    if not matching:
+        # По требованию производства: если индивидуального правила зонирования нет,
+        # автоподбор не помещает в произвольные ячейки, а просит настроить правило.
+        return None
+
     candidates: list[tuple[int, int, int]] = [(r.rack_id, r.from_shelf, r.to_shelf) for r in matching]
-    # Ни одно правило не подошло (или зона занята) — пробуем весь диапазон
-    # каждого стеллажа нужного типа как буферную зону (раздел 4.2).
-    for rack in racks:
-        candidates.append((rack.id, 1, rack.shelf_count))
 
     for rack_id, from_shelf, to_shelf in candidates:
         location = _find_free_slot(db, racks_by_id[rack_id], from_shelf, to_shelf, cells_per_strip_shelf)

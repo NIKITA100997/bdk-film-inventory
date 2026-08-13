@@ -50,7 +50,7 @@ export default function Inventory() {
   const [scanForm] = Form.useForm();
   const [unitIdKnown, setUnitIdKnown] = useState(true);
 
-  const racksQuery = useQuery({ queryKey: ["racks"], queryFn: listRacks, enabled: scopeType === "rack" });
+  const racksQuery = useQuery({ queryKey: ["racks"], queryFn: () => listRacks(), enabled: scopeType === "rack" });
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus, enabled: scopeType === "material_sku" });
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
 
