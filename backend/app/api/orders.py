@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
 from app.models.orders import Order, OrderMaterialLine
 from app.models.production import ProductionTask, ProductionTaskLineReport
+from app.models.units import MaterialUnit
 from app.models.users import User
 from app.schemas.orders import (
     OrderCreate,
@@ -276,9 +277,21 @@ def delete_order(
     order_id: int, db: Session = Depends(get_db), user: User = Depends(require_permission("orders.manage"))
 ):
     order = db.get(Order, order_id)
-    if order is not None:
-        db.delete(order)
-        db.commit()
+    if order is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    # Раздел про план/факт заказа — если по заказу уже была движуха (единицы
+    # выданы под него или к нему привязано задание), физическое удаление
+    # упадёт нарушением внешнего ключа. Явный 409 вместо голого 500 —
+    # заказ с историей закрывают, а не удаляют.
+    has_units = db.query(MaterialUnit.id).filter(MaterialUnit.order_id == order_id).first() is not None
+    has_tasks = db.query(ProductionTask.id).filter(ProductionTask.order_id == order_id).first() is not None
+    if has_units or has_tasks:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Нельзя удалить заказ — по нему уже есть движения материала или привязанные задания. Закройте заказ вместо удаления.",
+        )
+    db.delete(order)
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

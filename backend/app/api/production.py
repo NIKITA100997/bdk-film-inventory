@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
+from app.models.units import MaterialUnit
 from app.models.production import (
     ProductionLine,
     ProductionTask,
@@ -566,9 +567,24 @@ def delete_production_task(
     task_id: int, db: Session = Depends(get_db), user: User = Depends(manage_production)
 ):
     task = db.get(ProductionTask, task_id)
-    if task is not None:
-        db.delete(task)
-        db.commit()
+    if task is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    # Единицы, реально выданные по строкам этого задания, — та же логика,
+    # что у удаления заказа: если по заданию уже была движуха, его не
+    # удаляют, а оставляют как есть (архивной отметки у задания нет, в
+    # отличие от заказа/стеллажа/линии — задание либо ещё пустое, либо
+    # часть истории склада).
+    line_ids = [l.id for l in task.lines]
+    has_units = (
+        bool(line_ids) and db.query(MaterialUnit.id).filter(MaterialUnit.production_task_line_id.in_(line_ids)).first() is not None
+    )
+    if has_units:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Нельзя удалить задание — по нему уже выдавалась плёнка. Такое задание остаётся в истории склада.",
+        )
+    db.delete(task)
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

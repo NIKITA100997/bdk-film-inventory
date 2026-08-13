@@ -67,12 +67,16 @@ class MaterialEvent(Base):
     from_cell: Mapped[str | None] = mapped_column(String(32), nullable=True)
     to_cell: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
-    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
+    # ondelete=SET NULL на обоих — журнал событий переживает удаление
+    # заказа/задания, на которые он когда-то ссылался (это аудит-лог, не
+    # владеющая связь): без этого удаление задания/заказа с реальной
+    # историей падало нарушением внешнего ключа вместо каскада.
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
     # Раздел про производственные задания — какую строку задания эта
     # выдача закрывает, для прослеживаемости (тот же приём, что order_id:
     # копируется из unit.production_task_line_id в record_event()).
     production_task_line_id: Mapped[int | None] = mapped_column(
-        ForeignKey("production_task_lines.id"), nullable=True
+        ForeignKey("production_task_lines.id", ondelete="SET NULL"), nullable=True
     )
 
     # Не из ТЗ буквально, но необходимо для отчёта по расхождениям на

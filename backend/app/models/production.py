@@ -148,7 +148,13 @@ class ProductionTaskLineReport(Base):
     # — с этой доработки отчёт всегда за конкретный день/линию/смену, не
     # размазан по всей строке задания. Nullable — отчёты, заведённые до
     # этой доработки, остаются без привязки, задним числом не проставляем.
-    assignment_id: Mapped[int | None] = mapped_column(ForeignKey("production_task_line_assignments.id"), nullable=True)
+    # ondelete=SET NULL — удаление задания каскадно удаляет и его
+    # assignments (см. ProductionTaskLine.assignments ниже); без этого
+    # удаление задания с уже отчитанным браком падало нарушением внешнего
+    # ключа вместо каскада.
+    assignment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("production_task_line_assignments.id", ondelete="SET NULL"), nullable=True
+    )
 
     good_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
     defect_pieces: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
