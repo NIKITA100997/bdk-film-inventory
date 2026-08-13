@@ -16,8 +16,9 @@ def compute_remaining_pieces(quantity_pieces: float, produced_good_pieces: float
 def compute_remaining_length_m(length_m: float, remaining_pieces: float) -> float:
     """Остаток строки задания в метрах плёнки (раздел про размер детали) —
     remaining_pieces уже учитывает произведённое/брак, просто переводим
-    остаток из штук в метры через длину одной детали."""
-    return length_m * remaining_pieces
+    остаток из штук в метры через длину одной детали. Округляем до см —
+    без этого умножение float даёт "124.19999999999999 м" на экране."""
+    return round(length_m * remaining_pieces, 2)
 
 
 def calc_default_strip_width(part_name: str | None, width_mm: float) -> float:
