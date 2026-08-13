@@ -36,8 +36,11 @@ export const navTree: NavBlock[] = [
     label: "Основное",
     items: [
       { key: "overview", path: "/", label: "Обзор" },
+      // Сквозная справка "что у нас есть" для всех ролей (продажник,
+      // производство, склад) — не складская операция (раздел про
+      // организацию меню), поэтому остаётся здесь же, рядом с "Обзором",
+      // а не в "Складских операциях".
       { key: "stock", path: "/stock", label: "Остатки плёнки" },
-      { key: "sales-calculator", path: "/sales-calculator", label: "Калькулятор заказа", permissions: ["sales_calculator.view"] },
     ],
   },
   {
@@ -74,6 +77,17 @@ export const navTree: NavBlock[] = [
       { key: "dictionaries", path: "/dictionaries", label: "Справочники", permissions: ["materials.manage"] },
       { key: "label-template", path: "/label-template", label: "Макет этикетки (100×40)", permissions: ["labels.manage"] },
       { key: "calc-settings", path: "/calc-settings", label: "Параметры расчётов", permissions: ["calc_settings.manage"] },
+    ],
+  },
+  {
+    // Постоянный раздел для незрелых/экспериментальных функций (раздел
+    // про организацию меню) — видимость каждого пункта по-прежнему решает
+    // его permissions, раздел сам по себе не ограничивает доступ, только
+    // визуально обособляет "черновое" от основного функционала.
+    key: "drafts",
+    label: "Черновики функций",
+    items: [
+      { key: "sales-calculator", path: "/sales-calculator", label: "Калькулятор заказа", permissions: ["sales_calculator.view"] },
     ],
   },
 ];

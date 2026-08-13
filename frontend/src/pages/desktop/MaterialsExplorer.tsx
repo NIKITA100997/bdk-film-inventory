@@ -35,6 +35,7 @@ import {
 import { getStockSummary, type StockSummaryLine } from "../../api/reports";
 import { listAbcClasses, recomputeAbc } from "../../api/abc";
 import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionaries";
+import { listRacks } from "../../api/storage";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { useAuth } from "../../auth/AuthContext";
 import { exportToCsv } from "../../utils/csv";
@@ -106,6 +107,18 @@ export default function MaterialsExplorer() {
     enabled: viewMode === "units",
   });
   const classesQuery = useQuery({ queryKey: ["abc-classes", "all"], queryFn: () => listAbcClasses() });
+  const racksQuery = useQuery({ queryKey: ["racks"], queryFn: () => listRacks() });
+
+  // Кросс-ссылка "На стеллаже" (раздел про организацию меню — Остатки и
+  // Стеллажи не мержим, но связываем переходом) — код стеллажа не хранится
+  // на единице отдельно, только адрес ячейки целиком ("Р-1-01"), поэтому
+  // ищем стеллаж, чей код — самый длинный совпадающий префикс адреса.
+  const rackForLocation = (locationCode: string | null) => {
+    if (!locationCode || !racksQuery.data) return null;
+    const matches = racksQuery.data.filter((r) => locationCode.startsWith(r.code + "-"));
+    if (matches.length === 0) return null;
+    return matches.reduce((longest, r) => (r.code.length > longest.code.length ? r : longest));
+  };
 
   const recomputeMutation = useMutation({
     mutationFn: () => recomputeAbc(),
@@ -374,7 +387,27 @@ export default function MaterialsExplorer() {
               { title: "Материал", render: (_, u) => skuLabel(u.material_sku) },
               { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м`, sorter: (a, b) => a.width_mm - b.width_mm },
               { title: "Статус", render: (_, u) => u.status.replace(/_/g, " ") },
-              { title: "Адрес/участок", render: (_, u) => u.location_code ?? (u.area ? areaLabels[u.area] : null) ?? "—" },
+              {
+                title: "Адрес/участок",
+                render: (_, u) => {
+                  const rack = rackForLocation(u.location_code);
+                  return (
+                    <Space size={6}>
+                      <span>{u.location_code ?? (u.area ? areaLabels[u.area] : null) ?? "—"}</span>
+                      {rack && (
+                        <a
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate("/storage", { state: { rackId: rack.id } });
+                          }}
+                        >
+                          на стеллаже →
+                        </a>
+                      )}
+                    </Space>
+                  );
+                },
+              },
             ]}
           />
         </Card>

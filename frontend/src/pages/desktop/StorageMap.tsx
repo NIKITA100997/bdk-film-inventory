@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   Tabs,
@@ -19,7 +19,7 @@ import {
   message,
 } from "antd";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   createMacroZoneRule,
   createRack,
@@ -47,6 +47,15 @@ import { useAuth } from "../../auth/AuthContext";
 
 const typeLabels: Record<RackType, string> = { roll: "рулонный", strip: "штрипсовый" };
 
+// Кросс-ссылка "В остатках" (раздел про организацию меню — Остатки и
+// Стеллажи не мержим в один экран, разные оси, но связываем переходом) —
+// та же форма state, что MaterialCard уже принимает от других экранов.
+const skuToPrefill = (sku: { material: { name: string }; color: { name: string }; thickness: { value_mm: number } }) => ({
+  material: sku.material.name,
+  color: sku.color.name,
+  thickness: sku.thickness.value_mm,
+});
+
 /** Стеллажи и ячейки — раздел про склад: схема и правила зонирования
  * объединены в одно окно (раньше были на отдельных вкладках "Схема" и
  * "Управление", стеллаж приходилось выбирать заново в каждой). Список
@@ -54,6 +63,7 @@ const typeLabels: Record<RackType, string> = { roll: "рулонный", strip: 
  * схема и правила выбранного стеллажа вместе, редактирование тут же. */
 function RacksConsole() {
   const navigate = useNavigate();
+  const location = useLocation();
   const qc = useQueryClient();
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("storage.manage");
@@ -65,6 +75,18 @@ function RacksConsole() {
   const [editingRack, setEditingRack] = useState<Rack | null>(null);
   const [editRackForm] = Form.useForm<RackUpdate>();
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
+
+  // Кросс-ссылка "На стеллаже" из Остатков (раздел про организацию меню)
+  // — приходим сюда уже с известным стеллажом, фильтры сбрасываем, чтобы
+  // он точно попал в видимый список.
+  useEffect(() => {
+    const incomingRackId = (location.state as { rackId?: number } | null)?.rackId;
+    if (incomingRackId) {
+      setRackId(incomingRackId);
+      setTypeFilter("all");
+      setWarehouseId(null);
+    }
+  }, [location.state]);
 
   const racksQuery = useQuery({ queryKey: ["racks"], queryFn: () => listRacks() });
   const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
@@ -484,9 +506,14 @@ function RollShelfRows({
                       {cellData!.unit!.width_mm}×{cellData!.unit!.length_m} м
                     </Typography.Text>
                   </Space>
-                  <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: cellData!.unit!.id } })}>
-                    Карточка
-                  </Button>
+                  <Space size={4}>
+                    <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: cellData!.unit!.id } })}>
+                      Карточка
+                    </Button>
+                    <Button size="small" onClick={() => navigate("/materials", { state: skuToPrefill(cellData!.unit!.material_sku) })}>
+                      В остатках
+                    </Button>
+                  </Space>
                 </>
               ) : (
                 <Typography.Text type="secondary">{cellData?.location_code ?? ""} — свободно</Typography.Text>
@@ -527,9 +554,14 @@ function FragmentRow({
             <Typography.Text type="secondary">
               {cellData.unit!.width_mm}×{cellData.unit!.length_m} м, {cellData.unit!.status.replace(/_/g, " ")}
             </Typography.Text>
-            <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: cellData.unit!.id } })}>
-              Открыть карточку единицы
-            </Button>
+            <Space size={4}>
+              <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: cellData.unit!.id } })}>
+                Карточка единицы
+              </Button>
+              <Button size="small" onClick={() => navigate("/materials", { state: skuToPrefill(cellData.unit!.material_sku) })}>
+                В остатках
+              </Button>
+            </Space>
           </Space>
         ) : (
           <Typography.Text type="secondary">{cellData.location_code} — свободно</Typography.Text>
