@@ -15,6 +15,7 @@ from app.models.production import (
     ProductModelPart,
     ProductionTask,
     ProductionTaskLine,
+    ProductionTaskLineAssignment,
     ProductionTaskLineReport,
 )
 
@@ -56,5 +57,6 @@ __all__ = [
     "ProductModelPart",
     "ProductionTask",
     "ProductionTaskLine",
+    "ProductionTaskLineAssignment",
     "ProductionTaskLineReport",
 ]

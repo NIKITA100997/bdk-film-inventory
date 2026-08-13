@@ -9,6 +9,7 @@ from app.models.production import (
     ProductionLine,
     ProductionTask,
     ProductionTaskLine,
+    ProductionTaskLineAssignment,
     ProductionTaskLineReport,
     ProductModel,
     ProductModelPart,
@@ -18,6 +19,8 @@ from app.schemas.production import (
     ProductionLineCreate,
     ProductionLineOut,
     ProductionLineUpdate,
+    ProductionTaskLineAssignmentCreate,
+    ProductionTaskLineAssignmentOut,
     ProductionTaskLineOut,
     ProductionTaskLineReportCreate,
     ProductionTaskLineReportOut,
@@ -69,8 +72,10 @@ def _model_out(db: Session, model: ProductModel) -> ProductModelOut:
     )
 
 
-def _task_line_out(db: Session, line: ProductionTaskLine, good: float, defect: float) -> ProductionTaskLineOut:
-    prod_line = db.get(ProductionLine, line.line_id)
+def _task_line_out(
+    db: Session, line: ProductionTaskLine, good: float, defect: float, assigned: float
+) -> ProductionTaskLineOut:
+    prod_line = db.get(ProductionLine, line.line_id) if line.line_id else None
     remaining_pieces = compute_remaining_pieces(float(line.quantity_pieces), good)
     return ProductionTaskLineOut(
         id=line.id,
@@ -87,6 +92,8 @@ def _task_line_out(db: Session, line: ProductionTaskLine, good: float, defect: f
         defect_pieces=defect,
         remaining_pieces=remaining_pieces,
         remaining_length_m=compute_remaining_length_m(float(line.length_m), remaining_pieces),
+        assigned_pieces=assigned,
+        unassigned_pieces=compute_remaining_pieces(float(line.quantity_pieces), assigned),
     )
 
 
@@ -108,9 +115,29 @@ def _line_report_aggregates(db: Session, line_ids: list[int]) -> dict[int, tuple
     return {row[0]: (float(row[1]), float(row[2])) for row in rows}
 
 
+def _line_assignment_aggregates(db: Session, line_ids: list[int]) -> dict[int, float]:
+    """Σ quantity_pieces по строке задания (раздел про распределение по
+    линиям) — сколько уже расписано по линиям/дням, один запрос на все
+    строки задания, не N+1."""
+    if not line_ids:
+        return {}
+    rows = (
+        db.query(
+            ProductionTaskLineAssignment.task_line_id,
+            func.coalesce(func.sum(ProductionTaskLineAssignment.quantity_pieces), 0),
+        )
+        .filter(ProductionTaskLineAssignment.task_line_id.in_(line_ids))
+        .group_by(ProductionTaskLineAssignment.task_line_id)
+        .all()
+    )
+    return {row[0]: float(row[1]) for row in rows}
+
+
 def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
     model = db.get(ProductModel, task.product_model_id) if task.product_model_id else None
-    aggregates = _line_report_aggregates(db, [l.id for l in task.lines])
+    line_ids = [l.id for l in task.lines]
+    report_aggregates = _line_report_aggregates(db, line_ids)
+    assignment_aggregates = _line_assignment_aggregates(db, line_ids)
     return ProductionTaskOut(
         id=task.id,
         product_model_id=task.product_model_id,
@@ -120,7 +147,10 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
         quantity=task.quantity,
         created_by=task.created_by,
         created_at=task.created_at,
-        lines=[_task_line_out(db, l, *aggregates.get(l.id, (0.0, 0.0))) for l in task.lines],
+        lines=[
+            _task_line_out(db, l, *report_aggregates.get(l.id, (0.0, 0.0)), assignment_aggregates.get(l.id, 0.0))
+            for l in task.lines
+        ],
     )
 
 
@@ -279,13 +309,14 @@ def create_production_task_manual(
     db.add(task)
     db.flush()
     for line_payload in payload.lines:
-        line = db.get(ProductionLine, line_payload.line_id)
-        if line is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Линия не найдена")
-        if line.area != payload.area:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Линия принадлежит другому участку, чем задание"
-            )
+        if line_payload.line_id is not None:
+            line = db.get(ProductionLine, line_payload.line_id)
+            if line is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Линия не найдена")
+            if line.area != payload.area:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Линия принадлежит другому участку, чем задание"
+                )
         material, color, thickness = find_or_create_material_color_thickness(
             db, material=line_payload.material, color=line_payload.color, thickness=line_payload.thickness
         )
@@ -364,3 +395,75 @@ def create_task_line_report(
     db.commit()
     db.refresh(report)
     return report
+
+
+# --- Распределение по линиям ---------------------------------------------
+
+
+def _assignment_out(db: Session, a: ProductionTaskLineAssignment) -> ProductionTaskLineAssignmentOut:
+    line = db.get(ProductionLine, a.line_id)
+    return ProductionTaskLineAssignmentOut(
+        id=a.id,
+        line_id=a.line_id,
+        line_name=line.name if line else "—",
+        date=a.date,
+        employee_names=a.employee_names,
+        quantity_pieces=float(a.quantity_pieces),
+        created_by=a.created_by,
+        created_at=a.created_at,
+    )
+
+
+@router.get(
+    "/production-tasks/{task_id}/lines/{line_id}/assignments", response_model=list[ProductionTaskLineAssignmentOut]
+)
+def list_task_line_assignments(
+    task_id: int, line_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> list[ProductionTaskLineAssignmentOut]:
+    _get_task_line(db, task_id, line_id)
+    assignments = (
+        db.query(ProductionTaskLineAssignment)
+        .filter(ProductionTaskLineAssignment.task_line_id == line_id)
+        .order_by(ProductionTaskLineAssignment.date.desc(), ProductionTaskLineAssignment.created_at.desc())
+        .all()
+    )
+    return [_assignment_out(db, a) for a in assignments]
+
+
+@router.post(
+    "/production-tasks/{task_id}/lines/{line_id}/assignments",
+    response_model=ProductionTaskLineAssignmentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_task_line_assignment(
+    task_id: int,
+    line_id: int,
+    payload: ProductionTaskLineAssignmentCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(report_production),
+) -> ProductionTaskLineAssignmentOut:
+    """Раздел про распределение по линиям — начальник участка расписывает
+    строку задания по линиям/дням/сотрудникам отдельным шагом после того,
+    как задание уже поставлено на участок (не мутирует саму строку задания,
+    накопительный журнал — тот же приём, что ProductionTaskLineReport)."""
+    task_line = _get_task_line(db, task_id, line_id)
+    line = db.get(ProductionLine, payload.line_id)
+    if line is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Линия не найдена")
+    task = db.get(ProductionTask, task_line.task_id)
+    if line.area != task.area:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Линия принадлежит другому участку, чем задание"
+        )
+    assignment = ProductionTaskLineAssignment(
+        task_line_id=line_id,
+        line_id=payload.line_id,
+        date=payload.date,
+        employee_names=payload.employee_names,
+        quantity_pieces=payload.quantity_pieces,
+        created_by=user.id,
+    )
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+    return _assignment_out(db, assignment)

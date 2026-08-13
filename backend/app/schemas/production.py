@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -61,7 +61,10 @@ class ProductModelOut(BaseModel):
 
 
 class ProductionTaskLineManualCreate(BaseModel):
-    line_id: int
+    # Раздел про распределение по линиям — линия не выбирается при
+    # постановке задания (это делает начальник участка отдельно, см.
+    # ProductionTaskLineAssignment), только опционально на будущее.
+    line_id: int | None = None
     material: str
     color: str
     thickness: float
@@ -108,9 +111,33 @@ class ProductionTaskLineReportOut(BaseModel):
     reported_at: datetime
 
 
-class ProductionTaskLineOut(BaseModel):
+class ProductionTaskLineAssignmentCreate(BaseModel):
+    """Раздел про распределение по линиям — запись начальника участка:
+    сколько штук строки задания берёт в работу такая-то линия в такой-то
+    день, силами таких-то людей."""
+
+    line_id: int
+    date: date
+    employee_names: str = Field(min_length=1)
+    quantity_pieces: float = Field(gt=0)
+
+
+class ProductionTaskLineAssignmentOut(BaseModel):
     id: int
     line_id: int
+    line_name: str
+    date: date
+    employee_names: str
+    quantity_pieces: float
+    created_by: int
+    created_at: datetime
+
+
+class ProductionTaskLineOut(BaseModel):
+    id: int
+    # Раздел про распределение по линиям — line_id пуст, пока начальник
+    # участка не распределил строку по линиям/дням (см. assignments ниже).
+    line_id: int | None
     line_name: str
     material: str
     color: str
@@ -130,6 +157,10 @@ class ProductionTaskLineOut(BaseModel):
     defect_pieces: float
     remaining_pieces: float
     remaining_length_m: float
+    # Агрегаты по ProductionTaskLineAssignment (раздел про распределение по
+    # линиям) — сколько из quantity_pieces уже расписано по линиям/дням.
+    assigned_pieces: float
+    unassigned_pieces: float
 
 
 class ProductionTaskOut(BaseModel):

@@ -6,9 +6,9 @@ ProductionTaskLine; распределение по конкретным лин�
 отдельный шаг начальника участка поверх уже созданного задания
 (ProductionTaskLineAssignment)."""
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -82,20 +82,22 @@ class ProductionTask(Base):
 
 
 class ProductionTaskLine(Base):
-    """Строка задания по линии — то, что видит начальник участка. Задаётся
-    напрямую при создании ProductionTask (раздел про распределение по
-    линиям — одна деталь BOM может породить несколько таких строк с разной
-    линией/количеством, если задание раздробили по нескольким станкам) —
-    сама цель (quantity_pieces) не пересчитывается и не мутируется
-    впоследствии; факт производства/брака — отдельный накопительный
-    журнал (см. ProductionTaskLineReport), остаток считается
-    на лету, а не хранится здесь."""
+    """Строка задания — то, что видит начальник участка, сразу с
+    конкретной номенклатурой плёнки (material/color/thickness выбраны при
+    создании задания, не берутся из BOM). line_id — NULL при создании:
+    задание ставится начальником цеха на участок (ProductionTask.area),
+    без привязки к конкретной линии/станку; линию, дни и людей распределяет
+    начальник участка отдельно (см. ProductionTaskLineAssignment) — сама
+    цель (quantity_pieces) не пересчитывается и не мутируется впоследствии;
+    факт производства/брака — отдельный накопительный журнал (см.
+    ProductionTaskLineReport), остаток считается на лету, а не хранится
+    здесь."""
 
     __tablename__ = "production_task_lines"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("production_tasks.id"))
-    line_id: Mapped[int] = mapped_column(ForeignKey("production_lines.id"))
+    line_id: Mapped[int | None] = mapped_column(ForeignKey("production_lines.id"), nullable=True)
 
     material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))
     color_id: Mapped[int] = mapped_column(ForeignKey("colors.id"))
@@ -115,6 +117,9 @@ class ProductionTaskLine(Base):
 
     task: Mapped[ProductionTask] = relationship(back_populates="lines")
     reports: Mapped[list["ProductionTaskLineReport"]] = relationship(
+        back_populates="task_line", cascade="all, delete-orphan"
+    )
+    assignments: Mapped[list["ProductionTaskLineAssignment"]] = relationship(
         back_populates="task_line", cascade="all, delete-orphan"
     )
 
@@ -145,3 +150,30 @@ class ProductionTaskLineReport(Base):
     reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     task_line: Mapped[ProductionTaskLine] = relationship(back_populates="reports")
+
+
+class ProductionTaskLineAssignment(Base):
+    """Распределение строки задания по линиям/дням (раздел про
+    распределение по линиям) — отдельный шаг начальника участка поверх уже
+    поставленного задания: когда, на какой линии, какими силами и сколько
+    штук берётся в работу. Накопительный список, как и отчёты о браке —
+    несколько записей на одну строку задания (разные дни/линии), сумма
+    quantity_pieces по ним — это "уже распределено" (см. api/production.py,
+    агрегируется на лету)."""
+
+    __tablename__ = "production_task_line_assignments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_line_id: Mapped[int] = mapped_column(ForeignKey("production_task_lines.id"))
+    line_id: Mapped[int] = mapped_column(ForeignKey("production_lines.id"))
+
+    date: Mapped[date] = mapped_column(Date)
+    # Свободный текст, не FK на users — цеховые рабочие на линии обычно без
+    # логина в систему (см. обсуждение раздела про распределение).
+    employee_names: Mapped[str] = mapped_column(String(255))
+    quantity_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
+
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    task_line: Mapped[ProductionTaskLine] = relationship(back_populates="assignments")
