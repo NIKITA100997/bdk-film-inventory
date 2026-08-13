@@ -171,13 +171,17 @@ function TasksTab() {
                   columns={[
                     { title: "Линия", dataIndex: "line_name" },
                     { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
+                    { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
                     { title: "Нужно, шт", dataIndex: "quantity_pieces" },
                     { title: "Произведено", dataIndex: "produced_good_pieces" },
                     { title: "Брак", dataIndex: "defect_pieces" },
                     {
                       title: "Осталось",
-                      dataIndex: "remaining_pieces",
-                      render: (v: number) => <Typography.Text strong={v > 0}>{v}</Typography.Text>,
+                      render: (_, l) => (
+                        <Typography.Text strong={l.remaining_pieces > 0}>
+                          {l.remaining_pieces} шт{l.remaining_pieces > 0 ? ` (${l.remaining_length_m} м)` : ""}
+                        </Typography.Text>
+                      ),
                     },
                     {
                       title: "",
@@ -261,6 +265,7 @@ function TasksTab() {
             columns={[
               { title: "Линия", render: (_, l) => lineName(l.line_id) },
               { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
+              { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
               { title: "Кол-во, шт", dataIndex: "quantity_pieces" },
               {
                 title: "",
@@ -291,6 +296,12 @@ function TasksTab() {
           </Form.Item>
           <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
             <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
+            <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="length_m" label="Длина детали, м" rules={[{ required: true }]}>
+            <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
@@ -457,6 +468,7 @@ function ModelsTab() {
               { title: "Деталь", dataIndex: "part_name", render: (v: string | null) => v ?? "—" },
               { title: "Линия", dataIndex: "line_name" },
               { title: "Материал", render: (_, p) => `${p.material}, ${p.color}, ${p.thickness} мм` },
+              { title: "Размер детали", render: (_, p) => `${p.width_mm} мм × ${p.length_m} м` },
               { title: "Кол-во на единицу", dataIndex: "qty_per_unit" },
               {
                 title: "",
@@ -504,6 +516,12 @@ function ModelsTab() {
           </Form.Item>
           <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
             <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
+            <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="length_m" label="Длина детали, м" rules={[{ required: true }]}>
+            <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item name="qty_per_unit" label="Количество деталей на одну единицу модели" rules={[{ required: true }]}>
             <InputNumber min={0.01} step={1} style={{ width: "100%" }} />

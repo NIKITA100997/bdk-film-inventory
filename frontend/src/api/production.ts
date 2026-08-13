@@ -27,6 +27,8 @@ export interface ProductModelPart {
   color: string;
   thickness: number;
   qty_per_unit: number;
+  width_mm: number;
+  length_m: number;
   part_name: string | null;
 }
 
@@ -36,6 +38,8 @@ export interface ProductModelPartCreate {
   color: string;
   thickness: number;
   qty_per_unit: number;
+  width_mm: number;
+  length_m: number;
   part_name?: string;
 }
 
@@ -65,9 +69,12 @@ export interface ProductionTaskLine {
   color: string;
   thickness: number;
   quantity_pieces: number;
+  width_mm: number;
+  length_m: number;
   produced_good_pieces: number;
   defect_pieces: number;
   remaining_pieces: number;
+  remaining_length_m: number;
 }
 
 export interface ProductionTask {
@@ -93,6 +100,8 @@ export interface ProductionTaskLineManualCreate {
   color: string;
   thickness: number;
   quantity_pieces: number;
+  width_mm: number;
+  length_m: number;
 }
 
 export interface ProductionTaskManualCreate {

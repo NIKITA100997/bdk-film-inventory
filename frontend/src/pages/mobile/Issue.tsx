@@ -48,16 +48,16 @@ export default function Issue() {
   // довыдать" — брак в производстве уменьшает "засчитанное" произведённое,
   // строка с остатком > 0 естественно остаётся в списке).
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks, enabled: !!area });
-  const taskLineOptions = (tasksQuery.data ?? [])
+  const taskLines = (tasksQuery.data ?? [])
     .filter((t) => t.area === area)
-    .flatMap((t) =>
-      t.lines
-        .filter((l) => l.remaining_pieces > 0)
-        .map((l) => ({
-          value: l.id,
-          label: `${t.product_model_name ?? t.name ?? "Задание"} — ${l.line_name} — ${l.material}, ${l.color}, ${l.thickness} мм — осталось ${l.remaining_pieces} шт`,
-        })),
-    );
+    .flatMap((t) => t.lines.filter((l) => l.remaining_pieces > 0).map((l) => ({ task: t, line: l })));
+  const taskLineOptions = taskLines.map(({ task: t, line: l }) => ({
+    value: l.id,
+    // Раздел про размер детали — размер куска на деталь (для реза/подбора)
+    // и остаток сразу в метрах (не только в штуках) — так кладовщик видит,
+    // сколько погонных метров ещё довыдать под эту строку задания.
+    label: `${t.product_model_name ?? t.name ?? "Задание"} — ${l.line_name} — ${l.material}, ${l.color}, ${l.thickness} мм — ${l.width_mm} мм × ${l.length_m} м/шт — осталось ${l.remaining_pieces} шт (${l.remaining_length_m} м)`,
+  }));
 
   useEffect(() => {
     if (!prefill || !skusQuery.data || skuId !== null) return;
@@ -169,7 +169,14 @@ export default function Issue() {
             loading={tasksQuery.isLoading}
             options={taskLineOptions}
             value={taskLineId}
-            onChange={setTaskLineId}
+            onChange={(v) => {
+              setTaskLineId(v);
+              // Подставляем размер детали в форму автоподбора ниже — так
+              // "Найти и выдать" сразу ищет нужный кусок, не только
+              // показывает размер текстом в подписи опции.
+              const found = taskLines.find(({ line }) => line.id === v)?.line;
+              if (found) findForm.setFieldsValue({ width_mm: found.width_mm, length_m: found.length_m });
+            }}
             notFoundContent="Нет открытых заданий с остатком на этом участке"
           />
         )}
