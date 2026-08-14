@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Card, Table, Tag, Button, Modal, Form, Input, Checkbox, Space, Typography, message } from "antd";
+import { Card, Tag, Button, Modal, Form, Input, Checkbox, Space, Typography, message } from "antd";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listRoles, createRole, updateRole, updateRolePermissions, listPermissions, type Role } from "../../api/roles";
 
@@ -70,7 +71,7 @@ export default function RoleAdmin() {
           </Button>
         }
       >
-        <Table<Role>
+        <ResponsiveTable<Role>
           rowKey="id"
           loading={rolesQuery.isLoading}
           dataSource={rolesQuery.data ?? []}

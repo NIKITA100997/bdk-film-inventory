@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Card, Table, Tag, Button, Modal, Form, InputNumber, Input, Space, Typography, Empty, Tabs, message } from "antd";
+import { Card, Tag, Button, Modal, Form, InputNumber, Input, Space, Typography, Empty, Tabs, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import {
   listPurchaseRequests,
   createPurchaseRequest,
@@ -79,7 +80,7 @@ export default function Purchasing() {
                   </Button>
                 }
               >
-                <Table<PurchaseRequest>
+                <ResponsiveTable<PurchaseRequest>
                   rowKey="id"
                   loading={requestsQuery.isLoading}
                   dataSource={requestsQuery.data ?? []}
@@ -159,7 +160,7 @@ export default function Purchasing() {
                 {(supplierStatsQuery.data ?? []).length === 0 ? (
                   <Empty description="Пока нет закрытых заявок с поставщиком" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 ) : (
-                  <Table<SupplierStats>
+                  <ResponsiveTable<SupplierStats>
                     rowKey="supplier_id"
                     loading={supplierStatsQuery.isLoading}
                     dataSource={supplierStatsQuery.data ?? []}

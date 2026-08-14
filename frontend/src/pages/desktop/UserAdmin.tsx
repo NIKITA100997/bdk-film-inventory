@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Card, Table, Tag, Button, Modal, Form, Input, Select, Checkbox, Space, Popconfirm, Typography, message } from "antd";
+import { Card, Tag, Button, Modal, Form, Input, Select, Checkbox, Space, Popconfirm, Typography, message } from "antd";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listAllUsers,
@@ -145,7 +146,7 @@ export default function UserAdmin() {
         </Button>
       </Space>
 
-      <Table<UserSummary>
+      <ResponsiveTable<UserSummary>
         rowKey="id"
         loading={usersQuery.isLoading}
         dataSource={filtered}

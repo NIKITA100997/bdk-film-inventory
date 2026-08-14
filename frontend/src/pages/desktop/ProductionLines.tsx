@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Card, Table, Tag, Button, Modal, Form, Input, Select, Space, Typography, DatePicker, Empty, message } from "antd";
+import { Card, Tag, Button, Modal, Form, Input, Select, Space, Typography, DatePicker, Empty, message } from "antd";
 import dayjs from "dayjs";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProductionLines,
@@ -90,7 +91,7 @@ export default function ProductionLines() {
           Линия здесь называет и физическую линию окутки, и вид детали, который она обрабатывает («Поперечная-1» —
           и линия, и вид детали, пилот: окутка царговых).
         </Typography.Paragraph>
-        <Table<ProductionLine>
+        <ResponsiveTable<ProductionLine>
           rowKey="id"
           loading={linesQuery.isLoading}
           dataSource={linesQuery.data ?? []}
@@ -150,8 +151,8 @@ export default function ProductionLines() {
         {loadingRows.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="На эту дату ничего не распределено" />
         ) : (
-          <Table
-            rowKey={(_, i) => String(i)}
+          <ResponsiveTable
+            rowKey={(_: unknown, i?: number) => String(i)}
             size="small"
             dataSource={loadingRows}
             pagination={false}

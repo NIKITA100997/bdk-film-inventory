@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, Select, Row, Col, Statistic, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Typography, Empty, Upload, Image, message } from "antd";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -137,7 +138,7 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
           {(analogsQuery.data?.analogs ?? []).length === 0 ? (
             <Empty description="Аналоги не привязаны" image={Empty.PRESENTED_IMAGE_SIMPLE} />
           ) : (
-            <Table<AnalogEntry>
+            <ResponsiveTable<AnalogEntry>
               rowKey="link_id"
               size="small"
               pagination={false}
@@ -386,7 +387,7 @@ export default function MaterialCard() {
           </Card>
 
           <Card title="Журнал движений">
-            <Table
+            <ResponsiveTable
               rowKey="event_id"
               size="small"
               pagination={{ pageSize: 10 }}

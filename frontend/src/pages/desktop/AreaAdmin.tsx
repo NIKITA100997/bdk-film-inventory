@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Card, Table, Tag, Button, Modal, Form, Input, Space, Typography, message } from "antd";
+import { Card, Tag, Button, Modal, Form, Input, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas, createArea, updateArea, type Area } from "../../api/areas";
+import ResponsiveTable from "../../components/ResponsiveTable";
 
 /** Участки (раздел про адаптацию под планшет — "администрирование
  * участков, какие есть и т.п.") — раньше жёсткий enum, теперь создаваемая
@@ -57,7 +58,7 @@ export default function AreaAdmin() {
           </Button>
         }
       >
-        <Table<Area>
+        <ResponsiveTable<Area>
           rowKey="code"
           loading={areasQuery.isLoading}
           dataSource={areasQuery.data ?? []}

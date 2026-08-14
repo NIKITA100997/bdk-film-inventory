@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Card, Tabs, Table, Button, Input, InputNumber, Tag, Space, Popconfirm, Typography, Empty, message } from "antd";
+import { Card, Tabs, Button, Input, InputNumber, Tag, Space, Popconfirm, Typography, Empty, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import {
   listAllNameDict,
   listNameDictDuplicates,
@@ -39,7 +40,7 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Table<DictEntry>
+      <ResponsiveTable<DictEntry>
         rowKey="id"
         loading={entriesQuery.isLoading}
         dataSource={entriesQuery.data ?? []}
@@ -92,7 +93,7 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
         {(duplicatesQuery.data ?? []).length === 0 ? (
           <Empty description="Похожих значений не найдено" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         ) : (
-          <Table<DuplicateCandidate>
+          <ResponsiveTable<DuplicateCandidate>
             rowKey={(d) => `${d.a_id}-${d.b_id}`}
             size="small"
             pagination={false}
@@ -141,7 +142,7 @@ function ThicknessTab() {
   });
 
   return (
-    <Table<ThicknessEntry>
+    <ResponsiveTable<ThicknessEntry>
       rowKey="id"
       loading={entriesQuery.isLoading}
       dataSource={entriesQuery.data ?? []}

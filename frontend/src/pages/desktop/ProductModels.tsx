@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Card, Table, Tag, Button, Modal, Form, InputNumber, Input, Select, Space, message } from "antd";
+import { Card, Tag, Button, Modal, Form, InputNumber, Input, Select, Space, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import {
   listProductModels,
   createProductModel,
@@ -120,7 +121,7 @@ export default function ProductModels() {
           </Button>
         }
       >
-        <Table<ProductModel>
+        <ResponsiveTable<ProductModel>
           rowKey="id"
           loading={modelsQuery.isLoading}
           dataSource={modelsQuery.data ?? []}
@@ -184,7 +185,7 @@ export default function ProductModels() {
         ]}
       >
         {selectedModel && (
-          <Table
+          <ResponsiveTable
             rowKey="id"
             dataSource={selectedModel.parts}
             pagination={false}

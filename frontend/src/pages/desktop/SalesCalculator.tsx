@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Card, Select, InputNumber, Space, Typography, Table, Tag, Image, Empty, Statistic, Row, Col } from "antd";
+import { Card, Select, InputNumber, Space, Typography, Tag, Image, Empty, Statistic, Row, Col } from "antd";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { PictureOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { listMaterialSkus, getSkuAnalogs, skuPhotoUrl, type AnalogEntry } from "../../api/dictionaries";
@@ -115,7 +116,7 @@ export default function SalesCalculator() {
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           ) : (
-            <Table<AnalogEntry>
+            <ResponsiveTable<AnalogEntry>
               rowKey="link_id"
               pagination={false}
               dataSource={analogs}
