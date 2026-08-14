@@ -7,6 +7,8 @@ import {
   createPurchaseRequest,
   updatePurchaseRequest,
   closePurchaseRequest,
+  deletePurchaseRequest,
+  deleteSupplierOrder,
   listSupplierOrders,
   createSupplierOrder,
   getStockOverview,
@@ -18,6 +20,7 @@ import {
 } from "../../api/purchasing";
 import { getSupplierStats, type SupplierStats } from "../../api/suppliers";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import { useAuth } from "../../auth/AuthContext";
 
 interface EditingPriceTarget {
   requestIds: number[];
@@ -33,6 +36,7 @@ interface EditingPriceTarget {
  * резерв" (новое — проактивный заказ по остаткам, с учётом того, что уже
  * нужно текущим заданиям цеха) и "Поставщики" (как раньше). */
 export default function Purchasing() {
+  const { user } = useAuth();
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState("requests");
   const [createOpen, setCreateOpen] = useState(false);
@@ -72,6 +76,27 @@ export default function Purchasing() {
       message.success("Заявка закрыта");
     },
     onError: () => message.error("Не удалось закрыть заявку"),
+  });
+
+  const deleteRequestMutation = useMutation({
+    mutationFn: (id: number) => deletePurchaseRequest(id),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["purchase-requests"] });
+      qc.invalidateQueries({ queryKey: ["supplier-orders"] });
+      qc.invalidateQueries({ queryKey: ["purchasing-stock-overview"] });
+      message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Заявка удалена");
+    },
+    onError: () => message.error("Не удалось удалить"),
+  });
+
+  const deleteOrderMutation = useMutation({
+    mutationFn: (id: number) => deleteSupplierOrder(id),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["purchase-requests"] });
+      qc.invalidateQueries({ queryKey: ["supplier-orders"] });
+      message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Заказ удалён");
+    },
+    onError: () => message.error("Не удалось удалить"),
   });
 
   // История цен и сроков поставщика (раздел про расширение функционала) —
@@ -250,6 +275,9 @@ export default function Purchasing() {
                               Закрыть вручную
                             </Button>
                           )}
+                          <Button size="small" danger loading={deleteRequestMutation.isPending} onClick={() => deleteRequestMutation.mutate(r.id)}>
+                            {user?.is_superuser ? "Удалить" : "Запросить удаление"}
+                          </Button>
                         </Space>
                       ),
                     },
@@ -356,6 +384,16 @@ export default function Purchasing() {
                                 </Space>
                               </div>
                             ))}
+                            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                              <Button
+                                size="small"
+                                danger
+                                loading={deleteOrderMutation.isPending}
+                                onClick={() => deleteOrderMutation.mutate(order.id)}
+                              >
+                                {user?.is_superuser ? "Удалить заказ" : "Запросить удаление"}
+                              </Button>
+                            </div>
                           </Space>
                         ),
                       };

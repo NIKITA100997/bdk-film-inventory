@@ -12,7 +12,9 @@ from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
 from app.models.purchasing import PurchaseRequest, Supplier, SupplierOrder
 from app.models.users import User
+from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.purchasing import SupplierOrderCreate, SupplierOrderLineOut, SupplierOrderOut
+from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import current_stock_m2, find_or_create_supplier
 
 router = APIRouter(tags=["purchasing"])
@@ -81,3 +83,31 @@ def create_supplier_order(
     db.commit()
     db.refresh(order)
     return _order_out(db, order)
+
+
+def delete_supplier_order_impl(db: Session, order: SupplierOrder) -> None:
+    """Раздел про удаление сущностей — заказ лишь группирует заявки
+    (см. models/purchasing.py::SupplierOrder), поэтому удаление заказа не
+    трогает сами заявки, только отвязывает их (order_id = NULL) — они
+    остаются в "Заявках поставщику" как будто их ещё не объединяли."""
+    db.query(PurchaseRequest).filter(PurchaseRequest.order_id == order.id).update({"order_id": None})
+    db.delete(order)
+
+
+@router.delete("/supplier-orders/{order_id}", response_model=DeleteResultOut)
+def delete_supplier_order(
+    order_id: int, db: Session = Depends(get_db), user: User = Depends(manage_purchasing)
+) -> DeleteResultOut:
+    order = db.get(SupplierOrder, order_id)
+    if order is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Заказ не найден")
+    if not user.is_superuser:
+        supplier = db.get(Supplier, order.supplier_id)
+        request_deletion(
+            db, entity_type="supplier_order", entity_id=order.id, entity_label=f"Заказ №{order.id} — {supplier.name}", requested_by=user.id
+        )
+        db.commit()
+        return DeleteResultOut(deleted=False, requested=True)
+    delete_supplier_order_impl(db, order)
+    db.commit()
+    return DeleteResultOut(deleted=True, requested=False)

@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import type { DeleteResult } from "./deletionRequests";
 
 export interface PurchaseRequest {
   id: number;
@@ -103,6 +104,16 @@ export async function updatePurchaseRequest(id: number, payload: PurchaseRequest
 
 export async function closePurchaseRequest(id: number): Promise<PurchaseRequest> {
   const { data } = await apiClient.post<PurchaseRequest>(`/purchase-requests/${id}/close`);
+  return data;
+}
+
+export async function deletePurchaseRequest(id: number): Promise<DeleteResult> {
+  const { data } = await apiClient.delete<DeleteResult>(`/purchase-requests/${id}`);
+  return data;
+}
+
+export async function deleteSupplierOrder(id: number): Promise<DeleteResult> {
+  const { data } = await apiClient.delete<DeleteResult>(`/supplier-orders/${id}`);
   return data;
 }
 

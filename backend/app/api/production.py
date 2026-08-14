@@ -33,6 +33,8 @@ from app.schemas.production import (
     ProductModelPartOut,
     ProductModelUpdate,
 )
+from app.schemas.deletion_requests import DeleteResultOut
+from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_material_color_thickness
 from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.production import calc_default_strip_width, compute_remaining_length_m, compute_remaining_pieces
@@ -195,6 +197,7 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
         quantity=task.quantity,
         created_by=task.created_by,
         created_at=task.created_at,
+        is_active=task.is_active,
         lines=[
             _task_line_out(
                 db,
@@ -565,18 +568,13 @@ def get_production_task(task_id: int, db: Session = Depends(get_db), user: User 
     return _task_out(db, task)
 
 
-@router.delete("/production-tasks/{task_id}")
-def delete_production_task(
-    task_id: int, db: Session = Depends(get_db), user: User = Depends(manage_production)
-):
-    task = db.get(ProductionTask, task_id)
-    if task is None:
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-    # Единицы, реально выданные по строкам этого задания, — та же логика,
-    # что у удаления заказа: если по заданию уже была движуха, его не
-    # удаляют, а оставляют как есть (архивной отметки у задания нет, в
-    # отличие от заказа/стеллажа/линии — задание либо ещё пустое, либо
-    # часть истории склада).
+def delete_production_task_impl(db: Session, task: ProductionTask) -> None:
+    """Раздел про удаление сущностей — общая guarded-логика, вызывается и
+    прямым DELETE суперпользователя, и одобрением заявки на удаление
+    (api/deletion_requests.py). Единицы, реально выданные по строкам
+    этого задания, — если по заданию уже была движуха, его не удаляют, а
+    оставляют как есть (задание либо ещё пустое, либо часть истории
+    склада — архивировать такое тоже можно, см. is_active)."""
     line_ids = [l.id for l in task.lines]
     has_units = (
         bool(line_ids) and db.query(MaterialUnit.id).filter(MaterialUnit.production_task_line_id.in_(line_ids)).first() is not None
@@ -587,8 +585,36 @@ def delete_production_task(
             detail="Нельзя удалить задание — по нему уже выдавалась плёнка. Такое задание остаётся в истории склада.",
         )
     db.delete(task)
+
+
+@router.delete("/production-tasks/{task_id}", response_model=DeleteResultOut)
+def delete_production_task(
+    task_id: int, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> DeleteResultOut:
+    task = db.get(ProductionTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+    if not user.is_superuser:
+        label = f"Задание №{task.id} — {task.name or (db.get(ProductModel, task.product_model_id).name if task.product_model_id else 'без названия')}"
+        request_deletion(db, entity_type="production_task", entity_id=task.id, entity_label=label, requested_by=user.id)
+        db.commit()
+        return DeleteResultOut(deleted=False, requested=True)
+    delete_production_task_impl(db, task)
     db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return DeleteResultOut(deleted=True, requested=False)
+
+
+@router.patch("/production-tasks/{task_id}/archive", response_model=ProductionTaskOut)
+def archive_production_task(
+    task_id: int, is_active: bool, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductionTaskOut:
+    task = db.get(ProductionTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+    task.is_active = is_active
+    db.commit()
+    db.refresh(task)
+    return _task_out(db, task)
 
 
 @router.delete("/product-models/{model_id}")

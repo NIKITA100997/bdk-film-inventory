@@ -25,6 +25,7 @@ import {
   receiveAndAutoPlace,
   printLabel,
   writeOffUnit,
+  deleteUnit,
   skuLabel,
   WRITE_OFF_REASON_OPTIONS,
   type MaterialUnit,
@@ -171,6 +172,15 @@ export default function MaterialsExplorer() {
       writeOffForm.resetFields();
     },
     onError: () => message.error("Не удалось списать часть единиц — проверьте статусы"),
+  });
+
+  const deleteUnitMutation = useMutation({
+    mutationFn: (id: number) => deleteUnit(id),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["materials-explorer"] });
+      message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Единица удалена");
+    },
+    onError: () => message.error("Не удалось удалить — возможно, от неё отрезан остаток"),
   });
 
   const classCKeys = useMemo(() => {
@@ -404,6 +414,23 @@ export default function MaterialsExplorer() {
                     </Space>
                   );
                 },
+              },
+              {
+                title: "",
+                render: (_, u) =>
+                  canWriteOff && (
+                    <Button
+                      size="small"
+                      danger
+                      loading={deleteUnitMutation.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteUnitMutation.mutate(u.id);
+                      }}
+                    >
+                      {user?.is_superuser ? "Удалить" : "Запросить удаление"}
+                    </Button>
+                  ),
               },
             ]}
           />

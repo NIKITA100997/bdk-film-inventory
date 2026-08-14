@@ -12,6 +12,7 @@ from app.models.events import EventType, MaterialEvent, WriteOffReason
 from app.models.production import ProductionTaskLine, ProductionTaskLineReport
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
+from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.units import (
     AtomicDonorIssueRequest,
     AtomicDonorIssueResponse,
@@ -30,6 +31,7 @@ from app.schemas.units import (
     UnitEventOut,
     WriteOffRequest,
 )
+from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_sku, find_sku
 from app.services.events import record_event
 from app.services.production import calc_default_strip_width, compute_expected_return_length_m
@@ -176,6 +178,40 @@ def write_off_unit(
     )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+
+
+def delete_unit_impl(db: Session, unit: MaterialUnit) -> None:
+    """Раздел про удаление сущностей — если от единицы отрезан остаток
+    (есть дочерние единицы), удалить нельзя: это разорвало бы историю
+    разреза. Иначе удаляется вместе со своим журналом движений — она сама
+    целиком перестаёт существовать, "терять" у неё уже нечего."""
+    has_children = db.query(MaterialUnit.id).filter(MaterialUnit.parent_id == unit.id).first() is not None
+    if has_children:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Нельзя удалить — от неё отрезан остаток, удалите сначала его"
+        )
+    db.query(MaterialEvent).filter(MaterialEvent.unit_id == unit.id).delete()
+    db.delete(unit)
+
+
+@router.delete("/{unit_id}", response_model=DeleteResultOut)
+def delete_unit(
+    unit_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.writeoff")),
+) -> DeleteResultOut:
+    unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+    if unit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
+    if not user.is_superuser:
+        sku = unit.material_sku
+        label = f"№{unit.id} — {sku.material.name}, {sku.color.name}, {float(sku.thickness.value_mm)} мм, {float(unit.width_mm)}×{float(unit.length_m)} м"
+        request_deletion(db, entity_type="material_unit", entity_id=unit.id, entity_label=label, requested_by=user.id)
+        db.commit()
+        return DeleteResultOut(deleted=False, requested=True)
+    delete_unit_impl(db, unit)
+    db.commit()
+    return DeleteResultOut(deleted=True, requested=False)
 
 
 def _get_storable_unit(db: Session, unit_id: int) -> MaterialUnit:

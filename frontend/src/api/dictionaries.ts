@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import type { MaterialSku } from "./units";
+import type { DeleteResult } from "./deletionRequests";
 
 export interface DictEntry {
   id: number;
@@ -39,6 +40,9 @@ export interface MaterialSkuUpdate {
 
 export const updateMaterialSku = async (id: number, payload: MaterialSkuUpdate): Promise<MaterialSku> =>
   (await apiClient.patch<MaterialSku>(`/material-skus/${id}`, payload)).data;
+
+export const deleteMaterialSku = async (id: number): Promise<DeleteResult> =>
+  (await apiClient.delete<DeleteResult>(`/material-skus/${id}`)).data;
 
 export const listMaterials = async (): Promise<DictEntry[]> => (await apiClient.get<DictEntry[]>("/materials")).data;
 export const listColors = async (): Promise<DictEntry[]> => (await apiClient.get<DictEntry[]>("/colors")).data;

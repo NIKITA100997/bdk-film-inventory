@@ -9,6 +9,7 @@ import {
   listMaterialSkus,
   listAllMaterialSkus,
   updateMaterialSku,
+  deleteMaterialSku,
   getSkuAnalogs,
   addSkuAnalog,
   removeSkuAnalog,
@@ -238,6 +239,16 @@ export default function MaterialCard() {
     onError: () => message.error("Не удалось сохранить"),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteMaterialSku(skuId!),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["material-skus"] });
+      if (result.deleted) setSkuId(null);
+      message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Позиция удалена");
+    },
+    onError: () => message.error("Не удалось удалить — есть история (единицы, аналоги, журнал движений)?"),
+  });
+
   const cardQuery = useQuery({
     queryKey: ["material-card", skuId],
     queryFn: () => getMaterialCard(skuId!),
@@ -321,6 +332,11 @@ export default function MaterialCard() {
               {canEdit && (
                 <Button size="small" onClick={() => updateMutation.mutate({ is_active: !selectedSku.is_active })}>
                   {selectedSku.is_active ? "В архив" : "Восстановить"}
+                </Button>
+              )}
+              {canEdit && (
+                <Button size="small" danger loading={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>
+                  {user?.is_superuser ? "Удалить" : "Запросить удаление"}
                 </Button>
               )}
               <Button size="small" onClick={() => setAnalogsOpen(true)}>

@@ -9,6 +9,9 @@ from app.core.config import settings
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, SkuAnalog, Thickness
+from app.models.events import MaterialEvent
+from app.models.units import MaterialUnit
+from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.dictionaries import (
     AnalogEntryOut,
     ColorOut,
@@ -32,6 +35,7 @@ from app.services.analogs import (
     sku_stale_days,
     sku_stock_m2,
 )
+from app.services.deletion_requests import request_deletion
 from app.services.dict_admin import find_fuzzy_duplicates
 from app.services.dictionaries import find_or_create_sku
 
@@ -218,6 +222,38 @@ def update_material_sku(
     db.commit()
     db.refresh(sku)
     return _skus_query(db).filter(MaterialSku.id == sku_id).first()
+
+
+def delete_material_sku_impl(db: Session, sku: MaterialSku) -> None:
+    """Раздел про удаление сущностей — позицию с историей (единицы,
+    аналоги, журнал движений) удалить нельзя, только в архив: удаление
+    физически стёрло бы часть учёта плёнки, а не просто убрало
+    неиспользуемую карточку."""
+    has_history = (
+        db.query(MaterialUnit.id).filter(MaterialUnit.material_sku_id == sku.id).first() is not None
+        or db.query(SkuAnalog.id).filter((SkuAnalog.sku_id == sku.id) | (SkuAnalog.analog_sku_id == sku.id)).first() is not None
+        or db.query(MaterialEvent.event_id).filter(MaterialEvent.material_sku_id == sku.id).first() is not None
+    )
+    if has_history:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Нельзя удалить — есть история (единицы, аналоги или журнал движений). Отправьте в архив."
+        )
+    db.delete(sku)
+
+
+@router.delete("/material-skus/{sku_id}", response_model=DeleteResultOut)
+def delete_material_sku(sku_id: int, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> DeleteResultOut:
+    sku = _skus_query(db).filter(MaterialSku.id == sku_id).first()
+    if sku is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    if not user.is_superuser:
+        label = f"{sku.material.name}, {sku.color.name}, {float(sku.thickness.value_mm)} мм, {sku.manufacturer.name}"
+        request_deletion(db, entity_type="material_sku", entity_id=sku.id, entity_label=label, requested_by=user.id)
+        db.commit()
+        return DeleteResultOut(deleted=False, requested=True)
+    delete_material_sku_impl(db, sku)
+    db.commit()
+    return DeleteResultOut(deleted=True, requested=False)
 
 
 def _get_sku_or_404(db: Session, sku_id: int) -> MaterialSku:

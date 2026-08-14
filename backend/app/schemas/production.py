@@ -166,4 +166,5 @@ class ProductionTaskOut(BaseModel):
     quantity: int | None
     created_by: int
     created_at: datetime
+    is_active: bool
     lines: list[ProductionTaskLineOut]

@@ -11,6 +11,7 @@ from app.models.production import ProductionTaskLine, ProductionTaskLineReport
 from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.units import MaterialSku, MaterialUnit, UnitStatus
 from app.models.users import User
+from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.purchasing import (
     PurchaseRequestCreate,
     PurchaseRequestFulfillRequest,
@@ -19,6 +20,7 @@ from app.schemas.purchasing import (
     PurchaseRequestUpdate,
     StockOverviewLine,
 )
+from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import current_stock_m2, find_or_create_material_color_thickness, find_or_create_supplier
 from app.services.production import TaskLineForReserve, calc_default_strip_width, reserved_area_m2_by_group
 
@@ -283,3 +285,28 @@ def close_purchase_request(
     db.commit()
     db.refresh(req)
     return _out(db, req)
+
+
+def delete_purchase_request_impl(db: Session, req: PurchaseRequest) -> None:
+    """Раздел про удаление сущностей — ничего не ссылается на
+    purchase_requests.id кроме самого заказа поставщику (order_id), так
+    что удаление всегда безопасно: если заявка была частью заказа, его
+    агрегаты просто пересчитаются без неё при следующем открытии."""
+    db.delete(req)
+
+
+@router.delete("/{request_id}", response_model=DeleteResultOut)
+def delete_purchase_request(
+    request_id: int, db: Session = Depends(get_db), user: User = Depends(manage_purchasing)
+) -> DeleteResultOut:
+    req = db.get(PurchaseRequest, request_id)
+    if req is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Заявка не найдена")
+    if not user.is_superuser:
+        label = f"Заявка №{req.id} — {db.get(Material, req.material_id).name}, {db.get(Color, req.color_id).name}, {float(db.get(Thickness, req.thickness_id).value_mm)} мм, {float(req.requested_area_m2)} м²"
+        request_deletion(db, entity_type="purchase_request", entity_id=req.id, entity_label=label, requested_by=user.id)
+        db.commit()
+        return DeleteResultOut(deleted=False, requested=True)
+    delete_purchase_request_impl(db, req)
+    db.commit()
+    return DeleteResultOut(deleted=True, requested=False)

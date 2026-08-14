@@ -77,6 +77,10 @@ class ProductionTask(Base):
     area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Раздел про удаление сущностей — задание с историей выдачи нельзя
+    # удалить (см. delete_production_task_impl в api/production.py), но
+    # можно скрыть из рабочих списков.
+    is_active: Mapped[bool] = mapped_column(default=True)
 
     lines: Mapped[list["ProductionTaskLine"]] = relationship(back_populates="task", cascade="all, delete-orphan")
 

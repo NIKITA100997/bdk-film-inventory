@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import { suggestLocation } from "./storage";
+import type { DeleteResult } from "./deletionRequests";
 
 export interface MaterialSku {
   id: number;
@@ -249,6 +250,11 @@ export async function getUnitEvents(unitId: number): Promise<UnitEvent[]> {
 
 export async function writeOffUnit(unitId: number, reason: WriteOffReasonValue, note?: string): Promise<MaterialUnit> {
   const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/write-off`, { reason, note });
+  return data;
+}
+
+export async function deleteUnit(unitId: number): Promise<DeleteResult> {
+  const { data } = await apiClient.delete<DeleteResult>(`/units/${unitId}`);
   return data;
 }
 

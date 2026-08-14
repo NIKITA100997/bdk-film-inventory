@@ -23,6 +23,7 @@ import {
   listProductionLines,
   listProductModels,
   deleteProductionTask,
+  archiveProductionTask,
   listProductionTasks,
   createProductionTaskManual,
   createTaskLineReport,
@@ -146,9 +147,17 @@ function TasksTab() {
 
   const deleteTaskMutation = useMutation({
     mutationFn: (id: number) => deleteProductionTask(id),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Задание удалено");
+    },
+  });
+
+  const archiveTaskMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) => archiveProductionTask(id, isActive),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
-      message.success("Задание удалено");
+      message.success("Сохранено");
     },
   });
 
@@ -244,20 +253,26 @@ function TasksTab() {
               { title: "Автор", dataIndex: "created_by", render: (id: number) => userName(id) },
               { title: "Создано", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
               {
+                title: "Статус",
+                dataIndex: "is_active",
+                render: (v: boolean) => (v ? <Tag color="green">Активно</Tag> : <Tag>В архиве</Tag>),
+              },
+              {
                 title: "Действия",
                 render: (_, t) =>
                   canManage && (
-                    <Button
-                      size="small"
-                      danger
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteTaskMutation.mutate(t.id);
-                      }}
-                      loading={deleteTaskMutation.isPending}
-                    >
-                      🗑️ Удалить задание
-                    </Button>
+                    <Space onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        size="small"
+                        onClick={() => archiveTaskMutation.mutate({ id: t.id, isActive: !t.is_active })}
+                        loading={archiveTaskMutation.isPending}
+                      >
+                        {t.is_active ? "В архив" : "Восстановить"}
+                      </Button>
+                      <Button size="small" danger onClick={() => deleteTaskMutation.mutate(t.id)} loading={deleteTaskMutation.isPending}>
+                        {user?.is_superuser ? "🗑️ Удалить задание" : "Запросить удаление"}
+                      </Button>
+                    </Space>
                   ),
               },
             ]}

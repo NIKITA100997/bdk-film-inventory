@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import type { AreaValue, WriteOffReasonValue } from "./units";
+import type { DeleteResult } from "./deletionRequests";
 
 export interface ProductionLine {
   id: number;
@@ -87,6 +88,7 @@ export interface ProductionTask {
   quantity: number | null;
   created_by: number;
   created_at: string;
+  is_active: boolean;
   lines: ProductionTaskLine[];
 }
 
@@ -218,9 +220,11 @@ export const createTaskLineAssignment = async (
     )
   ).data;
 
-export const deleteProductionTask = async (taskId: number): Promise<void> => {
-  await apiClient.delete(`/production-tasks/${taskId}`);
-};
+export const deleteProductionTask = async (taskId: number): Promise<DeleteResult> =>
+  (await apiClient.delete<DeleteResult>(`/production-tasks/${taskId}`)).data;
+
+export const archiveProductionTask = async (taskId: number, isActive: boolean): Promise<ProductionTask> =>
+  (await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/archive`, null, { params: { is_active: isActive } })).data;
 
 export const deleteProductModel = async (modelId: number): Promise<void> => {
   await apiClient.delete(`/product-models/${modelId}`);

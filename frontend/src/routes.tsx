@@ -24,6 +24,7 @@ import ProductionTasks from "./pages/desktop/ProductionTasks";
 import ProductModels from "./pages/desktop/ProductModels";
 import ProductionLines from "./pages/desktop/ProductionLines";
 import AreaAdmin from "./pages/desktop/AreaAdmin";
+import DeletionRequests from "./pages/desktop/DeletionRequests";
 
 export default function AppRoutes() {
   return (
@@ -84,6 +85,10 @@ export default function AppRoutes() {
         <Route
           path="/areas"
           element={<RequirePermission permissions={["users.manage"]}><AreaAdmin /></RequirePermission>}
+        />
+        <Route
+          path="/deletion-requests"
+          element={<RequirePermission permissions={["users.manage"]}><DeletionRequests /></RequirePermission>}
         />
         <Route
           path="/label-template"

@@ -82,6 +82,7 @@ export const navTree: NavBlock[] = [
       { key: "users", path: "/users", label: "Пользователи", permissions: ["users.manage"] },
       { key: "roles", path: "/roles", label: "Роли и права", permissions: ["users.manage"] },
       { key: "areas", path: "/areas", label: "Участки", permissions: ["users.manage"] },
+      { key: "deletion-requests", path: "/deletion-requests", label: "Заявки на удаление", permissions: ["users.manage"] },
       { key: "dictionaries", path: "/dictionaries", label: "Справочники", permissions: ["materials.manage"] },
       // Модели — вынесены из вкладок "Заданий цеха" (раздел про адаптацию
       // под планшет и разделение "конфигурации" и "ежедневной работы") —
