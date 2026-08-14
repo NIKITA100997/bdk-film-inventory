@@ -46,3 +46,13 @@ class PurchaseRequest(Base):
     # эти поля уже есть.
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"), nullable=True)
     price_per_m2: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # "planner" — обычная заявка снабженца (создание вручную на этом
+    # экране); "shop_floor" — создана кнопкой на "Выдаче участку" по
+    # нехватке остатка под конкретную строку задания (раздел про замену
+    # "Заказов покупателей" — нехватка теперь обнаруживается в моменте
+    # выдачи, не на отдельном экране планирования).
+    origin: Mapped[str] = mapped_column(String(32), default="planner")
+    # Проставляется при приёмке, если получатель явно связал эту заявку с
+    # конкретной поставкой по УПД (раздел про ускорение приёмки) — вместо
+    # только группового auto_close_on_receipt (services/purchasing.py).
+    linked_upd_number: Mapped[str | None] = mapped_column(String(64), nullable=True)

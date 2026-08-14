@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -7,6 +8,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Modal,
   Row,
   Select,
   Space,
@@ -35,6 +37,7 @@ import {
 } from "../../api/units";
 import { suggestLocation } from "../../api/storage";
 import { listMaterialSkus } from "../../api/dictionaries";
+import { createShopFloorPurchaseRequest, type PurchaseRequestShopFloorCreate } from "../../api/purchasing";
 import {
   listProductionTasks,
   type ProductionTask,
@@ -101,6 +104,8 @@ export default function Issue() {
   const [manualSkuId, setManualSkuId] = useState<number | null>(null);
   const [manualArea, setManualArea] = useState<AreaValue | null>(null);
   const [manualForm] = Form.useForm<{ width_mm: number; length_m: number }>();
+  const [shortageModalOpen, setShortageModalOpen] = useState(false);
+  const [shortageForm] = Form.useForm<PurchaseRequestShopFloorCreate>();
 
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
@@ -212,6 +217,36 @@ export default function Issue() {
       }),
     enabled: !!selectedSku,
   });
+
+  // --- Нехватка остатка под выбранную строку задания (раздел про замену
+  // "Заказов покупателей" — нехватка обнаруживается в моменте выдачи, не
+  // на отдельном экране планирования). needed — на весь остаток строки
+  // задания, не только на текущую смену: чтобы кладовщик видел, хватит ли
+  // вообще на весь оставшийся объём, а не только на сегодня.
+  const neededM2 = selected ? (selectedStripWidth / 1000) * selected.line.remaining_length_m : 0;
+  const availableM2 = (availableQuery.data ?? []).reduce((sum, u) => sum + u.area_m2, 0);
+  const shortfallM2 = Math.max(0, Math.round((neededM2 - availableM2) * 100) / 100);
+
+  const shopFloorRequestMutation = useMutation({
+    mutationFn: (payload: PurchaseRequestShopFloorCreate) => createShopFloorPurchaseRequest(payload),
+    onSuccess: () => {
+      message.success("Заявка на закупку отправлена");
+      setShortageModalOpen(false);
+    },
+    onError: () => message.error("Не удалось создать заявку"),
+  });
+
+  const openShortageModal = () => {
+    if (!selectedSku || !selected) return;
+    shortageForm.setFieldsValue({
+      material: selectedSku.material.name,
+      color: selectedSku.color.name,
+      thickness: selectedSku.thickness.value_mm,
+      requested_area_m2: shortfallM2,
+      note: `${selected.line.part_name ?? "Деталь"} — ${selected.task.product_model_name ?? selected.task.name ?? `Задание №${selected.task.id}`}`,
+    });
+    setShortageModalOpen(true);
+  };
 
   const directMutation = useMutation({
     mutationFn: (unitId: number) => issueUnitDirect(unitId, selected!.task.area, selected!.line.id),
@@ -493,6 +528,20 @@ export default function Issue() {
                   </Typography.Text>
                 )}
 
+                {selectedSku && shortfallM2 > 0 && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message={`Не хватает ~${shortfallM2} м² на весь остаток строки — на складе ${Math.round(availableM2 * 100) / 100} м², нужно ${Math.round(neededM2 * 100) / 100} м²`}
+                    action={
+                      <Button size="small" type="primary" onClick={openShortageModal}>
+                        Подать заявку на закупку
+                      </Button>
+                    }
+                  />
+                )}
+
                 {findMutation.isPending && <Typography.Text type="secondary">Подбираем штрипс…</Typography.Text>}
 
                 {result?.outcome === "not_found" && (
@@ -772,6 +821,39 @@ export default function Issue() {
           />
         </Card>
       )}
+
+      <Modal
+        title="Заявка на закупку — с цеха"
+        open={shortageModalOpen}
+        onCancel={() => setShortageModalOpen(false)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Form
+          layout="vertical"
+          form={shortageForm}
+          onFinish={(v) => shopFloorRequestMutation.mutate(v)}
+        >
+          <Form.Item name="material" label="Материал">
+            <Input disabled />
+          </Form.Item>
+          <Form.Item name="color" label="Цвет">
+            <Input disabled />
+          </Form.Item>
+          <Form.Item name="thickness" label="Толщина, мм">
+            <InputNumber disabled style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="requested_area_m2" label="Запросить, м²" rules={[{ required: true }]}>
+            <InputNumber min={0.01} step={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="note" label="Комментарий">
+            <Input />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={shopFloorRequestMutation.isPending}>
+            Отправить заявку
+          </Button>
+        </Form>
+      </Modal>
     </div>
   );
 }

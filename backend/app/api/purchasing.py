@@ -8,12 +8,23 @@ from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
 from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.users import User
-from app.schemas.purchasing import PurchaseRequestCreate, PurchaseRequestOut, PurchaseRequestUpdate
+from app.schemas.purchasing import (
+    PurchaseRequestCreate,
+    PurchaseRequestFulfillRequest,
+    PurchaseRequestOut,
+    PurchaseRequestShopFloorCreate,
+    PurchaseRequestUpdate,
+)
 from app.services.dictionaries import current_stock_m2, find_or_create_material_color_thickness, find_or_create_supplier
 
 router = APIRouter(prefix="/purchase-requests", tags=["purchasing"])
 
 manage_purchasing = require_permission("purchasing.manage")
+# С "Выдачи участку" (units.issue) — сигнал нехватки прямо в моменте
+# выдачи; с "Приёмки" (units.receive) — привязка заявки к конкретной
+# поставке по УПД. Ни то ни другое не требует прав снабженца.
+create_shop_floor_request = require_permission("units.issue")
+fulfill_purchase_request_perm = require_permission("units.receive")
 
 
 def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:
@@ -27,6 +38,8 @@ def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:
         current_stock_m2=stock,
         note=req.note,
         status=req.status,
+        origin=req.origin,
+        linked_upd_number=req.linked_upd_number,
         created_by=req.created_by,
         created_at=req.created_at,
         closed_at=req.closed_at,
@@ -67,11 +80,64 @@ def create_purchase_request(
         thickness_id=thickness.id,
         requested_area_m2=payload.requested_area_m2,
         note=payload.note,
+        origin="planner",
         created_by=user.id,
         supplier_id=supplier.id if supplier else None,
         price_per_m2=payload.price_per_m2,
     )
     db.add(req)
+    db.commit()
+    db.refresh(req)
+    return _out(db, req)
+
+
+@router.post("/shop-floor", response_model=PurchaseRequestOut, status_code=status.HTTP_201_CREATED)
+def create_shop_floor_purchase_request(
+    payload: PurchaseRequestShopFloorCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(create_shop_floor_request),
+) -> PurchaseRequestOut:
+    """Заявка "с цеха" — кнопка "Подать заявку на закупку" на "Выдаче
+    участку", когда остатка на складе не хватает под строку задания. Без
+    supplier/price_per_m2 — их выбирает снабженец позже на "Закупках"."""
+    material, color, thickness = find_or_create_material_color_thickness(
+        db, material=payload.material, color=payload.color, thickness=payload.thickness
+    )
+    req = PurchaseRequest(
+        material_id=material.id,
+        color_id=color.id,
+        thickness_id=thickness.id,
+        requested_area_m2=payload.requested_area_m2,
+        note=payload.note,
+        origin="shop_floor",
+        created_by=user.id,
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+    return _out(db, req)
+
+
+@router.post("/{request_id}/fulfill", response_model=PurchaseRequestOut)
+def fulfill_purchase_request(
+    request_id: int,
+    payload: PurchaseRequestFulfillRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(fulfill_purchase_request_perm),
+) -> PurchaseRequestOut:
+    """Привязка заявки к конкретной приёмке по УПД (раздел про ускорение
+    приёмки) — получатель на "Приёмке" выбрал открытую заявку, которую эта
+    поставка закрывает. Отдельно от группового auto_close_on_receipt
+    (services/purchasing.py) — тот остаётся как более грубый резерв для
+    заявок, которые никто явно не привязал."""
+    req = db.get(PurchaseRequest, request_id)
+    if req is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Заявка не найдена")
+    if req.status == "closed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Заявка уже закрыта")
+    req.status = "closed"
+    req.closed_at = datetime.now(timezone.utc)
+    req.linked_upd_number = payload.upd_number
     db.commit()
     db.refresh(req)
     return _out(db, req)
