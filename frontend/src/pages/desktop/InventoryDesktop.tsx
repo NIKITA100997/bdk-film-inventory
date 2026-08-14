@@ -151,18 +151,18 @@ export default function InventoryDesktop() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Row gutter={12}>
-        <Col span={6}>
+      <Row gutter={[12, 12]}>
+        <Col xs={24} sm={12} md={8}>
           <Card size="small">
             <Statistic title="Сессий в процессе" value={inProgressCount} valueStyle={inProgressCount ? { color: "#C97A2B" } : undefined} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} md={8}>
           <Card size="small">
             <Statistic title="Всего сессий" value={sessionsQuery.data?.length ?? 0} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={24} sm={12} md={8}>
           <Card size="small" style={unresolvedShortages ? { background: "#FBEAE7", borderColor: "#E3B5AC" } : undefined}>
             <Statistic
               title="Недостачи не решены (последнее закрытие)"
@@ -313,8 +313,8 @@ function SessionPanel({
   return (
     <div style={{ maxWidth: 900 }}>
       {session.status === "in_progress" && !closeResult && (
-        <Row gutter={24}>
-          <Col span={12}>
+        <Row gutter={[24, 16]}>
+          <Col xs={24} md={12}>
             <Form
               form={scanForm}
               layout="vertical"
@@ -405,7 +405,7 @@ function SessionPanel({
             </Button>
           </Col>
 
-          <Col span={12}>
+          <Col xs={24} md={12}>
             <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
               Последние сканы ({session.scanned_count} из {session.expected_count})
             </Typography.Text>
@@ -433,17 +433,17 @@ function SessionPanel({
       {closeResult && (
         <>
           <Divider style={{ margin: "8px 0 16px" }}>Итоги закрытия</Divider>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={6}>
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Col xs={12} sm={12} md={6}>
               <Statistic title="Подтверждено" value={closeResult.confirmed_count} />
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={12} md={6}>
               <Statistic title="Перемещено" value={closeResult.moved_count} />
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={12} md={6}>
               <Statistic title="Излишков" value={closeResult.surplus_count} />
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={12} md={6}>
               <Statistic title="Недостач" value={closeResult.shortages.length} valueStyle={{ color: "#C97A2B" }} />
             </Col>
           </Row>

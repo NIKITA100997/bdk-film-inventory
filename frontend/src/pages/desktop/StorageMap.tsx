@@ -257,7 +257,13 @@ function RacksConsole() {
         )}
       </Space>
 
-      <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: 20, alignItems: "start" }}>
+      {/* grid auto-fit/minmax вместо фиксированной колонки "340px 1fr" — на
+          узком планшетном портрете 340px левой колонки почти не оставляли
+          места правой панели деталей стеллажа (заголовок и текст в ней
+          сжимались в тесную полоску). auto-fit с порогом 300px сам решает,
+          сколько колонок поместится: при недостатке ширины блоки переносятся
+          друг под друга, а не сжимаются до нечитаемого состояния. */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 720, overflowY: "auto" }}>
           {visibleRacks.map((rack, idx) => {
             const occ = occupancyByRack[idx]?.data;

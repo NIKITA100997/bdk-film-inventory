@@ -379,23 +379,23 @@ export default function Issue() {
     <div>
       <Typography.Title level={4}>Выдача участку</Typography.Title>
 
-      <Row gutter={12} style={{ marginBottom: 16 }}>
-        <Col span={6}>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={12} md={6}>
           <Card size="small">
             <Statistic title="Запрошено сегодня" value={todayCount} valueStyle={{ color: "#C97A2B" }} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} md={6}>
           <Card size="small" style={overdueCount > 0 ? { background: "#FBEAE7", borderColor: "#E3B5AC" } : undefined}>
             <Statistic title="Просрочено" value={overdueCount} valueStyle={{ color: overdueCount > 0 ? "#B8483C" : undefined }} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} md={6}>
           <Card size="small">
             <Statistic title="Строк в заданиях недели" value={weekRows.length} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} md={6}>
           <Card size="small">
             <Statistic title="Участков ждут выдачи" value={areasWaiting} />
           </Card>
@@ -420,8 +420,8 @@ export default function Issue() {
         />
       </Space>
 
-      <Row gutter={20}>
-        <Col span={15}>
+      <Row gutter={[20, 20]}>
+        <Col xs={24} lg={15}>
           <div style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography.Title level={5} style={{ margin: 0 }}>🔥 Запрошено сегодня</Typography.Title>
             <Tag>{filteredAssignmentRows.length}</Tag>
@@ -443,7 +443,7 @@ export default function Issue() {
           )}
         </Col>
 
-        <Col span={9}>
+        <Col xs={24} lg={9}>
           <div style={{ position: "sticky", top: 16 }}>
             {!selected && !lastIssued && (
               <Card style={{ textAlign: "center", padding: "24px 8px", color: "#8A8C99" }}>

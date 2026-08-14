@@ -103,14 +103,14 @@ export default function Overview() {
 
       <Row gutter={[16, 16]}>
         {showPlanning && (
-          <Col span={6}>
+          <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={ordersReportQuery.isLoading} {...clickableProps("/orders")}>
               <Statistic title="Дефицитных позиций по заказам" value={shortageCount} valueStyle={{ color: shortageCount > 0 ? "#C97A2B" : undefined }} />
             </Card>
           </Col>
         )}
         {showPlanning && (
-          <Col span={6}>
+          <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={ordersReportQuery.isLoading} {...clickableProps("/orders")}>
               <Statistic
                 title="Потребность к выдаче по заказам, м²"
@@ -121,7 +121,7 @@ export default function Overview() {
           </Col>
         )}
         {showIssuedWork && user?.area && (
-          <Col span={6}>
+          <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={issuedUnitsQuery.isLoading} {...clickableProps("/stock")}>
               <Statistic title="Выдано на участок — в работе" value={(issuedUnitsQuery.data ?? []).length} suffix="ед." />
             </Card>
@@ -130,42 +130,42 @@ export default function Overview() {
         {showIssuedWork &&
           !user?.area &&
           Object.entries(areaLabels).map(([key, label]) => (
-            <Col span={6} key={key}>
+            <Col xs={12} sm={12} md={8} lg={6} key={key}>
               <Card loading={issuedUnitsQuery.isLoading} {...clickableProps("/stock")}>
                 <Statistic title={`В работе: ${label}`} value={issuedByArea[key] ?? 0} suffix="ед." />
               </Card>
             </Col>
           ))}
         {showPurchasing && (
-          <Col span={6}>
+          <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={purchasingQuery.isLoading} {...clickableProps("/purchasing")}>
               <Statistic title="Открытых заявок поставщику" value={(purchasingQuery.data ?? []).length} />
             </Card>
           </Col>
         )}
         {showOrders && (
-          <Col span={6}>
+          <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={ordersQuery.isLoading} {...clickableProps("/orders")}>
               <Statistic title="Открытых заказов" value={openOrdersCount} />
             </Card>
           </Col>
         )}
         {showInventory && (
-          <Col span={6}>
+          <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={sessionsQuery.isLoading} {...clickableProps("/inventory")}>
               <Statistic title="Сессий инвентаризации в процессе" value={openSessionsCount} />
             </Card>
           </Col>
         )}
         {showDonorAccuracy && donorQuery.data && (
-          <Col span={6}>
+          <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={donorQuery.isLoading} {...clickableProps("/reports")}>
               <Statistic title="Точность донор-рекомендаций, 30 дней" value={donorQuery.data.accuracy_percent} suffix="%" />
             </Card>
           </Col>
         )}
         {showStale && (
-          <Col span={6}>
+          <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={staleQuery.isLoading} {...clickableProps("/reports")}>
               <Statistic
                 title="Остатков давно не двигалось"
@@ -176,7 +176,7 @@ export default function Overview() {
           </Col>
         )}
         {showSales && (
-          <Col span={6}>
+          <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={skusQuery.isLoading} {...clickableProps("/sales-calculator")}>
               <Statistic title="Позиций в номенклатуре — открыть калькулятор" value={(skusQuery.data ?? []).length} />
             </Card>

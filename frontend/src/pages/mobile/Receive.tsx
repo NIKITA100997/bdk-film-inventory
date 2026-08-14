@@ -188,14 +188,14 @@ export default function Receive() {
 
       {finished && (
         <>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={8}>
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Col xs={12} sm={8}>
               <Statistic title="Рулонов принято" value={sessionUnits.length} />
             </Col>
-            <Col span={8}>
+            <Col xs={12} sm={8}>
               <Statistic title="Позиций материала" value={positionsCount} />
             </Col>
-            <Col span={8}>
+            <Col xs={24} sm={8}>
               <Statistic title="Без места" value={unplacedCount} valueStyle={unplacedCount ? { color: "#C97A2B" } : undefined} />
             </Col>
           </Row>

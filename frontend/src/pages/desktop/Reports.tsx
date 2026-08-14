@@ -143,13 +143,13 @@ function DonorAccuracyTab() {
       />
       {query.data && (
         <Row gutter={16}>
-          <Col span={6}>
+          <Col xs={24} sm={12} md={8}>
             <Statistic title="Предложено доноров" value={query.data.suggested} />
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} md={8}>
             <Statistic title="Принято оператором" value={query.data.accepted} />
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} md={8}>
             <Statistic title="Точность" value={query.data.accuracy_percent} suffix="%" />
           </Col>
         </Row>

@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Layout, Menu, Space, Typography, Button, Input } from "antd";
-import { MenuOutlined, SearchOutlined } from "@ant-design/icons";
+import { Layout, Menu, Typography, Button, Input, Avatar, Dropdown } from "antd";
+import type { MenuProps } from "antd";
+import { MenuOutlined, SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { navTree, type NavItem } from "./navConfig";
-import { fontHeading, palette } from "../theme";
+import { fontHeading } from "../theme";
 import { runUnitOrMaterialSearch } from "../utils/unitSearch";
 import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
@@ -23,6 +24,13 @@ export default function AppLayout() {
   // экранах перекрывал первую плитку/строку страницы. Начальное значение
   // — сразу по ширине окна, чтобы не было мигания "открыто → схлопнулось".
   const [collapsed, setCollapsed] = useState(() => window.innerWidth < 992);
+  // На реальном планшете в портретной ориентации ширина шапки оказалась
+  // заметно меньше, чем предполагалось (заголовок, поиск, QR, колокольчик
+  // и имя пользователя в одну строку туда не помещались — наезжали друг
+  // на друга). Вместо более тесной вёрстки — иконочная шапка: строка
+  // поиска не стоит там постоянно, а разворачивается на всю ширину по
+  // тапу на лупу и сворачивается обратно.
+  const [searchOpen, setSearchOpen] = useState(false);
 
   if (!user) return null;
 
@@ -57,57 +65,120 @@ export default function AppLayout() {
         : visibleItems.map((item) => ({ key: item.path, label: item.label })),
     );
 
-  return (
-    <Layout style={{ minHeight: "100vh" }}>
-      <Header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", gap: 12 }}>
-        <Space style={{ flexShrink: 0 }}>
-          <Button
-            type="text"
-            icon={<MenuOutlined style={{ color: "#fff" }} />}
-            onClick={() => setCollapsed((c) => !c)}
-            aria-label="Показать/скрыть меню"
-          />
-          <Typography.Title level={4} style={{ color: "#fff", margin: 0, fontFamily: fontHeading, whiteSpace: "nowrap" }}>
-            Учёт плёнки БДК
-          </Typography.Title>
-        </Space>
-        <Space style={{ minWidth: 0, flex: "1 1 auto", justifyContent: "center" }}>
-          <Input
-            prefix={<SearchOutlined />}
-            placeholder="ID единицы или материал…"
-            value={headerQuery}
-            onChange={(e) => setHeaderQuery(e.target.value)}
-            onPressEnter={runHeaderSearch}
-            style={{ width: 200, maxWidth: "40vw" }}
-          />
-          <QrScanButton
-            onScan={(code) => runUnitOrMaterialSearch(code, navigate)}
-            tooltip="Сканировать QR камерой"
-            type="primary"
-          />
-          <NotificationBell />
-        </Space>
-        <Space style={{ flexShrink: 0 }}>
-          {/* ellipsis вместо голого текста — без него на узком экране (планшет)
-              строка "Имя · Роль" переносится на несколько строк и вылезает
-              за пределы шапки высотой 64px вверх и вниз. */}
-          <Typography.Text style={{ color: palette.grayMuted, maxWidth: 160 }} ellipsis={{ tooltip: true }}>
-            {user.full_name} · {user.is_superuser ? "Суперпользователь" : user.roles.map((r) => r.name).join(", ") || "без роли"}
+  const userMenuItems: MenuProps["items"] = [
+    {
+      key: "info",
+      label: (
+        <div style={{ lineHeight: 1.4, padding: "2px 0" }}>
+          <div>{user.full_name}</div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {user.is_superuser ? "Суперпользователь" : user.roles.map((r) => r.name).join(", ") || "без роли"}
           </Typography.Text>
-          <Button
-            type="text"
-            style={{ color: "#fff" }}
-            onClick={() => {
-              logout();
-              navigate("/login");
-            }}
-          >
-            Выйти
-          </Button>
-        </Space>
+        </div>
+      ),
+      disabled: true,
+    },
+    { type: "divider" },
+    {
+      key: "logout",
+      label: "Выйти",
+      icon: <LogoutOutlined />,
+      onClick: () => {
+        logout();
+        navigate("/login");
+      },
+    },
+  ];
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setHeaderQuery("");
+  };
+
+  return (
+    // height: 100vh + overflow: hidden на внешнем Layout вместо просто
+    // minHeight — раньше шапка и меню были в обычном потоке страницы: если
+    // список пунктов меню (с учётом раздела "Администрирование") был выше
+    // короткого экрана (планшет в альбомной ориентации), не помещавшиеся
+    // пункты можно было увидеть только прокруткой ВСЕЙ страницы — вместе с
+    // шапкой, которая тоже уезжала наверх и терялась из виду ("нет
+    // админских функций" — на деле они просто были ниже видимой области).
+    // Теперь шапка и меню — несжимаемая рамка приложения, а прокручивается
+    // только содержимое конкретного экрана (Content) и, если пунктов меню
+    // больше, чем помещается, — само меню внутри своей колонки.
+    <Layout style={{ height: "100vh", overflow: "hidden" }}>
+      <Header style={{ display: "flex", alignItems: "center", padding: "0 8px", gap: 4, flexShrink: 0 }}>
+        {searchOpen ? (
+          // Раскрытый поиск занимает всю шапку — так на любой ширине
+          // (даже самой тесной портретной) под сам ввод остаётся вся
+          // строка, а не сжатый огрызок рядом с логотипом и иконками.
+          <>
+            <Button
+              type="text"
+              icon={<ArrowLeftOutlined style={{ color: "#fff" }} />}
+              onClick={closeSearch}
+              aria-label="Закрыть поиск"
+            />
+            <Input
+              autoFocus
+              allowClear
+              prefix={<SearchOutlined />}
+              placeholder="ID единицы или материал…"
+              value={headerQuery}
+              onChange={(e) => setHeaderQuery(e.target.value)}
+              onPressEnter={() => {
+                runHeaderSearch();
+                closeSearch();
+              }}
+              style={{ flex: "1 1 auto", minWidth: 0 }}
+            />
+          </>
+        ) : (
+          <>
+            <Button
+              type="text"
+              icon={<MenuOutlined style={{ color: "#fff" }} />}
+              onClick={() => setCollapsed((c) => !c)}
+              aria-label="Показать/скрыть меню"
+            />
+            <Typography.Title
+              level={4}
+              style={{
+                color: "#fff",
+                margin: 0,
+                fontFamily: fontHeading,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                minWidth: 0,
+              }}
+            >
+              Учёт плёнки БДК
+            </Typography.Title>
+            <div style={{ flex: "1 1 auto" }} />
+            <Button
+              type="text"
+              icon={<SearchOutlined style={{ color: "#fff" }} />}
+              onClick={() => setSearchOpen(true)}
+              aria-label="Поиск по ID/материалу"
+            />
+            <QrScanButton
+              onScan={(code) => runUnitOrMaterialSearch(code, navigate)}
+              tooltip="Сканировать QR камерой"
+              type="primary"
+            />
+            <NotificationBell />
+            <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
+              <Avatar
+                icon={<UserOutlined />}
+                style={{ cursor: "pointer", backgroundColor: "rgba(255,255,255,0.2)", flexShrink: 0 }}
+              />
+            </Dropdown>
+          </>
+        )}
       </Header>
       <OfflineBanner />
-      <Layout>
+      <Layout style={{ flex: "1 1 auto", minHeight: 0 }}>
         <Sider
           width={240}
           collapsedWidth={0}
@@ -115,7 +186,7 @@ export default function AppLayout() {
           onCollapse={setCollapsed}
           breakpoint="lg"
           trigger={null}
-          style={{ flexShrink: 0 }}
+          style={{ flexShrink: 0, overflowY: "auto" }}
         >
           <Menu
             theme="dark"
@@ -128,8 +199,10 @@ export default function AppLayout() {
         </Sider>
         {/* minWidth: 0 — без этого antd Layout не даёт Content сжаться уже
             своей колонки: широкая таблица внутри раздвигала всю страницу
-            (и сайдбар вместе с ней) вместо прокрутки в своих рамках. */}
-        <Content style={{ padding: 24, minWidth: 0, overflowX: "auto" }}>
+            (и сайдбар вместе с ней) вместо прокрутки в своих рамках.
+            overflow: auto (не только X) — теперь именно Content, а не вся
+            страница, отвечает за вертикальную прокрутку экрана. */}
+        <Content style={{ padding: 24, minWidth: 0, overflow: "auto" }}>
           <Outlet />
         </Content>
       </Layout>

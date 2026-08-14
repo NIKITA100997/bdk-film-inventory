@@ -331,11 +331,11 @@ export default function MaterialCard() {
       {cardQuery.data && (
         <>
           <Card>
-            <Row gutter={16}>
-              <Col span={8}>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12} md={8}>
                 <Statistic title="Общий остаток" value={cardQuery.data.total_area_m2} suffix="м²" />
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={12} md={8}>
                 {cardQuery.data.plan_fact ? (
                   <>
                     <Statistic
@@ -348,7 +348,7 @@ export default function MaterialCard() {
                   <Statistic title="Факт/план по заказам" value="нет открытых заказов с этим материалом" />
                 )}
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={12} md={8}>
                 <Statistic title="Ширин в наличии" value={byWidth.length} />
               </Col>
             </Row>

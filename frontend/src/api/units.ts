@@ -258,21 +258,47 @@ export async function writeOffUnit(unitId: number, reason: WriteOffReasonValue, 
 // термопринтере Codex G500 — прямая печать HTML из браузера ненадёжна,
 // драйвер может обрезать нестандартный размер страницы или не напечатать
 // вовсе; печать уже готового PDF — тот же путь, что у "Сохранить как PDF",
-// эмпирически подтверждён рабочим). Открываем blob-URL в новой вкладке —
-// браузер показывает свой родной PDF-просмотрщик — и сразу вызываем печать,
-// как только вкладка прогрузится: диалог печати открывается сам, без
-// дополнительного клика по кнопке "Печать" в просмотрщике. w.print() не
-// вызывается синхронно сразу после window.open — гонка (PDF ещё не
-// прогружен), поэтому ждём load, как и с прежней HTML-версией.
+// эмпирически подтверждён рабочим на десктопе).
+//
+// Печатаем через скрытый iframe, а не window.open(url) — на планшетах
+// (Android Chrome/Яндекс.Браузер) blob-PDF, открытый в новой вкладке,
+// система перехватывает как файл для скачивания и передаёт во внешний
+// просмотрщик/«Файлы» в обход вкладки браузера: w.print() у такой вкладки
+// ничего не печатает, просто остаётся сохранённый PDF (репорт с планшета:
+// «сохраняет пдф вместо печати»). Печать PDF внутри iframe в текущей
+// странице такого перехвата не вызывает.
+function printPdfBlob(blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  iframe.onload = () => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch {
+      // Печать PDF из iframe поддерживается не всеми мобильными браузерами —
+      // как запасной путь открываем PDF в новой вкладке для ручной печати.
+      window.open(url, "_blank");
+    }
+  };
+  // Отзываем URL с запасом по времени, а не сразу — печать асинхронна,
+  // системный диалог печати успевает открыться до того, как URL исчезнет.
+  setTimeout(() => {
+    document.body.removeChild(iframe);
+    URL.revokeObjectURL(url);
+  }, 60000);
+}
+
 export function printLabel(unitId: number): void {
   apiClient.get(`/labels/${unitId}`, { responseType: "blob" }).then(({ data }) => {
-    const url = URL.createObjectURL(data as Blob);
-    const w = window.open(url, "_blank");
-    if (!w) return;
-    w.addEventListener("load", () => {
-      w.focus();
-      w.print();
-    });
+    printPdfBlob(data as Blob);
   });
 }
 
@@ -282,12 +308,6 @@ export function printLabel(unitId: number): void {
 export function printLabelsBatch(unitIds: number[]): void {
   if (unitIds.length === 0) return;
   apiClient.post("/labels/batch", { unit_ids: unitIds }, { responseType: "blob" }).then(({ data }) => {
-    const url = URL.createObjectURL(data as Blob);
-    const w = window.open(url, "_blank");
-    if (!w) return;
-    w.addEventListener("load", () => {
-      w.focus();
-      w.print();
-    });
+    printPdfBlob(data as Blob);
   });
 }
