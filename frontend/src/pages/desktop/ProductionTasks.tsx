@@ -667,6 +667,9 @@ function DailyPlanTab() {
           />
         ) : (
           <ResponsiveTable
+            tableKey="daily-plan"
+            lockedColumns={["Модель / Задание"]}
+            defaultHiddenColumns={["Деталь", "Плёнка (номенклатура)", "Штрипс", "Сотрудники линии"]}
             rowKey={(r) => `${r.line.id}-${r.assignment.id}`}
             dataSource={dailyItems}
             pagination={false}

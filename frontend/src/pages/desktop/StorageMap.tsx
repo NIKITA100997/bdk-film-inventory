@@ -736,6 +736,8 @@ function WarehousesTab() {
           лишь группирует стеллажи (раздел про мультисклад).
         </Typography.Paragraph>
         <ResponsiveTable<Warehouse>
+          tableKey="warehouses"
+          lockedColumns={["Название"]}
           rowKey="id"
           loading={warehousesQuery.isLoading}
           dataSource={warehousesQuery.data ?? []}

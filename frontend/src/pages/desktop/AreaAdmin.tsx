@@ -59,6 +59,8 @@ export default function AreaAdmin() {
         }
       >
         <ResponsiveTable<Area>
+          tableKey="areas"
+          lockedColumns={["Название"]}
           rowKey="code"
           loading={areasQuery.isLoading}
           dataSource={areasQuery.data ?? []}

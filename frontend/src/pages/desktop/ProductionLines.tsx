@@ -92,6 +92,8 @@ export default function ProductionLines() {
           и линия, и вид детали, пилот: окутка царговых).
         </Typography.Paragraph>
         <ResponsiveTable<ProductionLine>
+          tableKey="production-lines"
+          lockedColumns={["Название"]}
           rowKey="id"
           loading={linesQuery.isLoading}
           dataSource={linesQuery.data ?? []}
@@ -106,6 +108,7 @@ export default function ProductionLines() {
               render: (v: boolean) => (v ? <Tag color="green">Активна</Tag> : <Tag>В архиве</Tag>),
             },
             {
+              key: "loading",
               title: `Загрузка на ${selectedDate.format("DD.MM.YYYY")}`,
               render: (_, l) => {
                 const rows = assignmentsByLine.get(l.id) ?? [];

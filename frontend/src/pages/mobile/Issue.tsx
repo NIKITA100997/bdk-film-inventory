@@ -803,6 +803,9 @@ export default function Issue() {
       {issuedLines.length > 0 && (
         <Card style={{ marginTop: 20 }} title="📦 Выдано по заданиям — расход плёнки">
           <ResponsiveTable
+            tableKey="issue-issued-lines"
+            lockedColumns={["Задание"]}
+            defaultHiddenColumns={["Деталь", "Плёнка", "Остаток задания, шт"]}
             size="small"
             rowKey={(r) => r.line.id}
             dataSource={issuedLines}

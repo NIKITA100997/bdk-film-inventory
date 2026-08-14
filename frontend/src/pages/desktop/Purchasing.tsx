@@ -81,6 +81,9 @@ export default function Purchasing() {
                 }
               >
                 <ResponsiveTable<PurchaseRequest>
+                  tableKey="purchase-requests"
+                  lockedColumns={["Материал"]}
+                  defaultHiddenColumns={["Комментарий", "Цена, ₽/м²", "Создана"]}
                   rowKey="id"
                   loading={requestsQuery.isLoading}
                   dataSource={requestsQuery.data ?? []}
@@ -161,6 +164,8 @@ export default function Purchasing() {
                   <Empty description="Пока нет закрытых заявок с поставщиком" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 ) : (
                   <ResponsiveTable<SupplierStats>
+                    tableKey="supplier-stats"
+                    lockedColumns={["Поставщик"]}
                     rowKey="supplier_id"
                     loading={supplierStatsQuery.isLoading}
                     dataSource={supplierStatsQuery.data ?? []}

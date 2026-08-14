@@ -72,6 +72,8 @@ export default function RoleAdmin() {
         }
       >
         <ResponsiveTable<Role>
+          tableKey="roles"
+          lockedColumns={["Название"]}
           rowKey="id"
           loading={rolesQuery.isLoading}
           dataSource={rolesQuery.data ?? []}

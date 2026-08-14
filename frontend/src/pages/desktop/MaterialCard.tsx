@@ -139,6 +139,8 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
             <Empty description="Аналоги не привязаны" image={Empty.PRESENTED_IMAGE_SIMPLE} />
           ) : (
             <ResponsiveTable<AnalogEntry>
+              tableKey="material-card-analogs"
+              lockedColumns={["Позиция"]}
               rowKey="link_id"
               size="small"
               pagination={false}
@@ -388,6 +390,8 @@ export default function MaterialCard() {
 
           <Card title="Журнал движений">
             <ResponsiveTable
+              tableKey="material-card-events"
+              lockedColumns={["Когда", "Событие"]}
               rowKey="event_id"
               size="small"
               pagination={{ pageSize: 10 }}

@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { Space, Select, Button } from "antd";
+import { Space, Button } from "antd";
 import { exportToCsv } from "../utils/csv";
 import { printReport } from "../utils/printReport";
 import ResponsiveTable from "./ResponsiveTable";
+import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "./ColumnSettings";
 
 export interface ReportColumn<T> {
   key: string;
@@ -20,14 +20,21 @@ interface Props<T> {
   columns: ReportColumn<T>[];
   data: T[];
   loading?: boolean;
+  /** По умолчанию выводится из filename — свой набор видимых столбцов
+   * на сотрудника, тот же механизм и тот же значок, что у ResponsiveTable
+   * (components/ColumnSettings.tsx), просто в шапке отчёта, рядом с
+   * экспортом — то, что попадает в CSV/печать, определяется тем же
+   * выбором, что показан на экране. */
+  tableKey?: string;
 }
 
-/** Таблица отчёта с выбором видимых столбцов, экспортом в CSV и печатной
+/** Таблица отчёта с настройкой видимых столбцов, экспортом в CSV и печатной
  * формой (5 раздел обратной связи) — состав и печатной формы, и CSV
  * определяется тем же списком, что и видимость столбцов на экране. */
-export default function ReportTable<T extends object>({ title, filename, rowKey, columns, data, loading }: Props<T>) {
-  const [visibleKeys, setVisibleKeys] = useState<string[]>(columns.map((c) => c.key));
-  const visibleColumns = columns.filter((c) => visibleKeys.includes(c.key));
+export default function ReportTable<T extends object>({ title, filename, rowKey, columns, data, loading, tableKey }: Props<T>) {
+  const columnOptions: ColumnOption[] = columns.map((c) => ({ key: c.key, label: c.header }));
+  const settings = useColumnSettings(tableKey ?? filename.replace(/\.csv$/, ""), columnOptions, []);
+  const visibleColumns = columns.filter((c) => settings.isVisible(c.key));
 
   const antdColumns = visibleColumns.map((c) => ({
     title: c.header,
@@ -41,22 +48,16 @@ export default function ReportTable<T extends object>({ title, filename, rowKey,
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Space wrap>
-        <Select
-          mode="multiple"
-          style={{ minWidth: 280 }}
-          placeholder="Столбцы"
-          value={visibleKeys}
-          onChange={setVisibleKeys}
-          maxTagCount={3}
-          options={columns.map((c) => ({ value: c.key, label: c.header }))}
-        />
-        <Button onClick={() => exportToCsv(filename, toPrintRows(), visibleColumns.map((c) => ({ key: c.key, header: c.header })))}>
-          Экспорт в Excel
-        </Button>
-        <Button onClick={() => printReport(title, visibleColumns.map((c) => ({ key: c.key, header: c.header })), toPrintRows())}>
-          Печать
-        </Button>
+      <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
+        <Space wrap>
+          <Button onClick={() => exportToCsv(filename, toPrintRows(), visibleColumns.map((c) => ({ key: c.key, header: c.header })))}>
+            Экспорт в Excel
+          </Button>
+          <Button onClick={() => printReport(title, visibleColumns.map((c) => ({ key: c.key, header: c.header })), toPrintRows())}>
+            Печать
+          </Button>
+        </Space>
+        <ColumnSettingsButton columns={columnOptions} settings={settings} />
       </Space>
       <ResponsiveTable<T>
         rowKey={rowKey}

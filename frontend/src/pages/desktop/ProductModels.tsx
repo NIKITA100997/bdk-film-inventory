@@ -122,6 +122,9 @@ export default function ProductModels() {
         }
       >
         <ResponsiveTable<ProductModel>
+          tableKey="product-models"
+          lockedColumns={["Название"]}
+          defaultHiddenColumns={["Деталей в BOM"]}
           rowKey="id"
           loading={modelsQuery.isLoading}
           dataSource={modelsQuery.data ?? []}
@@ -186,6 +189,8 @@ export default function ProductModels() {
       >
         {selectedModel && (
           <ResponsiveTable
+            tableKey="product-model-parts"
+            lockedColumns={["Деталь"]}
             rowKey="id"
             dataSource={selectedModel.parts}
             pagination={false}

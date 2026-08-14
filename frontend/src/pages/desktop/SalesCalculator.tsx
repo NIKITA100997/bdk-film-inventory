@@ -117,6 +117,8 @@ export default function SalesCalculator() {
             />
           ) : (
             <ResponsiveTable<AnalogEntry>
+              tableKey="sales-analogs"
+              lockedColumns={["Позиция"]}
               rowKey="link_id"
               pagination={false}
               dataSource={analogs}

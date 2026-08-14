@@ -147,6 +147,8 @@ export default function UserAdmin() {
       </Space>
 
       <ResponsiveTable<UserSummary>
+        tableKey="users"
+        lockedColumns={["ФИО"]}
         rowKey="id"
         loading={usersQuery.isLoading}
         dataSource={filtered}
