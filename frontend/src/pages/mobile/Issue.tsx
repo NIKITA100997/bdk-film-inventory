@@ -529,15 +529,26 @@ export default function Issue() {
                 )}
 
                 {selectedSku && shortfallM2 > 0 && (
+                  // message+action в один ряд (стандартный Alert) на узкой
+                  // боковой панели планшета сжимал текст в колонку по
+                  // одной букве — action всегда пытается влезть рядом с
+                  // текстом. description+кнопка блоком друг под другом
+                  // этого не делают ни при какой ширине.
                   <Alert
                     type="warning"
                     showIcon
                     style={{ marginBottom: 12 }}
-                    message={`Не хватает ~${shortfallM2} м² на весь остаток строки — на складе ${Math.round(availableM2 * 100) / 100} м², нужно ${Math.round(neededM2 * 100) / 100} м²`}
-                    action={
-                      <Button size="small" type="primary" onClick={openShortageModal}>
-                        Подать заявку на закупку
-                      </Button>
+                    message="Не хватает остатка на складе"
+                    description={
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
+                        <span>
+                          Не хватает ~{shortfallM2} м² на весь остаток строки — на складе{" "}
+                          {Math.round(availableM2 * 100) / 100} м², нужно {Math.round(neededM2 * 100) / 100} м²
+                        </span>
+                        <Button size="small" type="primary" onClick={openShortageModal}>
+                          Подать заявку на закупку
+                        </Button>
+                      </div>
                     }
                   />
                 )}
