@@ -15,6 +15,7 @@ import {
   Typography,
   Empty,
   Progress,
+  Checkbox,
   message,
 } from "antd";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -698,6 +699,7 @@ function WarehousesTab() {
   const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null);
   const [form] = Form.useForm<{ name: string; address?: string }>();
   const [editForm] = Form.useForm<WarehouseUpdate>();
+  const [showArchived, setShowArchived] = useState(false);
 
   const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
 
@@ -726,9 +728,14 @@ function WarehousesTab() {
       <Card
         title="Склады"
         extra={
-          <Button type="primary" onClick={() => setModalOpen(true)}>
-            Добавить склад
-          </Button>
+          <Space>
+            <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+              Показывать архивные
+            </Checkbox>
+            <Button type="primary" onClick={() => setModalOpen(true)}>
+              Добавить склад
+            </Button>
+          </Space>
         }
       >
         <Typography.Paragraph type="secondary">
@@ -740,7 +747,7 @@ function WarehousesTab() {
           lockedColumns={["Название"]}
           rowKey="id"
           loading={warehousesQuery.isLoading}
-          dataSource={warehousesQuery.data ?? []}
+          dataSource={(warehousesQuery.data ?? []).filter((w) => showArchived || w.is_active)}
           pagination={false}
           scroll={{ x: "max-content" }}
           columns={[

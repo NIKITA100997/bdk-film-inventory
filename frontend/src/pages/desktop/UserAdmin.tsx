@@ -28,6 +28,7 @@ type UserFormValues = {
 export default function UserAdmin() {
   const qc = useQueryClient();
   const [roleFilter, setRoleFilter] = useState<number | null>(null);
+  const [showDisabled, setShowDisabled] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<UserSummary | null>(null);
   const [tempPassword, setTempPassword] = useState<{ username: string; password: string } | null>(null);
@@ -121,7 +122,9 @@ export default function UserAdmin() {
     }
   };
 
-  const filtered = (usersQuery.data ?? []).filter((u) => !roleFilter || u.roles.some((r) => r.id === roleFilter));
+  const filtered = (usersQuery.data ?? [])
+    .filter((u) => !roleFilter || u.roles.some((r) => r.id === roleFilter))
+    .filter((u) => showDisabled || u.is_active);
 
   return (
     <Card>
@@ -141,6 +144,9 @@ export default function UserAdmin() {
           value={roleFilter ?? undefined}
           onChange={(v) => setRoleFilter(v ?? null)}
         />
+        <Checkbox checked={showDisabled} onChange={(e) => setShowDisabled(e.target.checked)}>
+          Показывать отключённых
+        </Checkbox>
         <Button type="primary" onClick={() => setCreateOpen(true)}>
           Добавить пользователя
         </Button>

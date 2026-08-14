@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tag, Button, Modal, Form, Input, Select, Space, Typography, DatePicker, Empty, message } from "antd";
+import { Card, Tag, Button, Modal, Form, Input, Select, Space, Typography, DatePicker, Empty, Checkbox, message } from "antd";
 import dayjs from "dayjs";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -31,6 +31,7 @@ export default function ProductionLines() {
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
   const [form] = Form.useForm<{ name: string; area: string }>();
   const [editForm] = Form.useForm<ProductionLineUpdate>();
+  const [showArchived, setShowArchived] = useState(false);
 
   const linesQuery = useQuery({ queryKey: ["production-lines"], queryFn: listProductionLines });
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
@@ -82,9 +83,14 @@ export default function ProductionLines() {
       <Card
         title="Производственные линии"
         extra={
-          <Button type="primary" onClick={() => setModalOpen(true)}>
-            Добавить линию
-          </Button>
+          <Space>
+            <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+              Показывать архивные
+            </Checkbox>
+            <Button type="primary" onClick={() => setModalOpen(true)}>
+              Добавить линию
+            </Button>
+          </Space>
         }
       >
         <Typography.Paragraph type="secondary">
@@ -96,7 +102,7 @@ export default function ProductionLines() {
           lockedColumns={["Название"]}
           rowKey="id"
           loading={linesQuery.isLoading}
-          dataSource={linesQuery.data ?? []}
+          dataSource={(linesQuery.data ?? []).filter((l) => showArchived || l.is_active)}
           pagination={false}
           scroll={{ x: "max-content" }}
           columns={[

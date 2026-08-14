@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, Select, Row, Col, Statistic, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Typography, Empty, Upload, Image, message } from "antd";
+import { Card, Select, Row, Col, Statistic, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Typography, Empty, Upload, Image, Checkbox, message } from "antd";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
@@ -202,6 +202,7 @@ export default function MaterialCard() {
   const canEdit = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
 
   const [skuId, setSkuId] = useState<number | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [analogsOpen, setAnalogsOpen] = useState(false);
   const [editing, setEditing] = useState<MaterialSkuUpdate>({});
   // Архивные/без остатка позиции видны в выборе только тем, кто может их
@@ -277,16 +278,24 @@ export default function MaterialCard() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card title="Карточка материала">
+        {canEdit && (
+          <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ marginBottom: 8 }}>
+            Показывать архивные
+          </Checkbox>
+        )}
+        <br />
         <Select
           style={{ width: 420 }}
           placeholder="Выберите позицию материала"
           loading={skusQuery.isLoading}
           showSearch
           optionFilterProp="label"
-          options={(skusQuery.data ?? []).map((s) => ({
-            value: s.id,
-            label: s.is_active ? skuLabel(s) : `${skuLabel(s)} (в архиве)`,
-          }))}
+          options={(skusQuery.data ?? [])
+            .filter((s) => showArchived || s.is_active)
+            .map((s) => ({
+              value: s.id,
+              label: s.is_active ? skuLabel(s) : `${skuLabel(s)} (в архиве)`,
+            }))}
           value={skuId ?? undefined}
           onChange={setSkuId}
         />

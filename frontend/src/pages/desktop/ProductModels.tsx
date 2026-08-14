@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tag, Button, Modal, Form, InputNumber, Input, Select, Space, message } from "antd";
+import { Card, Tag, Button, Modal, Form, InputNumber, Input, Select, Space, Checkbox, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import {
@@ -31,6 +31,7 @@ export default function ProductModels() {
   const [editingPart, setEditingPart] = useState<ProductModelPart | null>(null);
   const [form] = Form.useForm<{ name: string; area: string }>();
   const [partForm] = Form.useForm<ProductModelPartCreate>();
+  const [showArchived, setShowArchived] = useState(false);
 
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
@@ -116,9 +117,14 @@ export default function ProductModels() {
       <Card
         title="Модели продукции"
         extra={
-          <Button type="primary" onClick={() => setCreateOpen(true)}>
-            Добавить модель
-          </Button>
+          <Space>
+            <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+              Показывать архивные
+            </Checkbox>
+            <Button type="primary" onClick={() => setCreateOpen(true)}>
+              Добавить модель
+            </Button>
+          </Space>
         }
       >
         <ResponsiveTable<ProductModel>
@@ -127,7 +133,7 @@ export default function ProductModels() {
           defaultHiddenColumns={["Деталей в BOM"]}
           rowKey="id"
           loading={modelsQuery.isLoading}
-          dataSource={modelsQuery.data ?? []}
+          dataSource={(modelsQuery.data ?? []).filter((m) => showArchived || m.is_active)}
           pagination={false}
           scroll={{ x: "max-content" }}
           columns={[

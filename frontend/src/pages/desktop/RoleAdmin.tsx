@@ -15,6 +15,7 @@ export default function RoleAdmin() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm<{ name: string }>();
   const [checkedIds, setCheckedIds] = useState<number[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
 
   const rolesQuery = useQuery({ queryKey: ["roles"], queryFn: listRoles });
   const permissionsQuery = useQuery({ queryKey: ["permissions"], queryFn: listPermissions });
@@ -66,9 +67,14 @@ export default function RoleAdmin() {
       <Card
         title="Роли"
         extra={
-          <Button type="primary" onClick={() => setCreateOpen(true)}>
-            Создать роль
-          </Button>
+          <Space>
+            <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+              Показывать архивные
+            </Checkbox>
+            <Button type="primary" onClick={() => setCreateOpen(true)}>
+              Создать роль
+            </Button>
+          </Space>
         }
       >
         <ResponsiveTable<Role>
@@ -76,7 +82,7 @@ export default function RoleAdmin() {
           lockedColumns={["Название"]}
           rowKey="id"
           loading={rolesQuery.isLoading}
-          dataSource={rolesQuery.data ?? []}
+          dataSource={(rolesQuery.data ?? []).filter((r) => showArchived || r.is_active)}
           pagination={false}
           scroll={{ x: "max-content" }}
           columns={[

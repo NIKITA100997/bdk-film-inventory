@@ -14,6 +14,7 @@ import {
   Typography,
   Empty,
   DatePicker,
+  Checkbox,
   message,
 } from "antd";
 import dayjs from "dayjs";
@@ -59,6 +60,7 @@ function TasksTab() {
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
   const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number; sku_id: number }>();
   const [assignForm] = Form.useForm<{ line_id: number; date: dayjs.Dayjs; employee_names: string; quantity_pieces: number }>();
+  const [showArchived, setShowArchived] = useState(false);
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
@@ -74,7 +76,9 @@ function TasksTab() {
   const activeModels = (modelsQuery.data ?? []).filter((m) => m.is_active && m.parts.length > 0);
   const bomProductModelId = Form.useWatch("product_model_id", bomForm);
 
-  const tasks = (tasksQuery.data ?? []).filter((t) => !user?.area || t.area === user.area);
+  const tasks = (tasksQuery.data ?? [])
+    .filter((t) => !user?.area || t.area === user.area)
+    .filter((t) => showArchived || t.is_active);
 
   const applySkuFields = (form: typeof manualRowForm, sku: MaterialSku | undefined) => {
     if (!sku) return;
@@ -177,11 +181,16 @@ function TasksTab() {
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card
         extra={
-          canManage && (
-            <Button type="primary" onClick={() => setTaskModalOpen(true)}>
-              Создать задание
-            </Button>
-          )
+          <Space>
+            <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+              Показывать архивные
+            </Checkbox>
+            {canManage && (
+              <Button type="primary" onClick={() => setTaskModalOpen(true)}>
+                Создать задание
+              </Button>
+            )}
+          </Space>
         }
       >
         {tasks.length === 0 ? (
@@ -648,7 +657,7 @@ function DailyPlanTab() {
   );
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
-  const tasks = (tasksQuery.data ?? []).filter((t) => !user?.area || t.area === user.area);
+  const tasks = (tasksQuery.data ?? []).filter((t) => (!user?.area || t.area === user.area) && t.is_active);
 
   const dateStr = selectedDate.format("YYYY-MM-DD");
 

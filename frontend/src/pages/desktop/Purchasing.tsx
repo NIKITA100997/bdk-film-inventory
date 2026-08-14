@@ -45,6 +45,8 @@ export default function Purchasing() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [onlyUngrouped, setOnlyUngrouped] = useState(false);
+  const [showClosedRequests, setShowClosedRequests] = useState(false);
+  const [showClosedOrders, setShowClosedOrders] = useState(false);
   const [stockSupplierFilter, setStockSupplierFilter] = useState<string | null>(null);
   const [form] = Form.useForm<PurchaseRequestCreate>();
   const [editForm] = Form.useForm<PurchaseRequestUpdate>();
@@ -140,9 +142,10 @@ export default function Purchasing() {
   };
 
   const selectableRows = (requestsQuery.data ?? []).filter((r) => r.status === "open" && r.order_id === null);
-  const visibleRequests = onlyUngrouped
-    ? (requestsQuery.data ?? []).filter((r) => r.order_id === null)
-    : requestsQuery.data ?? [];
+  const visibleRequests = (requestsQuery.data ?? [])
+    .filter((r) => !onlyUngrouped || r.order_id === null)
+    .filter((r) => showClosedRequests || r.status !== "closed");
+  const visibleOrders = (ordersQuery.data ?? []).filter((o) => showClosedOrders || o.is_open);
   const selectedRequests = selectableRows.filter((r) => selectedIds.has(r.id));
   const selectedLines = (() => {
     const byKey = new Map<string, { material: string; color: string; thickness: number; total: number }>();
@@ -194,6 +197,9 @@ export default function Purchasing() {
                   <Button size="small" type={onlyUngrouped ? "primary" : "default"} ghost={!onlyUngrouped} onClick={() => setOnlyUngrouped(true)}>
                     Не в заказе
                   </Button>
+                  <Checkbox checked={showClosedRequests} onChange={(e) => setShowClosedRequests(e.target.checked)}>
+                    Показывать закрытые
+                  </Checkbox>
                 </Space>
                 <ResponsiveTable<PurchaseRequest>
                   tableKey="purchase-requests"
@@ -322,12 +328,18 @@ export default function Purchasing() {
             key: "orders",
             label: "Заказы поставщикам",
             children: (
-              <Card>
-                {(ordersQuery.data ?? []).length === 0 ? (
+              <Card
+                extra={
+                  <Checkbox checked={showClosedOrders} onChange={(e) => setShowClosedOrders(e.target.checked)}>
+                    Показывать закрытые
+                  </Checkbox>
+                }
+              >
+                {visibleOrders.length === 0 ? (
                   <Empty description="Заказов пока нет — объедините заявки на вкладке «Заявки поставщику»" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 ) : (
                   <Collapse
-                    items={(ordersQuery.data ?? []).map((order: SupplierOrder) => {
+                    items={visibleOrders.map((order: SupplierOrder) => {
                       const totalArea = order.lines.reduce((sum, l) => sum + l.requested_area_m2, 0);
                       return {
                         key: order.id,

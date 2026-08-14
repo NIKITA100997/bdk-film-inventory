@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tabs, Button, Input, InputNumber, Tag, Space, Popconfirm, Typography, Empty, message } from "antd";
+import { Card, Tabs, Button, Input, InputNumber, Tag, Space, Popconfirm, Typography, Empty, Checkbox, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import {
@@ -17,6 +17,7 @@ import {
 function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Record<number, string>>({});
+  const [showArchived, setShowArchived] = useState(false);
 
   const entriesQuery = useQuery({ queryKey: [kind, "all"], queryFn: () => listAllNameDict(kind) });
   const duplicatesQuery = useQuery({ queryKey: [kind, "duplicates"], queryFn: () => listNameDictDuplicates(kind) });
@@ -40,10 +41,13 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+        Показывать архивные
+      </Checkbox>
       <ResponsiveTable<DictEntry>
         rowKey="id"
         loading={entriesQuery.isLoading}
-        dataSource={entriesQuery.data ?? []}
+        dataSource={(entriesQuery.data ?? []).filter((e) => showArchived || e.is_active)}
         pagination={false}
         scroll={{ x: "max-content" }}
         columns={[
@@ -128,6 +132,7 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
 function ThicknessTab() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Record<number, number>>({});
+  const [showArchived, setShowArchived] = useState(false);
   const entriesQuery = useQuery({ queryKey: ["thicknesses", "all"], queryFn: listAllThicknesses });
 
   const updateMutation = useMutation({
@@ -142,10 +147,14 @@ function ThicknessTab() {
   });
 
   return (
-    <ResponsiveTable<ThicknessEntry>
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+        Показывать архивные
+      </Checkbox>
+      <ResponsiveTable<ThicknessEntry>
       rowKey="id"
       loading={entriesQuery.isLoading}
-      dataSource={entriesQuery.data ?? []}
+      dataSource={(entriesQuery.data ?? []).filter((e) => showArchived || e.is_active)}
       pagination={false}
       scroll={{ x: "max-content" }}
       columns={[
@@ -189,7 +198,8 @@ function ThicknessTab() {
           ),
         },
       ]}
-    />
+      />
+    </Space>
   );
 }
 

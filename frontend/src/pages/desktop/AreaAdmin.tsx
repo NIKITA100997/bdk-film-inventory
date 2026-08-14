@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tag, Button, Modal, Form, Input, Space, Typography, message } from "antd";
+import { Card, Tag, Button, Modal, Form, Input, Space, Typography, Checkbox, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas, createArea, updateArea, type Area } from "../../api/areas";
 import ResponsiveTable from "../../components/ResponsiveTable";
@@ -16,6 +16,7 @@ export default function AreaAdmin() {
   const [createForm] = Form.useForm<{ name: string }>();
   const [renaming, setRenaming] = useState<Area | null>(null);
   const [renameForm] = Form.useForm<{ name: string }>();
+  const [showArchived, setShowArchived] = useState(false);
 
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
 
@@ -53,9 +54,14 @@ export default function AreaAdmin() {
       <Card
         title="Участки"
         extra={
-          <Button type="primary" onClick={() => setCreateOpen(true)}>
-            Добавить участок
-          </Button>
+          <Space>
+            <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+              Показывать архивные
+            </Checkbox>
+            <Button type="primary" onClick={() => setCreateOpen(true)}>
+              Добавить участок
+            </Button>
+          </Space>
         }
       >
         <ResponsiveTable<Area>
@@ -63,7 +69,7 @@ export default function AreaAdmin() {
           lockedColumns={["Название"]}
           rowKey="code"
           loading={areasQuery.isLoading}
-          dataSource={areasQuery.data ?? []}
+          dataSource={(areasQuery.data ?? []).filter((a) => showArchived || a.is_active)}
           pagination={false}
           scroll={{ x: "max-content" }}
           columns={[
