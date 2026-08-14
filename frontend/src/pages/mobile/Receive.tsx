@@ -3,11 +3,12 @@ import { Alert, Button, Card, Form, Input, InputNumber, Select, Typography, List
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { receiveAndAutoPlace, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import { listWarehouses } from "../../api/storage";
+import { listPurchaseRequests, fulfillPurchaseRequest } from "../../api/purchasing";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { useDraftForm } from "../../hooks/useDraftForm";
 
 type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code">;
-type HeaderValues = { upd_number: string; pallet_number: string; warehouse_id?: number };
+type HeaderValues = { upd_number: string; pallet_number: string; warehouse_id?: number; purchase_request_id?: number };
 
 // Память на частый ввод: при повторной приёмке в тот же день паллеты часто
 // идут подряд — предзаполняем последний номер, поле остаётся редактируемым.
@@ -34,6 +35,16 @@ export default function Receive() {
   const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
   const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
 
+  // Открытые заявки на закупку (раздел про ускорение приёмки) — необязательная
+  // привязка: если эта поставка закрывает конкретную заявку, выбрать её здесь,
+  // а не сопоставлять вручную потом на "Закупках".
+  const openRequestsQuery = useQuery({ queryKey: ["purchase-requests", "open"], queryFn: () => listPurchaseRequests("open") });
+  const fulfillMutation = useMutation({
+    mutationFn: ({ id, updNumber }: { id: number; updNumber: string }) => fulfillPurchaseRequest(id, updNumber),
+    onSuccess: () => message.success("Заявка на закупку привязана и закрыта"),
+    onError: () => message.warning("Приёмка продолжится, но заявка не привязалась — привяжите вручную на «Закупках»"),
+  });
+
   const addLineMutation = useMutation({
     mutationFn: (values: LineValues) =>
       receiveAndAutoPlace({ ...values, upd_number: upd, pallet_number: pallet }, warehouseId),
@@ -55,6 +66,9 @@ export default function Receive() {
     setSessionStarted(true);
     localStorage.setItem(LAST_PALLET_STORAGE_KEY, v.pallet_number);
     headerDraft.clearDraft();
+    if (v.purchase_request_id) {
+      fulfillMutation.mutate({ id: v.purchase_request_id, updNumber: v.upd_number });
+    }
   };
 
   const newSession = () => {
@@ -91,6 +105,21 @@ export default function Receive() {
           {activeWarehouses.length > 1 && (
             <Form.Item name="warehouse_id" label="Склад" rules={[{ required: true }]}>
               <Select size="large" options={activeWarehouses.map((w) => ({ value: w.id, label: w.name }))} />
+            </Form.Item>
+          )}
+          {(openRequestsQuery.data ?? []).length > 0 && (
+            <Form.Item name="purchase_request_id" label="Открытая заявка на закупку (опционально)">
+              <Select
+                size="large"
+                allowClear
+                showSearch
+                placeholder="Эта поставка закрывает заявку…"
+                optionFilterProp="label"
+                options={(openRequestsQuery.data ?? []).map((r) => ({
+                  value: r.id,
+                  label: `${r.material}, ${r.color}, ${r.thickness} мм — ${r.requested_area_m2} м²`,
+                }))}
+              />
             </Form.Item>
           )}
           <Button size="large" type="primary" htmlType="submit" block>
