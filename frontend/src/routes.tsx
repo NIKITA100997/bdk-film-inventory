@@ -22,6 +22,8 @@ import LabelTemplateAdmin from "./pages/desktop/LabelTemplateAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
 import SalesCalculator from "./pages/desktop/SalesCalculator";
 import ProductionTasks from "./pages/desktop/ProductionTasks";
+import ProductModels from "./pages/desktop/ProductModels";
+import ProductionLines from "./pages/desktop/ProductionLines";
 
 export default function AppRoutes() {
   return (
@@ -100,6 +102,22 @@ export default function AppRoutes() {
           element={
             <RequirePermission permissions={["production_tasks.manage", "production_tasks.view"]}>
               <ProductionTasks />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/product-models"
+          element={
+            <RequirePermission permissions={["production_tasks.manage"]}>
+              <ProductModels />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/production-lines"
+          element={
+            <RequirePermission permissions={["production_tasks.manage"]}>
+              <ProductionLines />
             </RequirePermission>
           }
         />
