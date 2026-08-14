@@ -14,7 +14,6 @@ import {
   Space,
   Statistic,
   Tag,
-  Table,
   Typography,
   message,
 } from "antd";
@@ -44,6 +43,7 @@ import {
   type ProductionTaskLine,
   type ProductionTaskLineAssignment,
 } from "../../api/production";
+import ResponsiveTable from "../../components/ResponsiveTable";
 
 const areaLabels: Record<string, string> = {
   okutka_tsargovykh: "Окутка царговых",
@@ -600,7 +600,7 @@ export default function Issue() {
                       key: "stock",
                       label: `Показать остатки на складе по этой номенклатуре (${availableQuery.data?.length ?? 0})`,
                       children: (
-                        <Table<MaterialUnit>
+                        <ResponsiveTable<MaterialUnit>
                           size="small"
                           rowKey="id"
                           loading={availableQuery.isLoading}
@@ -760,7 +760,7 @@ export default function Issue() {
                       />
                       {manualSku && (
                         <>
-                          <Table<MaterialUnit>
+                          <ResponsiveTable<MaterialUnit>
                             size="small"
                             rowKey="id"
                             loading={manualAvailableQuery.isLoading}
@@ -810,7 +810,7 @@ export default function Issue() {
 
       {issuedLines.length > 0 && (
         <Card style={{ marginTop: 20 }} title="📦 Выдано по заданиям — расход плёнки">
-          <Table
+          <ResponsiveTable
             size="small"
             rowKey={(r) => r.line.id}
             dataSource={issuedLines}

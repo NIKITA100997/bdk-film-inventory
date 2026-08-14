@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   Tabs,
-  Table,
   Button,
   Tag,
   Popconfirm,
@@ -43,6 +42,7 @@ import {
 } from "../../api/storage";
 import { listColors, listManufacturers, listMaterials, listThicknesses } from "../../api/dictionaries";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { placeUnit, searchUnits, skuLabel, type MaterialUnit } from "../../api/units";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -735,7 +735,7 @@ function WarehousesTab() {
           Физическая площадка, на которой стоят стеллажи — код стеллажа остаётся уникальным во всей системе, склад
           лишь группирует стеллажи (раздел про мультисклад).
         </Typography.Paragraph>
-        <Table<Warehouse>
+        <ResponsiveTable<Warehouse>
           rowKey="id"
           loading={warehousesQuery.isLoading}
           dataSource={warehousesQuery.data ?? []}

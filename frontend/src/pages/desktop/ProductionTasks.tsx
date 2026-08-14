@@ -18,6 +18,7 @@ import {
 } from "antd";
 import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import {
   listProductionLines,
   listProductModels,
@@ -668,7 +669,7 @@ function DailyPlanTab() {
             description={`На ${selectedDate.format("DD.MM.YYYY")} нет запланированных задач по линиям`}
           />
         ) : (
-          <Table
+          <ResponsiveTable
             rowKey={(r) => `${r.line.id}-${r.assignment.id}`}
             dataSource={dailyItems}
             pagination={false}

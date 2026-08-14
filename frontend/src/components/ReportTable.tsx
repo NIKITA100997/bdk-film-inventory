@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Space, Select, Button, Table } from "antd";
+import { Space, Select, Button } from "antd";
 import { exportToCsv } from "../utils/csv";
 import { printReport } from "../utils/printReport";
+import ResponsiveTable from "./ResponsiveTable";
 
 export interface ReportColumn<T> {
   key: string;
@@ -57,7 +58,7 @@ export default function ReportTable<T extends object>({ title, filename, rowKey,
           Печать
         </Button>
       </Space>
-      <Table<T>
+      <ResponsiveTable<T>
         rowKey={rowKey}
         loading={loading}
         dataSource={data}
