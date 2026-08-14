@@ -1,12 +1,15 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
+from app.models.production import ProductionTaskLine, ProductionTaskLineReport
 from app.models.purchasing import PurchaseRequest, Supplier
+from app.models.units import MaterialSku, MaterialUnit, UnitStatus
 from app.models.users import User
 from app.schemas.purchasing import (
     PurchaseRequestCreate,
@@ -14,8 +17,10 @@ from app.schemas.purchasing import (
     PurchaseRequestOut,
     PurchaseRequestShopFloorCreate,
     PurchaseRequestUpdate,
+    StockOverviewLine,
 )
 from app.services.dictionaries import current_stock_m2, find_or_create_material_color_thickness, find_or_create_supplier
+from app.services.production import TaskLineForReserve, calc_default_strip_width, reserved_area_m2_by_group
 
 router = APIRouter(prefix="/purchase-requests", tags=["purchasing"])
 
@@ -45,7 +50,103 @@ def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:
         closed_at=req.closed_at,
         supplier=db.get(Supplier, req.supplier_id).name if req.supplier_id else None,
         price_per_m2=float(req.price_per_m2) if req.price_per_m2 is not None else None,
+        order_id=req.order_id,
     )
+
+
+@router.get("/stock-overview", response_model=list[StockOverviewLine])
+def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_purchasing)) -> list[StockOverviewLine]:
+    """«Остатки и резерв» (раздел про экран снабженца) — остаток на складе,
+    резерв на текущие незавершённые задания цеха и сколько уже в открытых
+    заявках, по группе материал+цвет+толщина. Отдаётся тут, а не в
+    reports.py, потому что снабженцу не выдаются права на задания цеха
+    (production_tasks.*) — расчёт резерва идёт под её же правом
+    purchasing.manage, без обращения к производственным эндпоинтам."""
+    stock_rows = (
+        db.query(
+            MaterialSku.material_id,
+            MaterialSku.color_id,
+            MaterialSku.thickness_id,
+            func.sum(MaterialUnit.width_mm * MaterialUnit.length_m / 1000),
+        )
+        .join(MaterialUnit, MaterialUnit.material_sku_id == MaterialSku.id)
+        .filter(MaterialUnit.status != UnitStatus.SPISAN)
+        .group_by(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id)
+        .all()
+    )
+    stock_by_group = {(m, c, t): round(float(area or 0), 3) for m, c, t, area in stock_rows}
+
+    lines = db.query(ProductionTaskLine).all()
+    line_ids = [line.id for line in lines]
+    good_by_line: dict[int, float] = {}
+    if line_ids:
+        for line_id, good in (
+            db.query(ProductionTaskLineReport.task_line_id, func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
+            .filter(ProductionTaskLineReport.task_line_id.in_(line_ids))
+            .group_by(ProductionTaskLineReport.task_line_id)
+            .all()
+        ):
+            good_by_line[line_id] = float(good)
+    reserve_input = [
+        TaskLineForReserve(
+            material_id=line.material_id,
+            color_id=line.color_id,
+            thickness_id=line.thickness_id,
+            quantity_pieces=float(line.quantity_pieces),
+            produced_good_pieces=good_by_line.get(line.id, 0.0),
+            length_m=float(line.length_m),
+            effective_strip_width_mm=(
+                float(line.strip_width_mm)
+                if line.strip_width_mm is not None
+                else calc_default_strip_width(line.part_name, float(line.width_mm))
+            ),
+        )
+        for line in lines
+    ]
+    reserved_by_group = reserved_area_m2_by_group(reserve_input)
+
+    open_requested_rows = (
+        db.query(
+            PurchaseRequest.material_id,
+            PurchaseRequest.color_id,
+            PurchaseRequest.thickness_id,
+            func.sum(PurchaseRequest.requested_area_m2),
+        )
+        .filter(PurchaseRequest.status == "open")
+        .group_by(PurchaseRequest.material_id, PurchaseRequest.color_id, PurchaseRequest.thickness_id)
+        .all()
+    )
+    open_requested_by_group = {(m, c, t): round(float(area or 0), 2) for m, c, t, area in open_requested_rows}
+
+    # "Обычно берут у" — эвристика по истории заявок (последний непустой
+    # поставщик для этой группы), не жёсткая связка поставщик↔номенклатура.
+    supplier_history_rows = (
+        db.query(PurchaseRequest.material_id, PurchaseRequest.color_id, PurchaseRequest.thickness_id, PurchaseRequest.supplier_id)
+        .filter(PurchaseRequest.supplier_id.is_not(None))
+        .order_by(PurchaseRequest.created_at.desc())
+        .all()
+    )
+    usual_supplier_id_by_group: dict[tuple[int, int, int], int] = {}
+    for m, c, t, supplier_id in supplier_history_rows:
+        usual_supplier_id_by_group.setdefault((m, c, t), supplier_id)
+
+    all_groups = set(stock_by_group) | set(reserved_by_group) | set(open_requested_by_group)
+    result: list[StockOverviewLine] = []
+    for material_id, color_id, thickness_id in all_groups:
+        supplier_id = usual_supplier_id_by_group.get((material_id, color_id, thickness_id))
+        result.append(
+            StockOverviewLine(
+                material=db.get(Material, material_id).name,
+                color=db.get(Color, color_id).name,
+                thickness=float(db.get(Thickness, thickness_id).value_mm),
+                total_area_m2=stock_by_group.get((material_id, color_id, thickness_id), 0.0),
+                reserved_area_m2=reserved_by_group.get((material_id, color_id, thickness_id), 0.0),
+                open_requested_area_m2=open_requested_by_group.get((material_id, color_id, thickness_id), 0.0),
+                usual_supplier=db.get(Supplier, supplier_id).name if supplier_id else None,
+            )
+        )
+    result.sort(key=lambda r: (r.material, r.color, r.thickness))
+    return result
 
 
 @router.get("", response_model=list[PurchaseRequestOut])

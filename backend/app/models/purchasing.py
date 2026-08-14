@@ -27,6 +27,23 @@ class Supplier(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
 
 
+class SupplierOrder(Base):
+    """Заказ поставщику (раздел про экран снабженца) — группирует
+    несколько заявок (в т.ч. с цеха, под разные задания, иногда разной
+    номенклатуры) в один заказ одному поставщику. Без своего статуса и
+    цены: статус вычисляется из заявок этого заказа (открыт, пока хоть
+    одна из них open), цена по-прежнему на PurchaseRequest.price_per_m2 —
+    объединение не меняет, как заявки закрываются приёмкой/по УПД."""
+
+    __tablename__ = "supplier_orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class PurchaseRequest(Base):
     __tablename__ = "purchase_requests"
 
@@ -40,6 +57,9 @@ class PurchaseRequest(Base):
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Заказ поставщику, в который объединена эта заявка (раздел про экран
+    # снабженца) — nullable, большинство заявок сначала висят без заказа.
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_orders.id"), nullable=True)
     # История цен и сроков поставщика — оба необязательны: заявка может быть
     # создана раньше, чем согласована цена/выбран поставщик. Срок поставки
     # отдельным полем не хранится — считается как closed_at - created_at,
