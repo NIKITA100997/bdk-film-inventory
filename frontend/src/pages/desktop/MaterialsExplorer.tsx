@@ -20,6 +20,7 @@ import {
 import { DownOutlined, SearchOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
+import { isAxiosError } from "axios";
 import {
   searchUnits,
   receiveAndAutoPlace,
@@ -59,6 +60,11 @@ type UnitLineValues = {
   upd_number?: string;
   pallet_number?: string;
 };
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
 
 export default function MaterialsExplorer() {
   const { user } = useAuth();
@@ -180,7 +186,7 @@ export default function MaterialsExplorer() {
       qc.invalidateQueries({ queryKey: ["materials-explorer"] });
       message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Единица удалена");
     },
-    onError: () => message.error("Не удалось удалить — возможно, от неё отрезан остаток"),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить — возможно, от неё отрезан остаток")),
   });
 
   const classCKeys = useMemo(() => {

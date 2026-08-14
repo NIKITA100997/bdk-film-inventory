@@ -18,8 +18,14 @@ import {
   message,
 } from "antd";
 import dayjs from "dayjs";
+import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
 import {
   listProductionLines,
   listProductModels,
@@ -155,6 +161,7 @@ function TasksTab() {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Задание удалено");
     },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить задание")),
   });
 
   const archiveTaskMutation = useMutation({

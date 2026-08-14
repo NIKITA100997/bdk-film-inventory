@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Card, Tag, Button, Modal, Form, InputNumber, Input, Space, Typography, Empty, Tabs, Checkbox, Collapse, message } from "antd";
+import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
 import {
   listPurchaseRequests,
   createPurchaseRequest,
@@ -88,7 +94,7 @@ export default function Purchasing() {
       qc.invalidateQueries({ queryKey: ["purchasing-stock-overview"] });
       message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Заявка удалена");
     },
-    onError: () => message.error("Не удалось удалить"),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить заявку")),
   });
 
   const deleteOrderMutation = useMutation({
@@ -98,7 +104,7 @@ export default function Purchasing() {
       qc.invalidateQueries({ queryKey: ["supplier-orders"] });
       message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Заказ удалён");
     },
-    onError: () => message.error("Не удалось удалить"),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить заказ")),
   });
 
   // История цен и сроков поставщика (раздел про расширение функционала) —

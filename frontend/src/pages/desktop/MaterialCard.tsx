@@ -5,6 +5,7 @@ import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
+import { isAxiosError } from "axios";
 import {
   listMaterialSkus,
   listAllMaterialSkus,
@@ -27,6 +28,11 @@ interface MaterialCardPrefill {
   material?: string;
   color?: string;
   thickness?: number;
+}
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
 }
 
 function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku; allSkus: MaterialSku[]; onClose: () => void; canEdit: boolean }) {
@@ -247,7 +253,7 @@ export default function MaterialCard() {
       if (result.deleted) setSkuId(null);
       message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Позиция удалена");
     },
-    onError: () => message.error("Не удалось удалить — есть история (единицы, аналоги, журнал движений)?"),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить — есть история (единицы, аналоги, журнал движений)?")),
   });
 
   const cardQuery = useQuery({
