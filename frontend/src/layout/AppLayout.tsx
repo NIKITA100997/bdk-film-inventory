@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Layout, Menu, Typography, Button, Input, Avatar, Dropdown } from "antd";
 import type { MenuProps } from "antd";
-import { MenuOutlined, SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined } from "@ant-design/icons";
+import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { navTree, type NavItem } from "./navConfig";
@@ -11,19 +11,13 @@ import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
 import NotificationBell from "../components/NotificationBell";
 
-const { Header, Sider, Content } = Layout;
+const { Header, Content } = Layout;
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [headerQuery, setHeaderQuery] = useState("");
-  // Раздел про адаптацию под планшет — свой toggle в шапке вместо
-  // стандартного плавающего триггера antd (Sider trigger={null}): тот
-  // рисуется поверх контента абсолютным позиционированием и на узких
-  // экранах перекрывал первую плитку/строку страницы. Начальное значение
-  // — сразу по ширине окна, чтобы не было мигания "открыто → схлопнулось".
-  const [collapsed, setCollapsed] = useState(() => window.innerWidth < 992);
   // На реальном планшете в портретной ориентации ширина шапки оказалась
   // заметно меньше, чем предполагалось (заголовок, поиск, QR, колокольчик
   // и имя пользователя в одну строку туда не помещались — наезжали друг
@@ -48,7 +42,11 @@ export default function AppLayout() {
 
   // Единое функциональное дерево (8.2 раздел бэклога доработок) — блоки без
   // заголовка отрисовываются как плоские пункты верхнего уровня, блоки с
-  // заголовком ("Планирование", "Администрирование") — как группа.
+  // заголовком ("Складские операции", "Администрирование") — как
+  // выпадающее подменю (раздел про адаптацию под планшет: боковая панель
+  // заменена на горизонтальное меню под шапкой — children без явного type
+  // в mode="horizontal" antd сам рисует как подменю, и сам же схлопывает
+  // то, что не влезло по ширине, в пункт "…").
   const items = navTree
     .map((block) => ({ block, visibleItems: block.items.filter(isVisible) }))
     .filter(({ visibleItems }) => visibleItems.length > 0)
@@ -58,7 +56,6 @@ export default function AppLayout() {
             {
               key: block.key,
               label: block.label,
-              type: "group" as const,
               children: visibleItems.map((item) => ({ key: item.path, label: item.label })),
             },
           ]
@@ -97,15 +94,8 @@ export default function AppLayout() {
 
   return (
     // height: 100vh + overflow: hidden на внешнем Layout вместо просто
-    // minHeight — раньше шапка и меню были в обычном потоке страницы: если
-    // список пунктов меню (с учётом раздела "Администрирование") был выше
-    // короткого экрана (планшет в альбомной ориентации), не помещавшиеся
-    // пункты можно было увидеть только прокруткой ВСЕЙ страницы — вместе с
-    // шапкой, которая тоже уезжала наверх и терялась из виду ("нет
-    // админских функций" — на деле они просто были ниже видимой области).
-    // Теперь шапка и меню — несжимаемая рамка приложения, а прокручивается
-    // только содержимое конкретного экрана (Content) и, если пунктов меню
-    // больше, чем помещается, — само меню внутри своей колонки.
+    // minHeight — шапка и меню несжимаемая рамка приложения, прокручивается
+    // только содержимое конкретного экрана (Content), а не вся страница.
     <Layout style={{ height: "100vh", overflow: "hidden" }}>
       <Header style={{ display: "flex", alignItems: "center", padding: "0 8px", gap: 4, flexShrink: 0 }}>
         {searchOpen ? (
@@ -135,12 +125,6 @@ export default function AppLayout() {
           </>
         ) : (
           <>
-            <Button
-              type="text"
-              icon={<MenuOutlined style={{ color: "#fff" }} />}
-              onClick={() => setCollapsed((c) => !c)}
-              aria-label="Показать/скрыть меню"
-            />
             <Typography.Title
               level={4}
               style={{
@@ -177,35 +161,27 @@ export default function AppLayout() {
           </>
         )}
       </Header>
+      {/* Горизонтальное меню вместо боковой панели (раздел про адаптацию
+          под планшет — боковая колонка отъедала до 240px ширины даже в
+          свёрнутом с иконками виде, а на планшете каждый пиксель на счету).
+          mode="horizontal" сам собирает пункты, которые не влезли, в
+          выпадающий пункт "…" — прокрутки/переполнения здесь не бывает. */}
+      <Menu
+        mode="horizontal"
+        style={{ flexShrink: 0 }}
+        selectedKeys={[location.pathname]}
+        items={items}
+        onClick={(e) => navigate(e.key)}
+      />
       <OfflineBanner />
-      <Layout style={{ flex: "1 1 auto", minHeight: 0 }}>
-        <Sider
-          width={240}
-          collapsedWidth={0}
-          collapsed={collapsed}
-          onCollapse={setCollapsed}
-          breakpoint="lg"
-          trigger={null}
-          style={{ flexShrink: 0, overflowY: "auto" }}
-        >
-          <Menu
-            theme="dark"
-            mode="inline"
-            style={{ height: "100%" }}
-            selectedKeys={[location.pathname]}
-            items={items}
-            onClick={(e) => navigate(e.key)}
-          />
-        </Sider>
-        {/* minWidth: 0 — без этого antd Layout не даёт Content сжаться уже
-            своей колонки: широкая таблица внутри раздвигала всю страницу
-            (и сайдбар вместе с ней) вместо прокрутки в своих рамках.
-            overflow: auto (не только X) — теперь именно Content, а не вся
-            страница, отвечает за вертикальную прокрутку экрана. */}
-        <Content style={{ padding: 24, minWidth: 0, overflow: "auto" }}>
-          <Outlet />
-        </Content>
-      </Layout>
+      {/* minWidth: 0 — без этого antd Layout не даёт Content сжаться уже
+          своей колонки: широкая таблица внутри раздвигала всю страницу
+          вместо прокрутки в своих рамках. overflow: auto (не только X) —
+          именно Content, а не вся страница, отвечает за вертикальную
+          прокрутку экрана. */}
+      <Content style={{ padding: 24, minWidth: 0, overflow: "auto", flex: "1 1 auto", minHeight: 0 }}>
+        <Outlet />
+      </Content>
     </Layout>
   );
 }
