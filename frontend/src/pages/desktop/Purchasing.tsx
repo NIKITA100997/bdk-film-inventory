@@ -97,10 +97,24 @@ export default function Purchasing() {
                     },
                     { title: "Комментарий", dataIndex: "note", render: (v: string | null) => v ?? "—" },
                     {
+                      title: "Происхождение",
+                      dataIndex: "origin",
+                      render: (v: string) =>
+                        v === "shop_floor" ? <Tag color="blue">С цеха</Tag> : <Tag>Плановая</Tag>,
+                    },
+                    {
                       title: "Статус",
                       dataIndex: "status",
-                      render: (v: string) =>
-                        v === "open" ? <Tag color="orange">Открыта</Tag> : <Tag color="green">Закрыта</Tag>,
+                      render: (v: string, r) => (
+                        <Space direction="vertical" size={0}>
+                          {v === "open" ? <Tag color="orange">Открыта</Tag> : <Tag color="green">Закрыта</Tag>}
+                          {r.linked_upd_number && (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              УПД {r.linked_upd_number}
+                            </Typography.Text>
+                          )}
+                        </Space>
+                      ),
                     },
                     {
                       title: "Создана",
