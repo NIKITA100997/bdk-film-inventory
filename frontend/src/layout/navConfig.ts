@@ -67,6 +67,11 @@ export const navTree: NavBlock[] = [
         label: "Задания цеха (План на день)",
         permissions: ["production_tasks.manage", "production_tasks.view"],
       },
+      // Линии — не конфигурация в стороне, а часть производства: та же
+      // область, что "Задания цеха", просто отдельный пункт вместо вкладки
+      // (раздел про адаптацию под планшет — линии трогаются не каждый
+      // день, но это всё ещё производство, не администрирование).
+      { key: "production-lines", path: "/production-lines", label: "Линии цеха", permissions: ["production_tasks.manage"] },
       { key: "purchasing", path: "/purchasing", label: "Закупки плёнки", permissions: ["purchasing.manage"] },
     ],
   },
@@ -77,12 +82,11 @@ export const navTree: NavBlock[] = [
       { key: "users", path: "/users", label: "Пользователи", permissions: ["users.manage"] },
       { key: "roles", path: "/roles", label: "Роли и права", permissions: ["users.manage"] },
       { key: "dictionaries", path: "/dictionaries", label: "Справочники", permissions: ["materials.manage"] },
-      // Модели/линии — вынесены из вкладок "Заданий цеха" (раздел про
-      // адаптацию под планшет и разделение "конфигурации" и "ежедневной
-      // работы") — рядом со "Справочниками" по той же логике: трогаются
-      // редко, не каждый день, в отличие от самого "Задания цеха".
+      // Модели — вынесены из вкладок "Заданий цеха" (раздел про адаптацию
+      // под планшет и разделение "конфигурации" и "ежедневной работы") —
+      // рядом со "Справочниками" по той же логике: BOM трогается редко,
+      // при постановке нового изделия, не каждый день.
       { key: "product-models", path: "/product-models", label: "Модели продукции (BOM)", permissions: ["production_tasks.manage"] },
-      { key: "production-lines", path: "/production-lines", label: "Линии цеха", permissions: ["production_tasks.manage"] },
       { key: "label-template", path: "/label-template", label: "Макет этикетки (100×40)", permissions: ["labels.manage"] },
       { key: "calc-settings", path: "/calc-settings", label: "Параметры расчётов", permissions: ["calc_settings.manage"] },
     ],
