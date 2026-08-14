@@ -23,6 +23,7 @@ import SalesCalculator from "./pages/desktop/SalesCalculator";
 import ProductionTasks from "./pages/desktop/ProductionTasks";
 import ProductModels from "./pages/desktop/ProductModels";
 import ProductionLines from "./pages/desktop/ProductionLines";
+import AreaAdmin from "./pages/desktop/AreaAdmin";
 
 export default function AppRoutes() {
   return (
@@ -79,6 +80,10 @@ export default function AppRoutes() {
         <Route
           path="/roles"
           element={<RequirePermission permissions={["users.manage"]}><RoleAdmin /></RequirePermission>}
+        />
+        <Route
+          path="/areas"
+          element={<RequirePermission permissions={["users.manage"]}><AreaAdmin /></RequirePermission>}
         />
         <Route
           path="/label-template"

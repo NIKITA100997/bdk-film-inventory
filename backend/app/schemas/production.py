@@ -3,17 +3,16 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.events import WriteOffReason
-from app.models.users import Area
 
 
 class ProductionLineCreate(BaseModel):
     name: str
-    area: Area
+    area: str
 
 
 class ProductionLineUpdate(BaseModel):
     name: str | None = None
-    area: Area | None = None
+    area: str | None = None
     is_active: bool | None = None
 
 
@@ -21,13 +20,13 @@ class ProductionLineOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
-    area: Area
+    area: str
     is_active: bool
 
 
 class ProductModelCreate(BaseModel):
     name: str
-    area: Area
+    area: str
 
 
 class ProductModelUpdate(BaseModel):
@@ -36,7 +35,7 @@ class ProductModelUpdate(BaseModel):
 
 
 class ProductModelPartCreate(BaseModel):
-    area: Area
+    area: str
     qty_per_unit: float = Field(gt=0)
     width_mm: float = Field(gt=0)
     length_m: float = Field(gt=0)
@@ -46,7 +45,7 @@ class ProductModelPartCreate(BaseModel):
 
 class ProductModelPartOut(BaseModel):
     id: int
-    area: Area
+    area: str
     qty_per_unit: float
     width_mm: float
     length_m: float
@@ -57,7 +56,7 @@ class ProductModelPartOut(BaseModel):
 class ProductModelOut(BaseModel):
     id: int
     name: str
-    area: Area
+    area: str
     is_active: bool
     parts: list[ProductModelPartOut] = []
 
@@ -76,7 +75,7 @@ class ProductionTaskLineManualCreate(BaseModel):
 
 class ProductionTaskManualCreate(BaseModel):
     name: str
-    area: Area
+    area: str
     product_model_id: int | None = None
     quantity: int | None = None
     lines: list[ProductionTaskLineManualCreate] = Field(min_length=1)
@@ -163,7 +162,7 @@ class ProductionTaskOut(BaseModel):
     product_model_id: int | None
     product_model_name: str | None
     name: str | None
-    area: Area
+    area: str
     quantity: int | None
     created_by: int
     created_at: datetime

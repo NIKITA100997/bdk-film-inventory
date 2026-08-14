@@ -4,7 +4,6 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validat
 
 from app.models.events import EventType, WriteOffReason
 from app.models.units import UnitStatus
-from app.models.users import Area
 from app.schemas.dictionaries import MaterialSkuOut
 
 
@@ -32,7 +31,7 @@ class MaterialUnitOut(BaseModel):
     width_mm: float
     length_m: float
     status: UnitStatus
-    area: Area | None
+    area: str | None
     location_code: str | None
     production_task_line_id: int | None
     created_at: datetime
@@ -80,7 +79,7 @@ class IssueRequest(BaseModel):
     manufacturer: str
     width_mm: float = Field(gt=0)
     length_m: float = Field(gt=0)
-    area: Area
+    area: str
     production_task_line_id: int | None = None
 
 
@@ -89,7 +88,7 @@ class IssueDirectRequest(BaseModel):
     оператор выбирает готовый рулон/штрипс из списка "в наличии" вместо
     поиска по атрибутам+ширине."""
 
-    area: Area
+    area: str
     production_task_line_id: int | None = None
 
 
@@ -116,7 +115,7 @@ class IssueResult(BaseModel):
 class AtomicDonorIssueRequest(BaseModel):
     donor_unit_id: int
     requested_width_mm: float = Field(gt=0)
-    area: Area
+    area: str
     production_task_line_id: int | None = None
 
 

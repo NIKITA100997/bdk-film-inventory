@@ -1,6 +1,5 @@
 from pydantic import BaseModel, ConfigDict
 
-from app.models.users import Area
 from app.schemas.roles import RoleOut
 
 
@@ -12,7 +11,7 @@ class UserOut(BaseModel):
     full_name: str
     roles: list[RoleOut]
     is_superuser: bool
-    area: Area | None
+    area: str | None
     is_active: bool
 
 
@@ -35,7 +34,7 @@ class CurrentUserOut(BaseModel):
     roles: list[RoleOut]
     is_superuser: bool
     permissions: list[str]
-    area: Area | None
+    area: str | None
     is_active: bool
 
 
@@ -48,7 +47,7 @@ class UserCreate(BaseModel):
     # чистой pydantic-валидации без похода в БД.
     role_ids: list[int] = []
     is_superuser: bool = False
-    area: Area | None = None
+    area: str | None = None
     # Если не задан — сервер сгенерирует временный пароль и вернёт его в
     # ответе один раз (3 раздел бэклога: "логин, временный пароль").
     password: str | None = None
@@ -63,7 +62,7 @@ class UserUpdate(BaseModel):
     full_name: str | None = None
     role_ids: list[int] | None = None
     is_superuser: bool | None = None
-    area: Area | None = None
+    area: str | None = None
     is_active: bool | None = None
 
 

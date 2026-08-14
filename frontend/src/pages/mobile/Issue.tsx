@@ -37,6 +37,7 @@ import {
 import { suggestLocation } from "../../api/storage";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { createShopFloorPurchaseRequest, type PurchaseRequestShopFloorCreate } from "../../api/purchasing";
+import { listAreas } from "../../api/areas";
 import {
   listProductionTasks,
   type ProductionTask,
@@ -44,18 +45,6 @@ import {
   type ProductionTaskLineAssignment,
 } from "../../api/production";
 import ResponsiveTable from "../../components/ResponsiveTable";
-
-const areaLabels: Record<string, string> = {
-  okutka_tsargovykh: "Окутка царговых",
-  shchitovye_dveri: "Щитовые двери",
-  tselnolistovye_dveri: "Цельнолистовые двери",
-};
-
-const areaOptions: { value: AreaValue; label: string }[] = [
-  { value: "okutka_tsargovykh", label: "Окутка царговых" },
-  { value: "shchitovye_dveri", label: "Щитовые двери" },
-  { value: "tselnolistovye_dveri", label: "Цельнолистовые двери" },
-];
 
 function issueErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -109,6 +98,9 @@ export default function Issue() {
 
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
 
   // --- Очередь: "запрошено сегодня/просрочено" (из распределения по дням)
   // и "задания недели" (остаток по строкам, для которых на сегодня ничего
@@ -390,7 +382,7 @@ export default function Issue() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700 }}>{r.line.part_name ?? "Деталь без названия"}</div>
           <div style={{ fontSize: 12.5, color: "#8A8C99" }}>
-            {r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}`} · {areaLabels[r.task.area]}
+            {r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}`} · {areaLabel(r.task.area)}
             {r.assignment ? ` · ${r.assignment.line_name} · ${r.assignment.employee_names}` : ""}
           </div>
           <Space size={4} style={{ marginTop: 4 }}>
@@ -494,7 +486,7 @@ export default function Issue() {
                     <tr>
                       <td style={{ color: "#8A8C99", paddingRight: 12 }}>Задание</td>
                       <td style={{ fontWeight: 600 }}>
-                        {selected.task.product_model_name ?? selected.task.name} · {areaLabels[selected.task.area]}
+                        {selected.task.product_model_name ?? selected.task.name} · {areaLabel(selected.task.area)}
                       </td>
                     </tr>
                     <tr>
@@ -819,7 +811,7 @@ export default function Issue() {
             columns={[
               { title: "Задание", render: (_, r) => r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}` },
               { title: "Деталь", render: (_, r) => r.line.part_name ?? "—" },
-              { title: "Участок", render: (_, r) => areaLabels[r.task.area] ?? r.task.area },
+              { title: "Участок", render: (_, r) => areaLabel(r.task.area) },
               { title: "Плёнка", render: (_, r) => `${r.line.material}, ${r.line.color}, ${r.line.thickness} мм` },
               { title: "Выдано, м", render: (_, r) => r.line.issued_length_m.toFixed(1) },
               { title: "Хороших, шт", render: (_, r) => <Tag color="green">{r.line.produced_good_pieces}</Tag> },

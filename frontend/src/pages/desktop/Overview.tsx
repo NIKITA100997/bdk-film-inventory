@@ -9,13 +9,8 @@ import { listSessions } from "../../api/inventory";
 import { getDonorAccuracy, getStaleUnits } from "../../api/reports";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { searchUnits } from "../../api/units";
+import { listAreas } from "../../api/areas";
 import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
-
-const areaLabels: Record<string, string> = {
-  okutka_tsargovykh: "Окутка царговых",
-  shchitovye_dveri: "Щитовые двери",
-  tselnolistovye_dveri: "Цельнолистовые двери",
-};
 
 /** Обзор (5.5 ТЗ) — сводка сигналов по роли: у каждой роли своя выборка
  * карточек, собранная из уже существующих отчётов/списков (без нового
@@ -42,6 +37,7 @@ export default function Overview() {
   // привязано к одной роли, чтобы не плодить очередной хардкод по имени роли.
   const showIssuedWork = hasReceive || hasIssue || hasCut || hasReturn || showInventory || showDonorAccuracy;
   const [quickQuery, setQuickQuery] = useState("");
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas, enabled: showIssuedWork && !user?.area });
 
   const purchasingQuery = useQuery({
     queryKey: ["purchase-requests", "open"],
@@ -94,10 +90,10 @@ export default function Overview() {
         )}
         {showIssuedWork &&
           !user?.area &&
-          Object.entries(areaLabels).map(([key, label]) => (
-            <Col xs={12} sm={12} md={8} lg={6} key={key}>
+          (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => (
+            <Col xs={12} sm={12} md={8} lg={6} key={a.code}>
               <Card loading={issuedUnitsQuery.isLoading} {...clickableProps("/stock")}>
-                <Statistic title={`В работе: ${label}`} value={issuedByArea[key] ?? 0} suffix="ед." />
+                <Statistic title={`В работе: ${a.name}`} value={issuedByArea[a.code] ?? 0} suffix="ед." />
               </Card>
             </Col>
           ))}

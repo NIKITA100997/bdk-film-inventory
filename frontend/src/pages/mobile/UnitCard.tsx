@@ -34,15 +34,10 @@ import {
 } from "../../api/units";
 import { suggestLocation } from "../../api/storage";
 import { listUsers } from "../../api/users";
+import { listAreas } from "../../api/areas";
 import QrScanButton from "../../components/QrScanButton";
 
 type ActionKind = "place" | "split" | "cut" | "return" | "writeoff" | null;
-
-const areaLabels: Record<string, string> = {
-  okutka_tsargovykh: "Окутка царговых",
-  shchitovye_dveri: "Щитовые двери",
-  tselnolistovye_dveri: "Цельнолистовые двери",
-};
 
 const statusLabels: Record<string, string> = {
   Принят: "Принят",
@@ -84,6 +79,8 @@ export default function UnitCard() {
   const separateWidth = Form.useWatch("separate_width_mm", splitForm);
 
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   const eventsQuery = useQuery({
     queryKey: ["unit-events", unit?.id],
     queryFn: () => getUnitEvents(unit!.id),
@@ -265,7 +262,7 @@ export default function UnitCard() {
               <Tag color="blue">{statusLabels[unit.status] ?? unit.status}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Где сейчас">
-              {unit.location_code ?? (unit.area ? areaLabels[unit.area] : "—")}
+              {unit.location_code ?? (unit.area ? areaLabel(unit.area) : "—")}
             </Descriptions.Item>
             <Descriptions.Item label="УПД / паллета">
               {unit.upd_number} / {unit.pallet_number}

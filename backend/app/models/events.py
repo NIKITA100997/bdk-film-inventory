@@ -6,7 +6,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.db.base import Base
-from app.models.users import Area
 
 
 class EventType(str, enum.Enum):
@@ -55,7 +54,7 @@ class MaterialEvent(Base):
     material_sku_id: Mapped[int] = mapped_column(ForeignKey("material_skus.id"), index=True)
 
     event_type: Mapped[EventType] = mapped_column(Enum(EventType, name="event_type"))
-    area: Mapped[Area | None] = mapped_column(Enum(Area, name="area", create_type=False), nullable=True)
+    area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
 
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))

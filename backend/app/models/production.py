@@ -14,7 +14,6 @@ from sqlalchemy.sql import func
 
 from app.db.base import Base
 from app.models.events import WriteOffReason
-from app.models.users import Area
 
 
 class ProductionLine(Base):
@@ -22,7 +21,7 @@ class ProductionLine(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(64), unique=True)  # "Поперечная-1", "Продольная-2"
-    area: Mapped[Area] = mapped_column(Enum(Area, name="area", create_type=False))
+    area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
     is_active: Mapped[bool] = mapped_column(default=True)
 
 
@@ -31,7 +30,7 @@ class ProductModel(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), unique=True)  # "Дверь царговая, Прованс"
-    area: Mapped[Area] = mapped_column(Enum(Area, name="area", create_type=False))
+    area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
     is_active: Mapped[bool] = mapped_column(default=True)
 
     parts: Mapped[list["ProductModelPart"]] = relationship(back_populates="product_model", cascade="all, delete-orphan")
@@ -49,7 +48,7 @@ class ProductModelPart(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_model_id: Mapped[int] = mapped_column(ForeignKey("product_models.id"))
-    area: Mapped[Area] = mapped_column(Enum(Area, name="area", create_type=False))
+    area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
 
     qty_per_unit: Mapped[float] = mapped_column(Numeric(10, 2))
     width_mm: Mapped[float] = mapped_column(Numeric(10, 2))
@@ -75,7 +74,7 @@ class ProductionTask(Base):
     product_model_id: Mapped[int | None] = mapped_column(ForeignKey("product_models.id"), nullable=True)
     quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)  # "500 дверей" — пусто у ручных заданий
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)  # ярлык ручного задания
-    area: Mapped[Area] = mapped_column(Enum(Area, name="area", create_type=False))
+    area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

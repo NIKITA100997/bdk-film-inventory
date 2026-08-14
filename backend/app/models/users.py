@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Boolean, Enum, String
+from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -26,12 +26,6 @@ class UserRole(str, enum.Enum):
     PRODAZHNIK = "prodazhnik"
 
 
-class Area(str, enum.Enum):
-    OKUTKA_TSARGOVYKH = "okutka_tsargovykh"
-    SHCHITOVYE_DVERI = "shchitovye_dveri"
-    TSELNOLISTOVYE_DVERI = "tselnolistovye_dveri"
-
-
 class User(Base):
     __tablename__ = "users"
 
@@ -48,5 +42,5 @@ class User(Base):
     # Заполняется только если среди ролей есть "начальник участка" — определяет,
     # каким участком руководит пользователь (влияет, например, на доступ к
     # раскрою на цельнолистовых, см. 2.4/6.4 ТЗ).
-    area: Mapped[Area | None] = mapped_column(Enum(Area, name="area"), nullable=True)
+    area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

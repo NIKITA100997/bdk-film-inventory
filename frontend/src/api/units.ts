@@ -105,7 +105,7 @@ export interface IssueRequest {
   manufacturer: string;
   width_mm: number;
   length_m: number;
-  area: "okutka_tsargovykh" | "shchitovye_dveri" | "tselnolistovye_dveri";
+  area: AreaValue;
   production_task_line_id?: number;
 }
 
@@ -130,7 +130,10 @@ export async function issueUnit(payload: IssueRequest): Promise<IssueResult> {
   return data;
 }
 
-export type AreaValue = "okutka_tsargovykh" | "shchitovye_dveri" | "tselnolistovye_dveri";
+// Раньше 3-значный union под жёсткий enum на бэкенде (раздел про
+// администрирование участков) — участков теперь произвольное количество,
+// код участка просто строка, живой список — src/api/areas.ts.
+export type AreaValue = string;
 
 // Раздел про учёт брака — причина списания единицы и, отдельно, причина
 // брака в производстве (ProductionTaskLineReport) переиспользуют один и
@@ -216,7 +219,7 @@ export interface SearchParams {
   width_mm?: number;
   min_length_m?: number;
   status?: UnitStatusValue;
-  area?: "okutka_tsargovykh" | "shchitovye_dveri" | "tselnolistovye_dveri";
+  area?: AreaValue;
   unplaced?: boolean;
 }
 

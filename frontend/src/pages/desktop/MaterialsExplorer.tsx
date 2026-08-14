@@ -36,6 +36,7 @@ import { getStockSummary, type StockSummaryLine } from "../../api/reports";
 import { listAbcClasses, recomputeAbc } from "../../api/abc";
 import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionaries";
 import { listRacks } from "../../api/storage";
+import { listAreas } from "../../api/areas";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { useAuth } from "../../auth/AuthContext";
 import { exportToCsv } from "../../utils/csv";
@@ -46,13 +47,6 @@ const statusOptions: { value: UnitStatusValue; label: string }[] = [
   { value: "Выдан_участку", label: "Выдан участку" },
   { value: "Списан", label: "Списан" },
 ];
-
-const areaLabels: Record<string, string> = {
-  okutka_tsargovykh: "Окутка царговых",
-  shchitovye_dveri: "Щитовые двери",
-  tselnolistovye_dveri: "Цельнолистовые двери",
-};
-const areaOptions = Object.entries(areaLabels).map(([value, label]) => ({ value, label }));
 
 type UnitLineValues = {
   material: string;
@@ -108,6 +102,9 @@ export default function MaterialsExplorer() {
   });
   const classesQuery = useQuery({ queryKey: ["abc-classes", "all"], queryFn: () => listAbcClasses() });
   const racksQuery = useQuery({ queryKey: ["racks"], queryFn: () => listRacks() });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
 
   // Кросс-ссылка "На стеллаже" (раздел про организацию меню — Остатки и
   // Стеллажи не мержим, но связываем переходом) — код стеллажа не хранится
@@ -340,7 +337,7 @@ export default function MaterialsExplorer() {
                     width_mm: u.width_mm,
                     length_m: u.length_m,
                     status: u.status.replace(/_/g, " "),
-                    location: u.location_code ?? (u.area ? areaLabels[u.area] : "") ?? "",
+                    location: u.location_code ?? (u.area ? areaLabel(u.area) : "") ?? "",
                   })),
                   [
                     { key: "id", header: "ID" },
@@ -393,7 +390,7 @@ export default function MaterialsExplorer() {
                   const rack = rackForLocation(u.location_code);
                   return (
                     <Space size={6}>
-                      <span>{u.location_code ?? (u.area ? areaLabels[u.area] : null) ?? "—"}</span>
+                      <span>{u.location_code ?? (u.area ? areaLabel(u.area) : null) ?? "—"}</span>
                       {rack && (
                         <a
                           onClick={(e) => {

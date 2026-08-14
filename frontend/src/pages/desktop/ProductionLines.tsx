@@ -11,13 +11,7 @@ import {
   type ProductionLineUpdate,
 } from "../../api/production";
 import type { AreaValue } from "../../api/units";
-
-const areaLabels: Record<string, string> = {
-  okutka_tsargovykh: "Окутка царговых",
-  shchitovye_dveri: "Щитовые двери",
-  tselnolistovye_dveri: "Цельнолистовые двери",
-};
-const areaOptions = Object.entries(areaLabels).map(([value, label]) => ({ value, label }));
+import { listAreas } from "../../api/areas";
 
 /** Линии цеха — вынесены из "Заданий цеха" в отдельный пункт меню (та же
  * причина, что у "Моделей продукции": список линий настраивают редко, не
@@ -39,6 +33,9 @@ export default function ProductionLines() {
 
   const linesQuery = useQuery({ queryKey: ["production-lines"], queryFn: listProductionLines });
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
 
   const dateStr = selectedDate.format("YYYY-MM-DD");
   const assignmentsByLine = new Map<number, { taskName: string; partName: string; quantity: number; employees: string }[]>();
@@ -101,7 +98,7 @@ export default function ProductionLines() {
           scroll={{ x: "max-content" }}
           columns={[
             { title: "Название", dataIndex: "name" },
-            { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
+            { title: "Участок", dataIndex: "area", render: (v: string) => areaLabel(v) },
             {
               title: "Статус",
               dataIndex: "is_active",

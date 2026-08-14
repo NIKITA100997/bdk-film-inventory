@@ -36,14 +36,8 @@ import {
 import { listUsers } from "../../api/users";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { WRITE_OFF_REASON_OPTIONS, skuLabel, type AreaValue, type MaterialSku, type WriteOffReasonValue } from "../../api/units";
+import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
-
-const areaLabels: Record<string, string> = {
-  okutka_tsargovykh: "Окутка царговых",
-  shchitovye_dveri: "Щитовые двери",
-  tselnolistovye_dveri: "Цельнолистовые двери",
-};
-const areaOptions = Object.entries(areaLabels).map(([value, label]) => ({ value, label }));
 
 /** Задания — разбор «N штук модели X» на строки по производственным
  * линиям (пилот: окутка царговых). Начальник участка (есть свой user.area)
@@ -72,6 +66,9 @@ function TasksTab() {
   const usersQuery = useQuery({ queryKey: ["users-summary"], queryFn: listUsers });
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
   const skuOptions = (skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }));
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
 
   const activeModels = (modelsQuery.data ?? []).filter((m) => m.is_active && m.parts.length > 0);
   const bomProductModelId = Form.useWatch("product_model_id", bomForm);
@@ -242,7 +239,7 @@ function TasksTab() {
             }}
             columns={[
               { title: "Модель", render: (_, t) => t.product_model_name ?? t.name ?? "—" },
-              { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
+              { title: "Участок", dataIndex: "area", render: (v: string) => areaLabel(v) },
               { title: "Количество", render: (_, t) => t.quantity ?? "—" },
               { title: "Автор", dataIndex: "created_by", render: (id: number) => userName(id) },
               { title: "Создано", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
@@ -288,7 +285,7 @@ function TasksTab() {
           <Form.Item name="product_model_id" label="Модель продукции" rules={[{ required: true }]}>
             <Select
               placeholder="Выберите модель"
-              options={activeModels.map((m) => ({ value: m.id, label: `${m.name} (${areaLabels[m.area]})` }))}
+              options={activeModels.map((m) => ({ value: m.id, label: `${m.name} (${areaLabel(m.area)})` }))}
               notFoundContent={<Typography.Text type="secondary">Нет моделей с заполненным BOM — заведите на вкладке «Модели продукции»</Typography.Text>}
             />
           </Form.Item>

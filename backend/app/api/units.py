@@ -11,7 +11,7 @@ from app.models.dictionaries import MaterialSku
 from app.models.events import EventType, MaterialEvent, WriteOffReason
 from app.models.production import ProductionTaskLine, ProductionTaskLineReport
 from app.models.units import MaterialUnit, UnitStatus
-from app.models.users import Area, User
+from app.models.users import User
 from app.schemas.units import (
     AtomicDonorIssueRequest,
     AtomicDonorIssueResponse,
@@ -540,7 +540,7 @@ def cut_unit(
     Отрезанный кусок точного размера уходит в производство сразу — новая
     единица не создаётся, только событие в журнале."""
     unit = _get_storable_unit(db, unit_id)
-    on_site_at_tselnolistovye = unit.status == UnitStatus.VYDAN_UCHASTKU and unit.area == Area.TSELNOLISTOVYE_DVERI
+    on_site_at_tselnolistovye = unit.status == UnitStatus.VYDAN_UCHASTKU and unit.area == "tselnolistovye_dveri"
     if unit.status != UnitStatus.NA_KHRANENII and not on_site_at_tselnolistovye:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -650,7 +650,7 @@ def search_units(
     width_mm: float | None = None,
     min_length_m: float | None = None,
     status: UnitStatus | None = None,
-    area: Area | None = None,
+    area: str | None = None,
     unplaced: bool | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),

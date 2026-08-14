@@ -3,7 +3,6 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.models.events import EventType
-from app.models.users import Area
 from app.schemas.dictionaries import MaterialSkuOut
 from app.schemas.units import MaterialUnitOut
 
@@ -13,7 +12,7 @@ class MaterialEventOut(BaseModel):
     event_id: int
     unit_id: int
     event_type: EventType
-    area: Area | None
+    area: str | None
     timestamp: datetime
     user_id: int
     width_mm: float

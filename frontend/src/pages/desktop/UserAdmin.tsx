@@ -12,15 +12,8 @@ import {
 } from "../../api/users";
 import type { UserSummary } from "../../api/users";
 import { listRoles, createRole } from "../../api/roles";
+import { listAreas } from "../../api/areas";
 import type { Area } from "../../auth/types";
-
-const areaLabels: Record<Area, string> = {
-  okutka_tsargovykh: "Окутка царговых",
-  shchitovye_dveri: "Щитовые двери",
-  tselnolistovye_dveri: "Цельнолистовые двери",
-};
-
-const areaOptions = Object.entries(areaLabels).map(([value, label]) => ({ value, label }));
 
 type UserFormValues = {
   full_name: string;
@@ -47,6 +40,9 @@ export default function UserAdmin() {
 
   const usersQuery = useQuery({ queryKey: ["users", "all"], queryFn: listAllUsers });
   const rolesQuery = useQuery({ queryKey: ["roles"], queryFn: listRoles });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
   const roles = rolesQuery.data ?? [];
   const roleOptions = roles.map((r) => ({ value: r.id, label: r.name }));
 
@@ -169,7 +165,7 @@ export default function UserAdmin() {
               </Space>
             ),
           },
-          { title: "Участок", render: (_, u) => (u.area ? areaLabels[u.area] : "—") },
+          { title: "Участок", render: (_, u) => (u.area ? areaLabel(u.area) : "—") },
           {
             title: "Статус",
             render: (_, u) => (u.is_active ? <Tag color="green">Активен</Tag> : <Tag>Отключён</Tag>),

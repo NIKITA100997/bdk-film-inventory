@@ -14,13 +14,7 @@ import {
   type ProductModelPartCreate,
 } from "../../api/production";
 import type { AreaValue } from "../../api/units";
-
-const areaLabels: Record<string, string> = {
-  okutka_tsargovykh: "Окутка царговых",
-  shchitovye_dveri: "Щитовые двери",
-  tselnolistovye_dveri: "Цельнолистовые двери",
-};
-const areaOptions = Object.entries(areaLabels).map(([value, label]) => ({ value, label }));
+import { listAreas } from "../../api/areas";
 
 /** Модели продукции (BOM) — вынесены из "Заданий цеха" в отдельный пункт
  * меню (раздел про адаптацию меню под планшет и разделение "конфигурации"
@@ -38,6 +32,9 @@ export default function ProductModels() {
   const [partForm] = Form.useForm<ProductModelPartCreate>();
 
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
 
   const createMutation = useMutation({
     mutationFn: createProductModel,
@@ -139,7 +136,7 @@ export default function ProductModels() {
                 </Button>
               ),
             },
-            { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
+            { title: "Участок", dataIndex: "area", render: (v: string) => areaLabel(v) },
             { title: "Деталей в BOM", render: (_, m) => m.parts.length },
             {
               title: "Состав BOM",
@@ -173,7 +170,7 @@ export default function ProductModels() {
 
       {/* Модальное окно просмотра и редактирования состава модели (BOM) */}
       <Modal
-        title={selectedModel ? `⚙️ Состав детализации BOM «${selectedModel.name}» (${areaLabels[selectedModel.area]})` : ""}
+        title={selectedModel ? `⚙️ Состав детализации BOM «${selectedModel.name}» (${areaLabel(selectedModel.area)})` : ""}
         open={!!selectedModel}
         onCancel={() => setSelectedModel(null)}
         width={800}
@@ -194,7 +191,7 @@ export default function ProductModels() {
             scroll={{ x: "max-content" }}
             columns={[
               { title: "Деталь", dataIndex: "part_name", render: (v: string | null) => v ?? "—" },
-              { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
+              { title: "Участок", dataIndex: "area", render: (v: string) => areaLabel(v) },
               {
                 title: "Штрипс (укутка), мм",
                 dataIndex: "strip_width_mm",

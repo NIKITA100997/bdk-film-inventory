@@ -1,4 +1,5 @@
-from app.models.users import User, UserRole, Area
+from app.models.users import User, UserRole
+from app.models.areas import Area
 from app.models.roles import Role, Permission
 from app.models.dictionaries import Material, Color, Thickness, Manufacturer, MaterialSku, SkuAnalog
 from app.models.storage import Rack, MacroZoneRule, RackType, Warehouse

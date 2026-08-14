@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.abc import router as abc_router
+from app.api.areas import router as areas_router
 from app.api.auth import router as auth_router
 from app.api.dictionaries import router as dictionaries_router
 from app.api.inventory import router as inventory_router
@@ -37,6 +38,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(areas_router)
 app.include_router(units_router)
 app.include_router(labels_router)
 app.include_router(storage_router)

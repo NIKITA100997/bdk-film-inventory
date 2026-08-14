@@ -7,7 +7,6 @@ from sqlalchemy.sql import func
 
 from app.db.base import Base
 from app.models.dictionaries import MaterialSku
-from app.models.users import Area
 
 
 class UnitStatus(str, enum.Enum):
@@ -38,7 +37,7 @@ class MaterialUnit(Base):
     length_m: Mapped[float] = mapped_column(Numeric(12, 3))
 
     status: Mapped[UnitStatus] = mapped_column(Enum(UnitStatus, name="unit_status"))
-    area: Mapped[Area | None] = mapped_column(Enum(Area, name="area", create_type=False), nullable=True)
+    area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
 
     # Полный адрес ячейки, пока единица физически на складе: "Р-3-07" или
     # "Ш-2-04-06" (раздел 4.1). Пусто, если выдана участку или ещё не размещена.
