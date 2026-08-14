@@ -79,9 +79,6 @@ class ProductionTaskManualCreate(BaseModel):
     area: Area
     product_model_id: int | None = None
     quantity: int | None = None
-    # Заказ, для которого создано задание (раздел про потребности по всему
-    # заказу) — необязательно, как product_model_id/quantity.
-    order_id: int | None = None
     lines: list[ProductionTaskLineManualCreate] = Field(min_length=1)
 
 
@@ -168,7 +165,6 @@ class ProductionTaskOut(BaseModel):
     name: str | None
     area: Area
     quantity: int | None
-    order_id: int | None
     created_by: int
     created_at: datetime
     lines: list[ProductionTaskLineOut]

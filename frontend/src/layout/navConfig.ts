@@ -59,9 +59,8 @@ export const navTree: NavBlock[] = [
   },
   {
     key: "production",
-    label: "Производство и Заказы",
+    label: "Производство",
     items: [
-      { key: "orders", path: "/orders", label: "Заказы покупателей", permissions: ["orders.plan", "orders.manage", "orders.close"] },
       {
         key: "production-tasks",
         path: "/production-tasks",

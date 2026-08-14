@@ -193,7 +193,6 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
         name=task.name,
         area=task.area,
         quantity=task.quantity,
-        order_id=task.order_id,
         created_by=task.created_by,
         created_at=task.created_at,
         lines=[
@@ -375,7 +374,6 @@ def create_production_task_manual(
         quantity=payload.quantity,
         name=payload.name,
         area=payload.area,
-        order_id=payload.order_id,
         created_by=user.id,
     )
     db.add(task)

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, Select, Row, Col, Statistic, Table, Space, Progress, Tag, Input, InputNumber, Button, Popconfirm, Modal, Typography, Empty, Upload, Image, message } from "antd";
+import { Card, Select, Row, Col, Statistic, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Typography, Empty, Upload, Image, message } from "antd";
 import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -334,19 +334,6 @@ export default function MaterialCard() {
             <Row gutter={[16, 16]}>
               <Col xs={24} sm={12} md={8}>
                 <Statistic title="Общий остаток" value={cardQuery.data.total_area_m2} suffix="м²" />
-              </Col>
-              <Col xs={24} sm={12} md={8}>
-                {cardQuery.data.plan_fact ? (
-                  <>
-                    <Statistic
-                      title={`Факт/план по заказам (${cardQuery.data.plan_fact.order_count})`}
-                      value={`${cardQuery.data.plan_fact.actual_area_m2} / ${cardQuery.data.plan_fact.planned_area_m2} м²`}
-                    />
-                    <Progress percent={Math.min(cardQuery.data.plan_fact.percent_complete, 100)} size="small" />
-                  </>
-                ) : (
-                  <Statistic title="Факт/план по заказам" value="нет открытых заказов с этим материалом" />
-                )}
               </Col>
               <Col xs={24} sm={12} md={8}>
                 <Statistic title="Ширин в наличии" value={byWidth.length} />

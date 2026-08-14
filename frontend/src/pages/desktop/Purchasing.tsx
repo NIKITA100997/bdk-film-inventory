@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Card, Table, Tag, Button, Modal, Form, InputNumber, Input, Space, Typography, Empty, Tabs, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listShortages, type OrderShortageLine } from "../../api/orders";
 import {
   listPurchaseRequests,
   createPurchaseRequest,
@@ -13,7 +12,6 @@ import {
 } from "../../api/purchasing";
 import { getSupplierStats, type SupplierStats } from "../../api/suppliers";
 import DictAutoComplete from "../../components/DictAutoComplete";
-import { getCalcSettings } from "../../api/abc";
 
 export default function Purchasing() {
   const qc = useQueryClient();
@@ -23,12 +21,8 @@ export default function Purchasing() {
   const [form] = Form.useForm<PurchaseRequestCreate>();
   const [editForm] = Form.useForm<PurchaseRequestUpdate>();
 
-  const shortagesQuery = useQuery({ queryKey: ["order-shortages"], queryFn: listShortages });
   const requestsQuery = useQuery({ queryKey: ["purchase-requests"], queryFn: () => listPurchaseRequests() });
-  const calcSettingsQuery = useQuery({ queryKey: ["calc-settings"], queryFn: getCalcSettings });
   const supplierStatsQuery = useQuery({ queryKey: ["supplier-stats"], queryFn: getSupplierStats });
-
-  const shortages = shortagesQuery.data ?? [];
 
   const createMutation = useMutation({
     mutationFn: createPurchaseRequest,
@@ -64,60 +58,8 @@ export default function Purchasing() {
     onError: () => message.error("Не удалось обновить заявку"),
   });
 
-  const openFromShortage = (line: OrderShortageLine) => {
-    const shortageM2 = Math.round((line.planned_area_m2 - line.current_stock_m2) * 100) / 100;
-    const template = calcSettingsQuery.data?.shortage_note_template;
-    const note = template
-      ? template
-          .replace("{material}", line.material)
-          .replace("{color}", line.color)
-          .replace("{thickness}", String(line.thickness))
-          .replace("{shortage_m2}", String(shortageM2))
-      : undefined;
-    setPrefill({
-      material: line.material,
-      color: line.color,
-      thickness: line.thickness,
-      requested_area_m2: shortageM2,
-      note,
-    });
-    setCreateOpen(true);
-  };
-
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Card title="Сигналы нехватки" loading={shortagesQuery.isLoading}>
-        <Typography.Paragraph type="secondary">
-          Строки потребности всех открытых заказов, где остаток на складе меньше плановой потребности (2.7 ТЗ, 4
-          раздел обратной связи — источник теперь заказы, не «последний недельный план»).
-        </Typography.Paragraph>
-        {shortages.length === 0 ? (
-          <Empty description="Нехватки не обнаружены" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          <Table<OrderShortageLine>
-            rowKey="line_id"
-            size="small"
-            pagination={false}
-            dataSource={shortages}
-            scroll={{ x: "max-content" }}
-            columns={[
-              { title: "Заказ", dataIndex: "order_number" },
-              { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
-              { title: "План, м²", dataIndex: "planned_area_m2" },
-              { title: "Остаток, м²", dataIndex: "current_stock_m2" },
-              {
-                title: "",
-                render: (_, l) => (
-                  <Button size="small" type="primary" onClick={() => openFromShortage(l)}>
-                    Создать заявку
-                  </Button>
-                ),
-              },
-            ]}
-          />
-        )}
-      </Card>
-
       <Tabs
         items={[
           {

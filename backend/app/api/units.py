@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import MaterialSku
 from app.models.events import EventType, MaterialEvent, WriteOffReason
-from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+from app.models.production import ProductionTaskLine, ProductionTaskLineReport
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import Area, User
 from app.schemas.units import (
@@ -59,25 +59,6 @@ def _validate_matches_task_line(db: Session, task_line_id: int, sku: MaterialSku
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Ширина не соответствует строке задания: нужно {expected_w} мм, запрошено {width_mm} мм",
         )
-
-
-def _resolve_order_id(db: Session, payload_order_id: int | None, task_line_id: int | None) -> int | None:
-    """План/факт заказа (раздел про заказы покупателей — "единица
-    планирования") считается по MaterialEvent.order_id, который берётся с
-    MaterialUnit.order_id в момент выдачи. Экран "Выдача" больше не даёт
-    выбрать заказ вручную (раздел про экран выдачи — там нужны только
-    задания) — вместо этого, если строка задания привязана к заказу
-    (ProductionTask.order_id), выдача по ней сама считается в план/факт
-    того заказа, без лишнего действия кладовщика."""
-    if payload_order_id is not None:
-        return payload_order_id
-    if task_line_id is None:
-        return None
-    line = db.get(ProductionTaskLine, task_line_id)
-    if line is None:
-        return None
-    task = db.get(ProductionTask, line.task_id)
-    return task.order_id if task else None
 
 
 def _with_sku(query: Query) -> Query:
@@ -329,7 +310,6 @@ def issue_unit_direct(
     unit.status = UnitStatus.VYDAN_UCHASTKU
     unit.area = payload.area
     unit.location_code = None
-    unit.order_id = _resolve_order_id(db, payload.order_id, payload.production_task_line_id)
     unit.production_task_line_id = payload.production_task_line_id
     record_event(
         db,
@@ -382,7 +362,6 @@ def issue_to_area(
         exact.status = UnitStatus.VYDAN_UCHASTKU
         exact.area = payload.area
         exact.location_code = None
-        exact.order_id = _resolve_order_id(db, payload.order_id, payload.production_task_line_id)
         exact.production_task_line_id = payload.production_task_line_id
         record_event(
             db,
@@ -518,7 +497,6 @@ def issue_donor_atomic(
         length_m=spec.length_m,
         status=UnitStatus.VYDAN_UCHASTKU,
         area=payload.area,
-        order_id=_resolve_order_id(db, payload.order_id, payload.production_task_line_id),
         production_task_line_id=payload.production_task_line_id,
         location_code=None,
     )

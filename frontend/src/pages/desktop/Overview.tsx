@@ -5,7 +5,6 @@ import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import { useAuth } from "../../auth/AuthContext";
 import { listPurchaseRequests } from "../../api/purchasing";
-import { listOrders, getOrdersReport } from "../../api/orders";
 import { listSessions } from "../../api/inventory";
 import { getDonorAccuracy, getStaleUnits } from "../../api/reports";
 import { listMaterialSkus } from "../../api/dictionaries";
@@ -29,9 +28,7 @@ export default function Overview() {
   const navigate = useNavigate();
   const has = (permission: string) => !!user?.is_superuser || !!user?.permissions.includes(permission);
 
-  const showPlanning = has("reports.view");
   const showPurchasing = has("purchasing.manage");
-  const showOrders = has("orders.close");
   const showInventory = has("inventory.manage");
   const showDonorAccuracy = has("reports.view");
   const showStale = has("inventory.manage");
@@ -43,16 +40,14 @@ export default function Overview() {
   // "В работе у участков" полезен всем, кто хоть как-то соприкасается со
   // складскими операциями или уже видит планирование/инвентаризацию — не
   // привязано к одной роли, чтобы не плодить очередной хардкод по имени роли.
-  const showIssuedWork = hasReceive || hasIssue || hasCut || hasReturn || showInventory || showPlanning;
+  const showIssuedWork = hasReceive || hasIssue || hasCut || hasReturn || showInventory || showDonorAccuracy;
   const [quickQuery, setQuickQuery] = useState("");
 
-  const ordersReportQuery = useQuery({ queryKey: ["orders-report", "overview"], queryFn: getOrdersReport, enabled: showPlanning });
   const purchasingQuery = useQuery({
     queryKey: ["purchase-requests", "open"],
     queryFn: () => listPurchaseRequests("open"),
     enabled: showPurchasing,
   });
-  const ordersQuery = useQuery({ queryKey: ["orders"], queryFn: listOrders, enabled: showOrders });
   const sessionsQuery = useQuery({ queryKey: ["inventory-sessions"], queryFn: listSessions, enabled: showInventory });
   const donorQuery = useQuery({
     queryKey: ["donor-accuracy", "overview"],
@@ -69,18 +64,6 @@ export default function Overview() {
     enabled: showIssuedWork,
   });
 
-  const shortageCount = (ordersReportQuery.data ?? [])
-    .filter((o) => o.status !== "closed")
-    .reduce((sum, o) => sum + o.shortage_line_count, 0);
-  // Потребность к выдаче (не путать с дефицитом остатка) — сколько ещё не
-  // выдано/списано по открытым заказам сверх уже отгруженного факта
-  // (actual_area_m2 считается по событиям Выдача_участку/Списание с этим
-  // order_id, см. services/plan_fact.py) — даже если на складе всё есть,
-  // это ещё физически не довезли до участка.
-  const issuanceNeededM2 = (ordersReportQuery.data ?? [])
-    .filter((o) => o.status !== "closed")
-    .reduce((sum, o) => sum + Math.max(0, o.planned_area_m2 - o.actual_area_m2), 0);
-  const openOrdersCount = (ordersQuery.data ?? []).filter((o) => o.status !== "closed").length;
   const openSessionsCount = (sessionsQuery.data ?? []).filter((s) => s.status === "in_progress").length;
   const issuedByArea = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -102,24 +85,6 @@ export default function Overview() {
       <Typography.Title level={4}>Обзор</Typography.Title>
 
       <Row gutter={[16, 16]}>
-        {showPlanning && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={ordersReportQuery.isLoading} {...clickableProps("/orders")}>
-              <Statistic title="Дефицитных позиций по заказам" value={shortageCount} valueStyle={{ color: shortageCount > 0 ? "#C97A2B" : undefined }} />
-            </Card>
-          </Col>
-        )}
-        {showPlanning && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={ordersReportQuery.isLoading} {...clickableProps("/orders")}>
-              <Statistic
-                title="Потребность к выдаче по заказам, м²"
-                value={Math.round(issuanceNeededM2 * 10) / 10}
-                valueStyle={{ color: issuanceNeededM2 > 0 ? "#C97A2B" : undefined }}
-              />
-            </Card>
-          </Col>
-        )}
         {showIssuedWork && user?.area && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={issuedUnitsQuery.isLoading} {...clickableProps("/stock")}>
@@ -140,13 +105,6 @@ export default function Overview() {
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={purchasingQuery.isLoading} {...clickableProps("/purchasing")}>
               <Statistic title="Открытых заявок поставщику" value={(purchasingQuery.data ?? []).length} />
-            </Card>
-          </Col>
-        )}
-        {showOrders && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={ordersQuery.isLoading} {...clickableProps("/orders")}>
-              <Statistic title="Открытых заказов" value={openOrdersCount} />
             </Card>
           </Col>
         )}
@@ -214,9 +172,7 @@ export default function Overview() {
         </Card>
       )}
 
-      {!showPlanning &&
-        !showPurchasing &&
-        !showOrders &&
+      {!showPurchasing &&
         !showInventory &&
         !showDonorAccuracy &&
         !showStale &&

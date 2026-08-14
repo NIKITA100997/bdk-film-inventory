@@ -5,11 +5,9 @@ from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.dictionaries import MaterialSku
 from app.models.events import MaterialEvent
-from app.models.orders import Order, OrderMaterialLine
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
-from app.schemas.material_cards import MaterialCardOut, MaterialCardPlanFact
-from app.services.plan_fact import fetch_actual_for_orders
+from app.schemas.material_cards import MaterialCardOut
 
 router = APIRouter(prefix="/material-cards", tags=["material-cards"])
 
@@ -54,43 +52,9 @@ def get_material_card(sku_id: int, db: Session = Depends(get_db), user: User = D
         .all()
     )
 
-    # План/факт (2.6 ТЗ, 4 раздел обратной связи): агрегат по всем ОТКРЫТЫМ
-    # заказам, у которых есть строка с этим material/color/thickness —
-    # раньше брался один самый свежий недельный план, теперь заказов может
-    # быть несколько сразу, план/факт суммируется по ним.
-    plan_fact_line: MaterialCardPlanFact | None = None
-    lines = (
-        db.query(OrderMaterialLine)
-        .join(Order, OrderMaterialLine.order_id == Order.id)
-        .filter(
-            Order.status == "open",
-            OrderMaterialLine.material_id == sku.material_id,
-            OrderMaterialLine.color_id == sku.color_id,
-            OrderMaterialLine.thickness_id == sku.thickness_id,
-        )
-        .all()
-    )
-    if lines:
-        planned = sum(float(line.planned_area_m2) for line in lines)
-        actual = fetch_actual_for_orders(
-            db,
-            order_ids=[line.order_id for line in lines],
-            material_id=sku.material_id,
-            color_id=sku.color_id,
-            thickness_id=sku.thickness_id,
-        )
-        plan_fact_line = MaterialCardPlanFact(
-            order_count=len(lines),
-            planned_area_m2=planned,
-            actual_area_m2=actual.total_area_m2,
-            percent_complete=round(actual.total_area_m2 / planned * 100, 1) if planned else 0,
-            by_width=actual.by_width,
-        )
-
     return MaterialCardOut(
         sku=sku,
         total_area_m2=total_area_m2,
         units=units,
-        plan_fact=plan_fact_line,
         events=events,
     )

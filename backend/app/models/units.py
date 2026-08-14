@@ -44,7 +44,6 @@ class MaterialUnit(Base):
     # "Ш-2-04-06" (раздел 4.1). Пусто, если выдана участку или ещё не размещена.
     location_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
-    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
     # Раздел про производственные задания — какую строку задания закрывает
     # выдача этой единицы (тег для прослеживаемости, копируется в
     # MaterialEvent при выдаче — см. services/events.py::record_event).

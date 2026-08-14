@@ -214,7 +214,7 @@ export default function Issue() {
   });
 
   const directMutation = useMutation({
-    mutationFn: (unitId: number) => issueUnitDirect(unitId, selected!.task.area, undefined, selected!.line.id),
+    mutationFn: (unitId: number) => issueUnitDirect(unitId, selected!.task.area, selected!.line.id),
     onSuccess: (unit) => {
       setLastIssued({ unit, remainder: null, remainderPlaced: false });
       setResult(null);

@@ -85,7 +85,6 @@ export interface ProductionTask {
   name: string | null;
   area: AreaValue;
   quantity: number | null;
-  order_id: number | null;
   created_by: number;
   created_at: string;
   lines: ProductionTaskLine[];
@@ -108,7 +107,6 @@ export interface ProductionTaskManualCreate {
   area: AreaValue;
   product_model_id?: number;
   quantity?: number;
-  order_id?: number;
   lines: ProductionTaskLineManualCreate[];
 }
 

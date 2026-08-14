@@ -24,7 +24,6 @@ export interface MaterialUnit {
   status: string;
   area: string | null;
   location_code: string | null;
-  order_id: number | null;
   production_task_line_id: number | null;
   area_m2: number;
 }
@@ -107,7 +106,6 @@ export interface IssueRequest {
   width_mm: number;
   length_m: number;
   area: "okutka_tsargovykh" | "shchitovye_dveri" | "tselnolistovye_dveri";
-  order_id?: number;
   production_task_line_id?: number;
 }
 
@@ -152,12 +150,10 @@ export const WRITE_OFF_REASON_OPTIONS: WriteOffReasonValue[] = [
 export async function issueUnitDirect(
   unitId: number,
   area: AreaValue,
-  orderId?: number,
   productionTaskLineId?: number,
 ): Promise<MaterialUnit> {
   const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/issue`, {
     area,
-    order_id: orderId,
     production_task_line_id: productionTaskLineId,
   });
   return data;
@@ -167,7 +163,6 @@ export interface AtomicDonorIssueRequest {
   donor_unit_id: number;
   requested_width_mm: number;
   area: AreaValue;
-  order_id?: number;
   production_task_line_id?: number;
 }
 

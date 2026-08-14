@@ -34,7 +34,6 @@ class MaterialUnitOut(BaseModel):
     status: UnitStatus
     area: Area | None
     location_code: str | None
-    order_id: int | None
     production_task_line_id: int | None
     created_at: datetime
     updated_at: datetime
@@ -82,7 +81,6 @@ class IssueRequest(BaseModel):
     width_mm: float = Field(gt=0)
     length_m: float = Field(gt=0)
     area: Area
-    order_id: int | None = None
     production_task_line_id: int | None = None
 
 
@@ -92,7 +90,6 @@ class IssueDirectRequest(BaseModel):
     поиска по атрибутам+ширине."""
 
     area: Area
-    order_id: int | None = None
     production_task_line_id: int | None = None
 
 
@@ -120,7 +117,6 @@ class AtomicDonorIssueRequest(BaseModel):
     donor_unit_id: int
     requested_width_mm: float = Field(gt=0)
     area: Area
-    order_id: int | None = None
     production_task_line_id: int | None = None
 
 

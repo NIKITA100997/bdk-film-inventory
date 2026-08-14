@@ -10,7 +10,6 @@ import UnitCard from "./pages/mobile/UnitCard";
 
 import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
 import MaterialCard from "./pages/desktop/MaterialCard";
-import Orders from "./pages/desktop/Orders";
 import Reports from "./pages/desktop/Reports";
 import StorageMap from "./pages/desktop/StorageMap";
 import CalcSettingsAdmin from "./pages/desktop/CalcSettingsAdmin";
@@ -58,14 +57,6 @@ export default function AppRoutes() {
         <Route path="/stock" element={<MaterialsExplorer />} />
         <Route path="/materials" element={<MaterialCard />} />
 
-        <Route
-          path="/orders"
-          element={
-            <RequirePermission permissions={["orders.plan", "orders.manage", "orders.close"]}>
-              <Orders />
-            </RequirePermission>
-          }
-        />
         <Route
           path="/reports"
           element={<RequirePermission permissions={["reports.view"]}><Reports /></RequirePermission>}

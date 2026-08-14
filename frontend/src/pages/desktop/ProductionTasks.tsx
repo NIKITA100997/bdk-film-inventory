@@ -34,7 +34,6 @@ import {
 } from "../../api/production";
 import { listUsers } from "../../api/users";
 import { listMaterialSkus } from "../../api/dictionaries";
-import { listOrders } from "../../api/orders";
 import { WRITE_OFF_REASON_OPTIONS, skuLabel, type AreaValue, type MaterialSku, type WriteOffReasonValue } from "../../api/units";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -60,7 +59,7 @@ function TasksTab() {
   const [manualLines, setManualLines] = useState<ProductionTaskLineManualCreate[]>([]);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
-  const [manualForm] = Form.useForm<{ name: string; area: AreaValue; order_id?: number }>();
+  const [manualForm] = Form.useForm<{ name: string; area: AreaValue }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
   const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number; sku_id: number }>();
   const [assignForm] = Form.useForm<{ line_id: number; date: dayjs.Dayjs; employee_names: string; quantity_pieces: number }>();
@@ -70,9 +69,7 @@ function TasksTab() {
   const linesQuery = useQuery({ queryKey: ["production-lines"], queryFn: listProductionLines });
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
   const usersQuery = useQuery({ queryKey: ["users-summary"], queryFn: listUsers });
-  const ordersQuery = useQuery({ queryKey: ["orders"], queryFn: listOrders });
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
-  const orderNumber = (id: number | null) => (id ? ordersQuery.data?.find((o) => o.id === id)?.number ?? `#${id}` : null);
   const skuOptions = (skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }));
 
   const activeModels = (modelsQuery.data ?? []).filter((m) => m.is_active && m.parts.length > 0);
@@ -246,7 +243,6 @@ function TasksTab() {
               { title: "Модель", render: (_, t) => t.product_model_name ?? t.name ?? "—" },
               { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
               { title: "Количество", render: (_, t) => t.quantity ?? "—" },
-              { title: "Заказ", render: (_, t) => orderNumber(t.order_id) ?? "—" },
               { title: "Автор", dataIndex: "created_by", render: (id: number) => userName(id) },
               { title: "Создано", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
               {
@@ -315,15 +311,6 @@ function TasksTab() {
           </Form.Item>
           <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
             <Select options={areaOptions} />
-          </Form.Item>
-          <Form.Item name="order_id" label="Заказ (опционально)">
-            <Select
-              allowClear
-              showSearch
-              placeholder="Привязать к заказу покупателя"
-              options={(ordersQuery.data ?? []).map((o) => ({ value: o.id, label: o.number }))}
-              optionFilterProp="label"
-            />
           </Form.Item>
         </Form>
 

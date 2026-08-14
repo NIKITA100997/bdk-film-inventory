@@ -76,10 +76,6 @@ class ProductionTask(Base):
     quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)  # "500 дверей" — пусто у ручных заданий
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)  # ярлык ручного задания
     area: Mapped[Area] = mapped_column(Enum(Area, name="area", create_type=False))
-    # Заказ, для которого создано задание (раздел про потребности по всему
-    # заказу) — необязательно, как product_model_id/quantity: не все
-    # задания шьются под конкретный заказ покупателя.
-    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
