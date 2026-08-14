@@ -570,27 +570,33 @@ function RollShelfRows({
             </Typography.Text>
             <div
               style={{
-                flex: 1,
+                flex: "1 1 0%",
+                minWidth: 0,
                 borderRadius: 8,
                 border: `1px solid ${occupied ? "#1D9E75" : "#d9d9d9"}`,
                 background: occupied ? "#e7f5ee" : "#fafafa",
                 padding: "7px 14px",
                 display: "flex",
+                flexWrap: "wrap",
                 alignItems: "center",
                 justifyContent: "space-between",
+                gap: 8,
                 minHeight: 32,
               }}
             >
               {occupied ? (
                 <>
-                  <Space size={14}>
+                  {/* min-width:0 + flex-wrap — без этого на узком экране
+                      (планшет) кнопки справа не давали блоку с текстом
+                      сжаться, и текст переносился по одной букве в строку. */}
+                  <div style={{ minWidth: 0, flex: "1 1 240px", display: "flex", flexWrap: "wrap", gap: "2px 10px" }}>
                     <Typography.Text strong>№{cellData!.unit!.id}</Typography.Text>
                     <Typography.Text>{skuLabel(cellData!.unit!.material_sku)}</Typography.Text>
                     <Typography.Text type="secondary">
                       {cellData!.unit!.width_mm}×{cellData!.unit!.length_m} м
                     </Typography.Text>
-                  </Space>
-                  <Space size={4}>
+                  </div>
+                  <Space size={4} style={{ flexShrink: 0 }}>
                     <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: cellData!.unit!.id } })}>
                       Карточка
                     </Button>

@@ -183,7 +183,7 @@ function TasksTab() {
   const removeManualLine = (index: number) => setManualLines((lines) => lines.filter((_, i) => i !== index));
 
   return (
-    <Space style={{ display: "flex", flexDirection: "column", width: "100%" }} size="large">
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card
         extra={
           canManage && (
@@ -216,6 +216,7 @@ function TasksTab() {
                   size="small"
                   pagination={false}
                   dataSource={task.lines}
+                  scroll={{ x: "max-content" }}
                   columns={[
                     { title: "Деталь", render: (_, l) => l.part_name ?? "—" },
                     { title: "Линия", dataIndex: "line_name" },
@@ -346,6 +347,7 @@ function TasksTab() {
             pagination={false}
             dataSource={manualLines}
             style={{ marginBottom: 16 }}
+            scroll={{ x: "max-content" }}
             columns={[
               { title: "Деталь", render: (_, l) => l.part_name ?? "—" },
               { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
@@ -454,6 +456,7 @@ function TasksTab() {
               pagination={false}
               locale={{ emptyText: "Пока не распределено ни по одной линии" }}
               style={{ marginBottom: 16 }}
+              scroll={{ x: "max-content" }}
               columns={[
                 { title: "Линия", dataIndex: "line_name" },
                 { title: "Дата", render: (_, a) => dayjs(a.date).format("DD.MM.YYYY") },
@@ -585,6 +588,7 @@ function ReportModal({
           pagination={false}
           dataSource={defectRows}
           style={{ marginBottom: 16 }}
+          scroll={{ x: "max-content" }}
           columns={[
             { title: "Причина брака", dataIndex: "reason" },
             { title: "Кол-во, шт", dataIndex: "qty" },
@@ -731,7 +735,7 @@ function ModelsTab() {
   };
 
   return (
-    <Space style={{ display: "flex", flexDirection: "column", width: "100%" }} size="large">
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card
         title="Модели продукции"
         extra={
@@ -808,6 +812,7 @@ function ModelsTab() {
             rowKey="id"
             dataSource={selectedModel.parts}
             pagination={false}
+            scroll={{ x: "max-content" }}
             columns={[
               { title: "Деталь", dataIndex: "part_name", render: (v: string | null) => v ?? "—" },
               { title: "Участок", dataIndex: "area", render: (v: string) => areaLabels[v] ?? v },
@@ -929,7 +934,7 @@ function LinesTab() {
   });
 
   return (
-    <Space style={{ display: "flex", flexDirection: "column", width: "100%" }} size="large">
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card
         title="Производственные линии"
         extra={
@@ -1033,7 +1038,7 @@ function DailyPlanTab() {
   );
 
   return (
-    <Space style={{ display: "flex", flexDirection: "column", width: "100%" }} size="large">
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card
         title={`📅 Суточный план участка на ${selectedDate.format("DD.MM.YYYY")}`}
         extra={

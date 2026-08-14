@@ -44,6 +44,7 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
         loading={entriesQuery.isLoading}
         dataSource={entriesQuery.data ?? []}
         pagination={false}
+        scroll={{ x: "max-content" }}
         columns={[
           {
             title: label,
@@ -96,6 +97,7 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
             size="small"
             pagination={false}
             dataSource={duplicatesQuery.data}
+            scroll={{ x: "max-content" }}
             columns={[
               { title: "Значение A", dataIndex: "a_name" },
               { title: "Значение B", dataIndex: "b_name" },
@@ -144,6 +146,7 @@ function ThicknessTab() {
       loading={entriesQuery.isLoading}
       dataSource={entriesQuery.data ?? []}
       pagination={false}
+      scroll={{ x: "max-content" }}
       columns={[
         {
           title: "Толщина, мм",

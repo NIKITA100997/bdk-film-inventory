@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Layout, Menu, Space, Typography, Button, Input } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
+import { MenuOutlined, SearchOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { navTree, type NavItem } from "./navConfig";
@@ -17,6 +17,12 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [headerQuery, setHeaderQuery] = useState("");
+  // Раздел про адаптацию под планшет — свой toggle в шапке вместо
+  // стандартного плавающего триггера antd (Sider trigger={null}): тот
+  // рисуется поверх контента абсолютным позиционированием и на узких
+  // экранах перекрывал первую плитку/строку страницы. Начальное значение
+  // — сразу по ширине окна, чтобы не было мигания "открыто → схлопнулось".
+  const [collapsed, setCollapsed] = useState(() => window.innerWidth < 992);
 
   if (!user) return null;
 
@@ -53,18 +59,26 @@ export default function AppLayout() {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Typography.Title level={4} style={{ color: "#fff", margin: 0, fontFamily: fontHeading, whiteSpace: "nowrap" }}>
-          Учёт плёнки БДК
-        </Typography.Title>
-        <Space style={{ margin: "0 16px" }}>
+      <Header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", gap: 12 }}>
+        <Space style={{ flexShrink: 0 }}>
+          <Button
+            type="text"
+            icon={<MenuOutlined style={{ color: "#fff" }} />}
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label="Показать/скрыть меню"
+          />
+          <Typography.Title level={4} style={{ color: "#fff", margin: 0, fontFamily: fontHeading, whiteSpace: "nowrap" }}>
+            Учёт плёнки БДК
+          </Typography.Title>
+        </Space>
+        <Space style={{ minWidth: 0, flex: "1 1 auto", justifyContent: "center" }}>
           <Input
             prefix={<SearchOutlined />}
             placeholder="ID единицы или материал…"
             value={headerQuery}
             onChange={(e) => setHeaderQuery(e.target.value)}
             onPressEnter={runHeaderSearch}
-            style={{ maxWidth: 280 }}
+            style={{ width: 200, maxWidth: "40vw" }}
           />
           <QrScanButton
             onScan={(code) => runUnitOrMaterialSearch(code, navigate)}
@@ -73,8 +87,11 @@ export default function AppLayout() {
           />
           <NotificationBell />
         </Space>
-        <Space>
-          <Typography.Text style={{ color: palette.grayMuted }}>
+        <Space style={{ flexShrink: 0 }}>
+          {/* ellipsis вместо голого текста — без него на узком экране (планшет)
+              строка "Имя · Роль" переносится на несколько строк и вылезает
+              за пределы шапки высотой 64px вверх и вниз. */}
+          <Typography.Text style={{ color: palette.grayMuted, maxWidth: 160 }} ellipsis={{ tooltip: true }}>
             {user.full_name} · {user.is_superuser ? "Суперпользователь" : user.roles.map((r) => r.name).join(", ") || "без роли"}
           </Typography.Text>
           <Button
@@ -91,7 +108,15 @@ export default function AppLayout() {
       </Header>
       <OfflineBanner />
       <Layout>
-        <Sider width={240} breakpoint="md" collapsedWidth={0}>
+        <Sider
+          width={240}
+          collapsedWidth={0}
+          collapsed={collapsed}
+          onCollapse={setCollapsed}
+          breakpoint="lg"
+          trigger={null}
+          style={{ flexShrink: 0 }}
+        >
           <Menu
             theme="dark"
             mode="inline"
@@ -101,7 +126,10 @@ export default function AppLayout() {
             onClick={(e) => navigate(e.key)}
           />
         </Sider>
-        <Content style={{ padding: 24 }}>
+        {/* minWidth: 0 — без этого antd Layout не даёт Content сжаться уже
+            своей колонки: широкая таблица внутри раздвигала всю страницу
+            (и сайдбар вместе с ней) вместо прокрутки в своих рамках. */}
+        <Content style={{ padding: 24, minWidth: 0, overflowX: "auto" }}>
           <Outlet />
         </Content>
       </Layout>

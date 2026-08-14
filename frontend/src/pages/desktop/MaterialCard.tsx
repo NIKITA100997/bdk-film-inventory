@@ -142,6 +142,7 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
               size="small"
               pagination={false}
               dataSource={analogsQuery.data?.analogs}
+              scroll={{ x: "max-content" }}
               columns={[
                 { title: "Позиция", render: (_, a) => skuLabel(a.sku) },
                 { title: "Остаток, м²", dataIndex: "stock_m2" },

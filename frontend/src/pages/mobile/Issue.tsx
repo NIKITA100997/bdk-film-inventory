@@ -546,6 +546,7 @@ export default function Issue() {
                           loading={availableQuery.isLoading}
                           dataSource={availableQuery.data ?? []}
                           pagination={false}
+                          scroll={{ x: "max-content" }}
                           locale={{ emptyText: "Ничего нет на хранении" }}
                           columns={[
                             { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
@@ -705,6 +706,7 @@ export default function Issue() {
                             loading={manualAvailableQuery.isLoading}
                             dataSource={manualAvailableQuery.data ?? []}
                             pagination={false}
+                            scroll={{ x: "max-content" }}
                             locale={{ emptyText: "Ничего нет на хранении" }}
                             columns={[
                               { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },

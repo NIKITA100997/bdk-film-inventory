@@ -99,6 +99,7 @@ export default function Purchasing() {
             size="small"
             pagination={false}
             dataSource={shortages}
+            scroll={{ x: "max-content" }}
             columns={[
               { title: "Заказ", dataIndex: "order_number" },
               { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
