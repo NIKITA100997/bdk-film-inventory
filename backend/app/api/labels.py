@@ -13,7 +13,9 @@ from app.services.labels import (
     FIELD_META,
     PREVIEW_DATA,
     label_data_from_unit,
+    render_label_html,
     render_label_pdf,
+    render_labels_html_batch,
     render_labels_pdf_batch,
 )
 
@@ -94,6 +96,39 @@ def get_label(unit_id: int, db: Session = Depends(get_db)) -> Response:
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="label-{unit_id}.pdf"'},
     )
+
+
+@router.get("/labels/{unit_id}/html", dependencies=[Depends(get_current_user)])
+def get_label_html(unit_id: int, db: Session = Depends(get_db)) -> Response:
+    """HTML-версия той же этикетки (планшеты — печать PDF-blob через
+    window.print() на части Android-браузеров не срабатывает, система
+    перехватывает blob как файл на скачивание вместо печати; обычная
+    HTML-страница печатается штатным Print Service Framework Android)."""
+    unit = db.get(MaterialUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
+    template = _get_template(db)
+    html = render_label_html(
+        label_data_from_unit(unit), fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm
+    )
+    return Response(content=html, media_type="text/html")
+
+
+@router.post("/labels/batch/html", dependencies=[Depends(get_current_user)])
+def get_labels_batch_html(payload: LabelBatchRequest, db: Session = Depends(get_db)) -> Response:
+    units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
+    units_by_id = {u.id: u for u in units}
+    ordered_units = [units_by_id[uid] for uid in payload.unit_ids if uid in units_by_id]
+    if not ordered_units:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
+    template = _get_template(db)
+    html = render_labels_html_batch(
+        [label_data_from_unit(u) for u in ordered_units],
+        fields=template.fields,
+        width_mm=template.width_mm,
+        height_mm=template.height_mm,
+    )
+    return Response(content=html, media_type="text/html")
 
 
 @router.post("/labels/batch", dependencies=[Depends(get_current_user)])

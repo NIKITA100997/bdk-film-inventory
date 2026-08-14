@@ -254,19 +254,17 @@ export async function writeOffUnit(unitId: number, reason: WriteOffReasonValue, 
   return data;
 }
 
-// Настоящий PDF, не HTML-страница (раздел обратной связи по печати на
-// термопринтере Codex G500 — прямая печать HTML из браузера ненадёжна,
-// драйвер может обрезать нестандартный размер страницы или не напечатать
-// вовсе; печать уже готового PDF — тот же путь, что у "Сохранить как PDF",
-// эмпирически подтверждён рабочим на десктопе).
-//
-// Печатаем через скрытый iframe, а не window.open(url) — на планшетах
-// (Android Chrome/Яндекс.Браузер) blob-PDF, открытый в новой вкладке,
-// система перехватывает как файл для скачивания и передаёт во внешний
-// просмотрщик/«Файлы» в обход вкладки браузера: w.print() у такой вкладки
-// ничего не печатает, просто остаётся сохранённый PDF (репорт с планшета:
-// «сохраняет пдф вместо печати»). Печать PDF внутри iframe в текущей
-// странице такого перехвата не вызывает.
+// PDF на десктопе (термопринтер Codex G500 — прямая печать HTML из
+// браузера ненадёжна, драйвер может обрезать нестандартный размер
+// страницы; печать уже готового PDF, тот же путь, что у "Сохранить как
+// PDF", эмпирически подтверждена рабочей). HTML на планшете/телефоне —
+// печать PDF, открытого как blob (и напрямую, и через iframe), там
+// оказалась ненадёжной: система перехватывает blob как файл на скачивание
+// в обход печати ("сохраняет пдф вместо печати" — отчёт с планшета).
+// Обычная HTML-страница печатается штатным Print Service Framework
+// Android без этой проблемы.
+const isMobileDevice = () => /Android|iPad|iPhone|Mobile/i.test(navigator.userAgent);
+
 function printPdfBlob(blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const iframe = document.createElement("iframe");
@@ -279,14 +277,8 @@ function printPdfBlob(blob: Blob): void {
   iframe.src = url;
   document.body.appendChild(iframe);
   iframe.onload = () => {
-    try {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-    } catch {
-      // Печать PDF из iframe поддерживается не всеми мобильными браузерами —
-      // как запасной путь открываем PDF в новой вкладке для ручной печати.
-      window.open(url, "_blank");
-    }
+    iframe.contentWindow?.focus();
+    iframe.contentWindow?.print();
   };
   // Отзываем URL с запасом по времени, а не сразу — печать асинхронна,
   // системный диалог печати успевает открыться до того, как URL исчезнет.
@@ -296,18 +288,51 @@ function printPdfBlob(blob: Blob): void {
   }, 60000);
 }
 
-export function printLabel(unitId: number): void {
-  apiClient.get(`/labels/${unitId}`, { responseType: "blob" }).then(({ data }) => {
-    printPdfBlob(data as Blob);
-  });
+function printHtmlDoc(html: string): void {
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  document.body.appendChild(iframe);
+  iframe.onload = () => {
+    iframe.contentWindow?.focus();
+    iframe.contentWindow?.print();
+  };
+  const doc = iframe.contentDocument;
+  if (!doc) return;
+  doc.open();
+  doc.write(html);
+  doc.close();
+  setTimeout(() => document.body.removeChild(iframe), 60000);
 }
 
-// Очередь печати (раздел про ускорение работы) — один PDF на несколько
-// этикеток вместо printLabel в цикле: после приёмки партии из N рулонов
-// одна вкладка с N страницами вместо N открытых вкладок печати.
+export function printLabel(unitId: number): void {
+  if (isMobileDevice()) {
+    apiClient.get(`/labels/${unitId}/html`, { responseType: "text" }).then(({ data }) => {
+      printHtmlDoc(data as string);
+    });
+  } else {
+    apiClient.get(`/labels/${unitId}`, { responseType: "blob" }).then(({ data }) => {
+      printPdfBlob(data as Blob);
+    });
+  }
+}
+
+// Очередь печати (раздел про ускорение работы) — один документ на
+// несколько этикеток вместо printLabel в цикле: после приёмки партии из
+// N рулонов одна вкладка с N страницами вместо N открытых вкладок печати.
 export function printLabelsBatch(unitIds: number[]): void {
   if (unitIds.length === 0) return;
-  apiClient.post("/labels/batch", { unit_ids: unitIds }, { responseType: "blob" }).then(({ data }) => {
-    printPdfBlob(data as Blob);
-  });
+  if (isMobileDevice()) {
+    apiClient.post("/labels/batch/html", { unit_ids: unitIds }, { responseType: "text" }).then(({ data }) => {
+      printHtmlDoc(data as string);
+    });
+  } else {
+    apiClient.post("/labels/batch", { unit_ids: unitIds }, { responseType: "blob" }).then(({ data }) => {
+      printPdfBlob(data as Blob);
+    });
+  }
 }

@@ -165,14 +165,17 @@ def qr_data_uri(payload: str) -> str:
     return f"data:image/png;base64,{encoded}"
 
 
-def render_label_html(
+def _label_markup(
     data: LabelData,
     *,
-    fields: list[dict] | None = None,
-    width_mm: int = DEFAULT_WIDTH_MM,
-    height_mm: int = DEFAULT_HEIGHT_MM,
+    fields: list[dict],
+    width_mm: int,
+    height_mm: int,
 ) -> str:
-    fields = fields if fields is not None else DEFAULT_FIELDS
+    """Разметка одной этикетки (таблица/бокс) без обёртки в целый HTML-документ
+    — используется и для одиночной страницы (render_label_html), и для
+    печати очередью, где несколько таких блоков идут один за другим с
+    разрывом страницы между ними (render_labels_html_batch)."""
     color = indicator_color(data)
     qr_src = qr_data_uri(str(data.unit_id))
 
@@ -214,24 +217,7 @@ def render_label_html(
                 f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{val}</div>'
             )
 
-        return f"""<!doctype html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<title>Этикетка №{data.unit_id}</title>
-<style>
-  @page {{ size: {width_mm}mm {height_mm}mm; margin: 0; }}
-  * {{ box-sizing: border-box; }}
-  html, body {{ width: {width_mm}mm; height: {height_mm}mm; margin: 0; padding: 0; font-family: "Calibri", "Segoe UI", Arial, sans-serif; color: {NAVY}; background: #fff; overflow: hidden; }}
-  table.label-table {{ width: {width_mm}mm; height: {height_mm}mm; border-collapse: collapse; table-layout: fixed; border: 1px solid {BORDER}; border-radius: 4px; overflow: hidden; }}
-  td.stripe-td {{ height: 100%; padding: 0; }}
-  td.qr-td {{ vertical-align: middle; text-align: center; }}
-  td.text-td {{ vertical-align: middle; text-align: left; padding: 2mm 3mm 2mm 1mm; overflow: hidden; word-break: break-word; }}
-  @media print {{ .no-print {{ display: none; }} }}
-</style>
-</head>
-<body>
-  <table class="label-table">
+        return f"""<table class="label-table">
     <tr>
       {stripe_html}
       {qr_html}
@@ -239,12 +225,7 @@ def render_label_html(
         {"".join(text_html_items)}
       </td>
     </tr>
-  </table>
-  <div class="no-print" style="margin-top: 8px;">
-    <button onclick="window.print()">Печать</button>
-  </div>
-</body>
-</html>"""
+  </table>"""
     else:
         # ВЕРТИКАЛЬНЫЙ МАКЕТ (например 60×90 мм)
         stripe_html = f'<div class="stripe-h" style="background:{color}; height:5mm; width:100%;"></div>' if has_stripe else ""
@@ -271,27 +252,88 @@ def render_label_html(
                         f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{val}</div>'
                     )
 
-        return f"""<!doctype html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
-<title>Этикетка №{data.unit_id}</title>
-<style>
-  @page {{ size: {width_mm}mm {height_mm}mm; margin: 0; }}
-  * {{ box-sizing: border-box; }}
-  html, body {{ width: {width_mm}mm; height: {height_mm}mm; margin: 0; padding: 0; font-family: "Calibri", "Segoe UI", Arial, sans-serif; color: {NAVY}; background: #fff; overflow: hidden; }}
-  .label-box {{ width: {width_mm}mm; height: {height_mm}mm; border: 1px solid {BORDER}; border-radius: 6px; overflow: hidden; display: block; position: relative; }}
-  .content-box {{ padding: 2mm; text-align: center; }}
-  @media print {{ .no-print {{ display: none; }} }}
-</style>
-</head>
-<body>
-  <div class="label-box">
+        return f"""<div class="label-box">
     {stripe_html}
     <div class="content-box">
       {"".join(body_items)}
     </div>
+  </div>"""
+
+
+def _label_doc_styles(width_mm: int, height_mm: int) -> str:
+    return f"""
+  @page {{ size: {width_mm}mm {height_mm}mm; margin: 0; }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ margin: 0; padding: 0; font-family: "Calibri", "Segoe UI", Arial, sans-serif; color: {NAVY}; background: #fff; }}
+  table.label-table {{ width: {width_mm}mm; height: {height_mm}mm; border-collapse: collapse; table-layout: fixed; border: 1px solid {BORDER}; border-radius: 4px; overflow: hidden; }}
+  td.stripe-td {{ height: 100%; padding: 0; }}
+  td.qr-td {{ vertical-align: middle; text-align: center; }}
+  td.text-td {{ vertical-align: middle; text-align: left; padding: 2mm 3mm 2mm 1mm; overflow: hidden; word-break: break-word; }}
+  .label-box {{ width: {width_mm}mm; height: {height_mm}mm; border: 1px solid {BORDER}; border-radius: 6px; overflow: hidden; display: block; position: relative; }}
+  .content-box {{ padding: 2mm; text-align: center; }}
+  .label-page {{ width: {width_mm}mm; height: {height_mm}mm; overflow: hidden; }}
+  .label-page + .label-page {{ page-break-before: always; }}
+  @media print {{ .no-print {{ display: none; }} }}
+"""
+
+
+def render_label_html(
+    data: LabelData,
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_WIDTH_MM,
+    height_mm: int = DEFAULT_HEIGHT_MM,
+) -> str:
+    """HTML-версия этикетки — печатается через нативный window.print() браузера
+    вместо PDF-blob. На планшетах (Android Chrome/Яндекс.Браузер) печать PDF,
+    открытого как blob-URL, оказалась ненадёжной (система перехватывает blob
+    как файл на скачивание в обход печати) — печать обычной HTML-страницы
+    таких проблем не имеет, это стандартный путь через Print Service
+    Framework Android. Для десктопного термопринтера (Codex G500) остаётся
+    PDF-путь (render_label_pdf) — там раньше была обратная проблема с прямой
+    печатью HTML."""
+    fields = fields if fields is not None else DEFAULT_FIELDS
+    markup = _label_markup(data, fields=fields, width_mm=width_mm, height_mm=height_mm)
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Этикетка №{data.unit_id}</title>
+<style>{_label_doc_styles(width_mm, height_mm)}</style>
+</head>
+<body>
+  <div class="label-page">{markup}</div>
+  <div class="no-print" style="margin-top: 8px;">
+    <button onclick="window.print()">Печать</button>
   </div>
+</body>
+</html>"""
+
+
+def render_labels_html_batch(
+    items: list[LabelData],
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_WIDTH_MM,
+    height_mm: int = DEFAULT_HEIGHT_MM,
+) -> str:
+    """Несколько этикеток одной HTML-страницей — печать очередью с планшета
+    (аналог render_labels_pdf_batch для PDF-пути). Каждая этикетка на своей
+    печатной странице через CSS page-break-before, без открытия N вкладок."""
+    fields = fields if fields is not None else DEFAULT_FIELDS
+    pages = "".join(
+        f'<div class="label-page">{_label_markup(d, fields=fields, width_mm=width_mm, height_mm=height_mm)}</div>'
+        for d in items
+    )
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Этикетки ({len(items)})</title>
+<style>{_label_doc_styles(width_mm, height_mm)}</style>
+</head>
+<body>
+  {pages}
   <div class="no-print" style="margin-top: 8px;">
     <button onclick="window.print()">Печать</button>
   </div>
