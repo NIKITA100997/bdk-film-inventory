@@ -1,11 +1,11 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.services.labels import FIELD_META, FIELD_META_RACK
+from app.services.labels import FIELD_META, FIELD_META_RACK, FIELD_META_SHELF
 
 # Раздел про этикетки стеллажей/полок — один и тот же LabelFieldConfig
-# используется для обоих макетов (unit и rack), поэтому проверяем key по
-# объединению обоих реестров полей, не только FIELD_META.
-_ALL_LABEL_FIELD_KEYS = set(FIELD_META) | set(FIELD_META_RACK)
+# используется для всех трёх макетов (unit, rack, shelf), поэтому
+# проверяем key по объединению всех реестров полей, не только FIELD_META.
+_ALL_LABEL_FIELD_KEYS = set(FIELD_META) | set(FIELD_META_RACK) | set(FIELD_META_SHELF)
 
 
 class LabelFieldConfig(BaseModel):
@@ -46,7 +46,7 @@ class LabelBatchRequest(BaseModel):
     unit_ids: list[int] = Field(min_length=1)
 
 
-class RackLabelCellIn(BaseModel):
+class ShelfLabelCellIn(BaseModel):
     """Место хранения для печати этикетки — фронтенд передаёт уже
     посчитанный список (тот же формат, что отдаёт GET /racks/{id}/occupancy),
     бэкенд не пересчитывает адресацию полок/ячеек второй раз."""
@@ -56,5 +56,5 @@ class RackLabelCellIn(BaseModel):
     location_code: str
 
 
-class RackLabelBatchRequest(BaseModel):
-    cells: list[RackLabelCellIn] = Field(min_length=1)
+class ShelfLabelBatchRequest(BaseModel):
+    cells: list[ShelfLabelCellIn] = Field(min_length=1)

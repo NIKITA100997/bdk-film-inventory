@@ -45,7 +45,7 @@ import { listColors, listManufacturers, listMaterials, listThicknesses } from ".
 import DictAutoComplete from "../../components/DictAutoComplete";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { placeUnit, searchUnits, skuLabel, type MaterialUnit } from "../../api/units";
-import { printRackLabelsBatch } from "../../api/labels";
+import { printRackLabel, printShelfLabelsBatch } from "../../api/labels";
 import { useAuth } from "../../auth/AuthContext";
 
 const typeLabels: Record<RackType, string> = { roll: "рулонный", strip: "штрипсовый" };
@@ -322,17 +322,20 @@ function RacksConsole() {
                 </Typography.Text>
               </div>
               <Space>
+                <Button size="small" onClick={() => printRackLabel(selectedRack.id)}>
+                  Печать бирки стеллажа
+                </Button>
                 <Button
                   size="small"
                   disabled={!occupancyForSelected || occupancyForSelected.length === 0}
                   onClick={() =>
-                    printRackLabelsBatch(
+                    printShelfLabelsBatch(
                       selectedRack.id,
                       (occupancyForSelected ?? []).map((c) => ({ shelf: c.shelf, cell: c.cell, location_code: c.location_code })),
                     )
                   }
                 >
-                  Печать этикеток
+                  Печать этикеток полок
                 </Button>
                 {canManage && (
                   <Button

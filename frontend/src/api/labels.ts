@@ -2,7 +2,7 @@ import { apiClient } from "./client";
 import { isMobileDevice, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
 
 export type FieldSize = "sm" | "md" | "lg";
-export type LabelKind = "unit" | "rack";
+export type LabelKind = "unit" | "rack" | "shelf";
 
 export interface LabelFieldConfig {
   key: string;
@@ -55,20 +55,34 @@ export async function previewLabelTemplate(payload: LabelTemplate, kind: LabelKi
 // Раздел про макеты для стеллажей/полок — печать этикеток мест хранения
 // (полка рулонного стеллажа, ячейка штрипсового). Тот же двойной
 // PDF/HTML путь, что у printLabelsBatch для рулонов (utils/printLabel.ts).
-export interface RackLabelCell {
+export interface ShelfLabelCell {
   shelf: number;
   cell: number | null;
   location_code: string;
 }
 
-export function printRackLabelsBatch(rackId: number, cells: RackLabelCell[]): void {
+export function printShelfLabelsBatch(rackId: number, cells: ShelfLabelCell[]): void {
   if (cells.length === 0) return;
   if (isMobileDevice()) {
-    apiClient.post(`/racks/${rackId}/labels/batch/html`, { cells }, { responseType: "text" }).then(({ data }) => {
+    apiClient.post(`/racks/${rackId}/shelf-labels/batch/html`, { cells }, { responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);
     });
   } else {
-    apiClient.post(`/racks/${rackId}/labels/batch`, { cells }, { responseType: "blob" }).then(({ data }) => {
+    apiClient.post(`/racks/${rackId}/shelf-labels/batch`, { cells }, { responseType: "blob" }).then(({ data }) => {
+      printPdfBlob(data as Blob);
+    });
+  }
+}
+
+// Бирка на весь стеллаж целиком — отдельный макет (kind="rack") от бирок
+// на места хранения выше. Печатается по одной, без списка ячеек.
+export function printRackLabel(rackId: number): void {
+  if (isMobileDevice()) {
+    apiClient.post(`/racks/${rackId}/rack-label/html`, null, { responseType: "text" }).then(({ data }) => {
+      printHtmlDoc(data as string);
+    });
+  } else {
+    apiClient.post(`/racks/${rackId}/rack-label`, null, { responseType: "blob" }).then(({ data }) => {
       printPdfBlob(data as Blob);
     });
   }

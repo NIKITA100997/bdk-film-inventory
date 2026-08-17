@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, Tabs, Typography, InputNumber, Select, Switch, Button, Space, List, Tag, Modal, Alert, message } from "antd";
+import { Card, Tabs, Typography, InputNumber, Select, Switch, Segmented, Button, Space, List, Tag, Modal, Alert, message } from "antd";
 import { HolderOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -71,6 +71,7 @@ function SortableFieldItem({
 const KIND_DEFAULTS: Record<LabelKind, { width: number; height: number }> = {
   unit: { width: 100, height: 40 },
   rack: { width: 70, height: 40 },
+  shelf: { width: 70, height: 40 },
 };
 
 function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
@@ -164,6 +165,23 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
           <Typography.Text type="secondary">Высота этикетки, мм</Typography.Text>
           <InputNumber min={20} max={200} value={heightMm} onChange={(v) => setHeightMm(v ?? KIND_DEFAULTS[kind].height)} />
         </Space>
+        <Space direction="vertical" size={4}>
+          <Typography.Text type="secondary">Ориентация</Typography.Text>
+          <Segmented
+            value={widthMm >= heightMm ? "landscape" : "portrait"}
+            onChange={(v) => {
+              const wantLandscape = v === "landscape";
+              if (wantLandscape !== widthMm >= heightMm) {
+                setWidthMm(heightMm);
+                setHeightMm(widthMm);
+              }
+            }}
+            options={[
+              { label: "Горизонтальная", value: "landscape" },
+              { label: "Вертикальная", value: "portrait" },
+            ]}
+          />
+        </Space>
         {widthMm > heightMm && (
           <Alert
             type="info"
@@ -218,10 +236,10 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
 }
 
 /** Макет этикетки (4 раздел бэклога доработок, расширено разделом про
- * макеты для стеллажей/полок) — один и тот же редактор полей на два
- * независимых макета: рулоны/штрипсы плёнки и места хранения (полка/
- * ячейка стеллажа), переключаются вкладками, каждый свой набор полей и
- * свой размер этикетки по умолчанию. */
+ * макеты для стеллажей/полок) — один и тот же редактор полей на три
+ * независимых макета: рулоны/штрипсы плёнки, стеллаж целиком и отдельное
+ * место хранения (полка/ячейка), переключаются вкладками, каждый свой
+ * набор полей и свой размер этикетки по умолчанию. */
 export default function LabelTemplateAdmin() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -229,7 +247,8 @@ export default function LabelTemplateAdmin() {
       <Tabs
         items={[
           { key: "unit", label: "Рулоны плёнки", children: <LabelTemplateEditor kind="unit" /> },
-          { key: "rack", label: "Стеллажи и полки", children: <LabelTemplateEditor kind="rack" /> },
+          { key: "rack", label: "Стеллаж (целиком)", children: <LabelTemplateEditor kind="rack" /> },
+          { key: "shelf", label: "Полка / ячейка", children: <LabelTemplateEditor kind="shelf" /> },
         ]}
       />
     </Space>
