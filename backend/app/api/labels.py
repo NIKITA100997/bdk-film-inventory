@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
@@ -49,6 +51,16 @@ _KIND_DEFAULTS = {
     "rack": (DEFAULT_RACK_WIDTH_MM, DEFAULT_RACK_HEIGHT_MM, DEFAULT_FIELDS_RACK),
     "shelf": (DEFAULT_SHELF_WIDTH_MM, DEFAULT_SHELF_HEIGHT_MM, DEFAULT_FIELDS_SHELF),
 }
+
+
+def _content_disposition(filename: str) -> str:
+    """HTTP-заголовки — только latin-1 (RFC 7230), а код стеллажа обычно
+    кириллица ("Р-3") — голая f-строка с ним в filename роняла ответ
+    UnicodeEncodeError на этапе формирования заголовков. filename* (RFC
+    6266, percent-encoded UTF-8) — стандартный способ передать не-ASCII
+    имя файла, filename — ASCII-заглушка для совсем старых клиентов."""
+    ascii_fallback = filename.encode("ascii", "replace").decode("ascii")
+    return f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
 
 
 def _get_template(db: Session, kind: str) -> LabelTemplate:
@@ -126,7 +138,7 @@ def get_label(unit_id: int, db: Session = Depends(get_db)) -> Response:
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="label-{unit_id}.pdf"'},
+        headers={"Content-Disposition": _content_disposition(f"label-{unit_id}.pdf")},
     )
 
 
@@ -183,7 +195,7 @@ def get_labels_batch(payload: LabelBatchRequest, db: Session = Depends(get_db)) 
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": 'inline; filename="labels-batch.pdf"'},
+        headers={"Content-Disposition": _content_disposition("labels-batch.pdf")},
     )
 
 
@@ -252,7 +264,7 @@ def get_rack_label(rack_id: int, db: Session = Depends(get_db)) -> Response:
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="rack-label-{rack.code}.pdf"'},
+        headers={"Content-Disposition": _content_disposition(f"rack-label-{rack.code}.pdf")},
     )
 
 
@@ -295,7 +307,7 @@ def get_shelf_labels_batch(rack_id: int, payload: ShelfLabelBatchRequest, db: Se
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="shelf-labels-{rack.code}.pdf"'},
+        headers={"Content-Disposition": _content_disposition(f"shelf-labels-{rack.code}.pdf")},
     )
 
 
