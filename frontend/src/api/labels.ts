@@ -57,7 +57,6 @@ export async function previewLabelTemplate(payload: LabelTemplate, kind: LabelKi
 // PDF/HTML путь, что у printLabelsBatch для рулонов (utils/printLabel.ts).
 export interface ShelfLabelCell {
   shelf: number;
-  cell: number | null;
   location_code: string;
 }
 

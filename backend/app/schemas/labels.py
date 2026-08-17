@@ -52,7 +52,6 @@ class ShelfLabelCellIn(BaseModel):
     бэкенд не пересчитывает адресацию полок/ячеек второй раз."""
 
     shelf: int
-    cell: int | None = None
     location_code: str
 
 

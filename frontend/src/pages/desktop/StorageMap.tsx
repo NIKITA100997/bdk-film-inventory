@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Card,
   Tabs,
   Button,
   Tag,
   Popconfirm,
-  Popover,
   Form,
   Input,
   Select,
@@ -47,6 +46,7 @@ import ResponsiveTable from "../../components/ResponsiveTable";
 import { placeUnit, searchUnits, skuLabel, type MaterialUnit } from "../../api/units";
 import { printRackLabel, printShelfLabelsBatch } from "../../api/labels";
 import { useAuth } from "../../auth/AuthContext";
+import QrScanModal from "../../components/QrScanModal";
 
 const typeLabels: Record<RackType, string> = { roll: "рулонный", strip: "штрипсовый" };
 
@@ -59,7 +59,7 @@ const skuToPrefill = (sku: { material: { name: string }; color: { name: string }
   thickness: sku.thickness.value_mm,
 });
 
-/** Стеллажи и ячейки — раздел про склад: схема и правила зонирования
+/** Стеллажи и полки — раздел про склад: схема и правила зонирования
  * объединены в одно окно (раньше были на отдельных вкладках "Схема" и
  * "Управление", стеллаж приходилось выбирать заново в каждой). Список
  * стеллажей слева сразу показывает занятость и наличие правил, справа —
@@ -76,8 +76,19 @@ function RacksConsole() {
   const [rackId, setRackId] = useState<number | null>(null);
   const [rackModalOpen, setRackModalOpen] = useState(false);
   const [editingRack, setEditingRack] = useState<Rack | null>(null);
+  const [createRackForm] = Form.useForm<{
+    code: string;
+    type: RackType;
+    shelf_count: number;
+    strip_capacity?: number | null;
+    warehouse_id: number;
+  }>();
   const [editRackForm] = Form.useForm<RackUpdate>();
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [highlightShelf, setHighlightShelf] = useState<number | null>(null);
+  const createRackType = Form.useWatch("type", createRackForm);
+  const editRackType = Form.useWatch("type", editRackForm);
 
   // Кросс-ссылка "На стеллаже" из Остатков (раздел про организацию меню)
   // — приходим сюда уже с известным стеллажом, фильтры сбрасываем, чтобы
@@ -136,11 +147,6 @@ function RacksConsole() {
   const occupancyForSelected = occupancyByRack[visibleRacks.findIndex((r) => r.id === selectedRack?.id)]?.data;
   const rulesForSelected = rulesByRack[visibleRacks.findIndex((r) => r.id === selectedRack?.id)]?.data;
 
-  const columns = useMemo(() => {
-    if (!occupancyForSelected) return 1;
-    return Math.max(1, ...occupancyForSelected.map((c) => c.cell ?? 1));
-  }, [occupancyForSelected]);
-
   const byShelf = useMemo(() => {
     const map = new Map<number, RackOccupancyCell[]>();
     for (const c of occupancyForSelected ?? []) {
@@ -186,6 +192,39 @@ function RacksConsole() {
     },
   });
 
+  // QR на бирке стеллажа — голый rack.code ("Р-3"); на бирке полки —
+  // location_code ("Р-3-07" = код стеллажа + "-" + номер полки). Единицы
+  // (рулоны) сканируются в другом месте (карточка единицы) — тут только
+  // стеллажи/полки, поэтому голые цифры сюда не ведут.
+  const handleScan = (code: string) => {
+    if (/^\d+$/.test(code)) {
+      message.error("Это QR единицы — отсканируйте на карточке единицы");
+      return;
+    }
+    const shelfMatch = code.match(/^(.+)-(\d{2})$/);
+    if (shelfMatch) {
+      const rack = allActiveRacks.find((r) => r.code === shelfMatch[1]);
+      if (rack) {
+        setTypeFilter("all");
+        setWarehouseId(null);
+        setRackId(rack.id);
+        const shelf = Number(shelfMatch[2]);
+        setHighlightShelf(shelf);
+        setTimeout(() => setHighlightShelf((cur) => (cur === shelf ? null : cur)), 5000);
+        return;
+      }
+    }
+    const rack = allActiveRacks.find((r) => r.code === code);
+    if (rack) {
+      setTypeFilter("all");
+      setWarehouseId(null);
+      setRackId(rack.id);
+      setHighlightShelf(null);
+      return;
+    }
+    message.error("QR не распознан как стеллаж или полка");
+  };
+
   if (!racksQuery.isLoading && allActiveRacks.length === 0) {
     return canManage ? (
       <>
@@ -204,7 +243,7 @@ function RacksConsole() {
   function rackFormModal() {
     return (
       <Modal title="Новый стеллаж" open={rackModalOpen} onCancel={() => setRackModalOpen(false)} footer={null} destroyOnHidden>
-        <Form layout="vertical" onFinish={(v) => createRackMutation.mutate(v)}>
+        <Form form={createRackForm} layout="vertical" onFinish={(v) => createRackMutation.mutate(v)}>
           <Form.Item name="code" label="Код (например, Р-3 или Ш-2)" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
@@ -214,6 +253,16 @@ function RacksConsole() {
           <Form.Item name="shelf_count" label="Число полок" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
+          {createRackType === "strip" && (
+            <Form.Item
+              name="strip_capacity"
+              label="Вместимость полки, шт. штрипсов"
+              rules={[{ required: true }]}
+              initialValue={10}
+            >
+              <InputNumber min={1} style={{ width: "100%" }} />
+            </Form.Item>
+          )}
           <Form.Item name="warehouse_id" label="Склад" rules={[{ required: true }]}>
             <Select options={(warehousesQuery.data ?? []).map((w) => ({ value: w.id, label: w.name }))} />
           </Form.Item>
@@ -251,6 +300,7 @@ function RacksConsole() {
               options={activeWarehouses.map((w) => ({ value: w.id, label: w.name }))}
             />
           )}
+          <Button onClick={() => setScanModalOpen(true)}>Сканировать QR</Button>
         </Space>
         {canManage && (
           <Button type="primary" onClick={() => setRackModalOpen(true)}>
@@ -269,8 +319,8 @@ function RacksConsole() {
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 720, overflowY: "auto" }}>
           {visibleRacks.map((rack, idx) => {
             const occ = occupancyByRack[idx]?.data;
-            const total = occ?.length ?? 0;
-            const used = occ?.filter((c) => c.unit).length ?? 0;
+            const total = occ?.reduce((sum, c) => sum + c.capacity, 0) ?? 0;
+            const used = occ?.reduce((sum, c) => sum + c.units.length, 0) ?? 0;
             const pct = total > 0 ? Math.round((used / total) * 100) : 0;
             const rulesCount = rulesByRack[idx]?.data?.length ?? 0;
             const isSelected = selectedRack?.id === rack.id;
@@ -298,7 +348,7 @@ function RacksConsole() {
                 />
                 <Space style={{ width: "100%", justifyContent: "space-between", marginTop: 4 }}>
                   <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
-                    {total > 0 ? `${used} из ${total} ячеек${pct >= 90 ? " — почти полон" : ""}` : "—"}
+                    {total > 0 ? `${used} из ${total} мест${pct >= 90 ? " — почти полон" : ""}` : "—"}
                   </Typography.Text>
                   <Typography.Text style={{ fontSize: 11.5, fontWeight: 700, color: rulesCount > 0 ? "#146B4E" : "#B8483C" }}>
                     {rulesCount > 0 ? `${rulesCount} правил${rulesCount === 1 ? "о" : "а"}` : "нет правил"}
@@ -318,7 +368,8 @@ function RacksConsole() {
                 </Typography.Title>
                 <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
                   {warehousesQuery.data?.find((w) => w.id === selectedRack.warehouse_id)?.name ?? "—"}
-                  {occupancyForSelected && ` · ${occupancyForSelected.filter((c) => c.unit).length} из ${occupancyForSelected.length} ячеек занято`}
+                  {occupancyForSelected &&
+                    ` · ${occupancyForSelected.reduce((sum, c) => sum + c.units.length, 0)} из ${occupancyForSelected.reduce((sum, c) => sum + c.capacity, 0)} мест занято`}
                 </Typography.Text>
               </div>
               <Space>
@@ -331,7 +382,7 @@ function RacksConsole() {
                   onClick={() =>
                     printShelfLabelsBatch(
                       selectedRack.id,
-                      (occupancyForSelected ?? []).map((c) => ({ shelf: c.shelf, cell: c.cell, location_code: c.location_code })),
+                      (occupancyForSelected ?? []).map((c) => ({ shelf: c.shelf, location_code: c.location_code })),
                     )
                   }
                 >
@@ -346,6 +397,7 @@ function RacksConsole() {
                         code: selectedRack.code,
                         type: selectedRack.type,
                         shelf_count: selectedRack.shelf_count,
+                        strip_capacity: selectedRack.strip_capacity,
                         warehouse_id: selectedRack.warehouse_id,
                       });
                     }}
@@ -356,35 +408,13 @@ function RacksConsole() {
               </Space>
             </Space>
 
-            {selectedRack.type === "roll" ? (
-              // Рулонный стеллаж — на полке всегда один рулон, простраственная
-              // сетка тут почти ничего не говорит (только "занято/свободно").
-              // Вместо тесной колонки боксов — строка на полку с содержимым
-              // сразу видно, без клика по каждой ячейке; та же рамка/цвета,
-              // что у штрипсовой сетки, чтобы экран не выглядел двумя разными
-              // интерфейсами.
-              <div style={{ background: "#fff", border: "1px solid #DEDEDA", borderRadius: 10, padding: 14, marginBottom: 8 }}>
-                <RollShelfRows byShelf={byShelf} navigate={navigate} />
-              </div>
-            ) : (
-              <div
-                style={{
-                  display: "inline-grid",
-                  gridTemplateColumns: `56px repeat(${columns}, 44px)`,
-                  gap: 6,
-                  alignItems: "center",
-                  background: "#fff",
-                  border: "1px solid #DEDEDA",
-                  borderRadius: 10,
-                  padding: 14,
-                  marginBottom: 8,
-                }}
-              >
-                {byShelf.map(([shelf, cells]) => (
-                  <FragmentRow key={shelf} shelf={shelf} cells={cells} columns={columns} navigate={navigate} />
-                ))}
-              </div>
-            )}
+            {/* Рулонные и штрипсовые стеллажи адресуются одинаково (полка
+                целиком, без ячеек) — один и тот же список строк-полок для
+                обоих типов, штрипсовые просто показывают несколько единиц
+                и счётчик занятости внутри строки, если вместимость > 1. */}
+            <div style={{ background: "#fff", border: "1px solid #DEDEDA", borderRadius: 10, padding: 14, marginBottom: 8 }}>
+              <RollShelfRows byShelf={byShelf} navigate={navigate} highlightShelf={highlightShelf} />
+            </div>
             <Space style={{ marginBottom: 20 }} size="middle">
               <LegendSwatch color="#f0f0f0" border="#d9d9d9" label="свободно" />
               <LegendSwatch color="#e7f5ee" border="#1D9E75" label="занято" />
@@ -426,7 +456,7 @@ function RacksConsole() {
               </Space>
             ) : (
               <Typography.Text type="secondary">
-                Правил нет — весь стеллаж буферная зона, автоподбор ячейки при приёмке предложит сюда любую позицию.
+                Правил нет — весь стеллаж буферная зона, автоподбор места при приёмке предложит сюда любую позицию.
               </Typography.Text>
             )}
           </Card>
@@ -436,6 +466,13 @@ function RacksConsole() {
       </div>
 
       {rackFormModal()}
+
+      <QrScanModal
+        open={scanModalOpen}
+        onClose={() => setScanModalOpen(false)}
+        onScan={handleScan}
+        title="Сканирование QR стеллажа/полки"
+      />
 
       <Modal title={`Изменить стеллаж ${editingRack?.code ?? ""}`} open={!!editingRack} onCancel={() => setEditingRack(null)} footer={null} destroyOnHidden>
         <Form form={editRackForm} layout="vertical" onFinish={(v) => editingRack && updateRackMutation.mutate({ id: editingRack.id, payload: v })}>
@@ -448,6 +485,11 @@ function RacksConsole() {
           <Form.Item name="shelf_count" label="Число полок" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
+          {editRackType === "strip" && (
+            <Form.Item name="strip_capacity" label="Вместимость полки, шт. штрипсов" rules={[{ required: true }]}>
+              <InputNumber min={1} style={{ width: "100%" }} />
+            </Form.Item>
+          )}
           <Form.Item name="warehouse_id" label="Склад" rules={[{ required: true }]}>
             <Select options={(warehousesQuery.data ?? []).map((w) => ({ value: w.id, label: w.name }))} />
           </Form.Item>
@@ -495,7 +537,7 @@ function RacksConsole() {
 }
 
 /** Нераспределённые остатки без стеллажей — единицы физически на складе
- * (Принят/На_хранении), но без ячейки: зависли посреди приёмки, после
+ * (Принят/На_хранении), но без места: зависли посреди приёмки, после
  * возврата (адрес всегда сбрасывается) или после резки без указанного
  * места для остатка. Без этой карточки они не видны нигде в "Стеллажах",
  * потому что не привязаны ни к одному стеллажу. */
@@ -565,7 +607,7 @@ function UnplacedRow({ unit }: { unit: MaterialUnit }) {
           </>
         ) : (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {suggestion.isLoading ? "подбираем ячейку…" : "нет подходящего правила"}
+            {suggestion.isLoading ? "подбираем место…" : "нет подходящего правила"}
           </Typography.Text>
         )}
         <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: unit.id } })}>
@@ -576,20 +618,40 @@ function UnplacedRow({ unit }: { unit: MaterialUnit }) {
   );
 }
 
+/** Строки-полки — общий рендер для рулонных и штрипсовых стеллажей: оба
+ * теперь адресуются одинаково (полка целиком, без ячеек). Рулонная полка
+ * всегда capacity=1 (максимум один рулон), штрипсовая — capacity из
+ * Rack.strip_capacity, и на ней может быть сразу несколько единиц. */
 function RollShelfRows({
   byShelf,
   navigate,
+  highlightShelf,
 }: {
   byShelf: [number, RackOccupancyCell[]][];
   navigate: ReturnType<typeof useNavigate>;
+  highlightShelf: number | null;
 }) {
+  const highlightRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (highlightShelf != null) {
+      highlightRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [highlightShelf]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {byShelf.map(([shelf, cells]) => {
         const cellData = cells[0];
-        const occupied = !!cellData?.unit;
+        const units = cellData?.units ?? [];
+        const capacity = cellData?.capacity ?? 1;
+        const occupied = units.length > 0;
+        const isHighlighted = highlightShelf === shelf;
         return (
-          <div key={shelf} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            key={shelf}
+            ref={isHighlighted ? highlightRef : undefined}
+            style={{ display: "flex", alignItems: "center", gap: 10 }}
+          >
             <Typography.Text style={{ width: 56, fontSize: 12, textAlign: "right", flexShrink: 0 }} type="secondary">
               полка {shelf}
             </Typography.Text>
@@ -598,105 +660,59 @@ function RollShelfRows({
                 flex: "1 1 0%",
                 minWidth: 0,
                 borderRadius: 8,
-                border: `1px solid ${occupied ? "#1D9E75" : "#d9d9d9"}`,
+                border: `1px solid ${isHighlighted ? "#C97A2B" : occupied ? "#1D9E75" : "#d9d9d9"}`,
+                boxShadow: isHighlighted ? "0 0 0 2px #FBF0E3" : undefined,
                 background: occupied ? "#e7f5ee" : "#fafafa",
                 padding: "7px 14px",
                 display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
+                flexDirection: "column",
+                gap: 6,
                 minHeight: 32,
               }}
             >
               {occupied ? (
                 <>
-                  {/* min-width:0 + flex-wrap — без этого на узком экране
-                      (планшет) кнопки справа не давали блоку с текстом
-                      сжаться, и текст переносился по одной букве в строку. */}
-                  <div style={{ minWidth: 0, flex: "1 1 240px", display: "flex", flexWrap: "wrap", gap: "2px 10px" }}>
-                    <Typography.Text strong>№{cellData!.unit!.id}</Typography.Text>
-                    <Typography.Text>{skuLabel(cellData!.unit!.material_sku)}</Typography.Text>
-                    <Typography.Text type="secondary">
-                      {cellData!.unit!.width_mm}×{cellData!.unit!.length_m} м
+                  {capacity > 1 && (
+                    <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
+                      {units.length} из {capacity}
                     </Typography.Text>
-                  </div>
-                  <Space size={4} style={{ flexShrink: 0 }}>
-                    <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: cellData!.unit!.id } })}>
-                      Карточка
-                    </Button>
-                    <Button size="small" onClick={() => navigate("/materials", { state: skuToPrefill(cellData!.unit!.material_sku) })}>
-                      В остатках
-                    </Button>
-                  </Space>
+                  )}
+                  {units.map((unit) => (
+                    <div
+                      key={unit.id}
+                      style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+                    >
+                      {/* min-width:0 + flex-wrap — без этого на узком экране
+                          (планшет) кнопки справа не давали блоку с текстом
+                          сжаться, и текст переносился по одной букве в строку. */}
+                      <div style={{ minWidth: 0, flex: "1 1 240px", display: "flex", flexWrap: "wrap", gap: "2px 10px" }}>
+                        <Typography.Text strong>№{unit.id}</Typography.Text>
+                        <Typography.Text>{skuLabel(unit.material_sku)}</Typography.Text>
+                        <Typography.Text type="secondary">
+                          {unit.width_mm}×{unit.length_m} м
+                        </Typography.Text>
+                      </div>
+                      <Space size={4} style={{ flexShrink: 0 }}>
+                        <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: unit.id } })}>
+                          Карточка
+                        </Button>
+                        <Button size="small" onClick={() => navigate("/materials", { state: skuToPrefill(unit.material_sku) })}>
+                          В остатках
+                        </Button>
+                      </Space>
+                    </div>
+                  ))}
                 </>
               ) : (
-                <Typography.Text type="secondary">{cellData?.location_code ?? ""} — свободно</Typography.Text>
+                <Typography.Text type="secondary">
+                  {cellData?.location_code ?? ""} — свободно{capacity > 1 ? ` (0 из ${capacity})` : ""}
+                </Typography.Text>
               )}
             </div>
           </div>
         );
       })}
     </div>
-  );
-}
-
-function FragmentRow({
-  shelf,
-  cells,
-  columns,
-  navigate,
-}: {
-  shelf: number;
-  cells: RackOccupancyCell[];
-  columns: number;
-  navigate: ReturnType<typeof useNavigate>;
-}) {
-  const byCell = new Map(cells.map((c) => [c.cell ?? 1, c]));
-  return (
-    <>
-      <Typography.Text style={{ fontSize: 12, textAlign: "right" }} type="secondary">
-        полка {shelf}
-      </Typography.Text>
-      {Array.from({ length: columns }, (_, i) => i + 1).map((col) => {
-        const cellData = byCell.get(col);
-        if (!cellData) return <div key={col} />;
-        const occupied = !!cellData.unit;
-        const content = occupied ? (
-          <Space direction="vertical" size={2} style={{ maxWidth: 220 }}>
-            <Typography.Text strong>№{cellData.unit!.id}</Typography.Text>
-            <Typography.Text>{skuLabel(cellData.unit!.material_sku)}</Typography.Text>
-            <Typography.Text type="secondary">
-              {cellData.unit!.width_mm}×{cellData.unit!.length_m} м, {cellData.unit!.status.replace(/_/g, " ")}
-            </Typography.Text>
-            <Space size={4}>
-              <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: cellData.unit!.id } })}>
-                Карточка единицы
-              </Button>
-              <Button size="small" onClick={() => navigate("/materials", { state: skuToPrefill(cellData.unit!.material_sku) })}>
-                В остатках
-              </Button>
-            </Space>
-          </Space>
-        ) : (
-          <Typography.Text type="secondary">{cellData.location_code} — свободно</Typography.Text>
-        );
-        return (
-          <Popover key={col} content={content} title={cellData.location_code} trigger="click">
-            <div
-              style={{
-                width: 44,
-                height: 32,
-                borderRadius: 5,
-                cursor: "pointer",
-                border: `1px solid ${occupied ? "#1D9E75" : "#d9d9d9"}`,
-                background: occupied ? "#e7f5ee" : "#fafafa",
-              }}
-            />
-          </Popover>
-        );
-      })}
-    </>
   );
 }
 
@@ -849,7 +865,7 @@ export default function StorageMap() {
       <Typography.Title level={4}>Стеллажи</Typography.Title>
       <Tabs
         items={[
-          { key: "racks", label: "Стеллажи и ячейки", children: <RacksConsole /> },
+          { key: "racks", label: "Стеллажи и полки", children: <RacksConsole /> },
           ...(canManage ? [{ key: "warehouses", label: "Склады", children: <WarehousesTab /> }] : []),
         ]}
       />

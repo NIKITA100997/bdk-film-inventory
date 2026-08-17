@@ -8,7 +8,8 @@ from app.db.base import Base
 
 class RackType(str, enum.Enum):
     ROLL = "roll"  # рулонный: полка = один рулон
-    STRIP = "strip"  # штрипсовый (включая стеллаж Б): полка делится на ячейки
+    STRIP = "strip"  # штрипсовый: адресуется так же, как рулонный (по полке
+    # целиком), но на полку помещается несколько штрипсов — см. Rack.strip_capacity
 
 
 class Warehouse(Base):
@@ -39,6 +40,10 @@ class Rack(Base):
     code: Mapped[str] = mapped_column(String(16), unique=True, index=True)  # "Р-3", "Ш-2"
     type: Mapped[RackType] = mapped_column(Enum(RackType, name="rack_type"))
     shelf_count: Mapped[int] = mapped_column(Integer)
+    # Вместимость полки в штрипсах — только для RackType.STRIP (сколько
+    # штрипсов помещается на одну полку, все полки стеллажа считаются
+    # одинаковыми). Не используется для рулонных (там полка = один рулон).
+    strip_capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"))
     # Архивирование вместо удаления (по итогам обратной связи после раздела 9
     # бэклога доработок) — стеллаж мог годами копить историю событий по

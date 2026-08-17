@@ -542,8 +542,7 @@ PREVIEW_DATA = LabelData(
 # SIZE_PT, цвета, _register_pdf_fonts.
 #
 # Два независимых макета на уровне мест хранения: "shelf" — бирка на
-# конкретное место (полка рулонного стеллажа / ячейка штрипсового), "rack"
-# (ниже) — бирка на весь стеллаж целиком.
+# конкретную полку, "rack" (ниже) — бирка на весь стеллаж целиком.
 
 DEFAULT_SHELF_WIDTH_MM = 70
 DEFAULT_SHELF_HEIGHT_MM = 40
@@ -557,11 +556,10 @@ DEFAULT_FIELDS_SHELF: list[dict] = [
 
 FIELD_META_SHELF: dict[str, dict] = {
     "qr": {"label": "QR-код", "kind": "image"},
-    "location_code": {"label": "Код места (полка/ячейка)", "kind": "text"},
+    "location_code": {"label": "Код места (полка)", "kind": "text"},
     "warehouse_name": {"label": "Склад", "kind": "text"},
     "rack_type": {"label": "Тип стеллажа", "kind": "text"},
     "shelf": {"label": "Номер полки", "kind": "text"},
-    "cell": {"label": "Номер ячейки", "kind": "text"},
     "storage_rules": {"label": "Правила хранения", "kind": "text"},
 }
 
@@ -572,15 +570,12 @@ class ShelfLabelData:
     warehouse_name: str
     rack_type_label: str
     shelf: int
-    cell: int | None
     storage_rules_text: str | None
 
 
 def render_field_value_shelf(data: ShelfLabelData, key: str) -> str | None:
     """Как render_field_value для рулона: location_code — уже сам по себе
-    понятный идентификатор (как unit_id "№ 42"), без отдельной подписи;
-    cell — None у рулонных стеллажей (полка целиком — одно место), тогда
-    строка просто пропускается, как parent_ref у единицы без родителя."""
+    понятный идентификатор (как unit_id "№ 42"), без отдельной подписи."""
     if key == "location_code":
         return data.location_code
     if key == "warehouse_name":
@@ -589,8 +584,6 @@ def render_field_value_shelf(data: ShelfLabelData, key: str) -> str | None:
         return f"Тип: {data.rack_type_label}"
     if key == "shelf":
         return f"Полка: {data.shelf}"
-    if key == "cell":
-        return f"Ячейка: {data.cell}" if data.cell is not None else None
     if key == "storage_rules":
         return data.storage_rules_text
     return None
@@ -800,7 +793,6 @@ PREVIEW_DATA_SHELF = ShelfLabelData(
     warehouse_name="Основной склад",
     rack_type_label="Рулонный",
     shelf=7,
-    cell=None,
     storage_rules_text="ПВХ, Дуб беленый, 0.35 мм, Классен",
 )
 

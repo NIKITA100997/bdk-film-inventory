@@ -30,11 +30,14 @@ app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads"
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://localhost:5173", "https://127.0.0.1:5173"],
     # Плюс любой адрес в частных диапазонах (192.168.x.x/10.x.x.x/172.16-31.x.x)
     # на том же порту — открыть с планшета/телефона по IP компьютера в
     # локальной сети, без auth-cookie (токен в заголовке) риска в этом нет.
-    allow_origin_regex=r"http://(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):5173",
+    # http и https оба разрешены — раздел про сканирование QR: планшетам
+    # нужен HTTPS (самоподписанный сертификат) для доступа к камере, но
+    # http остаётся рабочим для случаев без него.
+    allow_origin_regex=r"https?://(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):5173",
     allow_methods=["*"],
     allow_headers=["*"],
 )

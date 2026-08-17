@@ -26,6 +26,7 @@ export interface Rack {
   code: string;
   type: RackType;
   shelf_count: number;
+  strip_capacity: number | null;
   warehouse_id: number;
   is_active: boolean;
 }
@@ -34,6 +35,7 @@ export interface RackUpdate {
   code?: string;
   type?: RackType;
   shelf_count?: number;
+  strip_capacity?: number | null;
   warehouse_id?: number;
   is_active?: boolean;
 }
@@ -74,6 +76,7 @@ export const createRack = async (payload: {
   code: string;
   type: RackType;
   shelf_count: number;
+  strip_capacity?: number | null;
   warehouse_id: number;
 }): Promise<Rack> => (await apiClient.post<Rack>("/racks", payload)).data;
 
@@ -92,9 +95,9 @@ export const deleteMacroZoneRule = async (rackId: number, ruleId: number): Promi
 
 export interface RackOccupancyCell {
   shelf: number;
-  cell: number | null;
   location_code: string;
-  unit: MaterialUnit | null;
+  units: MaterialUnit[];
+  capacity: number;
 }
 
 export const getRackOccupancy = async (rackId: number): Promise<RackOccupancyCell[]> =>

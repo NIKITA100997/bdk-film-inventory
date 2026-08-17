@@ -33,9 +33,6 @@ export default function CalcSettingsAdmin() {
           <Form.Item name="abc_recalc_period_days" label="Период пересчёта ABC, дни" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="cells_per_strip_shelf" label="Ячеек на полке штрипсового стеллажа" rules={[{ required: true }]}>
-            <InputNumber min={1} style={{ width: "100%" }} />
-          </Form.Item>
           <Form.Item name="stale_threshold_days" label="Порог «давно не двигалась», дни" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>

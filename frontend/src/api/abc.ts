@@ -16,7 +16,6 @@ export interface WidthAbcClassEntry {
 export interface CalcSettings {
   min_useful_width_mm: number;
   abc_recalc_period_days: number;
-  cells_per_strip_shelf: number;
   stale_threshold_days: number;
   shortage_note_template: string;
   updated_at: string;
@@ -44,7 +43,6 @@ export async function getCalcSettings(): Promise<CalcSettings> {
 export async function updateCalcSettings(payload: {
   min_useful_width_mm: number;
   abc_recalc_period_days: number;
-  cells_per_strip_shelf: number;
   stale_threshold_days: number;
   shortage_note_template: string;
 }): Promise<CalcSettings> {

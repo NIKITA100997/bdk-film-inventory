@@ -35,7 +35,7 @@ def _rule_matches(rule: MacroZoneRule, sku: MaterialSku) -> bool:
     )
 
 
-def _occupied_codes(db: Session, rack_code: str) -> set[str]:
+def _occupied_counts(db: Session, rack_code: str) -> dict[str, int]:
     rows = (
         db.query(MaterialUnit.location_code)
         .filter(
@@ -44,23 +44,23 @@ def _occupied_codes(db: Session, rack_code: str) -> set[str]:
         )
         .all()
     )
-    return {r[0] for r in rows}
+    counts: dict[str, int] = {}
+    for (code,) in rows:
+        counts[code] = counts.get(code, 0) + 1
+    return counts
 
 
-def _find_free_slot(db: Session, rack: Rack, from_shelf: int, to_shelf: int, cells_per_strip_shelf: int) -> str | None:
-    occupied = _occupied_codes(db, rack.code)
-    if rack.type == RackType.ROLL:
-        for shelf in range(from_shelf, to_shelf + 1):
-            code = f"{rack.code}-{shelf:02d}"
-            if code not in occupied:
-                return code
-        return None
-
+def _find_free_slot(db: Session, rack: Rack, from_shelf: int, to_shelf: int) -> str | None:
+    """Штрипсовые стеллажи адресуются так же, как рулонные (по полке
+    целиком, без ячеек) — capacity ограничивает, сколько единиц может
+    занимать один и тот же адрес одновременно (1 для рулонных, где полка
+    = один рулон; rack.strip_capacity для штрипсовых)."""
+    counts = _occupied_counts(db, rack.code)
+    capacity = (rack.strip_capacity or 1) if rack.type == RackType.STRIP else 1
     for shelf in range(from_shelf, to_shelf + 1):
-        for cell in range(1, cells_per_strip_shelf + 1):
-            code = f"{rack.code}-{shelf:02d}-{cell:02d}"
-            if code not in occupied:
-                return code
+        code = f"{rack.code}-{shelf:02d}"
+        if counts.get(code, 0) < capacity:
+            return code
     return None
 
 
@@ -70,16 +70,13 @@ def suggest_location(
     sku: MaterialSku,
     width_mm: float,
     parent_id: int | None,
-    cells_per_strip_shelf: int = 10,
     warehouse_id: int | None = None,
 ) -> str | None:
     """Возвращает рекомендованный адрес или None, если свободного места нет
     нигде — тогда операция не блокируется, адрес просто вводится вручную
-    (4.2 ТЗ, п.4). cells_per_strip_shelf — настраиваемое значение
-    (CalcSettings, 5 раздел бэклога доработок), раньше было захардкожено.
-    warehouse_id — раздел про мультисклад: если передан, ищем только среди
-    стеллажей этого склада; если нет — среди всех (обратная совместимость
-    для вызовов до появления складов)."""
+    (4.2 ТЗ, п.4). warehouse_id — раздел про мультисклад: если передан,
+    ищем только среди стеллажей этого склада; если нет — среди всех
+    (обратная совместимость для вызовов до появления складов)."""
     rack_type = determine_rack_type(sku, width_mm, parent_id)
     query = db.query(Rack).filter(Rack.type == rack_type, Rack.is_active)
     if warehouse_id is not None:
@@ -100,7 +97,7 @@ def suggest_location(
     candidates: list[tuple[int, int, int]] = [(r.rack_id, r.from_shelf, r.to_shelf) for r in matching]
 
     for rack_id, from_shelf, to_shelf in candidates:
-        location = _find_free_slot(db, racks_by_id[rack_id], from_shelf, to_shelf, cells_per_strip_shelf)
+        location = _find_free_slot(db, racks_by_id[rack_id], from_shelf, to_shelf)
         if location:
             return location
     return None

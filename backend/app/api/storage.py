@@ -1,9 +1,10 @@
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
-from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
 from app.models.storage import MacroZoneRule, Rack, RackType, Warehouse
 from app.models.units import MaterialUnit, UnitStatus
@@ -89,8 +90,6 @@ def rack_occupancy(rack_id: int, db: Session = Depends(get_db), user=Depends(get
     rack = db.get(Rack, rack_id)
     if rack is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
-    calc_settings = db.get(CalcSettings, 1)
-    cells_per_strip_shelf = calc_settings.cells_per_strip_shelf if calc_settings else 10
 
     units = (
         db.query(MaterialUnit)
@@ -106,18 +105,15 @@ def rack_occupancy(rack_id: int, db: Session = Depends(get_db), user=Depends(get
         )
         .all()
     )
-    units_by_code = {u.location_code: u for u in units}
+    units_by_code: dict[str, list[MaterialUnit]] = defaultdict(list)
+    for u in units:
+        units_by_code[u.location_code].append(u)
 
+    capacity = (rack.strip_capacity or 1) if rack.type == RackType.STRIP else 1
     cells: list[RackOccupancyCellOut] = []
-    if rack.type == RackType.ROLL:
-        for shelf in range(1, rack.shelf_count + 1):
-            code = f"{rack.code}-{shelf:02d}"
-            cells.append(RackOccupancyCellOut(shelf=shelf, cell=None, location_code=code, unit=units_by_code.get(code)))
-    else:
-        for shelf in range(1, rack.shelf_count + 1):
-            for cell in range(1, cells_per_strip_shelf + 1):
-                code = f"{rack.code}-{shelf:02d}-{cell:02d}"
-                cells.append(RackOccupancyCellOut(shelf=shelf, cell=cell, location_code=code, unit=units_by_code.get(code)))
+    for shelf in range(1, rack.shelf_count + 1):
+        code = f"{rack.code}-{shelf:02d}"
+        cells.append(RackOccupancyCellOut(shelf=shelf, location_code=code, units=units_by_code.get(code, []), capacity=capacity))
     return cells
 
 
@@ -127,7 +123,13 @@ def create_rack(payload: RackCreate, db: Session = Depends(get_db), user=Depends
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Стеллаж с таким кодом уже существует")
     if db.get(Warehouse, payload.warehouse_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Склад не найден")
-    rack = Rack(code=payload.code, type=payload.type, shelf_count=payload.shelf_count, warehouse_id=payload.warehouse_id)
+    rack = Rack(
+        code=payload.code,
+        type=payload.type,
+        shelf_count=payload.shelf_count,
+        strip_capacity=payload.strip_capacity,
+        warehouse_id=payload.warehouse_id,
+    )
     db.add(rack)
     db.commit()
     db.refresh(rack)
@@ -149,6 +151,8 @@ def update_rack(
         rack.type = payload.type
     if payload.shelf_count is not None:
         rack.shelf_count = payload.shelf_count
+    if payload.strip_capacity is not None:
+        rack.strip_capacity = payload.strip_capacity
     if payload.warehouse_id is not None:
         if db.get(Warehouse, payload.warehouse_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Склад не найден")
@@ -237,14 +241,5 @@ def suggest_location_endpoint(
     sku = db.get(MaterialSku, material_sku_id)
     if sku is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Позиция материала не найдена")
-    calc_settings = db.get(CalcSettings, 1)
-    cells_per_strip_shelf = calc_settings.cells_per_strip_shelf if calc_settings else 10
-    location = suggest_location(
-        db,
-        sku=sku,
-        width_mm=width_mm,
-        parent_id=parent_id,
-        cells_per_strip_shelf=cells_per_strip_shelf,
-        warehouse_id=warehouse_id,
-    )
+    location = suggest_location(db, sku=sku, width_mm=width_mm, parent_id=parent_id, warehouse_id=warehouse_id)
     return LocationSuggestion(location_code=location)

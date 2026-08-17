@@ -41,9 +41,18 @@ export default function QrScanModal({
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
+  // Запускаем камеру не по факту open=true, а по afterOpenChange(true) —
+  // AntD Modal монтирует содержимое (div#qrRegionId) через свою анимацию
+  // открытия/портал, готовое сразу после commit React-рендера не
+  // гарантировано; Html5Qrcode ищет элемент по id синхронно в конструкторе
+  // и падал с "HTML Element with id=... not found", если запускался
+  // слишком рано — то самое "сканирование не работает" у операторов на
+  // планшетах. afterOpenChange вызывается уже после
+  // завершения анимации открытия, элемент к этому моменту точно в DOM.
+  const startScanner = () => {
     setErrorMessage(null);
+    const el = document.getElementById(qrRegionId);
+    if (!el) return;
 
     const html5Qrcode = new Html5Qrcode(qrRegionId);
     scannerRef.current = html5Qrcode;
@@ -68,18 +77,19 @@ export default function QrScanModal({
           setErrorMessage("Не удалось получить доступ к камере. Проверьте разрешения в браузере.");
         });
     });
+  };
 
-    return () => {
-      if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().catch(() => {});
-      }
-    };
-  }, [open]);
-
-  const handleClose = () => {
+  const stopScanner = () => {
     if (scannerRef.current && scannerRef.current.isScanning) {
       scannerRef.current.stop().catch(() => {});
     }
+    scannerRef.current = null;
+  };
+
+  useEffect(() => stopScanner, []);
+
+  const handleClose = () => {
+    stopScanner();
     onClose();
   };
 
@@ -87,6 +97,10 @@ export default function QrScanModal({
     <Modal
       open={open}
       onCancel={handleClose}
+      afterOpenChange={(visible) => {
+        if (visible) startScanner();
+        else stopScanner();
+      }}
       footer={[
         <Button key="close" onClick={handleClose}>
           Отмена

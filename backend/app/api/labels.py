@@ -226,7 +226,6 @@ def _shelf_label_data_for_cells(db: Session, rack: Rack, warehouse_name: str, pa
             warehouse_name=warehouse_name,
             rack_type_label=rack_type_label,
             shelf=cell.shelf,
-            cell=cell.cell,
             storage_rules_text=_shelf_storage_rules_text(db, rules, cell.shelf),
         )
         for cell in payload.cells

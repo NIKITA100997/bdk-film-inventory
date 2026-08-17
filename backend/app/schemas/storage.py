@@ -27,6 +27,7 @@ class RackCreate(BaseModel):
     code: str
     type: RackType
     shelf_count: int = Field(gt=0)
+    strip_capacity: int | None = Field(default=None, gt=0)
     warehouse_id: int
 
 
@@ -36,6 +37,7 @@ class RackOut(BaseModel):
     code: str
     type: RackType
     shelf_count: int
+    strip_capacity: int | None
     warehouse_id: int
     is_active: bool
 
@@ -44,6 +46,7 @@ class RackUpdate(BaseModel):
     code: str | None = None
     type: RackType | None = None
     shelf_count: int | None = Field(default=None, gt=0)
+    strip_capacity: int | None = Field(default=None, gt=0)
     warehouse_id: int | None = None
     is_active: bool | None = None
 
@@ -74,11 +77,13 @@ class LocationSuggestion(BaseModel):
 
 
 class RackOccupancyCellOut(BaseModel):
-    """Одна физическая ячейка адресации (4.1 ТЗ) для схемы стеллажа —
-    полка целиком для рулонного стеллажа (`cell=None`), полка+ячейка для
-    штрипсового. `unit=None` — ячейка свободна."""
+    """Одна полка стеллажа (4.1 ТЗ) — рулонные и штрипсовые адресуются
+    одинаково (полка целиком, без ячеек). `capacity` — сколько единиц
+    может занимать этот адрес одновременно (1 для рулонных, где полка =
+    один рулон; `Rack.strip_capacity` для штрипсовых). `units` — что
+    сейчас физически на полке, пустой список = свободна."""
 
     shelf: int
-    cell: int | None
     location_code: str
-    unit: MaterialUnitOut | None
+    units: list[MaterialUnitOut]
+    capacity: int

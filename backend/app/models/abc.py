@@ -45,9 +45,6 @@ class CalcSettings(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     min_useful_width_mm: Mapped[float] = mapped_column(Numeric(10, 2), default=30)
     abc_recalc_period_days: Mapped[int] = mapped_column(Integer, default=90)
-    # Раздел 4.2 ТЗ: "до ~10, зависит от ширины" — было захардкожено в
-    # placement.py, теперь настраивается (5 раздел бэклога доработок).
-    cells_per_strip_shelf: Mapped[int] = mapped_column(Integer, default=10)
     # Сколько дней единица На_хранении может пролежать без движения (без
     # новых событий), прежде чем попасть в отчёт "Давно не двигались" —
     # сигнал на внеплановую инвентаризацию/ревизию.
