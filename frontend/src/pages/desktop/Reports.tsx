@@ -33,8 +33,8 @@ function StockSummaryTab() {
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap>
-        <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} />
-        <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} />
+        <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
+        <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} allowCreate={false} />
         <InputNumber placeholder="Толщина, мм" min={0} step={0.01} value={thickness} onChange={(v) => setThickness(v ?? undefined)} />
       </Space>
       <ReportTable
@@ -72,8 +72,8 @@ function StockByWidthTab() {
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap>
-        <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} />
-        <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} />
+        <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
+        <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} allowCreate={false} />
         <InputNumber placeholder="Толщина, мм" min={0} step={0.01} value={thickness} onChange={(v) => setThickness(v ?? undefined)} />
       </Space>
       <ReportTable

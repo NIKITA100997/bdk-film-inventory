@@ -533,16 +533,16 @@ function RacksConsole() {
             Пустое поле = «любое значение». Значения должны уже существовать в справочниках (заводятся при приёмке).
           </Typography.Paragraph>
           <Form.Item name="material" label="Материал">
-            <DictAutoComplete kind="materials" placeholder="ПВХ плёнка" />
+            <DictAutoComplete kind="materials" placeholder="ПВХ плёнка" allowCreate={false} />
           </Form.Item>
           <Form.Item name="color" label="Цвет">
-            <DictAutoComplete kind="colors" placeholder="Дуб беленый" />
+            <DictAutoComplete kind="colors" placeholder="Дуб беленый" allowCreate={false} />
           </Form.Item>
           <Form.Item name="thickness" label="Толщина, мм">
-            <DictAutoComplete kind="thicknesses" placeholder="0.35" />
+            <DictAutoComplete kind="thicknesses" placeholder="0.35" allowCreate={false} />
           </Form.Item>
           <Form.Item name="manufacturer" label="Производитель">
-            <DictAutoComplete kind="manufacturers" placeholder="Классен" />
+            <DictAutoComplete kind="manufacturers" placeholder="Классен" allowCreate={false} />
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={createRuleMutation.isPending}>
             Создать

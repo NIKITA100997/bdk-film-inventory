@@ -35,6 +35,14 @@ interface Props {
   onChange?: (value: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  // false — форма-потребитель сама не создаёт новых значений справочника
+  // на сервере (например, правило зонирования: "опечатка не должна тихо
+  // создавать новую запись", backend/app/api/storage.py::_lookup_dict_id).
+  // Подсказка "Создать «…»" там была бы обманом — клик по ней ничего не
+  // создаёт, просто подставляет тот же текст, и отправка формы всё равно
+  // упадёт "не найдено в справочнике". По умолчанию true — как в приёмке/
+  // начальных остатках, где отправка формы действительно заводит значение.
+  allowCreate?: boolean;
 }
 
 /** Автокомплит по справочнику (2.1a/5.6 ТЗ) — подсказывает существующие
@@ -43,7 +51,7 @@ interface Props {
  * введённое не совпадает ни с чем — явно предлагает "Создать «…»"
  * (9.2 раздел бэклога доработок), а если похоже, но не совпадает точно —
  * предупреждает и предлагает использовать существующее. */
-export default function DictAutoComplete({ kind, value, onChange, placeholder, autoFocus }: Props) {
+export default function DictAutoComplete({ kind, value, onChange, placeholder, autoFocus, allowCreate = true }: Props) {
   // Свой префикс ключа кэша, не голое [kind] — иначе React Query совмещает
   // кэш с любым другим useQuery на тот же ключ (например, StorageMap.tsx
   // уже кэширует "толщины" под ключом ["thicknesses"], но в сыром виде
@@ -69,12 +77,14 @@ export default function DictAutoComplete({ kind, value, onChange, placeholder, a
     .filter((n) => n.toLowerCase().includes(trimmed.toLowerCase()))
     .map((n) => ({ value: n, label: n }));
 
-  if (trimmed && !exactMatch) {
+  if (trimmed && !exactMatch && allowCreate) {
     options.push({
       value: trimmed,
       label: <span style={{ color: "#1677ff" }}>Создать «{trimmed}»</span>,
     });
   }
+
+  const notFoundHere = !allowCreate && trimmed && !exactMatch && !closest;
 
   return (
     <div>
@@ -90,6 +100,12 @@ export default function DictAutoComplete({ kind, value, onChange, placeholder, a
         <Typography.Text type="warning" style={{ fontSize: 12, display: "block", marginTop: 2 }}>
           Похоже на «{closest.name}» — это тот же {kindLabels[kind]}?{" "}
           <a onClick={() => onChange?.(closest.name)}>Использовать</a>
+        </Typography.Text>
+      )}
+      {notFoundHere && (
+        <Typography.Text type="danger" style={{ fontSize: 12, display: "block", marginTop: 2 }}>
+          Такого значения нет в справочнике — эта форма его не создаёт. Сначала добавьте через «Остатки» →
+          «+ Новое» → «Материал — позиция без рулона», затем вернитесь сюда.
         </Typography.Text>
       )}
     </div>
