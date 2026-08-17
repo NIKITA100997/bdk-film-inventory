@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, Typography, InputNumber, Select, Switch, Button, Space, List, Tag, Modal, Alert, message } from "antd";
+import { Card, Tabs, Typography, InputNumber, Select, Switch, Button, Space, List, Tag, Modal, Alert, message } from "antd";
 import { HolderOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -13,6 +13,7 @@ import {
   type LabelFieldConfig,
   type FieldSize,
   type AvailableField,
+  type LabelKind,
 } from "../../api/labels";
 
 const sizeOptions: { value: FieldSize; label: string }[] = [
@@ -67,35 +68,42 @@ function SortableFieldItem({
   );
 }
 
-export default function LabelTemplateAdmin() {
+const KIND_DEFAULTS: Record<LabelKind, { width: number; height: number }> = {
+  unit: { width: 100, height: 40 },
+  rack: { width: 70, height: 40 },
+};
+
+function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
   const qc = useQueryClient();
-  const templateQuery = useQuery({ queryKey: ["label-template"], queryFn: getLabelTemplate });
-  const fieldsQuery = useQuery({ queryKey: ["label-template", "available-fields"], queryFn: listAvailableLabelFields });
+  const templateQuery = useQuery({ queryKey: ["label-template", kind], queryFn: () => getLabelTemplate(kind) });
+  const fieldsQuery = useQuery({ queryKey: ["label-template", "available-fields", kind], queryFn: () => listAvailableLabelFields(kind) });
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  const [widthMm, setWidthMm] = useState(100);
-  const [heightMm, setHeightMm] = useState(40);
+  const [widthMm, setWidthMm] = useState(KIND_DEFAULTS[kind].width);
+  const [heightMm, setHeightMm] = useState(KIND_DEFAULTS[kind].height);
   const [fields, setFields] = useState<LabelFieldConfig[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (templateQuery.data && !loaded) {
-      const w = templateQuery.data.width_mm === 60 && templateQuery.data.height_mm === 90 ? 100 : templateQuery.data.width_mm;
-      const h = templateQuery.data.width_mm === 60 && templateQuery.data.height_mm === 90 ? 40 : templateQuery.data.height_mm;
-      setWidthMm(w);
-      setHeightMm(h);
+      // Старый singleton-макет рулона мог остаться со старым дефолтом
+      // 60×90 (до перехода на 100×40 landscape) — актуально только для
+      // kind="unit", у стеллажного макета такой истории нет.
+      const isLegacyUnitDefault = kind === "unit" && templateQuery.data.width_mm === 60 && templateQuery.data.height_mm === 90;
+      setWidthMm(isLegacyUnitDefault ? 100 : templateQuery.data.width_mm);
+      setHeightMm(isLegacyUnitDefault ? 40 : templateQuery.data.height_mm);
       setFields(templateQuery.data.fields);
       setLoaded(true);
     }
-  }, [templateQuery.data, loaded]);
+  }, [templateQuery.data, loaded, kind]);
 
   const fieldMeta = (key: string) => fieldsQuery.data?.find((f) => f.key === key);
   const availableToAdd = (fieldsQuery.data ?? []).filter((f) => !fields.some((used) => used.key === f.key));
 
   const saveMutation = useMutation({
-    mutationFn: () => updateLabelTemplate({ width_mm: widthMm, height_mm: heightMm, fields }),
+    mutationFn: () => updateLabelTemplate({ width_mm: widthMm, height_mm: heightMm, fields }, kind),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["label-template"] });
+      qc.invalidateQueries({ queryKey: ["label-template", kind] });
       message.success("Макет сохранён");
     },
     onError: () => message.error("Не удалось сохранить макет"),
@@ -106,7 +114,7 @@ export default function LabelTemplateAdmin() {
   // кнопкой), тем же путём, что подтверждённо надёжно печатает даже на
   // капризных термопринтерах (раздел обратной связи про Codex G500).
   const previewMutation = useMutation({
-    mutationFn: () => previewLabelTemplate({ width_mm: widthMm, height_mm: heightMm, fields }),
+    mutationFn: () => previewLabelTemplate({ width_mm: widthMm, height_mm: heightMm, fields }, kind),
   });
 
   const addField = (key: string) => {
@@ -142,20 +150,19 @@ export default function LabelTemplateAdmin() {
 
   return (
     <Card loading={templateQuery.isLoading || fieldsQuery.isLoading}>
-      <Typography.Title level={4}>Макет этикетки</Typography.Title>
       <Typography.Paragraph type="secondary">
-        Перетащите поля за {"⠿"}, чтобы изменить порядок — так они лягут на бирку сверху вниз. Ширина и длина по
-        умолчанию не печатаются (4.1 ТЗ): они меняются при каждом разделении, а этикетка не перепечатывается.
+        Перетащите поля за {"⠿"}, чтобы изменить порядок — так они лягут на бирку сверху вниз.
+        {kind === "unit" && " Ширина и длина по умолчанию не печатаются (4.1 ТЗ): они меняются при каждом разделении, а этикетка не перепечатывается."}
       </Typography.Paragraph>
 
       <Space size="large" style={{ marginBottom: 20 }} align="center">
         <Space direction="vertical" size={4}>
           <Typography.Text type="secondary">Ширина этикетки, мм</Typography.Text>
-          <InputNumber min={20} max={200} value={widthMm} onChange={(v) => setWidthMm(v ?? 60)} />
+          <InputNumber min={20} max={200} value={widthMm} onChange={(v) => setWidthMm(v ?? KIND_DEFAULTS[kind].width)} />
         </Space>
         <Space direction="vertical" size={4}>
           <Typography.Text type="secondary">Высота этикетки, мм</Typography.Text>
-          <InputNumber min={20} max={200} value={heightMm} onChange={(v) => setHeightMm(v ?? 90)} />
+          <InputNumber min={20} max={200} value={heightMm} onChange={(v) => setHeightMm(v ?? KIND_DEFAULTS[kind].height)} />
         </Space>
         {widthMm > heightMm && (
           <Alert
@@ -207,5 +214,24 @@ export default function LabelTemplateAdmin() {
         </Button>
       </Space>
     </Card>
+  );
+}
+
+/** Макет этикетки (4 раздел бэклога доработок, расширено разделом про
+ * макеты для стеллажей/полок) — один и тот же редактор полей на два
+ * независимых макета: рулоны/штрипсы плёнки и места хранения (полка/
+ * ячейка стеллажа), переключаются вкладками, каждый свой набор полей и
+ * свой размер этикетки по умолчанию. */
+export default function LabelTemplateAdmin() {
+  return (
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Typography.Title level={4}>Макет этикетки</Typography.Title>
+      <Tabs
+        items={[
+          { key: "unit", label: "Рулоны плёнки", children: <LabelTemplateEditor kind="unit" /> },
+          { key: "rack", label: "Стеллажи и полки", children: <LabelTemplateEditor kind="rack" /> },
+        ]}
+      />
+    </Space>
   );
 }

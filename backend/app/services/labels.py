@@ -530,3 +530,267 @@ PREVIEW_DATA = LabelData(
     width_mm=1400,
     length_m=214,
 )
+
+
+# ─── Этикетки мест хранения (раздел про макеты для стеллажей/полок) ───
+# Тот же приём "макет — структура, не HTML", тот же двойной PDF/HTML путь
+# печати, но отдельные функции рендера, а не переиспользование
+# _label_markup/_draw_label_page на общих данных: код печати рулонов уже
+# отлажен полевым тестированием на термопринтере Codex G500, лишний риск
+# регрессии того, что уже работает, ради общности того не стоит. Общее —
+# только по-настоящему не зависящее от домена: qr_png_bytes/qr_data_uri,
+# SIZE_PT, цвета, _register_pdf_fonts.
+
+DEFAULT_RACK_WIDTH_MM = 70
+DEFAULT_RACK_HEIGHT_MM = 40
+
+DEFAULT_FIELDS_RACK: list[dict] = [
+    {"key": "qr", "size": "md", "bold": False},
+    {"key": "location_code", "size": "lg", "bold": True},
+    {"key": "warehouse_name", "size": "sm", "bold": False},
+    {"key": "rack_type", "size": "sm", "bold": False},
+]
+
+FIELD_META_RACK: dict[str, dict] = {
+    "qr": {"label": "QR-код", "kind": "image"},
+    "location_code": {"label": "Код места (полка/ячейка)", "kind": "text"},
+    "warehouse_name": {"label": "Склад", "kind": "text"},
+    "rack_type": {"label": "Тип стеллажа", "kind": "text"},
+    "shelf": {"label": "Номер полки", "kind": "text"},
+    "cell": {"label": "Номер ячейки", "kind": "text"},
+}
+
+
+@dataclass(frozen=True)
+class RackLabelData:
+    location_code: str
+    warehouse_name: str
+    rack_type_label: str
+    shelf: int
+    cell: int | None
+
+
+def render_field_value_rack(data: RackLabelData, key: str) -> str | None:
+    """Как render_field_value для рулона: location_code — уже сам по себе
+    понятный идентификатор (как unit_id "№ 42"), без отдельной подписи;
+    cell — None у рулонных стеллажей (полка целиком — одно место), тогда
+    строка просто пропускается, как parent_ref у единицы без родителя."""
+    if key == "location_code":
+        return data.location_code
+    if key == "warehouse_name":
+        return f"Склад: {data.warehouse_name}"
+    if key == "rack_type":
+        return f"Тип: {data.rack_type_label}"
+    if key == "shelf":
+        return f"Полка: {data.shelf}"
+    if key == "cell":
+        return f"Ячейка: {data.cell}" if data.cell is not None else None
+    return None
+
+
+def _rack_label_markup(data: RackLabelData, *, fields: list[dict], width_mm: int, height_mm: int) -> str:
+    qr_src = qr_data_uri(data.location_code)
+    is_landscape = width_mm >= height_mm
+    has_qr = any(f["key"] == "qr" for f in fields)
+
+    rendered_fields: list[tuple[dict, str]] = []
+    for f in fields:
+        if f["key"] == "qr":
+            continue
+        val = render_field_value_rack(data, f["key"])
+        if val:
+            rendered_fields.append((f, val))
+
+    if is_landscape:
+        qr_size_mm = max(min(height_mm - 6, 34), 16)
+        qr_html = (
+            f'<td class="qr-td" style="width:{qr_size_mm + 4}mm; text-align:center; vertical-align:middle; padding:1mm;">'
+            f'<img src="{qr_src}" alt="QR {data.location_code}" style="width:{qr_size_mm}mm; height:{qr_size_mm}mm; display:block; margin:0 auto;">'
+            f'</td>'
+            if has_qr
+            else ""
+        )
+        text_html_items = []
+        for f, val in rendered_fields:
+            size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
+            weight = "bold" if f.get("bold") else "normal"
+            is_code = f["key"] == "location_code"
+            font_family = 'font-family:"Cambria", Georgia, serif;' if is_code else ""
+            margin = "margin-bottom:1mm;" if is_code else "margin-bottom:0.5mm;"
+            text_html_items.append(
+                f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{val}</div>'
+            )
+        return f"""<table class="label-table">
+    <tr>
+      {qr_html}
+      <td class="text-td">
+        {"".join(text_html_items)}
+      </td>
+    </tr>
+  </table>"""
+    else:
+        body_items = []
+        for f in fields:
+            if f["key"] == "qr":
+                body_items.append(
+                    f'<div style="margin: 1mm 0; text-align:center;">'
+                    f'<img src="{qr_src}" alt="QR {data.location_code}" style="width:28mm; height:28mm; display:block; margin:0 auto;">'
+                    f'</div>'
+                )
+                continue
+            val = render_field_value_rack(data, f["key"])
+            if val:
+                size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
+                weight = "bold" if f.get("bold") else "normal"
+                is_code = f["key"] == "location_code"
+                font_family = 'font-family:"Cambria", Georgia, serif;' if is_code else ""
+                body_items.append(
+                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{val}</div>'
+                )
+        return f"""<div class="label-box">
+    <div class="content-box">
+      {"".join(body_items)}
+    </div>
+  </div>"""
+
+
+def render_rack_label_html(
+    data: RackLabelData, *, fields: list[dict] | None = None, width_mm: int = DEFAULT_RACK_WIDTH_MM, height_mm: int = DEFAULT_RACK_HEIGHT_MM
+) -> str:
+    fields = fields if fields is not None else DEFAULT_FIELDS_RACK
+    markup = _rack_label_markup(data, fields=fields, width_mm=width_mm, height_mm=height_mm)
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Этикетка {data.location_code}</title>
+<style>{_label_doc_styles(width_mm, height_mm)}</style>
+</head>
+<body>
+  <div class="label-page">{markup}</div>
+  <div class="no-print" style="margin-top: 8px;">
+    <button onclick="window.print()">Печать</button>
+  </div>
+</body>
+</html>"""
+
+
+def render_rack_labels_html_batch(
+    items: list[RackLabelData], *, fields: list[dict] | None = None, width_mm: int = DEFAULT_RACK_WIDTH_MM, height_mm: int = DEFAULT_RACK_HEIGHT_MM
+) -> str:
+    fields = fields if fields is not None else DEFAULT_FIELDS_RACK
+    pages = "".join(
+        f'<div class="label-page">{_rack_label_markup(d, fields=fields, width_mm=width_mm, height_mm=height_mm)}</div>'
+        for d in items
+    )
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Этикетки мест хранения ({len(items)})</title>
+<style>{_label_doc_styles(width_mm, height_mm)}</style>
+</head>
+<body>
+  {pages}
+  <div class="no-print" style="margin-top: 8px;">
+    <button onclick="window.print()">Печать</button>
+  </div>
+</body>
+</html>"""
+
+
+def _draw_rack_label_page(c: pdfcanvas.Canvas, data: RackLabelData, fields: list[dict], width_mm: int, height_mm: int) -> None:
+    is_landscape = width_mm >= height_mm
+    has_qr = any(f["key"] == "qr" for f in fields)
+
+    rendered_fields: list[tuple[dict, str]] = []
+    for f in fields:
+        if f["key"] == "qr":
+            continue
+        val = render_field_value_rack(data, f["key"])
+        if val:
+            rendered_fields.append((f, val))
+
+    width_pt, height_pt = width_mm * MM, height_mm * MM
+    c.setStrokeColor(HexColor(BORDER))
+    c.setLineWidth(0.5)
+    c.roundRect(0.3 * MM, 0.3 * MM, width_pt - 0.6 * MM, height_pt - 0.6 * MM, 1.5 * MM, stroke=1, fill=0)
+
+    qr_reader = ImageReader(BytesIO(qr_png_bytes(data.location_code))) if has_qr else None
+
+    def draw_text_lines(left_mm: float, top_mm: float, max_width_mm: float, *, center: bool = False) -> None:
+        y = height_pt - top_mm * MM
+        for f, val in rendered_fields:
+            size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
+            font_name = _PDF_HEADING_FONT_BOLD if f["key"] == "location_code" else (_PDF_BODY_FONT_BOLD if f.get("bold") else _PDF_BODY_FONT)
+            c.setFont(font_name, size_pt)
+            c.setFillColor(HexColor(NAVY))
+            y -= size_pt * 1.15
+            if center:
+                c.drawCentredString((left_mm + max_width_mm / 2) * MM, y, val)
+            else:
+                c.drawString(left_mm * MM, y, val)
+
+    def text_block_height_mm() -> float:
+        return sum(SIZE_PT.get(f.get("size", "sm"), 8) * 1.15 * 0.3528 for f, _ in rendered_fields)
+
+    if is_landscape:
+        qr_col_w_mm = 0.0
+        if has_qr and qr_reader is not None:
+            qr_size_mm = max(min(height_mm - 6, 34), 16)
+            qr_col_w_mm = qr_size_mm + 4
+            qr_x_mm = (qr_col_w_mm - qr_size_mm) / 2
+            qr_y_mm = (height_mm - qr_size_mm) / 2
+            c.drawImage(qr_reader, qr_x_mm * MM, qr_y_mm * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
+        text_x_mm = qr_col_w_mm + 2
+        text_w_mm = max(width_mm - text_x_mm - 2, 5)
+        top_mm = max((height_mm - text_block_height_mm()) / 2, 2)
+        draw_text_lines(text_x_mm, top_mm, text_w_mm)
+    else:
+        top_mm = 3.0
+        if has_qr and qr_reader is not None:
+            qr_size_mm = 28.0
+            qr_x_mm = (width_mm - qr_size_mm) / 2
+            c.drawImage(qr_reader, qr_x_mm * MM, height_pt - (top_mm + qr_size_mm) * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
+            top_mm += qr_size_mm + 2
+        draw_text_lines(4, top_mm, max(width_mm - 8, 5), center=True)
+
+
+def render_rack_label_pdf(
+    data: RackLabelData, *, fields: list[dict] | None = None, width_mm: int = DEFAULT_RACK_WIDTH_MM, height_mm: int = DEFAULT_RACK_HEIGHT_MM
+) -> bytes:
+    _register_pdf_fonts()
+    fields = fields if fields is not None else DEFAULT_FIELDS_RACK
+    width_pt, height_pt = width_mm * MM, height_mm * MM
+    buf = BytesIO()
+    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
+    _draw_rack_label_page(c, data, fields, width_mm, height_mm)
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def render_rack_labels_pdf_batch(
+    items: list[RackLabelData], *, fields: list[dict] | None = None, width_mm: int = DEFAULT_RACK_WIDTH_MM, height_mm: int = DEFAULT_RACK_HEIGHT_MM
+) -> bytes:
+    _register_pdf_fonts()
+    fields = fields if fields is not None else DEFAULT_FIELDS_RACK
+    width_pt, height_pt = width_mm * MM, height_mm * MM
+    buf = BytesIO()
+    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
+    for data in items:
+        _draw_rack_label_page(c, data, fields, width_mm, height_mm)
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+RACK_TYPE_LABELS = {"roll": "Рулонный", "strip": "Штрипсовый"}
+
+PREVIEW_DATA_RACK = RackLabelData(
+    location_code="Р-3-07",
+    warehouse_name="Основной склад",
+    rack_type_label="Рулонный",
+    shelf=7,
+    cell=None,
+)

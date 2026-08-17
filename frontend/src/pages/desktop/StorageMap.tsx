@@ -45,6 +45,7 @@ import { listColors, listManufacturers, listMaterials, listThicknesses } from ".
 import DictAutoComplete from "../../components/DictAutoComplete";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { placeUnit, searchUnits, skuLabel, type MaterialUnit } from "../../api/units";
+import { printRackLabelsBatch } from "../../api/labels";
 import { useAuth } from "../../auth/AuthContext";
 
 const typeLabels: Record<RackType, string> = { roll: "рулонный", strip: "штрипсовый" };
@@ -320,22 +321,36 @@ function RacksConsole() {
                   {occupancyForSelected && ` · ${occupancyForSelected.filter((c) => c.unit).length} из ${occupancyForSelected.length} ячеек занято`}
                 </Typography.Text>
               </div>
-              {canManage && (
+              <Space>
                 <Button
                   size="small"
-                  onClick={() => {
-                    setEditingRack(selectedRack);
-                    editRackForm.setFieldsValue({
-                      code: selectedRack.code,
-                      type: selectedRack.type,
-                      shelf_count: selectedRack.shelf_count,
-                      warehouse_id: selectedRack.warehouse_id,
-                    });
-                  }}
+                  disabled={!occupancyForSelected || occupancyForSelected.length === 0}
+                  onClick={() =>
+                    printRackLabelsBatch(
+                      selectedRack.id,
+                      (occupancyForSelected ?? []).map((c) => ({ shelf: c.shelf, cell: c.cell, location_code: c.location_code })),
+                    )
+                  }
                 >
-                  Изменить параметры
+                  Печать этикеток
                 </Button>
-              )}
+                {canManage && (
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setEditingRack(selectedRack);
+                      editRackForm.setFieldsValue({
+                        code: selectedRack.code,
+                        type: selectedRack.type,
+                        shelf_count: selectedRack.shelf_count,
+                        warehouse_id: selectedRack.warehouse_id,
+                      });
+                    }}
+                  >
+                    Изменить параметры
+                  </Button>
+                )}
+              </Space>
             </Space>
 
             {selectedRack.type === "roll" ? (

@@ -1,6 +1,8 @@
 import { apiClient } from "./client";
+import { isMobileDevice, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
 
 export type FieldSize = "sm" | "md" | "lg";
+export type LabelKind = "unit" | "rack";
 
 export interface LabelFieldConfig {
   key: string;
@@ -21,14 +23,14 @@ export interface AvailableField {
   stale_warning: boolean;
 }
 
-export const getLabelTemplate = async (): Promise<LabelTemplate> =>
-  (await apiClient.get<LabelTemplate>("/label-template")).data;
+export const getLabelTemplate = async (kind: LabelKind = "unit"): Promise<LabelTemplate> =>
+  (await apiClient.get<LabelTemplate>("/label-template", { params: { kind } })).data;
 
-export const listAvailableLabelFields = async (): Promise<AvailableField[]> =>
-  (await apiClient.get<AvailableField[]>("/label-template/available-fields")).data;
+export const listAvailableLabelFields = async (kind: LabelKind = "unit"): Promise<AvailableField[]> =>
+  (await apiClient.get<AvailableField[]>("/label-template/available-fields", { params: { kind } })).data;
 
-export const updateLabelTemplate = async (payload: LabelTemplate): Promise<LabelTemplate> =>
-  (await apiClient.patch<LabelTemplate>("/label-template", payload)).data;
+export const updateLabelTemplate = async (payload: LabelTemplate, kind: LabelKind = "unit"): Promise<LabelTemplate> =>
+  (await apiClient.patch<LabelTemplate>("/label-template", payload, { params: { kind } })).data;
 
 // Настоящий PDF, не HTML (раздел обратной связи по печати на термопринтере
 // Codex G500 — прямая печать HTML из браузера ненадёжна: драйвер может
@@ -39,8 +41,8 @@ export const updateLabelTemplate = async (payload: LabelTemplate): Promise<Label
 // лишнего клика по кнопке "Печать" внутри просмотрщика (ждём w.addEventListener
 // "load", не вызываем print() синхронно сразу после open — та же гонка,
 // что чинили для прежней HTML-версии).
-export async function previewLabelTemplate(payload: LabelTemplate): Promise<void> {
-  const { data } = await apiClient.post("/label-template/preview", payload, { responseType: "blob" });
+export async function previewLabelTemplate(payload: LabelTemplate, kind: LabelKind = "unit"): Promise<void> {
+  const { data } = await apiClient.post("/label-template/preview", payload, { params: { kind }, responseType: "blob" });
   const url = URL.createObjectURL(data as Blob);
   const w = window.open(url, "_blank");
   if (!w) return;
@@ -48,4 +50,26 @@ export async function previewLabelTemplate(payload: LabelTemplate): Promise<void
     w.focus();
     w.print();
   });
+}
+
+// Раздел про макеты для стеллажей/полок — печать этикеток мест хранения
+// (полка рулонного стеллажа, ячейка штрипсового). Тот же двойной
+// PDF/HTML путь, что у printLabelsBatch для рулонов (utils/printLabel.ts).
+export interface RackLabelCell {
+  shelf: number;
+  cell: number | null;
+  location_code: string;
+}
+
+export function printRackLabelsBatch(rackId: number, cells: RackLabelCell[]): void {
+  if (cells.length === 0) return;
+  if (isMobileDevice()) {
+    apiClient.post(`/racks/${rackId}/labels/batch/html`, { cells }, { responseType: "text" }).then(({ data }) => {
+      printHtmlDoc(data as string);
+    });
+  } else {
+    apiClient.post(`/racks/${rackId}/labels/batch`, { cells }, { responseType: "blob" }).then(({ data }) => {
+      printPdfBlob(data as Blob);
+    });
+  }
 }
