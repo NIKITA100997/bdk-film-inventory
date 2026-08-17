@@ -85,6 +85,18 @@ export async function placeUnit(unitId: number, location_code: string): Promise<
   return data;
 }
 
+export interface ReassignSkuRequest {
+  material: string;
+  color: string;
+  thickness: number;
+  manufacturer: string;
+}
+
+export async function reassignUnitSku(unitId: number, payload: ReassignSkuRequest): Promise<MaterialUnit> {
+  const { data } = await apiClient.patch<MaterialUnit>(`/units/${unitId}/reassign-sku`, payload);
+  return data;
+}
+
 export interface SplitRequest {
   separate_width_mm: number;
   new_unit_location?: string;

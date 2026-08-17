@@ -26,7 +26,7 @@ def _rule_specificity(rule: MacroZoneRule) -> int:
     return sum(1 for v in (rule.material_id, rule.color_id, rule.thickness_id, rule.manufacturer_id) if v is not None)
 
 
-def _rule_matches(rule: MacroZoneRule, sku: MaterialSku) -> bool:
+def rule_matches(rule: MacroZoneRule, sku: MaterialSku) -> bool:
     return (
         (rule.material_id is None or rule.material_id == sku.material_id)
         and (rule.color_id is None or rule.color_id == sku.color_id)
@@ -64,6 +64,26 @@ def _find_free_slot(db: Session, rack: Rack, from_shelf: int, to_shelf: int) -> 
     return None
 
 
+def rules_for_location(db: Session, location_code: str) -> list[MacroZoneRule]:
+    """Правила зонирования, действующие на конкретном адресе (раздел про
+    проверку ручного размещения — начальные остатки и явный ввод адреса
+    раньше полностью обходили правила, которые видит только автоподбор).
+    Парсит "Ш-1-04" на код стеллажа + номер полки по тому же формату, что
+    строит _find_free_slot выше."""
+    rack_code, _, shelf_str = location_code.rpartition("-")
+    if not shelf_str.isdigit():
+        return []
+    shelf = int(shelf_str)
+    rack = db.query(Rack).filter(Rack.code == rack_code).first()
+    if rack is None:
+        return []
+    return (
+        db.query(MacroZoneRule)
+        .filter(MacroZoneRule.rack_id == rack.id, MacroZoneRule.from_shelf <= shelf, MacroZoneRule.to_shelf >= shelf)
+        .all()
+    )
+
+
 def suggest_location(
     db: Session,
     *,
@@ -87,7 +107,7 @@ def suggest_location(
     racks_by_id = {r.id: r for r in racks}
 
     rules = db.query(MacroZoneRule).filter(MacroZoneRule.rack_id.in_(racks_by_id.keys())).all()
-    matching = sorted((r for r in rules if _rule_matches(r, sku)), key=_rule_specificity, reverse=True)
+    matching = sorted((r for r in rules if rule_matches(r, sku)), key=_rule_specificity, reverse=True)
 
     if not matching:
         # По требованию производства: если индивидуального правила зонирования нет,

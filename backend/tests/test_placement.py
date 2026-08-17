@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from app.models.storage import RackType
-from app.services.placement import _rule_matches, _rule_specificity, determine_rack_type
+from app.services.placement import rule_matches, _rule_specificity, determine_rack_type
 
 
 def make_sku(**overrides):
@@ -34,11 +34,11 @@ class TestDetermineRackType:
 class TestRuleMatching:
     def test_wildcard_rule_matches_anything(self):
         sku = make_sku()
-        assert _rule_matches(make_rule(), sku) is True
+        assert rule_matches(make_rule(), sku) is True
 
     def test_rule_with_wrong_material_does_not_match(self):
         sku = make_sku(material_id=1)
-        assert _rule_matches(make_rule(material_id=2), sku) is False
+        assert rule_matches(make_rule(material_id=2), sku) is False
 
     def test_specificity_counts_non_null_fields(self):
         assert _rule_specificity(make_rule()) == 0

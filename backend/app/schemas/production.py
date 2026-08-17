@@ -134,6 +134,8 @@ class ProductionTaskLineIssuedUnitOut(BaseModel):
     id: int
     width_mm: float
     length_m: float
+    material_sku_id: int
+    parent_id: int | None
 
 
 class ProductionTaskLineOut(BaseModel):

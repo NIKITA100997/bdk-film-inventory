@@ -24,6 +24,7 @@ import { isAxiosError } from "axios";
 import {
   searchUnits,
   receiveAndAutoPlace,
+  placeUnit,
   printLabel,
   writeOffUnit,
   deleteUnit,
@@ -36,7 +37,7 @@ import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { getStockSummary, type StockSummaryLine } from "../../api/reports";
 import { listAbcClasses, recomputeAbc } from "../../api/abc";
 import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionaries";
-import { listRacks } from "../../api/storage";
+import { listRacks, suggestLocation } from "../../api/storage";
 import { listAreas } from "../../api/areas";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { useAuth } from "../../auth/AuthContext";
@@ -72,6 +73,7 @@ export default function MaterialsExplorer() {
   const qc = useQueryClient();
   const canManageAbc = !!user?.is_superuser || !!user?.permissions.includes("calc_settings.manage");
   const canWriteOff = !!user?.is_superuser || !!user?.permissions.includes("units.writeoff");
+  const canPlace = !!user?.is_superuser || !!user?.permissions.includes("units.place");
   const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
 
   const [viewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
@@ -404,6 +406,7 @@ export default function MaterialsExplorer() {
                 title: "Адрес/участок",
                 render: (_, u) => {
                   const rack = rackForLocation(u.location_code);
+                  const placeable = canPlace && !u.location_code && (u.status === "Принят" || u.status === "На_хранении");
                   return (
                     <Space size={6}>
                       <span>{u.location_code ?? (u.area ? areaLabel(u.area) : null) ?? "—"}</span>
@@ -417,6 +420,7 @@ export default function MaterialsExplorer() {
                           на стеллаже →
                         </a>
                       )}
+                      {placeable && <SuggestPlaceButton unit={u} />}
                     </Space>
                   );
                 },
@@ -558,5 +562,44 @@ export default function MaterialsExplorer() {
         </Form>
       </Modal>
     </Space>
+  );
+}
+
+/** Раздел про кнопку "подставить место" — единицы без адреса (зависли
+ * после возврата/резки/приёмки без места) уже видны в общем списке
+ * "Остатки", но раньше место можно было назначить только через отдельный
+ * "Без места" на "Стеллажах" или карточку единицы. Тот же автоподбор по
+ * правилам зонирования (suggestLocation), что и там, прямо в строке
+ * таблицы. */
+function SuggestPlaceButton({ unit }: { unit: MaterialUnit }) {
+  const qc = useQueryClient();
+  const suggestion = useQuery({
+    queryKey: ["suggest-location", "materials-explorer", unit.id],
+    queryFn: () => suggestLocation({ material_sku_id: unit.material_sku.id, width_mm: unit.width_mm, parent_id: unit.parent_id }),
+  });
+  const placeMutation = useMutation({
+    mutationFn: (locationCode: string) => placeUnit(unit.id, locationCode),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["materials-explorer", "units"] });
+      qc.invalidateQueries({ queryKey: ["units-unplaced"] });
+      message.success(`№${unit.id} размещён`);
+    },
+    onError: () => message.error("Не удалось разместить"),
+  });
+
+  if (!suggestion.data) return null;
+  return (
+    <Button
+      size="small"
+      type="link"
+      style={{ padding: 0 }}
+      loading={placeMutation.isPending}
+      onClick={(e) => {
+        e.stopPropagation();
+        placeMutation.mutate(suggestion.data!);
+      }}
+    >
+      Подставить {suggestion.data}
+    </Button>
   );
 }

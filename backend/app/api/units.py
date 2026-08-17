@@ -24,6 +24,7 @@ from app.schemas.units import (
     IssueResult,
     MaterialUnitOut,
     PlaceRequest,
+    ReassignSkuRequest,
     ReceiveRequest,
     ReturnPreviewOut,
     ReturnRequest,
@@ -35,6 +36,7 @@ from app.schemas.units import (
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_sku, find_sku
 from app.services.events import record_event
+from app.services.placement import rule_matches, rules_for_location
 from app.services.production import calc_default_strip_width, compute_expected_return_length_m
 from app.services.purchasing import auto_close_on_receipt
 from app.services.splitting import cut_to_length, split_lengthwise
@@ -64,6 +66,23 @@ def _validate_matches_task_line(db: Session, task_line_id: int, sku: MaterialSku
         )
 
 
+def _validate_zone_rule(db: Session, location_code: str | None, sku: MaterialSku) -> None:
+    """Правило зонирования на конкретном адресе — не только подсказка для
+    автоподбора, но и ограничение при явном вводе адреса руками (раздел
+    про начальные остатки — до этой проверки можно было поставить любую
+    плёнку на полку, закреплённую правилом за другой). Полки без единого
+    правила остаются открытой зоной — ограничение только там, где правило
+    реально задано и ни одно не подходит."""
+    if not location_code:
+        return
+    rules = rules_for_location(db, location_code)
+    if rules and not any(rule_matches(r, sku) for r in rules):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Полка {location_code} закреплена правилом зонирования за другой плёнкой",
+        )
+
+
 def _with_sku(query: Query) -> Query:
     """Единая точка eager-load цепочки material_sku → материал/цвет/толщина/
     производитель, чтобы сериализация MaterialUnitOut не била по БД N+1 раз."""
@@ -87,6 +106,7 @@ def receive(
     sku = find_or_create_sku(
         db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
     )
+    _validate_zone_rule(db, payload.location_code, sku)
 
     created: list[MaterialUnit] = []
     for _ in range(payload.quantity):
@@ -242,6 +262,7 @@ def place_unit(
     unit = _get_storable_unit(db, unit_id)
     if unit.status not in (UnitStatus.PRINYAT, UnitStatus.NA_KHRANENII):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Единицу нельзя разместить в её текущем статусе")
+    _validate_zone_rule(db, payload.location_code, unit.material_sku)
     from_cell = unit.location_code
     unit.status = UnitStatus.NA_KHRANENII
     unit.location_code = payload.location_code
@@ -253,6 +274,24 @@ def place_unit(
         from_cell=from_cell,
         to_cell=payload.location_code,
     )
+    db.commit()
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+
+
+@router.patch("/{unit_id}/reassign-sku", response_model=MaterialUnitOut)
+def reassign_unit_sku(
+    unit_id: int,
+    payload: ReassignSkuRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("materials.manage")),
+) -> MaterialUnit:
+    """Исправление ошибки ввода (раздел про карточку материала) — сменить
+    номенклатуру уже существующей единицы без создания новой записи."""
+    unit = _get_storable_unit(db, unit_id)
+    sku = find_or_create_sku(
+        db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
+    )
+    unit.material_sku_id = sku.id
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, Select, Row, Col, Statistic, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Typography, Empty, Upload, Image, Checkbox, message } from "antd";
+import { Card, Select, Row, Col, Statistic, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Form, Typography, Empty, Upload, Image, Checkbox, message } from "antd";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
@@ -21,7 +21,8 @@ import {
   type AnalogEntry,
 } from "../../api/dictionaries";
 import { getMaterialCard } from "../../api/materialCards";
-import { skuLabel, type MaterialSku } from "../../api/units";
+import { reassignUnitSku, skuLabel, type MaterialSku, type MaterialUnit } from "../../api/units";
+import DictAutoComplete from "../../components/DictAutoComplete";
 import { useAuth } from "../../auth/AuthContext";
 
 interface MaterialCardPrefill {
@@ -210,6 +211,7 @@ export default function MaterialCard() {
   const [skuId, setSkuId] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [analogsOpen, setAnalogsOpen] = useState(false);
+  const [reassignTarget, setReassignTarget] = useState<MaterialUnit | null>(null);
   const [editing, setEditing] = useState<MaterialSkuUpdate>({});
   // Архивные/без остатка позиции видны в выборе только тем, кто может их
   // редактировать (объединение "Остатков" и бывшей "Номенклатуры" по итогам
@@ -415,6 +417,24 @@ export default function MaterialCard() {
                 { title: "Ширина×длина", render: (_, u) => `${u.width_mm}×${u.length_m}` },
                 { title: "Статус", dataIndex: "status" },
                 { title: "Адрес/участок", render: (_, u) => u.location_code ?? u.area ?? "—" },
+                ...(canEdit
+                  ? [
+                      {
+                        title: "",
+                        render: (_: unknown, u: MaterialUnit) => (
+                          <Button
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReassignTarget(u);
+                            }}
+                          >
+                            Изменить
+                          </Button>
+                        ),
+                      },
+                    ]
+                  : []),
               ]}
             />
           </Card>
@@ -442,6 +462,66 @@ export default function MaterialCard() {
       {analogsOpen && selectedSku && (
         <SkuAnalogsModal sku={selectedSku} allSkus={skusQuery.data ?? []} onClose={() => setAnalogsOpen(false)} canEdit={canEdit} />
       )}
+
+      {reassignTarget && <ReassignSkuModal unit={reassignTarget} onClose={() => setReassignTarget(null)} />}
     </Space>
+  );
+}
+
+/** Исправление ошибки ввода (раздел про карточку материала) — единица
+ * попала не в ту номенклатуру (например, при внесении начальных
+ * остатков перепутали материал/цвет), а пересоздавать её вручную —
+ * терять id и историю движений. Меняет только material_sku_id, единица
+ * физически никуда не переезжает. */
+function ReassignSkuModal({ unit, onClose }: { unit: MaterialUnit; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form] = Form.useForm<{ material: string; color: string; thickness: number; manufacturer: string }>();
+
+  const reassignMutation = useMutation({
+    mutationFn: (v: { material: string; color: string; thickness: number; manufacturer: string }) =>
+      reassignUnitSku(unit.id, v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["material-card"] });
+      qc.invalidateQueries({ queryKey: ["materials-explorer"] });
+      message.success(`Номенклатура единицы №${unit.id} изменена`);
+      onClose();
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить номенклатуру")),
+  });
+
+  return (
+    <Modal title={`Изменить номенклатуру — единица №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
+      <Typography.Paragraph type="secondary">
+        Исправление ошибки ввода — единица остаётся той же (id, история движений, адрес не меняются), меняется только
+        привязка к материалу/цвету/толщине/производителю.
+      </Typography.Paragraph>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{
+          material: unit.material_sku.material.name,
+          color: unit.material_sku.color.name,
+          thickness: unit.material_sku.thickness.value_mm,
+          manufacturer: unit.material_sku.manufacturer.name,
+        }}
+        onFinish={(v) => reassignMutation.mutate(v)}
+      >
+        <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
+          <DictAutoComplete kind="materials" />
+        </Form.Item>
+        <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
+          <DictAutoComplete kind="colors" />
+        </Form.Item>
+        <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
+          <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
+          <DictAutoComplete kind="manufacturers" />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" block loading={reassignMutation.isPending}>
+          Сохранить
+        </Button>
+      </Form>
+    </Modal>
   );
 }

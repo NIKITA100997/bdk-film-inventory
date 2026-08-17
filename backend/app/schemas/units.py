@@ -59,6 +59,19 @@ class PlaceRequest(BaseModel):
     location_code: str
 
 
+class ReassignSkuRequest(BaseModel):
+    """Исправление ошибки ввода (раздел про карточку материала) — сменить
+    номенклатуру уже существующей единицы, когда при вводе (например,
+    начальных остатков) выбрали не тот материал/цвет/толщину/
+    производителя. Единица физически никуда не переезжает, id и история
+    движений сохраняются."""
+
+    material: str
+    color: str
+    thickness: float
+    manufacturer: str
+
+
 class SplitRequest(BaseModel):
     separate_width_mm: float = Field(gt=0)
     new_unit_location: str | None = None

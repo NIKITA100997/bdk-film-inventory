@@ -61,6 +61,8 @@ export interface ProductionTaskLineIssuedUnit {
   id: number;
   width_mm: number;
   length_m: number;
+  material_sku_id: number;
+  parent_id: number | null;
 }
 
 export interface ProductionTaskLine {

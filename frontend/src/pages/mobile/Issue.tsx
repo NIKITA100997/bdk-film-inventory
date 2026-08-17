@@ -9,7 +9,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Row,
   Select,
   Space,
@@ -76,6 +75,32 @@ interface QueueSelection {
   task: ProductionTask;
   line: ProductionTaskLine;
   assignment?: ProductionTaskLineAssignment;
+}
+
+type QueueRowData = { task: ProductionTask; line: ProductionTaskLine; assignment?: ProductionTaskLineAssignment; overdue?: boolean };
+
+/** Одна и та же плёнка/ширина на нескольких заданиях участка (раздел про
+ * объединение требований) — раньше на очереди выдачи это были никак не
+ * связанные строки, хотя по факту это один и тот же штрипс, который
+ * нужно резать под несколько заданий сразу. Группировка только
+ * визуальная: сама выдача остаётся построчной (каждая линия — свой
+ * список/своя точная длина), просто видно, что резать один раз на
+ * несколько назначений, а не отдельно на каждое. */
+function groupQueueRows(rows: QueueRowData[]) {
+  const order: string[] = [];
+  const groups = new Map<string, { key: string; material: string; color: string; thickness: number; width: number; rows: QueueRowData[] }>();
+  for (const r of rows) {
+    const width = r.line.strip_width_mm || r.line.width_mm;
+    const key = `${r.task.area}|${r.line.material}|${r.line.color}|${r.line.thickness}|${width}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { key, material: r.line.material, color: r.line.color, thickness: r.line.thickness, width, rows: [] };
+      groups.set(key, g);
+      order.push(key);
+    }
+    g.rows.push(r);
+  }
+  return order.map((k) => groups.get(k)!);
 }
 
 interface IssuedResult {
@@ -409,6 +434,29 @@ export default function Issue() {
     );
   };
 
+  const renderQueueRows = (rows: QueueRowData[], variant: "today" | "week") =>
+    groupQueueRows(rows).map((g) =>
+      g.rows.length > 1 ? (
+        <div
+          key={g.key}
+          style={{
+            marginBottom: 12,
+            padding: "10px 12px 2px",
+            borderRadius: 10,
+            background: "#FBF6EE",
+            border: "1px dashed #D8B98A",
+          }}
+        >
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#8A6A2F", marginBottom: 8 }}>
+            🧩 Одна плёнка на {g.rows.length} задания: {g.material}, {g.color}, {g.thickness} мм — штрипс {g.width} мм
+          </div>
+          {g.rows.map((r) => queueRow(r, variant))}
+        </div>
+      ) : (
+        queueRow(g.rows[0], variant)
+      ),
+    );
+
   return (
     <div>
       <Typography.Title level={4}>Выдача участку</Typography.Title>
@@ -463,7 +511,7 @@ export default function Issue() {
           {filteredAssignmentRows.length === 0 ? (
             <Typography.Text type="secondary">Ничего не распределено на сегодня по выбранному фильтру.</Typography.Text>
           ) : (
-            filteredAssignmentRows.map((r) => queueRow(r, "today"))
+            renderQueueRows(filteredAssignmentRows, "today")
           )}
 
           <div style={{ margin: "20px 0 8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -473,7 +521,7 @@ export default function Issue() {
           {filteredWeekRows.length === 0 ? (
             <Typography.Text type="secondary">Остатка по заданиям, не распределённым на сегодня, нет.</Typography.Text>
           ) : (
-            filteredWeekRows.map((r) => queueRow(r, "week"))
+            renderQueueRows(filteredWeekRows, "week")
           )}
         </Col>
 
@@ -885,43 +933,103 @@ export default function Issue() {
 
 /** Приём возврата прямо в «Выдано по заданиям» — там же, где плёнку
  * выдавали, а не в отдельной карточке единицы (раздел про единый процесс
- * возврата). Без формы и ручного ввода длины: остаток по расчёту (хорошие
- * и брак за смену уже учтены) прописывается автоматически, оператору
- * остаётся только подтвердить — вводить/поправлять число негде. */
+ * возврата). Длина остатка по расчёту (хорошие и брак за смену уже
+ * учтены) прописывается автоматически — вводить/поправлять число негде.
+ * Диалог сразу же предлагает место по правилу зонирования (если оно
+ * есть) и позволяет указать полку вручную — приём и размещение одним
+ * действием, а не отдельным походом на «Стеллажи → Без места». */
 function AcceptReturnButton({ unit }: { unit: ProductionTaskLineIssuedUnit }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button size="small" type="primary" onClick={() => setOpen(true)}>
+        Принять №{unit.id}
+      </Button>
+      {open && <AcceptReturnModal unit={unit} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUnit; onClose: () => void }) {
   const qc = useQueryClient();
+  const [locationCode, setLocationCode] = useState("");
+  const [locationTouched, setLocationTouched] = useState(false);
+
   const previewQuery = useQuery({ queryKey: ["return-preview", unit.id], queryFn: () => getReturnPreview(unit.id) });
+  const suggestionQuery = useQuery({
+    queryKey: ["suggest-location", "accept-return", unit.id],
+    queryFn: () => suggestLocation({ material_sku_id: unit.material_sku_id, width_mm: unit.width_mm, parent_id: unit.parent_id }),
+  });
+
+  useEffect(() => {
+    if (suggestionQuery.data && !locationTouched) setLocationCode(suggestionQuery.data);
+  }, [suggestionQuery.data, locationTouched]);
+
+  const expected = previewQuery.data?.expected_return_length_m;
 
   const acceptMutation = useMutation({
-    mutationFn: () =>
-      returnUnit(unit.id, { actual_length_m: previewQuery.data?.expected_return_length_m ?? unit.length_m }),
-    onSuccess: (u) => {
+    mutationFn: async () => {
+      const returned = await returnUnit(unit.id, { actual_length_m: expected ?? unit.length_m });
+      if (locationCode.trim()) await placeUnit(returned.id, locationCode.trim());
+      return { returned, placed: !!locationCode.trim() };
+    },
+    onSuccess: ({ returned, placed }) => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       qc.invalidateQueries({ queryKey: ["units-unplaced"] });
+      qc.invalidateQueries({ queryKey: ["rack-occupancy"] });
       message.success(
-        `Остаток №${u.id} (${u.length_m} м) принят на склад — теперь в «Стеллажи → Без места» для размещения и печати новой бирки.`,
+        <>
+          №{returned.id} принят{placed ? ` и размещён: ${locationCode.trim()}` : ""} —{" "}
+          <a onClick={() => printLabel(returned.id)}>печать бирки</a>
+        </>,
       );
+      onClose();
     },
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось принять возврат")),
   });
 
-  const expected = previewQuery.data?.expected_return_length_m;
-
   return (
-    <Popconfirm
-      title={`Принять №${unit.id} на склад?`}
-      description={
-        expected != null
-          ? `Остаток по расчёту: ${expected} м (хорошие и брак уже учтены) — впишется автоматически.`
-          : "Расчёт остатка недоступен — вернётся как есть, без изменения длины."
-      }
-      okText="Принять"
-      cancelText="Отмена"
-      onConfirm={() => acceptMutation.mutate()}
-    >
-      <Button size="small" type="primary" loading={acceptMutation.isPending || previewQuery.isLoading}>
-        Принять №{unit.id}
+    <Modal title={`Принять №${unit.id} на склад`} open onCancel={onClose} footer={null} destroyOnHidden>
+      {expected != null ? (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="info"
+          showIcon
+          message={`Остаток по расчёту: ${expected} м (хорошие и брак уже учтены) — впишется автоматически.`}
+        />
+      ) : (
+        !previewQuery.isLoading && (
+          <Alert
+            style={{ marginBottom: 16 }}
+            type="warning"
+            showIcon
+            message="Расчёт остатка недоступен — вернётся как есть, без изменения длины."
+          />
+        )
+      )}
+
+      {suggestionQuery.isLoading ? null : suggestionQuery.data ? (
+        <Alert style={{ marginBottom: 8 }} type="success" showIcon message={`По правилу зонирования подходит: ${suggestionQuery.data}`} />
+      ) : (
+        <Alert style={{ marginBottom: 8 }} type="warning" showIcon message="Нет подходящего правила зонирования — укажите полку вручную" />
+      )}
+      <Typography.Text strong>Куда поместить остаток (необязательно)</Typography.Text>
+      <Input
+        style={{ marginTop: 8, marginBottom: 16 }}
+        placeholder="Например, Ш-1-04 — оставьте пустым, если пока не знаете"
+        value={locationCode}
+        onChange={(e) => {
+          setLocationTouched(true);
+          setLocationCode(e.target.value);
+        }}
+      />
+
+      <Button type="primary" block loading={acceptMutation.isPending} onClick={() => acceptMutation.mutate()}>
+        {locationCode.trim() ? "Принять и разместить" : "Принять без места"}
       </Button>
-    </Popconfirm>
+      <Button block style={{ marginTop: 8 }} onClick={onClose}>
+        Отмена
+      </Button>
+    </Modal>
   );
 }

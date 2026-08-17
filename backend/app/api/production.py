@@ -124,7 +124,13 @@ def _task_line_out(
         ],
         issued_length_m=issued_length_m,
         issued_units=[
-            ProductionTaskLineIssuedUnitOut(id=u.id, width_mm=float(u.width_mm), length_m=float(u.length_m))
+            ProductionTaskLineIssuedUnitOut(
+                id=u.id,
+                width_mm=float(u.width_mm),
+                length_m=float(u.length_m),
+                material_sku_id=u.material_sku_id,
+                parent_id=u.parent_id,
+            )
             for u in (issued_units or [])
         ],
     )
