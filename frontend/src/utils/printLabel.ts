@@ -36,6 +36,18 @@ export function printPdfBlob(blob: Blob): void {
 }
 
 export function printHtmlDoc(html: string): void {
+  // Blob URL + src (тот же приём, что уже проверенно работает в
+  // printPdfBlob выше), а не document.open/write/close — с document.write
+  // на планшете при печати пачкой в несколько страниц (раздел про печать
+  // этикеток с планшета — "не прогружает") воспроизводимо ловили гонку:
+  // iframe успевал сгенерировать свой первый пустой "load" (about:blank)
+  // и печать вызывалась раньше, чем содержимое реально дописано и
+  // отрисовано, — на маленьком одиночном документе почти не заметно, на
+  // пачке из полутора десятков страниц с QR-кодами вылезало стабильно.
+  // Настоящая навигация на blob-URL такой гонки не даёт: "load" фактически
+  // относится к готовому документу.
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
   iframe.style.right = "0";
@@ -43,15 +55,14 @@ export function printHtmlDoc(html: string): void {
   iframe.style.width = "0";
   iframe.style.height = "0";
   iframe.style.border = "0";
+  iframe.src = url;
   document.body.appendChild(iframe);
   iframe.onload = () => {
     iframe.contentWindow?.focus();
     iframe.contentWindow?.print();
   };
-  const doc = iframe.contentDocument;
-  if (!doc) return;
-  doc.open();
-  doc.write(html);
-  doc.close();
-  setTimeout(() => document.body.removeChild(iframe), 60000);
+  setTimeout(() => {
+    document.body.removeChild(iframe);
+    URL.revokeObjectURL(url);
+  }, 60000);
 }
