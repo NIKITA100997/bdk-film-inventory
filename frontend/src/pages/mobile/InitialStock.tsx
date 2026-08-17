@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Alert, Button, Card, Form, InputNumber, Select, Typography, List, Row, Col, Statistic, message } from "antd";
+import { Alert, Button, Card, Form, InputNumber, Select, Space, Typography, List, Row, Col, Statistic, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { receiveUnits, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
+import { receiveUnits, printLabel, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import { listRacks, getRackOccupancy } from "../../api/storage";
 import DictAutoComplete from "../../components/DictAutoComplete";
 
@@ -189,14 +189,25 @@ export default function InitialStock() {
                 bordered
                 dataSource={sessionUnits}
                 renderItem={(u) => (
-                  <List.Item>
+                  <List.Item
+                    actions={[
+                      <Button key="print" size="small" onClick={() => printLabel(u.id)}>
+                        Печать
+                      </Button>,
+                    ]}
+                  >
                     № {u.id} — {skuLabel(u.material_sku)}, {u.width_mm}×{u.length_m} — {u.location_code}
                   </List.Item>
                 )}
               />
-              <Button block style={{ marginTop: 16 }} onClick={() => setFinished(true)}>
-                Завершить стеллаж
-              </Button>
+              <Space style={{ width: "100%", marginTop: 16 }} direction="vertical">
+                <Button block onClick={() => printLabelsBatch(sessionUnits.map((u) => u.id))}>
+                  Печать этикеток на всё внесённое
+                </Button>
+                <Button block onClick={() => setFinished(true)}>
+                  Завершить стеллаж
+                </Button>
+              </Space>
             </>
           )}
         </>
