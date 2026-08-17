@@ -26,6 +26,7 @@ import {
   receiveAndAutoPlace,
   placeUnit,
   printLabel,
+  reassignUnitSku,
   writeOffUnit,
   deleteUnit,
   skuLabel,
@@ -74,6 +75,7 @@ export default function MaterialsExplorer() {
   const canManageAbc = !!user?.is_superuser || !!user?.permissions.includes("calc_settings.manage");
   const canWriteOff = !!user?.is_superuser || !!user?.permissions.includes("units.writeoff");
   const canPlace = !!user?.is_superuser || !!user?.permissions.includes("units.place");
+  const canEditSku = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
   const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
 
   const [viewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
@@ -97,6 +99,7 @@ export default function MaterialsExplorer() {
   const [createPositionOpen, setCreatePositionOpen] = useState(false);
   const [createUnitOpen, setCreateUnitOpen] = useState(false);
   const [writeOffOpen, setWriteOffOpen] = useState(false);
+  const [reassignTarget, setReassignTarget] = useState<MaterialUnit | null>(null);
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
   const [positionForm] = Form.useForm<MaterialSkuCreate>();
   const [unitForm] = Form.useForm<UnitLineValues>();
@@ -427,20 +430,25 @@ export default function MaterialsExplorer() {
               },
               {
                 title: "",
-                render: (_, u) =>
-                  canWriteOff && (
-                    <Button
-                      size="small"
-                      danger
-                      loading={deleteUnitMutation.isPending}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteUnitMutation.mutate(u.id);
-                      }}
-                    >
-                      {user?.is_superuser ? "Удалить" : "Запросить удаление"}
-                    </Button>
-                  ),
+                render: (_, u) => (
+                  <Space size={4} onClick={(e) => e.stopPropagation()}>
+                    {canEditSku && (
+                      <Button size="small" onClick={() => setReassignTarget(u)}>
+                        Изменить
+                      </Button>
+                    )}
+                    {canWriteOff && (
+                      <Button
+                        size="small"
+                        danger
+                        loading={deleteUnitMutation.isPending}
+                        onClick={() => deleteUnitMutation.mutate(u.id)}
+                      >
+                        {user?.is_superuser ? "Удалить" : "Запросить удаление"}
+                      </Button>
+                    )}
+                  </Space>
+                ),
               },
             ]}
           />
@@ -561,6 +569,8 @@ export default function MaterialsExplorer() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {reassignTarget && <ReassignSkuModal unit={reassignTarget} onClose={() => setReassignTarget(null)} />}
     </Space>
   );
 }
@@ -601,5 +611,62 @@ function SuggestPlaceButton({ unit }: { unit: MaterialUnit }) {
     >
       Подставить {suggestion.data}
     </Button>
+  );
+}
+
+/** Исправление ошибки ввода прямо из "Остатков" (раздел про карточку
+ * материала) — та же форма, что и в "Карточке материала", но здесь, где
+ * оператор реально видит единицу и её ошибочную номенклатуру в общем
+ * списке, а не только на отдельном админском экране. */
+function ReassignSkuModal({ unit, onClose }: { unit: MaterialUnit; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form] = Form.useForm<{ material: string; color: string; thickness: number; manufacturer: string }>();
+
+  const reassignMutation = useMutation({
+    mutationFn: (v: { material: string; color: string; thickness: number; manufacturer: string }) =>
+      reassignUnitSku(unit.id, v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["materials-explorer"] });
+      qc.invalidateQueries({ queryKey: ["material-card"] });
+      message.success(`Номенклатура единицы №${unit.id} изменена`);
+      onClose();
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить номенклатуру")),
+  });
+
+  return (
+    <Modal title={`Изменить номенклатуру — единица №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
+      <Typography.Paragraph type="secondary">
+        Исправление ошибки ввода — единица остаётся той же (id, история движений, адрес не меняются), меняется только
+        привязка к материалу/цвету/толщине/производителю.
+      </Typography.Paragraph>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{
+          material: unit.material_sku.material.name,
+          color: unit.material_sku.color.name,
+          thickness: unit.material_sku.thickness.value_mm,
+          manufacturer: unit.material_sku.manufacturer.name,
+        }}
+        onFinish={(v) => reassignMutation.mutate(v)}
+      >
+        <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
+          <DictAutoComplete kind="materials" />
+        </Form.Item>
+        <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
+          <DictAutoComplete kind="colors" />
+        </Form.Item>
+        <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
+          <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
+          <DictAutoComplete kind="manufacturers" />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" block loading={reassignMutation.isPending}>
+          Сохранить
+        </Button>
+      </Form>
+    </Modal>
   );
 }
