@@ -6,7 +6,8 @@ from app.models.storage import Rack, MacroZoneRule, RackType, Warehouse
 from app.models.inventory import InventorySession, InventorySessionParticipant, InventoryScopeType, InventoryStatus
 from app.models.abc import WidthAbcClass, WidthClass, CalcSettings
 from app.models.units import MaterialUnit, UnitStatus
-from app.models.events import MaterialEvent, EventType, WriteOffReason
+from app.models.events import MaterialEvent, EventType
+from app.models.write_off_reasons import WriteOffReasonEntry
 from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.labels import LabelTemplate
 from app.models.production import (
@@ -46,7 +47,7 @@ __all__ = [
     "UnitStatus",
     "MaterialEvent",
     "EventType",
-    "WriteOffReason",
+    "WriteOffReasonEntry",
     "PurchaseRequest",
     "Supplier",
     "LabelTemplate",

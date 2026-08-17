@@ -8,12 +8,11 @@ ProductionTaskLine; распределение по конкретным лин�
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base
-from app.models.events import WriteOffReason
 
 
 class ProductionLine(Base):
@@ -157,9 +156,7 @@ class ProductionTaskLineReport(Base):
 
     good_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
     defect_pieces: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
-    defect_reason: Mapped[WriteOffReason | None] = mapped_column(
-        Enum(WriteOffReason, name="write_off_reason", create_type=False), nullable=True
-    )
+    defect_reason: Mapped[str | None] = mapped_column(ForeignKey("write_off_reasons.code"), nullable=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     reported_by: Mapped[int] = mapped_column(ForeignKey("users.id"))

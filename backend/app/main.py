@@ -21,6 +21,7 @@ from app.api.storage import router as storage_router
 from app.api.suppliers import router as suppliers_router
 from app.api.units import router as units_router
 from app.api.users import router as users_router
+from app.api.write_off_reasons import router as write_off_reasons_router
 from app.core.config import settings
 
 app = FastAPI(title="БДК — учёт плёнки")
@@ -59,6 +60,7 @@ app.include_router(supplier_orders_router)
 app.include_router(suppliers_router)
 app.include_router(users_router)
 app.include_router(roles_router)
+app.include_router(write_off_reasons_router)
 
 
 @app.get("/health")

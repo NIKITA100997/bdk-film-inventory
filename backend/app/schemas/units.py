@@ -1,8 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from app.models.events import EventType, WriteOffReason
+from app.models.events import EventType
 from app.models.units import UnitStatus
 from app.schemas.dictionaries import MaterialSkuOut
 
@@ -44,18 +44,15 @@ class MaterialUnitOut(BaseModel):
 
 
 class WriteOffRequest(BaseModel):
-    """CUTTING_WASTE зарезервирована для автоматического списания отхода при
-    раскрое (split_unit) — вручную через это тело её выбрать нельзя."""
+    """reason — code причины из write_off_reasons (раздел про
+    администрирование причин). Системные причины (is_system=True,
+    например "Отход при раскрое" — выставляется только автоматически
+    при раскрое, split_unit) вручную через это тело недоступны, проверка
+    в api/units.py::write_off (нужен доступ к БД, не делается на уровне
+    схемы)."""
 
-    reason: WriteOffReason
+    reason: str
     note: str | None = None
-
-    @field_validator("reason")
-    @classmethod
-    def _no_cutting_waste(cls, v: WriteOffReason) -> WriteOffReason:
-        if v == WriteOffReason.CUTTING_WASTE:
-            raise ValueError("Причина 'Отход при раскрое' выставляется автоматически, не вручную")
-        return v
 
 
 class PlaceRequest(BaseModel):
@@ -159,5 +156,5 @@ class UnitEventOut(BaseModel):
     from_cell: str | None
     to_cell: str | None
     quantity_delta_m: float
-    write_off_reason: WriteOffReason | None
+    write_off_reason: str | None
     write_off_note: str | None

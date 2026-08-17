@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { AreaValue, WriteOffReasonValue } from "./units";
+import type { AreaValue } from "./units";
 import type { DeleteResult } from "./deletionRequests";
 
 export interface ProductionLine {
@@ -117,7 +117,7 @@ export interface ProductionTaskLineReport {
   assignment_id: number | null;
   good_pieces: number;
   defect_pieces: number;
-  defect_reason: WriteOffReasonValue | null;
+  defect_reason: string | null;
   note: string | null;
   reported_by: number;
   reported_at: string;
@@ -127,7 +127,7 @@ export interface ProductionTaskLineReportCreate {
   assignment_id: number;
   good_pieces: number;
   defect_pieces: number;
-  defect_reason?: WriteOffReasonValue;
+  defect_reason?: string;
   note?: string;
 }
 

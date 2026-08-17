@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tabs, Button, Input, InputNumber, Tag, Space, Popconfirm, Typography, Empty, Checkbox, message } from "antd";
+import { Card, Tabs, Button, Input, InputNumber, Tag, Space, Popconfirm, Typography, Empty, Checkbox, Modal, Form, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import {
@@ -13,6 +13,12 @@ import {
   type DuplicateCandidate,
   type ThicknessEntry,
 } from "../../api/dictionaries";
+import {
+  listAllWriteOffReasons,
+  createWriteOffReason,
+  updateWriteOffReason,
+  type WriteOffReasonEntry,
+} from "../../api/writeOffReasons";
 
 function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
   const qc = useQueryClient();
@@ -203,6 +209,146 @@ function ThicknessTab() {
   );
 }
 
+/** Причины брака/списания (раздел про администрирование причин) — раньше
+ * жёсткий enum, теперь создаваемая администратором сущность, тот же
+ * паттерн, что «Участки» (AreaAdmin.tsx): название редактируется, code
+ * (стабильный идентификатор в базе, на него ссылаются MaterialEvent и
+ * ProductionTaskLineReport) выводится сервером из названия и не
+ * меняется. В отличие от остальных вкладок этого экрана — с созданием:
+ * причины не заводятся неявно через свободный ввод где-то ещё, только
+ * явным действием тут. "Отход при раскрое" — системная (проставляется
+ * только автоматически при продольной резке), без кнопок
+ * переименовать/архивировать. */
+function WriteOffReasonsTab() {
+  const qc = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm] = Form.useForm<{ name: string }>();
+  const [renaming, setRenaming] = useState<WriteOffReasonEntry | null>(null);
+  const [renameForm] = Form.useForm<{ name: string }>();
+  const [showArchived, setShowArchived] = useState(false);
+
+  const reasonsQuery = useQuery({ queryKey: ["write-off-reasons", "all"], queryFn: listAllWriteOffReasons });
+
+  const createMutation = useMutation({
+    mutationFn: (name: string) => createWriteOffReason(name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["write-off-reasons"] });
+      setCreateOpen(false);
+      createForm.resetFields();
+      message.success("Причина создана");
+    },
+    onError: () => message.error("Не удалось создать — название уже занято?"),
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: ({ code, is_active }: { code: string; is_active: boolean }) => updateWriteOffReason(code, { is_active }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["write-off-reasons"] });
+      message.success("Сохранено");
+    },
+  });
+
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => updateWriteOffReason(renaming!.code, { name }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["write-off-reasons"] });
+      setRenaming(null);
+      message.success("Переименовано");
+    },
+    onError: () => message.error("Не удалось переименовать — название уже занято?"),
+  });
+
+  return (
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Space style={{ width: "100%", justifyContent: "space-between" }}>
+        <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+          Показывать архивные
+        </Checkbox>
+        <Button type="primary" onClick={() => setCreateOpen(true)}>
+          Добавить причину
+        </Button>
+      </Space>
+      <ResponsiveTable<WriteOffReasonEntry>
+        tableKey="write-off-reasons"
+        lockedColumns={["Название"]}
+        rowKey="code"
+        loading={reasonsQuery.isLoading}
+        dataSource={(reasonsQuery.data ?? []).filter((r) => showArchived || r.is_active)}
+        pagination={false}
+        scroll={{ x: "max-content" }}
+        columns={[
+          { title: "Название", dataIndex: "name" },
+          {
+            title: "Статус",
+            width: 220,
+            render: (_, r) =>
+              r.is_system ? (
+                <Tag color="blue">Системная</Tag>
+              ) : r.is_active ? (
+                <Tag color="green">Активна</Tag>
+              ) : (
+                <Tag>В архиве</Tag>
+              ),
+          },
+          {
+            title: "",
+            width: 220,
+            render: (_, r) =>
+              r.is_system ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                  выставляется автоматически при раскрое
+                </Typography.Text>
+              ) : (
+                <Space>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setRenaming(r);
+                      renameForm.setFieldsValue({ name: r.name });
+                    }}
+                  >
+                    Переименовать
+                  </Button>
+                  <Button size="small" onClick={() => archiveMutation.mutate({ code: r.code, is_active: !r.is_active })}>
+                    {r.is_active ? "В архив" : "Восстановить"}
+                  </Button>
+                </Space>
+              ),
+          },
+        ]}
+      />
+
+      <Modal title="Новая причина" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
+        <Form form={createForm} layout="vertical" onFinish={(v) => createMutation.mutate(v.name)}>
+          <Form.Item name="name" label="Название" rules={[{ required: true }]}>
+            <Input autoFocus placeholder="Пересорт" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
+            Создать
+          </Button>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`Переименовать «${renaming?.name ?? ""}»`}
+        open={!!renaming}
+        onCancel={() => setRenaming(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Form form={renameForm} layout="vertical" onFinish={(v) => renameMutation.mutate(v.name)}>
+          <Form.Item name="name" label="Название" rules={[{ required: true }]}>
+            <Input autoFocus />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={renameMutation.isPending}>
+            Сохранить
+          </Button>
+        </Form>
+      </Modal>
+    </Space>
+  );
+}
+
 /** Справочники (2.1a ТЗ) — только атомарные составляющие позиции материала
  * (материал/цвет/производитель/толщина), не сама номенклатура. Раньше здесь
  * же была вкладка "Номенклатура" — таблица позиций (материал+цвет+толщина+
@@ -225,6 +371,7 @@ export default function DictionaryAdmin() {
           { key: "colors", label: "Цвета", children: <NameDictTab kind="colors" label="Цвет" /> },
           { key: "manufacturers", label: "Производители", children: <NameDictTab kind="manufacturers" label="Производитель" /> },
           { key: "thicknesses", label: "Толщины", children: <ThicknessTab /> },
+          { key: "write-off-reasons", label: "Причины брака/списания", children: <WriteOffReasonsTab /> },
         ]}
       />
     </Card>

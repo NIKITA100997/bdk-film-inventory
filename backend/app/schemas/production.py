@@ -2,8 +2,6 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.events import WriteOffReason
-
 
 class ProductionLineCreate(BaseModel):
     name: str
@@ -87,7 +85,7 @@ class ProductionTaskLineReportCreate(BaseModel):
     assignment_id: int
     good_pieces: float = Field(ge=0)
     defect_pieces: float = Field(ge=0)
-    defect_reason: WriteOffReason | None = None
+    defect_reason: str | None = None
     note: str | None = None
 
 
@@ -97,7 +95,7 @@ class ProductionTaskLineReportOut(BaseModel):
     assignment_id: int | None
     good_pieces: float
     defect_pieces: float
-    defect_reason: WriteOffReason | None
+    defect_reason: str | None
     note: str | None
     reported_by: int
     reported_at: datetime

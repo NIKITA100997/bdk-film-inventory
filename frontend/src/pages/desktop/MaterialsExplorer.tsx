@@ -28,12 +28,11 @@ import {
   writeOffUnit,
   deleteUnit,
   skuLabel,
-  WRITE_OFF_REASON_OPTIONS,
   type MaterialUnit,
   type SearchParams,
   type UnitStatusValue,
-  type WriteOffReasonValue,
 } from "../../api/units";
+import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { getStockSummary, type StockSummaryLine } from "../../api/reports";
 import { listAbcClasses, recomputeAbc } from "../../api/abc";
 import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionaries";
@@ -99,7 +98,8 @@ export default function MaterialsExplorer() {
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
   const [positionForm] = Form.useForm<MaterialSkuCreate>();
   const [unitForm] = Form.useForm<UnitLineValues>();
-  const [writeOffForm] = Form.useForm<{ reason: WriteOffReasonValue; note?: string }>();
+  const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
+  const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons"], queryFn: listWriteOffReasons });
 
   const positionsQuery = useQuery({ queryKey: ["materials-explorer", "positions"], queryFn: getStockSummary, enabled: viewMode === "positions" });
   const unitsQuery = useQuery({
@@ -167,7 +167,7 @@ export default function MaterialsExplorer() {
   // это заводить не стали — цикл по уже существующему одиночному
   // writeOffUnit, тот же клиентский паттерн, что уже в receiveAndAutoPlace.
   const bulkWriteOffMutation = useMutation({
-    mutationFn: async (values: { reason: WriteOffReasonValue; note?: string }) => {
+    mutationFn: async (values: { reason: string; note?: string }) => {
       for (const id of selectedUnitIds) await writeOffUnit(id, values.reason, values.note);
     },
     onSuccess: () => {
@@ -547,7 +547,8 @@ export default function MaterialsExplorer() {
         <Form form={writeOffForm} layout="vertical" onFinish={(v) => bulkWriteOffMutation.mutate(v)}>
           <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
             <Select
-              options={WRITE_OFF_REASON_OPTIONS.map((r) => ({ value: r, label: r }))}
+              loading={writeOffReasonsQuery.isLoading}
+              options={(writeOffReasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))}
               placeholder="Выберите причину"
             />
           </Form.Item>

@@ -24,20 +24,6 @@ class EventType(str, enum.Enum):
     DONOR_PREDLOZHEN = "Донор_предложен"
 
 
-class WriteOffReason(str, enum.Enum):
-    """Причина списания (раздел про учёт брака) — на SPISANIE-события,
-    ручные (списание единицы со склада) и одно автоматическое: CUTTING_WASTE
-    у отхода при продольной резке ниже порога полезной ширины (services/
-    splitting.py) — не предлагается пользователю в форме списания, только
-    проставляется системой."""
-
-    SUPPLIER_DEFECT = "Брак поставщика"
-    WAREHOUSE_DAMAGE = "Повреждение на складе"
-    WRONG_GRADE = "Пересорт"
-    CUTTING_WASTE = "Отход при раскрое"
-    OTHER = "Другое"
-
-
 class MaterialEvent(Base):
     """Журнал движений (раздел 2.6 ТЗ) — источник данных для карточки
     материала и план/факт. Пишется автоматически сервисным слоем, а не
@@ -84,8 +70,9 @@ class MaterialEvent(Base):
     # Знак: положительный для приходов, отрицательный для списаний/выдач.
     quantity_delta_m: Mapped[float] = mapped_column(Numeric(12, 3))
 
-    # Раздел про учёт брака — только у SPISANIE-событий, причина списания.
-    write_off_reason: Mapped[WriteOffReason | None] = mapped_column(
-        Enum(WriteOffReason, name="write_off_reason"), nullable=True
+    # Раздел про учёт брака — только у SPISANIE-событий, причина списания
+    # (раздел про администрирование причин — управляемый справочник, не enum).
+    write_off_reason: Mapped[str | None] = mapped_column(
+        ForeignKey("write_off_reasons.code"), nullable=True
     )
     write_off_note: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -43,7 +43,8 @@ import {
 } from "../../api/production";
 import { listUsers } from "../../api/users";
 import { listMaterialSkus } from "../../api/dictionaries";
-import { WRITE_OFF_REASON_OPTIONS, skuLabel, type AreaValue, type MaterialSku, type WriteOffReasonValue } from "../../api/units";
+import { skuLabel, type AreaValue, type MaterialSku } from "../../api/units";
+import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -510,11 +511,13 @@ function ReportModal({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const [defectRows, setDefectRows] = useState<{ reason: WriteOffReasonValue; qty: number; note?: string }[]>([]);
+  const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string }[]>([]);
   const [reportForm] = Form.useForm<{ assignment_id: number; good_pieces: number }>();
-  const [defectRowForm] = Form.useForm<{ reason: WriteOffReasonValue; qty: number; note?: string }>();
+  const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
+  const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons"], queryFn: listWriteOffReasons });
+  const reasonName = (code: string) => writeOffReasonsQuery.data?.find((r) => r.code === code)?.name ?? code;
 
-  const addDefectRow = (v: { reason: WriteOffReasonValue; qty: number; note?: string }) => {
+  const addDefectRow = (v: { reason: string; qty: number; note?: string }) => {
     setDefectRows((rows) => [...rows, v]);
     defectRowForm.resetFields();
   };
@@ -593,7 +596,7 @@ function ReportModal({
           style={{ marginBottom: 16 }}
           scroll={{ x: "max-content" }}
           columns={[
-            { title: "Причина брака", dataIndex: "reason" },
+            { title: "Причина брака", dataIndex: "reason", render: (v: string) => reasonName(v) },
             { title: "Кол-во, шт", dataIndex: "qty" },
             { title: "Заметка", render: (_, r) => r.note ?? "—" },
             {
@@ -615,7 +618,10 @@ function ReportModal({
       </Typography.Paragraph>
       <Form form={defectRowForm} layout="vertical" onFinish={addDefectRow}>
         <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
-          <Select options={WRITE_OFF_REASON_OPTIONS.map((r) => ({ value: r, label: r }))} />
+          <Select
+            loading={writeOffReasonsQuery.isLoading}
+            options={(writeOffReasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))}
+          />
         </Form.Item>
         <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: "100%" }} />

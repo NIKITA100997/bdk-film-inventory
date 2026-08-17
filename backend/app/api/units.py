@@ -8,10 +8,11 @@ from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import MaterialSku
-from app.models.events import EventType, MaterialEvent, WriteOffReason
+from app.models.events import EventType, MaterialEvent
 from app.models.production import ProductionTaskLine, ProductionTaskLineReport
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
+from app.models.write_off_reasons import WriteOffReasonEntry
 from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.units import (
     AtomicDonorIssueRequest,
@@ -163,6 +164,14 @@ def write_off_unit(
     unit = _get_storable_unit(db, unit_id)
     if unit.status != UnitStatus.NA_KHRANENII:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Списать можно только единицу на хранении")
+    reason = db.get(WriteOffReasonEntry, payload.reason)
+    if reason is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Причина списания не найдена")
+    if reason.is_system:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Причина 'Отход при раскрое' выставляется автоматически, не вручную",
+        )
     old_length = float(unit.length_m)
     unit.status = UnitStatus.SPISAN
     record_event(
@@ -317,7 +326,7 @@ def split_unit(
                 quantity_delta_m=-float(new_unit.length_m),
                 from_length=float(new_unit.length_m),
                 to_length=0,
-                write_off_reason=WriteOffReason.CUTTING_WASTE,
+                write_off_reason="cutting_waste",
             )
 
     db.commit()

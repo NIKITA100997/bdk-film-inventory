@@ -28,13 +28,12 @@ import {
   getUnitEvents,
   printLabel,
   skuLabel,
-  WRITE_OFF_REASON_OPTIONS,
   type MaterialUnit,
-  type WriteOffReasonValue,
 } from "../../api/units";
 import { suggestLocation } from "../../api/storage";
 import { listUsers } from "../../api/users";
 import { listAreas } from "../../api/areas";
+import { listWriteOffReasons } from "../../api/writeOffReasons";
 import QrScanButton from "../../components/QrScanButton";
 
 type ActionKind = "place" | "split" | "cut" | "return" | "writeoff" | null;
@@ -75,10 +74,11 @@ export default function UnitCard() {
   const [splitForm] = Form.useForm<{ separate_width_mm: number; new_unit_location?: string }>();
   const [cutForm] = Form.useForm<{ cut_length_m: number; remainder_location?: string }>();
   const [returnForm] = Form.useForm<{ actual_length_m: number }>();
-  const [writeOffForm] = Form.useForm<{ reason: WriteOffReasonValue; note?: string }>();
+  const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
   const separateWidth = Form.useWatch("separate_width_mm", splitForm);
 
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
+  const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons"], queryFn: listWriteOffReasons });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   const eventsQuery = useQuery({
@@ -189,7 +189,7 @@ export default function UnitCard() {
   });
 
   const writeOffMutation = useMutation({
-    mutationFn: (values: { reason: WriteOffReasonValue; note?: string }) =>
+    mutationFn: (values: { reason: string; note?: string }) =>
       writeOffUnit(unit!.id, values.reason, values.note),
     onSuccess: (u) => {
       setUnit(u);
@@ -203,6 +203,7 @@ export default function UnitCard() {
   });
 
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
+  const reasonName = (code: string) => writeOffReasonsQuery.data?.find((r) => r.code === code)?.name ?? code;
 
   return (
     <Card>
@@ -482,7 +483,7 @@ export default function UnitCard() {
                   )}
                   {ev.write_off_reason && (
                     <Typography.Text type="secondary">
-                      Причина: {ev.write_off_reason}
+                      Причина: {reasonName(ev.write_off_reason)}
                       {ev.write_off_note ? ` — ${ev.write_off_note}` : ""}
                     </Typography.Text>
                   )}
@@ -511,7 +512,8 @@ export default function UnitCard() {
         <Form form={writeOffForm} layout="vertical" onFinish={(v) => writeOffMutation.mutate(v)}>
           <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
             <Select
-              options={WRITE_OFF_REASON_OPTIONS.map((r) => ({ value: r, label: r }))}
+              loading={writeOffReasonsQuery.isLoading}
+              options={(writeOffReasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))}
               placeholder="Выберите причину"
             />
           </Form.Item>

@@ -137,21 +137,6 @@ export async function issueUnit(payload: IssueRequest): Promise<IssueResult> {
 // код участка просто строка, живой список — src/api/areas.ts.
 export type AreaValue = string;
 
-// Раздел про учёт брака — причина списания единицы и, отдельно, причина
-// брака в производстве (ProductionTaskLineReport) переиспользуют один и
-// тот же набор значений на бэкенде (WriteOffReason), кроме "Отход при
-// раскрое" — тот выставляется только системой при продольной резке, не
-// предлагается ни в одной из форм на фронте. Значение и есть готовая
-// подпись (в отличие от AreaValue) — отдельная labels-карта не нужна.
-export type WriteOffReasonValue = "Брак поставщика" | "Повреждение на складе" | "Пересорт" | "Другое";
-
-export const WRITE_OFF_REASON_OPTIONS: WriteOffReasonValue[] = [
-  "Брак поставщика",
-  "Повреждение на складе",
-  "Пересорт",
-  "Другое",
-];
-
 export async function issueUnitDirect(
   unitId: number,
   area: AreaValue,
@@ -240,7 +225,7 @@ export interface UnitEvent {
   from_cell: string | null;
   to_cell: string | null;
   quantity_delta_m: number;
-  write_off_reason: WriteOffReasonValue | null;
+  write_off_reason: string | null;
   write_off_note: string | null;
 }
 
@@ -249,7 +234,7 @@ export async function getUnitEvents(unitId: number): Promise<UnitEvent[]> {
   return data;
 }
 
-export async function writeOffUnit(unitId: number, reason: WriteOffReasonValue, note?: string): Promise<MaterialUnit> {
+export async function writeOffUnit(unitId: number, reason: string, note?: string): Promise<MaterialUnit> {
   const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/write-off`, { reason, note });
   return data;
 }
