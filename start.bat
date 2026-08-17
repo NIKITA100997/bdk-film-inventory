@@ -16,8 +16,8 @@ timeout /t 2 /nobreak >nul
 echo Готовим HTTPS-сертификат для сканирования QR на планшетах...
 node "%~dp0frontend\scripts\gen-dev-cert.js"
 
-start "Бэкенд FastAPI (Port 8002)" cmd /k "cd /d %~dp0backend && .venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8002 --host 0.0.0.0 --ssl-keyfile ..\certs\dev-key.pem --ssl-certfile ..\certs\dev-cert.pem"
-start "Фронтенд Vite (Port 5173)" cmd /k "cd /d %~dp0frontend && npm run dev -- --host 0.0.0.0"
+start /min "Бэкенд FastAPI (Port 8002)" cmd /k "cd /d %~dp0backend && .venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8002 --host 0.0.0.0 --ssl-keyfile ..\certs\dev-key.pem --ssl-certfile ..\certs\dev-cert.pem"
+start /min "Фронтенд Vite (Port 5173)" cmd /k "cd /d %~dp0frontend && npm run dev -- --host 0.0.0.0"
 
 echo.
 echo ✅ Серверы перезапущены и готовы к подключению с планшетов!
