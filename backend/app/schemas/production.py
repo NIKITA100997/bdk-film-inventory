@@ -125,6 +125,17 @@ class ProductionTaskLineAssignmentOut(BaseModel):
     defect_pieces: float = 0.0
 
 
+class ProductionTaskLineIssuedUnitOut(BaseModel):
+    """Единица (рулон/штрипс), сейчас выданная участку под эту строку
+    задания (статус Выдан_участку) — раздел про единый процесс возврата:
+    отсюда кнопка «Вернуть на склад» прямо в задании, без похода в
+    «Остатки» на поиск конкретной единицы."""
+
+    id: int
+    width_mm: float
+    length_m: float
+
+
 class ProductionTaskLineOut(BaseModel):
     id: int
     line_id: int | None
@@ -153,6 +164,10 @@ class ProductionTaskLineOut(BaseModel):
     # метров плёнки реально выдано складом под эту строку (журнал
     # Выдача_участку), независимо от того, что с этим потом стало.
     issued_length_m: float = 0.0
+    # Раздел про единый процесс возврата — какие конкретно единицы сейчас
+    # выданы под эту строку и могут быть возвращены прямо отсюда (обычно
+    # 0 или 1, но не мутируется в записи — участок мог получать довыдачи).
+    issued_units: list[ProductionTaskLineIssuedUnitOut] = []
 
 
 class ProductionTaskOut(BaseModel):

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Alert,
   Card,
   Tabs,
   Table,
@@ -38,12 +39,13 @@ import {
   createTaskLineAssignment,
   type ProductionTask,
   type ProductionTaskLine,
+  type ProductionTaskLineIssuedUnit,
   type ProductionTaskLineManualCreate,
   type ProductionTaskLineAssignmentCreate,
 } from "../../api/production";
 import { listUsers } from "../../api/users";
 import { listMaterialSkus } from "../../api/dictionaries";
-import { skuLabel, type AreaValue, type MaterialSku } from "../../api/units";
+import { getReturnPreview, returnUnit, skuLabel, type AreaValue, type MaterialSku } from "../../api/units";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
@@ -59,10 +61,12 @@ function TasksTab() {
   const qc = useQueryClient();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const canReport = canManage || !!user?.permissions.includes("production_tasks.report");
+  const canReturn = !!user?.is_superuser || !!user?.permissions.includes("units.return");
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [manualLines, setManualLines] = useState<ProductionTaskLineManualCreate[]>([]);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
+  const [returnTarget, setReturnTarget] = useState<ProductionTaskLineIssuedUnit | null>(null);
   const [manualForm] = Form.useForm<{ name: string; area: AreaValue }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
   const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number; sku_id: number }>();
@@ -247,17 +251,29 @@ function TasksTab() {
                     },
                     {
                       title: "Действия мастера",
-                      render: (_, l) =>
-                        canReport && (
-                          <Space size={4}>
-                            <Button size="small" type="primary" ghost onClick={() => setAssignTarget({ task, line: l })}>
-                              📅 Распределить по дням
-                            </Button>
-                            <Button size="small" onClick={() => setReportTarget({ taskId: task.id, line: l })}>
-                              Отчитаться о производстве
-                            </Button>
-                          </Space>
-                        ),
+                      render: (_, l) => (
+                        <Space direction="vertical" size={4}>
+                          {canReport && (
+                            <Space size={4} wrap>
+                              <Button size="small" type="primary" ghost onClick={() => setAssignTarget({ task, line: l })}>
+                                📅 Распределить по дням
+                              </Button>
+                              <Button size="small" onClick={() => setReportTarget({ taskId: task.id, line: l })}>
+                                Отчитаться о производстве
+                              </Button>
+                            </Space>
+                          )}
+                          {canReturn && l.remaining_pieces <= 0 && l.issued_units.length > 0 && (
+                            <Space size={4} wrap>
+                              {l.issued_units.map((u) => (
+                                <Button key={u.id} size="small" danger ghost onClick={() => setReturnTarget(u)}>
+                                  Вернуть №{u.id} на склад ({u.length_m} м)
+                                </Button>
+                              ))}
+                            </Space>
+                          )}
+                        </Space>
+                      ),
                     },
                   ]}
                 />
@@ -490,7 +506,88 @@ function TasksTab() {
           </>
         )}
       </Modal>
+
+      {returnTarget && <ReturnUnitModal unit={returnTarget} onClose={() => setReturnTarget(null)} />}
     </Space>
+  );
+}
+
+/** Возврат остатка прямо из задания (раздел про единый процесс возврата)
+ * — та же форма/логика допуска по расхождению с расчётной длиной, что и
+ * в мобильной «Карточке единицы», но без похода туда: как только строка
+ * задания выполнена (remaining_pieces <= 0), кнопка есть у каждой ещё
+ * выданной единицы прямо в таблице. После возврата единица уходит в
+ * «Стеллажи → Без места» (UnplacedUnitsCard) — оттуда склад её принимает:
+ * назначает адрес и печатает новую бирку. */
+function ReturnUnitModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUnit; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form] = Form.useForm<{ actual_length_m: number }>();
+  const previewQuery = useQuery({ queryKey: ["return-preview", unit.id], queryFn: () => getReturnPreview(unit.id) });
+
+  const returnMutation = useMutation({
+    mutationFn: (values: { actual_length_m: number }) => returnUnit(unit.id, values),
+    onSuccess: (u) => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      qc.invalidateQueries({ queryKey: ["units-unplaced"] });
+      message.success(
+        `Остаток №${u.id} возвращён на склад — теперь виден в «Стеллажи → Без места» для размещения и печати новой бирки.`,
+      );
+      onClose();
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось оформить возврат")),
+  });
+
+  return (
+    <Modal title={`Вернуть №${unit.id} на склад`} open onCancel={onClose} footer={null} destroyOnHidden>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ actual_length_m: unit.length_m }}
+        onFinish={(v) => {
+          const expected = previewQuery.data?.expected_return_length_m;
+          if (expected != null) {
+            const tolerance = Math.max(0.1, expected * 0.05);
+            if (Math.abs(v.actual_length_m - expected) > tolerance) {
+              Modal.confirm({
+                title: "Длина заметно отличается от расчётной",
+                content: `Введено ${v.actual_length_m} м, по расчёту должно остаться ${expected} м (хорошие и брак за смену уже учтены). Всё равно сохранить?`,
+                okText: "Сохранить как есть",
+                cancelText: "Отмена",
+                onOk: () => returnMutation.mutate(v),
+              });
+              return;
+            }
+          }
+          returnMutation.mutate(v);
+        }}
+      >
+        {previewQuery.data?.expected_return_length_m != null && (
+          <Alert
+            style={{ marginBottom: 16 }}
+            type="info"
+            showIcon
+            message={`По расчёту должно остаться: ${previewQuery.data.expected_return_length_m} м (хороших ${previewQuery.data.good_pieces} шт, брака ${previewQuery.data.defect_pieces} шт)`}
+            action={
+              <Button
+                size="small"
+                onClick={() => form.setFieldValue("actual_length_m", previewQuery.data!.expected_return_length_m)}
+              >
+                Подставить
+              </Button>
+            }
+          />
+        )}
+        <Form.Item name="actual_length_m" label="Фактическая длина остатка, м" rules={[{ required: true }]}>
+          <InputNumber min={0} step={0.01} style={{ width: "100%" }} autoFocus />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" block loading={returnMutation.isPending}>
+          Вернуть на склад
+        </Button>
+        <Button block style={{ marginTop: 8 }} onClick={onClose}>
+          Отмена
+        </Button>
+      </Form>
+    </Modal>
   );
 }
 

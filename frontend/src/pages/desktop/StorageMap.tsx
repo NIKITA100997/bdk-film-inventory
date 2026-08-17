@@ -44,7 +44,7 @@ import {
 import { listColors, listManufacturers, listMaterials, listThicknesses } from "../../api/dictionaries";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import ResponsiveTable from "../../components/ResponsiveTable";
-import { placeUnit, printLabelsBatch, searchUnits, skuLabel, type MaterialUnit } from "../../api/units";
+import { placeUnit, printLabel, printLabelsBatch, searchUnits, skuLabel, type MaterialUnit } from "../../api/units";
 import { printRackLabel, printShelfLabelsBatch } from "../../api/labels";
 import { useAuth } from "../../auth/AuthContext";
 import QrScanModal from "../../components/QrScanModal";
@@ -591,10 +591,14 @@ function UnplacedRow({ unit }: { unit: MaterialUnit }) {
   });
   const placeMutation = useMutation({
     mutationFn: (locationCode: string) => placeUnit(unit.id, locationCode),
-    onSuccess: () => {
+    onSuccess: (u) => {
       qc.invalidateQueries({ queryKey: ["units-unplaced"] });
       qc.invalidateQueries({ queryKey: ["rack-occupancy"] });
-      message.success(`№${unit.id} размещён`);
+      message.success(
+        <>
+          №{u.id} размещён: {u.location_code} — <a onClick={() => printLabel(u.id)}>печать бирки</a>
+        </>,
+      );
     },
     onError: () => message.error("Не удалось разместить"),
   });

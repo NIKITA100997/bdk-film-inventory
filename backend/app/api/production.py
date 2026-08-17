@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Material, Thickness
-from app.models.units import MaterialUnit
+from app.models.units import MaterialUnit, UnitStatus
 from app.models.production import (
     ProductionLine,
     ProductionTask,
@@ -22,6 +22,7 @@ from app.schemas.production import (
     ProductionLineUpdate,
     ProductionTaskLineAssignmentCreate,
     ProductionTaskLineAssignmentOut,
+    ProductionTaskLineIssuedUnitOut,
     ProductionTaskLineOut,
     ProductionTaskLineReportCreate,
     ProductionTaskLineReportOut,
@@ -90,6 +91,7 @@ def _task_line_out(
     assigned: float,
     assignment_report_aggs: dict[int, tuple[float, float]] | None = None,
     issued_length_m: float = 0.0,
+    issued_units: list[MaterialUnit] | None = None,
 ) -> ProductionTaskLineOut:
     assignment_report_aggs = assignment_report_aggs or {}
     prod_line = db.get(ProductionLine, line.line_id) if line.line_id else None
@@ -121,6 +123,10 @@ def _task_line_out(
             _assignment_out(db, a, *assignment_report_aggs.get(a.id, (0.0, 0.0))) for a in line.assignments
         ],
         issued_length_m=issued_length_m,
+        issued_units=[
+            ProductionTaskLineIssuedUnitOut(id=u.id, width_mm=float(u.width_mm), length_m=float(u.length_m))
+            for u in (issued_units or [])
+        ],
     )
 
 
@@ -180,6 +186,23 @@ def _assignment_report_aggregates(db: Session, assignment_ids: list[int]) -> dic
     return {row[0]: (float(row[1]), float(row[2])) for row in rows}
 
 
+def _line_issued_units_map(db: Session, line_ids: list[int]) -> dict[int, list[MaterialUnit]]:
+    """Единицы, сейчас выданные участку (Выдан_участку) под каждую строку
+    задания (раздел про единый процесс возврата) — один запрос на все
+    строки, не N+1; группировка в Python, как в остальных агрегатах выше."""
+    if not line_ids:
+        return {}
+    units = (
+        db.query(MaterialUnit)
+        .filter(MaterialUnit.production_task_line_id.in_(line_ids), MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU)
+        .all()
+    )
+    result: dict[int, list[MaterialUnit]] = {}
+    for u in units:
+        result.setdefault(u.production_task_line_id, []).append(u)
+    return result
+
+
 def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
     model = db.get(ProductModel, task.product_model_id) if task.product_model_id else None
     line_ids = [l.id for l in task.lines]
@@ -188,6 +211,7 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
     assignment_ids = [a.id for l in task.lines for a in l.assignments]
     assignment_report_aggs = _assignment_report_aggregates(db, assignment_ids)
     issued_length_by_line = fetch_issued_length_by_task_line(db, line_ids)
+    issued_units_by_line = _line_issued_units_map(db, line_ids)
     return ProductionTaskOut(
         id=task.id,
         product_model_id=task.product_model_id,
@@ -206,6 +230,7 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
                 assignment_aggregates.get(l.id, 0.0),
                 assignment_report_aggs,
                 issued_length_by_line.get(l.id, 0.0),
+                issued_units_by_line.get(l.id, []),
             )
             for l in task.lines
         ],

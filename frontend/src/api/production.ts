@@ -57,6 +57,12 @@ export interface ProductModelUpdate {
   is_active?: boolean;
 }
 
+export interface ProductionTaskLineIssuedUnit {
+  id: number;
+  width_mm: number;
+  length_m: number;
+}
+
 export interface ProductionTaskLine {
   id: number;
   line_id: number | null;
@@ -77,6 +83,7 @@ export interface ProductionTaskLine {
   unassigned_pieces: number;
   assignments: ProductionTaskLineAssignment[];
   issued_length_m: number;
+  issued_units: ProductionTaskLineIssuedUnit[];
 }
 
 export interface ProductionTask {
