@@ -22,8 +22,10 @@ from app.schemas.dictionaries import (
     MaterialSkuCreate,
     MaterialSkuOut,
     MaterialSkuUpdate,
+    NameCreate,
     SkuAnalogCreate,
     SkuWithAnalogsOut,
+    ThicknessCreate,
     ThicknessOut,
     ThicknessUpdate,
 )
@@ -44,6 +46,23 @@ router = APIRouter(tags=["dictionaries"])
 manage_dicts = require_permission("materials.manage")
 
 _PHOTO_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+
+
+def _create_name_entry(db: Session, model, payload: NameCreate):
+    """Раздел про добавление значений в справочники напрямую — до этого
+    материал/цвет/производитель заводились только неявно (find_or_create
+    при вводе где-то ещё, например при приёмке); этот путь для случая,
+    когда нужное значение хочется завести заранее, не выходя со
+    "Справочников" ради формы приёмки/позиции."""
+    obj = model(name=payload.name, is_active=True)
+    db.add(obj)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Такое значение уже есть в справочнике")
+    db.refresh(obj)
+    return obj
 
 
 def _update_name_entry(db: Session, model, entry_id: int, payload: DictEntryUpdate):
@@ -83,6 +102,11 @@ def material_duplicates(db: Session = Depends(get_db), user=Depends(manage_dicts
     return _duplicates_for(db, Material)
 
 
+@router.post("/materials", response_model=MaterialOut, status_code=status.HTTP_201_CREATED)
+def create_material(payload: NameCreate, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> Material:
+    return _create_name_entry(db, Material, payload)
+
+
 @router.patch("/materials/{material_id}", response_model=MaterialOut)
 def update_material(
     material_id: int, payload: DictEntryUpdate, db: Session = Depends(get_db), user=Depends(manage_dicts)
@@ -105,6 +129,11 @@ def color_duplicates(db: Session = Depends(get_db), user=Depends(manage_dicts)):
     return _duplicates_for(db, Color)
 
 
+@router.post("/colors", response_model=ColorOut, status_code=status.HTTP_201_CREATED)
+def create_color(payload: NameCreate, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> Color:
+    return _create_name_entry(db, Color, payload)
+
+
 @router.patch("/colors/{color_id}", response_model=ColorOut)
 def update_color(
     color_id: int, payload: DictEntryUpdate, db: Session = Depends(get_db), user=Depends(manage_dicts)
@@ -120,6 +149,19 @@ def list_thicknesses(db: Session = Depends(get_db), user=Depends(get_current_use
 @router.get("/thicknesses/all", response_model=list[ThicknessOut])
 def list_all_thicknesses(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[Thickness]:
     return db.query(Thickness).order_by(Thickness.value_mm).all()
+
+
+@router.post("/thicknesses", response_model=ThicknessOut, status_code=status.HTTP_201_CREATED)
+def create_thickness(payload: ThicknessCreate, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> Thickness:
+    obj = Thickness(value_mm=payload.value_mm, is_active=True)
+    db.add(obj)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Такое значение уже есть в справочнике")
+    db.refresh(obj)
+    return obj
 
 
 @router.patch("/thicknesses/{thickness_id}", response_model=ThicknessOut)
@@ -155,6 +197,11 @@ def list_all_manufacturers(db: Session = Depends(get_db), user=Depends(manage_di
 @router.get("/manufacturers/duplicates", response_model=list[DuplicateCandidateOut])
 def manufacturer_duplicates(db: Session = Depends(get_db), user=Depends(manage_dicts)):
     return _duplicates_for(db, Manufacturer)
+
+
+@router.post("/manufacturers", response_model=ManufacturerOut, status_code=status.HTTP_201_CREATED)
+def create_manufacturer(payload: NameCreate, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> Manufacturer:
+    return _create_name_entry(db, Manufacturer, payload)
 
 
 @router.patch("/manufacturers/{manufacturer_id}", response_model=ManufacturerOut)

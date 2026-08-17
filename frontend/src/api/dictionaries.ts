@@ -67,6 +67,9 @@ export const listAllNameDict = async (kind: NameDictKind): Promise<DictEntry[]> 
 export const listNameDictDuplicates = async (kind: NameDictKind): Promise<DuplicateCandidate[]> =>
   (await apiClient.get<DuplicateCandidate[]>(`/${kind}/duplicates`)).data;
 
+export const createNameDictEntry = async (kind: NameDictKind, name: string): Promise<DictEntry> =>
+  (await apiClient.post<DictEntry>(`/${kind}`, { name })).data;
+
 export const updateNameDictEntry = async (
   kind: NameDictKind,
   id: number,
@@ -75,6 +78,9 @@ export const updateNameDictEntry = async (
 
 export const listAllThicknesses = async (): Promise<ThicknessEntry[]> =>
   (await apiClient.get<ThicknessEntry[]>("/thicknesses/all")).data;
+
+export const createThicknessEntry = async (value_mm: number): Promise<ThicknessEntry> =>
+  (await apiClient.post<ThicknessEntry>("/thicknesses", { value_mm })).data;
 
 export const updateThicknessEntry = async (
   id: number,

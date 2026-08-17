@@ -5,8 +5,10 @@ import ResponsiveTable from "../../components/ResponsiveTable";
 import {
   listAllNameDict,
   listNameDictDuplicates,
+  createNameDictEntry,
   updateNameDictEntry,
   listAllThicknesses,
+  createThicknessEntry,
   updateThicknessEntry,
   type NameDictKind,
   type DictEntry,
@@ -24,22 +26,41 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Record<number, string>>({});
   const [showArchived, setShowArchived] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm] = Form.useForm<{ name: string }>();
 
   const entriesQuery = useQuery({ queryKey: [kind, "all"], queryFn: () => listAllNameDict(kind) });
   const duplicatesQuery = useQuery({ queryKey: [kind, "duplicates"], queryFn: () => listNameDictDuplicates(kind) });
+
+  // ["dict-autocomplete", kind] — отдельный неймспейс ключа кэша автокомплита
+  // (DictAutoComplete.tsx, разведён с сырыми списками вроде этого, когда
+  // толщина ими же и оборачивается в {name}), ["material-skus"] — везде,
+  // где название подтягивается через позицию материала (Остатки, карточка
+  // материала, выдача, инвентаризация, калькулятор продажника). Без всех
+  // трёх инвалидаций новое/переименованное значение висело в кэше
+  // остальных экранов до перезагрузки страницы целиком.
+  const invalidateDictCaches = () => {
+    qc.invalidateQueries({ queryKey: [kind] });
+    qc.invalidateQueries({ queryKey: ["dict-autocomplete", kind] });
+    qc.invalidateQueries({ queryKey: ["material-skus"] });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (name: string) => createNameDictEntry(kind, name),
+    onSuccess: () => {
+      invalidateDictCaches();
+      setCreateOpen(false);
+      createForm.resetFields();
+      message.success("Добавлено");
+    },
+    onError: () => message.error("Не удалось добавить — такое значение уже есть?"),
+  });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: { name?: string; is_active?: boolean } }) =>
       updateNameDictEntry(kind, id, payload),
     onSuccess: () => {
-      // [kind] (без "all") — отдельный ключ кэша автокомплита (DictAutoComplete),
-      // ["material-skus"] — везде, где название подтягивается через позицию
-      // материала (Остатки, карточка материала, выдача, инвентаризация,
-      // калькулятор продажника). Без этих двух инвалидаций переименование
-      // применялось только на этой вкладке — старое название висело в кэше
-      // остальных экранов до перезагрузки страницы целиком.
-      qc.invalidateQueries({ queryKey: [kind] });
-      qc.invalidateQueries({ queryKey: ["material-skus"] });
+      invalidateDictCaches();
       message.success("Сохранено");
     },
     onError: () => message.error("Не удалось сохранить — проверьте, что значение не занято"),
@@ -47,9 +68,24 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
-        Показывать архивные
-      </Checkbox>
+      <Space style={{ width: "100%", justifyContent: "space-between" }}>
+        <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+          Показывать архивные
+        </Checkbox>
+        <Button type="primary" onClick={() => setCreateOpen(true)}>
+          Добавить
+        </Button>
+      </Space>
+      <Modal title={`Новое значение — ${label.toLowerCase()}`} open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
+        <Form form={createForm} layout="vertical" onFinish={(v) => createMutation.mutate(v.name)}>
+          <Form.Item name="name" label={label} rules={[{ required: true }]}>
+            <Input autoFocus />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
+            Добавить
+          </Button>
+        </Form>
+      </Modal>
       <ResponsiveTable<DictEntry>
         rowKey="id"
         loading={entriesQuery.isLoading}
@@ -139,14 +175,32 @@ function ThicknessTab() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Record<number, number>>({});
   const [showArchived, setShowArchived] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm] = Form.useForm<{ value_mm: number }>();
   const entriesQuery = useQuery({ queryKey: ["thicknesses", "all"], queryFn: listAllThicknesses });
+
+  const invalidateThicknessCaches = () => {
+    qc.invalidateQueries({ queryKey: ["thicknesses"] });
+    qc.invalidateQueries({ queryKey: ["dict-autocomplete", "thicknesses"] });
+    qc.invalidateQueries({ queryKey: ["material-skus"] });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (value_mm: number) => createThicknessEntry(value_mm),
+    onSuccess: () => {
+      invalidateThicknessCaches();
+      setCreateOpen(false);
+      createForm.resetFields();
+      message.success("Добавлено");
+    },
+    onError: () => message.error("Не удалось добавить — такая толщина уже есть?"),
+  });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: { value_mm?: number; is_active?: boolean } }) =>
       updateThicknessEntry(id, payload),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["thicknesses"] });
-      qc.invalidateQueries({ queryKey: ["material-skus"] });
+      invalidateThicknessCaches();
       message.success("Сохранено");
     },
     onError: () => message.error("Не удалось сохранить — такая толщина уже есть"),
@@ -154,9 +208,24 @@ function ThicknessTab() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
-        Показывать архивные
-      </Checkbox>
+      <Space style={{ width: "100%", justifyContent: "space-between" }}>
+        <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+          Показывать архивные
+        </Checkbox>
+        <Button type="primary" onClick={() => setCreateOpen(true)}>
+          Добавить
+        </Button>
+      </Space>
+      <Modal title="Новая толщина" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
+        <Form form={createForm} layout="vertical" onFinish={(v) => createMutation.mutate(v.value_mm)}>
+          <Form.Item name="value_mm" label="Толщина, мм" rules={[{ required: true }]}>
+            <InputNumber autoFocus min={0} step={0.01} style={{ width: "100%" }} />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
+            Добавить
+          </Button>
+        </Form>
+      </Modal>
       <ResponsiveTable<ThicknessEntry>
       rowKey="id"
       loading={entriesQuery.isLoading}
