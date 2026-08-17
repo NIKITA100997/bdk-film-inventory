@@ -43,7 +43,7 @@ import {
 import { listColors, listManufacturers, listMaterials, listThicknesses } from "../../api/dictionaries";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import ResponsiveTable from "../../components/ResponsiveTable";
-import { placeUnit, searchUnits, skuLabel, type MaterialUnit } from "../../api/units";
+import { placeUnit, printLabelsBatch, searchUnits, skuLabel, type MaterialUnit } from "../../api/units";
 import { printRackLabel, printShelfLabelsBatch } from "../../api/labels";
 import { useAuth } from "../../auth/AuthContext";
 import QrScanModal from "../../components/QrScanModal";
@@ -388,6 +388,13 @@ function RacksConsole() {
                 >
                   Печать этикеток полок
                 </Button>
+                <Button
+                  size="small"
+                  disabled={!occupancyForSelected || occupancyForSelected.every((c) => c.units.length === 0)}
+                  onClick={() => printLabelsBatch((occupancyForSelected ?? []).flatMap((c) => c.units.map((u) => u.id)))}
+                >
+                  Печать этикеток плёнки
+                </Button>
                 {canManage && (
                   <Button
                     size="small"
@@ -505,7 +512,10 @@ function RacksConsole() {
       </Modal>
 
       <Modal title="Новое правило зонирования" open={ruleModalOpen} onCancel={() => setRuleModalOpen(false)} footer={null} destroyOnHidden>
-        <Form layout="vertical" onFinish={(v) => createRuleMutation.mutate(v)}>
+        <Form
+          layout="vertical"
+          onFinish={(v) => createRuleMutation.mutate({ ...v, thickness: v.thickness ? Number(v.thickness) : undefined })}
+        >
           <Form.Item name="from_shelf" label="От полки" rules={[{ required: true }]}>
             <InputNumber min={1} max={selectedRack?.shelf_count} style={{ width: "100%" }} />
           </Form.Item>
@@ -522,7 +532,7 @@ function RacksConsole() {
             <DictAutoComplete kind="colors" placeholder="Дуб беленый" />
           </Form.Item>
           <Form.Item name="thickness" label="Толщина, мм">
-            <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+            <DictAutoComplete kind="thicknesses" placeholder="0.35" />
           </Form.Item>
           <Form.Item name="manufacturer" label="Производитель">
             <DictAutoComplete kind="manufacturers" placeholder="Классен" />
@@ -672,11 +682,18 @@ function RollShelfRows({
             >
               {occupied ? (
                 <>
-                  {capacity > 1 && (
-                    <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
-                      {units.length} из {capacity}
-                    </Typography.Text>
-                  )}
+                  <Space style={{ width: "100%", justifyContent: "space-between" }}>
+                    {capacity > 1 ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
+                        {units.length} из {capacity}
+                      </Typography.Text>
+                    ) : (
+                      <span />
+                    )}
+                    <Button size="small" onClick={() => printLabelsBatch(units.map((u) => u.id))}>
+                      Печать этикеток
+                    </Button>
+                  </Space>
                   {units.map((unit) => (
                     <div
                       key={unit.id}

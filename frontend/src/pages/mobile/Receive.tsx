@@ -47,7 +47,7 @@ export default function Receive() {
 
   const addLineMutation = useMutation({
     mutationFn: (values: LineValues) =>
-      receiveAndAutoPlace({ ...values, upd_number: upd, pallet_number: pallet }, warehouseId),
+      receiveAndAutoPlace({ ...values, thickness: Number(values.thickness), upd_number: upd, pallet_number: pallet }, warehouseId),
     onSuccess: (units) => {
       setSessionUnits((s) => [...s, ...units]);
       setLastAdded(units);
@@ -149,7 +149,7 @@ export default function Receive() {
               <DictAutoComplete kind="colors" />
             </Form.Item>
             <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
-              <InputNumber size="large" min={0} step={0.01} style={{ width: "100%" }} />
+              <DictAutoComplete kind="thicknesses" />
             </Form.Item>
             <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
               <DictAutoComplete kind="manufacturers" />

@@ -325,7 +325,7 @@ function SessionPanel({
                   Object.assign(payload, {
                     material: v.material,
                     color: v.color,
-                    thickness: v.thickness,
+                    thickness: Number(v.thickness),
                     manufacturer: v.manufacturer,
                     width_mm: v.width_mm,
                     length_m: v.length_m,
@@ -366,7 +366,7 @@ function SessionPanel({
                     <DictAutoComplete kind="colors" />
                   </Form.Item>
                   <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
-                    <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
+                    <DictAutoComplete kind="thicknesses" />
                   </Form.Item>
                   <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
                     <DictAutoComplete kind="manufacturers" />

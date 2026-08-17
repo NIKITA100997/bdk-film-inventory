@@ -7,6 +7,7 @@ import { RequireAuth, RequirePermission } from "./auth/RoleGuard";
 import Receive from "./pages/mobile/Receive";
 import Issue from "./pages/mobile/Issue";
 import UnitCard from "./pages/mobile/UnitCard";
+import InitialStock from "./pages/mobile/InitialStock";
 
 import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
 import MaterialCard from "./pages/desktop/MaterialCard";
@@ -41,6 +42,7 @@ export default function AppRoutes() {
         <Route path="/" element={<Home />} />
 
         <Route path="/m/receive" element={<RequirePermission permissions={["units.receive"]}><Receive /></RequirePermission>} />
+        <Route path="/m/initial-stock" element={<RequirePermission permissions={["units.receive"]}><InitialStock /></RequirePermission>} />
         <Route path="/m/issue" element={<RequirePermission permissions={["units.issue"]}><Issue /></RequirePermission>} />
         <Route
           path="/m/unit-card"

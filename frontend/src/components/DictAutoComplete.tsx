@@ -1,17 +1,22 @@
 import { useMemo } from "react";
 import { AutoComplete, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { listColors, listManufacturers, listMaterials } from "../api/dictionaries";
+import { listColors, listManufacturers, listMaterials, listThicknesses } from "../api/dictionaries";
 import { listSuppliers } from "../api/suppliers";
 import { stringSimilarity } from "../utils/similarity";
 
-export type DictKind = "materials" | "colors" | "manufacturers" | "suppliers";
+export type DictKind = "materials" | "colors" | "manufacturers" | "suppliers" | "thicknesses";
 
 const fetchers: Record<DictKind, () => Promise<{ name: string }[]>> = {
   materials: listMaterials,
   colors: listColors,
   manufacturers: listManufacturers,
   suppliers: listSuppliers,
+  // Толщина в справочнике хранится как число (value_mm), не строка — тот
+  // же автокомплит переиспользуем, просто оборачиваем в {name} на входе;
+  // на выходе форма получает строку и приводит к числу сама (толщина
+  // остаётся number в схемах бэкенда).
+  thicknesses: () => listThicknesses().then((rows) => rows.map((r) => ({ name: String(r.value_mm) }))),
 };
 
 const kindLabels: Record<DictKind, string> = {
@@ -19,6 +24,7 @@ const kindLabels: Record<DictKind, string> = {
   colors: "цвет",
   manufacturers: "производитель",
   suppliers: "поставщик",
+  thicknesses: "толщина",
 };
 
 const FUZZY_THRESHOLD = 0.82;
@@ -38,7 +44,12 @@ interface Props {
  * (9.2 раздел бэклога доработок), а если похоже, но не совпадает точно —
  * предупреждает и предлагает использовать существующее. */
 export default function DictAutoComplete({ kind, value, onChange, placeholder, autoFocus }: Props) {
-  const query = useQuery({ queryKey: [kind], queryFn: fetchers[kind] });
+  // Свой префикс ключа кэша, не голое [kind] — иначе React Query совмещает
+  // кэш с любым другим useQuery на тот же ключ (например, StorageMap.tsx
+  // уже кэширует "толщины" под ключом ["thicknesses"], но в сыром виде
+  // {value_mm}, без {name}; здесь нужен адаптированный {name}-вид, и без
+  // отдельного префикса компонент получал бы чужой сырой кэш и падал).
+  const query = useQuery({ queryKey: ["dict-autocomplete", kind], queryFn: fetchers[kind] });
   const names = useMemo(() => (query.data ?? []).map((e) => e.name), [query.data]);
 
   const trimmed = (value ?? "").trim();
