@@ -9,6 +9,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -22,11 +23,13 @@ import { useLocation } from "react-router-dom";
 import { isAxiosError } from "axios";
 import dayjs from "dayjs";
 import {
+  getReturnPreview,
   issueDonorAtomic,
   issueUnit,
   issueUnitDirect,
   placeUnit,
   printLabel,
+  returnUnit,
   searchUnits,
   skuLabel,
   type AreaValue,
@@ -43,8 +46,10 @@ import {
   type ProductionTask,
   type ProductionTaskLine,
   type ProductionTaskLineAssignment,
+  type ProductionTaskLineIssuedUnit,
 } from "../../api/production";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import { useAuth } from "../../auth/AuthContext";
 
 function issueErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -82,6 +87,8 @@ interface IssuedResult {
 export default function Issue() {
   const location = useLocation();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const canReturn = !!user?.is_superuser || !!user?.permissions.includes("units.return");
   const prefill = (location.state as IssuePrefill | null) ?? undefined;
 
   const [selected, setSelected] = useState<QueueSelection | null>(null);
@@ -823,6 +830,18 @@ export default function Issue() {
                 render: (_, r) => (r.line.defect_pieces > 0 ? <Tag color="red">{r.line.defect_pieces}</Tag> : "—"),
               },
               { title: "Остаток задания, шт", render: (_, r) => r.line.remaining_pieces },
+              {
+                title: "Действия",
+                render: (_, r) =>
+                  canReturn &&
+                  r.line.issued_units.length > 0 && (
+                    <Space direction="vertical" size={4}>
+                      {r.line.issued_units.map((u) => (
+                        <AcceptReturnButton key={u.id} unit={u} />
+                      ))}
+                    </Space>
+                  ),
+              },
             ]}
           />
         </Card>
@@ -861,5 +880,48 @@ export default function Issue() {
         </Form>
       </Modal>
     </div>
+  );
+}
+
+/** Приём возврата прямо в «Выдано по заданиям» — там же, где плёнку
+ * выдавали, а не в отдельной карточке единицы (раздел про единый процесс
+ * возврата). Без формы и ручного ввода длины: остаток по расчёту (хорошие
+ * и брак за смену уже учтены) прописывается автоматически, оператору
+ * остаётся только подтвердить — вводить/поправлять число негде. */
+function AcceptReturnButton({ unit }: { unit: ProductionTaskLineIssuedUnit }) {
+  const qc = useQueryClient();
+  const previewQuery = useQuery({ queryKey: ["return-preview", unit.id], queryFn: () => getReturnPreview(unit.id) });
+
+  const acceptMutation = useMutation({
+    mutationFn: () =>
+      returnUnit(unit.id, { actual_length_m: previewQuery.data?.expected_return_length_m ?? unit.length_m }),
+    onSuccess: (u) => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      qc.invalidateQueries({ queryKey: ["units-unplaced"] });
+      message.success(
+        `Остаток №${u.id} (${u.length_m} м) принят на склад — теперь в «Стеллажи → Без места» для размещения и печати новой бирки.`,
+      );
+    },
+    onError: (e) => message.error(issueErrorMessage(e, "Не удалось принять возврат")),
+  });
+
+  const expected = previewQuery.data?.expected_return_length_m;
+
+  return (
+    <Popconfirm
+      title={`Принять №${unit.id} на склад?`}
+      description={
+        expected != null
+          ? `Остаток по расчёту: ${expected} м (хорошие и брак уже учтены) — впишется автоматически.`
+          : "Расчёт остатка недоступен — вернётся как есть, без изменения длины."
+      }
+      okText="Принять"
+      cancelText="Отмена"
+      onConfirm={() => acceptMutation.mutate()}
+    >
+      <Button size="small" type="primary" loading={acceptMutation.isPending || previewQuery.isLoading}>
+        Принять №{unit.id}
+      </Button>
+    </Popconfirm>
   );
 }
