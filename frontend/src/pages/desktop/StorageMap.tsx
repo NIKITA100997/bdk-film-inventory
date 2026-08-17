@@ -368,8 +368,13 @@ function RacksConsole() {
 
         {selectedRack ? (
           <Card>
-            <Space style={{ width: "100%", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-              <div>
+            <div style={{ display: "flex", flexWrap: "wrap", width: "100%", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
+              {/* min-width:0 — без него флекс-элемент не сжимается меньше
+                  своего "естественного" контента, и растущий ряд кнопок
+                  справа (сейчас 4 штуки) выдавливал этот блок в почти
+                  нулевую ширину, из-за чего текст переносился по одной
+                  букве в строку вместо нормального переноса по словам. */}
+              <div style={{ minWidth: 0, flex: "1 1 240px" }}>
                 <Typography.Title level={5} style={{ marginBottom: 2 }}>
                   Стеллаж {selectedRack.code} — {typeLabels[selectedRack.type]}, {selectedRack.shelf_count} полок
                 </Typography.Title>
@@ -379,7 +384,7 @@ function RacksConsole() {
                     ` · ${occupancyForSelected.reduce((sum, c) => sum + c.units.length, 0)} из ${occupancyForSelected.reduce((sum, c) => sum + c.capacity, 0)} мест занято`}
                 </Typography.Text>
               </div>
-              <Space>
+              <Space wrap style={{ flexShrink: 0 }}>
                 <Button size="small" onClick={() => printRackLabel(selectedRack.id)}>
                   Печать бирки стеллажа
                 </Button>
@@ -420,7 +425,7 @@ function RacksConsole() {
                   </Button>
                 )}
               </Space>
-            </Space>
+            </div>
 
             {/* Рулонные и штрипсовые стеллажи адресуются одинаково (полка
                 целиком, без ячеек) — один и тот же список строк-полок для
