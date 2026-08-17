@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isAxiosError } from "axios";
 import {
   Card,
   Tabs,
@@ -49,6 +50,11 @@ import { useAuth } from "../../auth/AuthContext";
 import QrScanModal from "../../components/QrScanModal";
 
 const typeLabels: Record<RackType, string> = { roll: "рулонный", strip: "штрипсовый" };
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
 
 // Кросс-ссылка "В остатках" (раздел про организацию меню — Остатки и
 // Стеллажи не мержим в один экран, разные оси, но связываем переходом) —
@@ -182,7 +188,8 @@ function RacksConsole() {
       setRuleModalOpen(false);
       message.success("Правило добавлено");
     },
-    onError: () => message.error("Не удалось создать правило — проверьте, что значения есть в справочниках"),
+    onError: (e) =>
+      message.error(apiErrorMessage(e, "Не удалось создать правило — проверьте, что значения есть в справочниках")),
   });
   const deleteRuleMutation = useMutation({
     mutationFn: (ruleId: number) => deleteMacroZoneRule(selectedRack!.id, ruleId),
