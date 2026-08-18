@@ -71,6 +71,23 @@ class ProductionTaskLineManualCreate(BaseModel):
     part_name: str | None = None
 
 
+class NaryadParsedLineOut(BaseModel):
+    part_name: str
+    width_mm: float
+    length_m: float
+    quantity_pieces: float
+
+
+class NaryadParseResultOut(BaseModel):
+    """Раздел про загрузку наряд-заказа — только форма деталей, без
+    плёнки: материал/цвет/толщину и участок пользователь выбирает
+    отдельно на фронтенде, тем же полем, что и для строк из BOM
+    (ProductionTaskLineManualCreate.material/color/thickness)."""
+
+    suggested_name: str
+    lines: list[NaryadParsedLineOut]
+
+
 class ProductionTaskManualCreate(BaseModel):
     name: str
     area: str

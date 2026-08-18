@@ -15,6 +15,7 @@ import {
   Empty,
   DatePicker,
   Checkbox,
+  Upload,
   message,
 } from "antd";
 import dayjs from "dayjs";
@@ -36,6 +37,7 @@ import {
   createTaskLineReport,
   listTaskLineAssignments,
   createTaskLineAssignment,
+  parseNaryadFile,
   type ProductionTask,
   type ProductionTaskLine,
   type ProductionTaskLineManualCreate,
@@ -66,6 +68,7 @@ function TasksTab() {
   const [manualForm] = Form.useForm<{ name: string; area: AreaValue }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
   const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number; sku_id: number }>();
+  const [naryadForm] = Form.useForm<{ sku_id: number }>();
   const [assignForm] = Form.useForm<{ line_id: number; date: dayjs.Dayjs; employee_names: string; quantity_pieces: number }>();
   const [showArchived, setShowArchived] = useState(false);
 
@@ -82,6 +85,7 @@ function TasksTab() {
 
   const activeModels = (modelsQuery.data ?? []).filter((m) => m.is_active && m.parts.length > 0);
   const bomProductModelId = Form.useWatch("product_model_id", bomForm);
+  const naryadSkuId = Form.useWatch("sku_id", naryadForm);
 
   const tasks = (tasksQuery.data ?? [])
     .filter((t) => !user?.area || t.area === user.area)
@@ -97,6 +101,7 @@ function TasksTab() {
     manualForm.resetFields();
     manualRowForm.resetFields();
     bomForm.resetFields();
+    naryadForm.resetFields();
     setManualLines([]);
   };
 
@@ -137,6 +142,32 @@ function TasksTab() {
       })
       .catch(() => {});
   };
+
+  // Раздел про загрузку наряд-заказа — печатная форма («Перечень деталей
+  // столярных изделий») даёт только форму деталей, без плёнки: тот же
+  // sku_id, что выбран здесь, подставляется в material/color/thickness
+  // каждой распознанной строки, ровно как loadLinesFromBom подставляет
+  // его для строк из состава модели.
+  const parseNaryadMutation = useMutation({
+    mutationFn: parseNaryadFile,
+    onSuccess: (result) => {
+      const sku = skusQuery.data?.find((s) => s.id === naryadSkuId);
+      if (!sku) return;
+      const loaded: ProductionTaskLineManualCreate[] = result.lines.map((l) => ({
+        material: sku.material.name,
+        color: sku.color.name,
+        thickness: sku.thickness.value_mm,
+        quantity_pieces: l.quantity_pieces,
+        width_mm: l.width_mm,
+        length_m: l.length_m,
+        part_name: l.part_name,
+      }));
+      setManualLines((lines) => [...lines, ...loaded]);
+      manualForm.setFieldsValue({ name: manualForm.getFieldValue("name") || result.suggested_name });
+      message.success(`Из наряд-заказа добавлено строк: ${loaded.length}`);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось разобрать файл наряд-заказа")),
+  });
 
   const assignmentsQuery = useQuery({
     queryKey: ["task-line-assignments", assignTarget?.task.id, assignTarget?.line.id],
@@ -332,6 +363,32 @@ function TasksTab() {
             Загрузить строки из состава
           </Button>
         </Form>
+
+        <Typography.Title level={5} style={{ marginTop: 24 }}>
+          Загрузить наряд-заказ
+        </Typography.Title>
+        <Typography.Paragraph type="secondary">
+          Файл содержит только форму деталей (название/ширина/длина/кол-во) — плёнку файл не знает, выберите
+          номенклатуру ниже перед загрузкой.
+        </Typography.Paragraph>
+        <Form form={naryadForm} layout="vertical">
+          <Form.Item name="sku_id" label="Материал (номенклатура)" rules={[{ required: true }]}>
+            <Select showSearch placeholder="Выберите позицию материала" options={skuOptions} optionFilterProp="label" />
+          </Form.Item>
+        </Form>
+        <Upload
+          accept=".xls"
+          showUploadList={false}
+          disabled={!naryadSkuId}
+          beforeUpload={(file) => {
+            parseNaryadMutation.mutate(file);
+            return false;
+          }}
+        >
+          <Button block disabled={!naryadSkuId} loading={parseNaryadMutation.isPending}>
+            Загрузить файл наряд-заказа (.xls)
+          </Button>
+        </Upload>
 
         <Typography.Title level={5} style={{ marginTop: 24 }}>
           Название и участок задания

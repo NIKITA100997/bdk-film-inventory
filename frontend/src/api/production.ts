@@ -183,6 +183,31 @@ export const listProductionTasks = async (): Promise<ProductionTask[]> =>
 export const createProductionTaskManual = async (payload: ProductionTaskManualCreate): Promise<ProductionTask> =>
   (await apiClient.post<ProductionTask>("/production-tasks/manual", payload)).data;
 
+// Раздел про загрузку наряд-заказа — печатная форма даёт только форму
+// деталей (название/ширина/длина/кол-во), без плёнки: material/color/
+// thickness пользователь выбирает на фронтенде отдельно, тем же полем,
+// что и для строк из BOM (см. ProductionTaskLineManualCreate выше).
+export interface NaryadParsedLine {
+  part_name: string;
+  width_mm: number;
+  length_m: number;
+  quantity_pieces: number;
+}
+
+export interface NaryadParseResult {
+  suggested_name: string;
+  lines: NaryadParsedLine[];
+}
+
+export const parseNaryadFile = async (file: File): Promise<NaryadParseResult> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await apiClient.post<NaryadParseResult>("/production-tasks/parse-naryad", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+};
+
 export const listTaskLineReports = async (taskId: number, lineId: number): Promise<ProductionTaskLineReport[]> =>
   (await apiClient.get<ProductionTaskLineReport[]>(`/production-tasks/${taskId}/lines/${lineId}/reports`)).data;
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -17,6 +17,8 @@ from app.models.production import (
 )
 from app.models.users import User
 from app.schemas.production import (
+    NaryadParsedLineOut,
+    NaryadParseResultOut,
     ProductionLineCreate,
     ProductionLineOut,
     ProductionLineUpdate,
@@ -37,6 +39,7 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_material_color_thickness
+from app.services.naryad_import import parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.production import (
     calc_default_strip_width,
@@ -454,6 +457,32 @@ def create_production_task_manual(
     db.commit()
     db.refresh(task)
     return _task_out(db, task)
+
+
+@router.post("/production-tasks/parse-naryad", response_model=NaryadParseResultOut)
+async def parse_naryad(file: UploadFile = File(...), user: User = Depends(manage_production)) -> NaryadParseResultOut:
+    """Раздел про загрузку наряд-заказа — разбирает печатную форму
+    («Перечень деталей столярных изделий», раздел «РАСКЛАДКА») в строки
+    задания. Только предпросмотр: ничего не создаёт и не пишет в БД —
+    материал/цвет/толщину плёнки и участок пользователь выбирает на
+    фронтенде (файл их не содержит), после чего строки уходят в тот же
+    POST /production-tasks/manual, что и при ручном/BOM-создании."""
+    data = await file.read()
+    try:
+        result = parse_naryad_xls_bytes(data)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Не удалось прочитать файл — убедитесь, что это .xls (Excel 97-2003) и он не повреждён",
+        )
+    if not result.lines:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="В файле не найдено ни одной строки с деталями")
+    return NaryadParseResultOut(
+        suggested_name=result.suggested_name,
+        lines=[NaryadParsedLineOut(**l.__dict__) for l in result.lines],
+    )
 
 
 # --- Брак в производстве -------------------------------------------------
