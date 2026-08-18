@@ -321,8 +321,16 @@ export async function deleteUnit(unitId: number): Promise<DeleteResult> {
   return data;
 }
 
-export function printLabel(unitId: number): void {
-  const params = { vertical: isVerticalPrint() };
+export interface PrintLabelOptions {
+  // Раздел про поле "Назначение" — нужно временно поверх сохранённого
+  // макета только в конкретных сценариях (резка по плану, приём
+  // возврата), не в самом макете навсегда (см. _with_extra_fields на
+  // бэкенде).
+  extraFields?: string[];
+}
+
+export function printLabel(unitId: number, options?: PrintLabelOptions): void {
+  const params = { vertical: isVerticalPrint(), extra_fields: options?.extraFields?.join(",") };
   if (isMobileDevice()) {
     apiClient.get(`/labels/${unitId}/html`, { params, responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);
@@ -337,9 +345,9 @@ export function printLabel(unitId: number): void {
 // Очередь печати (раздел про ускорение работы) — один документ на
 // несколько этикеток вместо printLabel в цикле: после приёмки партии из
 // N рулонов одна вкладка с N страницами вместо N открытых вкладок печати.
-export function printLabelsBatch(unitIds: number[]): void {
+export function printLabelsBatch(unitIds: number[], options?: PrintLabelOptions): void {
   if (unitIds.length === 0) return;
-  const params = { vertical: isVerticalPrint() };
+  const params = { vertical: isVerticalPrint(), extra_fields: options?.extraFields?.join(",") };
   if (isMobileDevice()) {
     apiClient.post("/labels/batch/html", { unit_ids: unitIds }, { params, responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);

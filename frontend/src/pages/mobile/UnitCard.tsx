@@ -181,7 +181,8 @@ export default function UnitCard() {
       returnForm.resetFields();
       message.success(
         <>
-          Остаток возвращён на хранение — <a onClick={() => printLabel(u.id)}>печать бирки</a>
+          Остаток возвращён на хранение —{" "}
+          <a onClick={() => printLabel(u.id, { extraFields: ["task_assignment"] })}>печать бирки</a>
         </>,
       );
     },

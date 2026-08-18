@@ -63,6 +63,23 @@ def _content_disposition(filename: str) -> str:
     return f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
 
 
+def _with_extra_fields(template_fields: list[dict], extra_fields: str) -> list[dict]:
+    """Раздел про поле "Назначение" на этикетке штрипса после резки/при
+    возврате — оно нужно не на каждой печати рулона, а только в этих двух
+    конкретных сценариях, поэтому не добавляется в сохранённый макет
+    навсегда: печать может попросить временно дописать поле(я) поверх
+    сохранённых, без изменения самого макета в БД. extra_fields — через
+    запятую (не list[str] в query — axios по умолчанию сериализует массивы
+    как "extra_fields[]=...", что FastAPI не разбирает без доп. настройки;
+    строка с запятыми снимает вопрос сериализации). Уже присутствующие в
+    макете ключи не дублируются."""
+    if not extra_fields:
+        return template_fields
+    keys = [k for k in extra_fields.split(",") if k]
+    existing_keys = {f["key"] for f in template_fields}
+    return template_fields + [{"key": key, "size": "sm", "bold": False} for key in keys if key not in existing_keys]
+
+
 def _oriented(template: LabelTemplate, vertical: bool) -> tuple[int, int]:
     """Печать той же этикетки в вертикальном виде (раздел про ориентацию
     печати) — размеры макета не меняются, просто ширина и высота
@@ -137,13 +154,14 @@ def preview_label_template(payload: LabelTemplateUpdate, kind: str = "unit", use
 
 
 @router.get("/labels/{unit_id}", dependencies=[Depends(get_current_user)])
-def get_label(unit_id: int, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
+def get_label(unit_id: int, vertical: bool = False, extra_fields: str = "", db: Session = Depends(get_db)) -> Response:
     unit = db.get(MaterialUnit, unit_id)
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     template = _get_template(db, "unit")
     width_mm, height_mm = _oriented(template, vertical)
-    pdf_bytes = render_label_pdf(label_data_from_unit(unit), fields=template.fields, width_mm=width_mm, height_mm=height_mm)
+    fields = _with_extra_fields(template.fields, extra_fields)
+    pdf_bytes = render_label_pdf(label_data_from_unit(unit), fields=fields, width_mm=width_mm, height_mm=height_mm)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -152,7 +170,9 @@ def get_label(unit_id: int, vertical: bool = False, db: Session = Depends(get_db
 
 
 @router.get("/labels/{unit_id}/html", dependencies=[Depends(get_current_user)])
-def get_label_html(unit_id: int, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
+def get_label_html(
+    unit_id: int, vertical: bool = False, extra_fields: str = "", db: Session = Depends(get_db)
+) -> Response:
     """HTML-версия той же этикетки (планшеты — печать PDF-blob через
     window.print() на части Android-браузеров не срабатывает, система
     перехватывает blob как файл на скачивание вместо печати; обычная
@@ -162,12 +182,15 @@ def get_label_html(unit_id: int, vertical: bool = False, db: Session = Depends(g
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     template = _get_template(db, "unit")
     width_mm, height_mm = _oriented(template, vertical)
-    html = render_label_html(label_data_from_unit(unit), fields=template.fields, width_mm=width_mm, height_mm=height_mm)
+    fields = _with_extra_fields(template.fields, extra_fields)
+    html = render_label_html(label_data_from_unit(unit), fields=fields, width_mm=width_mm, height_mm=height_mm)
     return Response(content=html, media_type="text/html")
 
 
 @router.post("/labels/batch/html", dependencies=[Depends(get_current_user)])
-def get_labels_batch_html(payload: LabelBatchRequest, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
+def get_labels_batch_html(
+    payload: LabelBatchRequest, vertical: bool = False, extra_fields: str = "", db: Session = Depends(get_db)
+) -> Response:
     units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
     units_by_id = {u.id: u for u in units}
     ordered_units = [units_by_id[uid] for uid in payload.unit_ids if uid in units_by_id]
@@ -175,14 +198,17 @@ def get_labels_batch_html(payload: LabelBatchRequest, vertical: bool = False, db
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
     template = _get_template(db, "unit")
     width_mm, height_mm = _oriented(template, vertical)
+    fields = _with_extra_fields(template.fields, extra_fields)
     html = render_labels_html_batch(
-        [label_data_from_unit(u) for u in ordered_units], fields=template.fields, width_mm=width_mm, height_mm=height_mm
+        [label_data_from_unit(u) for u in ordered_units], fields=fields, width_mm=width_mm, height_mm=height_mm
     )
     return Response(content=html, media_type="text/html")
 
 
 @router.post("/labels/batch", dependencies=[Depends(get_current_user)])
-def get_labels_batch(payload: LabelBatchRequest, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
+def get_labels_batch(
+    payload: LabelBatchRequest, vertical: bool = False, extra_fields: str = "", db: Session = Depends(get_db)
+) -> Response:
     """Очередь печати (раздел про ускорение работы): один PDF на несколько
     единиц вместо открытия отдельной вкладки/запроса на каждую — актуально
     после сессии приёмки на партию из N рулонов."""
@@ -193,8 +219,9 @@ def get_labels_batch(payload: LabelBatchRequest, vertical: bool = False, db: Ses
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
     template = _get_template(db, "unit")
     width_mm, height_mm = _oriented(template, vertical)
+    fields = _with_extra_fields(template.fields, extra_fields)
     pdf_bytes = render_labels_pdf_batch(
-        [label_data_from_unit(u) for u in ordered_units], fields=template.fields, width_mm=width_mm, height_mm=height_mm
+        [label_data_from_unit(u) for u in ordered_units], fields=fields, width_mm=width_mm, height_mm=height_mm
     )
     return Response(
         content=pdf_bytes,

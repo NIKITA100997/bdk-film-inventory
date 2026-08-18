@@ -210,7 +210,7 @@ function CuttingPlanExecuteModal({
       message.success(
         <>
           Разрезано и выдано {res.cuts.length} шт. ({unitIds.map((id) => `№${id}`).join(", ")}) —{" "}
-          <a onClick={() => printLabelsBatch(unitIds)}>печать этикеток</a>
+          <a onClick={() => printLabelsBatch(unitIds, { extraFields: ["task_assignment"] })}>печать этикеток</a>
           {flagged.length > 0 && (
             <>
               {" "}
@@ -1156,7 +1156,7 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
       message.success(
         <>
           №{returned.id} принят{placed ? ` и размещён: ${locationCode.trim()}` : ""} —{" "}
-          <a onClick={() => printLabel(returned.id)}>печать бирки</a>
+          <a onClick={() => printLabel(returned.id, { extraFields: ["task_assignment"] })}>печать бирки</a>
         </>,
       );
       onClose();
