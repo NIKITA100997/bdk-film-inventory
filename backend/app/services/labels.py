@@ -91,6 +91,7 @@ class LabelData:
     supplier_code: str | None
     native_width_mm: float | None
     parent_id: int | None
+    is_strip: bool
     width_mm: float
     length_m: float
     task_name: str | None = None
@@ -115,6 +116,7 @@ def label_data_from_unit(unit: MaterialUnit) -> LabelData:
         supplier_code=sku.supplier_code,
         native_width_mm=float(sku.native_width_mm) if sku.native_width_mm is not None else None,
         parent_id=unit.parent_id,
+        is_strip=unit.is_strip,
         width_mm=float(unit.width_mm),
         length_m=float(unit.length_m),
         task_name=task_name,
@@ -123,10 +125,11 @@ def label_data_from_unit(unit: MaterialUnit) -> LabelData:
 
 
 def indicator_color(data: LabelData) -> str:
-    """Цветная полоса-индикатор (раздел 4.1 ТЗ): целый рулон/штрипс
-    определяем по наличию parent_id. Пока без ABC-анализа "свободный
-    остаток" (серый) не различаем."""
-    return GREEN if data.parent_id is None else NAVY
+    """Цветная полоса-индикатор (раздел 4.1 ТЗ): целый рулон — зелёный,
+    штрипс — тёмно-синий (MaterialUnit.is_strip, раздел про приёмку
+    отдельных штрипсов). Пока без ABC-анализа "свободный остаток" (серый)
+    не различаем."""
+    return NAVY if data.is_strip else GREEN
 
 
 def _format_number_ru(value: float) -> str:
@@ -562,11 +565,44 @@ PREVIEW_DATA = LabelData(
     supplier_code="KL-3391",
     native_width_mm=1400,
     parent_id=None,
+    is_strip=False,
     width_mm=1400,
     length_m=214,
     task_name="Дверь царговая, Прованс",
     part_name="Стоевая",
 )
+
+# Раздел про отдельные макеты для рулонов/штрипсов — превью вида "strip" на
+# отдельных синтетических данных (родитель + is_strip=True), чтобы
+# цветной индикатор и parent_ref на превью выглядели так же, как у
+# реального штрипса.
+PREVIEW_DATA_STRIP = LabelData(
+    unit_id=12346,
+    material="ПВХ плёнка",
+    color="Дуб беленый",
+    thickness_mm=0.35,
+    manufacturer="Классен",
+    upd_number="УПД-000123",
+    pallet_number="4",
+    received_date=date.today(),
+    supplier_code="KL-3391",
+    native_width_mm=1400,
+    parent_id=12345,
+    is_strip=True,
+    width_mm=150,
+    length_m=214,
+    task_name="Дверь царговая, Прованс",
+    part_name="Стоевая",
+)
+
+# Раздел про макет для этапа резки/выдачи (kind="cutting_issue") — тот же
+# состав, что у DEFAULT_FIELDS, плюс "Назначение" сразу в макете по
+# умолчанию (раньше дописывалось поверх сохранённого макета через
+# extra_fields только в двух сценариях печати — теперь это отдельный
+# полноценный вид со своим макетом, где поле нужно всегда).
+DEFAULT_FIELDS_CUTTING_ISSUE: list[dict] = DEFAULT_FIELDS + [
+    {"key": "task_assignment", "size": "md", "bold": True},
+]
 
 
 # ─── Этикетки мест хранения (раздел про макеты для стеллажей/полок) ───
@@ -834,7 +870,7 @@ PREVIEW_DATA_SHELF = ShelfLabelData(
 )
 
 
-# ─── Этикетка стеллажа целиком (kind="rack") ───
+# ─── Этикетка стеллажа целиком (kind="rack_roll"/"rack_strip") ───
 # Бирка на весь стеллаж (например, табличка у входа в ряд с кодом
 # «Р-3»), отдельно от бирок на отдельные места хранения выше. Печатается
 # по одной за раз — батч-версия не нужна, у стеллажа одна бирка.

@@ -17,18 +17,11 @@ def make_rule(**overrides):
 
 
 class TestDetermineRackType:
-    def test_matches_native_width_is_roll(self):
-        sku = make_sku(native_width_mm=1400)
-        assert determine_rack_type(sku, 1400, parent_id=None) == RackType.ROLL
+    def test_not_strip_is_roll(self):
+        assert determine_rack_type(False) == RackType.ROLL
 
-    def test_narrower_than_native_width_is_strip(self):
-        sku = make_sku(native_width_mm=1400)
-        assert determine_rack_type(sku, 400, parent_id=5) == RackType.STRIP
-
-    def test_no_native_width_falls_back_to_parent_id(self):
-        sku = make_sku(native_width_mm=None)
-        assert determine_rack_type(sku, 1400, parent_id=None) == RackType.ROLL
-        assert determine_rack_type(sku, 400, parent_id=7) == RackType.STRIP
+    def test_strip_is_strip(self):
+        assert determine_rack_type(True) == RackType.STRIP
 
 
 class TestRuleMatching:

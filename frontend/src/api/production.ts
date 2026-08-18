@@ -63,6 +63,7 @@ export interface ProductionTaskLineIssuedUnit {
   length_m: number;
   material_sku_id: number;
   parent_id: number | null;
+  is_strip: boolean;
 }
 
 export interface ProductionTaskLine {

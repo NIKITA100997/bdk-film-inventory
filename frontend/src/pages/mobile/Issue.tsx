@@ -210,7 +210,7 @@ function CuttingPlanExecuteModal({
       message.success(
         <>
           Разрезано и выдано {res.cuts.length} шт. ({unitIds.map((id) => `№${id}`).join(", ")}) —{" "}
-          <a onClick={() => printLabelsBatch(unitIds, { extraFields: ["task_assignment"] })}>печать этикеток</a>
+          <a onClick={() => printLabelsBatch(unitIds, { kind: "cutting_issue" })}>печать этикеток</a>
           {flagged.length > 0 && (
             <>
               {" "}
@@ -466,8 +466,7 @@ export default function Issue() {
     queryFn: () =>
       suggestLocation({
         material_sku_id: lastIssued!.remainder!.material_sku.id,
-        width_mm: lastIssued!.remainder!.width_mm,
-        parent_id: lastIssued!.remainder!.parent_id,
+        is_strip: lastIssued!.remainder!.is_strip,
       }),
     enabled: !!lastIssued?.remainder && !lastIssued.remainderPlaced,
   });
@@ -1134,7 +1133,7 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
   const previewQuery = useQuery({ queryKey: ["return-preview", unit.id], queryFn: () => getReturnPreview(unit.id) });
   const suggestionQuery = useQuery({
     queryKey: ["suggest-location", "accept-return", unit.id],
-    queryFn: () => suggestLocation({ material_sku_id: unit.material_sku_id, width_mm: unit.width_mm, parent_id: unit.parent_id }),
+    queryFn: () => suggestLocation({ material_sku_id: unit.material_sku_id, is_strip: unit.is_strip }),
   });
 
   useEffect(() => {
@@ -1156,7 +1155,7 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
       message.success(
         <>
           №{returned.id} принят{placed ? ` и размещён: ${locationCode.trim()}` : ""} —{" "}
-          <a onClick={() => printLabel(returned.id, { extraFields: ["task_assignment"] })}>печать бирки</a>
+          <a onClick={() => printLabel(returned.id, { kind: "cutting_issue" })}>печать бирки</a>
         </>,
       );
       onClose();

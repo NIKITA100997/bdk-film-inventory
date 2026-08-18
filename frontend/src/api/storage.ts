@@ -105,8 +105,7 @@ export const getRackOccupancy = async (rackId: number): Promise<RackOccupancyCel
 
 export const suggestLocation = async (params: {
   material_sku_id: number;
-  width_mm: number;
-  parent_id?: number | null;
+  is_strip?: boolean;
   warehouse_id?: number;
 }): Promise<string | null> =>
   (await apiClient.get<{ location_code: string | null }>("/storage/suggest-location", { params })).data

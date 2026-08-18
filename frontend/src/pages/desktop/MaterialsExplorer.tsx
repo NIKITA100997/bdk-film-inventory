@@ -60,6 +60,7 @@ type UnitLineValues = {
   length_m: number;
   upd_number?: string;
   pallet_number?: string;
+  is_strip?: boolean;
 };
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -247,7 +248,7 @@ export default function MaterialsExplorer() {
             menu={{
               items: [
                 { key: "position", label: "Материал — позиция без рулона" },
-                { key: "unit", label: "Единица плёнки — один рулон вне сессии" },
+                { key: "unit", label: "Единица плёнки — один рулон/штрипс вне сессии" },
               ],
               onClick: ({ key }) => (key === "position" ? setCreatePositionOpen(true) : setCreateUnitOpen(true)),
             }}
@@ -496,7 +497,16 @@ export default function MaterialsExplorer() {
           Один физический рулон/штрипс без открытия сессии приёмки (2.3) — например, единичное поступление без
           полноценной партии. УПД/паллета необязательны.
         </Typography.Paragraph>
-        <Form form={unitForm} layout="vertical" onFinish={(v) => createUnitMutation.mutate(v)}>
+        <Form form={unitForm} layout="vertical" initialValues={{ is_strip: false }} onFinish={(v) => createUnitMutation.mutate(v)}>
+          <Form.Item name="is_strip" label="Тип">
+            <Radio.Group
+              options={[
+                { label: "Рулон", value: false },
+                { label: "Штрипс", value: true },
+              ]}
+              optionType="button"
+            />
+          </Form.Item>
           <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
             <DictAutoComplete kind="materials" />
           </Form.Item>
@@ -585,7 +595,7 @@ function SuggestPlaceButton({ unit }: { unit: MaterialUnit }) {
   const qc = useQueryClient();
   const suggestion = useQuery({
     queryKey: ["suggest-location", "materials-explorer", unit.id],
-    queryFn: () => suggestLocation({ material_sku_id: unit.material_sku.id, width_mm: unit.width_mm, parent_id: unit.parent_id }),
+    queryFn: () => suggestLocation({ material_sku_id: unit.material_sku.id, is_strip: unit.is_strip }),
   });
   const placeMutation = useMutation({
     mutationFn: (locationCode: string) => placeUnit(unit.id, locationCode),

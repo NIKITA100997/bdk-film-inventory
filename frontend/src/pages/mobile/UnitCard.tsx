@@ -88,20 +88,20 @@ export default function UnitCard() {
   });
 
   const placeSuggestion = useQuery({
-    queryKey: ["suggest-location", "place", unit?.material_sku.id, unit?.width_mm, unit?.parent_id],
-    queryFn: () =>
-      suggestLocation({ material_sku_id: unit!.material_sku.id, width_mm: unit!.width_mm, parent_id: unit!.parent_id }),
+    queryKey: ["suggest-location", "place", unit?.material_sku.id, unit?.is_strip],
+    queryFn: () => suggestLocation({ material_sku_id: unit!.material_sku.id, is_strip: unit!.is_strip }),
     enabled: !!unit && action === "place",
   });
   const splitSuggestion = useQuery({
     queryKey: ["suggest-location", "split", unit?.material_sku.id, separateWidth, unit?.id],
-    queryFn: () => suggestLocation({ material_sku_id: unit!.material_sku.id, width_mm: separateWidth, parent_id: unit!.id }),
+    // Отделяемый кусок — всегда штрипс (раздел про приёмку отдельных
+    // штрипсов: любой кусок, отрезанный от донора, MaterialUnit.is_strip=True).
+    queryFn: () => suggestLocation({ material_sku_id: unit!.material_sku.id, is_strip: true }),
     enabled: !!unit && action === "split" && !!separateWidth && separateWidth > 0 && separateWidth < unit.width_mm,
   });
   const cutSuggestion = useQuery({
-    queryKey: ["suggest-location", "cut", unit?.material_sku.id, unit?.width_mm, unit?.parent_id],
-    queryFn: () =>
-      suggestLocation({ material_sku_id: unit!.material_sku.id, width_mm: unit!.width_mm, parent_id: unit!.parent_id }),
+    queryKey: ["suggest-location", "cut", unit?.material_sku.id, unit?.is_strip],
+    queryFn: () => suggestLocation({ material_sku_id: unit!.material_sku.id, is_strip: unit!.is_strip }),
     enabled: !!unit && action === "cut",
   });
   const returnPreviewQuery = useQuery({
@@ -182,7 +182,7 @@ export default function UnitCard() {
       message.success(
         <>
           Остаток возвращён на хранение —{" "}
-          <a onClick={() => printLabel(u.id, { extraFields: ["task_assignment"] })}>печать бирки</a>
+          <a onClick={() => printLabel(u.id, { kind: "cutting_issue" })}>печать бирки</a>
         </>,
       );
     },

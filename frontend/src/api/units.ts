@@ -23,6 +23,7 @@ export interface MaterialUnit {
   material_sku: MaterialSku;
   width_mm: number;
   length_m: number;
+  is_strip: boolean;
   status: string;
   area: string | null;
   location_code: string | null;
@@ -45,6 +46,7 @@ export interface ReceiveRequest {
   length_m: number;
   quantity: number;
   location_code?: string;
+  is_strip?: boolean;
 }
 
 export async function receiveUnits(payload: ReceiveRequest): Promise<MaterialUnit[]> {
@@ -66,8 +68,7 @@ export async function receiveAndAutoPlace(
   for (const unit of created) {
     const suggestion = await suggestLocation({
       material_sku_id: unit.material_sku.id,
-      width_mm: unit.width_mm,
-      parent_id: null,
+      is_strip: unit.is_strip,
       warehouse_id: warehouseId,
     });
     placed.push(suggestion ? await placeUnit(unit.id, suggestion) : unit);
@@ -322,15 +323,15 @@ export async function deleteUnit(unitId: number): Promise<DeleteResult> {
 }
 
 export interface PrintLabelOptions {
-  // Раздел про поле "Назначение" — нужно временно поверх сохранённого
-  // макета только в конкретных сценариях (резка по плану, приём
-  // возврата), не в самом макете навсегда (см. _with_extra_fields на
-  // бэкенде).
-  extraFields?: string[];
+  // Явный вид макета — по умолчанию бэкенд сам определяет рулон/штрипс по
+  // MaterialUnit.is_strip; передаётся только там, где нужен другой вид, не
+  // связанный напрямую с типом единицы — например "cutting_issue" сразу
+  // после резки/выдачи участку (раздел про макет для этапа резки/выдачи).
+  kind?: "roll" | "strip" | "cutting_issue";
 }
 
 export function printLabel(unitId: number, options?: PrintLabelOptions): void {
-  const params = { vertical: isVerticalPrint(), extra_fields: options?.extraFields?.join(",") };
+  const params = { vertical: isVerticalPrint(), kind: options?.kind };
   if (isMobileDevice()) {
     apiClient.get(`/labels/${unitId}/html`, { params, responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);
@@ -347,7 +348,7 @@ export function printLabel(unitId: number, options?: PrintLabelOptions): void {
 // N рулонов одна вкладка с N страницами вместо N открытых вкладок печати.
 export function printLabelsBatch(unitIds: number[], options?: PrintLabelOptions): void {
   if (unitIds.length === 0) return;
-  const params = { vertical: isVerticalPrint(), extra_fields: options?.extraFields?.join(",") };
+  const params = { vertical: isVerticalPrint(), kind: options?.kind };
   if (isMobileDevice()) {
     apiClient.post("/labels/batch/html", { unit_ids: unitIds }, { params, responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);

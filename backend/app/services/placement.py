@@ -12,14 +12,13 @@ from app.models.storage import MacroZoneRule, Rack, RackType
 from app.models.units import MaterialUnit, UnitStatus
 
 
-def determine_rack_type(sku: MaterialSku, width_mm: float, parent_id: int | None) -> RackType:
-    """Совпадает с "родной" шириной рулона от поставщика — целый рулон, на
-    рулонный стеллаж. Родная ширина неизвестна (не заполнена в справочнике
-    материалов) — используем тот же признак, что и цвет индикатора на
-    этикетке (services/labels.py): нет родителя — рулон, есть — штрипс."""
-    if sku.native_width_mm is not None:
-        return RackType.ROLL if abs(float(sku.native_width_mm) - width_mm) < 0.01 else RackType.STRIP
-    return RackType.ROLL if parent_id is None else RackType.STRIP
+def determine_rack_type(is_strip: bool) -> RackType:
+    """Тип стеллажа для размещения — напрямую из явного признака единицы
+    (раздел про приёмку отдельных штрипсов, MaterialUnit.is_strip). Раньше
+    выводился косвенно (родная ширина позиции материала либо наличие
+    parent_id) — тот эвристический путь остаётся только как бэкфилл в
+    миграции 7393d0901c8c для уже существующих строк."""
+    return RackType.STRIP if is_strip else RackType.ROLL
 
 
 def _rule_specificity(rule: MacroZoneRule) -> int:
@@ -88,8 +87,7 @@ def suggest_location(
     db: Session,
     *,
     sku: MaterialSku,
-    width_mm: float,
-    parent_id: int | None,
+    is_strip: bool,
     warehouse_id: int | None = None,
 ) -> str | None:
     """Возвращает рекомендованный адрес или None, если свободного места нет
@@ -97,7 +95,7 @@ def suggest_location(
     (4.2 ТЗ, п.4). warehouse_id — раздел про мультисклад: если передан,
     ищем только среди стеллажей этого склада; если нет — среди всех
     (обратная совместимость для вызовов до появления складов)."""
-    rack_type = determine_rack_type(sku, width_mm, parent_id)
+    rack_type = determine_rack_type(is_strip)
     query = db.query(Rack).filter(Rack.type == rack_type, Rack.is_active)
     if warehouse_id is not None:
         query = query.filter(Rack.warehouse_id == warehouse_id)

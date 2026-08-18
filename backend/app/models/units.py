@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -36,6 +36,14 @@ class MaterialUnit(Base):
 
     width_mm: Mapped[float] = mapped_column(Numeric(10, 2))
     length_m: Mapped[float] = mapped_column(Numeric(12, 3))
+
+    # Явный тип единицы (раздел про приёмку отдельных штрипсов) — раньше
+    # выводился на лету (родная ширина позиции материала либо наличие
+    # parent_id, см. services/placement.py::determine_rack_type), из-за
+    # чего не было прямого способа завести штрипс без родителя (например,
+    # уже нарезанный поставщиком). Источник истины для размещения
+    # (рулонный/штрипсовый стеллаж) и для вида этикетки.
+    is_strip: Mapped[bool] = mapped_column(Boolean, default=False)
 
     status: Mapped[UnitStatus] = mapped_column(Enum(UnitStatus, name="unit_status"))
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)

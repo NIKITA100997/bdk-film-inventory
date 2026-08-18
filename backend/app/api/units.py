@@ -123,6 +123,7 @@ def receive(
             material_sku_id=sku.id,
             width_mm=payload.width_mm,
             length_m=payload.length_m,
+            is_strip=payload.is_strip,
             status=UnitStatus.NA_KHRANENII if payload.location_code else UnitStatus.PRINYAT,
             location_code=payload.location_code,
         )
@@ -347,6 +348,7 @@ def split_unit(
             material_sku_id=spec.material_sku_id,
             width_mm=spec.width_mm,
             length_m=spec.length_m,
+            is_strip=True,
             status=UnitStatus.SPISAN if is_waste else spec.status,
             location_code=None if is_waste else spec.location_code,
         )
@@ -683,6 +685,7 @@ def execute_cutting_plan(
             material_sku_id=spec.material_sku_id,
             width_mm=spec.width_mm,
             length_m=cut.actual_length_m,
+            is_strip=True,
             status=UnitStatus.VYDAN_UCHASTKU,
             area=line.task.area,
             production_task_line_id=cut.production_task_line_id,
@@ -778,6 +781,7 @@ def issue_donor_atomic(
         material_sku_id=spec.material_sku_id,
         width_mm=spec.width_mm,
         length_m=spec.length_m,
+        is_strip=True,
         status=UnitStatus.VYDAN_UCHASTKU,
         area=payload.area,
         production_task_line_id=payload.production_task_line_id,

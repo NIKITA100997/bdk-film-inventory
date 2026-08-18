@@ -6,7 +6,7 @@ from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.events import EventType, MaterialEvent
 from app.models.inventory import InventoryScopeType, InventorySession, InventorySessionParticipant, InventoryStatus
-from app.models.storage import Rack
+from app.models.storage import Rack, RackType
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
 from app.schemas.inventory import (
@@ -193,12 +193,20 @@ def scan(
         db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
     )
     synthetic_upd = f"Инвентаризация №{session_id} от {inv_session.started_at.strftime('%d.%m.%Y')}"
+    # Найденный излишек ставится сразу на конкретную полку (payload —
+    # результат физического скана), поэтому тип единицы можно взять из
+    # типа стеллажа на этой полке, а не гадать (раздел про приёмку
+    # отдельных штрипсов) — рулонный стеллаж, если код полки не
+    # распознан, тем же способом, что services/placement.py::rules_for_location.
+    rack_code = payload.location_code.rpartition("-")[0]
+    rack = db.query(Rack).filter(Rack.code == rack_code).first()
     unit = MaterialUnit(
         upd_number=synthetic_upd,
         pallet_number="-",
         material_sku_id=sku.id,
         width_mm=payload.width_mm,
         length_m=payload.length_m,
+        is_strip=rack is not None and rack.type == RackType.STRIP,
         status=UnitStatus.NA_KHRANENII,
         location_code=payload.location_code,
     )

@@ -24,6 +24,7 @@ SAMPLE = LabelData(
     supplier_code="KL-9",
     native_width_mm=1400,
     parent_id=None,
+    is_strip=False,
     width_mm=1400,
     length_m=214,
 )
@@ -45,6 +46,7 @@ def make_unit(**overrides):
         pallet_number="3",
         created_at=SimpleNamespace(date=lambda: date(2026, 1, 15)),
         parent_id=None,
+        is_strip=False,
         width_mm=1400,
         length_m=214,
         production_task_line=None,
@@ -130,11 +132,11 @@ class TestRenderFieldValue:
 
 
 class TestIndicatorColor:
-    def test_roll_when_no_parent(self):
+    def test_roll_when_not_strip(self):
         assert indicator_color(SAMPLE) == "#1D9E75"
 
-    def test_strip_when_has_parent(self):
-        data = SAMPLE.__class__(**{**SAMPLE.__dict__, "parent_id": 7})
+    def test_strip_when_is_strip(self):
+        data = SAMPLE.__class__(**{**SAMPLE.__dict__, "is_strip": True})
         assert indicator_color(data) == "#2C2E3A"
 
 

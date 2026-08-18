@@ -2,7 +2,7 @@ import { apiClient } from "./client";
 import { isMobileDevice, isVerticalPrint, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
 
 export type FieldSize = "sm" | "md" | "lg";
-export type LabelKind = "unit" | "rack" | "shelf";
+export type LabelKind = "roll" | "strip" | "cutting_issue" | "rack_roll" | "rack_strip" | "shelf";
 
 export interface LabelFieldConfig {
   key: string;
@@ -23,13 +23,13 @@ export interface AvailableField {
   stale_warning: boolean;
 }
 
-export const getLabelTemplate = async (kind: LabelKind = "unit"): Promise<LabelTemplate> =>
+export const getLabelTemplate = async (kind: LabelKind = "roll"): Promise<LabelTemplate> =>
   (await apiClient.get<LabelTemplate>("/label-template", { params: { kind } })).data;
 
-export const listAvailableLabelFields = async (kind: LabelKind = "unit"): Promise<AvailableField[]> =>
+export const listAvailableLabelFields = async (kind: LabelKind = "roll"): Promise<AvailableField[]> =>
   (await apiClient.get<AvailableField[]>("/label-template/available-fields", { params: { kind } })).data;
 
-export const updateLabelTemplate = async (payload: LabelTemplate, kind: LabelKind = "unit"): Promise<LabelTemplate> =>
+export const updateLabelTemplate = async (payload: LabelTemplate, kind: LabelKind = "roll"): Promise<LabelTemplate> =>
   (await apiClient.patch<LabelTemplate>("/label-template", payload, { params: { kind } })).data;
 
 // Настоящий PDF, не HTML (раздел обратной связи по печати на термопринтере
@@ -41,7 +41,7 @@ export const updateLabelTemplate = async (payload: LabelTemplate, kind: LabelKin
 // лишнего клика по кнопке "Печать" внутри просмотрщика (ждём w.addEventListener
 // "load", не вызываем print() синхронно сразу после open — та же гонка,
 // что чинили для прежней HTML-версии).
-export async function previewLabelTemplate(payload: LabelTemplate, kind: LabelKind = "unit"): Promise<void> {
+export async function previewLabelTemplate(payload: LabelTemplate, kind: LabelKind = "roll"): Promise<void> {
   const { data } = await apiClient.post("/label-template/preview", payload, { params: { kind }, responseType: "blob" });
   const url = URL.createObjectURL(data as Blob);
   const w = window.open(url, "_blank");
@@ -74,7 +74,7 @@ export function printShelfLabelsBatch(rackId: number, cells: ShelfLabelCell[]): 
   }
 }
 
-// Бирка на весь стеллаж целиком — отдельный макет (kind="rack") от бирок
+// Бирка на весь стеллаж целиком — отдельный макет (kind="rack_roll"/"rack_strip") от бирок
 // на места хранения выше. Печатается по одной, без списка ячеек.
 export function printRackLabel(rackId: number): void {
   const params = { vertical: isVerticalPrint() };

@@ -587,7 +587,7 @@ function UnplacedRow({ unit }: { unit: MaterialUnit }) {
   const qc = useQueryClient();
   const suggestion = useQuery({
     queryKey: ["suggest-location", "unplaced", unit.id],
-    queryFn: () => suggestLocation({ material_sku_id: unit.material_sku.id, width_mm: unit.width_mm, parent_id: unit.parent_id }),
+    queryFn: () => suggestLocation({ material_sku_id: unit.material_sku.id, is_strip: unit.is_strip }),
   });
   const placeMutation = useMutation({
     mutationFn: (locationCode: string) => placeUnit(unit.id, locationCode),

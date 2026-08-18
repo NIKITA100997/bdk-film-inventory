@@ -69,8 +69,11 @@ function SortableFieldItem({
 }
 
 const KIND_DEFAULTS: Record<LabelKind, { width: number; height: number }> = {
-  unit: { width: 100, height: 40 },
-  rack: { width: 70, height: 40 },
+  roll: { width: 100, height: 40 },
+  strip: { width: 100, height: 40 },
+  cutting_issue: { width: 100, height: 40 },
+  rack_roll: { width: 70, height: 40 },
+  rack_strip: { width: 70, height: 40 },
   shelf: { width: 70, height: 40 },
 };
 
@@ -89,8 +92,8 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
     if (templateQuery.data && !loaded) {
       // Старый singleton-макет рулона мог остаться со старым дефолтом
       // 60×90 (до перехода на 100×40 landscape) — актуально только для
-      // kind="unit", у стеллажного макета такой истории нет.
-      const isLegacyUnitDefault = kind === "unit" && templateQuery.data.width_mm === 60 && templateQuery.data.height_mm === 90;
+      // kind="roll" (бывший "unit"), у стеллажного макета такой истории нет.
+      const isLegacyUnitDefault = kind === "roll" && templateQuery.data.width_mm === 60 && templateQuery.data.height_mm === 90;
       setWidthMm(isLegacyUnitDefault ? 100 : templateQuery.data.width_mm);
       setHeightMm(isLegacyUnitDefault ? 40 : templateQuery.data.height_mm);
       setFields(templateQuery.data.fields);
@@ -153,7 +156,8 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
     <Card loading={templateQuery.isLoading || fieldsQuery.isLoading}>
       <Typography.Paragraph type="secondary">
         Перетащите поля за {"⠿"}, чтобы изменить порядок — так они лягут на бирку сверху вниз.
-        {kind === "unit" && " Ширина и длина по умолчанию не печатаются (4.1 ТЗ): они меняются при каждом разделении, а этикетка не перепечатывается."}
+        {(kind === "roll" || kind === "strip" || kind === "cutting_issue") &&
+          " Ширина и длина по умолчанию не печатаются (4.1 ТЗ): они меняются при каждом разделении, а этикетка не перепечатывается."}
       </Typography.Paragraph>
 
       <Space size="large" style={{ marginBottom: 20 }} align="center">
@@ -235,19 +239,22 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
   );
 }
 
-/** Макет этикетки (4 раздел бэклога доработок, расширено разделом про
- * макеты для стеллажей/полок) — один и тот же редактор полей на три
- * независимых макета: рулоны/штрипсы плёнки, стеллаж целиком и отдельное
- * место хранения (полка/ячейка), переключаются вкладками, каждый свой
- * набор полей и свой размер этикетки по умолчанию. */
+/** Макет этикетки (4 раздел бэклога доработок, расширено разделами про
+ * макеты для стеллажей/полок и про отдельные макеты рулон/штрипс/этап
+ * резки-выдачи) — один и тот же редактор полей на шесть независимых
+ * макетов, переключаются вкладками, каждый свой набор полей и свой размер
+ * этикетки по умолчанию. */
 export default function LabelTemplateAdmin() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Typography.Title level={4}>Макет этикетки</Typography.Title>
       <Tabs
         items={[
-          { key: "unit", label: "Рулоны плёнки", children: <LabelTemplateEditor kind="unit" /> },
-          { key: "rack", label: "Стеллаж (целиком)", children: <LabelTemplateEditor kind="rack" /> },
+          { key: "roll", label: "Рулоны", children: <LabelTemplateEditor kind="roll" /> },
+          { key: "strip", label: "Штрипсы", children: <LabelTemplateEditor kind="strip" /> },
+          { key: "cutting_issue", label: "Резка / выдача участку", children: <LabelTemplateEditor kind="cutting_issue" /> },
+          { key: "rack_roll", label: "Стеллаж рулонный", children: <LabelTemplateEditor kind="rack_roll" /> },
+          { key: "rack_strip", label: "Стеллаж штрипсовый", children: <LabelTemplateEditor kind="rack_strip" /> },
           { key: "shelf", label: "Полка / ячейка", children: <LabelTemplateEditor kind="shelf" /> },
         ]}
       />

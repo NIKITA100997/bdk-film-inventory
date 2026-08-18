@@ -130,6 +130,7 @@ def _task_line_out(
                 length_m=float(u.length_m),
                 material_sku_id=u.material_sku_id,
                 parent_id=u.parent_id,
+                is_strip=u.is_strip,
             )
             for u in (issued_units or [])
         ],

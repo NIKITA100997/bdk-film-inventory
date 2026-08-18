@@ -7,11 +7,12 @@ from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Manufacturer, Material, Thickness
 from app.models.labels import LabelTemplate
-from app.models.storage import MacroZoneRule, Rack, Warehouse
+from app.models.storage import MacroZoneRule, Rack, RackType, Warehouse
 from app.models.units import MaterialUnit
 from app.schemas.labels import AvailableFieldOut, LabelBatchRequest, LabelTemplateOut, LabelTemplateUpdate, ShelfLabelBatchRequest
 from app.services.labels import (
     DEFAULT_FIELDS,
+    DEFAULT_FIELDS_CUTTING_ISSUE,
     DEFAULT_FIELDS_RACK,
     DEFAULT_FIELDS_SHELF,
     DEFAULT_HEIGHT_MM,
@@ -26,6 +27,7 @@ from app.services.labels import (
     PREVIEW_DATA,
     PREVIEW_DATA_RACK,
     PREVIEW_DATA_SHELF,
+    PREVIEW_DATA_STRIP,
     RACK_TYPE_LABELS,
     RackLabelData,
     ShelfLabelData,
@@ -46,11 +48,29 @@ router = APIRouter(tags=["labels"])
 # Часть администрирования (5.6 ТЗ) — доступ только логисту/руководителю.
 manage_labels = require_permission("labels.manage")
 
+# Раздел про отдельные макеты для штрипсов/рулонов/стеллажей и для этапа
+# резки/выдачи: "roll"/"strip" — единица плёнки (тот же рендер/данные
+# LabelData, что раньше был один общий "unit"), "rack_roll"/"rack_strip" —
+# стеллаж целиком (был один общий "rack"), "cutting_issue" — печать сразу
+# после резки/выдачи участку (раньше — временная дописка поля "Назначение"
+# поверх макета "unit" через extra_fields, теперь полноценный вид со своим
+# сохраняемым макетом). Прежние ключи "unit"/"rack" переименованы в БД
+# миграцией 7393d0901c8c.
 _KIND_DEFAULTS = {
-    "unit": (DEFAULT_WIDTH_MM, DEFAULT_HEIGHT_MM, DEFAULT_FIELDS),
-    "rack": (DEFAULT_RACK_WIDTH_MM, DEFAULT_RACK_HEIGHT_MM, DEFAULT_FIELDS_RACK),
+    "roll": (DEFAULT_WIDTH_MM, DEFAULT_HEIGHT_MM, DEFAULT_FIELDS),
+    "strip": (DEFAULT_WIDTH_MM, DEFAULT_HEIGHT_MM, DEFAULT_FIELDS),
+    "cutting_issue": (DEFAULT_WIDTH_MM, DEFAULT_HEIGHT_MM, DEFAULT_FIELDS_CUTTING_ISSUE),
+    "rack_roll": (DEFAULT_RACK_WIDTH_MM, DEFAULT_RACK_HEIGHT_MM, DEFAULT_FIELDS_RACK),
+    "rack_strip": (DEFAULT_RACK_WIDTH_MM, DEFAULT_RACK_HEIGHT_MM, DEFAULT_FIELDS_RACK),
     "shelf": (DEFAULT_SHELF_WIDTH_MM, DEFAULT_SHELF_HEIGHT_MM, DEFAULT_FIELDS_SHELF),
 }
+
+_UNIT_LABEL_KINDS = ("roll", "strip", "cutting_issue")
+_RACK_LABEL_KINDS = ("rack_roll", "rack_strip")
+
+
+def _unit_label_kind(unit: MaterialUnit) -> str:
+    return "strip" if unit.is_strip else "roll"
 
 
 def _content_disposition(filename: str) -> str:
@@ -61,23 +81,6 @@ def _content_disposition(filename: str) -> str:
     имя файла, filename — ASCII-заглушка для совсем старых клиентов."""
     ascii_fallback = filename.encode("ascii", "replace").decode("ascii")
     return f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
-
-
-def _with_extra_fields(template_fields: list[dict], extra_fields: str) -> list[dict]:
-    """Раздел про поле "Назначение" на этикетке штрипса после резки/при
-    возврате — оно нужно не на каждой печати рулона, а только в этих двух
-    конкретных сценариях, поэтому не добавляется в сохранённый макет
-    навсегда: печать может попросить временно дописать поле(я) поверх
-    сохранённых, без изменения самого макета в БД. extra_fields — через
-    запятую (не list[str] в query — axios по умолчанию сериализует массивы
-    как "extra_fields[]=...", что FastAPI не разбирает без доп. настройки;
-    строка с запятыми снимает вопрос сериализации). Уже присутствующие в
-    макете ключи не дублируются."""
-    if not extra_fields:
-        return template_fields
-    keys = [k for k in extra_fields.split(",") if k]
-    existing_keys = {f["key"] for f in template_fields}
-    return template_fields + [{"key": key, "size": "sm", "bold": False} for key in keys if key not in existing_keys]
 
 
 def _oriented(template: LabelTemplate, vertical: bool) -> tuple[int, int]:
@@ -98,7 +101,7 @@ def _get_template(db: Session, kind: str) -> LabelTemplate:
         db.add(template)
         db.commit()
         db.refresh(template)
-    elif kind == "unit" and template.width_mm == 60 and template.height_mm == 90:
+    elif kind == "roll" and template.width_mm == 60 and template.height_mm == 90:
         # Раньше единственный singleton-макет (id=1) мог остаться со старым
         # дефолтом 60×90 — актуально только для рулонов, у остальных
         # макетов такой истории нет.
@@ -110,19 +113,24 @@ def _get_template(db: Session, kind: str) -> LabelTemplate:
 
 
 @router.get("/label-template", response_model=LabelTemplateOut)
-def get_label_template(kind: str = "unit", db: Session = Depends(get_db), user=Depends(get_current_user)) -> LabelTemplate:
+def get_label_template(kind: str = "roll", db: Session = Depends(get_db), user=Depends(get_current_user)) -> LabelTemplate:
     return _get_template(db, kind)
 
 
 @router.get("/label-template/available-fields", response_model=list[AvailableFieldOut])
-def list_available_fields(kind: str = "unit", user=Depends(get_current_user)) -> list[AvailableFieldOut]:
-    meta = {"unit": FIELD_META, "rack": FIELD_META_RACK}.get(kind, FIELD_META_SHELF)
+def list_available_fields(kind: str = "roll", user=Depends(get_current_user)) -> list[AvailableFieldOut]:
+    if kind in _UNIT_LABEL_KINDS:
+        meta = FIELD_META
+    elif kind in _RACK_LABEL_KINDS:
+        meta = FIELD_META_RACK
+    else:
+        meta = FIELD_META_SHELF
     return [AvailableFieldOut(key=key, **m) for key, m in meta.items()]
 
 
 @router.patch("/label-template", response_model=LabelTemplateOut)
 def update_label_template(
-    payload: LabelTemplateUpdate, kind: str = "unit", db: Session = Depends(get_db), user=Depends(manage_labels)
+    payload: LabelTemplateUpdate, kind: str = "roll", db: Session = Depends(get_db), user=Depends(manage_labels)
 ) -> LabelTemplate:
     template = _get_template(db, kind)
     template.width_mm = payload.width_mm
@@ -134,7 +142,7 @@ def update_label_template(
 
 
 @router.post("/label-template/preview")
-def preview_label_template(payload: LabelTemplateUpdate, kind: str = "unit", user=Depends(manage_labels)) -> Response:
+def preview_label_template(payload: LabelTemplateUpdate, kind: str = "roll", user=Depends(manage_labels)) -> Response:
     """Превью макета на синтетических данных (4 раздел бэклога доработок) —
     не требует реальной единицы/стеллажа и не сохраняет изменения.
 
@@ -144,9 +152,11 @@ def preview_label_template(payload: LabelTemplateUpdate, kind: str = "unit", use
     подтверждён рабочим). Превью показывает ровно то, что реально уйдёт на
     печать, без расхождений между просмотром и печатью."""
     fields = [f.model_dump() for f in payload.fields]
-    if kind == "unit":
+    if kind == "strip":
+        pdf_bytes = render_label_pdf(PREVIEW_DATA_STRIP, fields=fields, width_mm=payload.width_mm, height_mm=payload.height_mm)
+    elif kind in _UNIT_LABEL_KINDS:
         pdf_bytes = render_label_pdf(PREVIEW_DATA, fields=fields, width_mm=payload.width_mm, height_mm=payload.height_mm)
-    elif kind == "rack":
+    elif kind in _RACK_LABEL_KINDS:
         pdf_bytes = render_rack_label_pdf(PREVIEW_DATA_RACK, fields=fields, width_mm=payload.width_mm, height_mm=payload.height_mm)
     else:
         pdf_bytes = render_shelf_label_pdf(PREVIEW_DATA_SHELF, fields=fields, width_mm=payload.width_mm, height_mm=payload.height_mm)
@@ -154,14 +164,13 @@ def preview_label_template(payload: LabelTemplateUpdate, kind: str = "unit", use
 
 
 @router.get("/labels/{unit_id}", dependencies=[Depends(get_current_user)])
-def get_label(unit_id: int, vertical: bool = False, extra_fields: str = "", db: Session = Depends(get_db)) -> Response:
+def get_label(unit_id: int, vertical: bool = False, kind: str | None = None, db: Session = Depends(get_db)) -> Response:
     unit = db.get(MaterialUnit, unit_id)
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
-    template = _get_template(db, "unit")
+    template = _get_template(db, kind or _unit_label_kind(unit))
     width_mm, height_mm = _oriented(template, vertical)
-    fields = _with_extra_fields(template.fields, extra_fields)
-    pdf_bytes = render_label_pdf(label_data_from_unit(unit), fields=fields, width_mm=width_mm, height_mm=height_mm)
+    pdf_bytes = render_label_pdf(label_data_from_unit(unit), fields=template.fields, width_mm=width_mm, height_mm=height_mm)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -171,7 +180,7 @@ def get_label(unit_id: int, vertical: bool = False, extra_fields: str = "", db: 
 
 @router.get("/labels/{unit_id}/html", dependencies=[Depends(get_current_user)])
 def get_label_html(
-    unit_id: int, vertical: bool = False, extra_fields: str = "", db: Session = Depends(get_db)
+    unit_id: int, vertical: bool = False, kind: str | None = None, db: Session = Depends(get_db)
 ) -> Response:
     """HTML-версия той же этикетки (планшеты — печать PDF-blob через
     window.print() на части Android-браузеров не срабатывает, система
@@ -180,34 +189,37 @@ def get_label_html(
     unit = db.get(MaterialUnit, unit_id)
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
-    template = _get_template(db, "unit")
+    template = _get_template(db, kind or _unit_label_kind(unit))
     width_mm, height_mm = _oriented(template, vertical)
-    fields = _with_extra_fields(template.fields, extra_fields)
-    html = render_label_html(label_data_from_unit(unit), fields=fields, width_mm=width_mm, height_mm=height_mm)
+    html = render_label_html(label_data_from_unit(unit), fields=template.fields, width_mm=width_mm, height_mm=height_mm)
     return Response(content=html, media_type="text/html")
 
 
 @router.post("/labels/batch/html", dependencies=[Depends(get_current_user)])
 def get_labels_batch_html(
-    payload: LabelBatchRequest, vertical: bool = False, extra_fields: str = "", db: Session = Depends(get_db)
+    payload: LabelBatchRequest, vertical: bool = False, kind: str | None = None, db: Session = Depends(get_db)
 ) -> Response:
     units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
     units_by_id = {u.id: u for u in units}
     ordered_units = [units_by_id[uid] for uid in payload.unit_ids if uid in units_by_id]
     if not ordered_units:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
-    template = _get_template(db, "unit")
+    # Без явного kind — берём вид по первой единице партии (раздел про
+    # отдельные макеты рулон/штрипс): у одного макета в пачке одна ширина/
+    # высота страницы, разнородную по типу партию так корректно не
+    # напечатать — на практике пачка почти всегда однородна (одна сессия
+    # приёмки/пересчёта одного и того же материала).
+    template = _get_template(db, kind or _unit_label_kind(ordered_units[0]))
     width_mm, height_mm = _oriented(template, vertical)
-    fields = _with_extra_fields(template.fields, extra_fields)
     html = render_labels_html_batch(
-        [label_data_from_unit(u) for u in ordered_units], fields=fields, width_mm=width_mm, height_mm=height_mm
+        [label_data_from_unit(u) for u in ordered_units], fields=template.fields, width_mm=width_mm, height_mm=height_mm
     )
     return Response(content=html, media_type="text/html")
 
 
 @router.post("/labels/batch", dependencies=[Depends(get_current_user)])
 def get_labels_batch(
-    payload: LabelBatchRequest, vertical: bool = False, extra_fields: str = "", db: Session = Depends(get_db)
+    payload: LabelBatchRequest, vertical: bool = False, kind: str | None = None, db: Session = Depends(get_db)
 ) -> Response:
     """Очередь печати (раздел про ускорение работы): один PDF на несколько
     единиц вместо открытия отдельной вкладки/запроса на каждую — актуально
@@ -217,11 +229,10 @@ def get_labels_batch(
     ordered_units = [units_by_id[uid] for uid in payload.unit_ids if uid in units_by_id]
     if not ordered_units:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
-    template = _get_template(db, "unit")
+    template = _get_template(db, kind or _unit_label_kind(ordered_units[0]))
     width_mm, height_mm = _oriented(template, vertical)
-    fields = _with_extra_fields(template.fields, extra_fields)
     pdf_bytes = render_labels_pdf_batch(
-        [label_data_from_unit(u) for u in ordered_units], fields=fields, width_mm=width_mm, height_mm=height_mm
+        [label_data_from_unit(u) for u in ordered_units], fields=template.fields, width_mm=width_mm, height_mm=height_mm
     )
     return Response(
         content=pdf_bytes,
@@ -275,6 +286,10 @@ def _shelf_label_data_for_cells(db: Session, rack: Rack, warehouse_name: str, pa
     ]
 
 
+def _rack_label_kind(rack: Rack) -> str:
+    return "rack_strip" if rack.type == RackType.STRIP else "rack_roll"
+
+
 @router.post("/racks/{rack_id}/rack-label", dependencies=[Depends(get_current_user)])
 def get_rack_label(rack_id: int, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
     """Бирка на весь стеллаж целиком (не на отдельное место хранения —
@@ -283,7 +298,7 @@ def get_rack_label(rack_id: int, vertical: bool = False, db: Session = Depends(g
     if rack is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
-    template = _get_template(db, "rack")
+    template = _get_template(db, _rack_label_kind(rack))
     width_mm, height_mm = _oriented(template, vertical)
     data = RackLabelData(
         rack_code=rack.code,
@@ -306,7 +321,7 @@ def get_rack_label_html(rack_id: int, vertical: bool = False, db: Session = Depe
     if rack is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
-    template = _get_template(db, "rack")
+    template = _get_template(db, _rack_label_kind(rack))
     width_mm, height_mm = _oriented(template, vertical)
     data = RackLabelData(
         rack_code=rack.code,

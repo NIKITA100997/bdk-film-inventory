@@ -227,8 +227,7 @@ def create_macro_zone_rule(
 @router.get("/storage/suggest-location", response_model=LocationSuggestion)
 def suggest_location_endpoint(
     material_sku_id: int,
-    width_mm: float,
-    parent_id: int | None = None,
+    is_strip: bool = False,
     warehouse_id: int | None = None,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
@@ -241,5 +240,5 @@ def suggest_location_endpoint(
     sku = db.get(MaterialSku, material_sku_id)
     if sku is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Позиция материала не найдена")
-    location = suggest_location(db, sku=sku, width_mm=width_mm, parent_id=parent_id, warehouse_id=warehouse_id)
+    location = suggest_location(db, sku=sku, is_strip=is_strip, warehouse_id=warehouse_id)
     return LocationSuggestion(location_code=location)

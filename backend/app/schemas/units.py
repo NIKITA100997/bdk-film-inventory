@@ -18,6 +18,7 @@ class ReceiveRequest(BaseModel):
     length_m: float = Field(gt=0)
     quantity: int = Field(gt=0, le=200)
     location_code: str | None = None
+    is_strip: bool = False
 
 
 class MaterialUnitOut(BaseModel):
@@ -30,6 +31,7 @@ class MaterialUnitOut(BaseModel):
     material_sku: MaterialSkuOut
     width_mm: float
     length_m: float
+    is_strip: bool
     status: UnitStatus
     area: str | None
     location_code: str | None

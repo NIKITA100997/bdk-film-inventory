@@ -136,6 +136,7 @@ class ProductionTaskLineIssuedUnitOut(BaseModel):
     length_m: float
     material_sku_id: int
     parent_id: int | None
+    is_strip: bool
 
 
 class ProductionTaskLineOut(BaseModel):
