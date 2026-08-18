@@ -82,12 +82,20 @@ class TestRenderFieldValue:
     def test_fields_printed_with_caption(self):
         assert render_field_value(SAMPLE, "material") == "Материал: ПВХ плёнка"
         assert render_field_value(SAMPLE, "thickness") == "Толщина: 0.35 мм"
-        assert render_field_value(SAMPLE, "width_mm") == "Ширина: 1400 мм"
-        assert render_field_value(SAMPLE, "length_m") == "Длина: 214 м"
+        assert render_field_value(SAMPLE, "width_mm") == "Ш: 1400 мм"
+        assert render_field_value(SAMPLE, "length_m") == "Д: 214 м"
         assert render_field_value(SAMPLE, "upd_number") == "УПД: УПД-1"
 
     def test_unknown_key_returns_none(self):
         assert render_field_value(SAMPLE, "does_not_exist") is None
+
+    def test_dimensions_m_converts_width_to_meters_and_strips_zeros(self):
+        # width_mm=1400 -> 1,4 м; length_m=214 (уже в метрах, целое) -> 214.
+        assert render_field_value(SAMPLE, "dimensions_m") == "1,4×214"
+
+    def test_dimensions_m_keeps_fractional_length(self):
+        data = SAMPLE.__class__(**{**SAMPLE.__dict__, "width_mm": 500, "length_m": 3.5})
+        assert render_field_value(data, "dimensions_m") == "0,5×3,5"
 
 
 class TestIndicatorColor:

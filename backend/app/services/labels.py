@@ -69,6 +69,7 @@ FIELD_META: dict[str, dict] = {
     "parent_ref": {"label": "Из рулона №…", "kind": "text"},
     "width_mm": {"label": "Ширина (текущая), мм", "kind": "text", "stale_warning": True},
     "length_m": {"label": "Длина (текущая), м", "kind": "text", "stale_warning": True},
+    "dimensions_m": {"label": "Габарит Ш×Д, м (компактно)", "kind": "text", "stale_warning": True},
 }
 
 
@@ -115,15 +116,25 @@ def indicator_color(data: LabelData) -> str:
     return GREEN if data.parent_id is None else NAVY
 
 
+def _format_number_ru(value: float) -> str:
+    """1.400 -> "1,4", 1.000 -> "1" — компактный вид без незначащих нулей и
+    с русским десятичным разделителем (раздел про габарит на этикетке —
+    экономия места важнее, чем единообразная точность)."""
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return text.replace(".", ",")
+
+
 def render_field_value(data: LabelData, key: str) -> str | None:
     """None — поле нечего показывать (например, единица не резалась из
     родителя) — тогда строка в теле этикетки просто пропускается.
 
-    Каждое поле печатается с подписью ("Ширина: 1400 мм", а не голое
-    "1400 мм") — на маленькой бирке значение без подписи неоднозначно.
-    Исключения — unit_id и parent_ref: подпись у них уже встроена в саму
-    формулировку ("№ 42", "Из рулона №7"), отдельная приставка была бы
-    задвоением."""
+    Каждое поле печатается с подписью ("Материал: ПВХ", а не голое "ПВХ")
+    — на маленькой бирке значение без подписи неоднозначно. Исключения —
+    unit_id, parent_ref и dimensions_m: подпись у них уже встроена/не
+    нужна по смыслу ("№ 42", "Из рулона №7", "1,4×500"), отдельная
+    приставка была бы задвоением или просто съедала бы место, ради
+    экономии которого этот компактный формат и завели. width_mm/length_m
+    сокращены до "Ш:"/"Д:" по той же причине — не всё влезает на бирку."""
     if key == "unit_id":
         return f"№ {data.unit_id}"
     if key == "material":
@@ -147,9 +158,15 @@ def render_field_value(data: LabelData, key: str) -> str | None:
     if key == "parent_ref":
         return f"Из рулона №{data.parent_id}" if data.parent_id else None
     if key == "width_mm":
-        return f"Ширина: {data.width_mm} мм"
+        return f"Ш: {data.width_mm} мм"
     if key == "length_m":
-        return f"Длина: {data.length_m} м"
+        return f"Д: {data.length_m} м"
+    if key == "dimensions_m":
+        # Ширина переведена в метры (была в мм) — компактная запись
+        # "1,4×500" вместо двух отдельных строк "Ширина: 1400 мм" /
+        # "Длина: 500 м", когда на бирке не хватает места на обе.
+        width_m = data.width_mm / 1000
+        return f"{_format_number_ru(width_m)}×{_format_number_ru(data.length_m)}"
     return None
 
 
