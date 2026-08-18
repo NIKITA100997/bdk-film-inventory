@@ -47,6 +47,7 @@ def make_unit(**overrides):
         parent_id=None,
         width_mm=1400,
         length_m=214,
+        production_task_line=None,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -62,6 +63,25 @@ class TestLabelDataFromUnit:
     def test_missing_created_at_is_none(self):
         data = label_data_from_unit(make_unit(created_at=None))
         assert data.received_date is None
+
+    def test_no_task_line_leaves_assignment_empty(self):
+        data = label_data_from_unit(make_unit())
+        assert data.task_name is None
+        assert data.part_name is None
+
+    def test_task_line_populates_assignment_from_product_model(self):
+        line = SimpleNamespace(
+            part_name="Стоевая",
+            task=SimpleNamespace(product_model=SimpleNamespace(name="Дверь царговая"), name="Ручное задание"),
+        )
+        data = label_data_from_unit(make_unit(production_task_line=line))
+        assert data.part_name == "Стоевая"
+        assert data.task_name == "Дверь царговая"  # приоритет у модели, как в _task_out
+
+    def test_task_line_falls_back_to_manual_task_name(self):
+        line = SimpleNamespace(part_name="Добор 150", task=SimpleNamespace(product_model=None, name="QA-TEST-Задание"))
+        data = label_data_from_unit(make_unit(production_task_line=line))
+        assert data.task_name == "QA-TEST-Задание"
 
 
 class TestRenderFieldValue:
@@ -92,6 +112,17 @@ class TestRenderFieldValue:
     def test_dimensions_m_converts_width_to_meters_and_strips_zeros(self):
         # width_mm=1400 -> 1,4 м; length_m=214 (уже в метрах, целое) -> 214.
         assert render_field_value(SAMPLE, "dimensions_m") == "1,4×214"
+
+    def test_task_assignment_none_when_no_task_line(self):
+        assert render_field_value(SAMPLE, "task_assignment") is None
+
+    def test_task_assignment_combines_part_and_task_name(self):
+        data = SAMPLE.__class__(**{**SAMPLE.__dict__, "part_name": "Стоевая", "task_name": "Дверь царговая"})
+        assert render_field_value(data, "task_assignment") == "Куда: Стоевая — Дверь царговая"
+
+    def test_task_assignment_shows_whichever_part_is_present(self):
+        data = SAMPLE.__class__(**{**SAMPLE.__dict__, "part_name": "Стоевая", "task_name": None})
+        assert render_field_value(data, "task_assignment") == "Куда: Стоевая"
 
     def test_dimensions_m_keeps_fractional_length(self):
         data = SAMPLE.__class__(**{**SAMPLE.__dict__, "width_mm": 500, "length_m": 3.5})

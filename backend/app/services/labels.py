@@ -70,6 +70,11 @@ FIELD_META: dict[str, dict] = {
     "width_mm": {"label": "Ширина (текущая), мм", "kind": "text", "stale_warning": True},
     "length_m": {"label": "Длина (текущая), м", "kind": "text", "stale_warning": True},
     "dimensions_m": {"label": "Габарит Ш×Д, м (компактно)", "kind": "text", "stale_warning": True},
+    # Раздел про этикетку с назначением после резки — несколько штрипсов
+    # одной ширины, выданных на разные задания/детали, иначе неотличимы
+    # на глаз. Пусто у единиц без привязки к строке задания (обычные
+    # остатки на складе) — строка просто пропускается, как и parent_ref.
+    "task_assignment": {"label": "Назначение (задание/деталь)", "kind": "text"},
 }
 
 
@@ -88,10 +93,16 @@ class LabelData:
     parent_id: int | None
     width_mm: float
     length_m: float
+    task_name: str | None = None
+    part_name: str | None = None
 
 
 def label_data_from_unit(unit: MaterialUnit) -> LabelData:
     sku = unit.material_sku
+    line = unit.production_task_line
+    task_name = None
+    if line is not None:
+        task_name = (line.task.product_model.name if line.task.product_model else None) or line.task.name
     return LabelData(
         unit_id=unit.id,
         material=sku.material.name,
@@ -106,6 +117,8 @@ def label_data_from_unit(unit: MaterialUnit) -> LabelData:
         parent_id=unit.parent_id,
         width_mm=float(unit.width_mm),
         length_m=float(unit.length_m),
+        task_name=task_name,
+        part_name=line.part_name if line is not None else None,
     )
 
 
@@ -167,6 +180,11 @@ def render_field_value(data: LabelData, key: str) -> str | None:
         # "Длина: 500 м", когда на бирке не хватает места на обе.
         width_m = data.width_mm / 1000
         return f"{_format_number_ru(width_m)}×{_format_number_ru(data.length_m)}"
+    if key == "task_assignment":
+        if not data.task_name and not data.part_name:
+            return None
+        parts = [p for p in (data.part_name, data.task_name) if p]
+        return f"Куда: {' — '.join(parts)}"
     return None
 
 
@@ -546,6 +564,8 @@ PREVIEW_DATA = LabelData(
     parent_id=None,
     width_mm=1400,
     length_m=214,
+    task_name="Дверь царговая, Прованс",
+    part_name="Стоевая",
 )
 
 

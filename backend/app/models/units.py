@@ -7,6 +7,7 @@ from sqlalchemy.sql import func
 
 from app.db.base import Base
 from app.models.dictionaries import MaterialSku
+from app.models.production import ProductionTaskLine
 
 
 class UnitStatus(str, enum.Enum):
@@ -49,6 +50,11 @@ class MaterialUnit(Base):
     production_task_line_id: Mapped[int | None] = mapped_column(
         ForeignKey("production_task_lines.id"), nullable=True
     )
+    # Раздел про этикетку с назначением после резки — чтобы на бирке можно
+    # было показать, для какого задания/детали эта конкретная единица (у
+    # нескольких штрипсов одной ширины с разным назначением бирки иначе
+    # неотличимы на глаз).
+    production_task_line: Mapped["ProductionTaskLine | None"] = relationship()
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

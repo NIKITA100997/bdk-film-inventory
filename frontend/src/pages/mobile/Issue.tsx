@@ -30,6 +30,7 @@ import {
   issueUnitDirect,
   placeUnit,
   printLabel,
+  printLabelsBatch,
   returnUnit,
   searchUnits,
   skuLabel,
@@ -205,12 +206,19 @@ function CuttingPlanExecuteModal({
       qc.invalidateQueries({ queryKey: ["units-unplaced"] });
       qc.invalidateQueries({ queryKey: ["cutting-plan"] });
       const flagged = res.cuts.filter((c) => c.discrepancy_flagged);
+      const unitIds = res.cuts.map((c) => c.unit.id);
       message.success(
-        flagged.length > 0
-          ? `Разрезано и выдано ${res.cuts.length} шт. ⚠️ Заметное отклонение по: ${flagged
-              .map((c) => `№${c.unit.id}`)
-              .join(", ")} — попадёт в отчёт «Отклонения при резке».`
-          : `Разрезано и выдано ${res.cuts.length} шт.`,
+        <>
+          Разрезано и выдано {res.cuts.length} шт. ({unitIds.map((id) => `№${id}`).join(", ")}) —{" "}
+          <a onClick={() => printLabelsBatch(unitIds)}>печать этикеток</a>
+          {flagged.length > 0 && (
+            <>
+              {" "}
+              · ⚠️ заметное отклонение по: {flagged.map((c) => `№${c.unit.id}`).join(", ")} — попадёт в отчёт «Отклонения при
+              резке».
+            </>
+          )}
+        </>,
       );
       onClose();
     },

@@ -82,6 +82,11 @@ class ProductionTask(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
 
     lines: Mapped[list["ProductionTaskLine"]] = relationship(back_populates="task", cascade="all, delete-orphan")
+    # Раздел про этикетку с назначением после резки — чтобы получить
+    # название модели без отдельного запроса (api/production.py уже делает
+    # это вручную через db.get, здесь нужно то же самое из lazy-контекста
+    # печати этикетки, где явного db-запроса нет).
+    product_model: Mapped["ProductModel | None"] = relationship()
 
 
 class ProductionTaskLine(Base):
