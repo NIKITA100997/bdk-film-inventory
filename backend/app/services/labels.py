@@ -412,6 +412,103 @@ def _register_pdf_fonts() -> None:
         pass
 
 
+def _wrap_pdf_text(c: pdfcanvas.Canvas, text: str, font_name: str, size_pt: float, max_width_pt: float) -> list[str]:
+    """Перенос строки по словам в пределах max_width_pt — тот же эффект,
+    что word-break: break-word в HTML-версии этикетки (см.
+    _label_doc_styles). PDF-путь рисовал каждое поле одной строкой без
+    переноса (c.drawString), поэтому длинное значение просто уезжало за
+    край этикетки и печаталось обрезанным на десктопе/термопринтере —
+    HTML-путь на планшетах того не показывал, там перенос строк делает
+    браузер сам по CSS (раздел обратной связи: "на планшете переносит, на
+    компе обрезает"). Слово, которое само по себе шире max_width_pt, тоже
+    режется — посимвольно, а не вылезает за край одним куском."""
+
+    def fits(s: str) -> bool:
+        return c.stringWidth(s, font_name, size_pt) <= max_width_pt
+
+    lines: list[str] = []
+    current = ""
+    for word in text.split(" "):
+        candidate = f"{current} {word}" if current else word
+        if fits(candidate):
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+            current = ""
+        if fits(word):
+            current = word
+            continue
+        chunk = ""
+        for ch in word:
+            if fits(chunk + ch):
+                chunk += ch
+            else:
+                if chunk:
+                    lines.append(chunk)
+                chunk = ch
+        current = chunk
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def _wrap_pdf_fields(
+    c: pdfcanvas.Canvas, rendered_fields: list[tuple[dict, str]], max_width_pt: float, *, heading_key: str
+) -> list[tuple[dict, list[str]]]:
+    """Общая точка переноса строк для всех трёх PDF-макетов (единица/полка/
+    стеллаж) — heading_key задаёт, какое поле каждого макета рисуется
+    заголовочным шрифтом (unit_id/location_code/rack_code)."""
+    result: list[tuple[dict, list[str]]] = []
+    for f, val in rendered_fields:
+        size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
+        font_name = _PDF_HEADING_FONT_BOLD if f["key"] == heading_key else (_PDF_BODY_FONT_BOLD if f.get("bold") else _PDF_BODY_FONT)
+        result.append((f, _wrap_pdf_text(c, val, font_name, size_pt, max_width_pt)))
+    return result
+
+
+def _clip_pdf_to_label_bounds(c: pdfcanvas.Canvas, width_pt: float, height_pt: float) -> None:
+    """Обрезает всё нарисованное дальше по границе этикетки — тот же эффект,
+    что overflow: hidden на .label-page в HTML-версии (_label_doc_styles).
+    Без этого при переносе очень длинного значения (_wrap_pdf_text) лишние
+    строки могли уехать вниз за пределы этикетки вместо аккуратной
+    обрезки, как на планшете. Парная c.restoreState() — в конце
+    соответствующей _draw_*_page."""
+    c.saveState()
+    p = c.beginPath()
+    p.rect(0, 0, width_pt, height_pt)
+    c.clipPath(p, stroke=0, fill=0)
+
+
+def _pdf_text_block_height_mm(wrapped_fields: list[tuple[dict, list[str]]]) -> float:
+    return sum(SIZE_PT.get(f.get("size", "sm"), 8) * 1.15 * 0.3528 * len(lines) for f, lines in wrapped_fields)
+
+
+def _draw_pdf_text_lines(
+    c: pdfcanvas.Canvas,
+    wrapped_fields: list[tuple[dict, list[str]]],
+    height_pt: float,
+    left_mm: float,
+    top_mm: float,
+    max_width_mm: float,
+    *,
+    heading_key: str,
+    center: bool = False,
+) -> None:
+    y = height_pt - top_mm * MM
+    for f, lines in wrapped_fields:
+        size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
+        font_name = _PDF_HEADING_FONT_BOLD if f["key"] == heading_key else (_PDF_BODY_FONT_BOLD if f.get("bold") else _PDF_BODY_FONT)
+        c.setFont(font_name, size_pt)
+        c.setFillColor(HexColor(NAVY))
+        for line in lines:
+            y -= size_pt * 1.15
+            if center:
+                c.drawCentredString((left_mm + max_width_mm / 2) * MM, y, line)
+            else:
+                c.drawString(left_mm * MM, y, line)
+
+
 def _draw_label_page(
     c: pdfcanvas.Canvas,
     data: LabelData,
@@ -442,29 +539,9 @@ def _draw_label_page(
     c.setStrokeColor(HexColor(BORDER))
     c.setLineWidth(0.5)
     c.roundRect(0.3 * MM, 0.3 * MM, width_pt - 0.6 * MM, height_pt - 0.6 * MM, 1.5 * MM, stroke=1, fill=0)
+    _clip_pdf_to_label_bounds(c, width_pt, height_pt)
 
     qr_reader = ImageReader(BytesIO(qr_png_bytes(str(data.unit_id)))) if has_qr else None
-
-    def draw_text_lines(left_mm: float, top_mm: float, max_width_mm: float, *, center: bool = False) -> None:
-        y = height_pt - top_mm * MM
-        for f, val in rendered_fields:
-            size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
-            if f["key"] == "unit_id":
-                font_name = _PDF_HEADING_FONT_BOLD
-            elif f.get("bold"):
-                font_name = _PDF_BODY_FONT_BOLD
-            else:
-                font_name = _PDF_BODY_FONT
-            c.setFont(font_name, size_pt)
-            c.setFillColor(HexColor(NAVY))
-            y -= size_pt * 1.15
-            if center:
-                c.drawCentredString((left_mm + max_width_mm / 2) * MM, y, val)
-            else:
-                c.drawString(left_mm * MM, y, val)
-
-    def text_block_height_mm() -> float:
-        return sum(SIZE_PT.get(f.get("size", "sm"), 8) * 1.15 * 0.3528 for f, _ in rendered_fields)
 
     if is_landscape:
         stripe_w_mm = 4 if has_stripe else 0
@@ -482,8 +559,9 @@ def _draw_label_page(
 
         text_x_mm = stripe_w_mm + qr_col_w_mm + 2
         text_w_mm = max(width_mm - text_x_mm - 2, 5)
-        top_mm = max((height_mm - text_block_height_mm()) / 2, 2)
-        draw_text_lines(text_x_mm, top_mm, text_w_mm)
+        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="unit_id")
+        top_mm = max((height_mm - _pdf_text_block_height_mm(wrapped)) / 2, 2)
+        _draw_pdf_text_lines(c, wrapped, height_pt, text_x_mm, top_mm, text_w_mm, heading_key="unit_id")
     else:
         top_mm = 3.0
         if has_stripe:
@@ -495,7 +573,10 @@ def _draw_label_page(
             qr_x_mm = (width_mm - qr_size_mm) / 2
             c.drawImage(qr_reader, qr_x_mm * MM, height_pt - (top_mm + qr_size_mm) * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
             top_mm += qr_size_mm + 2
-        draw_text_lines(4, top_mm, max(width_mm - 8, 5), center=True)
+        text_w_mm = max(width_mm - 8, 5)
+        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="unit_id")
+        _draw_pdf_text_lines(c, wrapped, height_pt, 4, top_mm, text_w_mm, heading_key="unit_id", center=True)
+    c.restoreState()
 
 
 def render_label_pdf(
@@ -789,24 +870,9 @@ def _draw_shelf_label_page(c: pdfcanvas.Canvas, data: ShelfLabelData, fields: li
     c.setStrokeColor(HexColor(BORDER))
     c.setLineWidth(0.5)
     c.roundRect(0.3 * MM, 0.3 * MM, width_pt - 0.6 * MM, height_pt - 0.6 * MM, 1.5 * MM, stroke=1, fill=0)
+    _clip_pdf_to_label_bounds(c, width_pt, height_pt)
 
     qr_reader = ImageReader(BytesIO(qr_png_bytes(data.location_code))) if has_qr else None
-
-    def draw_text_lines(left_mm: float, top_mm: float, max_width_mm: float, *, center: bool = False) -> None:
-        y = height_pt - top_mm * MM
-        for f, val in rendered_fields:
-            size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
-            font_name = _PDF_HEADING_FONT_BOLD if f["key"] == "location_code" else (_PDF_BODY_FONT_BOLD if f.get("bold") else _PDF_BODY_FONT)
-            c.setFont(font_name, size_pt)
-            c.setFillColor(HexColor(NAVY))
-            y -= size_pt * 1.15
-            if center:
-                c.drawCentredString((left_mm + max_width_mm / 2) * MM, y, val)
-            else:
-                c.drawString(left_mm * MM, y, val)
-
-    def text_block_height_mm() -> float:
-        return sum(SIZE_PT.get(f.get("size", "sm"), 8) * 1.15 * 0.3528 for f, _ in rendered_fields)
 
     if is_landscape:
         qr_col_w_mm = 0.0
@@ -818,8 +884,9 @@ def _draw_shelf_label_page(c: pdfcanvas.Canvas, data: ShelfLabelData, fields: li
             c.drawImage(qr_reader, qr_x_mm * MM, qr_y_mm * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
         text_x_mm = qr_col_w_mm + 2
         text_w_mm = max(width_mm - text_x_mm - 2, 5)
-        top_mm = max((height_mm - text_block_height_mm()) / 2, 2)
-        draw_text_lines(text_x_mm, top_mm, text_w_mm)
+        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="location_code")
+        top_mm = max((height_mm - _pdf_text_block_height_mm(wrapped)) / 2, 2)
+        _draw_pdf_text_lines(c, wrapped, height_pt, text_x_mm, top_mm, text_w_mm, heading_key="location_code")
     else:
         top_mm = 3.0
         if has_qr and qr_reader is not None:
@@ -827,7 +894,10 @@ def _draw_shelf_label_page(c: pdfcanvas.Canvas, data: ShelfLabelData, fields: li
             qr_x_mm = (width_mm - qr_size_mm) / 2
             c.drawImage(qr_reader, qr_x_mm * MM, height_pt - (top_mm + qr_size_mm) * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
             top_mm += qr_size_mm + 2
-        draw_text_lines(4, top_mm, max(width_mm - 8, 5), center=True)
+        text_w_mm = max(width_mm - 8, 5)
+        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="location_code")
+        _draw_pdf_text_lines(c, wrapped, height_pt, 4, top_mm, text_w_mm, heading_key="location_code", center=True)
+    c.restoreState()
 
 
 def render_shelf_label_pdf(
@@ -1026,24 +1096,9 @@ def _draw_rack_label_page(c: pdfcanvas.Canvas, data: RackLabelData, fields: list
     c.setStrokeColor(HexColor(BORDER))
     c.setLineWidth(0.5)
     c.roundRect(0.3 * MM, 0.3 * MM, width_pt - 0.6 * MM, height_pt - 0.6 * MM, 1.5 * MM, stroke=1, fill=0)
+    _clip_pdf_to_label_bounds(c, width_pt, height_pt)
 
     qr_reader = ImageReader(BytesIO(qr_png_bytes(data.rack_code))) if has_qr else None
-
-    def draw_text_lines(left_mm: float, top_mm: float, max_width_mm: float, *, center: bool = False) -> None:
-        y = height_pt - top_mm * MM
-        for f, val in rendered_fields:
-            size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
-            font_name = _PDF_HEADING_FONT_BOLD if f["key"] == "rack_code" else (_PDF_BODY_FONT_BOLD if f.get("bold") else _PDF_BODY_FONT)
-            c.setFont(font_name, size_pt)
-            c.setFillColor(HexColor(NAVY))
-            y -= size_pt * 1.15
-            if center:
-                c.drawCentredString((left_mm + max_width_mm / 2) * MM, y, val)
-            else:
-                c.drawString(left_mm * MM, y, val)
-
-    def text_block_height_mm() -> float:
-        return sum(SIZE_PT.get(f.get("size", "sm"), 8) * 1.15 * 0.3528 for f, _ in rendered_fields)
 
     if is_landscape:
         qr_col_w_mm = 0.0
@@ -1055,8 +1110,9 @@ def _draw_rack_label_page(c: pdfcanvas.Canvas, data: RackLabelData, fields: list
             c.drawImage(qr_reader, qr_x_mm * MM, qr_y_mm * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
         text_x_mm = qr_col_w_mm + 2
         text_w_mm = max(width_mm - text_x_mm - 2, 5)
-        top_mm = max((height_mm - text_block_height_mm()) / 2, 2)
-        draw_text_lines(text_x_mm, top_mm, text_w_mm)
+        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="rack_code")
+        top_mm = max((height_mm - _pdf_text_block_height_mm(wrapped)) / 2, 2)
+        _draw_pdf_text_lines(c, wrapped, height_pt, text_x_mm, top_mm, text_w_mm, heading_key="rack_code")
     else:
         top_mm = 3.0
         if has_qr and qr_reader is not None:
@@ -1064,7 +1120,10 @@ def _draw_rack_label_page(c: pdfcanvas.Canvas, data: RackLabelData, fields: list
             qr_x_mm = (width_mm - qr_size_mm) / 2
             c.drawImage(qr_reader, qr_x_mm * MM, height_pt - (top_mm + qr_size_mm) * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
             top_mm += qr_size_mm + 2
-        draw_text_lines(4, top_mm, max(width_mm - 8, 5), center=True)
+        text_w_mm = max(width_mm - 8, 5)
+        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="rack_code")
+        _draw_pdf_text_lines(c, wrapped, height_pt, 4, top_mm, text_w_mm, heading_key="rack_code", center=True)
+    c.restoreState()
 
 
 def render_rack_label_pdf(

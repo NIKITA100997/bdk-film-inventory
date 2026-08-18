@@ -1,9 +1,13 @@
 from datetime import date
+from io import BytesIO
 from types import SimpleNamespace
+
+from reportlab.pdfgen import canvas as pdfcanvas
 
 from app.services.labels import (
     DEFAULT_FIELDS,
     LabelData,
+    _wrap_pdf_text,
     indicator_color,
     label_data_from_unit,
     render_field_value,
@@ -138,6 +142,41 @@ class TestIndicatorColor:
     def test_strip_when_is_strip(self):
         data = SAMPLE.__class__(**{**SAMPLE.__dict__, "is_strip": True})
         assert indicator_color(data) == "#2C2E3A"
+
+
+class TestWrapPdfText:
+    """Раздел обратной связи "на планшете переносит, на компе обрезает" —
+    PDF-путь раньше рисовал значение одной строкой без переноса, длинные
+    значения печатались обрезанными за краем этикетки."""
+
+    c = pdfcanvas.Canvas(BytesIO())
+
+    def test_short_text_stays_one_line(self):
+        assert _wrap_pdf_text(self.c, "ПВХ плёнка", "Helvetica", 10, 200) == ["ПВХ плёнка"]
+
+    def test_long_text_wraps_by_words(self):
+        text = "Дверь царговая массив дуба беленый премиум"
+        # ширина чуть больше самого длинного отдельного слова — перенос
+        # только между словами, без разбивки по буквам (см. отдельный тест
+        # ниже про слово шире всей коробки).
+        widest_word = max(text.split(" "), key=lambda w: self.c.stringWidth(w, "Helvetica", 10))
+        max_width_pt = self.c.stringWidth(widest_word, "Helvetica", 10) + 1
+        lines = _wrap_pdf_text(self.c, text, "Helvetica", 10, max_width_pt)
+        assert len(lines) > 1
+        for line in lines:
+            assert self.c.stringWidth(line, "Helvetica", 10) <= max_width_pt
+        # слова не потерялись и не задвоились при переносе
+        assert " ".join(lines) == text
+
+    def test_single_word_wider_than_box_is_broken_by_character(self):
+        lines = _wrap_pdf_text(self.c, "Суперкалифраджилистикэкспиалидоциус", "Helvetica", 10, 40)
+        assert len(lines) > 1
+        for line in lines:
+            assert self.c.stringWidth(line, "Helvetica", 10) <= 40
+        assert "".join(lines) == "Суперкалифраджилистикэкспиалидоциус"
+
+    def test_empty_text_returns_single_empty_line(self):
+        assert _wrap_pdf_text(self.c, "", "Helvetica", 10, 100) == [""]
 
 
 class TestRenderLabelHtml:
