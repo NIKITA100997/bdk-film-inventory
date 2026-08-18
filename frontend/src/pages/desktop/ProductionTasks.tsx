@@ -124,6 +124,7 @@ function TasksTab() {
           quantity_pieces: p.qty_per_unit * quantity,
           width_mm: p.width_mm,
           length_m: p.length_m,
+          strip_width_mm: p.strip_width_mm ?? undefined,
           part_name: p.part_name ?? undefined,
         }));
         setManualLines((lines) => [...lines, ...loaded]);
