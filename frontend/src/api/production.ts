@@ -192,6 +192,11 @@ export interface NaryadParsedLine {
   width_mm: number;
   length_m: number;
   quantity_pieces: number;
+  // Раздел про короб МДФ (погонажный наряд) — ширина полосы ПВХ, уже
+  // посчитанная по профилю (ширина+глубина из текста названия), не
+  // выводится из одного width_mm (см. backend calc_default_strip_width);
+  // для остальных деталей — null, досчитывается стандартно при создании.
+  strip_width_mm: number | null;
 }
 
 export interface NaryadParseResult {

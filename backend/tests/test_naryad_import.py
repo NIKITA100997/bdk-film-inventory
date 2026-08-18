@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.naryad_import import parse_naryad_grid
+from app.services.naryad_import import parse_naryad_grid, parse_pogonazh_grid
 
 
 def _row(width: int, cols: dict[int, object]) -> list:
@@ -101,3 +101,63 @@ class TestParseNaryadGrid:
         result = parse_naryad_grid(grid)
         assert len(result.lines) == 1
         assert result.lines[0].part_name == "Валидная строка"
+
+
+# Уменьшенная копия реального образца погонажного наряда
+# ("ПечатнаяФорма_...ДоборныйПогонаж...xls") — раздел про размеры,
+# зашитые в текст названия, а не в отдельные колонки.
+POGONAZH_GRID = [
+    _row(2, {1: "#ОттискКтоКогда#"}),
+    _row(47, {1: "ДОБОРНЫЙ ПОГОНАЖ", 46: 1546.0}),
+    [],
+    _row(61, {1: "Деталь", 40: "Кол-во в упак.", 50: "Кол-во ПЛАН", 60: "Кол-во ФАКТ"}),
+    _row(61, {1: "Добор телескоп 10х100х2070 (ПЭТ Белый)", 40: 5.0, 50: 10.0}),
+    _row(61, {1: "Добор телескоп 10х150х2070 (ПЭТ Белый)", 40: 5.0, 50: 5.0}),
+    _row(61, {1: "Коробка с упл. (белый УК-6) телескоп МДФ 32х75х2070 (ПЭТ Белый)", 40: 4.0, 50: 16.0}),
+    _row(61, {1: "Наличник телескоп 8х70х2150 (ПЭТ Белый)", 40: 5.0, 50: 30.0}),
+]
+
+
+class TestParsePogonazhGrid:
+    def test_extracts_suggested_name(self):
+        result = parse_pogonazh_grid(POGONAZH_GRID)
+        assert result.suggested_name == "Заказ №1546 — ДОБОРНЫЙ ПОГОНАЖ"
+
+    def test_extracts_all_lines(self):
+        result = parse_pogonazh_grid(POGONAZH_GRID)
+        assert len(result.lines) == 4
+
+    def test_dimensions_parsed_from_name_text(self):
+        result = parse_pogonazh_grid(POGONAZH_GRID)
+        dobor = result.lines[0]
+        assert dobor.part_name == "Добор телескоп 10х100х2070 (ПЭТ Белый)"
+        assert dobor.width_mm == 100.0
+        assert dobor.length_m == 2.07
+        assert dobor.quantity_pieces == 10.0
+        assert dobor.strip_width_mm is None  # не короб — считается через calc_default_strip_width
+
+    def test_uses_kolvo_plan_not_kolvo_v_upak(self):
+        # "Кол-во в упак."=5, "Кол-во ПЛАН"=10 — должно попасть именно 10,
+        # не количество в упаковке.
+        result = parse_pogonazh_grid(POGONAZH_GRID)
+        assert result.lines[0].quantity_pieces == 10.0
+
+    def test_korob_gets_strip_width_from_profile_lookup(self):
+        result = parse_pogonazh_grid(POGONAZH_GRID)
+        korob = next(l for l in result.lines if "Коробка" in l.part_name)
+        assert korob.width_mm == 75.0
+        assert korob.strip_width_mm == 120.0  # профиль (75, 32) -> 120мм
+
+    def test_missing_kolvo_plan_column_raises(self):
+        with pytest.raises(ValueError, match="Кол-во ПЛАН"):
+            parse_pogonazh_grid([["", "Деталь", "Кол-во в упак."], ["", "Что-то", 5.0]])
+
+    def test_rows_without_parseable_dimensions_in_name_are_skipped(self):
+        grid = [
+            ["", "Деталь", "", "", "", "", "", "", "", "", "Кол-во ПЛАН"],
+            ["", "Название без размеров в тексте", "", "", "", "", "", "", "", "", 5.0],
+            ["", "Добор телескоп 10х100х2070", "", "", "", "", "", "", "", "", 10.0],
+        ]
+        result = parse_pogonazh_grid(grid)
+        assert len(result.lines) == 1
+        assert result.lines[0].part_name == "Добор телескоп 10х100х2070"

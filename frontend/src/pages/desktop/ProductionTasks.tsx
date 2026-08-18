@@ -160,6 +160,7 @@ function TasksTab() {
         quantity_pieces: l.quantity_pieces,
         width_mm: l.width_mm,
         length_m: l.length_m,
+        strip_width_mm: l.strip_width_mm ?? undefined,
         part_name: l.part_name,
       }));
       setManualLines((lines) => [...lines, ...loaded]);

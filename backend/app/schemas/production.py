@@ -76,6 +76,12 @@ class NaryadParsedLineOut(BaseModel):
     width_mm: float
     length_m: float
     quantity_pieces: float
+    # Раздел про короб МДФ (наряд-заказ, погонаж) — ширина полосы ПВХ
+    # зависит от двух чисел профиля (ширина+глубина), которые есть только
+    # в тексте названия при разборе; для остальных типов деталей — None,
+    # ширина плёнки досчитывается стандартно при создании строки задания
+    # (calc_default_strip_width).
+    strip_width_mm: float | None = None
 
 
 class NaryadParseResultOut(BaseModel):

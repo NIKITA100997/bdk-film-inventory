@@ -36,12 +36,30 @@ def compute_shortfall_length_m(quantity_pieces: float, length_m: float, defect_p
     return max(0.0, round(total_needed_length_m - issued_length_m, 2))
 
 
+# Раздел про загрузку наряд-заказа — width_mm строки задания хранит
+# СОБСТВЕННУЮ ширину детали (дерево/МДФ-заготовка), не ширину плёнки:
+# наряд-заказ даёт именно её, а не размер плёнки на укутку (пользователь
+# поправил после первой версии загрузчика). Ширина плёнки для филёнки/
+# наличника/добора — верифицированные константы из формул проекта
+# C:\Users\User\Downloads\Calc (interior_material_cost.py:
+# _filenka_items/_nalichnik_items/_dobor_items) — фиксированные, не
+# производная от толщины+ширины по общей геометрической формуле.
+FILENKA_WOOD_TO_FILM_WIDTH_MM = {163: 356, 220: 474}  # М-1/М-13 и М-11
+# Отношение "ширина плёнки / ширина заготовки" у подтверждённых моделей
+# (356/163≈2.18, 474/220≈2.15) — среднее, для филёнок с шириной вне
+# каталога выше (запасной вариант, точность не подтверждена).
+FILENKA_WIDTH_RATIO_FALLBACK = 2.17
+
+
 def calc_default_strip_width(part_name: str | None, width_mm: float) -> float:
     """Дефолтная ширина штрипса под укутку по названию детали, когда
     strip_width_mm не задан явно ни на детали BOM, ни на строке задания
     (раздел про размер штрипса) — используется и при выводе моделей/
     заданий, и при строгой проверке соответствия плёнки на выдаче
-    (units.py)."""
+    (units.py). Короб — не здесь: ширина его полосы зависит от ДВУХ чисел
+    профиля (ширина+глубина), не выводится из одного width_mm — см.
+    services/naryad_import.py::_korob_strip_width_mm (там же, где есть обе
+    цифры из текста названия при разборе погонажного наряда)."""
     if not part_name:
         return width_mm
     name_lower = part_name.lower()
@@ -49,6 +67,13 @@ def calc_default_strip_width(part_name: str | None, width_mm: float) -> float:
         return 292.0
     if "поперечная" in name_lower:
         return 285.0
+    if "филенка" in name_lower or "филёнка" in name_lower:
+        known = FILENKA_WOOD_TO_FILM_WIDTH_MM.get(round(width_mm))
+        return float(known) if known is not None else round(width_mm * FILENKA_WIDTH_RATIO_FALLBACK, 1)
+    if "наличник" in name_lower:
+        return 120.0
+    if "добор" in name_lower:
+        return width_mm + 17.0
     if "планка" in name_lower:
         return 140.0 if width_mm >= 40 else 100.0
     return width_mm

@@ -1,5 +1,6 @@
 from app.services.production import (
     TaskLineForReserve,
+    calc_default_strip_width,
     compute_expected_return_length_m,
     compute_remaining_length_m,
     compute_remaining_pieces,
@@ -78,6 +79,45 @@ class TestComputeShortfallLengthM:
 
     def test_does_not_go_negative(self):
         assert compute_shortfall_length_m(10, 2.0, 0, 1000) == 0
+
+
+class TestCalcDefaultStripWidth:
+    """Раздел про загрузку наряд-заказа — ширина плёнки на укутку по
+    названию детали, константы сверены с формулами проекта Calc
+    (interior_material_cost.py)."""
+
+    def test_no_part_name_falls_back_to_wood_width(self):
+        assert calc_default_strip_width(None, 150.0) == 150.0
+
+    def test_stoevaya_is_fixed_292(self):
+        assert calc_default_strip_width("Стоевая (МежКомн) 36х108х2000", 108.0) == 292.0
+
+    def test_poperechnaya_is_fixed_285(self):
+        assert calc_default_strip_width("Поперечная (МежКомн) 30х110х504", 110.0) == 285.0
+
+    def test_filenka_known_width_163_maps_to_356(self):
+        assert calc_default_strip_width("Филенка (МежКомн) 10х163х506", 163.0) == 356.0
+
+    def test_filenka_known_width_220_maps_to_474(self):
+        assert calc_default_strip_width("Филенка М-11", 220.0) == 474.0
+
+    def test_filenka_unknown_width_uses_ratio_fallback(self):
+        assert calc_default_strip_width("Филенка неизвестной модели", 200.0) == round(200.0 * 2.17, 1)
+
+    def test_nalichnik_is_fixed_120(self):
+        assert calc_default_strip_width("Наличник телескоп 8х70х2150", 70.0) == 120.0
+
+    def test_dobor_adds_17mm(self):
+        assert calc_default_strip_width("Добор телескоп 10х100х2070", 100.0) == 117.0
+
+    def test_planka_wide_uses_140(self):
+        assert calc_default_strip_width("Планка", 50.0) == 140.0
+
+    def test_planka_narrow_uses_100(self):
+        assert calc_default_strip_width("Планка", 30.0) == 100.0
+
+    def test_unrecognized_part_name_falls_back_to_wood_width(self):
+        assert calc_default_strip_width("Что-то незнакомое", 123.0) == 123.0
 
 
 class TestReservedAreaM2ByGroup:
