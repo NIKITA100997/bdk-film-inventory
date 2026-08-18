@@ -3,6 +3,7 @@ from app.services.production import (
     compute_expected_return_length_m,
     compute_remaining_length_m,
     compute_remaining_pieces,
+    compute_shortfall_length_m,
     reserved_area_m2_by_group,
 )
 
@@ -50,6 +51,33 @@ class TestComputeExpectedReturnLengthM:
 
     def test_does_not_go_negative_if_production_exceeds_issued_length(self):
         assert compute_expected_return_length_m(10, 2.4, 10, 0) == 0
+
+
+class TestComputeShortfallLengthM:
+    """Раздел про очередь «потребности» на выдаче участку — довыдача
+    считается по нехватке уже выданной плёнки, не по остатку штук."""
+
+    def test_nothing_issued_yet_full_plan_is_shortfall(self):
+        assert compute_shortfall_length_m(100, 2.0, 0, 0) == 200
+
+    def test_enough_issued_for_plan_no_shortfall(self):
+        assert compute_shortfall_length_m(100, 2.0, 0, 200) == 0
+
+    def test_issued_with_margin_still_no_shortfall(self):
+        assert compute_shortfall_length_m(100, 2.0, 0, 250) == 0
+
+    def test_defects_add_to_needed_length_beyond_plan(self):
+        # план 200м, выдано ровно 200 — но случился брак 5 шт (=10м),
+        # которые расходуют плёнку сверх исходного плана.
+        assert compute_shortfall_length_m(100, 2.0, 5, 200) == 10
+
+    def test_not_yet_reported_defect_keeps_shortfall_at_zero(self):
+        # выдано меньше плана, но брака ещё не было отчёта — довыдача не
+        # ждёт производство, она уже видна по голому недовыдатому плану.
+        assert compute_shortfall_length_m(100, 2.0, 0, 150) == 50
+
+    def test_does_not_go_negative(self):
+        assert compute_shortfall_length_m(10, 2.0, 0, 1000) == 0
 
 
 class TestReservedAreaM2ByGroup:

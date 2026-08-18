@@ -308,10 +308,19 @@ export default function Issue() {
   // производственные задания, а не заказы покупателей.
   const today = dayjs().format("YYYY-MM-DD");
 
+  // Строка попадает в очередь не по голому остатку штук, а по нехватке
+  // уже выданной плёнки (shortfall_length_m, backend) — раздел про
+  // «потребности» после выдачи: как только выдано достаточно на весь
+  // план, строка уходит из очереди в «Выдано по заданиям», даже если
+  // производство ещё не отчиталось о готовых деталях. Довыдача
+  // открывается заново только отчётом о браке (см.
+  // compute_shortfall_length_m) — сам факт остатка штук её не включает.
   const activeLines = useMemo(
     () =>
       (tasksQuery.data ?? []).flatMap((task) =>
-        task.lines.filter((line) => line.remaining_pieces > 0).map((line) => ({ task, line })),
+        task.lines
+          .filter((line) => line.remaining_pieces > 0 && line.shortfall_length_m > 0)
+          .map((line) => ({ task, line })),
       ),
     [tasksQuery.data],
   );
@@ -412,10 +421,11 @@ export default function Issue() {
 
   // --- Нехватка остатка под выбранную строку задания (раздел про замену
   // "Заказов покупателей" — нехватка обнаруживается в моменте выдачи, не
-  // на отдельном экране планирования). needed — на весь остаток строки
-  // задания, не только на текущую смену: чтобы кладовщик видел, хватит ли
-  // вообще на весь оставшийся объём, а не только на сегодня.
-  const neededM2 = selected ? (selectedStripWidth / 1000) * selected.line.remaining_length_m : 0;
+  // на отдельном экране планирования). needed — на весь довыдаваемый
+  // остаток строки задания (shortfall_length_m — раздел про очередь
+  // «потребности» после выдачи), не голый остаток по штукам: то, что уже
+  // выдано, не должно завышать площадь для заявки на закупку.
+  const neededM2 = selected ? (selectedStripWidth / 1000) * selected.line.shortfall_length_m : 0;
   const availableM2 = (availableQuery.data ?? []).reduce((sum, u) => sum + u.area_m2, 0);
   const shortfallM2 = Math.max(0, Math.round((neededM2 - availableM2) * 100) / 100);
 
@@ -591,7 +601,7 @@ export default function Issue() {
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={{ fontWeight: 700 }}>
-            {r.assignment ? `${r.assignment.quantity_pieces} шт` : `${r.line.remaining_length_m} м`}
+            {r.assignment ? `${r.assignment.quantity_pieces} шт` : `довыдать ${r.line.shortfall_length_m} м`}
           </div>
           <div style={{ fontSize: 11.5, color: "#8A8C99" }}>
             {r.assignment ? `${r.line.length_m} м на штрипс` : `остаток ${r.line.remaining_pieces} шт`}
@@ -1056,12 +1066,19 @@ export default function Issue() {
               {
                 title: "Действия",
                 render: (_, r) =>
-                  canReturn &&
                   r.line.issued_units.length > 0 && (
                     <Space direction="vertical" size={4}>
-                      {r.line.issued_units.map((u) => (
-                        <AcceptReturnButton key={u.id} unit={u} />
-                      ))}
+                      <a
+                        onClick={() =>
+                          printLabelsBatch(
+                            r.line.issued_units.map((u) => u.id),
+                            { kind: "cutting_issue" },
+                          )
+                        }
+                      >
+                        печать наклеек ({r.line.issued_units.length})
+                      </a>
+                      {canReturn && r.line.issued_units.map((u) => <AcceptReturnButton key={u.id} unit={u} />)}
                     </Space>
                   ),
               },

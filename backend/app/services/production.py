@@ -23,6 +23,19 @@ def compute_remaining_length_m(length_m: float, remaining_pieces: float) -> floa
     return round(length_m * remaining_pieces, 2)
 
 
+def compute_shortfall_length_m(quantity_pieces: float, length_m: float, defect_pieces: float, issued_length_m: float) -> float:
+    """Сколько ещё нужно довыдать по строке задания (раздел про очередь
+    «потребности» на выдаче участку) — по факту нехватки уже выданной
+    плёнки, а не по голому остатку штук (remaining_pieces): пока выдано
+    достаточно на весь план (quantity_pieces), строка не висит в очереди,
+    даже если производство ещё не отчиталось о готовых деталях — это
+    отдельно видно в списке "Выдано по заданиям". Брак расходует плёнку
+    сверх исходного плана (не учтён в quantity_pieces), поэтому именно
+    отчёт о браке — единственное, что открывает довыдачу заново."""
+    total_needed_length_m = (quantity_pieces + defect_pieces) * length_m
+    return max(0.0, round(total_needed_length_m - issued_length_m, 2))
+
+
 def calc_default_strip_width(part_name: str | None, width_mm: float) -> float:
     """Дефолтная ширина штрипса под укутку по названию детали, когда
     strip_width_mm не задан явно ни на детали BOM, ни на строке задания

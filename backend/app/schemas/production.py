@@ -158,6 +158,11 @@ class ProductionTaskLineOut(BaseModel):
     defect_pieces: float
     remaining_pieces: float
     remaining_length_m: float
+    # Раздел про очередь «потребности» на выдаче участку — сколько ещё
+    # реально нужно довыдать плёнки (по нехватке выданного, не по голому
+    # остатку штук); 0, если выдано достаточно, даже когда remaining_pieces
+    # ещё не обнулился (производство просто не отчиталось).
+    shortfall_length_m: float
     # Агрегаты по ProductionTaskLineAssignment (раздел про распределение по
     # линиям) — сколько из quantity_pieces уже расписано по линиям/дням.
     assigned_pieces: float

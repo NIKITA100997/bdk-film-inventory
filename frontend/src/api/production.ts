@@ -82,6 +82,7 @@ export interface ProductionTaskLine {
   defect_pieces: number;
   remaining_pieces: number;
   remaining_length_m: number;
+  shortfall_length_m: number;
   assigned_pieces: number;
   unassigned_pieces: number;
   assignments: ProductionTaskLineAssignment[];

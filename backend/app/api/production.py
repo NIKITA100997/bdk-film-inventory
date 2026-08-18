@@ -38,7 +38,12 @@ from app.schemas.deletion_requests import DeleteResultOut
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_material_color_thickness
 from app.services.plan_fact import fetch_issued_length_by_task_line
-from app.services.production import calc_default_strip_width, compute_remaining_length_m, compute_remaining_pieces
+from app.services.production import (
+    calc_default_strip_width,
+    compute_remaining_length_m,
+    compute_remaining_pieces,
+    compute_shortfall_length_m,
+)
 
 router = APIRouter(tags=["production"])
 
@@ -96,6 +101,7 @@ def _task_line_out(
     assignment_report_aggs = assignment_report_aggs or {}
     prod_line = db.get(ProductionLine, line.line_id) if line.line_id else None
     remaining_pieces = compute_remaining_pieces(float(line.quantity_pieces), good)
+    shortfall_length_m = compute_shortfall_length_m(float(line.quantity_pieces), float(line.length_m), defect, issued_length_m)
     sw = (
         float(line.strip_width_mm)
         if line.strip_width_mm is not None
@@ -117,6 +123,7 @@ def _task_line_out(
         defect_pieces=defect,
         remaining_pieces=remaining_pieces,
         remaining_length_m=compute_remaining_length_m(float(line.length_m), remaining_pieces),
+        shortfall_length_m=shortfall_length_m,
         assigned_pieces=assigned,
         unassigned_pieces=compute_remaining_pieces(float(line.quantity_pieces), assigned),
         assignments=[
