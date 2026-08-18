@@ -27,6 +27,19 @@ npm run dev
 
 Приложение: http://localhost:5173 — ожидает backend на http://localhost:8000 (см. `VITE_API_URL` в `.env`, по умолчанию не требуется).
 
+## Быстрый режим для планшетов (production-сборка)
+
+`start.bat` запускает dev-сервер Vite (5173) — удобно при правках кода, но
+первая загрузка страницы на планшете по Wi-Fi заметно медленнее (сервер
+пересобирает и отдаёт сотни отдельных файлов). `start_fast.bat` вместо
+этого один раз собирает фронтенд (`npm run build`) и запускает backend без
+`--reload` — он сам отдаёт готовый сайт на том же порту 8002 (5173 не
+нужен). Планшеты открывают `https://<IP-компьютера>:8002`.
+
+Правки кода в собранную версию сами не попадают — после изменений нужно
+заново запустить `start_fast.bat`, чтобы пересобрать. Во время активной
+разработки удобнее `start.bat`.
+
 ## Роли пользователей
 
 `nachalnik_tsekha`, `nachalnik_uchastka` (+ `area`: `okutka_tsargovykh` / `shchitovye_dveri` / `tselnolistovye_dveri`), `operator_sklada`, `kladovshchik`, `snabzhenets`, `logist`, `admin` — подробности в разделе 6 ТЗ.

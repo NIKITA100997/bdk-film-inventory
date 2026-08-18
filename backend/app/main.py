@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.abc import router as abc_router
@@ -66,3 +67,39 @@ app.include_router(write_off_reasons_router)
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+def resolve_static_path(base: Path, requested: str) -> Path | None:
+    """Путь до конкретного файла внутри base, если он реально там
+    существует — иначе None (не найден, пустой запрос, либо requested
+    пытается выйти за пределы base через "../", раздел про
+    production-раздачу фронтенда). Чистая функция — тестируется без
+    поднятия приложения/сервера."""
+    if not requested:
+        return None
+    candidate = (base / requested).resolve()
+    if candidate.is_file() and candidate.is_relative_to(base):
+        return candidate
+    return None
+
+
+# Раздел про ускорение первой загрузки на планшетах — отдаём готовую
+# production-сборку фронтенда (frontend/dist, npm run build), а не
+# полагаемся на dev-сервер Vite, который на первой загрузке пересобирает и
+# отдаёт сотни отдельных файлов по одному. Включается только если сборка
+# реально существует на диске — на машине, где `npm run build` ни разу не
+# запускали (обычная разработка через `npm run dev` на 5173), этот блок
+# просто не регистрируется и ни на что не влияет. Регистрируется последним
+# (после всех API-роутеров и /uploads), поэтому не перехватывает ни один
+# существующий путь — только то, что не подошло больше никуда.
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if _FRONTEND_DIST.is_dir():
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_frontend(full_path: str) -> FileResponse:
+        """Реальный файл сборки (JS/CSS/иконки) — если есть на диске,
+        иначе index.html: так работает маршрутизация React Router (любой
+        путь приложения — не только "/" — должен получить ту же
+        SPA-страницу, а не 404)."""
+        found = resolve_static_path(_FRONTEND_DIST, full_path)
+        return FileResponse(found or _FRONTEND_DIST / "index.html")
