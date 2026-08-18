@@ -198,6 +198,7 @@ export interface CuttingPlan {
   covered_widths_mm: number[];
   uncovered_widths_mm: number[];
   waste_mm: number;
+  covered_indices: number[];
 }
 
 // План резки одного донора сразу на несколько разных ширин штрипса одной
@@ -206,6 +207,39 @@ export interface CuttingPlan {
 // резать один донор сразу под несколько нужных ширин, чем по одной.
 export async function getCuttingPlan(payload: CuttingPlanRequest): Promise<CuttingPlan> {
   const { data } = await apiClient.post<CuttingPlan>("/units/cutting-plan", payload);
+  return data;
+}
+
+export interface CuttingPlanCutSpec {
+  production_task_line_id: number;
+  width_mm: number;
+  actual_length_m: number;
+}
+
+export interface CuttingPlanExecuteRequest {
+  donor_unit_id: number;
+  cuts: CuttingPlanCutSpec[];
+}
+
+export interface CuttingPlanExecuteResultCut {
+  unit: MaterialUnit;
+  production_task_line_id: number;
+  expected_length_m: number;
+  actual_length_m: number;
+  discrepancy_flagged: boolean;
+}
+
+export interface CuttingPlanExecuteResponse {
+  donor_remainder: MaterialUnit | null;
+  cuts: CuttingPlanExecuteResultCut[];
+}
+
+// Взять план резки в работу (раздел про несколько ширин за проход) —
+// режет донора сразу на все указанные куски и выдаёт каждый на свою
+// строку задания одним атомарным запросом, с контрольной длиной со
+// станка вместо теоретической.
+export async function executeCuttingPlan(payload: CuttingPlanExecuteRequest): Promise<CuttingPlanExecuteResponse> {
+  const { data } = await apiClient.post<CuttingPlanExecuteResponse>("/units/cutting-plan/execute", payload);
   return data;
 }
 

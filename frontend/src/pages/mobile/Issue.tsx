@@ -22,6 +22,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import dayjs from "dayjs";
 import {
+  executeCuttingPlan,
   getCuttingPlan,
   getReturnPreview,
   issueDonorAtomic,
@@ -109,22 +110,27 @@ function groupQueueRows(rows: QueueRowData[]) {
  * плёнки (раздел про несколько разных ширин штрипса на один день) —
  * щелевая резка режет донора на несколько полос за проход, так что вместо
  * резки каждой линии отдельно от своего донора выгоднее резать один
- * донор сразу под несколько нужных ширин. Только подсказка — сама резка
- * всё ещё выполняется вручную через карточку донора (номер кликабелен). */
+ * донор сразу под несколько нужных ширин. "Взять в работу" открывает
+ * форму, которая режет и выдаёт все покрытые строки одним действием (см.
+ * CuttingPlanExecuteModal) — план и выдача больше не два независимых
+ * потока: строки, которых план не покрыл (uncovered), по-прежнему идут
+ * через обычный клик по строке (независимый одноширинный подбор). */
 function CuttingPlanHint({
   material,
   color,
   thickness,
   manufacturer,
-  widths,
+  rows,
 }: {
   material: string;
   color: string;
   thickness: number;
   manufacturer: string | undefined;
-  widths: number[];
+  rows: QueueRowData[];
 }) {
   const navigate = useNavigate();
+  const [executeOpen, setExecuteOpen] = useState(false);
+  const widths = rows.map((r) => r.line.strip_width_mm || r.line.width_mm);
   const planQuery = useQuery({
     queryKey: ["cutting-plan", material, color, thickness, manufacturer, widths.join(",")],
     queryFn: () => getCuttingPlan({ material, color, thickness, manufacturer: manufacturer!, needed_widths_mm: widths }),
@@ -132,7 +138,7 @@ function CuttingPlanHint({
   });
 
   if (!manufacturer || !planQuery.data) return null;
-  const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm } = planQuery.data;
+  const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm, covered_indices } = planQuery.data;
 
   if (!donor) {
     return (
@@ -142,13 +148,118 @@ function CuttingPlanHint({
     );
   }
 
+  const coveredRows = covered_indices.map((i) => rows[i]);
+
   return (
-    <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-      ✂️ План резки: донор{" "}
-      <a onClick={() => navigate("/m/unit-card", { state: { unitId: donor.unit_id } })}>№{donor.unit_id}</a> (
-      {donor.width_mm} мм, {donor.length_m} м) → режем {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
-      {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
-    </Typography.Text>
+    <>
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+        ✂️ План резки: донор{" "}
+        <a onClick={() => navigate("/m/unit-card", { state: { unitId: donor.unit_id } })}>№{donor.unit_id}</a> (
+        {donor.width_mm} мм, {donor.length_m} м) → режем {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
+        {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
+        {" · "}
+        <a onClick={() => setExecuteOpen(true)}>Взять в работу</a>
+      </Typography.Text>
+      {executeOpen && (
+        <CuttingPlanExecuteModal donor={donor} rows={coveredRows} onClose={() => setExecuteOpen(false)} />
+      )}
+    </>
+  );
+}
+
+/** Исполнение плана резки одним действием (раздел про несколько ширин за
+ * проход) — без отдельного статуса "в резке": форма открывается сразу с
+ * предзаполненными по плану кусками, оператор тут же вводит контрольные
+ * (реально отмотанные станком) длины и отправляет — резка и выдача по
+ * всем строкам выполняются одним атомарным запросом
+ * (POST /units/cutting-plan/execute). Расхождение с теоретической длиной
+ * не блокирует отправку — только помечается в ответе и уходит в отчёт
+ * "Отклонения при резке", тем же приёмом, что уже был бы у диалога
+ * возврата, но сохраняется, а не теряется после разового подтверждения. */
+function CuttingPlanExecuteModal({
+  donor,
+  rows,
+  onClose,
+}: {
+  donor: { unit_id: number; width_mm: number; length_m: number };
+  rows: QueueRowData[];
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [lengths, setLengths] = useState<Record<number, number>>(() =>
+    Object.fromEntries(rows.map((r) => [r.line.id, donor.length_m])),
+  );
+
+  const executeMutation = useMutation({
+    mutationFn: () =>
+      executeCuttingPlan({
+        donor_unit_id: donor.unit_id,
+        cuts: rows.map((r) => ({
+          production_task_line_id: r.line.id,
+          width_mm: r.line.strip_width_mm || r.line.width_mm,
+          actual_length_m: lengths[r.line.id] ?? donor.length_m,
+        })),
+      }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      qc.invalidateQueries({ queryKey: ["units-unplaced"] });
+      qc.invalidateQueries({ queryKey: ["cutting-plan"] });
+      const flagged = res.cuts.filter((c) => c.discrepancy_flagged);
+      message.success(
+        flagged.length > 0
+          ? `Разрезано и выдано ${res.cuts.length} шт. ⚠️ Заметное отклонение по: ${flagged
+              .map((c) => `№${c.unit.id}`)
+              .join(", ")} — попадёт в отчёт «Отклонения при резке».`
+          : `Разрезано и выдано ${res.cuts.length} шт.`,
+      );
+      onClose();
+    },
+    onError: (e) => message.error(issueErrorMessage(e, "Не удалось выполнить план резки")),
+  });
+
+  return (
+    <Modal
+      title={`Взять в работу донора №${donor.unit_id}`}
+      open
+      onCancel={onClose}
+      footer={null}
+      destroyOnHidden
+      width={560}
+    >
+      <Typography.Paragraph type="secondary">
+        {donor.width_mm} мм, {donor.length_m} м — режем сразу на {rows.length} {rows.length === 1 ? "штрипс" : "штрипса"}.
+        Длина по умолчанию — расчётная (как у донора); поправьте на контрольную длину со станка, если она отличается.
+      </Typography.Paragraph>
+      <Space direction="vertical" style={{ width: "100%" }} size="small">
+        {rows.map((r) => (
+          <div
+            key={r.line.id}
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: "1px solid #EDEDE8" }}
+          >
+            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>{r.line.part_name ?? "Деталь"}</div>
+              <div style={{ fontSize: 12, color: "#8A8C99" }}>
+                {r.task.product_model_name ?? r.task.name} · штрипс {r.line.strip_width_mm || r.line.width_mm} мм
+              </div>
+            </div>
+            <InputNumber
+              min={0}
+              step={0.01}
+              style={{ width: 130 }}
+              value={lengths[r.line.id]}
+              addonAfter="м"
+              onChange={(v) => setLengths((s) => ({ ...s, [r.line.id]: v ?? 0 }))}
+            />
+          </div>
+        ))}
+      </Space>
+      <Button type="primary" block style={{ marginTop: 16 }} loading={executeMutation.isPending} onClick={() => executeMutation.mutate()}>
+        Разрезать и выдать все строки
+      </Button>
+      <Button block style={{ marginTop: 8 }} onClick={onClose}>
+        Отмена
+      </Button>
+    </Modal>
   );
 }
 
@@ -504,7 +615,7 @@ export default function Issue() {
             color={g.color}
             thickness={g.thickness}
             manufacturer={findSku(skusQuery.data, g.material, g.color, g.thickness)?.manufacturer.name}
-            widths={g.rows.map((r) => r.line.strip_width_mm || r.line.width_mm)}
+            rows={g.rows}
           />
           {g.rows.map((r) => queueRow(r, variant))}
         </div>

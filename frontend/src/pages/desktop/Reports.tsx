@@ -8,9 +8,11 @@ import {
   getMovement,
   getDonorAccuracy,
   getStaleUnits,
+  getCuttingDiscrepancies,
 } from "../../api/reports";
 import ReportTable, { type ReportColumn } from "../../components/ReportTable";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import { listAreas } from "../../api/areas";
 
 function StockSummaryTab() {
   const query = useQuery({ queryKey: ["report-stock-summary"], queryFn: getStockSummary });
@@ -194,6 +196,67 @@ function StaleUnitsTab() {
   );
 }
 
+function CuttingDiscrepancyTab() {
+  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(6, "day"), dayjs()]);
+  const query = useQuery({
+    queryKey: ["report-cutting-discrepancies", range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD")],
+    queryFn: () => getCuttingDiscrepancies(range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD")),
+  });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string | null) => (code ? areasQuery.data?.find((a) => a.code === code)?.name ?? code : "—");
+
+  const rows = query.data ?? [];
+  const columns: ReportColumn<(typeof rows)[number]>[] = [
+    {
+      key: "timestamp",
+      header: "Когда",
+      render: (r) => new Date(r.timestamp).toLocaleString("ru-RU"),
+      printValue: (r) => new Date(r.timestamp).toLocaleString("ru-RU"),
+      sorter: (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+      defaultSortOrder: "descend",
+    },
+    { key: "task_name", header: "Задание", render: (r) => r.task_name ?? "—", printValue: (r) => r.task_name ?? "" },
+    { key: "part_name", header: "Деталь", render: (r) => r.part_name ?? "—", printValue: (r) => r.part_name ?? "" },
+    { key: "area", header: "Участок", render: (r) => areaLabel(r.area), printValue: (r) => areaLabel(r.area) },
+    { key: "material", header: "Плёнка", render: (r) => `${r.material}, ${r.color}, ${r.thickness} мм`, printValue: (r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
+    { key: "expected_length_m", header: "Ожидали, м", render: (r) => r.expected_length_m, printValue: (r) => r.expected_length_m },
+    { key: "actual_length_m", header: "Ввели, м", render: (r) => r.actual_length_m, printValue: (r) => r.actual_length_m },
+    {
+      key: "discrepancy_m",
+      header: "Отклонение, м",
+      render: (r) => (
+        <Tag color={r.discrepancy_m > 0 ? "green" : "red"}>
+          {r.discrepancy_m > 0 ? "+" : ""}
+          {r.discrepancy_m}
+        </Tag>
+      ),
+      printValue: (r) => r.discrepancy_m,
+      sorter: (a, b) => Math.abs(a.discrepancy_m) - Math.abs(b.discrepancy_m),
+      defaultSortOrder: "descend",
+    },
+    { key: "discrepancy_percent", header: "Отклонение, %", render: (r) => `${r.discrepancy_percent}%`, printValue: (r) => r.discrepancy_percent },
+    { key: "unit_id", header: "Ед.", render: (r) => r.unit_id, printValue: (r) => r.unit_id },
+  ];
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <span style={{ color: "rgba(0,0,0,0.45)" }}>
+        Резка по плану на несколько ширин за проход (Выдача участку → «Взять в работу») — где контрольная длина,
+        введённая по факту резки, заметно отличается от расчётной (донор той же длины, что и до резки).
+      </span>
+      <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
+      <ReportTable
+        title="Отклонения при резке"
+        filename="otkloneniya-pri-rezke.csv"
+        rowKey="event_id"
+        columns={columns}
+        data={rows}
+        loading={query.isLoading}
+      />
+    </Space>
+  );
+}
+
 export default function Reports() {
   return (
     <Card title="Отчёты">
@@ -204,6 +267,7 @@ export default function Reports() {
           { key: "movement", label: "Движение за период", children: <MovementTab /> },
           { key: "donor", label: <>Точность донор-рекомендаций <Tag color="blue">2.9</Tag></>, children: <DonorAccuracyTab /> },
           { key: "stale", label: "Давно не двигались", children: <StaleUnitsTab /> },
+          { key: "cutting-discrepancy", label: "Отклонения при резке", children: <CuttingDiscrepancyTab /> },
         ]}
       />
     </Card>

@@ -76,3 +76,10 @@ class MaterialEvent(Base):
         ForeignKey("write_off_reasons.code"), nullable=True
     )
     write_off_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Раздел про план резки на несколько ширин за проход — теоретическая
+    # длина куска (= длина донора на момент резки, резка вдоль её не
+    # меняет), с которой сверяется реально введённая контрольная длина со
+    # станка (to_length). Только у VYDACHA_UCHASTKU-событий, рождённых
+    # исполнением плана резки — остальные операции его не заполняют.
+    expected_length_m: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)

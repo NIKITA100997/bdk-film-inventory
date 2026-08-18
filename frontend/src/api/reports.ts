@@ -79,3 +79,27 @@ export const getStaleUnits = async (thresholdDays?: number): Promise<StaleUnitLi
       params: thresholdDays ? { threshold_days: thresholdDays } : undefined,
     })
   ).data;
+
+export interface CuttingDiscrepancyLine {
+  event_id: number;
+  unit_id: number;
+  area: string | null;
+  task_name: string | null;
+  part_name: string | null;
+  material: string;
+  color: string;
+  thickness: number;
+  expected_length_m: number;
+  actual_length_m: number;
+  discrepancy_m: number;
+  discrepancy_percent: number;
+  timestamp: string;
+  user_id: number;
+}
+
+export const getCuttingDiscrepancies = async (dateFrom: string, dateTo: string): Promise<CuttingDiscrepancyLine[]> =>
+  (
+    await apiClient.get<CuttingDiscrepancyLine[]>("/reports/cutting-discrepancies", {
+      params: { date_from: dateFrom, date_to: dateTo },
+    })
+  ).data;

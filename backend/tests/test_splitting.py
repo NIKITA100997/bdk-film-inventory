@@ -2,7 +2,7 @@ import pytest
 
 from app.models.events import EventType
 from app.models.units import MaterialUnit, UnitStatus
-from app.services.splitting import cut_to_length, split_lengthwise
+from app.services.splitting import cut_to_length, split_lengthwise, split_lengthwise_multi
 
 
 def make_unit(**overrides) -> MaterialUnit:
@@ -64,6 +64,54 @@ class TestSplitLengthwise:
             split_lengthwise(unit, separate_width_mm=1400)
         with pytest.raises(ValueError):
             split_lengthwise(unit, separate_width_mm=1500)
+
+
+class TestSplitLengthwiseMulti:
+    def test_happy_path_three_pieces_with_leftover(self):
+        unit = make_unit(width_mm=620, length_m=500)
+        outcome = split_lengthwise_multi(unit, [150, 200, 165])
+
+        assert outcome.parent_width_mm == 105  # 620 - (150+200+165)
+        assert outcome.parent_length_m == 500  # длина донора не меняется
+        assert outcome.parent_status == UnitStatus.NA_KHRANENII
+
+        assert [u.width_mm for u in outcome.new_units] == [150, 200, 165]
+        assert all(u.length_m == 500 for u in outcome.new_units)  # теоретическая длина = длина донора
+        assert all(u.parent_id == unit.id for u in outcome.new_units)
+        assert all(u.material_sku_id == unit.material_sku_id for u in outcome.new_units)
+        assert all(u.status == UnitStatus.NA_KHRANENII for u in outcome.new_units)
+
+    def test_exact_fit_leaves_zero_leftover(self):
+        unit = make_unit(width_mm=515)
+        outcome = split_lengthwise_multi(unit, [150, 200, 165])
+        assert outcome.parent_width_mm == 0
+
+    def test_events_recorded_for_parent_and_each_piece(self):
+        unit = make_unit(width_mm=620, length_m=500)
+        outcome = split_lengthwise_multi(unit, [150, 200])
+        assert outcome.parent_event.event_type == EventType.PRODOLNAYA_REZKA
+        assert outcome.parent_event.unit_id == unit.id
+        assert len(outcome.new_unit_events) == 2
+        assert all(e.event_type == EventType.PRODOLNAYA_REZKA for e in outcome.new_unit_events)
+        assert [e.width_mm for e in outcome.new_unit_events] == [150, 200]
+        assert all(e.quantity_delta_m == 500 for e in outcome.new_unit_events)
+
+    def test_rejects_empty_widths_list(self):
+        unit = make_unit(width_mm=620)
+        with pytest.raises(ValueError):
+            split_lengthwise_multi(unit, [])
+
+    def test_rejects_zero_or_negative_width(self):
+        unit = make_unit(width_mm=620)
+        with pytest.raises(ValueError):
+            split_lengthwise_multi(unit, [150, 0])
+        with pytest.raises(ValueError):
+            split_lengthwise_multi(unit, [150, -10])
+
+    def test_rejects_sum_exceeding_donor_width(self):
+        unit = make_unit(width_mm=300)
+        with pytest.raises(ValueError):
+            split_lengthwise_multi(unit, [150, 200])
 
 
 class TestCutToLength:

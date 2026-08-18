@@ -158,6 +158,39 @@ class CuttingPlanOut(BaseModel):
     covered_widths_mm: list[float]
     uncovered_widths_mm: list[float]
     waste_mm: float
+    # Индексы needed_widths_mm, которые донор покрывает (раздел про
+    # исполнение плана) — при повторяющихся ширинах в запросе (два
+    # задания просят одну и ту же ширину) значения covered_widths_mm
+    # неоднозначны, индексы позволяют однозначно сопоставить обратно с
+    # исходными строками задания на фронте.
+    covered_indices: list[int]
+
+
+class CuttingPlanCutSpec(BaseModel):
+    """Один кусок из плана резки — на какую строку задания идёт, какой
+    ширины, и контрольная (реально отмотанная станком) длина."""
+
+    production_task_line_id: int
+    width_mm: float = Field(gt=0)
+    actual_length_m: float = Field(ge=0)
+
+
+class CuttingPlanExecuteRequest(BaseModel):
+    donor_unit_id: int
+    cuts: list[CuttingPlanCutSpec] = Field(min_length=1)
+
+
+class CuttingPlanExecuteResultCut(BaseModel):
+    unit: MaterialUnitOut
+    production_task_line_id: int
+    expected_length_m: float
+    actual_length_m: float
+    discrepancy_flagged: bool
+
+
+class CuttingPlanExecuteResponse(BaseModel):
+    donor_remainder: MaterialUnitOut | None
+    cuts: list[CuttingPlanExecuteResultCut]
 
 
 class CutRequest(BaseModel):
@@ -197,3 +230,4 @@ class UnitEventOut(BaseModel):
     quantity_delta_m: float
     write_off_reason: str | None
     write_off_note: str | None
+    expected_length_m: float | None

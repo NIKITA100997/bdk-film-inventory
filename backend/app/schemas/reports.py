@@ -55,3 +55,24 @@ class StaleUnitLine(BaseModel):
     location_code: str | None
     last_moved_at: datetime
     days_idle: int
+
+
+class CuttingDiscrepancyLine(BaseModel):
+    """Раздел про план резки на несколько ширин за проход — строки, где
+    контрольная (реально введённая) длина после резки заметно отличается
+    от теоретической (см. /units/cutting-plan/execute)."""
+
+    event_id: int
+    unit_id: int
+    area: str | None
+    task_name: str | None
+    part_name: str | None
+    material: str
+    color: str
+    thickness: float
+    expected_length_m: float
+    actual_length_m: float
+    discrepancy_m: float
+    discrepancy_percent: float
+    timestamp: datetime
+    user_id: int

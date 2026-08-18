@@ -9,9 +9,17 @@ from app.db.session import get_db
 from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
 from app.models.events import EventType, MaterialEvent
+from app.models.production import ProductionTask, ProductionTaskLine, ProductModel
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
-from app.schemas.reports import DonorAccuracyOut, MovementEntry, StaleUnitLine, StockByWidthLine, StockSummaryLine
+from app.schemas.reports import (
+    CuttingDiscrepancyLine,
+    DonorAccuracyOut,
+    MovementEntry,
+    StaleUnitLine,
+    StockByWidthLine,
+    StockSummaryLine,
+)
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -206,3 +214,75 @@ def stale_units(
         )
         for m, c, t, mf, unit in rows
     ]
+
+
+@router.get("/cutting-discrepancies", response_model=list[CuttingDiscrepancyLine])
+def cutting_discrepancies(
+    date_from: dt.date = Query(...),
+    date_to: dt.date = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("reports.view")),
+) -> list[CuttingDiscrepancyLine]:
+    """Отклонения при резке по плану (раздел про несколько ширин за
+    проход) — где контрольная длина, введённая по факту резки
+    (/units/cutting-plan/execute), заметно отличается от теоретической
+    (expected_length_m, записывается только событиями этого действия).
+    Тот же допуск (5%, не меньше 0.1 м), что уже применяется при
+    исполнении плана и при возврате остатка — единственное место, где он
+    считается на бэкенде для отчётности."""
+    rows = (
+        db.query(
+            MaterialEvent,
+            Material.name,
+            Color.name,
+            Thickness.value_mm,
+            ProductionTask.area,
+            ProductModel.name,
+            ProductionTask.name,
+            ProductionTaskLine.part_name,
+        )
+        .join(MaterialSku, MaterialEvent.material_sku_id == MaterialSku.id)
+        .join(Material, MaterialSku.material_id == Material.id)
+        .join(Color, MaterialSku.color_id == Color.id)
+        .join(Thickness, MaterialSku.thickness_id == Thickness.id)
+        .outerjoin(ProductionTaskLine, MaterialEvent.production_task_line_id == ProductionTaskLine.id)
+        .outerjoin(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+        .outerjoin(ProductModel, ProductionTask.product_model_id == ProductModel.id)
+        .filter(
+            MaterialEvent.event_type == EventType.VYDACHA_UCHASTKU,
+            MaterialEvent.expected_length_m.isnot(None),
+            func.date(MaterialEvent.timestamp) >= date_from,
+            func.date(MaterialEvent.timestamp) <= date_to,
+        )
+        .order_by(MaterialEvent.timestamp.desc())
+        .limit(500)
+        .all()
+    )
+
+    result: list[CuttingDiscrepancyLine] = []
+    for ev, material, color, thickness, area, model_name, task_name, part_name in rows:
+        expected = float(ev.expected_length_m)
+        actual = float(ev.to_length) if ev.to_length is not None else 0.0
+        discrepancy_m = actual - expected
+        tolerance = max(0.1, expected * 0.05)
+        if abs(discrepancy_m) <= tolerance:
+            continue
+        result.append(
+            CuttingDiscrepancyLine(
+                event_id=ev.event_id,
+                unit_id=ev.unit_id,
+                area=area,
+                task_name=model_name or task_name,
+                part_name=part_name,
+                material=material,
+                color=color,
+                thickness=float(thickness),
+                expected_length_m=expected,
+                actual_length_m=actual,
+                discrepancy_m=round(discrepancy_m, 3),
+                discrepancy_percent=round(discrepancy_m / expected * 100, 1) if expected else 0.0,
+                timestamp=ev.timestamp,
+                user_id=ev.user_id,
+            )
+        )
+    return result

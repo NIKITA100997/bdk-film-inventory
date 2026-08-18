@@ -19,6 +19,9 @@ from app.schemas.units import (
     AtomicDonorIssueResponse,
     CutRequest,
     CuttingPlanDonorOut,
+    CuttingPlanExecuteRequest,
+    CuttingPlanExecuteResponse,
+    CuttingPlanExecuteResultCut,
     CuttingPlanOut,
     CuttingPlanRequest,
     DonorSuggestion,
@@ -43,7 +46,7 @@ from app.services.events import record_event
 from app.services.placement import rule_matches, rules_for_location
 from app.services.production import calc_default_strip_width, compute_expected_return_length_m
 from app.services.purchasing import auto_close_on_receipt
-from app.services.splitting import cut_to_length, split_lengthwise
+from app.services.splitting import cut_to_length, split_lengthwise, split_lengthwise_multi
 
 router = APIRouter(prefix="/units", tags=["units"])
 
@@ -580,7 +583,9 @@ def get_cutting_plan(
     plan = build_cutting_plan(payload.needed_widths_mm, donors, min_useful_width)
 
     if plan.donor is None:
-        return CuttingPlanOut(donor=None, covered_widths_mm=[], uncovered_widths_mm=payload.needed_widths_mm, waste_mm=0.0)
+        return CuttingPlanOut(
+            donor=None, covered_widths_mm=[], uncovered_widths_mm=payload.needed_widths_mm, waste_mm=0.0, covered_indices=[]
+        )
 
     covered_widths = [payload.needed_widths_mm[i] for i in plan.covered_indices]
     uncovered_widths = [w for i, w in enumerate(payload.needed_widths_mm) if i not in plan.covered_indices]
@@ -594,7 +599,136 @@ def get_cutting_plan(
         covered_widths_mm=covered_widths,
         uncovered_widths_mm=uncovered_widths,
         waste_mm=plan.waste_mm,
+        covered_indices=list(plan.covered_indices),
     )
+
+
+@router.post("/cutting-plan/execute", response_model=CuttingPlanExecuteResponse)
+def execute_cutting_plan(
+    payload: CuttingPlanExecuteRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.issue")),
+) -> CuttingPlanExecuteResponse:
+    """Взять план резки в работу (раздел про несколько разных ширин за
+    проход) — один запрос режет донора сразу на все указанные куски и
+    выдаёт каждый на свою строку задания, с контрольной (реально
+    отмотанной станком) длиной вместо теоретической. Без отдельного
+    статуса "в резке" — резка и выдача атомарны, тем же приёмом, что
+    issue_donor_atomic для одной ширины, только на N кусков сразу."""
+    donor = _get_storable_unit(db, payload.donor_unit_id)
+    if donor.status != UnitStatus.NA_KHRANENII:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Донор должен быть в статусе 'На хранении'")
+
+    lines: dict[int, ProductionTaskLine] = {}
+    for cut in payload.cuts:
+        line = db.get(ProductionTaskLine, cut.production_task_line_id)
+        if line is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
+        _validate_matches_task_line(db, cut.production_task_line_id, donor.material_sku, cut.width_mm)
+        lines[cut.production_task_line_id] = line
+
+    try:
+        outcome = split_lengthwise_multi(donor, [cut.width_mm for cut in payload.cuts])
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
+    # Теоретическая длина — длина донора ДО резки (резка вдоль её не
+    # меняет), с ней сверяем реально введённые контрольные длины.
+    expected_length_m = float(donor.length_m)
+
+    settings = db.get(CalcSettings, 1)
+    min_useful_width = float(settings.min_useful_width_mm) if settings else 30.0
+    donor_is_waste = outcome.parent_width_mm == 0 or outcome.parent_width_mm < min_useful_width
+
+    donor.width_mm = outcome.parent_width_mm
+    donor.length_m = outcome.parent_length_m
+    if donor_is_waste:
+        donor.status = UnitStatus.SPISAN
+        donor.location_code = None
+    record_event(
+        db,
+        unit=donor,
+        event_type=outcome.parent_event.event_type,
+        user_id=user.id,
+        quantity_delta_m=outcome.parent_event.quantity_delta_m,
+        from_length=outcome.parent_event.from_length,
+        to_length=outcome.parent_event.to_length,
+    )
+    if donor_is_waste:
+        # Остаток донора тоньше порога полезной ширины (5.6 ТЗ) — сразу
+        # отход, та же ветка, что у одиночной резки в split_unit.
+        record_event(
+            db,
+            unit=donor,
+            event_type=EventType.SPISANIE,
+            user_id=user.id,
+            quantity_delta_m=-float(donor.length_m),
+            from_length=float(donor.length_m),
+            to_length=0,
+            write_off_reason="cutting_waste",
+        )
+
+    tolerance = max(0.1, expected_length_m * 0.05)
+    # Собираем сырые данные первым проходом, строим Pydantic-объекты
+    # ответа только в самом конце после повторной подгрузки со SKU (тот
+    # же порядок, что у issue_donor_atomic) — не пересобираем уже
+    # сконструированные CuttingPlanExecuteResultCut задним числом.
+    cut_results: list[tuple[int, int, float, float, bool]] = []
+    for cut, spec, new_unit_event in zip(payload.cuts, outcome.new_units, outcome.new_unit_events):
+        line = lines[cut.production_task_line_id]
+        issued_unit = MaterialUnit(
+            parent_id=spec.parent_id,
+            upd_number=spec.upd_number,
+            pallet_number=spec.pallet_number,
+            material_sku_id=spec.material_sku_id,
+            width_mm=spec.width_mm,
+            length_m=cut.actual_length_m,
+            status=UnitStatus.VYDAN_UCHASTKU,
+            area=line.task.area,
+            production_task_line_id=cut.production_task_line_id,
+            location_code=None,
+        )
+        db.add(issued_unit)
+        db.flush()
+
+        record_event(
+            db,
+            unit=issued_unit,
+            event_type=new_unit_event.event_type,
+            user_id=user.id,
+            quantity_delta_m=new_unit_event.quantity_delta_m,
+            to_length=expected_length_m,
+        )
+        discrepancy_flagged = abs(cut.actual_length_m - expected_length_m) > tolerance
+        record_event(
+            db,
+            unit=issued_unit,
+            event_type=EventType.VYDACHA_UCHASTKU,
+            user_id=user.id,
+            quantity_delta_m=-cut.actual_length_m,
+            to_length=cut.actual_length_m,
+            expected_length_m=expected_length_m,
+        )
+        cut_results.append((issued_unit.id, cut.production_task_line_id, expected_length_m, cut.actual_length_m, discrepancy_flagged))
+
+    db.commit()
+
+    donor_remainder = None
+    if not donor_is_waste:
+        donor_remainder = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == donor.id).first()
+
+    result_cuts = [
+        CuttingPlanExecuteResultCut(
+            unit=_with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first(),
+            production_task_line_id=task_line_id,
+            expected_length_m=expected,
+            actual_length_m=actual,
+            discrepancy_flagged=flagged,
+        )
+        for unit_id, task_line_id, expected, actual, flagged in cut_results
+    ]
+
+    return CuttingPlanExecuteResponse(donor_remainder=donor_remainder, cuts=result_cuts)
 
 
 @router.post("/issue-donor-atomic", response_model=AtomicDonorIssueResponse)

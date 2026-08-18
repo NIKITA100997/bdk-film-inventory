@@ -114,6 +114,83 @@ def split_lengthwise(unit: MaterialUnit, separate_width_mm: float, *, new_unit_l
     )
 
 
+@dataclass
+class MultiSplitOutcome:
+    parent_width_mm: float
+    parent_length_m: float
+    parent_status: UnitStatus
+    new_units: list[NewUnitSpec]
+    parent_event: EventSpec
+    new_unit_events: list[EventSpec]
+
+
+def split_lengthwise_multi(unit: MaterialUnit, cut_widths_mm: list[float]) -> MultiSplitOutcome:
+    """Несколько кусков одинаковой длины из одного донора за один проход
+    щелевой резки (раздел про план резки на несколько ширин за раз) — тот
+    же принцип, что split_lengthwise, но на N кусков сразу вместо одного:
+    родитель отдаёт часть ширины каждому куску, длина общая для всех
+    (резка вдоль её не меняет). Остаток (donor_width - sum(cut_widths_mm))
+    остаётся на родителе — списание слишком узкого остатка в отход
+    (CalcSettings.min_useful_width_mm) — забота вызывающего кода
+    (api/units.py), как и у split_lengthwise (та же проверка не входит в
+    эту чистую функцию)."""
+
+    width_mm = float(unit.width_mm)
+    if not cut_widths_mm:
+        raise ValueError("Нужна хотя бы одна ширина для резки")
+    if any(w <= 0 for w in cut_widths_mm):
+        raise ValueError("Ширина каждого куска должна быть больше нуля")
+    total_cut_width_mm = sum(cut_widths_mm)
+    if total_cut_width_mm > width_mm:
+        raise ValueError("Сумма ширин кусков больше ширины донора")
+
+    remaining_width_mm = width_mm - total_cut_width_mm
+    length_m = float(unit.length_m)
+
+    new_units = [
+        NewUnitSpec(
+            parent_id=unit.id,
+            upd_number=unit.upd_number,
+            pallet_number=unit.pallet_number,
+            material_sku_id=unit.material_sku_id,
+            width_mm=w,
+            length_m=length_m,
+            status=UnitStatus.NA_KHRANENII,
+        )
+        for w in cut_widths_mm
+    ]
+
+    parent_event = EventSpec(
+        unit_id=unit.id,
+        material_sku_id=unit.material_sku_id,
+        event_type=EventType.PRODOLNAYA_REZKA,
+        width_mm=remaining_width_mm,
+        from_length=length_m,
+        to_length=length_m,
+        quantity_delta_m=0,
+    )
+    new_unit_events = [
+        EventSpec(
+            unit_id=None,
+            material_sku_id=unit.material_sku_id,
+            event_type=EventType.PRODOLNAYA_REZKA,
+            width_mm=w,
+            to_length=length_m,
+            quantity_delta_m=length_m,
+        )
+        for w in cut_widths_mm
+    ]
+
+    return MultiSplitOutcome(
+        parent_width_mm=remaining_width_mm,
+        parent_length_m=length_m,
+        parent_status=unit.status,
+        new_units=new_units,
+        parent_event=parent_event,
+        new_unit_events=new_unit_events,
+    )
+
+
 def cut_to_length(unit: MaterialUnit, cut_length_m: float, *, remainder_location: str | None = None) -> SplitOutcome:
     """Раскрой (по длине) — физически возможен только там, где деталь
     требует дискретного куска точного размера: на складе при совмещённой
