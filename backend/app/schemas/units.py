@@ -134,6 +134,32 @@ class AtomicDonorIssueResponse(BaseModel):
     remainder_unit: MaterialUnitOut | None = None
 
 
+class CuttingPlanRequest(BaseModel):
+    """Раздел про план резки на несколько разных штрипсов одной плёнки —
+    needed_widths_mm обычно приходит из группы "одна плёнка на N заданий"
+    на экране выдачи (каждая ширина — своя строка задания на сегодня)."""
+
+    material: str
+    color: str
+    thickness: float
+    manufacturer: str
+    needed_widths_mm: list[float] = Field(min_length=1)
+
+
+class CuttingPlanDonorOut(BaseModel):
+    unit_id: int
+    width_mm: float
+    length_m: float
+    days_in_storage: int
+
+
+class CuttingPlanOut(BaseModel):
+    donor: CuttingPlanDonorOut | None
+    covered_widths_mm: list[float]
+    uncovered_widths_mm: list[float]
+    waste_mm: float
+
+
 class CutRequest(BaseModel):
     cut_length_m: float = Field(gt=0)
     remainder_location: str | None = None

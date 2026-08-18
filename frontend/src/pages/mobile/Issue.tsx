@@ -18,10 +18,11 @@ import {
   message,
 } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import dayjs from "dayjs";
 import {
+  getCuttingPlan,
   getReturnPreview,
   issueDonorAtomic,
   issueUnit,
@@ -79,28 +80,76 @@ interface QueueSelection {
 
 type QueueRowData = { task: ProductionTask; line: ProductionTaskLine; assignment?: ProductionTaskLineAssignment; overdue?: boolean };
 
-/** Одна и та же плёнка/ширина на нескольких заданиях участка (раздел про
- * объединение требований) — раньше на очереди выдачи это были никак не
- * связанные строки, хотя по факту это один и тот же штрипс, который
- * нужно резать под несколько заданий сразу. Группировка только
- * визуальная: сама выдача остаётся построчной (каждая линия — свой
- * список/своя точная длина), просто видно, что резать один раз на
- * несколько назначений, а не отдельно на каждое. */
+/** Одна и та же плёнка на нескольких заданиях участка, независимо от
+ * ширины штрипса (раздел про объединение требований + план резки на
+ * несколько разных ширин) — раньше на очереди выдачи это были никак не
+ * связанные строки, хотя по факту это один и тот же рулон, который можно
+ * резать под несколько заданий сразу. Группировка по плёнке (без ширины
+ * в ключе) — щелевая резка режет донора на несколько разных ширин за
+ * один проход, поэтому даже разноширинные потребности одной плёнки
+ * выгодно резать вместе (см. CuttingPlanHint ниже). Сама выдача
+ * остаётся построчной (каждая линия — свой список/своя точная длина). */
 function groupQueueRows(rows: QueueRowData[]) {
   const order: string[] = [];
-  const groups = new Map<string, { key: string; material: string; color: string; thickness: number; width: number; rows: QueueRowData[] }>();
+  const groups = new Map<string, { key: string; material: string; color: string; thickness: number; rows: QueueRowData[] }>();
   for (const r of rows) {
-    const width = r.line.strip_width_mm || r.line.width_mm;
-    const key = `${r.task.area}|${r.line.material}|${r.line.color}|${r.line.thickness}|${width}`;
+    const key = `${r.task.area}|${r.line.material}|${r.line.color}|${r.line.thickness}`;
     let g = groups.get(key);
     if (!g) {
-      g = { key, material: r.line.material, color: r.line.color, thickness: r.line.thickness, width, rows: [] };
+      g = { key, material: r.line.material, color: r.line.color, thickness: r.line.thickness, rows: [] };
       groups.set(key, g);
       order.push(key);
     }
     g.rows.push(r);
   }
   return order.map((k) => groups.get(k)!);
+}
+
+/** Подсказка плана резки для группы разноширинных потребностей одной
+ * плёнки (раздел про несколько разных ширин штрипса на один день) —
+ * щелевая резка режет донора на несколько полос за проход, так что вместо
+ * резки каждой линии отдельно от своего донора выгоднее резать один
+ * донор сразу под несколько нужных ширин. Только подсказка — сама резка
+ * всё ещё выполняется вручную через карточку донора (номер кликабелен). */
+function CuttingPlanHint({
+  material,
+  color,
+  thickness,
+  manufacturer,
+  widths,
+}: {
+  material: string;
+  color: string;
+  thickness: number;
+  manufacturer: string | undefined;
+  widths: number[];
+}) {
+  const navigate = useNavigate();
+  const planQuery = useQuery({
+    queryKey: ["cutting-plan", material, color, thickness, manufacturer, widths.join(",")],
+    queryFn: () => getCuttingPlan({ material, color, thickness, manufacturer: manufacturer!, needed_widths_mm: widths }),
+    enabled: !!manufacturer,
+  });
+
+  if (!manufacturer || !planQuery.data) return null;
+  const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm } = planQuery.data;
+
+  if (!donor) {
+    return (
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+        ✂️ Подходящего донора для резки на все эти ширины среди остатков нет — резать новый рулон.
+      </Typography.Text>
+    );
+  }
+
+  return (
+    <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+      ✂️ План резки: донор{" "}
+      <a onClick={() => navigate("/m/unit-card", { state: { unitId: donor.unit_id } })}>№{donor.unit_id}</a> (
+      {donor.width_mm} мм, {donor.length_m} м) → режем {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
+      {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
+    </Typography.Text>
+  );
 }
 
 interface IssuedResult {
@@ -447,9 +496,16 @@ export default function Issue() {
             border: "1px dashed #D8B98A",
           }}
         >
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#8A6A2F", marginBottom: 8 }}>
-            🧩 Одна плёнка на {g.rows.length} задания: {g.material}, {g.color}, {g.thickness} мм — штрипс {g.width} мм
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#8A6A2F", marginBottom: 4 }}>
+            🧩 Одна плёнка на {g.rows.length} задания: {g.material}, {g.color}, {g.thickness} мм
           </div>
+          <CuttingPlanHint
+            material={g.material}
+            color={g.color}
+            thickness={g.thickness}
+            manufacturer={findSku(skusQuery.data, g.material, g.color, g.thickness)?.manufacturer.name}
+            widths={g.rows.map((r) => r.line.strip_width_mm || r.line.width_mm)}
+          />
           {g.rows.map((r) => queueRow(r, variant))}
         </div>
       ) : (

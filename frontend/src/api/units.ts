@@ -178,6 +178,37 @@ export async function issueDonorAtomic(payload: AtomicDonorIssueRequest): Promis
   return data;
 }
 
+export interface CuttingPlanRequest {
+  material: string;
+  color: string;
+  thickness: number;
+  manufacturer: string;
+  needed_widths_mm: number[];
+}
+
+export interface CuttingPlanDonor {
+  unit_id: number;
+  width_mm: number;
+  length_m: number;
+  days_in_storage: number;
+}
+
+export interface CuttingPlan {
+  donor: CuttingPlanDonor | null;
+  covered_widths_mm: number[];
+  uncovered_widths_mm: number[];
+  waste_mm: number;
+}
+
+// План резки одного донора сразу на несколько разных ширин штрипса одной
+// плёнки (раздел про несколько разных потребностей за день) — щелевая
+// резка режет рулон на несколько полос за проход, поэтому выгоднее
+// резать один донор сразу под несколько нужных ширин, чем по одной.
+export async function getCuttingPlan(payload: CuttingPlanRequest): Promise<CuttingPlan> {
+  const { data } = await apiClient.post<CuttingPlan>("/units/cutting-plan", payload);
+  return data;
+}
+
 export interface CutRequest {
   cut_length_m: number;
   remainder_location?: string;

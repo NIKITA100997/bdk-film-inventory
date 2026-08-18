@@ -18,6 +18,9 @@ from app.schemas.units import (
     AtomicDonorIssueRequest,
     AtomicDonorIssueResponse,
     CutRequest,
+    CuttingPlanDonorOut,
+    CuttingPlanOut,
+    CuttingPlanRequest,
     DonorSuggestion,
     IssueDirectRequest,
     IssueRequest,
@@ -33,6 +36,7 @@ from app.schemas.units import (
     UnitEventOut,
     WriteOffRequest,
 )
+from app.services.cutting_plan import DonorCandidate, build_cutting_plan
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_sku, find_sku
 from app.services.events import record_event
@@ -530,6 +534,67 @@ def issue_to_area(
         )
 
     return IssueResult(outcome="not_found")
+
+
+@router.post("/cutting-plan", response_model=CuttingPlanOut)
+def get_cutting_plan(
+    payload: CuttingPlanRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> CuttingPlanOut:
+    """План резки одного донора сразу на несколько разных ширин штрипса
+    одной плёнки (раздел про несколько разных потребностей за день) —
+    щелевая резка режет рулон на несколько полос за один проход, поэтому
+    если сегодня нужно несколько разных ширин одной и той же плёнки,
+    выгоднее резать один донор сразу под несколько из них, а не по одной
+    независимо, как /units/issue для отдельной строки. В отличие от
+    одиночной донор-рекомендации, здесь НЕ ограничиваемся классом B/C
+    ABC-анализа — это осознанный batch-подбор под конкретный список
+    потребностей, а не "предложить с осторожностью" для одной строки."""
+    sku = find_sku(
+        db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
+    )
+    if sku is None:
+        return CuttingPlanOut(donor=None, covered_widths_mm=[], uncovered_widths_mm=payload.needed_widths_mm, waste_mm=0.0)
+
+    settings = db.get(CalcSettings, 1)
+    min_useful_width = float(settings.min_useful_width_mm) if settings else 30.0
+
+    candidates = (
+        db.query(MaterialUnit)
+        .filter(
+            MaterialUnit.status == UnitStatus.NA_KHRANENII,
+            MaterialUnit.material_sku_id == sku.id,
+            MaterialUnit.width_mm >= min(payload.needed_widths_mm),
+        )
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+
+    def _days(u: MaterialUnit) -> int:
+        created = u.created_at.replace(tzinfo=timezone.utc) if u.created_at.tzinfo is None else u.created_at
+        return max((now - created).days, 0)
+
+    donors = [
+        DonorCandidate(unit_id=u.id, width_mm=float(u.width_mm), length_m=float(u.length_m), days_in_storage=_days(u))
+        for u in candidates
+    ]
+    plan = build_cutting_plan(payload.needed_widths_mm, donors, min_useful_width)
+
+    if plan.donor is None:
+        return CuttingPlanOut(donor=None, covered_widths_mm=[], uncovered_widths_mm=payload.needed_widths_mm, waste_mm=0.0)
+
+    covered_widths = [payload.needed_widths_mm[i] for i in plan.covered_indices]
+    uncovered_widths = [w for i, w in enumerate(payload.needed_widths_mm) if i not in plan.covered_indices]
+    return CuttingPlanOut(
+        donor=CuttingPlanDonorOut(
+            unit_id=plan.donor.unit_id,
+            width_mm=plan.donor.width_mm,
+            length_m=plan.donor.length_m,
+            days_in_storage=plan.donor.days_in_storage,
+        ),
+        covered_widths_mm=covered_widths,
+        uncovered_widths_mm=uncovered_widths,
+        waste_mm=plan.waste_mm,
+    )
 
 
 @router.post("/issue-donor-atomic", response_model=AtomicDonorIssueResponse)
