@@ -712,6 +712,7 @@ export default function Issue() {
                           scroll={{ x: "max-content" }}
                           locale={{ emptyText: "Ничего нет на хранении" }}
                           columns={[
+                            { title: "№", dataIndex: "id" },
                             { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
                             { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
                             {
