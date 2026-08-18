@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import { isMobileDevice, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
+import { isMobileDevice, isVerticalPrint, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
 
 export type FieldSize = "sm" | "md" | "lg";
 export type LabelKind = "unit" | "rack" | "shelf";
@@ -62,12 +62,13 @@ export interface ShelfLabelCell {
 
 export function printShelfLabelsBatch(rackId: number, cells: ShelfLabelCell[]): void {
   if (cells.length === 0) return;
+  const params = { vertical: isVerticalPrint() };
   if (isMobileDevice()) {
-    apiClient.post(`/racks/${rackId}/shelf-labels/batch/html`, { cells }, { responseType: "text" }).then(({ data }) => {
+    apiClient.post(`/racks/${rackId}/shelf-labels/batch/html`, { cells }, { params, responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);
     });
   } else {
-    apiClient.post(`/racks/${rackId}/shelf-labels/batch`, { cells }, { responseType: "blob" }).then(({ data }) => {
+    apiClient.post(`/racks/${rackId}/shelf-labels/batch`, { cells }, { params, responseType: "blob" }).then(({ data }) => {
       printPdfBlob(data as Blob);
     });
   }
@@ -76,12 +77,13 @@ export function printShelfLabelsBatch(rackId: number, cells: ShelfLabelCell[]): 
 // Бирка на весь стеллаж целиком — отдельный макет (kind="rack") от бирок
 // на места хранения выше. Печатается по одной, без списка ячеек.
 export function printRackLabel(rackId: number): void {
+  const params = { vertical: isVerticalPrint() };
   if (isMobileDevice()) {
-    apiClient.post(`/racks/${rackId}/rack-label/html`, null, { responseType: "text" }).then(({ data }) => {
+    apiClient.post(`/racks/${rackId}/rack-label/html`, null, { params, responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);
     });
   } else {
-    apiClient.post(`/racks/${rackId}/rack-label`, null, { responseType: "blob" }).then(({ data }) => {
+    apiClient.post(`/racks/${rackId}/rack-label`, null, { params, responseType: "blob" }).then(({ data }) => {
       printPdfBlob(data as Blob);
     });
   }

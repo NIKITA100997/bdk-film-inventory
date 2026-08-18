@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Layout, Menu, Typography, Button, Input, Avatar, Dropdown } from "antd";
+import { Layout, Menu, Typography, Button, Input, Avatar, Dropdown, Switch } from "antd";
 import type { MenuProps } from "antd";
 import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { navTree, type NavItem } from "./navConfig";
 import { fontHeading } from "../theme";
 import { runUnitOrMaterialSearch } from "../utils/unitSearch";
+import { isVerticalPrint, setVerticalPrint } from "../utils/printLabel";
 import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
 import NotificationBell from "../components/NotificationBell";
@@ -25,6 +26,7 @@ export default function AppLayout() {
   // поиска не стоит там постоянно, а разворачивается на всю ширину по
   // тапу на лупу и сворачивается обратно.
   const [searchOpen, setSearchOpen] = useState(false);
+  const [verticalPrint, setVerticalPrintState] = useState(isVerticalPrint());
 
   if (!user) return null;
 
@@ -74,6 +76,32 @@ export default function AppLayout() {
         </div>
       ),
       disabled: true,
+    },
+    { type: "divider" },
+    {
+      key: "vertical-print",
+      label: (
+        // Раздел про ориентацию печати — переключатель прямо в меню
+        // пользователя, чтобы применялся сразу ко всем этикеткам на этом
+        // устройстве (принтер/место наклейки не меняется от экрана к
+        // экрану), без отдельной кнопки на каждом из них. stopPropagation
+        // — иначе клик по свитчу закрывает выпадающее меню, как обычный
+        // пункт.
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, minWidth: 220 }}
+        >
+          <span>Печать этикеток вертикально</span>
+          <Switch
+            size="small"
+            checked={verticalPrint}
+            onChange={(checked) => {
+              setVerticalPrint(checked);
+              setVerticalPrintState(checked);
+            }}
+          />
+        </div>
+      ),
     },
     { type: "divider" },
     {

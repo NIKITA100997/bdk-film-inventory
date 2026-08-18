@@ -12,6 +12,23 @@
 // этой проблемы.
 export const isMobileDevice = () => /Android|iPad|iPhone|Mobile/i.test(navigator.userAgent);
 
+// Раздел про ориентацию печати — привязана к конкретному принтеру/месту
+// печати на этом устройстве (как некоторые сборки этикетки нужно клеить
+// повёрнутыми), а не к конкретной этикетке или разу печати, поэтому
+// хранится в localStorage как настройка устройства, а не спрашивается
+// каждый раз при печати. Размеры макета не меняются — сервер просто
+// меняет местами ширину/высоту перед отрисовкой (см. api/labels.py
+// _oriented), тот же макет, повёрнутый на 90°.
+const VERTICAL_PRINT_KEY = "bdk-print-vertical";
+
+export function isVerticalPrint(): boolean {
+  return localStorage.getItem(VERTICAL_PRINT_KEY) === "1";
+}
+
+export function setVerticalPrint(value: boolean): void {
+  localStorage.setItem(VERTICAL_PRINT_KEY, value ? "1" : "0");
+}
+
 export function printPdfBlob(blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const iframe = document.createElement("iframe");

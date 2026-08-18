@@ -1,7 +1,7 @@
 import { apiClient } from "./client";
 import { suggestLocation } from "./storage";
 import type { DeleteResult } from "./deletionRequests";
-import { isMobileDevice, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
+import { isMobileDevice, isVerticalPrint, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
 
 export interface MaterialSku {
   id: number;
@@ -257,12 +257,13 @@ export async function deleteUnit(unitId: number): Promise<DeleteResult> {
 }
 
 export function printLabel(unitId: number): void {
+  const params = { vertical: isVerticalPrint() };
   if (isMobileDevice()) {
-    apiClient.get(`/labels/${unitId}/html`, { responseType: "text" }).then(({ data }) => {
+    apiClient.get(`/labels/${unitId}/html`, { params, responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);
     });
   } else {
-    apiClient.get(`/labels/${unitId}`, { responseType: "blob" }).then(({ data }) => {
+    apiClient.get(`/labels/${unitId}`, { params, responseType: "blob" }).then(({ data }) => {
       printPdfBlob(data as Blob);
     });
   }
@@ -273,12 +274,13 @@ export function printLabel(unitId: number): void {
 // N рулонов одна вкладка с N страницами вместо N открытых вкладок печати.
 export function printLabelsBatch(unitIds: number[]): void {
   if (unitIds.length === 0) return;
+  const params = { vertical: isVerticalPrint() };
   if (isMobileDevice()) {
-    apiClient.post("/labels/batch/html", { unit_ids: unitIds }, { responseType: "text" }).then(({ data }) => {
+    apiClient.post("/labels/batch/html", { unit_ids: unitIds }, { params, responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);
     });
   } else {
-    apiClient.post("/labels/batch", { unit_ids: unitIds }, { responseType: "blob" }).then(({ data }) => {
+    apiClient.post("/labels/batch", { unit_ids: unitIds }, { params, responseType: "blob" }).then(({ data }) => {
       printPdfBlob(data as Blob);
     });
   }

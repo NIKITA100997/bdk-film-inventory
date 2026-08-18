@@ -63,6 +63,16 @@ def _content_disposition(filename: str) -> str:
     return f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
 
 
+def _oriented(template: LabelTemplate, vertical: bool) -> tuple[int, int]:
+    """Печать той же этикетки в вертикальном виде (раздел про ориентацию
+    печати) — размеры макета не меняются, просто ширина и высота
+    меняются местами перед отрисовкой: остальной код макета уже сам
+    решает раскладку (QR сбоку от текста или над ним) по тому, что больше
+    — ширина или высота, так что перестановка местами даёт корректный
+    повёрнутый макет без отдельной ветки вёрстки."""
+    return (template.height_mm, template.width_mm) if vertical else (template.width_mm, template.height_mm)
+
+
 def _get_template(db: Session, kind: str) -> LabelTemplate:
     template = db.query(LabelTemplate).filter(LabelTemplate.kind == kind).first()
     if template is None:
@@ -127,14 +137,13 @@ def preview_label_template(payload: LabelTemplateUpdate, kind: str = "unit", use
 
 
 @router.get("/labels/{unit_id}", dependencies=[Depends(get_current_user)])
-def get_label(unit_id: int, db: Session = Depends(get_db)) -> Response:
+def get_label(unit_id: int, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
     unit = db.get(MaterialUnit, unit_id)
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     template = _get_template(db, "unit")
-    pdf_bytes = render_label_pdf(
-        label_data_from_unit(unit), fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm
-    )
+    width_mm, height_mm = _oriented(template, vertical)
+    pdf_bytes = render_label_pdf(label_data_from_unit(unit), fields=template.fields, width_mm=width_mm, height_mm=height_mm)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -143,7 +152,7 @@ def get_label(unit_id: int, db: Session = Depends(get_db)) -> Response:
 
 
 @router.get("/labels/{unit_id}/html", dependencies=[Depends(get_current_user)])
-def get_label_html(unit_id: int, db: Session = Depends(get_db)) -> Response:
+def get_label_html(unit_id: int, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
     """HTML-версия той же этикетки (планшеты — печать PDF-blob через
     window.print() на части Android-браузеров не срабатывает, система
     перехватывает blob как файл на скачивание вместо печати; обычная
@@ -152,31 +161,28 @@ def get_label_html(unit_id: int, db: Session = Depends(get_db)) -> Response:
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     template = _get_template(db, "unit")
-    html = render_label_html(
-        label_data_from_unit(unit), fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm
-    )
+    width_mm, height_mm = _oriented(template, vertical)
+    html = render_label_html(label_data_from_unit(unit), fields=template.fields, width_mm=width_mm, height_mm=height_mm)
     return Response(content=html, media_type="text/html")
 
 
 @router.post("/labels/batch/html", dependencies=[Depends(get_current_user)])
-def get_labels_batch_html(payload: LabelBatchRequest, db: Session = Depends(get_db)) -> Response:
+def get_labels_batch_html(payload: LabelBatchRequest, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
     units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
     units_by_id = {u.id: u for u in units}
     ordered_units = [units_by_id[uid] for uid in payload.unit_ids if uid in units_by_id]
     if not ordered_units:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
     template = _get_template(db, "unit")
+    width_mm, height_mm = _oriented(template, vertical)
     html = render_labels_html_batch(
-        [label_data_from_unit(u) for u in ordered_units],
-        fields=template.fields,
-        width_mm=template.width_mm,
-        height_mm=template.height_mm,
+        [label_data_from_unit(u) for u in ordered_units], fields=template.fields, width_mm=width_mm, height_mm=height_mm
     )
     return Response(content=html, media_type="text/html")
 
 
 @router.post("/labels/batch", dependencies=[Depends(get_current_user)])
-def get_labels_batch(payload: LabelBatchRequest, db: Session = Depends(get_db)) -> Response:
+def get_labels_batch(payload: LabelBatchRequest, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
     """Очередь печати (раздел про ускорение работы): один PDF на несколько
     единиц вместо открытия отдельной вкладки/запроса на каждую — актуально
     после сессии приёмки на партию из N рулонов."""
@@ -186,11 +192,9 @@ def get_labels_batch(payload: LabelBatchRequest, db: Session = Depends(get_db)) 
     if not ordered_units:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
     template = _get_template(db, "unit")
+    width_mm, height_mm = _oriented(template, vertical)
     pdf_bytes = render_labels_pdf_batch(
-        [label_data_from_unit(u) for u in ordered_units],
-        fields=template.fields,
-        width_mm=template.width_mm,
-        height_mm=template.height_mm,
+        [label_data_from_unit(u) for u in ordered_units], fields=template.fields, width_mm=width_mm, height_mm=height_mm
     )
     return Response(
         content=pdf_bytes,
@@ -245,7 +249,7 @@ def _shelf_label_data_for_cells(db: Session, rack: Rack, warehouse_name: str, pa
 
 
 @router.post("/racks/{rack_id}/rack-label", dependencies=[Depends(get_current_user)])
-def get_rack_label(rack_id: int, db: Session = Depends(get_db)) -> Response:
+def get_rack_label(rack_id: int, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
     """Бирка на весь стеллаж целиком (не на отдельное место хранения —
     те см. /racks/{rack_id}/shelf-labels/batch)."""
     rack = db.get(Rack, rack_id)
@@ -253,6 +257,7 @@ def get_rack_label(rack_id: int, db: Session = Depends(get_db)) -> Response:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, "rack")
+    width_mm, height_mm = _oriented(template, vertical)
     data = RackLabelData(
         rack_code=rack.code,
         warehouse_name=warehouse.name if warehouse else "—",
@@ -260,7 +265,7 @@ def get_rack_label(rack_id: int, db: Session = Depends(get_db)) -> Response:
         shelf_count=rack.shelf_count,
         storage_rules_text=_rack_storage_rules_text(db, _rules_for_rack(db, rack.id)),
     )
-    pdf_bytes = render_rack_label_pdf(data, fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm)
+    pdf_bytes = render_rack_label_pdf(data, fields=template.fields, width_mm=width_mm, height_mm=height_mm)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -269,12 +274,13 @@ def get_rack_label(rack_id: int, db: Session = Depends(get_db)) -> Response:
 
 
 @router.post("/racks/{rack_id}/rack-label/html", dependencies=[Depends(get_current_user)])
-def get_rack_label_html(rack_id: int, db: Session = Depends(get_db)) -> Response:
+def get_rack_label_html(rack_id: int, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
     rack = db.get(Rack, rack_id)
     if rack is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, "rack")
+    width_mm, height_mm = _oriented(template, vertical)
     data = RackLabelData(
         rack_code=rack.code,
         warehouse_name=warehouse.name if warehouse else "—",
@@ -282,12 +288,14 @@ def get_rack_label_html(rack_id: int, db: Session = Depends(get_db)) -> Response
         shelf_count=rack.shelf_count,
         storage_rules_text=_rack_storage_rules_text(db, _rules_for_rack(db, rack.id)),
     )
-    html = render_rack_label_html(data, fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm)
+    html = render_rack_label_html(data, fields=template.fields, width_mm=width_mm, height_mm=height_mm)
     return Response(content=html, media_type="text/html")
 
 
 @router.post("/racks/{rack_id}/shelf-labels/batch", dependencies=[Depends(get_current_user)])
-def get_shelf_labels_batch(rack_id: int, payload: ShelfLabelBatchRequest, db: Session = Depends(get_db)) -> Response:
+def get_shelf_labels_batch(
+    rack_id: int, payload: ShelfLabelBatchRequest, vertical: bool = False, db: Session = Depends(get_db)
+) -> Response:
     """Печать этикеток мест хранения (раздел про макеты для стеллажей/
     полок) — один PDF на все переданные ячейки/полки стеллажа, тот же
     приём "очередь печати", что уже есть для партии единиц при приёмке.
@@ -298,11 +306,12 @@ def get_shelf_labels_batch(rack_id: int, payload: ShelfLabelBatchRequest, db: Se
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, "shelf")
+    width_mm, height_mm = _oriented(template, vertical)
     pdf_bytes = render_shelf_labels_pdf_batch(
         _shelf_label_data_for_cells(db, rack, warehouse.name if warehouse else "—", payload),
         fields=template.fields,
-        width_mm=template.width_mm,
-        height_mm=template.height_mm,
+        width_mm=width_mm,
+        height_mm=height_mm,
     )
     return Response(
         content=pdf_bytes,
@@ -312,16 +321,19 @@ def get_shelf_labels_batch(rack_id: int, payload: ShelfLabelBatchRequest, db: Se
 
 
 @router.post("/racks/{rack_id}/shelf-labels/batch/html", dependencies=[Depends(get_current_user)])
-def get_shelf_labels_batch_html(rack_id: int, payload: ShelfLabelBatchRequest, db: Session = Depends(get_db)) -> Response:
+def get_shelf_labels_batch_html(
+    rack_id: int, payload: ShelfLabelBatchRequest, vertical: bool = False, db: Session = Depends(get_db)
+) -> Response:
     rack = db.get(Rack, rack_id)
     if rack is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, "shelf")
+    width_mm, height_mm = _oriented(template, vertical)
     html = render_shelf_labels_html_batch(
         _shelf_label_data_for_cells(db, rack, warehouse.name if warehouse else "—", payload),
         fields=template.fields,
-        width_mm=template.width_mm,
-        height_mm=template.height_mm,
+        width_mm=width_mm,
+        height_mm=height_mm,
     )
     return Response(content=html, media_type="text/html")
