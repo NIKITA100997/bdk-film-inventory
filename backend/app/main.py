@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -46,6 +47,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Раздел про долгую загрузку на планшетах по Wi-Fi — собранный JS-бандл
+# фронтенда почти 2 МБ и раньше отдавался несжатым (curl подтвердил:
+# content-length == размеру файла на диске, без content-encoding) — на
+# домашнем/цеховом Wi-Fi это заметно медленнее, чем на localhost, где то
+# же самое качается за доли секунды. GZip сжимает такой бандл в разы.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Раздел про ускорение первой загрузки на планшетах — единый префикс
 # /api на ВСЕХ роутерах без исключений. Обнаружено при проверке быстрого
@@ -120,4 +128,11 @@ if _FRONTEND_DIST.is_dir():
         путь приложения — не только "/" — должен получить ту же
         SPA-страницу, а не 404)."""
         found = resolve_static_path(_FRONTEND_DIST, full_path)
+        if found is not None and found.is_relative_to(_FRONTEND_DIST / "assets"):
+            # Имена файлов в assets/ содержат хэш содержимого (Vite) — при
+            # изменении кода имя меняется само, так что кэшировать "навечно"
+            # безопасно: старый файл никогда не переиспользуется под новым
+            # содержимым. Без этого заголовка планшет перекачивал бы
+            # 2 МБ бандла заново при каждом заходе, а не только один раз.
+            return FileResponse(found, headers={"Cache-Control": "public, max-age=31536000, immutable"})
         return FileResponse(found or _FRONTEND_DIST / "index.html")
