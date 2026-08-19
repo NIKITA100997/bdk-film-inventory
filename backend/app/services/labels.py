@@ -191,6 +191,16 @@ def render_field_value(data: LabelData, key: str) -> str | None:
     return None
 
 
+def _giant_field_value(data: LabelData, key: str) -> str:
+    """Как render_field_value, но без служебной приставки ("№ ") — раздел
+    про огромный номер: приставка на весь экран не нужна, а в
+    вертикальном варианте (по символу на строку) "№" и пробел после него
+    плодят две лишние строки на месте, где должны быть только цифры."""
+    if key == "unit_id":
+        return str(data.unit_id)
+    return render_field_value(data, key) or ""
+
+
 def qr_png_bytes(payload: str) -> bytes:
     img = qrcode.make(payload, border=1)
     buf = BytesIO()
@@ -214,12 +224,64 @@ def _label_markup(
     — используется и для одиночной страницы (render_label_html), и для
     печати очередью, где несколько таких блоков идут один за другим с
     разрывом страницы между ними (render_labels_html_batch)."""
+    _register_pdf_fonts()
     color = indicator_color(data)
     qr_src = qr_data_uri(str(data.unit_id))
 
     is_landscape = width_mm >= height_mm
     has_stripe = any(f["key"] == "status_stripe" for f in fields)
     has_qr = any(f["key"] == "qr" for f in fields)
+    giant_field = next((f for f in fields if f.get("size") == "huge"), None)
+
+    if giant_field is not None:
+        giant_val = _giant_field_value(data, giant_field["key"])
+        vertical = bool(giant_field.get("vertical"))
+        if is_landscape:
+            stripe_html = f'<td class="stripe-td" style="background:{color}; width:4mm;"></td>' if has_stripe else ""
+            qr_size_mm = max(min(height_mm - 6, 34), 16)
+            qr_html = (
+                f'<td class="qr-td" style="width:{qr_size_mm + 4}mm; text-align:center; vertical-align:middle; padding:1mm;">'
+                f'<img src="{qr_src}" alt="QR {data.unit_id}" style="width:{qr_size_mm}mm; height:{qr_size_mm}mm; display:block; margin:0 auto;">'
+                f'</td>'
+                if has_qr
+                else ""
+            )
+            used_w_mm = (4 if has_stripe else 0) + (qr_size_mm + 4 if has_qr else 0)
+            text_w_mm = max(width_mm - used_w_mm - 2, 5)
+            giant_html = _giant_field_html(
+                giant_val, _PDF_HEADING_FONT_BOLD, width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=vertical,
+                font_family_css='font-family:"Cambria", Georgia, serif;',
+            )
+            return f"""<table class="label-table">
+    <tr>
+      {stripe_html}
+      {qr_html}
+      <td class="text-td" style="text-align:center;">
+        {giant_html}
+      </td>
+    </tr>
+  </table>"""
+        else:
+            stripe_html = f'<div class="stripe-h" style="background:{color}; height:5mm; width:100%;"></div>' if has_stripe else ""
+            qr_html = (
+                f'<div style="margin: 1mm 0; text-align:center;">'
+                f'<img src="{qr_src}" alt="QR {data.unit_id}" style="width:24mm; height:24mm; display:block; margin:0 auto;">'
+                f'</div>'
+                if has_qr
+                else ""
+            )
+            avail_height_mm = height_mm - (5 if has_stripe else 0) - (26 if has_qr else 2)
+            giant_html = _giant_field_html(
+                giant_val, _PDF_HEADING_FONT_BOLD, width_mm=width_mm - 4, avail_height_mm=avail_height_mm, vertical=vertical,
+                font_family_css='font-family:"Cambria", Georgia, serif;',
+            )
+            return f"""<div class="label-box">
+    {stripe_html}
+    {qr_html}
+    <div class="content-box" style="padding:0;">
+      {giant_html}
+    </div>
+  </div>"""
 
     rendered_fields: list[tuple[dict, str]] = []
     for f in fields:
@@ -509,6 +571,124 @@ def _draw_pdf_text_lines(
                 c.drawString(left_mm * MM, y, line)
 
 
+def _fit_font_size_horizontal(
+    text: str, font_name: str, max_width_pt: float, max_height_pt: float, *, min_size: float = 6.0, max_size: float = 400.0
+) -> float:
+    """Наибольший кегль (pt), при котором text целиком помещается в
+    прямоугольник max_width×max_height одной строкой (раздел про огромный
+    номер на этикетке места хранения — size="huge"). Бинарный поиск по
+    pdfmetrics.stringWidth — той же метрике, что уже использует
+    _wrap_pdf_text для PDF-пути; HTML-путь подставляет тот же посчитанный
+    кегль обычным font-size, поэтому оба формата совпадают без
+    headless-браузера для измерения текста в HTML."""
+    text = text or " "
+    lo, hi = min_size, max_size
+    best = min_size
+    while hi - lo > 0.5:
+        mid = (lo + hi) / 2
+        fits = pdfmetrics.stringWidth(text, font_name, mid) <= max_width_pt and mid * 1.15 <= max_height_pt
+        if fits:
+            best = mid
+            lo = mid
+        else:
+            hi = mid
+    return round(best, 1)
+
+
+def _fit_font_size_vertical(
+    text: str, font_name: str, max_width_pt: float, max_height_pt: float, *, min_size: float = 6.0, max_size: float = 400.0
+) -> float:
+    """Как _fit_font_size_horizontal, но для варианта "друг над другом" —
+    по одному символу на строку (size="huge" + vertical=True). Ограничение
+    по ширине — самый широкий из символов (не вся строка целиком), по
+    высоте — все символы друг под другом с тем же множителем межстрочного
+    интервала (1.15), что и у обычного текста этикетки."""
+    chars = list(text) or [" "]
+    lo, hi = min_size, max_size
+    best = min_size
+    while hi - lo > 0.5:
+        mid = (lo + hi) / 2
+        max_char_w = max(pdfmetrics.stringWidth(ch, font_name, mid) for ch in chars)
+        total_h = mid * 1.15 * len(chars)
+        if max_char_w <= max_width_pt and total_h <= max_height_pt:
+            best = mid
+            lo = mid
+        else:
+            hi = mid
+    return round(best, 1)
+
+
+def _giant_field_font_size_pt(text: str, font_name: str, *, width_mm: float, avail_height_mm: float, vertical: bool) -> float:
+    """Общая точка для HTML и PDF пути — оба формата подставляют один и
+    тот же посчитанный кегль, поэтому визуально совпадают."""
+    fit = _fit_font_size_vertical if vertical else _fit_font_size_horizontal
+    return fit(text, font_name, width_mm * MM, avail_height_mm * MM)
+
+
+def _draw_giant_field_pdf(
+    c: pdfcanvas.Canvas,
+    text: str,
+    font_name: str,
+    *,
+    height_pt: float,
+    left_mm: float,
+    top_mm: float,
+    width_mm: float,
+    avail_height_mm: float,
+    vertical: bool,
+) -> None:
+    """Рисует одно поле максимально возможным кеглем, целиком заполняя
+    прямоугольник (left_mm, top_mm)×(width_mm, avail_height_mm) — раздел
+    про огромный номер на этикетке места хранения (size="huge"). top_mm —
+    от верхнего края этикетки, тот же отсчёт, что у _draw_pdf_text_lines."""
+    _register_pdf_fonts()
+    c.setFillColor(HexColor(NAVY))
+    top_y = height_pt - top_mm * MM
+    avail_height_pt = avail_height_mm * MM
+    center_x = (left_mm + width_mm / 2) * MM
+    if vertical:
+        chars = list(text) or [" "]
+        size_pt = _fit_font_size_vertical(text, font_name, width_mm * MM, avail_height_pt)
+        c.setFont(font_name, size_pt)
+        line_h = size_pt * 1.15
+        total_h = line_h * len(chars)
+        cy = top_y - (avail_height_pt - total_h) / 2
+        for ch in chars:
+            cy -= line_h
+            c.drawCentredString(center_x, cy + line_h * 0.18, ch)
+    else:
+        size_pt = _fit_font_size_horizontal(text, font_name, width_mm * MM, avail_height_pt)
+        c.setFont(font_name, size_pt)
+        cy = top_y - (avail_height_pt - size_pt) / 2 - size_pt * 0.82
+        c.drawCentredString(center_x, cy, text or "")
+
+
+def _giant_field_html(text: str, font_name: str, *, width_mm: float, avail_height_mm: float, vertical: bool, font_family_css: str) -> str:
+    """HTML-эквивалент _draw_giant_field_pdf — тот же посчитанный кегль
+    (_giant_field_font_size_pt), просто подставленный как font-size в CSS
+    вместо рисования на канвасе. HTML-путь обычно не нуждается в реально
+    зарегистрированных файлах шрифта (браузер сам умеет рисовать текст по
+    имени font-family) — но измерение через pdfmetrics.stringWidth ниже
+    нуждается, поэтому регистрируем здесь на всякий случай (дёшево при
+    повторном вызове — флаг _PDF_FONTS_REGISTERED)."""
+    _register_pdf_fonts()
+    if vertical:
+        chars = list(text) or [" "]
+        size_pt = _fit_font_size_vertical(text, font_name, width_mm * MM, avail_height_mm * MM)
+        lines = "".join(f'<div style="line-height:1.15;">{ch}</div>' for ch in chars)
+        return (
+            f'<div style="width:{width_mm}mm; height:{avail_height_mm}mm; display:flex; flex-direction:column; '
+            f'align-items:center; justify-content:center; font-size:{size_pt}pt; font-weight:bold; {font_family_css} color:{NAVY};">'
+            f"{lines}</div>"
+        )
+    size_pt = _fit_font_size_horizontal(text, font_name, width_mm * MM, avail_height_mm * MM)
+    return (
+        f'<div style="width:{width_mm}mm; height:{avail_height_mm}mm; display:flex; align-items:center; '
+        f'justify-content:center; font-size:{size_pt}pt; font-weight:bold; {font_family_css} color:{NAVY}; '
+        f'white-space:nowrap; line-height:1.15;">{text}</div>'
+    )
+
+
 def _draw_label_page(
     c: pdfcanvas.Canvas,
     data: LabelData,
@@ -525,11 +705,12 @@ def _draw_label_page(
     is_landscape = width_mm >= height_mm
     has_stripe = any(f["key"] == "status_stripe" for f in fields)
     has_qr = any(f["key"] == "qr" for f in fields)
+    giant_field = next((f for f in fields if f.get("size") == "huge"), None)
 
     rendered_fields: list[tuple[dict, str]] = []
     for f in fields:
         key = f["key"]
-        if key in ("status_stripe", "qr"):
+        if key in ("status_stripe", "qr") or f is giant_field:
             continue
         val = render_field_value(data, key)
         if val:
@@ -559,9 +740,16 @@ def _draw_label_page(
 
         text_x_mm = stripe_w_mm + qr_col_w_mm + 2
         text_w_mm = max(width_mm - text_x_mm - 2, 5)
-        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="unit_id")
-        top_mm = max((height_mm - _pdf_text_block_height_mm(wrapped)) / 2, 2)
-        _draw_pdf_text_lines(c, wrapped, height_pt, text_x_mm, top_mm, text_w_mm, heading_key="unit_id")
+        if giant_field is not None:
+            giant_val = _giant_field_value(data, giant_field["key"])
+            _draw_giant_field_pdf(
+                c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=text_x_mm, top_mm=1,
+                width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=bool(giant_field.get("vertical")),
+            )
+        else:
+            wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="unit_id")
+            top_mm = max((height_mm - _pdf_text_block_height_mm(wrapped)) / 2, 2)
+            _draw_pdf_text_lines(c, wrapped, height_pt, text_x_mm, top_mm, text_w_mm, heading_key="unit_id")
     else:
         top_mm = 3.0
         if has_stripe:
@@ -569,13 +757,20 @@ def _draw_label_page(
             c.rect(0, height_pt - 5 * MM, width_pt, 5 * MM, fill=1, stroke=0)
             top_mm = 8.0
         if has_qr and qr_reader is not None:
-            qr_size_mm = 28.0
+            qr_size_mm = 24.0 if giant_field is not None else 28.0
             qr_x_mm = (width_mm - qr_size_mm) / 2
             c.drawImage(qr_reader, qr_x_mm * MM, height_pt - (top_mm + qr_size_mm) * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
             top_mm += qr_size_mm + 2
         text_w_mm = max(width_mm - 8, 5)
-        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="unit_id")
-        _draw_pdf_text_lines(c, wrapped, height_pt, 4, top_mm, text_w_mm, heading_key="unit_id", center=True)
+        if giant_field is not None:
+            giant_val = _giant_field_value(data, giant_field["key"])
+            _draw_giant_field_pdf(
+                c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=4, top_mm=top_mm,
+                width_mm=text_w_mm, avail_height_mm=height_mm - top_mm - 2, vertical=bool(giant_field.get("vertical")),
+            )
+        else:
+            wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="unit_id")
+            _draw_pdf_text_lines(c, wrapped, height_pt, 4, top_mm, text_w_mm, heading_key="unit_id", center=True)
     c.restoreState()
 
 
@@ -744,9 +939,66 @@ def render_field_value_shelf(data: ShelfLabelData, key: str) -> str | None:
 
 
 def _shelf_label_markup(data: ShelfLabelData, *, fields: list[dict], width_mm: int, height_mm: int) -> str:
+    # Раньше HTML-путь не нуждался в реально зарегистрированных файлах
+    # шрифта (браузер сам рисует по имени font-family) — но giant_field
+    # ниже читает _PDF_HEADING_FONT_BOLD и меряет текст через pdfmetrics,
+    # которому кириллица без регистрации TTF (только base14 Helvetica)
+    # не по зубам. Регистрируем здесь же, до первого чтения глобала.
+    _register_pdf_fonts()
     qr_src = qr_data_uri(data.location_code)
     is_landscape = width_mm >= height_mm
     has_qr = any(f["key"] == "qr" for f in fields)
+
+    # Раздел про огромный номер на этикетке места хранения — size="huge"
+    # заменяет собой весь текстовый блок (остальные текстовые поля не
+    # поместились бы рядом с текстом на всю этикетку, поэтому просто не
+    # печатаются; предупреждение об этом — в конструкторе макета). Первое
+    # такое поле в списке побеждает, если их вдруг несколько.
+    giant_field = next((f for f in fields if f.get("size") == "huge"), None)
+    if giant_field is not None:
+        giant_val = render_field_value_shelf(data, giant_field["key"]) or ""
+        vertical = bool(giant_field.get("vertical"))
+        if is_landscape:
+            qr_size_mm = max(min(height_mm - 6, 34), 16)
+            qr_html = (
+                f'<td class="qr-td" style="width:{qr_size_mm + 4}mm; text-align:center; vertical-align:middle; padding:1mm;">'
+                f'<img src="{qr_src}" alt="QR {data.location_code}" style="width:{qr_size_mm}mm; height:{qr_size_mm}mm; display:block; margin:0 auto;">'
+                f'</td>'
+                if has_qr
+                else ""
+            )
+            text_w_mm = max(width_mm - (qr_size_mm + 4 if has_qr else 0) - 2, 5)
+            giant_html = _giant_field_html(
+                giant_val, _PDF_HEADING_FONT_BOLD, width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=vertical,
+                font_family_css='font-family:"Cambria", Georgia, serif;',
+            )
+            return f"""<table class="label-table">
+    <tr>
+      {qr_html}
+      <td class="text-td" style="text-align:center;">
+        {giant_html}
+      </td>
+    </tr>
+  </table>"""
+        else:
+            qr_html = (
+                f'<div style="margin: 1mm 0; text-align:center;">'
+                f'<img src="{qr_src}" alt="QR {data.location_code}" style="width:24mm; height:24mm; display:block; margin:0 auto;">'
+                f'</div>'
+                if has_qr
+                else ""
+            )
+            avail_height_mm = height_mm - (26 if has_qr else 2)
+            giant_html = _giant_field_html(
+                giant_val, _PDF_HEADING_FONT_BOLD, width_mm=width_mm - 4, avail_height_mm=avail_height_mm, vertical=vertical,
+                font_family_css='font-family:"Cambria", Georgia, serif;',
+            )
+            return f"""<div class="label-box">
+    {qr_html}
+    <div class="content-box" style="padding:0;">
+      {giant_html}
+    </div>
+  </div>"""
 
     rendered_fields: list[tuple[dict, str]] = []
     for f in fields:
@@ -857,10 +1109,11 @@ def render_shelf_labels_html_batch(
 def _draw_shelf_label_page(c: pdfcanvas.Canvas, data: ShelfLabelData, fields: list[dict], width_mm: int, height_mm: int) -> None:
     is_landscape = width_mm >= height_mm
     has_qr = any(f["key"] == "qr" for f in fields)
+    giant_field = next((f for f in fields if f.get("size") == "huge"), None)
 
     rendered_fields: list[tuple[dict, str]] = []
     for f in fields:
-        if f["key"] == "qr":
+        if f["key"] == "qr" or f is giant_field:
             continue
         val = render_field_value_shelf(data, f["key"])
         if val:
@@ -884,19 +1137,33 @@ def _draw_shelf_label_page(c: pdfcanvas.Canvas, data: ShelfLabelData, fields: li
             c.drawImage(qr_reader, qr_x_mm * MM, qr_y_mm * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
         text_x_mm = qr_col_w_mm + 2
         text_w_mm = max(width_mm - text_x_mm - 2, 5)
-        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="location_code")
-        top_mm = max((height_mm - _pdf_text_block_height_mm(wrapped)) / 2, 2)
-        _draw_pdf_text_lines(c, wrapped, height_pt, text_x_mm, top_mm, text_w_mm, heading_key="location_code")
+        if giant_field is not None:
+            giant_val = render_field_value_shelf(data, giant_field["key"]) or ""
+            _draw_giant_field_pdf(
+                c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=text_x_mm, top_mm=1,
+                width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=bool(giant_field.get("vertical")),
+            )
+        else:
+            wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="location_code")
+            top_mm = max((height_mm - _pdf_text_block_height_mm(wrapped)) / 2, 2)
+            _draw_pdf_text_lines(c, wrapped, height_pt, text_x_mm, top_mm, text_w_mm, heading_key="location_code")
     else:
         top_mm = 3.0
         if has_qr and qr_reader is not None:
-            qr_size_mm = 28.0
+            qr_size_mm = 24.0 if giant_field is not None else 28.0
             qr_x_mm = (width_mm - qr_size_mm) / 2
             c.drawImage(qr_reader, qr_x_mm * MM, height_pt - (top_mm + qr_size_mm) * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
             top_mm += qr_size_mm + 2
         text_w_mm = max(width_mm - 8, 5)
-        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="location_code")
-        _draw_pdf_text_lines(c, wrapped, height_pt, 4, top_mm, text_w_mm, heading_key="location_code", center=True)
+        if giant_field is not None:
+            giant_val = render_field_value_shelf(data, giant_field["key"]) or ""
+            _draw_giant_field_pdf(
+                c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=4, top_mm=top_mm,
+                width_mm=text_w_mm, avail_height_mm=height_mm - top_mm - 2, vertical=bool(giant_field.get("vertical")),
+            )
+        else:
+            wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="location_code")
+            _draw_pdf_text_lines(c, wrapped, height_pt, 4, top_mm, text_w_mm, heading_key="location_code", center=True)
     c.restoreState()
 
 
@@ -994,9 +1261,56 @@ def render_field_value_rack(data: RackLabelData, key: str) -> str | None:
 
 
 def _rack_label_markup(data: RackLabelData, *, fields: list[dict], width_mm: int, height_mm: int) -> str:
+    _register_pdf_fonts()
     qr_src = qr_data_uri(data.rack_code)
     is_landscape = width_mm >= height_mm
     has_qr = any(f["key"] == "qr" for f in fields)
+
+    giant_field = next((f for f in fields if f.get("size") == "huge"), None)
+    if giant_field is not None:
+        giant_val = render_field_value_rack(data, giant_field["key"]) or ""
+        vertical = bool(giant_field.get("vertical"))
+        if is_landscape:
+            qr_size_mm = max(min(height_mm - 6, 34), 16)
+            qr_html = (
+                f'<td class="qr-td" style="width:{qr_size_mm + 4}mm; text-align:center; vertical-align:middle; padding:1mm;">'
+                f'<img src="{qr_src}" alt="QR {data.rack_code}" style="width:{qr_size_mm}mm; height:{qr_size_mm}mm; display:block; margin:0 auto;">'
+                f'</td>'
+                if has_qr
+                else ""
+            )
+            text_w_mm = max(width_mm - (qr_size_mm + 4 if has_qr else 0) - 2, 5)
+            giant_html = _giant_field_html(
+                giant_val, _PDF_HEADING_FONT_BOLD, width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=vertical,
+                font_family_css='font-family:"Cambria", Georgia, serif;',
+            )
+            return f"""<table class="label-table">
+    <tr>
+      {qr_html}
+      <td class="text-td" style="text-align:center;">
+        {giant_html}
+      </td>
+    </tr>
+  </table>"""
+        else:
+            qr_html = (
+                f'<div style="margin: 1mm 0; text-align:center;">'
+                f'<img src="{qr_src}" alt="QR {data.rack_code}" style="width:24mm; height:24mm; display:block; margin:0 auto;">'
+                f'</div>'
+                if has_qr
+                else ""
+            )
+            avail_height_mm = height_mm - (26 if has_qr else 2)
+            giant_html = _giant_field_html(
+                giant_val, _PDF_HEADING_FONT_BOLD, width_mm=width_mm - 4, avail_height_mm=avail_height_mm, vertical=vertical,
+                font_family_css='font-family:"Cambria", Georgia, serif;',
+            )
+            return f"""<div class="label-box">
+    {qr_html}
+    <div class="content-box" style="padding:0;">
+      {giant_html}
+    </div>
+  </div>"""
 
     rendered_fields: list[tuple[dict, str]] = []
     for f in fields:
@@ -1083,10 +1397,11 @@ def render_rack_label_html(
 def _draw_rack_label_page(c: pdfcanvas.Canvas, data: RackLabelData, fields: list[dict], width_mm: int, height_mm: int) -> None:
     is_landscape = width_mm >= height_mm
     has_qr = any(f["key"] == "qr" for f in fields)
+    giant_field = next((f for f in fields if f.get("size") == "huge"), None)
 
     rendered_fields: list[tuple[dict, str]] = []
     for f in fields:
-        if f["key"] == "qr":
+        if f["key"] == "qr" or f is giant_field:
             continue
         val = render_field_value_rack(data, f["key"])
         if val:
@@ -1110,19 +1425,33 @@ def _draw_rack_label_page(c: pdfcanvas.Canvas, data: RackLabelData, fields: list
             c.drawImage(qr_reader, qr_x_mm * MM, qr_y_mm * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
         text_x_mm = qr_col_w_mm + 2
         text_w_mm = max(width_mm - text_x_mm - 2, 5)
-        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="rack_code")
-        top_mm = max((height_mm - _pdf_text_block_height_mm(wrapped)) / 2, 2)
-        _draw_pdf_text_lines(c, wrapped, height_pt, text_x_mm, top_mm, text_w_mm, heading_key="rack_code")
+        if giant_field is not None:
+            giant_val = render_field_value_rack(data, giant_field["key"]) or ""
+            _draw_giant_field_pdf(
+                c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=text_x_mm, top_mm=1,
+                width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=bool(giant_field.get("vertical")),
+            )
+        else:
+            wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="rack_code")
+            top_mm = max((height_mm - _pdf_text_block_height_mm(wrapped)) / 2, 2)
+            _draw_pdf_text_lines(c, wrapped, height_pt, text_x_mm, top_mm, text_w_mm, heading_key="rack_code")
     else:
         top_mm = 3.0
         if has_qr and qr_reader is not None:
-            qr_size_mm = 28.0
+            qr_size_mm = 24.0 if giant_field is not None else 28.0
             qr_x_mm = (width_mm - qr_size_mm) / 2
             c.drawImage(qr_reader, qr_x_mm * MM, height_pt - (top_mm + qr_size_mm) * MM, qr_size_mm * MM, qr_size_mm * MM, mask="auto")
             top_mm += qr_size_mm + 2
         text_w_mm = max(width_mm - 8, 5)
-        wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="rack_code")
-        _draw_pdf_text_lines(c, wrapped, height_pt, 4, top_mm, text_w_mm, heading_key="rack_code", center=True)
+        if giant_field is not None:
+            giant_val = render_field_value_rack(data, giant_field["key"]) or ""
+            _draw_giant_field_pdf(
+                c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=4, top_mm=top_mm,
+                width_mm=text_w_mm, avail_height_mm=height_mm - top_mm - 2, vertical=bool(giant_field.get("vertical")),
+            )
+        else:
+            wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="rack_code")
+            _draw_pdf_text_lines(c, wrapped, height_pt, 4, top_mm, text_w_mm, heading_key="rack_code", center=True)
     c.restoreState()
 
 

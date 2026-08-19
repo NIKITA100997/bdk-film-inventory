@@ -1,13 +1,17 @@
 import { apiClient } from "./client";
 import { isMobileDevice, isVerticalPrint, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
 
-export type FieldSize = "sm" | "md" | "lg";
+export type FieldSize = "sm" | "md" | "lg" | "huge";
 export type LabelKind = "roll" | "strip" | "cutting_issue" | "rack_roll" | "rack_strip" | "shelf";
 
 export interface LabelFieldConfig {
   key: string;
   size: FieldSize;
   bold: boolean;
+  // "Огромный" (size="huge") на всю этикетку — по одному символу на
+  // строку (цифры/буквы друг над другом), а не в одну строку. Ни на что
+  // не влияет при других size.
+  vertical: boolean;
 }
 
 export interface LabelTemplate {

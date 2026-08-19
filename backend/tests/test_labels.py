@@ -4,9 +4,13 @@ from types import SimpleNamespace
 
 from reportlab.pdfgen import canvas as pdfcanvas
 
+from reportlab.pdfbase import pdfmetrics
+
 from app.services.labels import (
     DEFAULT_FIELDS,
     LabelData,
+    _fit_font_size_horizontal,
+    _fit_font_size_vertical,
     _wrap_pdf_text,
     indicator_color,
     label_data_from_unit,
@@ -177,6 +181,62 @@ class TestWrapPdfText:
 
     def test_empty_text_returns_single_empty_line(self):
         assert _wrap_pdf_text(self.c, "", "Helvetica", 10, 100) == [""]
+
+
+class TestFitFontSizeHorizontal:
+    """Раздел про огромный номер на этикетке места хранения (size="huge")
+    — наибольший кегль, при котором текст одной строкой помещается в
+    прямоугольник. Проверяем через реальный pdfmetrics.stringWidth, не
+    моком — тот же путь, что и сам код."""
+
+    def test_fits_within_bounds(self):
+        size = _fit_font_size_horizontal("Р-3-07", "Helvetica", max_width_pt=200, max_height_pt=100)
+        assert pdfmetrics.stringWidth("Р-3-07", "Helvetica", size) <= 200
+        assert size * 1.15 <= 100
+
+    def test_bigger_box_gives_bigger_font(self):
+        small = _fit_font_size_horizontal("07", "Helvetica", max_width_pt=50, max_height_pt=50)
+        big = _fit_font_size_horizontal("07", "Helvetica", max_width_pt=500, max_height_pt=500)
+        assert big > small
+
+    def test_longer_text_gets_smaller_font_in_same_box(self):
+        short = _fit_font_size_horizontal("7", "Helvetica", max_width_pt=200, max_height_pt=200)
+        long = _fit_font_size_horizontal("Р-12-345", "Helvetica", max_width_pt=200, max_height_pt=200)
+        assert long < short
+
+    def test_height_constrained_box_caps_font_regardless_of_width(self):
+        size = _fit_font_size_horizontal("7", "Helvetica", max_width_pt=10_000, max_height_pt=20)
+        assert size * 1.15 <= 20
+
+    def test_empty_text_does_not_crash(self):
+        assert _fit_font_size_horizontal("", "Helvetica", max_width_pt=100, max_height_pt=100) > 0
+
+
+class TestFitFontSizeVertical:
+    """Как TestFitFontSizeHorizontal, но для варианта "друг над другом" —
+    по одному символу на строку."""
+
+    def test_fits_within_bounds(self):
+        text = "Р307"
+        size = _fit_font_size_vertical(text, "Helvetica", max_width_pt=100, max_height_pt=400)
+        assert max(pdfmetrics.stringWidth(ch, "Helvetica", size) for ch in text) <= 100
+        assert size * 1.15 * len(text) <= 400
+
+    def test_more_characters_get_smaller_font_in_same_box(self):
+        two_chars = _fit_font_size_vertical("07", "Helvetica", max_width_pt=200, max_height_pt=200)
+        five_chars = _fit_font_size_vertical("Р-3-07", "Helvetica", max_width_pt=200, max_height_pt=200)
+        assert five_chars < two_chars
+
+    def test_width_constrained_by_widest_character_not_whole_string(self):
+        # Ширина ограничена САМЫМ ШИРОКИМ символом (не суммой всех) — узкая
+        # "1" рядом с широкой "Р" не должна урезать кегль так, будто вся
+        # строка "Р1" стоит в одну линию.
+        size = _fit_font_size_vertical("Р1", "Helvetica", max_width_pt=50, max_height_pt=1000)
+        widest = max(pdfmetrics.stringWidth("Р", "Helvetica", size), pdfmetrics.stringWidth("1", "Helvetica", size))
+        assert widest <= 50
+
+    def test_empty_text_does_not_crash(self):
+        assert _fit_font_size_vertical("", "Helvetica", max_width_pt=100, max_height_pt=100) > 0
 
 
 class TestRenderLabelHtml:

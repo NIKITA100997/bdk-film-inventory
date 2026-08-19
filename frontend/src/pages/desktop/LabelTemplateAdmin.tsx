@@ -20,6 +20,7 @@ const sizeOptions: { value: FieldSize; label: string }[] = [
   { value: "sm", label: "Мелкий" },
   { value: "md", label: "Средний" },
   { value: "lg", label: "Крупный" },
+  { value: "huge", label: "Огромный" },
 ];
 
 function SortableFieldItem({
@@ -28,15 +29,18 @@ function SortableFieldItem({
   onRemove,
   onSizeChange,
   onBoldChange,
+  onVerticalChange,
 }: {
   field: LabelFieldConfig;
   meta?: AvailableField;
   onRemove: () => void;
   onSizeChange: (v: FieldSize) => void;
   onBoldChange: (v: boolean) => void;
+  onVerticalChange: (v: boolean) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.key });
   const isText = meta?.kind === "text";
+  const isHuge = field.size === "huge";
 
   return (
     <List.Item
@@ -48,7 +52,7 @@ function SortableFieldItem({
         </Button>,
       ]}
     >
-      <Space>
+      <Space wrap>
         <span {...attributes} {...listeners} style={{ cursor: "grab", touchAction: "none", color: "rgba(0,0,0,0.45)" }}>
           <HolderOutlined />
         </span>
@@ -57,13 +61,26 @@ function SortableFieldItem({
         {isText && (
           <Select size="small" style={{ width: 110 }} value={field.size} options={sizeOptions} onChange={onSizeChange} />
         )}
-        {isText && (
+        {isText && !isHuge && (
           <Space size={4}>
             <Switch size="small" checked={field.bold} onChange={onBoldChange} />
             <Typography.Text type="secondary">жирный</Typography.Text>
           </Space>
         )}
+        {isText && isHuge && (
+          <Space size={4}>
+            <Switch size="small" checked={field.vertical} onChange={onVerticalChange} />
+            <Typography.Text type="secondary">по вертикали (друг над другом)</Typography.Text>
+          </Space>
+        )}
       </Space>
+      {isHuge && (
+        <div style={{ width: "100%", marginTop: 4 }}>
+          <Typography.Text type="warning" style={{ fontSize: 12 }}>
+            Займёт всю этикетку целиком — остальные текстовые поля (кроме QR) печататься не будут.
+          </Typography.Text>
+        </div>
+      )}
     </List.Item>
   );
 }
@@ -123,7 +140,7 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
 
   const addField = (key: string) => {
     const meta = fieldMeta(key);
-    const doAdd = () => setFields((f) => [...f, { key, size: "sm", bold: false }]);
+    const doAdd = () => setFields((f) => [...f, { key, size: "sm", bold: false, vertical: false }]);
     if (meta?.stale_warning) {
       Modal.confirm({
         title: "Поле потеряет актуальность",
@@ -211,6 +228,7 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
                 onRemove={() => removeField(index)}
                 onSizeChange={(v) => updateField(index, { size: v })}
                 onBoldChange={(v) => updateField(index, { bold: v })}
+                onVerticalChange={(v) => updateField(index, { vertical: v })}
               />
             )}
           />

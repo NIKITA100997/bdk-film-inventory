@@ -10,15 +10,19 @@ _ALL_LABEL_FIELD_KEYS = set(FIELD_META) | set(FIELD_META_RACK) | set(FIELD_META_
 
 class LabelFieldConfig(BaseModel):
     key: str
-    size: str = "sm"  # sm/md/lg — игнорируется для kind=image/stripe
+    size: str = "sm"  # sm/md/lg/huge — игнорируется для kind=image/stripe
     bold: bool = False
+    # Раздел про огромный номер на этикетке места хранения — "цифры друг
+    # над другом", по одному символу на строку. Осмысленно только при
+    # size="huge"; при других размерах просто ни на что не влияет.
+    vertical: bool = False
 
     @model_validator(mode="after")
     def _valid_key_and_size(self):
         if self.key not in _ALL_LABEL_FIELD_KEYS:
             raise ValueError(f"Неизвестное поле этикетки: {self.key}")
-        if self.size not in ("sm", "md", "lg"):
-            raise ValueError("size должен быть sm, md или lg")
+        if self.size not in ("sm", "md", "lg", "huge"):
+            raise ValueError("size должен быть sm, md, lg или huge")
         return self
 
 
