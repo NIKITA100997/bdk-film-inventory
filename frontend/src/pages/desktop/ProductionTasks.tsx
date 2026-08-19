@@ -251,26 +251,67 @@ function TasksTab() {
             pagination={{ pageSize: 20 }}
             scroll={{ x: "max-content" }}
             expandable={{
-              expandedRowRender: (task) => (
-                <Table<ProductionTaskLine>
-                  rowKey="id"
-                  size="small"
-                  pagination={false}
-                  dataSource={task.lines}
-                  scroll={{ x: "max-content" }}
-                  columns={[
+              expandedRowRender: (task) => {
+                // Раздел про общий погонаж на задание — итог по плёнке
+                // (обычно одна на всё задание, но строки технически могут
+                // различаться, поэтому группируем, а не берём одну сумму
+                // вслепую) и общий остаток на довыдачу по заданию сразу.
+                const bySku = new Map<string, { label: string; totalM: number; shortfallM: number }>();
+                for (const l of task.lines) {
+                  const key = `${l.material}|${l.color}|${l.thickness}`;
+                  const entry = bySku.get(key) ?? { label: `${l.material}, ${l.color}, ${l.thickness} мм`, totalM: 0, shortfallM: 0 };
+                  entry.totalM += l.quantity_pieces * l.length_m;
+                  entry.shortfallM += l.shortfall_length_m;
+                  bySku.set(key, entry);
+                }
+                return (
+                  <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                    <Space wrap size={[16, 4]}>
+                      {[...bySku.values()].map((e) => (
+                        <Typography.Text key={e.label}>
+                          <strong>{e.label}</strong> — всего на задание {e.totalM.toFixed(2)} м
+                          {e.shortfallM > 0 && <>, ещё выдать {e.shortfallM.toFixed(2)} м</>}
+                        </Typography.Text>
+                      ))}
+                    </Space>
+                    <Table<ProductionTaskLine>
+                      rowKey="id"
+                      size="small"
+                      pagination={false}
+                      dataSource={task.lines}
+                      scroll={{ x: "max-content" }}
+                      columns={[
                     { title: "Деталь", render: (_, l) => l.part_name ?? "—" },
                     { title: "Линия", dataIndex: "line_name" },
                     { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
                     { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
                     { title: "Нужно, шт", dataIndex: "quantity_pieces" },
+                    {
+                      // Раздел про общий погонаж на задание — раньше видно
+                      // было только расход на одну деталь ("Размер детали"),
+                      // не на всю строку сразу.
+                      title: "Погонаж на строку, м",
+                      render: (_, l) => (l.quantity_pieces * l.length_m).toFixed(2),
+                    },
                     { title: "Произведено", dataIndex: "produced_good_pieces" },
                     { title: "Брак", dataIndex: "defect_pieces" },
                     {
-                      title: "Осталось",
+                      title: "Осталось произвести",
                       render: (_, l) => (
                         <Typography.Text strong={l.remaining_pieces > 0}>
                           {l.remaining_pieces} шт{l.remaining_pieces > 0 ? ` (${l.remaining_length_m} м)` : ""}
+                        </Typography.Text>
+                      ),
+                    },
+                    {
+                      // shortfall_length_m — сколько плёнки ещё не выдано
+                      // (не то же самое, что "осталось произвести": выдано
+                      // может быть уже достаточно, даже если производство
+                      // ещё не отчиталось, см. Issue.tsx "довыдать").
+                      title: "Ещё выдать, м",
+                      render: (_, l) => (
+                        <Typography.Text type={l.shortfall_length_m > 0 ? "warning" : "secondary"}>
+                          {l.shortfall_length_m > 0 ? l.shortfall_length_m.toFixed(2) : "выдано достаточно"}
                         </Typography.Text>
                       ),
                     },
@@ -292,9 +333,11 @@ function TasksTab() {
                           </Space>
                         ),
                     },
-                  ]}
-                />
-              ),
+                      ]}
+                    />
+                  </Space>
+                );
+              },
             }}
             columns={[
               { title: "Модель", render: (_, t) => t.product_model_name ?? t.name ?? "—" },

@@ -82,6 +82,21 @@ interface QueueSelection {
 
 type QueueRowData = { task: ProductionTask; line: ProductionTaskLine; assignment?: ProductionTaskLineAssignment; overdue?: boolean };
 
+/** Сколько метров плёнки реально нужно под ОДНУ строку очереди (раздел про
+ * общий погонаж партии деталей, не длину одной детали) — "сегодня"-строка
+ * привязана к конкретной бригаде/линии на день (assignment), ей нужен один
+ * штрипс на ЕЁ количество на сегодня; параллельные бригады на ту же строку
+ * задания — это отдельные assignment-записи и отдельные строки очереди
+ * (groupQueueRows их не схлопывает), каждая посчитает свою длину сама, так
+ * что "3 бригады параллельно = 3 отдельных штрипса" получается само собой,
+ * без специальной логики. "Неделя"-строка (ещё не распределено по
+ * бригадам) — весь оставшийся долг строки одним куском (shortfall_length_m,
+ * его можно будет разрезать на месте по длине под нужное число бригад,
+ * когда распределение появится). */
+function neededLengthM(row: QueueRowData): number {
+  return row.assignment ? row.assignment.quantity_pieces * row.line.length_m : row.line.shortfall_length_m;
+}
+
 /** Одна и та же плёнка на нескольких заданиях участка, независимо от
  * ширины штрипса (раздел про объединение требований + план резки на
  * несколько разных ширин) — раньше на очереди выдачи это были никак не
@@ -375,6 +390,13 @@ export default function Issue() {
   // после выбора строки в очереди, без лишнего клика "искать".
   const selectedSku = selected ? findSku(skusQuery.data, selected.line.material, selected.line.color, selected.line.thickness) : undefined;
   const selectedStripWidth = selected ? selected.line.strip_width_mm || selected.line.width_mm : 0;
+  // Раздел про общий погонаж на партию деталей — раньше искали и выдавали
+  // строго на ОДНУ деталь (line.length_m), даже когда по строке нужно
+  // сразу несколько: 4 детали одной ширины оборачивались 4 отдельными
+  // подборами донора (иногда — 4 разными физическими штрипсами), хотя
+  // одного достаточной длины хватило бы на все 4 (порезать по длине уже
+  // на участке). См. neededLengthM выше.
+  const selectedNeededLengthM = selected ? neededLengthM(selected) : 0;
 
   const findMutation = useMutation({
     mutationFn: () =>
@@ -384,7 +406,7 @@ export default function Issue() {
         thickness: selectedSku!.thickness.value_mm,
         manufacturer: selectedSku!.manufacturer.name,
         width_mm: selectedStripWidth,
-        length_m: selected!.line.length_m,
+        length_m: selectedNeededLengthM,
         area: selected!.task.area,
         production_task_line_id: selected!.line.id,
       }),
@@ -601,7 +623,9 @@ export default function Issue() {
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={{ fontWeight: 700 }}>
-            {r.assignment ? `${r.assignment.quantity_pieces} шт` : `довыдать ${r.line.shortfall_length_m} м`}
+            {r.assignment
+              ? `${r.assignment.quantity_pieces} шт (${neededLengthM(r).toFixed(2)} м)`
+              : `довыдать ${r.line.shortfall_length_m} м`}
           </div>
           <div style={{ fontSize: 11.5, color: "#8A8C99" }}>
             {r.assignment ? `${r.line.length_m} м на штрипс` : `остаток ${r.line.remaining_pieces} шт`}
@@ -625,7 +649,8 @@ export default function Issue() {
           }}
         >
           <div style={{ fontSize: 12.5, fontWeight: 700, color: "#8A6A2F", marginBottom: 4 }}>
-            🧩 Одна плёнка на {g.rows.length} задания: {g.material}, {g.color}, {g.thickness} мм
+            🧩 Одна плёнка на {g.rows.length} задания: {g.material}, {g.color}, {g.thickness} мм — итого{" "}
+            {g.rows.reduce((sum, r) => sum + neededLengthM(r), 0).toFixed(2)} м
           </div>
           <CuttingPlanHint
             material={g.material}
