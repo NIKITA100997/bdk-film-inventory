@@ -2,7 +2,7 @@ import pytest
 
 from app.models.events import EventType
 from app.models.units import MaterialUnit, UnitStatus
-from app.services.splitting import cut_to_length, split_lengthwise, split_lengthwise_multi
+from app.services.splitting import cut_to_length, donor_remainder_write_off_m, split_lengthwise, split_lengthwise_multi
 
 
 def make_unit(**overrides) -> MaterialUnit:
@@ -112,6 +112,24 @@ class TestSplitLengthwiseMulti:
         unit = make_unit(width_mm=300)
         with pytest.raises(ValueError):
             split_lengthwise_multi(unit, [150, 200])
+
+
+class TestDonorRemainderWriteOffM:
+    """Раздел про баг: план резки на несколько ширин, где сумма кусков
+    ровно совпала с шириной донора (parent_width_mm == 0, см.
+    test_exact_fit_leaves_zero_leftover выше), списывал не 0, а полную
+    длину донора — фантомная потеря материала, которого физически не
+    было (резка вдоль не меняет длину, только ширину)."""
+
+    def test_zero_remainder_is_zero_loss_not_full_length(self):
+        assert donor_remainder_write_off_m(parent_width_mm=0, donor_length_m=435, min_useful_width_mm=30) == 0.0
+
+    def test_narrow_remainder_below_threshold_loses_full_length(self):
+        assert donor_remainder_write_off_m(parent_width_mm=12, donor_length_m=435, min_useful_width_mm=30) == 435
+
+    def test_remainder_at_or_above_threshold_is_not_waste(self):
+        assert donor_remainder_write_off_m(parent_width_mm=30, donor_length_m=435, min_useful_width_mm=30) is None
+        assert donor_remainder_write_off_m(parent_width_mm=105, donor_length_m=435, min_useful_width_mm=30) is None
 
 
 class TestCutToLength:

@@ -46,7 +46,7 @@ from app.services.events import record_event
 from app.services.placement import rule_matches, rules_for_location
 from app.services.production import calc_default_strip_width, compute_expected_return_length_m
 from app.services.purchasing import auto_close_on_receipt
-from app.services.splitting import cut_to_length, split_lengthwise, split_lengthwise_multi
+from app.services.splitting import cut_to_length, donor_remainder_write_off_m, split_lengthwise, split_lengthwise_multi
 
 router = APIRouter(prefix="/units", tags=["units"])
 
@@ -640,7 +640,8 @@ def execute_cutting_plan(
 
     settings = db.get(CalcSettings, 1)
     min_useful_width = float(settings.min_useful_width_mm) if settings else 30.0
-    donor_is_waste = outcome.parent_width_mm == 0 or outcome.parent_width_mm < min_useful_width
+    write_off_m = donor_remainder_write_off_m(outcome.parent_width_mm, float(donor.length_m), min_useful_width)
+    donor_is_waste = write_off_m is not None
 
     donor.width_mm = outcome.parent_width_mm
     donor.length_m = outcome.parent_length_m
@@ -658,13 +659,15 @@ def execute_cutting_plan(
     )
     if donor_is_waste:
         # Остаток донора тоньше порога полезной ширины (5.6 ТЗ) — сразу
-        # отход, та же ветка, что у одиночной резки в split_unit.
+        # отход, та же ветка, что у одиночной резки в split_unit. write_off_m
+        # — 0, если остаток 0мм (весь донор ровно ушёл в куски, реального
+        # остатка нет — см. donor_remainder_write_off_m).
         record_event(
             db,
             unit=donor,
             event_type=EventType.SPISANIE,
             user_id=user.id,
-            quantity_delta_m=-float(donor.length_m),
+            quantity_delta_m=-write_off_m,
             from_length=float(donor.length_m),
             to_length=0,
             write_off_reason="cutting_waste",

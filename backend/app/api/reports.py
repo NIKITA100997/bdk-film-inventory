@@ -356,7 +356,7 @@ def write_offs(
             color=c,
             thickness=float(t),
             width_mm=float(ev.width_mm),
-            quantity_m=round(-float(ev.quantity_delta_m), 3),
+            quantity_m=round(-float(ev.quantity_delta_m), 3) or 0.0,  # без -0.0 при нулевом списании
             reason_code=reason_entry.code if reason_entry else None,
             reason_name=reason_entry.name if reason_entry else None,
             note=ev.write_off_note,

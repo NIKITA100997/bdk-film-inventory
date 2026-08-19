@@ -191,6 +191,25 @@ def split_lengthwise_multi(unit: MaterialUnit, cut_widths_mm: list[float]) -> Mu
     )
 
 
+def donor_remainder_write_off_m(parent_width_mm: float, donor_length_m: float, min_useful_width_mm: float) -> float | None:
+    """Сколько метров реально теряется при списании остатка донора после
+    резки на несколько ширин за проход (раздел про план резки), если
+    остаток вообще нужно списывать — None, если остаток >= порога полезной
+    ширины (не отход, должен остаться на складе).
+
+    parent_width_mm == 0 — сумма запрошенных ширин кусков ровно совпала с
+    шириной донора, физического остатка нет вообще, хотя формально у него
+    та же длина, что у донора целиком (продольная резка не меняет длину,
+    только ширину) — списывать тут нечего, 0, а не полную длину донора.
+    Иначе (0 < остаток < порога) — настоящий узкий обрезок, вся его длина
+    теряется, как и раньше."""
+    if parent_width_mm == 0:
+        return 0.0
+    if parent_width_mm < min_useful_width_mm:
+        return donor_length_m
+    return None
+
+
 def cut_to_length(unit: MaterialUnit, cut_length_m: float, *, remainder_location: str | None = None) -> SplitOutcome:
     """Раскрой (по длине) — физически возможен только там, где деталь
     требует дискретного куска точного размера: на складе при совмещённой
