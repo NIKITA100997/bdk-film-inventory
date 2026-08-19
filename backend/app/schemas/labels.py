@@ -16,6 +16,11 @@ class LabelFieldConfig(BaseModel):
     # над другом", по одному символу на строку. Осмысленно только при
     # size="huge"; при других размерах просто ни на что не влияет.
     vertical: bool = False
+    # Раздел про возможность убрать подпись — большинство полей печатаются
+    # как "Материал: ПВХ", а не голое "ПВХ" (см. render_field_value);
+    # show_label=False оставляет только значение. Игнорируется у полей, где
+    # подписи и так нет (has_caption=False в AvailableFieldOut).
+    show_label: bool = True
 
     @model_validator(mode="after")
     def _valid_key_and_size(self):
@@ -44,6 +49,10 @@ class AvailableFieldOut(BaseModel):
     label: str
     kind: str
     stale_warning: bool = False
+    # False — у поля нет отдельной подписи ("№ 42", "Р-3-07" уже
+    # самодостаточны), переключатель "показывать подпись" для него не
+    # показывается в конструкторе — он бы ни на что не влиял.
+    has_caption: bool = True
 
 
 class LabelBatchRequest(BaseModel):

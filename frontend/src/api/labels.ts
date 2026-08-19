@@ -12,6 +12,10 @@ export interface LabelFieldConfig {
   // строку (цифры/буквы друг над другом), а не в одну строку. Ни на что
   // не влияет при других size.
   vertical: boolean;
+  // Большинство полей печатаются с подписью ("Материал: ПВХ") — false
+  // оставляет только значение. Игнорируется у полей без подписи
+  // (AvailableField.has_caption === false).
+  show_label: boolean;
 }
 
 export interface LabelTemplate {
@@ -25,6 +29,7 @@ export interface AvailableField {
   label: string;
   kind: "text" | "image" | "stripe";
   stale_warning: boolean;
+  has_caption: boolean;
 }
 
 export const getLabelTemplate = async (kind: LabelKind = "roll"): Promise<LabelTemplate> =>

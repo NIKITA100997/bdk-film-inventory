@@ -66,10 +66,10 @@ FIELD_META: dict[str, dict] = {
     "received_date": {"label": "Дата приёмки", "kind": "text"},
     "supplier_code": {"label": "Код у поставщика", "kind": "text"},
     "native_width": {"label": "Родная ширина рулона, мм", "kind": "text"},
-    "parent_ref": {"label": "Из рулона №…", "kind": "text"},
+    "parent_ref": {"label": "Из рулона №…", "kind": "text", "has_caption": False},
     "width_mm": {"label": "Ширина (текущая), мм", "kind": "text", "stale_warning": True},
     "length_m": {"label": "Длина (текущая), м", "kind": "text", "stale_warning": True},
-    "dimensions_m": {"label": "Габарит Ш×Д, м (компактно)", "kind": "text", "stale_warning": True},
+    "dimensions_m": {"label": "Габарит Ш×Д, м (компактно)", "kind": "text", "stale_warning": True, "has_caption": False},
     # Раздел про этикетку с назначением после резки — несколько штрипсов
     # одной ширины, выданных на разные задания/детали, иначе неотличимы
     # на глаз. Пусто у единиц без привязки к строке задания (обычные
@@ -140,43 +140,55 @@ def _format_number_ru(value: float) -> str:
     return text.replace(".", ",")
 
 
-def render_field_value(data: LabelData, key: str) -> str | None:
+def render_field_value(data: LabelData, key: str, *, show_label: bool = True) -> str | None:
     """None — поле нечего показывать (например, единица не резалась из
     родителя) — тогда строка в теле этикетки просто пропускается.
 
-    Каждое поле печатается с подписью ("Материал: ПВХ", а не голое "ПВХ")
-    — на маленькой бирке значение без подписи неоднозначно. Исключения —
-    unit_id, parent_ref и dimensions_m: подпись у них уже встроена/не
-    нужна по смыслу ("№ 42", "Из рулона №7", "1,4×500"), отдельная
-    приставка была бы задвоением или просто съедала бы место, ради
-    экономии которого этот компактный формат и завели. width_mm/length_m
-    сокращены до "Ш:"/"Д:" по той же причине — не всё влезает на бирку."""
+    По умолчанию каждое поле печатается с подписью ("Материал: ПВХ", а не
+    голое "ПВХ") — на маленькой бирке значение без подписи неоднозначно;
+    show_label=False убирает её (раздел про возможность убрать подпись),
+    оставляя только значение (для thickness/native_width/width_mm/length_m
+    единица измерения — "мм"/"м" — остаётся: это часть значения, не
+    подпись). parent_ref и dimensions_m подписи не имеют вовсе (значение
+    уже самодостаточно — "Из рулона №7", "1,4×500"), show_label для них не
+    действует."""
     if key == "unit_id":
-        return f"№ {data.unit_id}"
+        return f"№ {data.unit_id}" if show_label else str(data.unit_id)
     if key == "material":
-        return f"Материал: {data.material}"
+        return f"Материал: {data.material}" if show_label else data.material
     if key == "color":
-        return f"Цвет: {data.color}"
+        return f"Цвет: {data.color}" if show_label else data.color
     if key == "thickness":
-        return f"Толщина: {data.thickness_mm} мм"
+        value = f"{data.thickness_mm} мм"
+        return f"Толщина: {value}" if show_label else value
     if key == "manufacturer":
-        return f"Производитель: {data.manufacturer}"
+        return f"Производитель: {data.manufacturer}" if show_label else data.manufacturer
     if key == "upd_number":
-        return f"УПД: {data.upd_number}"
+        return f"УПД: {data.upd_number}" if show_label else data.upd_number
     if key == "pallet_number":
-        return f"Паллета: {data.pallet_number}"
+        return f"Паллета: {data.pallet_number}" if show_label else data.pallet_number
     if key == "received_date":
-        return f"Дата приёмки: {data.received_date.strftime('%d.%m.%Y')}" if data.received_date else ""
+        if not data.received_date:
+            return ""
+        value = data.received_date.strftime("%d.%m.%Y")
+        return f"Дата приёмки: {value}" if show_label else value
     if key == "supplier_code":
-        return f"Код у поставщика: {data.supplier_code}" if data.supplier_code else ""
+        if not data.supplier_code:
+            return ""
+        return f"Код у поставщика: {data.supplier_code}" if show_label else data.supplier_code
     if key == "native_width":
-        return f"Родная ширина: {data.native_width_mm} мм" if data.native_width_mm is not None else ""
+        if data.native_width_mm is None:
+            return ""
+        value = f"{data.native_width_mm} мм"
+        return f"Родная ширина: {value}" if show_label else value
     if key == "parent_ref":
         return f"Из рулона №{data.parent_id}" if data.parent_id else None
     if key == "width_mm":
-        return f"Ш: {data.width_mm} мм"
+        value = f"{data.width_mm} мм"
+        return f"Ш: {value}" if show_label else value
     if key == "length_m":
-        return f"Д: {data.length_m} м"
+        value = f"{data.length_m} м"
+        return f"Д: {value}" if show_label else value
     if key == "dimensions_m":
         # Ширина переведена в метры (была в мм) — компактная запись
         # "1,4×500" вместо двух отдельных строк "Ширина: 1400 мм" /
@@ -187,18 +199,9 @@ def render_field_value(data: LabelData, key: str) -> str | None:
         if not data.task_name and not data.part_name:
             return None
         parts = [p for p in (data.part_name, data.task_name) if p]
-        return f"Куда: {' — '.join(parts)}"
+        value = " — ".join(parts)
+        return f"Куда: {value}" if show_label else value
     return None
-
-
-def _giant_field_value(data: LabelData, key: str) -> str:
-    """Как render_field_value, но без служебной приставки ("№ ") — раздел
-    про огромный номер: приставка на весь экран не нужна, а в
-    вертикальном варианте (по символу на строку) "№" и пробел после него
-    плодят две лишние строки на месте, где должны быть только цифры."""
-    if key == "unit_id":
-        return str(data.unit_id)
-    return render_field_value(data, key) or ""
 
 
 def qr_png_bytes(payload: str) -> bytes:
@@ -234,8 +237,12 @@ def _label_markup(
     giant_field = next((f for f in fields if f.get("size") == "huge"), None)
 
     if giant_field is not None:
-        giant_val = _giant_field_value(data, giant_field["key"])
         vertical = bool(giant_field.get("vertical"))
+        # Вертикальная раскладка (по символу на строку) всегда без подписи
+        # — многословную/составную подпись, разбитую по буквам в столбик,
+        # прочитать нельзя (см. историю бага с "№" у unit_id — тот же
+        # эффект случился бы с любой другой подписью, не только с этой).
+        giant_val = render_field_value(data, giant_field["key"], show_label=bool(giant_field.get("show_label", True)) and not vertical) or ""
         if is_landscape:
             stripe_html = f'<td class="stripe-td" style="background:{color}; width:4mm;"></td>' if has_stripe else ""
             qr_size_mm = max(min(height_mm - 6, 34), 16)
@@ -288,7 +295,7 @@ def _label_markup(
         key = f["key"]
         if key in ("status_stripe", "qr"):
             continue
-        val = render_field_value(data, key)
+        val = render_field_value(data, key, show_label=f.get("show_label", True))
         if val:
             rendered_fields.append((f, val))
 
@@ -342,7 +349,7 @@ def _label_markup(
                     f'</div>'
                 )
             else:
-                val = render_field_value(data, key)
+                val = render_field_value(data, key, show_label=f.get("show_label", True))
                 if val:
                     size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
                     weight = "bold" if f.get("bold") else "normal"
@@ -712,7 +719,7 @@ def _draw_label_page(
         key = f["key"]
         if key in ("status_stripe", "qr") or f is giant_field:
             continue
-        val = render_field_value(data, key)
+        val = render_field_value(data, key, show_label=f.get("show_label", True))
         if val:
             rendered_fields.append((f, val))
 
@@ -723,6 +730,7 @@ def _draw_label_page(
     _clip_pdf_to_label_bounds(c, width_pt, height_pt)
 
     qr_reader = ImageReader(BytesIO(qr_png_bytes(str(data.unit_id)))) if has_qr else None
+    giant_vertical = bool(giant_field.get("vertical")) if giant_field is not None else False
 
     if is_landscape:
         stripe_w_mm = 4 if has_stripe else 0
@@ -741,10 +749,10 @@ def _draw_label_page(
         text_x_mm = stripe_w_mm + qr_col_w_mm + 2
         text_w_mm = max(width_mm - text_x_mm - 2, 5)
         if giant_field is not None:
-            giant_val = _giant_field_value(data, giant_field["key"])
+            giant_val = render_field_value(data, giant_field["key"], show_label=bool(giant_field.get("show_label", True)) and not giant_vertical) or ""
             _draw_giant_field_pdf(
                 c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=text_x_mm, top_mm=1,
-                width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=bool(giant_field.get("vertical")),
+                width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=giant_vertical,
             )
         else:
             wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="unit_id")
@@ -763,10 +771,10 @@ def _draw_label_page(
             top_mm += qr_size_mm + 2
         text_w_mm = max(width_mm - 8, 5)
         if giant_field is not None:
-            giant_val = _giant_field_value(data, giant_field["key"])
+            giant_val = render_field_value(data, giant_field["key"], show_label=bool(giant_field.get("show_label", True)) and not giant_vertical) or ""
             _draw_giant_field_pdf(
                 c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=4, top_mm=top_mm,
-                width_mm=text_w_mm, avail_height_mm=height_mm - top_mm - 2, vertical=bool(giant_field.get("vertical")),
+                width_mm=text_w_mm, avail_height_mm=height_mm - top_mm - 2, vertical=giant_vertical,
             )
         else:
             wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="unit_id")
@@ -905,11 +913,11 @@ DEFAULT_FIELDS_SHELF: list[dict] = [
 
 FIELD_META_SHELF: dict[str, dict] = {
     "qr": {"label": "QR-код", "kind": "image"},
-    "location_code": {"label": "Код места (полка)", "kind": "text"},
+    "location_code": {"label": "Код места (полка)", "kind": "text", "has_caption": False},
     "warehouse_name": {"label": "Склад", "kind": "text"},
     "rack_type": {"label": "Тип стеллажа", "kind": "text"},
     "shelf": {"label": "Номер полки", "kind": "text"},
-    "storage_rules": {"label": "Правила хранения", "kind": "text"},
+    "storage_rules": {"label": "Правила хранения", "kind": "text", "has_caption": False},
 }
 
 
@@ -922,17 +930,19 @@ class ShelfLabelData:
     storage_rules_text: str | None
 
 
-def render_field_value_shelf(data: ShelfLabelData, key: str) -> str | None:
-    """Как render_field_value для рулона: location_code — уже сам по себе
-    понятный идентификатор (как unit_id "№ 42"), без отдельной подписи."""
+def render_field_value_shelf(data: ShelfLabelData, key: str, *, show_label: bool = True) -> str | None:
+    """Как render_field_value для рулона: location_code/storage_rules — уже
+    сами по себе понятные значения (как unit_id "№ 42"), без отдельной
+    подписи — show_label для них не действует."""
     if key == "location_code":
         return data.location_code
     if key == "warehouse_name":
-        return f"Склад: {data.warehouse_name}"
+        return f"Склад: {data.warehouse_name}" if show_label else data.warehouse_name
     if key == "rack_type":
-        return f"Тип: {data.rack_type_label}"
+        return f"Тип: {data.rack_type_label}" if show_label else data.rack_type_label
     if key == "shelf":
-        return f"Полка: {data.shelf}"
+        value = str(data.shelf)
+        return f"Полка: {value}" if show_label else value
     if key == "storage_rules":
         return data.storage_rules_text
     return None
@@ -956,8 +966,8 @@ def _shelf_label_markup(data: ShelfLabelData, *, fields: list[dict], width_mm: i
     # такое поле в списке побеждает, если их вдруг несколько.
     giant_field = next((f for f in fields if f.get("size") == "huge"), None)
     if giant_field is not None:
-        giant_val = render_field_value_shelf(data, giant_field["key"]) or ""
         vertical = bool(giant_field.get("vertical"))
+        giant_val = render_field_value_shelf(data, giant_field["key"], show_label=bool(giant_field.get("show_label", True)) and not vertical) or ""
         if is_landscape:
             qr_size_mm = max(min(height_mm - 6, 34), 16)
             qr_html = (
@@ -1004,7 +1014,7 @@ def _shelf_label_markup(data: ShelfLabelData, *, fields: list[dict], width_mm: i
     for f in fields:
         if f["key"] == "qr":
             continue
-        val = render_field_value_shelf(data, f["key"])
+        val = render_field_value_shelf(data, f["key"], show_label=f.get("show_label", True))
         if val:
             rendered_fields.append((f, val))
 
@@ -1045,7 +1055,7 @@ def _shelf_label_markup(data: ShelfLabelData, *, fields: list[dict], width_mm: i
                     f'</div>'
                 )
                 continue
-            val = render_field_value_shelf(data, f["key"])
+            val = render_field_value_shelf(data, f["key"], show_label=f.get("show_label", True))
             if val:
                 size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
                 weight = "bold" if f.get("bold") else "normal"
@@ -1110,12 +1120,13 @@ def _draw_shelf_label_page(c: pdfcanvas.Canvas, data: ShelfLabelData, fields: li
     is_landscape = width_mm >= height_mm
     has_qr = any(f["key"] == "qr" for f in fields)
     giant_field = next((f for f in fields if f.get("size") == "huge"), None)
+    giant_vertical = bool(giant_field.get("vertical")) if giant_field is not None else False
 
     rendered_fields: list[tuple[dict, str]] = []
     for f in fields:
         if f["key"] == "qr" or f is giant_field:
             continue
-        val = render_field_value_shelf(data, f["key"])
+        val = render_field_value_shelf(data, f["key"], show_label=f.get("show_label", True))
         if val:
             rendered_fields.append((f, val))
 
@@ -1138,10 +1149,10 @@ def _draw_shelf_label_page(c: pdfcanvas.Canvas, data: ShelfLabelData, fields: li
         text_x_mm = qr_col_w_mm + 2
         text_w_mm = max(width_mm - text_x_mm - 2, 5)
         if giant_field is not None:
-            giant_val = render_field_value_shelf(data, giant_field["key"]) or ""
+            giant_val = render_field_value_shelf(data, giant_field["key"], show_label=bool(giant_field.get("show_label", True)) and not giant_vertical) or ""
             _draw_giant_field_pdf(
                 c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=text_x_mm, top_mm=1,
-                width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=bool(giant_field.get("vertical")),
+                width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=giant_vertical,
             )
         else:
             wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="location_code")
@@ -1156,10 +1167,10 @@ def _draw_shelf_label_page(c: pdfcanvas.Canvas, data: ShelfLabelData, fields: li
             top_mm += qr_size_mm + 2
         text_w_mm = max(width_mm - 8, 5)
         if giant_field is not None:
-            giant_val = render_field_value_shelf(data, giant_field["key"]) or ""
+            giant_val = render_field_value_shelf(data, giant_field["key"], show_label=bool(giant_field.get("show_label", True)) and not giant_vertical) or ""
             _draw_giant_field_pdf(
                 c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=4, top_mm=top_mm,
-                width_mm=text_w_mm, avail_height_mm=height_mm - top_mm - 2, vertical=bool(giant_field.get("vertical")),
+                width_mm=text_w_mm, avail_height_mm=height_mm - top_mm - 2, vertical=giant_vertical,
             )
         else:
             wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="location_code")
@@ -1225,11 +1236,11 @@ DEFAULT_FIELDS_RACK: list[dict] = [
 
 FIELD_META_RACK: dict[str, dict] = {
     "qr": {"label": "QR-код", "kind": "image"},
-    "rack_code": {"label": "Код стеллажа", "kind": "text"},
+    "rack_code": {"label": "Код стеллажа", "kind": "text", "has_caption": False},
     "warehouse_name": {"label": "Склад", "kind": "text"},
     "rack_type": {"label": "Тип стеллажа", "kind": "text"},
     "shelf_count": {"label": "Число полок", "kind": "text"},
-    "storage_rules": {"label": "Правила хранения", "kind": "text"},
+    "storage_rules": {"label": "Правила хранения", "kind": "text", "has_caption": False},
 }
 
 
@@ -1242,19 +1253,21 @@ class RackLabelData:
     storage_rules_text: str | None
 
 
-def render_field_value_rack(data: RackLabelData, key: str) -> str | None:
-    """rack_code — главная строка бирки, без подписи (как location_code/
-    unit_id у соседних макетов); storage_rules — уже готовая сводка всех
-    правил стеллажа или None, если правил нет (поле тогда просто
-    пропускается, как parent_ref у единицы без родителя)."""
+def render_field_value_rack(data: RackLabelData, key: str, *, show_label: bool = True) -> str | None:
+    """rack_code/storage_rules — без подписи (как location_code/unit_id у
+    соседних макетов), show_label для них не действует; storage_rules —
+    уже готовая сводка всех правил стеллажа или None, если правил нет
+    (поле тогда просто пропускается, как parent_ref у единицы без
+    родителя)."""
     if key == "rack_code":
         return data.rack_code
     if key == "warehouse_name":
-        return f"Склад: {data.warehouse_name}"
+        return f"Склад: {data.warehouse_name}" if show_label else data.warehouse_name
     if key == "rack_type":
-        return f"Тип: {data.rack_type_label}"
+        return f"Тип: {data.rack_type_label}" if show_label else data.rack_type_label
     if key == "shelf_count":
-        return f"Полок: {data.shelf_count}"
+        value = str(data.shelf_count)
+        return f"Полок: {value}" if show_label else value
     if key == "storage_rules":
         return data.storage_rules_text
     return None
@@ -1268,8 +1281,8 @@ def _rack_label_markup(data: RackLabelData, *, fields: list[dict], width_mm: int
 
     giant_field = next((f for f in fields if f.get("size") == "huge"), None)
     if giant_field is not None:
-        giant_val = render_field_value_rack(data, giant_field["key"]) or ""
         vertical = bool(giant_field.get("vertical"))
+        giant_val = render_field_value_rack(data, giant_field["key"], show_label=bool(giant_field.get("show_label", True)) and not vertical) or ""
         if is_landscape:
             qr_size_mm = max(min(height_mm - 6, 34), 16)
             qr_html = (
@@ -1316,7 +1329,7 @@ def _rack_label_markup(data: RackLabelData, *, fields: list[dict], width_mm: int
     for f in fields:
         if f["key"] == "qr":
             continue
-        val = render_field_value_rack(data, f["key"])
+        val = render_field_value_rack(data, f["key"], show_label=f.get("show_label", True))
         if val:
             rendered_fields.append((f, val))
 
@@ -1357,7 +1370,7 @@ def _rack_label_markup(data: RackLabelData, *, fields: list[dict], width_mm: int
                     f'</div>'
                 )
                 continue
-            val = render_field_value_rack(data, f["key"])
+            val = render_field_value_rack(data, f["key"], show_label=f.get("show_label", True))
             if val:
                 size_pt = SIZE_PT.get(f.get("size", "sm"), 8)
                 weight = "bold" if f.get("bold") else "normal"
@@ -1398,12 +1411,13 @@ def _draw_rack_label_page(c: pdfcanvas.Canvas, data: RackLabelData, fields: list
     is_landscape = width_mm >= height_mm
     has_qr = any(f["key"] == "qr" for f in fields)
     giant_field = next((f for f in fields if f.get("size") == "huge"), None)
+    giant_vertical = bool(giant_field.get("vertical")) if giant_field is not None else False
 
     rendered_fields: list[tuple[dict, str]] = []
     for f in fields:
         if f["key"] == "qr" or f is giant_field:
             continue
-        val = render_field_value_rack(data, f["key"])
+        val = render_field_value_rack(data, f["key"], show_label=f.get("show_label", True))
         if val:
             rendered_fields.append((f, val))
 
@@ -1426,10 +1440,10 @@ def _draw_rack_label_page(c: pdfcanvas.Canvas, data: RackLabelData, fields: list
         text_x_mm = qr_col_w_mm + 2
         text_w_mm = max(width_mm - text_x_mm - 2, 5)
         if giant_field is not None:
-            giant_val = render_field_value_rack(data, giant_field["key"]) or ""
+            giant_val = render_field_value_rack(data, giant_field["key"], show_label=bool(giant_field.get("show_label", True)) and not giant_vertical) or ""
             _draw_giant_field_pdf(
                 c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=text_x_mm, top_mm=1,
-                width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=bool(giant_field.get("vertical")),
+                width_mm=text_w_mm, avail_height_mm=height_mm - 2, vertical=giant_vertical,
             )
         else:
             wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="rack_code")
@@ -1444,10 +1458,10 @@ def _draw_rack_label_page(c: pdfcanvas.Canvas, data: RackLabelData, fields: list
             top_mm += qr_size_mm + 2
         text_w_mm = max(width_mm - 8, 5)
         if giant_field is not None:
-            giant_val = render_field_value_rack(data, giant_field["key"]) or ""
+            giant_val = render_field_value_rack(data, giant_field["key"], show_label=bool(giant_field.get("show_label", True)) and not giant_vertical) or ""
             _draw_giant_field_pdf(
                 c, giant_val, _PDF_HEADING_FONT_BOLD, height_pt=height_pt, left_mm=4, top_mm=top_mm,
-                width_mm=text_w_mm, avail_height_mm=height_mm - top_mm - 2, vertical=bool(giant_field.get("vertical")),
+                width_mm=text_w_mm, avail_height_mm=height_mm - top_mm - 2, vertical=giant_vertical,
             )
         else:
             wrapped = _wrap_pdf_fields(c, rendered_fields, text_w_mm * MM, heading_key="rack_code")

@@ -139,6 +139,33 @@ class TestRenderFieldValue:
         assert render_field_value(data, "dimensions_m") == "0,5×3,5"
 
 
+class TestRenderFieldValueShowLabel:
+    """Раздел про возможность убрать подпись — show_label=False оставляет
+    только значение, единицы измерения (мм/м) остаются: это часть
+    значения, не подпись."""
+
+    def test_show_label_false_strips_caption(self):
+        assert render_field_value(SAMPLE, "material", show_label=False) == "ПВХ плёнка"
+        assert render_field_value(SAMPLE, "color", show_label=False) == "Дуб беленый"
+        assert render_field_value(SAMPLE, "upd_number", show_label=False) == "УПД-1"
+
+    def test_show_label_false_keeps_unit_suffix(self):
+        assert render_field_value(SAMPLE, "thickness", show_label=False) == "0.35 мм"
+        assert render_field_value(SAMPLE, "width_mm", show_label=False) == "1400 мм"
+        assert render_field_value(SAMPLE, "length_m", show_label=False) == "214 м"
+
+    def test_show_label_false_strips_symbol_prefix_too(self):
+        # "№" у unit_id — тоже приставка, не часть значения.
+        assert render_field_value(SAMPLE, "unit_id", show_label=False) == "42"
+
+    def test_captionless_fields_unaffected_by_show_label(self):
+        # dimensions_m никогда не имело подписи — show_label не влияет.
+        assert render_field_value(SAMPLE, "dimensions_m", show_label=False) == render_field_value(SAMPLE, "dimensions_m", show_label=True)
+
+    def test_show_label_true_is_default_and_unchanged(self):
+        assert render_field_value(SAMPLE, "material") == render_field_value(SAMPLE, "material", show_label=True)
+
+
 class TestIndicatorColor:
     def test_roll_when_not_strip(self):
         assert indicator_color(SAMPLE) == "#1D9E75"

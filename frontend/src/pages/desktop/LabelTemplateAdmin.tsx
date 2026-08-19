@@ -30,6 +30,7 @@ function SortableFieldItem({
   onSizeChange,
   onBoldChange,
   onVerticalChange,
+  onShowLabelChange,
 }: {
   field: LabelFieldConfig;
   meta?: AvailableField;
@@ -37,10 +38,12 @@ function SortableFieldItem({
   onSizeChange: (v: FieldSize) => void;
   onBoldChange: (v: boolean) => void;
   onVerticalChange: (v: boolean) => void;
+  onShowLabelChange: (v: boolean) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.key });
   const isText = meta?.kind === "text";
   const isHuge = field.size === "huge";
+  const canToggleCaption = isText && meta?.has_caption !== false;
 
   return (
     <List.Item
@@ -73,11 +76,18 @@ function SortableFieldItem({
             <Typography.Text type="secondary">по вертикали (друг над другом)</Typography.Text>
           </Space>
         )}
+        {canToggleCaption && (
+          <Space size={4}>
+            <Switch size="small" checked={field.show_label} onChange={onShowLabelChange} disabled={isHuge && field.vertical} />
+            <Typography.Text type="secondary">показывать подпись</Typography.Text>
+          </Space>
+        )}
       </Space>
       {isHuge && (
         <div style={{ width: "100%", marginTop: 4 }}>
           <Typography.Text type="warning" style={{ fontSize: 12 }}>
             Займёт всю этикетку целиком — остальные текстовые поля (кроме QR) печататься не будут.
+            {field.vertical && " При вертикальной раскладке подпись всегда скрыта — по буквам её не прочитать."}
           </Typography.Text>
         </div>
       )}
@@ -113,7 +123,11 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
       const isLegacyUnitDefault = kind === "roll" && templateQuery.data.width_mm === 60 && templateQuery.data.height_mm === 90;
       setWidthMm(isLegacyUnitDefault ? 100 : templateQuery.data.width_mm);
       setHeightMm(isLegacyUnitDefault ? 40 : templateQuery.data.height_mm);
-      setFields(templateQuery.data.fields);
+      // Макеты, сохранённые до появления show_label, в БД хранятся без
+      // этого ключа — на печати это ничего не меняет (бэкенд по умолчанию
+      // тоже считает его true), но переключатель в конструкторе иначе
+      // отрисовался бы выключенным, хотя подпись на самом деле печатается.
+      setFields(templateQuery.data.fields.map((f) => ({ ...f, show_label: f.show_label ?? true })));
       setLoaded(true);
     }
   }, [templateQuery.data, loaded, kind]);
@@ -140,7 +154,7 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
 
   const addField = (key: string) => {
     const meta = fieldMeta(key);
-    const doAdd = () => setFields((f) => [...f, { key, size: "sm", bold: false, vertical: false }]);
+    const doAdd = () => setFields((f) => [...f, { key, size: "sm", bold: false, vertical: false, show_label: true }]);
     if (meta?.stale_warning) {
       Modal.confirm({
         title: "Поле потеряет актуальность",
@@ -229,6 +243,7 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
                 onSizeChange={(v) => updateField(index, { size: v })}
                 onBoldChange={(v) => updateField(index, { bold: v })}
                 onVerticalChange={(v) => updateField(index, { vertical: v })}
+                onShowLabelChange={(v) => updateField(index, { show_label: v })}
               />
             )}
           />
