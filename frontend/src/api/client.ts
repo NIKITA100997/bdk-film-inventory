@@ -1,10 +1,19 @@
 import axios from "axios";
 import { message } from "antd";
 
-const defaultApiUrl = `${window.location.protocol}//${window.location.hostname}:8002`;
+const defaultApiHost = `${window.location.protocol}//${window.location.hostname}:8002`;
+// Раздел про ускорение первой загрузки на планшетах (быстрый режим) — все
+// пути бэкенда живут под /api (backend/app/main.py, API_PREFIX), не
+// делят "плоское" пространство путей с фронтендом на одном порту: без
+// этого разделения /production-tasks (и ещё 8 таких же имён) совпадали
+// один-в-один у SPA-раздела и у реального API-эндпоинта, и обычная
+// навигация браузера (без Authorization-заголовка) попадала не в SPA, а
+// в API и 401-ила. VITE_API_URL, если задан, — это ХОСТ без /api, сам
+// префикс добавляется здесь же, одним местом для всего клиента.
+const apiHost = import.meta.env.VITE_API_URL || defaultApiHost;
 
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || defaultApiUrl,
+  baseURL: `${apiHost}/api`,
 });
 
 apiClient.interceptors.request.use((config) => {

@@ -28,7 +28,10 @@ from app.core.config import settings
 app = FastAPI(title="БДК — учёт плёнки")
 
 Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
+# Под /api вместе с остальным бэкендом — frontend/src/api/dictionaries.ts
+# строит URL фото как `${apiClient.defaults.baseURL}/uploads/...`, а
+# baseURL теперь сам содержит /api (см. комментарий у API_PREFIX ниже).
+app.mount("/api/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,24 +47,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_router)
-app.include_router(deletion_requests_router)
-app.include_router(areas_router)
-app.include_router(units_router)
-app.include_router(labels_router)
-app.include_router(storage_router)
-app.include_router(dictionaries_router)
-app.include_router(inventory_router)
-app.include_router(material_cards_router)
-app.include_router(production_router)
-app.include_router(abc_router)
-app.include_router(reports_router)
-app.include_router(purchasing_router)
-app.include_router(supplier_orders_router)
-app.include_router(suppliers_router)
-app.include_router(users_router)
-app.include_router(roles_router)
-app.include_router(write_off_reasons_router)
+# Раздел про ускорение первой загрузки на планшетах — единый префикс
+# /api на ВСЕХ роутерах без исключений. Обнаружено при проверке быстрого
+# режима: без префикса пути фронтенда и бэкенда были в одном "плоском"
+# пространстве имён на одном порту (frontend/src/routes.tsx "/production-
+# tasks" ↔ backend GET /production-tasks и ещё 8 таких же совпадений:
+# /areas, /calc-settings, /deletion-requests, /materials, /label-template,
+# /product-models, /production-lines, /roles) — прямой переход браузера
+# (обновление страницы, диплинк, QR) на такую страницу СНАЧАЛА попадал в
+# реальный API-эндпоинт (он раньше в списке роутеров, чем SPA-заглушка) и
+# 401-ил, а не открывал страницу: у обычной навигации браузера нет
+# Authorization-заголовка, его добавляет только axios-клиент фронтенда.
+# /api полностью разводит два пространства путей, а не чинит совпадения
+# по одному — тот же риск иначе вернётся с любым новым именем раздела.
+API_PREFIX = "/api"
+
+app.include_router(auth_router, prefix=API_PREFIX)
+app.include_router(deletion_requests_router, prefix=API_PREFIX)
+app.include_router(areas_router, prefix=API_PREFIX)
+app.include_router(units_router, prefix=API_PREFIX)
+app.include_router(labels_router, prefix=API_PREFIX)
+app.include_router(storage_router, prefix=API_PREFIX)
+app.include_router(dictionaries_router, prefix=API_PREFIX)
+app.include_router(inventory_router, prefix=API_PREFIX)
+app.include_router(material_cards_router, prefix=API_PREFIX)
+app.include_router(production_router, prefix=API_PREFIX)
+app.include_router(abc_router, prefix=API_PREFIX)
+app.include_router(reports_router, prefix=API_PREFIX)
+app.include_router(purchasing_router, prefix=API_PREFIX)
+app.include_router(supplier_orders_router, prefix=API_PREFIX)
+app.include_router(suppliers_router, prefix=API_PREFIX)
+app.include_router(users_router, prefix=API_PREFIX)
+app.include_router(roles_router, prefix=API_PREFIX)
+app.include_router(write_off_reasons_router, prefix=API_PREFIX)
 
 
 @app.get("/health")
