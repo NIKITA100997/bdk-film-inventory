@@ -67,9 +67,16 @@ function TasksTab() {
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
   const [manualForm] = Form.useForm<{ name: string; area: AreaValue }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
-  const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number; sku_id: number }>();
-  const [naryadForm] = Form.useForm<{ sku_id: number }>();
+  const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number }>();
   const [assignForm] = Form.useForm<{ line_id: number; date: dayjs.Dayjs; employee_names: string; quantity_pieces: number }>();
+  // Общий выбор номенклатуры для обоих способов массовой загрузки строк
+  // (из состава модели и из наряд-заказа) — раньше каждый способ таскал
+  // свою копию одного и того же поля "Материал (номенклатура)", хотя оба
+  // означают один и тот же выбор: какую плёнку подставить в загружаемые
+  // строки (ни BOM, ни файл наряд-заказа плёнку не знают, только форму
+  // деталей). "Добавить строку вручную" ниже — отдельный, самостоятельный
+  // выбор (там материал реально может отличаться от строки к строке).
+  const [selectedSkuId, setSelectedSkuId] = useState<number>();
   const [showArchived, setShowArchived] = useState(false);
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
@@ -85,7 +92,6 @@ function TasksTab() {
 
   const activeModels = (modelsQuery.data ?? []).filter((m) => m.is_active && m.parts.length > 0);
   const bomProductModelId = Form.useWatch("product_model_id", bomForm);
-  const naryadSkuId = Form.useWatch("sku_id", naryadForm);
 
   const tasks = (tasksQuery.data ?? [])
     .filter((t) => !user?.area || t.area === user.area)
@@ -101,7 +107,7 @@ function TasksTab() {
     manualForm.resetFields();
     manualRowForm.resetFields();
     bomForm.resetFields();
-    naryadForm.resetFields();
+    setSelectedSkuId(undefined);
     setManualLines([]);
   };
 
@@ -116,11 +122,12 @@ function TasksTab() {
   });
 
   const loadLinesFromBom = () => {
+    if (!selectedSkuId) return;
     bomForm
       .validateFields()
-      .then(({ product_model_id, quantity, sku_id }) => {
+      .then(({ product_model_id, quantity }) => {
         const model = activeModels.find((m) => m.id === product_model_id);
-        const sku = skusQuery.data?.find((s) => s.id === sku_id);
+        const sku = skusQuery.data?.find((s) => s.id === selectedSkuId);
         if (!model || !sku) return;
         const loaded: ProductionTaskLineManualCreate[] = model.parts.map((p) => ({
           material: sku.material.name,
@@ -137,7 +144,7 @@ function TasksTab() {
           name: manualForm.getFieldValue("name") || `${model.name} — ${quantity} шт`,
           area: model.area,
         });
-        manualRowForm.setFieldsValue({ sku_id });
+        manualRowForm.setFieldsValue({ sku_id: selectedSkuId });
         applySkuFields(manualRowForm, sku);
       })
       .catch(() => {});
@@ -151,7 +158,7 @@ function TasksTab() {
   const parseNaryadMutation = useMutation({
     mutationFn: parseNaryadFile,
     onSuccess: (result) => {
-      const sku = skusQuery.data?.find((s) => s.id === naryadSkuId);
+      const sku = skusQuery.data?.find((s) => s.id === selectedSkuId);
       if (!sku) return;
       const loaded: ProductionTaskLineManualCreate[] = result.lines.map((l) => ({
         material: sku.material.name,
@@ -209,7 +216,7 @@ function TasksTab() {
   const addManualLine = (v: ManualRowFormValues) => {
     const { sku_id: _skuId, ...rest } = v;
     setManualLines((lines) => [...lines, rest]);
-    const defaultSkuId = bomForm.getFieldValue("sku_id");
+    const defaultSkuId = selectedSkuId;
     manualRowForm.resetFields();
     if (defaultSkuId) {
       manualRowForm.setFieldsValue({ sku_id: defaultSkuId });
@@ -382,11 +389,25 @@ function TasksTab() {
         width={640}
       >
         <Typography.Paragraph type="secondary">
-          Строки задания — общий редактируемый список ниже: заполните их из состава модели (номенклатуру плёнки для
-          состава выбираете здесь — в BOM цвет/материал не фиксируется) и/или добавьте вручную. Линия не выбирается
-          здесь — задание ставится на участок, а по линиям/дням/сотрудникам его распределяет начальник участка
-          отдельно (кнопка «Распределить» у уже созданного задания).
+          Строки задания — общий редактируемый список ниже: заполните их из состава модели и/или из наряд-заказа
+          (ни один из способов не знает плёнку, только форму деталей — номенклатуру для обоих выбирайте полем ниже),
+          либо добавьте вручную. Линия не выбирается здесь — задание ставится на участок, а по линиям/дням/сотрудникам
+          его распределяет начальник участка отдельно (кнопка «Распределить» у уже созданного задания).
         </Typography.Paragraph>
+
+        <Typography.Title level={5}>Материал для загружаемых строк</Typography.Title>
+        <Typography.Paragraph type="secondary">
+          Общий выбор для обоих способов ниже — из состава модели и из наряд-заказа.
+        </Typography.Paragraph>
+        <Select
+          showSearch
+          placeholder="Выберите позицию материала"
+          options={skuOptions}
+          optionFilterProp="label"
+          value={selectedSkuId}
+          onChange={setSelectedSkuId}
+          style={{ width: "100%", marginBottom: 24 }}
+        />
 
         <Typography.Title level={5}>Начать из модели (BOM)</Typography.Title>
         <Form form={bomForm} layout="vertical">
@@ -400,10 +421,7 @@ function TasksTab() {
           <Form.Item name="quantity" label="Количество, шт" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="sku_id" label="Материал (номенклатура)" rules={[{ required: true }]}>
-            <Select showSearch placeholder="Выберите позицию материала" options={skuOptions} optionFilterProp="label" />
-          </Form.Item>
-          <Button block disabled={!bomProductModelId} onClick={loadLinesFromBom}>
+          <Button block disabled={!bomProductModelId || !selectedSkuId} onClick={loadLinesFromBom}>
             Загрузить строки из состава
           </Button>
         </Form>
@@ -412,24 +430,18 @@ function TasksTab() {
           Загрузить наряд-заказ
         </Typography.Title>
         <Typography.Paragraph type="secondary">
-          Файл содержит только форму деталей (название/ширина/длина/кол-во) — плёнку файл не знает, выберите
-          номенклатуру ниже перед загрузкой.
+          Файл содержит только форму деталей (название/ширина/длина/кол-во) — материал выбирается общим полем выше.
         </Typography.Paragraph>
-        <Form form={naryadForm} layout="vertical">
-          <Form.Item name="sku_id" label="Материал (номенклатура)" rules={[{ required: true }]}>
-            <Select showSearch placeholder="Выберите позицию материала" options={skuOptions} optionFilterProp="label" />
-          </Form.Item>
-        </Form>
         <Upload
           accept=".xls"
           showUploadList={false}
-          disabled={!naryadSkuId}
+          disabled={!selectedSkuId}
           beforeUpload={(file) => {
             parseNaryadMutation.mutate(file);
             return false;
           }}
         >
-          <Button block disabled={!naryadSkuId} loading={parseNaryadMutation.isPending}>
+          <Button block disabled={!selectedSkuId} loading={parseNaryadMutation.isPending}>
             Загрузить файл наряд-заказа (.xls)
           </Button>
         </Upload>
