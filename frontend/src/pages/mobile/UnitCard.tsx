@@ -35,6 +35,7 @@ import { listUsers } from "../../api/users";
 import { listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import QrScanButton from "../../components/QrScanButton";
+import LocationSelect from "../../components/LocationSelect";
 
 type ActionKind = "place" | "split" | "cut" | "return" | "writeoff" | null;
 
@@ -337,7 +338,7 @@ export default function UnitCard() {
                 rules={[{ required: true }]}
                 initialValue={unit.location_code ?? undefined}
               >
-                <Input placeholder="Р-3-07 или Ш-2-04-06" autoFocus />
+                <LocationSelect sku={unit.material_sku} autoFocus />
               </Form.Item>
               <Button type="primary" htmlType="submit" block loading={placeMutation.isPending}>
                 Сохранить адрес
@@ -367,7 +368,7 @@ export default function UnitCard() {
                 />
               )}
               <Form.Item name="new_unit_location" label="Ячейка для отделяемой части (опционально)">
-                <Input placeholder="Ш-2-04-06" />
+                <LocationSelect sku={unit.material_sku} placeholder="Оставить не размещённой, если не выбрать" />
               </Form.Item>
               <Button type="primary" htmlType="submit" block loading={splitMutation.isPending}>
                 Разделить
@@ -397,7 +398,7 @@ export default function UnitCard() {
                 label="Ячейка для остатка (опционально)"
                 initialValue={cutSuggestion.data ?? undefined}
               >
-                <Input placeholder="Б-1-02" />
+                <LocationSelect sku={unit.material_sku} placeholder="Оставить не размещённым, если не выбрать" />
               </Form.Item>
               <Button type="primary" htmlType="submit" block loading={cutMutation.isPending}>
                 Списать отрезок без бирки
