@@ -45,6 +45,7 @@ export const navTree: NavBlock[] = [
       // "Производство и Заказы"), перенесены в "Основное" по прямому
       // запросу пользователя.
       { key: "reports", path: "/reports", label: "Отчёты", permissions: ["reports.view"] },
+      { key: "defects", path: "/defects", label: "Брак и списания", permissions: ["reports.view"] },
     ],
   },
   {

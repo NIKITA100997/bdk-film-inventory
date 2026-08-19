@@ -616,7 +616,10 @@ function ReportModal({
   const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string }[]>([]);
   const [reportForm] = Form.useForm<{ assignment_id: number; good_pieces: number }>();
   const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
-  const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons"], queryFn: listWriteOffReasons });
+  const writeOffReasonsQuery = useQuery({
+    queryKey: ["write-off-reasons", "production"],
+    queryFn: () => listWriteOffReasons("production"),
+  });
   const reasonName = (code: string) => writeOffReasonsQuery.data?.find((r) => r.code === code)?.name ?? code;
 
   const addDefectRow = (v: { reason: string; qty: number; note?: string }) => {

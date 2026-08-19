@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.write_off_reasons import WriteOffReasonEntry
-from app.schemas.write_off_reasons import WriteOffReasonCreate, WriteOffReasonOut, WriteOffReasonUpdate
+from app.schemas.write_off_reasons import ReasonCategory, WriteOffReasonCreate, WriteOffReasonOut, WriteOffReasonUpdate
 from app.services.write_off_reasons import unique_reason_code
 
 router = APIRouter(tags=["write-off-reasons"])
@@ -16,17 +16,27 @@ manage_reasons = require_permission("materials.manage")
 
 
 @router.get("/write-off-reasons", response_model=list[WriteOffReasonOut])
-def list_reasons(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[WriteOffReasonEntry]:
+def list_reasons(
+    category: ReasonCategory | None = Query(default=None),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+) -> list[WriteOffReasonEntry]:
     """Активные и не системные — ровно то, что должно попасть в выпадающий
     список формы списания единицы/брака в производстве. "Отход при
     раскрое" (is_system=True) сюда не попадает ни при каком is_active —
-    выставляется только автоматически при раскрое (units.py::split_unit)."""
-    return (
-        db.query(WriteOffReasonEntry)
-        .filter(WriteOffReasonEntry.is_active.is_(True), WriteOffReasonEntry.is_system.is_(False))
-        .order_by(WriteOffReasonEntry.name)
-        .all()
+    выставляется только автоматически при раскрое (units.py::split_unit).
+
+    category — раздел про модуль "Брак и списания": форма списания единицы
+    просит category=warehouse, форма брака на производстве —
+    category=production; причины с category=general видны в обоих
+    списках. Без category (как раньше) — весь активный не системный
+    список, для мест, которым разрез склад/производство не важен."""
+    query = db.query(WriteOffReasonEntry).filter(
+        WriteOffReasonEntry.is_active.is_(True), WriteOffReasonEntry.is_system.is_(False)
     )
+    if category is not None:
+        query = query.filter(WriteOffReasonEntry.category.in_([category, "general"]))
+    return query.order_by(WriteOffReasonEntry.name).all()
 
 
 @router.get("/write-off-reasons/all", response_model=list[WriteOffReasonOut])
@@ -41,7 +51,9 @@ def create_reason(
 ) -> WriteOffReasonEntry:
     if db.query(WriteOffReasonEntry).filter(WriteOffReasonEntry.name == payload.name).first():
         raise HTTPException(status.HTTP_409_CONFLICT, "Причина с таким названием уже есть")
-    reason = WriteOffReasonEntry(code=unique_reason_code(db, payload.name), name=payload.name, is_active=True)
+    reason = WriteOffReasonEntry(
+        code=unique_reason_code(db, payload.name), name=payload.name, is_active=True, category=payload.category
+    )
     db.add(reason)
     db.commit()
     db.refresh(reason)
@@ -61,6 +73,8 @@ def update_reason(
         reason.name = payload.name
     if payload.is_active is not None:
         reason.is_active = payload.is_active
+    if payload.category is not None:
+        reason.category = payload.category
     db.commit()
     db.refresh(reason)
     return reason

@@ -79,7 +79,10 @@ export default function UnitCard() {
   const separateWidth = Form.useWatch("separate_width_mm", splitForm);
 
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
-  const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons"], queryFn: listWriteOffReasons });
+  const writeOffReasonsQuery = useQuery({
+    queryKey: ["write-off-reasons", "warehouse"],
+    queryFn: () => listWriteOffReasons("warehouse"),
+  });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   const eventsQuery = useQuery({

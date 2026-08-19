@@ -105,7 +105,10 @@ export default function MaterialsExplorer() {
   const [positionForm] = Form.useForm<MaterialSkuCreate>();
   const [unitForm] = Form.useForm<UnitLineValues>();
   const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
-  const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons"], queryFn: listWriteOffReasons });
+  const writeOffReasonsQuery = useQuery({
+    queryKey: ["write-off-reasons", "warehouse"],
+    queryFn: () => listWriteOffReasons("warehouse"),
+  });
 
   const positionsQuery = useQuery({ queryKey: ["materials-explorer", "positions"], queryFn: getStockSummary, enabled: viewMode === "positions" });
   const unitsQuery = useQuery({

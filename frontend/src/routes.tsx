@@ -12,6 +12,7 @@ import InitialStock from "./pages/mobile/InitialStock";
 import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
 import MaterialCard from "./pages/desktop/MaterialCard";
 import Reports from "./pages/desktop/Reports";
+import Defects from "./pages/desktop/Defects";
 import StorageMap from "./pages/desktop/StorageMap";
 import CalcSettingsAdmin from "./pages/desktop/CalcSettingsAdmin";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
@@ -64,6 +65,10 @@ export default function AppRoutes() {
         <Route
           path="/reports"
           element={<RequirePermission permissions={["reports.view"]}><Reports /></RequirePermission>}
+        />
+        <Route
+          path="/defects"
+          element={<RequirePermission permissions={["reports.view"]}><Defects /></RequirePermission>}
         />
         {/* "Стеллажи" видны всем (как "Остатки") — вкладка "Управление" внутри
         сама решает, показываться ли, по storage.manage. */}

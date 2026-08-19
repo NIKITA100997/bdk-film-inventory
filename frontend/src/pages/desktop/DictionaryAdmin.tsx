@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tabs, Button, Input, InputNumber, Tag, Space, Popconfirm, Typography, Empty, Checkbox, Modal, Form, message } from "antd";
+import { Card, Tabs, Button, Input, InputNumber, Select, Tag, Space, Popconfirm, Typography, Empty, Checkbox, Modal, Form, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import {
@@ -19,8 +19,17 @@ import {
   listAllWriteOffReasons,
   createWriteOffReason,
   updateWriteOffReason,
+  type ReasonCategory,
   type WriteOffReasonEntry,
 } from "../../api/writeOffReasons";
+
+// Раздел про модуль "Брак и списания" — общая подпись категории, чтобы
+// не разъезжалась между таблицей причин и формой создания.
+const CATEGORY_LABEL: Record<ReasonCategory, string> = {
+  warehouse: "Склад",
+  production: "Производство",
+  general: "Общая",
+};
 
 function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
   const qc = useQueryClient();
@@ -288,10 +297,10 @@ function ThicknessTab() {
  * явным действием тут. "Отход при раскрое" — системная (проставляется
  * только автоматически при продольной резке), без кнопок
  * переименовать/архивировать. */
-function WriteOffReasonsTab() {
+export function WriteOffReasonsTab() {
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
-  const [createForm] = Form.useForm<{ name: string }>();
+  const [createForm] = Form.useForm<{ name: string; category: ReasonCategory }>();
   const [renaming, setRenaming] = useState<WriteOffReasonEntry | null>(null);
   const [renameForm] = Form.useForm<{ name: string }>();
   const [showArchived, setShowArchived] = useState(false);
@@ -299,7 +308,7 @@ function WriteOffReasonsTab() {
   const reasonsQuery = useQuery({ queryKey: ["write-off-reasons", "all"], queryFn: listAllWriteOffReasons });
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => createWriteOffReason(name),
+    mutationFn: ({ name, category }: { name: string; category: ReasonCategory }) => createWriteOffReason(name, category),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["write-off-reasons"] });
       setCreateOpen(false);
@@ -314,6 +323,14 @@ function WriteOffReasonsTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["write-off-reasons"] });
       message.success("Сохранено");
+    },
+  });
+
+  const categoryMutation = useMutation({
+    mutationFn: ({ code, category }: { code: string; category: ReasonCategory }) => updateWriteOffReason(code, { category }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["write-off-reasons"] });
+      message.success("Категория изменена");
     },
   });
 
@@ -347,6 +364,27 @@ function WriteOffReasonsTab() {
         scroll={{ x: "max-content" }}
         columns={[
           { title: "Название", dataIndex: "name" },
+          {
+            title: "Категория",
+            width: 200,
+            // Раздел про модуль "Брак и списания" — чем пикер причины на
+            // списании единицы (warehouse+general) и в отчёте о браке на
+            // производстве (production+general) фильтрует список; системная
+            // причина скрыта из обоих пикеров в любом случае, менять её
+            // категорию незачем.
+            render: (_, r) =>
+              r.is_system ? (
+                <Typography.Text type="secondary">{CATEGORY_LABEL[r.category]}</Typography.Text>
+              ) : (
+                <Select<ReasonCategory>
+                  size="small"
+                  value={r.category}
+                  style={{ width: 160 }}
+                  options={(Object.keys(CATEGORY_LABEL) as ReasonCategory[]).map((c) => ({ value: c, label: CATEGORY_LABEL[c] }))}
+                  onChange={(category) => categoryMutation.mutate({ code: r.code, category })}
+                />
+              ),
+          },
           {
             title: "Статус",
             width: 220,
@@ -388,9 +426,24 @@ function WriteOffReasonsTab() {
       />
 
       <Modal title="Новая причина" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
-        <Form form={createForm} layout="vertical" onFinish={(v) => createMutation.mutate(v.name)}>
+        <Form
+          form={createForm}
+          layout="vertical"
+          initialValues={{ category: "general" }}
+          onFinish={(v) => createMutation.mutate(v)}
+        >
           <Form.Item name="name" label="Название" rules={[{ required: true }]}>
             <Input autoFocus placeholder="Пересорт" />
+          </Form.Item>
+          <Form.Item
+            name="category"
+            label="Категория"
+            tooltip="Где эта причина показывается в выпадающем списке: на списании единицы (Склад), в отчёте о браке (Производство), или везде (Общая)."
+            rules={[{ required: true }]}
+          >
+            <Select
+              options={(Object.keys(CATEGORY_LABEL) as ReasonCategory[]).map((c) => ({ value: c, label: CATEGORY_LABEL[c] }))}
+            />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
             Создать
