@@ -9,6 +9,7 @@ import { listPurchaseRequests } from "../../api/purchasing";
 import { listSessions } from "../../api/inventory";
 import { getDonorAccuracy, getStaleUnits } from "../../api/reports";
 import { listMaterialSkus } from "../../api/dictionaries";
+import { getBlanksDemand } from "../../api/production";
 import { searchUnits } from "../../api/units";
 import { listAreas } from "../../api/areas";
 import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
@@ -28,6 +29,7 @@ export default function Overview() {
   const showInventory = has("inventory.manage");
   const showDonorAccuracy = has("reports.view");
   const showStale = has("inventory.manage");
+  const showBlanks = has("units.issue");
   const showSales = has("sales_calculator.view");
   const hasReceive = has("units.receive");
   const hasIssue = has("units.issue");
@@ -52,6 +54,11 @@ export default function Overview() {
     enabled: showDonorAccuracy,
   });
   const staleQuery = useQuery({ queryKey: ["stale-units", "overview"], queryFn: () => getStaleUnits(), enabled: showStale });
+  // Раздел 16 бэклога доработок — "Заготовки" не всплывали нигде, кроме
+  // своего пункта меню (та же ошибка, что раньше была с донор-рекомендациями,
+  // 2.2), источник потребности виден только тому, кто зашёл специально.
+  const blanksQuery = useQuery({ queryKey: ["blanks-demand", "overview"], queryFn: getBlanksDemand, enabled: showBlanks });
+  const blanksDeficitCount = (blanksQuery.data ?? []).filter((r) => r.deficit_length_m > 0).length;
   const skusQuery = useQuery({ queryKey: ["material-skus", "overview"], queryFn: listMaterialSkus, enabled: showSales });
   // Начальнику участка (есть свой user.area) — только его участок; остальным
   // ролям без привязки к конкретному участку — сразу все три, разбивкой.
@@ -130,6 +137,17 @@ export default function Overview() {
             </Card>
           </Col>
         )}
+        {showBlanks && (
+          <Col xs={12} sm={12} md={8} lg={6}>
+            <Card loading={blanksQuery.isLoading} {...clickableProps("/blanks")}>
+              <Statistic
+                title="Заготовок не хватает по ширинам"
+                value={blanksDeficitCount}
+                valueStyle={{ color: blanksDeficitCount > 0 ? "#C97A2B" : undefined }}
+              />
+            </Card>
+          </Col>
+        )}
         {showSales && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={skusQuery.isLoading} {...clickableProps("/sales-calculator")}>
@@ -173,6 +191,7 @@ export default function Overview() {
         !showInventory &&
         !showDonorAccuracy &&
         !showStale &&
+        !showBlanks &&
         !showSales &&
         !showIssuedWork &&
         !hasReceive &&
