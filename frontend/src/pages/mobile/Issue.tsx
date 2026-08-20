@@ -35,6 +35,7 @@ import {
   searchUnits,
   skuLabel,
   type AreaValue,
+  type DonorSuggestion,
   type IssueResult,
   type MaterialSku,
   type MaterialUnit,
@@ -308,6 +309,12 @@ export default function Issue() {
   const [manualSkuId, setManualSkuId] = useState<number | null>(null);
   const [manualArea, setManualArea] = useState<AreaValue | null>(null);
   const [manualForm] = Form.useForm<{ width_mm: number; length_m: number }>();
+  // Раздел про нарезку в ширину без привязки к заданию — донор,
+  // предложенный на "Найти и выдать" ниже, когда точного совпадения по
+  // ширине нет (тот же outcome="donor_suggested", что и в задачной
+  // очереди выше, просто своё состояние — эта карточка донора относится к
+  // ручному подбору, не к выбранной строке задания).
+  const [manualDonor, setManualDonor] = useState<DonorSuggestion | null>(null);
   const [shortageModalOpen, setShortageModalOpen] = useState(false);
   const [shortageForm] = Form.useForm<PurchaseRequestShopFloorCreate>();
 
@@ -548,6 +555,7 @@ export default function Issue() {
     mutationFn: (unitId: number) => issueUnitDirect(unitId, manualArea!),
     onSuccess: (unit) => {
       setLastIssued({ unit, remainder: null, remainderPlaced: false });
+      setManualDonor(null);
       qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
     },
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось выдать")),
@@ -567,14 +575,33 @@ export default function Issue() {
     onSuccess: (res) => {
       if (res.outcome === "issued" && res.unit) {
         setLastIssued({ unit: res.unit, remainder: null, remainderPlaced: false });
+        setManualDonor(null);
         qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
       } else if (res.outcome === "not_found") {
+        setManualDonor(null);
         message.warning("Точного совпадения по ширине нет — донора тоже нет, режьте новый рулон");
       } else if (res.outcome === "donor_suggested" && res.donor) {
-        message.info(`Есть донор №${res.donor.unit_id}, ${res.donor.width_mm} мм — откройте карточку единицы, чтобы разрезать`);
+        setManualDonor(res.donor);
       }
     },
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось оформить выдачу")),
+  });
+
+  // Раздел про нарезку в ширину без привязки к заданию — тот же атомарный
+  // "разрезать и выдать", что уже есть у выбранной строки задания выше
+  // (issueDonorAtomic), но без production_task_line_id: бэкенд его и так
+  // принимает необязательным, не хватало только этой кнопки в ручном
+  // подборе — раньше при donor_suggested оставалось только открыть
+  // карточку единицы и резать вручную в два действия.
+  const manualAtomicDonorMutation = useMutation({
+    mutationFn: (values: { donor_unit_id: number; requested_width_mm: number }) =>
+      issueDonorAtomic({ ...values, area: manualArea! }),
+    onSuccess: (res) => {
+      setLastIssued({ unit: res.issued_unit, remainder: res.remainder_unit, remainderPlaced: false });
+      setManualDonor(null);
+      qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
+    },
+    onError: (e) => message.error(issueErrorMessage(e, "Не удалось разрезать и выдать донора")),
   });
 
   const queueRow = (
@@ -1006,7 +1033,10 @@ export default function Issue() {
                         options={(skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
                         filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
                         value={manualSkuId ?? undefined}
-                        onChange={(v) => setManualSkuId(v)}
+                        onChange={(v) => {
+                          setManualSkuId(v);
+                          setManualDonor(null);
+                        }}
                       />
                       <Select
                         style={{ width: "100%" }}
@@ -1054,6 +1084,36 @@ export default function Issue() {
                               Найти и выдать
                             </Button>
                           </Form>
+                          {manualDonor && (
+                            <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12 }}>
+                              <div style={{ fontWeight: 700, color: "#A8631E" }}>
+                                ⚡ Точного совпадения нет — есть донор №{manualDonor.unit_id}
+                              </div>
+                              <div style={{ fontSize: 12.5, marginTop: 4 }}>
+                                {manualDonor.width_mm} мм, класс {manualDonor.width_class}
+                                {manualDonor.days_in_storage !== undefined && manualDonor.days_in_storage > 0 && (
+                                  <Tag color="volcano" style={{ marginLeft: 6 }}>лежалый {manualDonor.days_in_storage} дн.</Tag>
+                                )}
+                                <br />
+                                Отрежем {manualDonor.recommended_cut_mm} мм, отход {manualDonor.waste_mm} мм.
+                              </div>
+                              <Button
+                                type="primary"
+                                block
+                                style={{ marginTop: 10 }}
+                                disabled={!manualArea}
+                                loading={manualAtomicDonorMutation.isPending}
+                                onClick={() =>
+                                  manualAtomicDonorMutation.mutate({
+                                    donor_unit_id: manualDonor.unit_id,
+                                    requested_width_mm: manualDonor.recommended_cut_mm,
+                                  })
+                                }
+                              >
+                                ⚡ Разрезать и выдать
+                              </Button>
+                            </div>
+                          )}
                         </>
                       )}
                     </Space>
