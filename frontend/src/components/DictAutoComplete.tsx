@@ -35,6 +35,14 @@ interface Props {
   onChange?: (value: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  // Form.Item сам подставляет id (обычно совпадает с name поля) в прямого
+  // потомка — раньше проп молча терялся (компонент его не принимал), из-за
+  // чего <label for="material"> указывал на несуществующий id, а реальный
+  // инпут получал свой автосгенерированный (раздел 16 бэклога доработок —
+  // живой прогон на планшете: тап по подписи поля не фокусировал его,
+  // хотя на сенсорном экране это привычный способ попасть в маленькое
+  // поле, не целясь именно в рамку инпута).
+  id?: string;
   // false — форма-потребитель сама не создаёт новых значений справочника
   // на сервере (например, правило зонирования: "опечатка не должна тихо
   // создавать новую запись", backend/app/api/storage.py::_lookup_dict_id).
@@ -51,7 +59,7 @@ interface Props {
  * введённое не совпадает ни с чем — явно предлагает "Создать «…»"
  * (9.2 раздел бэклога доработок), а если похоже, но не совпадает точно —
  * предупреждает и предлагает использовать существующее. */
-export default function DictAutoComplete({ kind, value, onChange, placeholder, autoFocus, allowCreate = true }: Props) {
+export default function DictAutoComplete({ kind, value, onChange, placeholder, autoFocus, allowCreate = true, id }: Props) {
   // Свой префикс ключа кэша, не голое [kind] — иначе React Query совмещает
   // кэш с любым другим useQuery на тот же ключ (например, StorageMap.tsx
   // уже кэширует "толщины" под ключом ["thicknesses"], но в сыром виде
@@ -89,6 +97,7 @@ export default function DictAutoComplete({ kind, value, onChange, placeholder, a
   return (
     <div>
       <AutoComplete
+        id={id}
         options={options}
         value={value}
         onChange={onChange}

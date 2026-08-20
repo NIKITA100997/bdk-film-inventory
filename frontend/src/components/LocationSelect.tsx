@@ -31,6 +31,10 @@ interface Props {
   disabled?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
+  // Form.Item подставляет id прямому потомку — не принимался и не
+  // прокидывался, из-за чего <label for="location_code"> указывал в
+  // никуда (тот же баг, что был найден и исправлен в DictAutoComplete).
+  id?: string;
 }
 
 /** Выбор адреса ячейки из реально существующих полок (раздел про
@@ -43,7 +47,7 @@ interface Props {
  * полки, закрытые правилом зонирования за другой плёнкой, не показываются
  * вовсе (та же проверка, что бэкенд всё равно сделает при сохранении —
  * здесь просто не даём выбрать заведомо отклоняемый вариант). */
-export default function LocationSelect({ value, onChange, sku, warehouseId, disabled, placeholder, autoFocus }: Props) {
+export default function LocationSelect({ value, onChange, sku, warehouseId, disabled, placeholder, autoFocus, id }: Props) {
   const racksQuery = useQuery({ queryKey: ["racks", warehouseId], queryFn: () => listRacks(warehouseId) });
   const activeRacks = (racksQuery.data ?? []).filter((r) => r.is_active);
 
@@ -72,6 +76,7 @@ export default function LocationSelect({ value, onChange, sku, warehouseId, disa
 
   return (
     <Select
+      id={id}
       showSearch
       allowClear
       autoFocus={autoFocus}
