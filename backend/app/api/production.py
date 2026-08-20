@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
-from app.models.dictionaries import Color, Material, Thickness
+from app.models.dictionaries import Color, Material, MaterialSku, Thickness
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.production import (
     ProductionLine,
@@ -17,6 +17,7 @@ from app.models.production import (
 )
 from app.models.users import User
 from app.schemas.production import (
+    BlankDemandLineOut,
     NaryadParsedLineOut,
     NaryadParseResultOut,
     ProductionLineCreate,
@@ -42,6 +43,9 @@ from app.services.dictionaries import find_or_create_material_color_thickness
 from app.services.naryad_import import parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.production import (
+    BlankDemandInputLine,
+    BlankSupplyInputLine,
+    aggregate_blank_demand,
     calc_default_strip_width,
     compute_remaining_length_m,
     compute_remaining_pieces,
@@ -408,6 +412,75 @@ def list_production_tasks(db: Session = Depends(get_db), user: User = Depends(ge
         .all()
     )
     return [_task_out(db, t) for t in tasks]
+
+
+@router.get("/blanks-demand", response_model=list[BlankDemandLineOut])
+def get_blanks_demand(
+    db: Session = Depends(get_db), user: User = Depends(require_permission("units.issue"))
+) -> list[BlankDemandLineOut]:
+    """Раздел про «Заготовки» — сколько ещё нужно нарезать про запас, пока
+    задания не расписаны по дням/линиям и за плёнкой ещё не пришли: считает
+    потребность по ВСЕМ активным заданиям целиком (не только уже
+    распределённым, как очередь «Выдача участку»), в сравнении с тем, что
+    уже нарезано и лежит на складе никому не назначенным."""
+    lines = (
+        db.query(ProductionTaskLine)
+        .join(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+        .filter(ProductionTask.is_active.is_(True))
+        .all()
+    )
+    line_ids = [l.id for l in lines]
+    report_aggregates = _line_report_aggregates(db, line_ids)
+    issued_length_by_line = fetch_issued_length_by_task_line(db, line_ids)
+
+    demand_lines = []
+    for line in lines:
+        good, defect = report_aggregates.get(line.id, (0.0, 0.0))
+        issued = issued_length_by_line.get(line.id, 0.0)
+        shortfall = compute_shortfall_length_m(float(line.quantity_pieces), float(line.length_m), defect, issued)
+        if shortfall <= 0:
+            continue
+        sw = (
+            float(line.strip_width_mm)
+            if line.strip_width_mm is not None
+            else calc_default_strip_width(line.part_name, float(line.width_mm))
+        )
+        demand_lines.append(BlankDemandInputLine(line.material_id, line.color_id, line.thickness_id, sw, shortfall))
+
+    supply_rows = (
+        db.query(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id, MaterialUnit.width_mm, MaterialUnit.length_m)
+        .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
+        .filter(MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.production_task_line_id.is_(None))
+        .all()
+    )
+    supply_lines = [
+        BlankSupplyInputLine(material_id, color_id, thickness_id, float(width_mm), float(length_m))
+        for material_id, color_id, thickness_id, width_mm, length_m in supply_rows
+    ]
+
+    rows = aggregate_blank_demand(demand_lines, supply_lines)
+    if not rows:
+        return []
+
+    material_ids = {r.material_id for r in rows}
+    color_ids = {r.color_id for r in rows}
+    thickness_ids = {r.thickness_id for r in rows}
+    materials = {m.id: m.name for m in db.query(Material).filter(Material.id.in_(material_ids)).all()}
+    colors = {c.id: c.name for c in db.query(Color).filter(Color.id.in_(color_ids)).all()}
+    thicknesses = {t.id: float(t.value_mm) for t in db.query(Thickness).filter(Thickness.id.in_(thickness_ids)).all()}
+
+    return [
+        BlankDemandLineOut(
+            material=materials[r.material_id],
+            color=colors[r.color_id],
+            thickness=thicknesses[r.thickness_id],
+            width_mm=r.width_mm,
+            needed_length_m=r.needed_length_m,
+            on_hand_length_m=r.on_hand_length_m,
+            deficit_length_m=r.deficit_length_m,
+        )
+        for r in rows
+    ]
 
 
 @router.post("/production-tasks/manual", response_model=ProductionTaskOut, status_code=status.HTTP_201_CREATED)

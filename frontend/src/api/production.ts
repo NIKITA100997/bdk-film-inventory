@@ -270,3 +270,20 @@ export const archiveProductionTask = async (taskId: number, isActive: boolean): 
 export const deleteProductModel = async (modelId: number): Promise<void> => {
   await apiClient.delete(`/product-models/${modelId}`);
 };
+
+// Раздел про «Заготовки» — сколько плёнки этой позиции и ширины ещё
+// нужно по ВСЕМ активным заданиям (не только уже распределённым по
+// дням/линиям, как очередь «Выдача участку») в сравнении с тем, сколько
+// уже нарезано и лежит на складе никому не назначенным.
+export interface BlankDemandLine {
+  material: string;
+  color: string;
+  thickness: number;
+  width_mm: number;
+  needed_length_m: number;
+  on_hand_length_m: number;
+  deficit_length_m: number;
+}
+
+export const getBlanksDemand = async (): Promise<BlankDemandLine[]> =>
+  (await apiClient.get<BlankDemandLine[]>("/blanks-demand")).data;

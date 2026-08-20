@@ -13,6 +13,7 @@ import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
 import MaterialCard from "./pages/desktop/MaterialCard";
 import Reports from "./pages/desktop/Reports";
 import Defects from "./pages/desktop/Defects";
+import Blanks from "./pages/desktop/Blanks";
 import StorageMap from "./pages/desktop/StorageMap";
 import CalcSettingsAdmin from "./pages/desktop/CalcSettingsAdmin";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
@@ -45,6 +46,7 @@ export default function AppRoutes() {
         <Route path="/m/receive" element={<RequirePermission permissions={["units.receive"]}><Receive /></RequirePermission>} />
         <Route path="/m/initial-stock" element={<RequirePermission permissions={["units.receive"]}><InitialStock /></RequirePermission>} />
         <Route path="/m/issue" element={<RequirePermission permissions={["units.issue"]}><Issue /></RequirePermission>} />
+        <Route path="/blanks" element={<RequirePermission permissions={["units.issue"]}><Blanks /></RequirePermission>} />
         <Route
           path="/m/unit-card"
           element={

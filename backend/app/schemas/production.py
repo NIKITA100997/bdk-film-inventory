@@ -212,3 +212,19 @@ class ProductionTaskOut(BaseModel):
     created_at: datetime
     is_active: bool
     lines: list[ProductionTaskLineOut]
+
+
+class BlankDemandLineOut(BaseModel):
+    """Раздел про «Заготовки» — сколько плёнки этой позиции и ширины ещё
+    нужно по ВСЕМ активным заданиям (не только уже распределённым по
+    дням/линиям, в отличие от очереди «Выдача участку») в сравнении с тем,
+    сколько уже нарезано и лежит на складе никому не назначенным
+    (production_task_line_id IS NULL)."""
+
+    material: str
+    color: str
+    thickness: float
+    width_mm: float
+    needed_length_m: float
+    on_hand_length_m: float
+    deficit_length_m: float

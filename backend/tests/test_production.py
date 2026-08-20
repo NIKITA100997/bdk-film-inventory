@@ -1,5 +1,8 @@
 from app.services.production import (
+    BlankDemandInputLine,
+    BlankSupplyInputLine,
     TaskLineForReserve,
+    aggregate_blank_demand,
     calc_default_strip_width,
     compute_expected_return_length_m,
     compute_remaining_length_m,
@@ -151,3 +154,67 @@ class TestReservedAreaM2ByGroup:
 
     def test_empty_lines_gives_empty_result(self):
         assert reserved_area_m2_by_group([]) == {}
+
+
+class TestAggregateBlankDemand:
+    """Раздел про «Заготовки» — резать в ширину заранее, до того как
+    задания реально распределены и за ними «пришли»."""
+
+    def test_deficit_when_needed_exceeds_on_hand(self):
+        demand = [BlankDemandInputLine(1, 2, 3, 292, 500)]
+        supply = [BlankSupplyInputLine(1, 2, 3, 292, 200)]
+        rows = aggregate_blank_demand(demand, supply)
+        assert len(rows) == 1
+        row = rows[0]
+        assert (row.material_id, row.color_id, row.thickness_id, row.width_mm) == (1, 2, 3, 292)
+        assert row.needed_length_m == 500
+        assert row.on_hand_length_m == 200
+        assert row.deficit_length_m == 300
+
+    def test_surplus_when_on_hand_exceeds_needed(self):
+        demand = [BlankDemandInputLine(1, 2, 3, 292, 100)]
+        supply = [BlankSupplyInputLine(1, 2, 3, 292, 400)]
+        row = aggregate_blank_demand(demand, supply)[0]
+        assert row.deficit_length_m == -300
+
+    def test_sums_multiple_demand_lines_same_width(self):
+        demand = [
+            BlankDemandInputLine(1, 2, 3, 292, 100),
+            BlankDemandInputLine(1, 2, 3, 292, 250),
+        ]
+        row = aggregate_blank_demand(demand, [])[0]
+        assert row.needed_length_m == 350
+        assert row.on_hand_length_m == 0
+
+    def test_sums_multiple_supply_units_same_width(self):
+        supply = [
+            BlankSupplyInputLine(1, 2, 3, 292, 40),
+            BlankSupplyInputLine(1, 2, 3, 292, 60),
+        ]
+        row = aggregate_blank_demand([], supply)[0]
+        assert row.on_hand_length_m == 100
+        assert row.needed_length_m == 0
+        assert row.deficit_length_m == -100
+
+    def test_different_widths_not_mixed(self):
+        demand = [BlankDemandInputLine(1, 2, 3, 292, 100), BlankDemandInputLine(1, 2, 3, 285, 50)]
+        supply = [BlankSupplyInputLine(1, 2, 3, 292, 20)]
+        rows = {r.width_mm: r for r in aggregate_blank_demand(demand, supply)}
+        assert rows[292].needed_length_m == 100
+        assert rows[292].on_hand_length_m == 20
+        assert rows[285].needed_length_m == 50
+        assert rows[285].on_hand_length_m == 0
+
+    def test_different_materials_not_mixed_even_at_same_width(self):
+        demand = [BlankDemandInputLine(1, 2, 3, 292, 100), BlankDemandInputLine(9, 9, 9, 292, 200)]
+        rows = {(r.material_id, r.color_id, r.thickness_id): r for r in aggregate_blank_demand(demand, [])}
+        assert rows[(1, 2, 3)].needed_length_m == 100
+        assert rows[(9, 9, 9)].needed_length_m == 200
+
+    def test_sorted_worst_deficit_first(self):
+        demand = [BlankDemandInputLine(1, 1, 1, 100, 50), BlankDemandInputLine(2, 2, 2, 200, 500)]
+        rows = aggregate_blank_demand(demand, [])
+        assert [r.width_mm for r in rows] == [200, 100]
+
+    def test_empty_input_gives_empty_result(self):
+        assert aggregate_blank_demand([], []) == []

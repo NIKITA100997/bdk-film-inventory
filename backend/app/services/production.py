@@ -120,3 +120,89 @@ def compute_expected_return_length_m(
     готовое изделие). Не уходит в минус, если факт производства почему-то
     превысил выданную длину."""
     return max(0.0, issued_length_m - length_m_per_piece * (good_pieces + defect_pieces))
+
+
+# --- Раздел про «Заготовки» — резать в ширину заранее, до того как задания ---
+# --- реально распределены по дням/линиям и за ними «пришли» -------------------
+
+
+@dataclass
+class BlankDemandInputLine:
+    """Одна строка задания, посчитанная в потребность на нарезку заготовок
+    — GROUP BY делается в Python (aggregate_blank_demand), не в SQL: та
+    же ширина штрипса может встречаться в разных заданиях/моделях, а
+    считать нужно суммарно, независимо от того, распределена ли строка
+    уже по линиям/дням (в отличие от очереди "Выдача участку", которая
+    видит только уже распределённое на сегодня/неделю)."""
+
+    material_id: int
+    color_id: int
+    thickness_id: int
+    strip_width_mm: float
+    shortfall_length_m: float
+
+
+@dataclass
+class BlankSupplyInputLine:
+    """Один рулон/штрипс на хранении, ещё не привязанный ни к одной строке
+    задания (production_task_line_id IS NULL) — структурно это и есть
+    "заготовка": нарезан заранее, ждёт, когда придёт задание нужной
+    ширины."""
+
+    material_id: int
+    color_id: int
+    thickness_id: int
+    width_mm: float
+    length_m: float
+
+
+@dataclass
+class BlankDemandRow:
+    material_id: int
+    color_id: int
+    thickness_id: int
+    width_mm: float
+    needed_length_m: float
+    on_hand_length_m: float
+    deficit_length_m: float
+
+
+def aggregate_blank_demand(
+    demand: list[BlankDemandInputLine], supply: list[BlankSupplyInputLine]
+) -> list[BlankDemandRow]:
+    """Сводит потребность (сумма shortfall_length_m по всем активным
+    строкам заданий этой позиции+ширины) и наличие (сумма length_m уже
+    нарезанных, никому не назначенных заготовок) в одну таблицу —
+    deficit_length_m > 0 значит "надо резать ещё", < 0 — уже есть запас
+    сверх текущей потребности. Строки без потребности, но с запасом
+    (простаивающие заготовки) тоже попадают в список — для видимости, не
+    только дефицит; сортировка по убыванию дефицита, чтобы самое срочное
+    было сверху."""
+    needed: dict[tuple[int, int, int, float], float] = {}
+    for d in demand:
+        key = (d.material_id, d.color_id, d.thickness_id, d.strip_width_mm)
+        needed[key] = needed.get(key, 0.0) + d.shortfall_length_m
+
+    on_hand: dict[tuple[int, int, int, float], float] = {}
+    for s in supply:
+        key = (s.material_id, s.color_id, s.thickness_id, s.width_mm)
+        on_hand[key] = on_hand.get(key, 0.0) + s.length_m
+
+    rows = []
+    for key in set(needed) | set(on_hand):
+        material_id, color_id, thickness_id, width_mm = key
+        n = needed.get(key, 0.0)
+        h = on_hand.get(key, 0.0)
+        rows.append(
+            BlankDemandRow(
+                material_id=material_id,
+                color_id=color_id,
+                thickness_id=thickness_id,
+                width_mm=width_mm,
+                needed_length_m=round(n, 2),
+                on_hand_length_m=round(h, 2),
+                deficit_length_m=round(n - h, 2),
+            )
+        )
+    rows.sort(key=lambda r: r.deficit_length_m, reverse=True)
+    return rows
