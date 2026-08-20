@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Card, Tabs, DatePicker, Space, Statistic, Row, Col, Tag, InputNumber } from "antd";
+import { Card, Tabs, DatePicker, Space, Row, Col, Tag, InputNumber } from "antd";
+import Statistic from "../../components/Statistic";
 import { useQuery } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";
 import {

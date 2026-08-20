@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Card, Select, InputNumber, Space, Typography, Tag, Image, Empty, Statistic, Row, Col } from "antd";
+import { Card, Select, InputNumber, Space, Typography, Tag, Image, Empty, Row, Col } from "antd";
+import Statistic from "../../components/Statistic";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { PictureOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";

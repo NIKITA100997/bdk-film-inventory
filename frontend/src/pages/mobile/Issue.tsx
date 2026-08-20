@@ -12,11 +12,11 @@ import {
   Row,
   Select,
   Space,
-  Statistic,
   Tag,
   Typography,
   message,
 } from "antd";
+import Statistic from "../../components/Statistic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";

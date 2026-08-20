@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Card, Col, Row, Statistic, Typography, Space, Button, Input } from "antd";
+import { Card, Col, Row, Typography, Space, Button, Input } from "antd";
+import Statistic from "../../components/Statistic";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";

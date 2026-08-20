@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Alert, Button, Card, Form, Input, InputNumber, Select, Typography, List, Row, Col, Statistic, message } from "antd";
+import { Alert, Button, Card, Form, Input, InputNumber, Select, Typography, List, Row, Col, message } from "antd";
+import Statistic from "../../components/Statistic";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { receiveAndAutoPlace, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import { listWarehouses } from "../../api/storage";

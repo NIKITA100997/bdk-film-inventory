@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Alert, Button, Card, Form, InputNumber, Select, Space, Typography, List, Row, Col, Statistic, message } from "antd";
+import { Alert, Button, Card, Form, InputNumber, Select, Space, Typography, List, Row, Col, message } from "antd";
+import Statistic from "../../components/Statistic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { receiveUnits, printLabel, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import { listRacks, getRackOccupancy } from "../../api/storage";

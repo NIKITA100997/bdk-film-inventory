@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Card, Tabs, DatePicker, Space, Statistic, Row, Col, Tag, Select, Progress, Typography, Switch, Empty, Table } from "antd";
+import { Card, Tabs, DatePicker, Space, Row, Col, Tag, Select, Progress, Typography, Switch, Empty, Table } from "antd";
+import Statistic from "../../components/Statistic";
 import { ArrowUpOutlined, ArrowDownOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";

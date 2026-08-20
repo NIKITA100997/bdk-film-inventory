@@ -10,7 +10,6 @@ import {
   InputNumber,
   Select,
   Space,
-  Statistic,
   Row,
   Col,
   List,
@@ -19,6 +18,7 @@ import {
   message,
   type FormInstance,
 } from "antd";
+import Statistic from "../../components/Statistic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listSessions,

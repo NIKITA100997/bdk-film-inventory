@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, Select, Row, Col, Statistic, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Form, Typography, Empty, Upload, Image, Checkbox, message } from "antd";
+import { Card, Select, Row, Col, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Form, Typography, Empty, Upload, Image, Checkbox, message } from "antd";
+import Statistic from "../../components/Statistic";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
