@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import { useAuth } from "../../auth/AuthContext";
 import { listPurchaseRequests } from "../../api/purchasing";
 import { listSessions } from "../../api/inventory";
-import { getDonorAccuracy, getStaleUnits } from "../../api/reports";
+import { getDonorAccuracy, getStaleUnits, getDefectsOverview } from "../../api/reports";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { getBlanksDemand } from "../../api/production";
 import { searchUnits } from "../../api/units";
@@ -29,6 +29,7 @@ export default function Overview() {
   const showInventory = has("inventory.manage");
   const showDonorAccuracy = has("reports.view");
   const showStale = has("inventory.manage");
+  const showDefects = has("reports.view");
   const showBlanks = has("units.issue");
   const showSales = has("sales_calculator.view");
   const hasReceive = has("units.receive");
@@ -54,6 +55,14 @@ export default function Overview() {
     enabled: showDonorAccuracy,
   });
   const staleQuery = useQuery({ queryKey: ["stale-units", "overview"], queryFn: () => getStaleUnits(), enabled: showStale });
+  // Раздел 16 бэклога доработок — «брак/списания» был одним из сигналов,
+  // разбросанных по разным местам без представления на «Обзоре» вовсе
+  // (в отличие от донор-рекомендаций, у которых карточка уже была).
+  const defectsQuery = useQuery({
+    queryKey: ["defects-overview", "overview"],
+    queryFn: () => getDefectsOverview(dayjs().subtract(30, "day").format("YYYY-MM-DD"), dayjs().format("YYYY-MM-DD")),
+    enabled: showDefects,
+  });
   // Раздел 16 бэклога доработок — "Заготовки" не всплывали нигде, кроме
   // своего пункта меню (та же ошибка, что раньше была с донор-рекомендациями,
   // 2.2), источник потребности виден только тому, кто зашёл специально.
@@ -126,6 +135,19 @@ export default function Overview() {
             </Card>
           </Col>
         )}
+        {showDefects && defectsQuery.data && (
+          <Col xs={12} sm={12} md={8} lg={6}>
+            <Card loading={defectsQuery.isLoading} {...clickableProps("/defects")}>
+              <Statistic
+                title="Реальный брак/повреждения, 30 дней"
+                value={defectsQuery.data.warehouse_real_defect_m}
+                suffix="м"
+                precision={1}
+                valueStyle={{ color: (defectsQuery.data.warehouse_real_defect_m_delta_percent ?? 0) > 0 ? "#C97A2B" : undefined }}
+              />
+            </Card>
+          </Col>
+        )}
         {showStale && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={staleQuery.isLoading} {...clickableProps("/reports")}>
@@ -191,6 +213,7 @@ export default function Overview() {
         !showInventory &&
         !showDonorAccuracy &&
         !showStale &&
+        !showDefects &&
         !showBlanks &&
         !showSales &&
         !showIssuedWork &&
