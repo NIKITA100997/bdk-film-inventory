@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, Col, Row, Typography, Space, Button, Input } from "antd";
 import Statistic from "../../components/Statistic";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import { useAuth } from "../../auth/AuthContext";
 import { listPurchaseRequests } from "../../api/purchasing";
@@ -13,6 +13,8 @@ import { getBlanksDemand } from "../../api/production";
 import { searchUnits } from "../../api/units";
 import { listAreas } from "../../api/areas";
 import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
+import { isOnboardingSeen } from "../../utils/onboarding";
+import OnboardingCard from "../../components/OnboardingCard";
 
 /** Обзор (5.5 ТЗ) — сводка сигналов по роли: у каждой роли своя выборка
  * карточек, собранная из уже существующих отчётов/списков (без нового
@@ -23,7 +25,21 @@ import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
 export default function Overview() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const has = (permission: string) => !!user?.is_superuser || !!user?.permissions.includes(permission);
+
+  // Раздел 16 бэклога доработок — онбординг нового сотрудника. Авто-показ
+  // при первом входе (не видел ни разу — localStorage по userId) либо по
+  // явному флагу из навигации (повторное открытие через меню пользователя,
+  // AppLayout.tsx — тот же паттерн navigate(path,{state}), что и
+  // runUnitOrMaterialSearch/UnitCard.tsx).
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    const forced = (location.state as { showOnboarding?: boolean } | null)?.showOnboarding;
+    if (forced || !isOnboardingSeen(user.id)) setShowOnboarding(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, user?.id]);
 
   const showPurchasing = has("purchasing.manage");
   const showInventory = has("inventory.manage");
@@ -96,6 +112,8 @@ export default function Overview() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Typography.Title level={4}>Обзор</Typography.Title>
+
+      {showOnboarding && <OnboardingCard onClose={() => setShowOnboarding(false)} />}
 
       <Row gutter={[16, 16]}>
         {showIssuedWork && user?.area && (

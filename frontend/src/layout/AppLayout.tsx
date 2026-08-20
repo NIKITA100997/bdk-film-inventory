@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Layout, Menu, Typography, Button, Input, Avatar, Dropdown, Switch } from "antd";
 import type { MenuProps } from "antd";
-import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined } from "@ant-design/icons";
+import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { navTree, type NavItem } from "./navConfig";
@@ -76,6 +76,18 @@ export default function AppLayout() {
         </div>
       ),
       disabled: true,
+    },
+    { type: "divider" },
+    {
+      // Повторное открытие приветственной карточки (раздел 16 бэклога
+      // доработок — онбординг) — не отдельная иконка в шапке, там и так
+      // тесно на планшете (см. комментарий про searchOpen ниже), а пункт
+      // в уже существующем меню пользователя, тем же паттерном
+      // navigate(path,{state}), что и runUnitOrMaterialSearch.
+      key: "help",
+      label: "Что мне тут делать? (подсказка)",
+      icon: <QuestionCircleOutlined />,
+      onClick: () => navigate("/", { state: { showOnboarding: true } }),
     },
     { type: "divider" },
     {
