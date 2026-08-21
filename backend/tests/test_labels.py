@@ -11,6 +11,7 @@ from app.services.labels import (
     LabelData,
     _fit_font_size_horizontal,
     _fit_font_size_vertical,
+    _pdf_page_size,
     _wrap_pdf_text,
     indicator_color,
     label_data_from_unit,
@@ -286,6 +287,31 @@ class TestRenderLabelHtml:
         html = render_label_html(SAMPLE, fields=fields)
         assert "Из рулона" not in html
 
+    def test_vertical_swaps_page_rule_but_keeps_content_box_native_size(self):
+        """Раздел про ориентацию печати — физическая страница (@page,
+        реально уходит в печать) повёрнута, но .label-page (контент)
+        остаётся исходного размера и поворачивается CSS-трансформацией —
+        раньше страница просто становилась уже, а сам текст полей всё
+        равно рисовался горизонтальной строкой ("размер верный, но
+        горизонтально")."""
+        html = render_label_html(SAMPLE, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40, vertical=True)
+        assert "size: 40mm 100mm" in html  # физическая страница повёрнута
+        assert "width: 100mm; height: 40mm" in html  # .label-table/.label-box/.label-page — исходный размер
+        assert "rotate(90deg)" in html
+
+    def test_non_vertical_has_no_rotation_transform(self):
+        html = render_label_html(SAMPLE, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40, vertical=False)
+        assert "size: 100mm 40mm" in html
+        assert "rotate(90deg)" not in html
+
+
+class TestPdfPageSize:
+    def test_not_vertical_keeps_order(self):
+        assert _pdf_page_size(100.0, 40.0, vertical=False) == (100.0, 40.0)
+
+    def test_vertical_swaps_order(self):
+        assert _pdf_page_size(100.0, 40.0, vertical=True) == (40.0, 100.0)
+
 
 class TestRenderLabelPdf:
     """PDF — основной путь печати с раздела обратной связи по Codex G500
@@ -311,6 +337,13 @@ class TestRenderLabelPdf:
         fields = [f for f in DEFAULT_FIELDS if f["key"] not in ("qr", "status_stripe")]
         pdf = render_label_pdf(SAMPLE, fields=fields, width_mm=100, height_mm=40)
         assert pdf.startswith(b"%PDF-")
+
+    def test_vertical_still_renders_valid_pdf(self):
+        """Раздел про ориентацию печати — настоящий поворот канваса
+        (translate+rotate) не должен ломать сам рендер."""
+        pdf = render_label_pdf(SAMPLE, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40, vertical=True)
+        assert pdf.startswith(b"%PDF-")
+        assert pdf.rstrip().endswith(b"%%EOF")
 
 
 class TestRenderLabelsPdfBatch:

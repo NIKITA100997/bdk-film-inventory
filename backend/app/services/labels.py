@@ -367,9 +367,22 @@ def _label_markup(
   </div>"""
 
 
-def _label_doc_styles(width_mm: int, height_mm: int) -> str:
+def _label_doc_styles(width_mm: int, height_mm: int, vertical: bool = False) -> str:
+    """Раздел про ориентацию печати — при vertical=True физическая
+    страница (@page, то, что реально уходит в печать) повёрнута
+    (width_mm/height_mm меняются местами), но .label-page внутри
+    по-прежнему исходного размера и поворачивается на 90° через CSS
+    transform целиком — раньше страница просто становилась уже, а сам
+    текст полей всё равно рисовался горизонтальной строкой ("размер
+    верный, но горизонтально"). transform-origin:top left +
+    rotate(90deg) translate(0,-100%) — стандартная комбинация, переносящая
+    повёрнутый прямоугольник ровно в границы новой (повёрнутой) страницы.
+    Если на реальном принтере поворот окажется в другую сторону — заменить
+    на rotate(-90deg) translate(-100%, 0)."""
+    page_w, page_h = (height_mm, width_mm) if vertical else (width_mm, height_mm)
+    rotation_css = "transform-origin: top left; transform: rotate(90deg) translate(0, -100%);" if vertical else ""
     return f"""
-  @page {{ size: {width_mm}mm {height_mm}mm; margin: 0; }}
+  @page {{ size: {page_w}mm {page_h}mm; margin: 0; }}
   * {{ box-sizing: border-box; }}
   html, body {{ margin: 0; padding: 0; font-family: "Calibri", "Segoe UI", Arial, sans-serif; color: {NAVY}; background: #fff; }}
   table.label-table {{ width: {width_mm}mm; height: {height_mm}mm; border-collapse: collapse; table-layout: fixed; border: 1px solid {BORDER}; border-radius: 4px; overflow: hidden; }}
@@ -378,7 +391,7 @@ def _label_doc_styles(width_mm: int, height_mm: int) -> str:
   td.text-td {{ vertical-align: middle; text-align: left; padding: 2mm 3mm 2mm 1mm; overflow: hidden; word-break: break-word; }}
   .label-box {{ width: {width_mm}mm; height: {height_mm}mm; border: 1px solid {BORDER}; border-radius: 6px; overflow: hidden; display: block; position: relative; }}
   .content-box {{ padding: 2mm; text-align: center; }}
-  .label-page {{ width: {width_mm}mm; height: {height_mm}mm; overflow: hidden; }}
+  .label-page {{ width: {width_mm}mm; height: {height_mm}mm; overflow: hidden; {rotation_css} }}
   .label-page + .label-page {{ page-break-before: always; }}
   @media print {{ .no-print {{ display: none; }} }}
 """
@@ -390,6 +403,7 @@ def render_label_html(
     fields: list[dict] | None = None,
     width_mm: int = DEFAULT_WIDTH_MM,
     height_mm: int = DEFAULT_HEIGHT_MM,
+    vertical: bool = False,
 ) -> str:
     """HTML-версия этикетки — печатается через нативный window.print() браузера
     вместо PDF-blob. На планшетах (Android Chrome/Яндекс.Браузер) печать PDF,
@@ -406,7 +420,7 @@ def render_label_html(
 <head>
 <meta charset="utf-8">
 <title>Этикетка №{data.unit_id}</title>
-<style>{_label_doc_styles(width_mm, height_mm)}</style>
+<style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
   <div class="label-page">{markup}</div>
@@ -423,6 +437,7 @@ def render_labels_html_batch(
     fields: list[dict] | None = None,
     width_mm: int = DEFAULT_WIDTH_MM,
     height_mm: int = DEFAULT_HEIGHT_MM,
+    vertical: bool = False,
 ) -> str:
     """Несколько этикеток одной HTML-страницей — печать очередью с планшета
     (аналог render_labels_pdf_batch для PDF-пути). Каждая этикетка на своей
@@ -437,7 +452,7 @@ def render_labels_html_batch(
 <head>
 <meta charset="utf-8">
 <title>Этикетки ({len(items)})</title>
-<style>{_label_doc_styles(width_mm, height_mm)}</style>
+<style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
   {pages}
@@ -534,6 +549,37 @@ def _wrap_pdf_fields(
         font_name = _PDF_HEADING_FONT_BOLD if f["key"] == heading_key else (_PDF_BODY_FONT_BOLD if f.get("bold") else _PDF_BODY_FONT)
         result.append((f, _wrap_pdf_text(c, val, font_name, size_pt, max_width_pt)))
     return result
+
+
+def _pdf_page_size(width_pt: float, height_pt: float, vertical: bool) -> tuple[float, float]:
+    """Раздел про ориентацию печати — физическая страница PDF повёрнута
+    (ширина/высота бумаги меняются местами), но координаты отрисовки
+    остаются исходными (см. _apply_pdf_vertical_rotation ниже) — макет как
+    был спроектирован под width_mm×height_mm, так и рисуется, самому коду
+    отрисовки (_draw_label_page и т.п.) о повороте ничего знать не нужно."""
+    return (height_pt, width_pt) if vertical else (width_pt, height_pt)
+
+
+def _apply_pdf_vertical_rotation(c: pdfcanvas.Canvas, width_pt: float, height_pt: float, vertical: bool) -> None:
+    """Настоящий поворот канваса на 90° (не просто смена местами ширины и
+    высоты страницы, как было раньше) — раньше при печати "вертикально"
+    страница физически становилась уже, но сам текст полей рисовался
+    по-прежнему горизонтальной строкой, просто в более узком прямоугольнике
+    ("размер верный, но печатает горизонтально"). После translate+rotate
+    весь макет целиком (все поля, не только гигантское) поворачивается как
+    единое целое — расположение полей друг относительно друга не меняется,
+    меняется только то, что видно на бумаге при печати. c.showPage()
+    сбрасывает трансформацию канваса — при печати нескольких этикеток в
+    одном PDF (batch) вызывать заново после каждого showPage().
+
+    Если после печати на реальном принтере поворот окажется в другую
+    сторону (лицом наоборот) — единственное, что нужно поменять, это знак
+    угла: c.rotate(-90) вместо c.rotate(90) (и translate — по высоте, а не
+    по ширине)."""
+    if not vertical:
+        return
+    c.translate(height_pt, 0)
+    c.rotate(90)
 
 
 def _clip_pdf_to_label_bounds(c: pdfcanvas.Canvas, width_pt: float, height_pt: float) -> None:
@@ -788,6 +834,7 @@ def render_label_pdf(
     fields: list[dict] | None = None,
     width_mm: int = DEFAULT_WIDTH_MM,
     height_mm: int = DEFAULT_HEIGHT_MM,
+    vertical: bool = False,
 ) -> bytes:
     """PDF-версия этикетки — по итогам полевого тестирования печати (раздел
     обратной связи): прямая печать HTML-страницы из браузера на часть
@@ -805,7 +852,8 @@ def render_label_pdf(
     fields = fields if fields is not None else DEFAULT_FIELDS
     width_pt, height_pt = width_mm * MM, height_mm * MM
     buf = BytesIO()
-    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
+    c = pdfcanvas.Canvas(buf, pagesize=_pdf_page_size(width_pt, height_pt, vertical))
+    _apply_pdf_vertical_rotation(c, width_pt, height_pt, vertical)
     _draw_label_page(c, data, fields, width_mm, height_mm)
     c.showPage()
     c.save()
@@ -818,6 +866,7 @@ def render_labels_pdf_batch(
     fields: list[dict] | None = None,
     width_mm: int = DEFAULT_WIDTH_MM,
     height_mm: int = DEFAULT_HEIGHT_MM,
+    vertical: bool = False,
 ) -> bytes:
     """Один PDF на несколько этикеток вместо N отдельных — очередь печати
     (раздел про ускорение работы): при приёмке партии из N рулонов кнопка
@@ -829,8 +878,9 @@ def render_labels_pdf_batch(
     fields = fields if fields is not None else DEFAULT_FIELDS
     width_pt, height_pt = width_mm * MM, height_mm * MM
     buf = BytesIO()
-    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
+    c = pdfcanvas.Canvas(buf, pagesize=_pdf_page_size(width_pt, height_pt, vertical))
     for data in items:
+        _apply_pdf_vertical_rotation(c, width_pt, height_pt, vertical)
         _draw_label_page(c, data, fields, width_mm, height_mm)
         c.showPage()
     c.save()
@@ -1072,7 +1122,12 @@ def _shelf_label_markup(data: ShelfLabelData, *, fields: list[dict], width_mm: i
 
 
 def render_shelf_label_html(
-    data: ShelfLabelData, *, fields: list[dict] | None = None, width_mm: int = DEFAULT_SHELF_WIDTH_MM, height_mm: int = DEFAULT_SHELF_HEIGHT_MM
+    data: ShelfLabelData,
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_SHELF_WIDTH_MM,
+    height_mm: int = DEFAULT_SHELF_HEIGHT_MM,
+    vertical: bool = False,
 ) -> str:
     fields = fields if fields is not None else DEFAULT_FIELDS_SHELF
     markup = _shelf_label_markup(data, fields=fields, width_mm=width_mm, height_mm=height_mm)
@@ -1081,7 +1136,7 @@ def render_shelf_label_html(
 <head>
 <meta charset="utf-8">
 <title>Этикетка {data.location_code}</title>
-<style>{_label_doc_styles(width_mm, height_mm)}</style>
+<style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
   <div class="label-page">{markup}</div>
@@ -1093,7 +1148,12 @@ def render_shelf_label_html(
 
 
 def render_shelf_labels_html_batch(
-    items: list[ShelfLabelData], *, fields: list[dict] | None = None, width_mm: int = DEFAULT_SHELF_WIDTH_MM, height_mm: int = DEFAULT_SHELF_HEIGHT_MM
+    items: list[ShelfLabelData],
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_SHELF_WIDTH_MM,
+    height_mm: int = DEFAULT_SHELF_HEIGHT_MM,
+    vertical: bool = False,
 ) -> str:
     fields = fields if fields is not None else DEFAULT_FIELDS_SHELF
     pages = "".join(
@@ -1105,7 +1165,7 @@ def render_shelf_labels_html_batch(
 <head>
 <meta charset="utf-8">
 <title>Этикетки мест хранения ({len(items)})</title>
-<style>{_label_doc_styles(width_mm, height_mm)}</style>
+<style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
   {pages}
@@ -1179,13 +1239,19 @@ def _draw_shelf_label_page(c: pdfcanvas.Canvas, data: ShelfLabelData, fields: li
 
 
 def render_shelf_label_pdf(
-    data: ShelfLabelData, *, fields: list[dict] | None = None, width_mm: int = DEFAULT_SHELF_WIDTH_MM, height_mm: int = DEFAULT_SHELF_HEIGHT_MM
+    data: ShelfLabelData,
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_SHELF_WIDTH_MM,
+    height_mm: int = DEFAULT_SHELF_HEIGHT_MM,
+    vertical: bool = False,
 ) -> bytes:
     _register_pdf_fonts()
     fields = fields if fields is not None else DEFAULT_FIELDS_SHELF
     width_pt, height_pt = width_mm * MM, height_mm * MM
     buf = BytesIO()
-    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
+    c = pdfcanvas.Canvas(buf, pagesize=_pdf_page_size(width_pt, height_pt, vertical))
+    _apply_pdf_vertical_rotation(c, width_pt, height_pt, vertical)
     _draw_shelf_label_page(c, data, fields, width_mm, height_mm)
     c.showPage()
     c.save()
@@ -1193,14 +1259,20 @@ def render_shelf_label_pdf(
 
 
 def render_shelf_labels_pdf_batch(
-    items: list[ShelfLabelData], *, fields: list[dict] | None = None, width_mm: int = DEFAULT_SHELF_WIDTH_MM, height_mm: int = DEFAULT_SHELF_HEIGHT_MM
+    items: list[ShelfLabelData],
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_SHELF_WIDTH_MM,
+    height_mm: int = DEFAULT_SHELF_HEIGHT_MM,
+    vertical: bool = False,
 ) -> bytes:
     _register_pdf_fonts()
     fields = fields if fields is not None else DEFAULT_FIELDS_SHELF
     width_pt, height_pt = width_mm * MM, height_mm * MM
     buf = BytesIO()
-    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
+    c = pdfcanvas.Canvas(buf, pagesize=_pdf_page_size(width_pt, height_pt, vertical))
     for data in items:
+        _apply_pdf_vertical_rotation(c, width_pt, height_pt, vertical)
         _draw_shelf_label_page(c, data, fields, width_mm, height_mm)
         c.showPage()
     c.save()
@@ -1387,7 +1459,12 @@ def _rack_label_markup(data: RackLabelData, *, fields: list[dict], width_mm: int
 
 
 def render_rack_label_html(
-    data: RackLabelData, *, fields: list[dict] | None = None, width_mm: int = DEFAULT_RACK_WIDTH_MM, height_mm: int = DEFAULT_RACK_HEIGHT_MM
+    data: RackLabelData,
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_RACK_WIDTH_MM,
+    height_mm: int = DEFAULT_RACK_HEIGHT_MM,
+    vertical: bool = False,
 ) -> str:
     fields = fields if fields is not None else DEFAULT_FIELDS_RACK
     markup = _rack_label_markup(data, fields=fields, width_mm=width_mm, height_mm=height_mm)
@@ -1396,7 +1473,7 @@ def render_rack_label_html(
 <head>
 <meta charset="utf-8">
 <title>Этикетка стеллажа {data.rack_code}</title>
-<style>{_label_doc_styles(width_mm, height_mm)}</style>
+<style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
   <div class="label-page">{markup}</div>
@@ -1470,13 +1547,19 @@ def _draw_rack_label_page(c: pdfcanvas.Canvas, data: RackLabelData, fields: list
 
 
 def render_rack_label_pdf(
-    data: RackLabelData, *, fields: list[dict] | None = None, width_mm: int = DEFAULT_RACK_WIDTH_MM, height_mm: int = DEFAULT_RACK_HEIGHT_MM
+    data: RackLabelData,
+    *,
+    fields: list[dict] | None = None,
+    width_mm: int = DEFAULT_RACK_WIDTH_MM,
+    height_mm: int = DEFAULT_RACK_HEIGHT_MM,
+    vertical: bool = False,
 ) -> bytes:
     _register_pdf_fonts()
     fields = fields if fields is not None else DEFAULT_FIELDS_RACK
     width_pt, height_pt = width_mm * MM, height_mm * MM
     buf = BytesIO()
-    c = pdfcanvas.Canvas(buf, pagesize=(width_pt, height_pt))
+    c = pdfcanvas.Canvas(buf, pagesize=_pdf_page_size(width_pt, height_pt, vertical))
+    _apply_pdf_vertical_rotation(c, width_pt, height_pt, vertical)
     _draw_rack_label_page(c, data, fields, width_mm, height_mm)
     c.showPage()
     c.save()

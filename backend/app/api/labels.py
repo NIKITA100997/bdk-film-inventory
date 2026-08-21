@@ -83,16 +83,6 @@ def _content_disposition(filename: str) -> str:
     return f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
 
 
-def _oriented(template: LabelTemplate, vertical: bool) -> tuple[int, int]:
-    """Печать той же этикетки в вертикальном виде (раздел про ориентацию
-    печати) — размеры макета не меняются, просто ширина и высота
-    меняются местами перед отрисовкой: остальной код макета уже сам
-    решает раскладку (QR сбоку от текста или над ним) по тому, что больше
-    — ширина или высота, так что перестановка местами даёт корректный
-    повёрнутый макет без отдельной ветки вёрстки."""
-    return (template.height_mm, template.width_mm) if vertical else (template.width_mm, template.height_mm)
-
-
 def _get_template(db: Session, kind: str) -> LabelTemplate:
     template = db.query(LabelTemplate).filter(LabelTemplate.kind == kind).first()
     if template is None:
@@ -169,8 +159,9 @@ def get_label(unit_id: int, vertical: bool = False, kind: str | None = None, db:
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     template = _get_template(db, kind or _unit_label_kind(unit))
-    width_mm, height_mm = _oriented(template, vertical)
-    pdf_bytes = render_label_pdf(label_data_from_unit(unit), fields=template.fields, width_mm=width_mm, height_mm=height_mm)
+    pdf_bytes = render_label_pdf(
+        label_data_from_unit(unit), fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm, vertical=vertical
+    )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -190,8 +181,9 @@ def get_label_html(
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     template = _get_template(db, kind or _unit_label_kind(unit))
-    width_mm, height_mm = _oriented(template, vertical)
-    html = render_label_html(label_data_from_unit(unit), fields=template.fields, width_mm=width_mm, height_mm=height_mm)
+    html = render_label_html(
+        label_data_from_unit(unit), fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm, vertical=vertical
+    )
     return Response(content=html, media_type="text/html")
 
 
@@ -210,9 +202,12 @@ def get_labels_batch_html(
     # напечатать — на практике пачка почти всегда однородна (одна сессия
     # приёмки/пересчёта одного и того же материала).
     template = _get_template(db, kind or _unit_label_kind(ordered_units[0]))
-    width_mm, height_mm = _oriented(template, vertical)
     html = render_labels_html_batch(
-        [label_data_from_unit(u) for u in ordered_units], fields=template.fields, width_mm=width_mm, height_mm=height_mm
+        [label_data_from_unit(u) for u in ordered_units],
+        fields=template.fields,
+        width_mm=template.width_mm,
+        height_mm=template.height_mm,
+        vertical=vertical,
     )
     return Response(content=html, media_type="text/html")
 
@@ -230,9 +225,12 @@ def get_labels_batch(
     if not ordered_units:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
     template = _get_template(db, kind or _unit_label_kind(ordered_units[0]))
-    width_mm, height_mm = _oriented(template, vertical)
     pdf_bytes = render_labels_pdf_batch(
-        [label_data_from_unit(u) for u in ordered_units], fields=template.fields, width_mm=width_mm, height_mm=height_mm
+        [label_data_from_unit(u) for u in ordered_units],
+        fields=template.fields,
+        width_mm=template.width_mm,
+        height_mm=template.height_mm,
+        vertical=vertical,
     )
     return Response(
         content=pdf_bytes,
@@ -299,7 +297,6 @@ def get_rack_label(rack_id: int, vertical: bool = False, db: Session = Depends(g
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, _rack_label_kind(rack))
-    width_mm, height_mm = _oriented(template, vertical)
     data = RackLabelData(
         rack_code=rack.code,
         warehouse_name=warehouse.name if warehouse else "—",
@@ -307,7 +304,9 @@ def get_rack_label(rack_id: int, vertical: bool = False, db: Session = Depends(g
         shelf_count=rack.shelf_count,
         storage_rules_text=_rack_storage_rules_text(db, _rules_for_rack(db, rack.id)),
     )
-    pdf_bytes = render_rack_label_pdf(data, fields=template.fields, width_mm=width_mm, height_mm=height_mm)
+    pdf_bytes = render_rack_label_pdf(
+        data, fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm, vertical=vertical
+    )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -322,7 +321,6 @@ def get_rack_label_html(rack_id: int, vertical: bool = False, db: Session = Depe
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, _rack_label_kind(rack))
-    width_mm, height_mm = _oriented(template, vertical)
     data = RackLabelData(
         rack_code=rack.code,
         warehouse_name=warehouse.name if warehouse else "—",
@@ -330,7 +328,9 @@ def get_rack_label_html(rack_id: int, vertical: bool = False, db: Session = Depe
         shelf_count=rack.shelf_count,
         storage_rules_text=_rack_storage_rules_text(db, _rules_for_rack(db, rack.id)),
     )
-    html = render_rack_label_html(data, fields=template.fields, width_mm=width_mm, height_mm=height_mm)
+    html = render_rack_label_html(
+        data, fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm, vertical=vertical
+    )
     return Response(content=html, media_type="text/html")
 
 
@@ -348,12 +348,12 @@ def get_shelf_labels_batch(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, "shelf")
-    width_mm, height_mm = _oriented(template, vertical)
     pdf_bytes = render_shelf_labels_pdf_batch(
         _shelf_label_data_for_cells(db, rack, warehouse.name if warehouse else "—", payload),
         fields=template.fields,
-        width_mm=width_mm,
-        height_mm=height_mm,
+        width_mm=template.width_mm,
+        height_mm=template.height_mm,
+        vertical=vertical,
     )
     return Response(
         content=pdf_bytes,
@@ -371,11 +371,11 @@ def get_shelf_labels_batch_html(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, "shelf")
-    width_mm, height_mm = _oriented(template, vertical)
     html = render_shelf_labels_html_batch(
         _shelf_label_data_for_cells(db, rack, warehouse.name if warehouse else "—", payload),
         fields=template.fields,
-        width_mm=width_mm,
-        height_mm=height_mm,
+        width_mm=template.width_mm,
+        height_mm=template.height_mm,
+        vertical=vertical,
     )
     return Response(content=html, media_type="text/html")
