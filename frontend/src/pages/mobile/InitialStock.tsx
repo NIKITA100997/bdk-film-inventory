@@ -76,7 +76,13 @@ export default function InitialStock() {
       setSessionUnits((s) => [...s, ...units]);
       setLastAdded(units);
       qc.invalidateQueries({ queryKey: ["rack-occupancy", rackId] });
-      lineForm.resetFields(["shelf", "quantity"]);
+      // Штрипсовый стеллаж — на одной полке хранится много штрипсов
+      // (strip_capacity), при вводе начальных остатков туда обычно
+      // заносят несколько строк подряд на ту же полку — сброс полки
+      // после каждой строки заставлял выбирать её заново без нужды.
+      // Рулонный — как правило один рулон на полку, там сброс на месте
+      // (следующая строка почти всегда уже про другую полку).
+      lineForm.resetFields(selectedRack?.type === "strip" ? ["quantity"] : ["shelf", "quantity"]);
     },
     onError: () => message.error("Не удалось внести остаток — проверьте данные"),
   });
@@ -119,7 +125,10 @@ export default function InitialStock() {
         <>
           <Typography.Paragraph type="secondary">
             Стеллаж {selectedRack?.code}. Выберите полку и опишите, что на ней стоит — материал/цвет/толщина/
-            производитель остаются для следующей строки, полку выбирайте заново на каждой.
+            производитель остаются для следующей строки.{" "}
+            {selectedRack?.type === "strip"
+              ? "Полка тоже остаётся — на ней обычно несколько штрипсов подряд, меняйте только когда перешли на другую."
+              : "Полку выбирайте заново на каждой строке."}
           </Typography.Paragraph>
 
           <Form form={lineForm} layout="vertical" onFinish={(v) => addLineMutation.mutate(v)} initialValues={{ quantity: 1 }}>
