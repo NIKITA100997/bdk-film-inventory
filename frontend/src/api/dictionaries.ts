@@ -14,6 +14,41 @@ export interface ThicknessEntry {
   is_active: boolean;
 }
 
+// Справочник деталей (раздел про выбор детали в задание) — физическая
+// форма детали (ширина/длина/ширина штрипса плёнки), источник подсказки
+// для автозаполнения формы, не FK-связь с BOM/заданием.
+export interface Part {
+  id: number;
+  name: string;
+  width_mm: number;
+  length_m: number;
+  strip_width_mm: number | null;
+  is_active: boolean;
+}
+
+export interface PartCreate {
+  name: string;
+  width_mm: number;
+  length_m: number;
+  strip_width_mm?: number;
+}
+
+export interface PartUpdate {
+  name?: string;
+  width_mm?: number;
+  length_m?: number;
+  strip_width_mm?: number;
+  is_active?: boolean;
+}
+
+export const listParts = async (): Promise<Part[]> => (await apiClient.get<Part[]>("/parts")).data;
+export const listAllParts = async (): Promise<Part[]> => (await apiClient.get<Part[]>("/parts/all")).data;
+export const listPartDuplicates = async (): Promise<DuplicateCandidate[]> =>
+  (await apiClient.get<DuplicateCandidate[]>("/parts/duplicates")).data;
+export const createPart = async (payload: PartCreate): Promise<Part> => (await apiClient.post<Part>("/parts", payload)).data;
+export const updatePart = async (id: number, payload: PartUpdate): Promise<Part> =>
+  (await apiClient.patch<Part>(`/parts/${id}`, payload)).data;
+
 export const listMaterialSkus = async (): Promise<MaterialSku[]> =>
   (await apiClient.get<MaterialSku[]>("/material-skus")).data;
 

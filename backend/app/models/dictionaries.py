@@ -58,6 +58,24 @@ class Employee(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class Part(Base):
+    """Справочник деталей (раздел про выбор детали в задание) — физическая
+    форма детали (ширина/длина/ширина штрипса плёнки для укутки), без
+    участка и количества на изделие — это уже атрибуты конкретной строки
+    BOM (ProductModelPart)/задания (ProductionTaskLine), не самой детали
+    как таковой. Не FK-связь с ними — источник подсказки для автозаполнения
+    формы, сама строка BOM/задания как была текстом/числами, так и осталась."""
+
+    __tablename__ = "parts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    width_mm: Mapped[float] = mapped_column(Numeric(10, 2))
+    length_m: Mapped[float] = mapped_column(Numeric(12, 3))
+    strip_width_mm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class MaterialSku(Base):
     """Позиция материала (5.6 ТЗ) — конкретная комбинация материал+цвет+
     толщина+производитель, а не текст. `native_width_mm` — родная ширина

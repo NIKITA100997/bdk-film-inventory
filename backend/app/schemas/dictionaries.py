@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MaterialOut(BaseModel):
@@ -34,6 +34,31 @@ class EmployeeOut(BaseModel):
     id: int
     name: str
     is_active: bool
+
+
+class PartOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    width_mm: float
+    length_m: float
+    strip_width_mm: float | None
+    is_active: bool
+
+
+class PartCreate(BaseModel):
+    name: str
+    width_mm: float = Field(gt=0)
+    length_m: float = Field(gt=0)
+    strip_width_mm: float | None = Field(default=None, gt=0)
+
+
+class PartUpdate(BaseModel):
+    name: str | None = None
+    width_mm: float | None = Field(default=None, gt=0)
+    length_m: float | None = Field(default=None, gt=0)
+    strip_width_mm: float | None = Field(default=None, gt=0)
+    is_active: bool | None = None
 
 
 class MaterialSkuOut(BaseModel):

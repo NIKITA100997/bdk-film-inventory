@@ -92,6 +92,7 @@ export const navTree: NavBlock[] = [
       // рядом со "Справочниками" по той же логике: BOM трогается редко,
       // при постановке нового изделия, не каждый день.
       { key: "product-models", path: "/product-models", label: "Модели продукции (BOM)", permissions: ["production_tasks.manage"] },
+      { key: "parts", path: "/parts", label: "Детали (справочник)", permissions: ["production_tasks.manage"] },
       { key: "label-template", path: "/label-template", label: "Макет этикетки (100×40)", permissions: ["labels.manage"] },
       { key: "calc-settings", path: "/calc-settings", label: "Параметры расчётов", permissions: ["calc_settings.manage"] },
     ],

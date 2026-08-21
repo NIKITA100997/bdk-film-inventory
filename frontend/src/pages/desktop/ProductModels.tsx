@@ -16,6 +16,7 @@ import {
 } from "../../api/production";
 import type { AreaValue } from "../../api/units";
 import { listAreas } from "../../api/areas";
+import PartSelect from "../../components/PartSelect";
 
 /** Модели продукции (BOM) — вынесены из "Заданий цеха" в отдельный пункт
  * меню (раздел про адаптацию меню под планшет и разделение "конфигурации"
@@ -257,16 +258,20 @@ export default function ProductModels() {
         destroyOnHidden
       >
         <Form layout="vertical" form={partForm} onFinish={(v) => savePartMutation.mutate(v)}>
-          <Form.Item name="part_name" label="Название детали (Стоевая / Поперечная / Планка)">
-            <Input
-              placeholder="Стоевая 36х110"
-              onChange={(e) => {
-                const val = e.target.value.toLowerCase();
-                if (val.includes("стоевая")) partForm.setFieldValue("strip_width_mm", 292);
-                else if (val.includes("поперечная")) partForm.setFieldValue("strip_width_mm", 285);
-                else if (val.includes("планка")) partForm.setFieldValue("strip_width_mm", 140);
-              }}
+          <Form.Item label="Деталь из справочника (опционально)">
+            <PartSelect
+              onSelect={(part) =>
+                partForm.setFieldsValue({
+                  part_name: part.name,
+                  width_mm: part.width_mm,
+                  length_m: part.length_m,
+                  strip_width_mm: part.strip_width_mm ?? undefined,
+                })
+              }
             />
+          </Form.Item>
+          <Form.Item name="part_name" label="Название детали (Стоевая / Поперечная / Планка)">
+            <Input placeholder="Стоевая 36х110" />
           </Form.Item>
           <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
             <Select options={areaOptions} />
@@ -274,8 +279,8 @@ export default function ProductModels() {
           <Form.Item name="width_mm" label="Ширина детали (мм)" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="strip_width_mm" label="Ширина штрипса плёнки для укутки (мм)" help="Авторасчёт: Стоевая 292 мм, Поперечная 285 мм, Планка 140/100 мм">
-            <InputNumber min={1} style={{ width: "100%" }} placeholder="292" />
+          <Form.Item name="strip_width_mm" label="Ширина штрипса плёнки для укутки (мм)">
+            <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item name="length_m" label="Длина детали с допуском (м)" rules={[{ required: true }]}>
             <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />

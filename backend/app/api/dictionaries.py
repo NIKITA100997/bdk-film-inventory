@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.config import settings
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
-from app.models.dictionaries import Color, Employee, Manufacturer, Material, MaterialSku, SkuAnalog, Thickness
+from app.models.dictionaries import Color, Employee, Manufacturer, Material, MaterialSku, Part, SkuAnalog, Thickness
 from app.models.events import MaterialEvent
 from app.models.units import MaterialUnit
 from app.schemas.deletion_requests import DeleteResultOut
@@ -24,6 +24,9 @@ from app.schemas.dictionaries import (
     MaterialSkuOut,
     MaterialSkuUpdate,
     NameCreate,
+    PartCreate,
+    PartOut,
+    PartUpdate,
     SkuAnalogCreate,
     SkuWithAnalogsOut,
     ThicknessCreate,
@@ -237,6 +240,66 @@ def update_employee(
     employee_id: int, payload: DictEntryUpdate, db: Session = Depends(get_db), user=Depends(manage_dicts)
 ) -> Employee:
     return _update_name_entry(db, Employee, employee_id, payload)
+
+
+# Справочник деталей (раздел про выбор детали в задание) — гейтится
+# production_tasks.manage, не materials.manage: логически относится к
+# производству/BOM, тем же правом уже гейтится "Модели продукции" в
+# навигации. Бесхитростный CRUD не через _create_name_entry/_update_name_entry
+# — у Part числовые поля сверх имени, генерик рассчитан только на name.
+manage_parts = require_permission("production_tasks.manage")
+
+
+@router.get("/parts", response_model=list[PartOut])
+def list_parts(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[Part]:
+    return db.query(Part).filter(Part.is_active).order_by(Part.name).all()
+
+
+@router.get("/parts/all", response_model=list[PartOut])
+def list_all_parts(db: Session = Depends(get_db), user=Depends(manage_parts)) -> list[Part]:
+    return db.query(Part).order_by(Part.name).all()
+
+
+@router.get("/parts/duplicates", response_model=list[DuplicateCandidateOut])
+def part_duplicates(db: Session = Depends(get_db), user=Depends(manage_parts)):
+    return _duplicates_for(db, Part)
+
+
+@router.post("/parts", response_model=PartOut, status_code=status.HTTP_201_CREATED)
+def create_part(payload: PartCreate, db: Session = Depends(get_db), user=Depends(manage_parts)) -> Part:
+    obj = Part(name=payload.name, width_mm=payload.width_mm, length_m=payload.length_m, strip_width_mm=payload.strip_width_mm)
+    db.add(obj)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Деталь с таким названием уже есть в справочнике")
+    db.refresh(obj)
+    return obj
+
+
+@router.patch("/parts/{part_id}", response_model=PartOut)
+def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db), user=Depends(manage_parts)) -> Part:
+    obj = db.get(Part, part_id)
+    if obj is None:
+        raise HTTPException(404, "Деталь не найдена")
+    if payload.name is not None:
+        obj.name = payload.name
+    if payload.width_mm is not None:
+        obj.width_mm = payload.width_mm
+    if payload.length_m is not None:
+        obj.length_m = payload.length_m
+    if payload.strip_width_mm is not None:
+        obj.strip_width_mm = payload.strip_width_mm
+    if payload.is_active is not None:
+        obj.is_active = payload.is_active
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Деталь с таким названием уже есть в справочнике")
+    db.refresh(obj)
+    return obj
 
 
 @router.post("/material-skus", response_model=MaterialSkuOut, status_code=status.HTTP_201_CREATED)

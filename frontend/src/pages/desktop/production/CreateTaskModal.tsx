@@ -11,6 +11,7 @@ import {
 import { listMaterialSkus } from "../../../api/dictionaries";
 import { skuLabel, type AreaValue, type MaterialSku } from "../../../api/units";
 import { listAreas } from "../../../api/areas";
+import PartSelect from "../../../components/PartSelect";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -246,6 +247,18 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
 
       <Typography.Title level={5}>Добавить строку</Typography.Title>
       <Form form={manualRowForm} layout="vertical" onFinish={addManualLine}>
+        <Form.Item label="Деталь из справочника (опционально)">
+          <PartSelect
+            onSelect={(part) =>
+              manualRowForm.setFieldsValue({
+                part_name: part.name,
+                width_mm: part.width_mm,
+                length_m: part.length_m,
+                strip_width_mm: part.strip_width_mm ?? undefined,
+              })
+            }
+          />
+        </Form.Item>
         <Form.Item name="part_name" label="Название детали (опционально)">
           <Input placeholder="Стоевая" />
         </Form.Item>

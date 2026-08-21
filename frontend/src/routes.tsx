@@ -25,6 +25,7 @@ import Purchasing from "./pages/desktop/Purchasing";
 import SalesCalculator from "./pages/desktop/SalesCalculator";
 import ProductionTasks from "./pages/desktop/ProductionTasks";
 import ProductModels from "./pages/desktop/ProductModels";
+import PartsAdmin from "./pages/desktop/PartsAdmin";
 import ProductionLines from "./pages/desktop/ProductionLines";
 import AreaAdmin from "./pages/desktop/AreaAdmin";
 import DeletionRequests from "./pages/desktop/DeletionRequests";
@@ -120,6 +121,14 @@ export default function AppRoutes() {
           element={
             <RequirePermission permissions={["production_tasks.manage"]}>
               <ProductModels />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/parts"
+          element={
+            <RequirePermission permissions={["production_tasks.manage"]}>
+              <PartsAdmin />
             </RequirePermission>
           }
         />
