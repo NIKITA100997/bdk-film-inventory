@@ -39,7 +39,7 @@ from app.schemas.production import (
 )
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.deletion_requests import request_deletion
-from app.services.dictionaries import find_or_create_material_color_thickness
+from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness
 from app.services.naryad_import import parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.production import (
@@ -690,6 +690,7 @@ def create_task_line_assignment(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Линия принадлежит другому участку, чем задание"
         )
+    find_or_create_employees(db, payload.employee_names.split(","))
     assignment = ProductionTaskLineAssignment(
         task_line_id=line_id,
         line_id=payload.line_id,

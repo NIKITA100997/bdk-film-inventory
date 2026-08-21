@@ -492,6 +492,7 @@ export default function DictionaryAdmin() {
           { key: "materials", label: "Материалы (тип)", children: <NameDictTab kind="materials" label="Материал" /> },
           { key: "colors", label: "Цвета", children: <NameDictTab kind="colors" label="Цвет" /> },
           { key: "manufacturers", label: "Производители", children: <NameDictTab kind="manufacturers" label="Производитель" /> },
+          { key: "employees", label: "Сотрудники", children: <NameDictTab kind="employees" label="Сотрудник" /> },
           { key: "thicknesses", label: "Толщины", children: <ThicknessTab /> },
           { key: "write-off-reasons", label: "Причины брака/списания", children: <WriteOffReasonsTab /> },
         ]}

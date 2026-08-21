@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.config import settings
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
-from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, SkuAnalog, Thickness
+from app.models.dictionaries import Color, Employee, Manufacturer, Material, MaterialSku, SkuAnalog, Thickness
 from app.models.events import MaterialEvent
 from app.models.units import MaterialUnit
 from app.schemas.deletion_requests import DeleteResultOut
@@ -17,6 +17,7 @@ from app.schemas.dictionaries import (
     ColorOut,
     DictEntryUpdate,
     DuplicateCandidateOut,
+    EmployeeOut,
     ManufacturerOut,
     MaterialOut,
     MaterialSkuCreate,
@@ -209,6 +210,33 @@ def update_manufacturer(
     manufacturer_id: int, payload: DictEntryUpdate, db: Session = Depends(get_db), user=Depends(manage_dicts)
 ) -> Manufacturer:
     return _update_name_entry(db, Manufacturer, manufacturer_id, payload)
+
+
+@router.get("/employees", response_model=list[EmployeeOut])
+def list_employees(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[Employee]:
+    return db.query(Employee).filter(Employee.is_active).order_by(Employee.name).all()
+
+
+@router.get("/employees/all", response_model=list[EmployeeOut])
+def list_all_employees(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[Employee]:
+    return db.query(Employee).order_by(Employee.name).all()
+
+
+@router.get("/employees/duplicates", response_model=list[DuplicateCandidateOut])
+def employee_duplicates(db: Session = Depends(get_db), user=Depends(manage_dicts)):
+    return _duplicates_for(db, Employee)
+
+
+@router.post("/employees", response_model=EmployeeOut, status_code=status.HTTP_201_CREATED)
+def create_employee(payload: NameCreate, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> Employee:
+    return _create_name_entry(db, Employee, payload)
+
+
+@router.patch("/employees/{employee_id}", response_model=EmployeeOut)
+def update_employee(
+    employee_id: int, payload: DictEntryUpdate, db: Session = Depends(get_db), user=Depends(manage_dicts)
+) -> Employee:
+    return _update_name_entry(db, Employee, employee_id, payload)
 
 
 @router.post("/material-skus", response_model=MaterialSkuOut, status_code=status.HTTP_201_CREATED)

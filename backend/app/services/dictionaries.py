@@ -10,7 +10,7 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
+from app.models.dictionaries import Color, Employee, Manufacturer, Material, MaterialSku, Thickness
 from app.models.purchasing import Supplier
 from app.models.units import MaterialUnit, UnitStatus
 
@@ -67,6 +67,18 @@ def find_or_create_supplier(db: Session, name: str) -> Supplier:
     """Поставщик (раздел про историю цен и сроков) — тот же паттерн
     текст-с-автокомплитом-создаёт-справочник, что и остальные атрибуты."""
     return _find_or_create(db, Supplier, name=name)
+
+
+def find_or_create_employees(db: Session, names: list[str]) -> None:
+    """Сотрудники цеха (раздел про автокомплит) — employee_names остаётся
+    свободным текстом с несколькими именами через запятую (не FK), это
+    только заводит каждое новое имя в справочник для будущих подсказок —
+    не требует прав materials.manage, ровно как заведение нового
+    материала/цвета при приёмке не требует их от кладовщика."""
+    for raw in names:
+        name = raw.strip()
+        if name:
+            _find_or_create(db, Employee, name=name)
 
 
 def find_sku(db: Session, *, material: str, color: str, thickness: float, manufacturer: str) -> MaterialSku | None:

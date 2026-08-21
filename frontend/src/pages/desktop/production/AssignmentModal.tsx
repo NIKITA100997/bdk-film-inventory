@@ -1,4 +1,4 @@
-import { Modal, Form, Select, DatePicker, Input, InputNumber, Button, Table, Typography, message } from "antd";
+import { Modal, Form, Select, DatePicker, InputNumber, Button, Table, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,6 +9,7 @@ import {
   type ProductionTaskLine,
   type ProductionTaskLineAssignmentCreate,
 } from "../../../api/production";
+import EmployeesTagSelect from "../../../components/EmployeesTagSelect";
 
 /** Распределение строки задания по линиям/дням/сотрудникам (раздел 12.5)
  * — отдельный экран начальника участка поверх уже созданного задания.
@@ -80,7 +81,7 @@ export default function AssignmentModal({
           <DatePicker style={{ width: "100%" }} format="DD.MM.YYYY" />
         </Form.Item>
         <Form.Item name="employee_names" label="Сотрудники" rules={[{ required: true }]}>
-          <Input placeholder="Иванов, Петров" />
+          <EmployeesTagSelect placeholder="Иванов, Петров" />
         </Form.Item>
         <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: "100%" }} />

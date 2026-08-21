@@ -50,8 +50,11 @@ export const listManufacturers = async (): Promise<DictEntry[]> =>
   (await apiClient.get<DictEntry[]>("/manufacturers")).data;
 export const listThicknesses = async (): Promise<ThicknessEntry[]> =>
   (await apiClient.get<ThicknessEntry[]>("/thicknesses")).data;
+// Сотрудники цеха (раздел про автокомплит вместо голого текста) — не
+// учётная запись, только имя для распределения по линиям/дням.
+export const listEmployees = async (): Promise<DictEntry[]> => (await apiClient.get<DictEntry[]>("/employees")).data;
 
-export type NameDictKind = "materials" | "colors" | "manufacturers";
+export type NameDictKind = "materials" | "colors" | "manufacturers" | "employees";
 
 export interface DuplicateCandidate {
   a_id: number;

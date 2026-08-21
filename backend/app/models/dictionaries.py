@@ -45,6 +45,19 @@ class Manufacturer(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class Employee(Base):
+    """Сотрудники цеха (раздел про автокомплит вместо голого текста) — не
+    учётная запись (`User`), цеховые рабочие обычно без логина в систему,
+    только имя для распределения по линиям/дням (ProductionTaskLineAssignment
+    .employee_names)."""
+
+    __tablename__ = "employees"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class MaterialSku(Base):
     """Позиция материала (5.6 ТЗ) — конкретная комбинация материал+цвет+
     толщина+производитель, а не текст. `native_width_mm` — родная ширина

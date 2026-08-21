@@ -29,6 +29,13 @@ class ManufacturerOut(BaseModel):
     is_active: bool
 
 
+class EmployeeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    is_active: bool
+
+
 class MaterialSkuOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
