@@ -44,6 +44,22 @@ export default function CalcSettingsAdmin() {
           >
             <Input />
           </Form.Item>
+          <Form.Item
+            name="reorder_lookback_days"
+            label="Точка дозаказа — окно расчёта расхода, дни"
+            rules={[{ required: true }]}
+            extra="За сколько последних дней считать скорость расхода (выдачи + списания)"
+          >
+            <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item
+            name="reorder_safety_margin_days"
+            label="Точка дозаказа — запас сверх срока поставки, дни"
+            rules={[{ required: true }]}
+            extra="Сигнал «пора заказывать» загорается, когда остатка хватит на средний срок поставки плюс этот запас"
+          >
+            <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
           <Button type="primary" htmlType="submit" loading={calcSettingsMutation.isPending}>
             Сохранить
           </Button>

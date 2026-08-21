@@ -54,6 +54,8 @@ export interface StockOverviewLine {
   reserved_area_m2: number;
   open_requested_area_m2: number;
   usual_supplier: string | null;
+  days_of_stock_remaining: number | null;
+  reorder_suggested: boolean;
 }
 
 export interface PurchaseRequestCreate {

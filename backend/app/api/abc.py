@@ -38,6 +38,8 @@ def update_calc_settings(
     settings.abc_recalc_period_days = payload.abc_recalc_period_days
     settings.stale_threshold_days = payload.stale_threshold_days
     settings.shortage_note_template = payload.shortage_note_template
+    settings.reorder_lookback_days = payload.reorder_lookback_days
+    settings.reorder_safety_margin_days = payload.reorder_safety_margin_days
     db.commit()
     db.refresh(settings)
     return settings

@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import { useAuth } from "../../auth/AuthContext";
-import { listPurchaseRequests } from "../../api/purchasing";
+import { getStockOverview, listPurchaseRequests } from "../../api/purchasing";
 import { listSessions } from "../../api/inventory";
 import { getDonorAccuracy, getStaleUnits, getDefectsOverview } from "../../api/reports";
 import { listMaterialSkus } from "../../api/dictionaries";
@@ -64,6 +64,15 @@ export default function Overview() {
     queryFn: () => listPurchaseRequests("open"),
     enabled: showPurchasing,
   });
+  // Раздел про точку дозаказа по расходу — тот же showPurchasing, что и
+  // "Открытых заявок поставщику" (getStockOverview требует то же право
+  // purchasing.manage).
+  const reorderQuery = useQuery({
+    queryKey: ["stock-overview", "overview"],
+    queryFn: getStockOverview,
+    enabled: showPurchasing,
+  });
+  const reorderCount = (reorderQuery.data ?? []).filter((r) => r.reorder_suggested).length;
   const sessionsQuery = useQuery({ queryKey: ["inventory-sessions"], queryFn: listSessions, enabled: showInventory });
   const donorQuery = useQuery({
     queryKey: ["donor-accuracy", "overview"],
@@ -136,6 +145,17 @@ export default function Overview() {
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={purchasingQuery.isLoading} {...clickableProps("/purchasing")}>
               <Statistic title="Открытых заявок поставщику" value={(purchasingQuery.data ?? []).length} />
+            </Card>
+          </Col>
+        )}
+        {showPurchasing && (
+          <Col xs={12} sm={12} md={8} lg={6}>
+            <Card loading={reorderQuery.isLoading} {...clickableProps("/purchasing")}>
+              <Statistic
+                title="Пора заказывать (по расходу)"
+                value={reorderCount}
+                valueStyle={{ color: reorderCount > 0 ? "#C97A2B" : undefined }}
+              />
             </Card>
           </Col>
         )}

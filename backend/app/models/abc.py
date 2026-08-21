@@ -55,4 +55,10 @@ class CalcSettings(Base):
     shortage_note_template: Mapped[str] = mapped_column(
         String(255), default="Нехватка по плану: {material}, {color}, {thickness} мм — требуется ещё {shortage_m2} м²"
     )
+    # Точка дозаказа по расходу (раздел про закупки на опережение) — окно,
+    # за которое считается скорость расхода (выдачи+списания), и запас
+    # поверх среднего срока поставки поставщика, после которого сигнал
+    # "пора заказывать" зажигается раньше, чем остаток буквально кончится.
+    reorder_lookback_days: Mapped[int] = mapped_column(Integer, default=30)
+    reorder_safety_margin_days: Mapped[int] = mapped_column(Integer, default=7)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

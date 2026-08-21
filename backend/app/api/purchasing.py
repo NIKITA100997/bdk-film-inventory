@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.core.security import require_permission
 from app.db.session import get_db
+from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Material, Thickness
+from app.models.events import EventType, MaterialEvent
 from app.models.production import ProductionTaskLine, ProductionTaskLineReport
 from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.units import MaterialSku, MaterialUnit, UnitStatus
@@ -23,6 +25,8 @@ from app.schemas.purchasing import (
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import current_stock_m2, find_or_create_material_color_thickness, find_or_create_supplier
 from app.services.production import TaskLineForReserve, calc_default_strip_width, reserved_area_m2_by_group
+from app.services.purchasing import ReorderInput, compute_reorder_signal
+from app.services.suppliers import ClosedRequestRecord, compute_supplier_stats
 
 router = APIRouter(prefix="/purchase-requests", tags=["purchasing"])
 
@@ -133,10 +137,65 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
     for m, c, t, supplier_id in supplier_history_rows:
         usual_supplier_id_by_group.setdefault((m, c, t), supplier_id)
 
+    # Точка дозаказа по расходу (раздел про закупки на опережение) —
+    # скорость расхода за calc_settings.reorder_lookback_days (выдачи +
+    # списания, тот же набор событий, что и "движение" в отчётах) и
+    # средний срок поставки последнего использованного поставщика группы
+    # (compute_supplier_stats — тот же расчёт, что и в "Истории цен и
+    # сроков поставщика").
+    calc_settings = db.get(CalcSettings, 1)
+    lookback_days = calc_settings.reorder_lookback_days if calc_settings else 30
+    safety_margin_days = calc_settings.reorder_safety_margin_days if calc_settings else 7
+    lookback_cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    consumed_rows = (
+        db.query(
+            MaterialSku.material_id,
+            MaterialSku.color_id,
+            MaterialSku.thickness_id,
+            func.sum(-MaterialEvent.quantity_delta_m * MaterialEvent.width_mm / 1000),
+        )
+        .join(MaterialSku, MaterialEvent.material_sku_id == MaterialSku.id)
+        .filter(MaterialEvent.event_type.in_([EventType.VYDACHA_UCHASTKU, EventType.SPISANIE]))
+        .filter(MaterialEvent.timestamp >= lookback_cutoff)
+        .group_by(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id)
+        .all()
+    )
+    consumed_by_group = {(m, c, t): round(float(v or 0), 3) for m, c, t, v in consumed_rows}
+
+    closed_rows = (
+        db.query(PurchaseRequest, Supplier.name)
+        .join(Supplier, PurchaseRequest.supplier_id == Supplier.id)
+        .filter(PurchaseRequest.status == "closed", PurchaseRequest.supplier_id.isnot(None))
+        .all()
+    )
+    supplier_stats = compute_supplier_stats(
+        [
+            ClosedRequestRecord(
+                supplier_id=req.supplier_id,
+                supplier_name=name,
+                price_per_m2=float(req.price_per_m2) if req.price_per_m2 is not None else None,
+                created_at=req.created_at,
+                closed_at=req.closed_at,
+                promised_delivery_date=req.promised_delivery_date,
+            )
+            for req, name in closed_rows
+        ]
+    )
+    avg_lead_time_by_supplier = {s.supplier_id: s.avg_lead_time_days for s in supplier_stats}
+
     all_groups = set(stock_by_group) | set(reserved_by_group) | set(open_requested_by_group)
     result: list[StockOverviewLine] = []
     for material_id, color_id, thickness_id in all_groups:
         supplier_id = usual_supplier_id_by_group.get((material_id, color_id, thickness_id))
+        reorder = compute_reorder_signal(
+            ReorderInput(
+                current_stock_m2=stock_by_group.get((material_id, color_id, thickness_id), 0.0),
+                consumed_m2_in_window=consumed_by_group.get((material_id, color_id, thickness_id), 0.0),
+                lookback_days=lookback_days,
+                avg_lead_time_days=avg_lead_time_by_supplier.get(supplier_id) if supplier_id else None,
+                safety_margin_days=safety_margin_days,
+            )
+        )
         result.append(
             StockOverviewLine(
                 material=db.get(Material, material_id).name,
@@ -146,6 +205,8 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
                 reserved_area_m2=reserved_by_group.get((material_id, color_id, thickness_id), 0.0),
                 open_requested_area_m2=open_requested_by_group.get((material_id, color_id, thickness_id), 0.0),
                 usual_supplier=db.get(Supplier, supplier_id).name if supplier_id else None,
+                days_of_stock_remaining=reorder.days_of_stock_remaining,
+                reorder_suggested=reorder.reorder_suggested,
             )
         )
     result.sort(key=lambda r: (r.material, r.color, r.thickness))

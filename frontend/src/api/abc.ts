@@ -18,6 +18,8 @@ export interface CalcSettings {
   abc_recalc_period_days: number;
   stale_threshold_days: number;
   shortage_note_template: string;
+  reorder_lookback_days: number;
+  reorder_safety_margin_days: number;
   updated_at: string;
 }
 
@@ -45,6 +47,8 @@ export async function updateCalcSettings(payload: {
   abc_recalc_period_days: number;
   stale_threshold_days: number;
   shortage_note_template: string;
+  reorder_lookback_days: number;
+  reorder_safety_margin_days: number;
 }): Promise<CalcSettings> {
   const { data } = await apiClient.patch<CalcSettings>("/calc-settings", payload);
   return data;

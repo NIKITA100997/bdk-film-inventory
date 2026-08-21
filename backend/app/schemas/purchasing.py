@@ -111,3 +111,9 @@ class StockOverviewLine(BaseModel):
     reserved_area_m2: float
     open_requested_area_m2: float
     usual_supplier: str | None
+    # Точка дозаказа по расходу (раздел про закупки на опережение) —
+    # None у days_of_stock_remaining, если расхода за окно не было (нечего
+    # делить); reorder_suggested всегда False без истории срока поставки
+    # этого поставщика (не гадаем на пустом месте).
+    days_of_stock_remaining: float | None
+    reorder_suggested: bool

@@ -469,6 +469,13 @@ export default function Purchasing() {
                     },
                     { title: "Обычно берут у", dataIndex: "usual_supplier", render: (v: string | null) => v ?? "—" },
                     {
+                      title: "Хватит на, дн.",
+                      dataIndex: "days_of_stock_remaining",
+                      render: (v: number | null, r) =>
+                        v == null ? "—" : <Tag color={r.reorder_suggested ? "orange" : undefined}>{v}</Tag>,
+                      sorter: (a, b) => (a.days_of_stock_remaining ?? Infinity) - (b.days_of_stock_remaining ?? Infinity),
+                    },
+                    {
                       title: "",
                       render: (_, r) => (
                         <Button

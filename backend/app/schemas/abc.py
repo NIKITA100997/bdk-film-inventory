@@ -28,6 +28,8 @@ class CalcSettingsOut(BaseModel):
     abc_recalc_period_days: int
     stale_threshold_days: int
     shortage_note_template: str
+    reorder_lookback_days: int
+    reorder_safety_margin_days: int
     updated_at: datetime
 
 
@@ -36,3 +38,5 @@ class CalcSettingsUpdate(BaseModel):
     abc_recalc_period_days: int = Field(gt=0)
     stale_threshold_days: int = Field(gt=0)
     shortage_note_template: str = Field(min_length=1, max_length=255)
+    reorder_lookback_days: int = Field(gt=0)
+    reorder_safety_margin_days: int = Field(ge=0)
