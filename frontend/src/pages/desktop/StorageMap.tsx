@@ -284,8 +284,11 @@ function RacksConsole() {
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <UnplacedUnitsCard />
-      <Space style={{ width: "100%", justifyContent: "space-between" }}>
-        <Space>
+      {/* wrap — без него на узком планшетном портрете "+ Добавить стеллаж"
+          выдавливался за правый край экрана вместо переноса на свою строку
+          (тот же класс проблемы, что и у ряда кнопок стеллажа ниже). */}
+      <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
+        <Space wrap>
           <Space.Compact>
             <Button type={typeFilter === "all" ? "primary" : "default"} onClick={() => setTypeFilter("all")}>
               Все ({allActiveRacks.length})
@@ -384,7 +387,17 @@ function RacksConsole() {
                     ` · ${occupancyForSelected.reduce((sum, c) => sum + c.units.length, 0)} из ${occupancyForSelected.reduce((sum, c) => sum + c.capacity, 0)} мест занято`}
                 </Typography.Text>
               </div>
-              <Space wrap style={{ flexShrink: 0 }}>
+              {/* Раздел про вертикальный планшетный портрет — flexShrink:0
+                  тут раньше означал "никогда не сжимайся", из-за чего
+                  браузер выделял этому блоку кнопок ширину, нужную для
+                  ОДНОЙ строки без переноса (это и есть его "естественная"
+                  ширина при вычислении flex-basis), и он вылезал за край
+                  колонки — собственный wrap у Space до переноса на новую
+                  строку просто не доходил, ему ни разу не давали ширину
+                  меньше содержимого. minWidth: 0 возвращает обычное
+                  сжатие (как у соседнего текстового блока выше) — тогда
+                  перенос кнопок по строкам внутри Space реально включается. */}
+              <Space wrap style={{ minWidth: 0 }}>
                 <Button size="small" onClick={() => printRackLabel(selectedRack.id)}>
                   Печать бирки стеллажа
                 </Button>
