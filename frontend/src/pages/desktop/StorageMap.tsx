@@ -98,13 +98,21 @@ function RacksConsole() {
 
   // Кросс-ссылка "На стеллаже" из Остатков (раздел про организацию меню)
   // — приходим сюда уже с известным стеллажом, фильтры сбрасываем, чтобы
-  // он точно попал в видимый список.
+  // он точно попал в видимый список. highlightShelf — тот же приём, что и
+  // у собственного QR-сканера этой страницы (handleScan ниже), но теперь
+  // ещё и от глобального сканера в шапке (unitSearch.ts), который умеет
+  // распознать QR стеллажа/полки с любого экрана, не только отсюда.
   useEffect(() => {
-    const incomingRackId = (location.state as { rackId?: number } | null)?.rackId;
-    if (incomingRackId) {
-      setRackId(incomingRackId);
+    const state = location.state as { rackId?: number; highlightShelf?: number } | null;
+    if (state?.rackId) {
+      setRackId(state.rackId);
       setTypeFilter("all");
       setWarehouseId(null);
+      if (state.highlightShelf) {
+        const shelf = state.highlightShelf;
+        setHighlightShelf(shelf);
+        setTimeout(() => setHighlightShelf((cur) => (cur === shelf ? null : cur)), 5000);
+      }
     }
   }, [location.state]);
 
