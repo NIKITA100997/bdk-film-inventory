@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from app.services.suppliers import ClosedRequestRecord, compute_supplier_stats
 
@@ -66,3 +66,29 @@ def test_multiple_suppliers_grouped_and_sorted_by_last_request_desc():
     ]
     stats = compute_supplier_stats(records)
     assert [s.supplier_name for s in stats] == ["Поздний", "Ранний"]
+
+
+def test_no_promised_dates_gives_none_variance():
+    records = [make_record(promised_delivery_date=None)]
+    stats = compute_supplier_stats(records)
+    assert stats[0].avg_delivery_variance_days is None
+
+
+def test_delivery_variance_averages_days_late():
+    records = [
+        # Обещали 6-го, привезли 6-го — 0 дней отклонения.
+        make_record(closed_at=datetime(2026, 1, 6), promised_delivery_date=date(2026, 1, 6)),
+        # Обещали 8-го, привезли 12-го — на 4 дня позже.
+        make_record(closed_at=datetime(2026, 1, 12), promised_delivery_date=date(2026, 1, 8)),
+    ]
+    stats = compute_supplier_stats(records)
+    assert stats[0].avg_delivery_variance_days == 2.0  # (0 + 4) / 2
+
+
+def test_partial_promised_dates_only_averages_ones_with_plan():
+    records = [
+        make_record(closed_at=datetime(2026, 1, 10), promised_delivery_date=date(2026, 1, 8)),  # +2 дня
+        make_record(closed_at=datetime(2026, 1, 20), promised_delivery_date=None),  # без плана — не считается
+    ]
+    stats = compute_supplier_stats(records)
+    assert stats[0].avg_delivery_variance_days == 2.0

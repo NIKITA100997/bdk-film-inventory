@@ -67,6 +67,7 @@ def supplier_stats(db: Session = Depends(get_db), user: User = Depends(manage_su
             price_per_m2=float(req.price_per_m2) if req.price_per_m2 is not None else None,
             created_at=req.created_at,
             closed_at=req.closed_at,
+            promised_delivery_date=req.promised_delivery_date,
         )
         for req, supplier_name in rows
     ]

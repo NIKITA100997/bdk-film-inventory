@@ -4,9 +4,9 @@
 Закрывается вручную либо автоматически при ближайшей приёмке этой же
 группы материала (см. services/purchasing.py)."""
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -60,12 +60,14 @@ class PurchaseRequest(Base):
     # Заказ поставщику, в который объединена эта заявка (раздел про экран
     # снабженца) — nullable, большинство заявок сначала висят без заказа.
     order_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_orders.id"), nullable=True)
-    # История цен и сроков поставщика — оба необязательны: заявка может быть
-    # создана раньше, чем согласована цена/выбран поставщик. Срок поставки
-    # отдельным полем не хранится — считается как closed_at - created_at,
-    # эти поля уже есть.
+    # История цен и сроков поставщика — все три необязательны: заявка может
+    # быть создана раньше, чем согласована цена/выбран поставщик/названа
+    # дата поставки. Фактический срок по-прежнему считается как
+    # closed_at - created_at (не отдельным полем) — promised_delivery_date
+    # это план поставщика, а не факт, сравнивается с closed_at при закрытии.
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"), nullable=True)
     price_per_m2: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    promised_delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     # "planner" — обычная заявка снабженца (создание вручную на этом
     # экране); "shop_floor" — создана кнопкой на "Выдаче участку" по
     # нехватке остатка под конкретную строку задания (раздел про замену

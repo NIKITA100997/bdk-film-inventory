@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -9,18 +9,20 @@ class PurchaseRequestCreate(BaseModel):
     thickness: float
     requested_area_m2: float = Field(gt=0)
     note: str | None = None
-    # История цен и сроков поставщика — оба необязательны, могут быть
+    # История цен и сроков поставщика — все трое необязательны, могут быть
     # согласованы позже создания заявки (см. PurchaseRequestUpdate).
     supplier: str | None = None
     price_per_m2: float | None = Field(default=None, gt=0)
+    promised_delivery_date: date | None = None
 
 
 class PurchaseRequestUpdate(BaseModel):
-    """Заявка уже создана, но цена/поставщик согласованы позже — например,
-    после переговоров. Материал/цвет/толщина/объём неизменны."""
+    """Заявка уже создана, но цена/поставщик/срок согласованы позже —
+    например, после переговоров. Материал/цвет/толщина/объём неизменны."""
 
     supplier: str | None = None
     price_per_m2: float | None = Field(default=None, gt=0)
+    promised_delivery_date: date | None = None
 
 
 class PurchaseRequestShopFloorCreate(BaseModel):
@@ -59,6 +61,7 @@ class PurchaseRequestOut(BaseModel):
     closed_at: datetime | None
     supplier: str | None
     price_per_m2: float | None
+    promised_delivery_date: date | None
     order_id: int | None
 
 

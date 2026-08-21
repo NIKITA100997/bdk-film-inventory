@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Card, Tag, Button, Modal, Form, InputNumber, Input, Space, Typography, Empty, Tabs, Checkbox, Collapse, message } from "antd";
+import { Card, Tag, Button, Modal, Form, InputNumber, Input, DatePicker, Space, Typography, Empty, Tabs, Checkbox, Collapse, message } from "antd";
+import dayjs from "dayjs";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
@@ -277,7 +278,11 @@ export default function Purchasing() {
                                 supplier: r.supplier,
                                 price_per_m2: r.price_per_m2,
                               });
-                              editForm.setFieldsValue({ supplier: r.supplier ?? undefined, price_per_m2: r.price_per_m2 ?? undefined });
+                              editForm.setFieldsValue({
+                                supplier: r.supplier ?? undefined,
+                                price_per_m2: r.price_per_m2 ?? undefined,
+                                promised_delivery_date: r.promised_delivery_date ?? undefined,
+                              });
                             }}
                           >
                             Поставщик/цена
@@ -488,8 +493,8 @@ export default function Purchasing() {
             children: (
               <Card>
                 <Typography.Paragraph type="secondary">
-                  Средняя цена и срок поставки (закрытие минус создание заявки) — только по закрытым заявкам с
-                  указанным поставщиком.
+                  Средняя цена, фактический срок поставки (закрытие минус создание заявки) и отклонение от
+                  обещанной даты (там, где она указывалась) — только по закрытым заявкам с указанным поставщиком.
                 </Typography.Paragraph>
                 {(supplierStatsQuery.data ?? []).length === 0 ? (
                   <Empty description="Пока нет закрытых заявок с поставщиком" image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -516,6 +521,13 @@ export default function Purchasing() {
                         dataIndex: "avg_lead_time_days",
                         render: (v: number | null) => v ?? "—",
                         sorter: (a, b) => (a.avg_lead_time_days ?? 0) - (b.avg_lead_time_days ?? 0),
+                      },
+                      {
+                        title: "Отклонение от срока, дн.",
+                        dataIndex: "avg_delivery_variance_days",
+                        render: (v: number | null) =>
+                          v == null ? "—" : <span style={{ color: v > 0 ? "#C97A2B" : undefined }}>{v > 0 ? `+${v}` : v}</span>,
+                        sorter: (a, b) => (a.avg_delivery_variance_days ?? 0) - (b.avg_delivery_variance_days ?? 0),
                       },
                       {
                         title: "Последняя заявка",
@@ -570,6 +582,14 @@ export default function Purchasing() {
           <Form.Item name="price_per_m2" label="Цена, ₽/м² (опционально)">
             <InputNumber min={0.01} step={1} style={{ width: "100%" }} />
           </Form.Item>
+          <Form.Item
+            name="promised_delivery_date"
+            label="Обещали привезти к (опционально)"
+            getValueProps={(v: string | undefined) => ({ value: v ? dayjs(v) : undefined })}
+            normalize={(v: dayjs.Dayjs | null) => v?.format("YYYY-MM-DD")}
+          >
+            <DatePicker style={{ width: "100%" }} format="DD.MM.YYYY" />
+          </Form.Item>
           <Form.Item name="note" label="Комментарий (номер заказа поставщику и т.п.)">
             <Input />
           </Form.Item>
@@ -592,6 +612,14 @@ export default function Purchasing() {
           </Form.Item>
           <Form.Item name="price_per_m2" label="Цена, ₽/м²">
             <InputNumber min={0.01} step={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item
+            name="promised_delivery_date"
+            label="Обещали привезти к"
+            getValueProps={(v: string | undefined) => ({ value: v ? dayjs(v) : undefined })}
+            normalize={(v: dayjs.Dayjs | null) => v?.format("YYYY-MM-DD")}
+          >
+            <DatePicker style={{ width: "100%" }} format="DD.MM.YYYY" />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={updateMutation.isPending}>
             Сохранить

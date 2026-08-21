@@ -17,6 +17,7 @@ export interface PurchaseRequest {
   closed_at: string | null;
   supplier: string | null;
   price_per_m2: number | null;
+  promised_delivery_date: string | null;
   order_id: number | null;
 }
 
@@ -63,6 +64,7 @@ export interface PurchaseRequestCreate {
   note?: string;
   supplier?: string;
   price_per_m2?: number;
+  promised_delivery_date?: string;
 }
 
 export interface PurchaseRequestShopFloorCreate {
@@ -76,6 +78,7 @@ export interface PurchaseRequestShopFloorCreate {
 export interface PurchaseRequestUpdate {
   supplier?: string;
   price_per_m2?: number;
+  promised_delivery_date?: string;
 }
 
 export async function listPurchaseRequests(statusFilter?: string): Promise<PurchaseRequest[]> {

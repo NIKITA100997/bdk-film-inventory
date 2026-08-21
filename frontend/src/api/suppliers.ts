@@ -24,6 +24,7 @@ export interface SupplierStats {
   closed_requests: number;
   avg_price_per_m2: number | null;
   avg_lead_time_days: number | null;
+  avg_delivery_variance_days: number | null;
   last_request_at: string;
 }
 

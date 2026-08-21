@@ -52,6 +52,7 @@ def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:
         closed_at=req.closed_at,
         supplier=db.get(Supplier, req.supplier_id).name if req.supplier_id else None,
         price_per_m2=float(req.price_per_m2) if req.price_per_m2 is not None else None,
+        promised_delivery_date=req.promised_delivery_date,
         order_id=req.order_id,
     )
 
@@ -187,6 +188,7 @@ def create_purchase_request(
         created_by=user.id,
         supplier_id=supplier.id if supplier else None,
         price_per_m2=payload.price_per_m2,
+        promised_delivery_date=payload.promised_delivery_date,
     )
     db.add(req)
     db.commit()
@@ -262,6 +264,8 @@ def update_purchase_request(
         req.supplier_id = find_or_create_supplier(db, payload.supplier).id
     if payload.price_per_m2 is not None:
         req.price_per_m2 = payload.price_per_m2
+    if payload.promised_delivery_date is not None:
+        req.promised_delivery_date = payload.promised_delivery_date
     db.commit()
     db.refresh(req)
     return _out(db, req)

@@ -24,12 +24,17 @@ class SupplierUpdate(BaseModel):
 
 class SupplierStatsOut(BaseModel):
     """История цен и сроков поставщика — агрегат по закрытым заявкам с
-    проставленным поставщиком. Срок поставки не хранится отдельным полем —
-    считается как closed_at - created_at у самих заявок."""
+    проставленным поставщиком. Фактический срок не хранится отдельным
+    полем — считается как closed_at - created_at у самих заявок.
+    avg_delivery_variance_days — отклонение факта (closed_at) от плана
+    (promised_delivery_date), только по заявкам, где план был назван;
+    None — план ни разу не указывали, не путать с 0 (означало бы "всегда
+    точно в срок")."""
 
     supplier_id: int
     supplier_name: str
     closed_requests: int
     avg_price_per_m2: float | None
     avg_lead_time_days: float | None
+    avg_delivery_variance_days: float | None
     last_request_at: datetime
