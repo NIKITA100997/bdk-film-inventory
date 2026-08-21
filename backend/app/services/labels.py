@@ -368,17 +368,26 @@ def _label_markup(
 
 
 def _label_doc_styles(width_mm: int, height_mm: int, vertical: bool = False) -> str:
-    """Раздел про ориентацию печати — при vertical=True физическая
-    страница (@page, то, что реально уходит в печать) повёрнута
-    (width_mm/height_mm меняются местами), но .label-page внутри
-    по-прежнему исходного размера и поворачивается на 90° через CSS
-    transform целиком — раньше страница просто становилась уже, а сам
-    текст полей всё равно рисовался горизонтальной строкой ("размер
-    верный, но горизонтально"). transform-origin:top left +
-    rotate(90deg) translate(0,-100%) — стандартная комбинация, переносящая
-    повёрнутый прямоугольник ровно в границы новой (повёрнутой) страницы.
-    Если на реальном принтере поворот окажется в другую сторону — заменить
-    на rotate(-90deg) translate(-100%, 0)."""
+    """Раздел про ориентацию печати. При vertical=True физическая страница
+    (@page) повёрнута (width_mm/height_mm меняются местами) — но раньше
+    .label-page (тот же элемент, что несёт и layout-размер, и CSS-поворот)
+    сохранял ИСХОДНЫЕ (неповёрнутые) width/height и получал transform
+    поверх них — из-за этого его layout-бокс (по которому браузер считает
+    разбивку на страницы при печати) не совпадал с объявленным @page —
+    на десктопном Chrome (PDF-путь вообще не участвует, там честный canvas)
+    это сходило с рук, а на Android Print Service Framework (планшет)
+    печать после этого несоответствия просто ломалась ("вообще не может
+    нормально распечатать"). Поэтому layout-размер и визуальный поворот
+    теперь разнесены по двум разным элементам: внешний .label-page — это
+    именно то, что участвует в потоке документа/разбивке страниц, его
+    width/height ВСЕГДА равны объявленному @page (уже повёрнутому, если
+    vertical); вложенный .label-page-inner — position:absolute (выключен
+    из потока, не влияет на layout родителя), исходного размера
+    width_mm×height_mm, и уже на нём CSS-поворот. transform-origin:top left
+    + rotate(90deg) translate(0,-100%) — стандартная комбинация, переносящая
+    повёрнутый прямоугольник ровно в границы .label-page. Если на реальном
+    принтере поворот окажется в другую сторону — заменить на
+    rotate(-90deg) translate(-100%, 0)."""
     page_w, page_h = (height_mm, width_mm) if vertical else (width_mm, height_mm)
     rotation_css = "transform-origin: top left; transform: rotate(90deg) translate(0, -100%);" if vertical else ""
     return f"""
@@ -391,7 +400,8 @@ def _label_doc_styles(width_mm: int, height_mm: int, vertical: bool = False) -> 
   td.text-td {{ vertical-align: middle; text-align: left; padding: 2mm 3mm 2mm 1mm; overflow: hidden; word-break: break-word; }}
   .label-box {{ width: {width_mm}mm; height: {height_mm}mm; border: 1px solid {BORDER}; border-radius: 6px; overflow: hidden; display: block; position: relative; }}
   .content-box {{ padding: 2mm; text-align: center; }}
-  .label-page {{ width: {width_mm}mm; height: {height_mm}mm; overflow: hidden; {rotation_css} }}
+  .label-page {{ width: {page_w}mm; height: {page_h}mm; overflow: hidden; position: relative; }}
+  .label-page-inner {{ width: {width_mm}mm; height: {height_mm}mm; position: absolute; top: 0; left: 0; {rotation_css} }}
   .label-page + .label-page {{ page-break-before: always; }}
   @media print {{ .no-print {{ display: none; }} }}
 """
@@ -423,7 +433,7 @@ def render_label_html(
 <style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
-  <div class="label-page">{markup}</div>
+  <div class="label-page"><div class="label-page-inner">{markup}</div></div>
   <div class="no-print" style="margin-top: 8px;">
     <button onclick="window.print()">Печать</button>
   </div>
@@ -444,7 +454,9 @@ def render_labels_html_batch(
     печатной странице через CSS page-break-before, без открытия N вкладок."""
     fields = fields if fields is not None else DEFAULT_FIELDS
     pages = "".join(
-        f'<div class="label-page">{_label_markup(d, fields=fields, width_mm=width_mm, height_mm=height_mm)}</div>'
+        f'<div class="label-page"><div class="label-page-inner">'
+        f"{_label_markup(d, fields=fields, width_mm=width_mm, height_mm=height_mm)}"
+        f"</div></div>"
         for d in items
     )
     return f"""<!doctype html>
@@ -1139,7 +1151,7 @@ def render_shelf_label_html(
 <style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
-  <div class="label-page">{markup}</div>
+  <div class="label-page"><div class="label-page-inner">{markup}</div></div>
   <div class="no-print" style="margin-top: 8px;">
     <button onclick="window.print()">Печать</button>
   </div>
@@ -1157,7 +1169,9 @@ def render_shelf_labels_html_batch(
 ) -> str:
     fields = fields if fields is not None else DEFAULT_FIELDS_SHELF
     pages = "".join(
-        f'<div class="label-page">{_shelf_label_markup(d, fields=fields, width_mm=width_mm, height_mm=height_mm)}</div>'
+        f'<div class="label-page"><div class="label-page-inner">'
+        f"{_shelf_label_markup(d, fields=fields, width_mm=width_mm, height_mm=height_mm)}"
+        f"</div></div>"
         for d in items
     )
     return f"""<!doctype html>
@@ -1476,7 +1490,7 @@ def render_rack_label_html(
 <style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
-  <div class="label-page">{markup}</div>
+  <div class="label-page"><div class="label-page-inner">{markup}</div></div>
   <div class="no-print" style="margin-top: 8px;">
     <button onclick="window.print()">Печать</button>
   </div>

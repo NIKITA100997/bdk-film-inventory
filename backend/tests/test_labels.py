@@ -289,15 +289,29 @@ class TestRenderLabelHtml:
 
     def test_vertical_swaps_page_rule_but_keeps_content_box_native_size(self):
         """Раздел про ориентацию печати — физическая страница (@page,
-        реально уходит в печать) повёрнута, но .label-page (контент)
+        реально уходит в печать) повёрнута, но .label-page-inner (контент)
         остаётся исходного размера и поворачивается CSS-трансформацией —
         раньше страница просто становилась уже, а сам текст полей всё
         равно рисовался горизонтальной строкой ("размер верный, но
         горизонтально")."""
         html = render_label_html(SAMPLE, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40, vertical=True)
         assert "size: 40mm 100mm" in html  # физическая страница повёрнута
-        assert "width: 100mm; height: 40mm" in html  # .label-table/.label-box/.label-page — исходный размер
+        assert "width: 100mm; height: 40mm" in html  # .label-table/.label-box/.label-page-inner — исходный размер
         assert "rotate(90deg)" in html
+
+    def test_vertical_outer_label_page_matches_rotated_page_size(self):
+        """Раздел про Android Print Service Framework (планшет) — раньше
+        .label-page нёс и layout-размер, и поворот одновременно, из-за чего
+        его layout-бокс (по которому печатный движок считает разбивку на
+        страницы) не совпадал с объявленным @page — на десктопном PDF-пути
+        это не задевало (там честный canvas, не CSS), а печать с планшета
+        после этого несоответствия ломалась целиком. Теперь layout-размер
+        (.label-page, участвует в потоке документа) и визуальный поворот
+        (.label-page-inner, position:absolute, из потока выключен) — два
+        разных элемента, и .label-page всегда совпадает с @page."""
+        html = render_label_html(SAMPLE, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40, vertical=True)
+        assert ".label-page { width: 40mm; height: 100mm;" in html
+        assert "position: absolute" in html
 
     def test_non_vertical_has_no_rotation_transform(self):
         html = render_label_html(SAMPLE, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40, vertical=False)
