@@ -17,6 +17,7 @@ from app.api.material_cards import router as material_cards_router
 from app.api.production import router as production_router
 from app.api.purchasing import router as purchasing_router
 from app.api.supplier_orders import router as supplier_orders_router
+from app.api.notifications import router as notifications_router
 from app.api.reports import router as reports_router
 from app.api.roles import router as roles_router
 from app.api.storage import router as storage_router
@@ -82,6 +83,7 @@ app.include_router(material_cards_router, prefix=API_PREFIX)
 app.include_router(production_router, prefix=API_PREFIX)
 app.include_router(abc_router, prefix=API_PREFIX)
 app.include_router(reports_router, prefix=API_PREFIX)
+app.include_router(notifications_router, prefix=API_PREFIX)
 app.include_router(purchasing_router, prefix=API_PREFIX)
 app.include_router(supplier_orders_router, prefix=API_PREFIX)
 app.include_router(suppliers_router, prefix=API_PREFIX)
