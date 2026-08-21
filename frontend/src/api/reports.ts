@@ -53,16 +53,21 @@ export interface StaleUnitLine {
   days_idle: number;
 }
 
-export const getStockSummary = async (): Promise<StockSummaryLine[]> =>
-  (await apiClient.get<StockSummaryLine[]>("/reports/stock-summary")).data;
+export const getStockSummary = async (warehouseId?: number): Promise<StockSummaryLine[]> =>
+  (await apiClient.get<StockSummaryLine[]>("/reports/stock-summary", { params: { warehouse_id: warehouseId } })).data;
 
-export const getStockByWidth = async (): Promise<StockByWidthLine[]> =>
-  (await apiClient.get<StockByWidthLine[]>("/reports/stock-by-width")).data;
+export const getStockByWidth = async (warehouseId?: number): Promise<StockByWidthLine[]> =>
+  (await apiClient.get<StockByWidthLine[]>("/reports/stock-by-width", { params: { warehouse_id: warehouseId } })).data;
 
-export const getMovement = async (dateFrom: string, dateTo: string, materialSkuId?: number): Promise<MovementEntry[]> =>
+export const getMovement = async (
+  dateFrom: string,
+  dateTo: string,
+  materialSkuId?: number,
+  warehouseId?: number,
+): Promise<MovementEntry[]> =>
   (
     await apiClient.get<MovementEntry[]>("/reports/movement", {
-      params: { date_from: dateFrom, date_to: dateTo, material_sku_id: materialSkuId },
+      params: { date_from: dateFrom, date_to: dateTo, material_sku_id: materialSkuId, warehouse_id: warehouseId },
     })
   ).data;
 

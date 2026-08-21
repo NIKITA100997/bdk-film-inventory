@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tabs, DatePicker, Space, Row, Col, Tag, InputNumber } from "antd";
+import { Card, Tabs, DatePicker, Select, Space, Row, Col, Tag, InputNumber } from "antd";
 import Statistic from "../../components/Statistic";
 import { useQuery } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";
@@ -14,9 +14,35 @@ import {
 import ReportTable, { type ReportColumn } from "../../components/ReportTable";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { listAreas } from "../../api/areas";
+import { listWarehouses } from "../../api/storage";
+
+// Раздел про отчёты по складам отдельно — выбор склада показываем только
+// если складов больше одного (тот же принцип, что уже в Receive.tsx для
+// поля "Склад" при приёмке), иначе лишний фильтр без смысла.
+function useWarehouseFilter() {
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
+  const [warehouseId, setWarehouseId] = useState<number>();
+  const picker =
+    activeWarehouses.length > 1 ? (
+      <Select
+        allowClear
+        placeholder="Склад"
+        style={{ width: 200 }}
+        options={activeWarehouses.map((w) => ({ value: w.id, label: w.name }))}
+        value={warehouseId}
+        onChange={setWarehouseId}
+      />
+    ) : null;
+  return { warehouseId, picker };
+}
 
 function StockSummaryTab() {
-  const query = useQuery({ queryKey: ["report-stock-summary"], queryFn: getStockSummary });
+  const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
+  const query = useQuery({
+    queryKey: ["report-stock-summary", warehouseId],
+    queryFn: () => getStockSummary(warehouseId),
+  });
   const [material, setMaterial] = useState<string>();
   const [color, setColor] = useState<string>();
   const [thickness, setThickness] = useState<number>();
@@ -39,6 +65,7 @@ function StockSummaryTab() {
         <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
         <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} allowCreate={false} />
         <InputNumber placeholder="Толщина, мм" min={0} step={0.01} value={thickness} onChange={(v) => setThickness(v ?? undefined)} />
+        {warehousePicker}
       </Space>
       <ReportTable
         title="Остатки по материалу"
@@ -53,7 +80,11 @@ function StockSummaryTab() {
 }
 
 function StockByWidthTab() {
-  const query = useQuery({ queryKey: ["report-stock-by-width"], queryFn: getStockByWidth });
+  const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
+  const query = useQuery({
+    queryKey: ["report-stock-by-width", warehouseId],
+    queryFn: () => getStockByWidth(warehouseId),
+  });
   const [material, setMaterial] = useState<string>();
   const [color, setColor] = useState<string>();
   const [thickness, setThickness] = useState<number>();
@@ -78,6 +109,7 @@ function StockByWidthTab() {
         <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
         <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} allowCreate={false} />
         <InputNumber placeholder="Толщина, мм" min={0} step={0.01} value={thickness} onChange={(v) => setThickness(v ?? undefined)} />
+        {warehousePicker}
       </Space>
       <ReportTable
         title="Остатки по ширине"
@@ -93,9 +125,10 @@ function StockByWidthTab() {
 
 function MovementTab() {
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(6, "day"), dayjs()]);
+  const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
   const query = useQuery({
-    queryKey: ["report-movement", range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD")],
-    queryFn: () => getMovement(range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD")),
+    queryKey: ["report-movement", range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD"), warehouseId],
+    queryFn: () => getMovement(range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD"), undefined, warehouseId),
   });
 
   const rows = query.data ?? [];
@@ -117,7 +150,10 @@ function MovementTab() {
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
+      <Space wrap>
+        <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
+        {warehousePicker}
+      </Space>
       <ReportTable
         title="Движение за период"
         filename="dvizhenie.csv"

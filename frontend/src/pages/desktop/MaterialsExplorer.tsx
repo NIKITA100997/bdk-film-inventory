@@ -110,7 +110,11 @@ export default function MaterialsExplorer() {
     queryFn: () => listWriteOffReasons("warehouse"),
   });
 
-  const positionsQuery = useQuery({ queryKey: ["materials-explorer", "positions"], queryFn: getStockSummary, enabled: viewMode === "positions" });
+  const positionsQuery = useQuery({
+    queryKey: ["materials-explorer", "positions"],
+    queryFn: () => getStockSummary(),
+    enabled: viewMode === "positions",
+  });
   const unitsQuery = useQuery({
     queryKey: ["materials-explorer", "units", filters],
     queryFn: () => searchUnits(filters),

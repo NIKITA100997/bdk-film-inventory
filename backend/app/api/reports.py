@@ -2,7 +2,7 @@ import datetime as dt
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func
+from sqlalchemy import case, false, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_permission
@@ -11,6 +11,7 @@ from app.models.abc import CalcSettings
 from app.models.areas import Area
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
 from app.models.events import EventType, MaterialEvent
+from app.models.storage import Rack
 from app.models.production import (
     ProductionLine,
     ProductionTask,
@@ -44,11 +45,32 @@ from app.services.defects_reports import PivotInputRow, build_defect_pivot, buck
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
+def _rack_codes_for_warehouse(db: Session, warehouse_id: int) -> list[str]:
+    return [code for (code,) in db.query(Rack.code).filter(Rack.warehouse_id == warehouse_id).all()]
+
+
+def _filter_by_warehouse(query, column, db: Session, warehouse_id: int | None):
+    """Раздел про отчёты по складам отдельно — у MaterialUnit/MaterialEvent
+    нет прямого warehouse_id, склад определяется только префиксом
+    location_code/to_cell относительно Rack.code (Rack.warehouse_id — уже
+    реальная связь, см. api/storage.py/services/placement.py). Единицы,
+    выданные участку (без ячейки), в фильтр по складу закономерно не
+    попадают — они физически не на складе."""
+    if warehouse_id is None:
+        return query
+    codes = _rack_codes_for_warehouse(db, warehouse_id)
+    if not codes:
+        return query.filter(false())
+    return query.filter(or_(*[column.like(f"{code}-%") for code in codes]))
+
+
 @router.get("/stock-summary", response_model=list[StockSummaryLine])
-def stock_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[StockSummaryLine]:
+def stock_summary(
+    warehouse_id: int | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> list[StockSummaryLine]:
     """Остатки по материалу/цвету/толщине, м² (5.4 ТЗ) — без учёта
     производителя, как и заявка на плёнку (2.7)."""
-    rows = (
+    query = (
         db.query(
             Material.name,
             Color.name,
@@ -61,10 +83,9 @@ def stock_summary(db: Session = Depends(get_db), user: User = Depends(get_curren
         .join(Color, MaterialSku.color_id == Color.id)
         .join(Thickness, MaterialSku.thickness_id == Thickness.id)
         .filter(MaterialUnit.status != UnitStatus.SPISAN)
-        .group_by(Material.name, Color.name, Thickness.value_mm)
-        .order_by(Material.name, Color.name, Thickness.value_mm)
-        .all()
     )
+    query = _filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
+    rows = query.group_by(Material.name, Color.name, Thickness.value_mm).order_by(Material.name, Color.name, Thickness.value_mm).all()
     return [
         StockSummaryLine(material=m, color=c, thickness=float(t), total_area_m2=round(float(area or 0), 3), unit_count=cnt)
         for m, c, t, area, cnt in rows
@@ -72,9 +93,11 @@ def stock_summary(db: Session = Depends(get_db), user: User = Depends(get_curren
 
 
 @router.get("/stock-by-width", response_model=list[StockByWidthLine])
-def stock_by_width(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[StockByWidthLine]:
+def stock_by_width(
+    warehouse_id: int | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> list[StockByWidthLine]:
     """Остатки по конкретной ширине, метры (5.4 ТЗ)."""
-    rows = (
+    query = (
         db.query(
             Material.name,
             Color.name,
@@ -90,7 +113,10 @@ def stock_by_width(db: Session = Depends(get_db), user: User = Depends(get_curre
         .join(Thickness, MaterialSku.thickness_id == Thickness.id)
         .join(Manufacturer, MaterialSku.manufacturer_id == Manufacturer.id)
         .filter(MaterialUnit.status != UnitStatus.SPISAN)
-        .group_by(Material.name, Color.name, Thickness.value_mm, Manufacturer.name, MaterialUnit.width_mm)
+    )
+    query = _filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
+    rows = (
+        query.group_by(Material.name, Color.name, Thickness.value_mm, Manufacturer.name, MaterialUnit.width_mm)
         .order_by(Material.name, Color.name, Thickness.value_mm, MaterialUnit.width_mm.desc())
         .all()
     )
@@ -113,11 +139,14 @@ def movement(
     date_from: dt.date = Query(...),
     date_to: dt.date = Query(...),
     material_sku_id: int | None = None,
+    warehouse_id: int | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("reports.view")),
 ) -> list[MovementEntry]:
     """Движение за период (5.4 ТЗ) — журнал событий по всем позициям, с
-    опциональным фильтром по одной позиции материала."""
+    опциональным фильтром по одной позиции материала и/или по складу
+    (фильтр по to_cell — куда пришло движение; события без ячейки, то есть
+    выдача участку, закономерно не попадают ни под какой склад)."""
     query = (
         db.query(MaterialEvent, Material.name, Color.name, Thickness.value_mm, Manufacturer.name)
         .join(MaterialSku, MaterialEvent.material_sku_id == MaterialSku.id)
@@ -129,6 +158,7 @@ def movement(
     )
     if material_sku_id is not None:
         query = query.filter(MaterialEvent.material_sku_id == material_sku_id)
+    query = _filter_by_warehouse(query, MaterialEvent.to_cell, db, warehouse_id)
     rows = query.order_by(MaterialEvent.timestamp.desc()).limit(500).all()
 
     return [
