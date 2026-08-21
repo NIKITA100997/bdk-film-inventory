@@ -73,6 +73,10 @@ class ProductionTask(Base):
     product_model_id: Mapped[int | None] = mapped_column(ForeignKey("product_models.id"), nullable=True)
     quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)  # "500 дверей" — пусто у ручных заданий
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)  # ярлык ручного задания
+    # Номер заказа из наряда — отдельно от name (там он остаётся частью
+    # человекочитаемого ярлыка "Заказ №8842 — ..."), нужен для поиска/
+    # группировки заданий по одному заказу и как точка стыковки с 1С.
+    external_order_ref: Mapped[int | None] = mapped_column(Integer, nullable=True)
     area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

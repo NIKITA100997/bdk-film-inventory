@@ -97,6 +97,7 @@ export interface ProductionTask {
   name: string | null;
   area: AreaValue;
   quantity: number | null;
+  external_order_ref: number | null;
   created_by: number;
   created_at: string;
   is_active: boolean;
@@ -120,6 +121,7 @@ export interface ProductionTaskManualCreate {
   area: AreaValue;
   product_model_id?: number;
   quantity?: number;
+  external_order_ref?: number;
   lines: ProductionTaskLineManualCreate[];
 }
 
@@ -202,6 +204,7 @@ export interface NaryadParsedLine {
 export interface NaryadParseResult {
   suggested_name: string;
   lines: NaryadParsedLine[];
+  order_number: number | null;
 }
 
 export const parseNaryadFile = async (file: File): Promise<NaryadParseResult> => {

@@ -70,6 +70,9 @@ class ParsedNaryadLine:
 class NaryadParseResult:
     suggested_name: str
     lines: list[ParsedNaryadLine] = field(default_factory=list)
+    # Тот же номер, что уже вклеен текстом в suggested_name ("Заказ №8842") —
+    # но отдельным полем, для production_tasks.external_order_ref.
+    order_number: int | None = None
 
 
 def _is_stop_row(row: list) -> bool:
@@ -161,7 +164,9 @@ def parse_naryad_grid(rows: list[list]) -> NaryadParseResult:
             )
         )
 
-    return NaryadParseResult(suggested_name=_suggested_name(order_number, model_label, "Наряд-заказ"), lines=lines)
+    return NaryadParseResult(
+        suggested_name=_suggested_name(order_number, model_label, "Наряд-заказ"), lines=lines, order_number=order_number
+    )
 
 
 def _korob_strip_width_mm(name: str, depth_mm: float, width_mm: float) -> float | None:
@@ -240,7 +245,9 @@ def parse_pogonazh_grid(rows: list[list]) -> NaryadParseResult:
     if not lines:
         raise ValueError('В таблице погонажных позиций не найдено ни одной строки с размерами в названии')
 
-    return NaryadParseResult(suggested_name=_suggested_name(order_number, model_label, "Погонаж"), lines=lines)
+    return NaryadParseResult(
+        suggested_name=_suggested_name(order_number, model_label, "Погонаж"), lines=lines, order_number=order_number
+    )
 
 
 def parse_naryad_xls_bytes(data: bytes) -> NaryadParseResult:

@@ -92,6 +92,10 @@ class NaryadParseResultOut(BaseModel):
 
     suggested_name: str
     lines: list[NaryadParsedLineOut]
+    # Тот же номер, что уже вклеен в suggested_name текстом — отдельным
+    # полем, чтобы форма создания задания могла предзаполнить структурное
+    # поле, а не только текстовый ярлык.
+    order_number: int | None = None
 
 
 class ProductionTaskManualCreate(BaseModel):
@@ -99,6 +103,7 @@ class ProductionTaskManualCreate(BaseModel):
     area: str
     product_model_id: int | None = None
     quantity: int | None = None
+    external_order_ref: int | None = None
     lines: list[ProductionTaskLineManualCreate] = Field(min_length=1)
 
 
@@ -208,6 +213,7 @@ class ProductionTaskOut(BaseModel):
     name: str | None
     area: str
     quantity: int | None
+    external_order_ref: int | None
     created_by: int
     created_at: datetime
     is_active: bool

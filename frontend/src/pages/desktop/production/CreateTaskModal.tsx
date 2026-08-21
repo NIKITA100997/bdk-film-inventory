@@ -29,7 +29,7 @@ type ManualRowFormValues = ProductionTaskLineManualCreate & { sku_id?: number };
 export default function CreateTaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const [manualLines, setManualLines] = useState<ProductionTaskLineManualCreate[]>([]);
-  const [manualForm] = Form.useForm<{ name: string; area: AreaValue }>();
+  const [manualForm] = Form.useForm<{ name: string; area: AreaValue; external_order_ref?: number }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
   const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number }>();
   // Общий выбор номенклатуры для обоих способов массовой загрузки строк
@@ -123,7 +123,10 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
         part_name: l.part_name,
       }));
       setManualLines((lines) => [...lines, ...loaded]);
-      manualForm.setFieldsValue({ name: manualForm.getFieldValue("name") || result.suggested_name });
+      manualForm.setFieldsValue({
+        name: manualForm.getFieldValue("name") || result.suggested_name,
+        external_order_ref: manualForm.getFieldValue("external_order_ref") ?? result.order_number ?? undefined,
+      });
       message.success(`Из наряд-заказа добавлено строк: ${loaded.length}`);
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось разобрать файл наряд-заказа")),
@@ -207,6 +210,9 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
       <Form layout="vertical" form={manualForm}>
         <Form.Item name="name" label="Название задания" rules={[{ required: true }]}>
           <Input placeholder="Партия 500 дверей" />
+        </Form.Item>
+        <Form.Item name="external_order_ref" label="№ заказа">
+          <InputNumber style={{ width: "100%" }} placeholder="Заполняется автоматически из наряда, можно поправить" />
         </Form.Item>
         <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
           <Select options={areaOptions} />

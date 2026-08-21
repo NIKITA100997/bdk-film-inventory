@@ -240,6 +240,7 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
         name=task.name,
         area=task.area,
         quantity=task.quantity,
+        external_order_ref=task.external_order_ref,
         created_by=task.created_by,
         created_at=task.created_at,
         is_active=task.is_active,
@@ -491,6 +492,7 @@ def create_production_task_manual(
         product_model_id=payload.product_model_id,
         quantity=payload.quantity,
         name=payload.name,
+        external_order_ref=payload.external_order_ref,
         area=payload.area,
         created_by=user.id,
     )
@@ -555,6 +557,7 @@ async def parse_naryad(file: UploadFile = File(...), user: User = Depends(manage
     return NaryadParseResultOut(
         suggested_name=result.suggested_name,
         lines=[NaryadParsedLineOut(**l.__dict__) for l in result.lines],
+        order_number=result.order_number,
     )
 
 
