@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 from io import BytesIO
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from app.services.labels import (
     render_field_value,
     render_label_html,
     render_label_pdf,
+    render_labels_html_batch,
     render_labels_pdf_batch,
 )
 
@@ -299,19 +301,36 @@ class TestRenderLabelHtml:
         assert "width: 100mm; height: 40mm" in html  # .label-table/.label-box/.label-page-inner — исходный размер
         assert "rotate(90deg)" in html
 
-    def test_vertical_outer_label_page_matches_rotated_page_size(self):
-        """Раздел про Android Print Service Framework (планшет) — раньше
-        .label-page нёс и layout-размер, и поворот одновременно, из-за чего
-        его layout-бокс (по которому печатный движок считает разбивку на
-        страницы) не совпадал с объявленным @page — на десктопном PDF-пути
-        это не задевало (там честный canvas, не CSS), а печать с планшета
-        после этого несоответствия ломалась целиком. Теперь layout-размер
-        (.label-page, участвует в потоке документа) и визуальный поворот
-        (.label-page-inner, position:absolute, из потока выключен) — два
-        разных элемента, и .label-page всегда совпадает с @page."""
+    def test_vertical_outer_label_page_matches_rotated_page_size_no_absolute_positioning(self):
+        """Раздел про Android Print Service Framework (планшет) — две
+        проваленные попытки до этой версии, обе найдены живой печатью:
+        1) поворот и layout-размер на одном .label-page — работало на
+           экране, но печать с планшета ломалась целиком (layout-бокс не
+           совпадал с объявленным @page);
+        2) вынесли поворот в .label-page-inner с position:absolute — печать
+           ОДНОЙ этикетки исправилась, но печать ПАЧКИ (много страниц)
+           показывала только последнюю страницу, остальные пустые —
+           abspos-элементы не фрагментируются по страницам CSS Paged Media.
+        Текущая версия — .label-page-inner в обычном потоке (НЕ
+        position:absolute), центрируется флексбоксом на .label-page,
+        поворот вокруг центра. .label-page по-прежнему всегда совпадает
+        с (уже повёрнутым) @page, но без abspos."""
         html = render_label_html(SAMPLE, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40, vertical=True)
         assert ".label-page { width: 40mm; height: 100mm;" in html
-        assert "position: absolute" in html
+        assert "position: absolute" not in html
+        assert "display: flex" in html
+
+    def test_vertical_batch_renders_content_on_every_page_not_just_last(self):
+        """Регрессия на находку с 29 полками стеллажа — с position:absolute
+        только последняя страница пачки печаталась, остальные были пустые.
+        Явная проверка: значение (unit_id), уникальное на страницу, должно
+        встретиться в html батча ровно N раз (по разу на страницу), а не
+        один раз (что означало бы "видно только на одной странице")."""
+        items = [replace(SAMPLE, unit_id=100 + i) for i in range(5)]
+        html = render_labels_html_batch(items, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40, vertical=True)
+        for item in items:
+            assert html.count(f"№ {item.unit_id}") == 1
+        assert html.count('<div class="label-page-inner">') == len(items)
 
     def test_non_vertical_has_no_rotation_transform(self):
         html = render_label_html(SAMPLE, fields=DEFAULT_FIELDS, width_mm=100, height_mm=40, vertical=False)

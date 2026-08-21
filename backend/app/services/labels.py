@@ -369,27 +369,37 @@ def _label_markup(
 
 def _label_doc_styles(width_mm: int, height_mm: int, vertical: bool = False) -> str:
     """Раздел про ориентацию печати. При vertical=True физическая страница
-    (@page) повёрнута (width_mm/height_mm меняются местами) — но раньше
-    .label-page (тот же элемент, что несёт и layout-размер, и CSS-поворот)
-    сохранял ИСХОДНЫЕ (неповёрнутые) width/height и получал transform
-    поверх них — из-за этого его layout-бокс (по которому браузер считает
-    разбивку на страницы при печати) не совпадал с объявленным @page —
-    на десктопном Chrome (PDF-путь вообще не участвует, там честный canvas)
-    это сходило с рук, а на Android Print Service Framework (планшет)
-    печать после этого несоответствия просто ломалась ("вообще не может
-    нормально распечатать"). Поэтому layout-размер и визуальный поворот
-    теперь разнесены по двум разным элементам: внешний .label-page — это
-    именно то, что участвует в потоке документа/разбивке страниц, его
-    width/height ВСЕГДА равны объявленному @page (уже повёрнутому, если
-    vertical); вложенный .label-page-inner — position:absolute (выключен
-    из потока, не влияет на layout родителя), исходного размера
-    width_mm×height_mm, и уже на нём CSS-поворот. transform-origin:top left
-    + rotate(90deg) translate(0,-100%) — стандартная комбинация, переносящая
-    повёрнутый прямоугольник ровно в границы .label-page. Если на реальном
-    принтере поворот окажется в другую сторону — заменить на
-    rotate(-90deg) translate(-100%, 0)."""
+    (@page) повёрнута (width_mm/height_mm меняются местами).
+
+    Две неудачные попытки до этой версии, обе выявлены живой печатью, не
+    угадыванием:
+    1) Поворот и layout-размер на одном и том же .label-page — работало на
+       экране, но на планшете (Android Print Service Framework) печать
+       ломалась целиком: layout-бокс (по нему движок считает разбивку на
+       страницы) не совпадал с объявленным @page. Десктопный PDF-путь
+       (честный canvas) это не задевало.
+    2) Разнесли на .label-page (layout, всегда = @page) и
+       .label-page-inner с position:absolute (сам поворот) — почему-то
+       при печати ПАЧКИ этикеток (много страниц) печаталась только
+       ПОСЛЕДНЯЯ страница, остальные — пустые. Причина: position:absolute
+       выключает элемент из нормального потока, а фрагментация/разбивка на
+       страницы CSS Paged Media в браузерах определена только для
+       элементов В потоке — abspos-бокс не обязан (и на практике не
+       умеет) повторяться на каждой печатной странице пачки, он "живёт"
+       только в одном месте документа.
+
+    Работающая версия: .label-page-inner остаётся в обычном потоке (НЕ
+    position:absolute) — центрируется внутри .label-page флексбоксом.
+    Поворот на 90° вокруг ЦЕНТРА исходного (width_mm×height_mm) блока даёт
+    визуальный прямоугольник height_mm×width_mm, т.е. ровно размер
+    .label-page (тот уже повёрнут/переставлен) — центры обоих совпадают
+    благодаря флекс-центрированию, так что после поворота содержимое само
+    попадает точно в границы страницы, без abspos и без translate-магии.
+    Если на реальном принтере поворот окажется в другую сторону — заменить
+    на rotate(-90deg) (transform-origin остаётся center, знак не влияет на
+    то, что фигура всё равно впишется — только зеркалит направление)."""
     page_w, page_h = (height_mm, width_mm) if vertical else (width_mm, height_mm)
-    rotation_css = "transform-origin: top left; transform: rotate(90deg) translate(0, -100%);" if vertical else ""
+    rotation_css = "transform: rotate(90deg);" if vertical else ""
     return f"""
   @page {{ size: {page_w}mm {page_h}mm; margin: 0; }}
   * {{ box-sizing: border-box; }}
@@ -400,8 +410,8 @@ def _label_doc_styles(width_mm: int, height_mm: int, vertical: bool = False) -> 
   td.text-td {{ vertical-align: middle; text-align: left; padding: 2mm 3mm 2mm 1mm; overflow: hidden; word-break: break-word; }}
   .label-box {{ width: {width_mm}mm; height: {height_mm}mm; border: 1px solid {BORDER}; border-radius: 6px; overflow: hidden; display: block; position: relative; }}
   .content-box {{ padding: 2mm; text-align: center; }}
-  .label-page {{ width: {page_w}mm; height: {page_h}mm; overflow: hidden; position: relative; }}
-  .label-page-inner {{ width: {width_mm}mm; height: {height_mm}mm; position: absolute; top: 0; left: 0; {rotation_css} }}
+  .label-page {{ width: {page_w}mm; height: {page_h}mm; overflow: hidden; display: flex; align-items: center; justify-content: center; }}
+  .label-page-inner {{ width: {width_mm}mm; height: {height_mm}mm; flex-shrink: 0; {rotation_css} }}
   .label-page + .label-page {{ page-break-before: always; }}
   @media print {{ .no-print {{ display: none; }} }}
 """
