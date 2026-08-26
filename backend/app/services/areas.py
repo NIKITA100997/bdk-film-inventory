@@ -8,6 +8,14 @@ from sqlalchemy.orm import Session
 
 from app.models.areas import Area
 
+# Раздел про падение при создании участка с длинным названием (500
+# StringDataRightTruncation вместо понятной ошибки) — колонка areas.code
+# сейчас String(128), но название участка ничем не ограничено, а суффикс
+# на случай коллизии (unique_area_code ниже) ещё +2-3 символа сверху,
+# поэтому обрезаем сам слаг заранее с запасом, а не только увеличиваем
+# лимит колонки — иначе баг просто вернётся при ещё более длинном названии.
+_MAX_CODE_LEN = 100
+
 _TRANSLIT = {
     "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
     "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
@@ -24,7 +32,8 @@ def slugify(name: str) -> str:
     slug = "".join(ch if ch.isalnum() else "_" for ch in transliterated)
     while "__" in slug:
         slug = slug.replace("__", "_")
-    return slug.strip("_") or "area"
+    slug = slug.strip("_") or "area"
+    return slug[:_MAX_CODE_LEN].rstrip("_") or "area"
 
 
 def unique_area_code(db: Session, name: str) -> str:

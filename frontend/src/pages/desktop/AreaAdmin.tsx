@@ -1,8 +1,14 @@
 import { useState } from "react";
 import { Card, Tag, Button, Modal, Form, Input, Space, Typography, Checkbox, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { listAreas, createArea, updateArea, type Area } from "../../api/areas";
 import ResponsiveTable from "../../components/ResponsiveTable";
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
 
 /** Участки (раздел про адаптацию под планшет — "администрирование
  * участков, какие есть и т.п.") — раньше жёсткий enum, теперь создаваемая
@@ -28,7 +34,7 @@ export default function AreaAdmin() {
       createForm.resetFields();
       message.success("Участок создан");
     },
-    onError: () => message.error("Не удалось создать — название уже занято?"),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось создать участок")),
   });
 
   const archiveMutation = useMutation({
@@ -46,7 +52,7 @@ export default function AreaAdmin() {
       setRenaming(null);
       message.success("Переименовано");
     },
-    onError: () => message.error("Не удалось переименовать — название уже занято?"),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось переименовать участок")),
   });
 
   return (
