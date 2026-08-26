@@ -340,6 +340,18 @@ export default function Issue() {
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
 
+  // Раздел про видимость выданного вручную — "Выдано по заданиям" ниже
+  // строится строго из строк заданий и никогда не покажет единицу,
+  // выданную в обход задания (issueUnitDirect/manualDirectMutation и
+  // т.п.). Отдельный запрос по статусу "Выдан участку" находит и такие
+  // тоже — фильтруем на клиенте по отсутствию production_task_line_id
+  // (обратное тому, что делает issuedLines).
+  const manualIssuedQuery = useQuery({
+    queryKey: ["issue-manual-issued", areaFilter],
+    queryFn: () => searchUnits({ status: "Выдан_участку", area: areaFilter ?? undefined }),
+  });
+  const manualIssuedUnits = (manualIssuedQuery.data ?? []).filter((u) => !u.production_task_line_id);
+
   // --- Очередь: "запрошено сегодня/просрочено" (из распределения по дням)
   // и "задания недели" (остаток по строкам, для которых на сегодня ничего
   // не распределено) — раздел про экран выдачи: складу нужны
@@ -1089,7 +1101,9 @@ export default function Issue() {
                             scroll={{ x: "max-content" }}
                             locale={{ emptyText: "Ничего нет на хранении" }}
                             columns={[
+                              { title: "№", dataIndex: "id" },
                               { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
+                              { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
                               {
                                 title: "",
                                 render: (_, u) => (
@@ -1205,6 +1219,49 @@ export default function Issue() {
         </Card>
       )}
 
+      {manualIssuedUnits.length > 0 && (
+        <Card style={{ marginTop: 20 }} title={`📦 Выдано вручную — ${manualIssuedUnits.length}`}>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, marginBottom: 12 }}>
+            Единицы, выданные без привязки к заданию (ручной подбор) — сюда же попадает возврат,
+            без задания это не отслеживается в "Выдано по заданиям" выше.
+          </Typography.Paragraph>
+          <ResponsiveTable
+            tableKey="issue-manual-issued"
+            size="small"
+            rowKey="id"
+            loading={manualIssuedQuery.isLoading}
+            dataSource={manualIssuedUnits}
+            pagination={{ pageSize: 10 }}
+            scroll={{ x: "max-content" }}
+            columns={[
+              { title: "№", dataIndex: "id" },
+              { title: "Плёнка", render: (_, u) => skuLabel(u.material_sku) },
+              { title: "Участок", render: (_, u) => (u.area ? areaLabel(u.area) : "—") },
+              { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
+              {
+                title: "",
+                render: (_, u) =>
+                  canReturn && (
+                    <Space>
+                      <a onClick={() => printLabel(u.id, { kind: "cutting_issue" })}>печать</a>
+                      <AcceptReturnButton
+                        unit={{
+                          id: u.id,
+                          width_mm: u.width_mm,
+                          length_m: u.length_m,
+                          material_sku_id: u.material_sku.id,
+                          parent_id: u.parent_id,
+                          is_strip: u.is_strip,
+                        }}
+                      />
+                    </Space>
+                  ),
+              },
+            ]}
+          />
+        </Card>
+      )}
+
       <Modal
         title="Заявка на закупку — с цеха"
         open={shortageModalOpen}
@@ -1289,6 +1346,7 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       qc.invalidateQueries({ queryKey: ["units-unplaced"] });
       qc.invalidateQueries({ queryKey: ["rack-occupancy"] });
+      qc.invalidateQueries({ queryKey: ["issue-manual-issued"] });
       message.success(
         <>
           №{returned.id} принят{placed ? ` и размещён: ${locationCode.trim()}` : ""} —{" "}

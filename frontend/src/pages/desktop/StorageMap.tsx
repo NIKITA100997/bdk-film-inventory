@@ -584,7 +584,7 @@ function RacksConsole() {
  * возврата (адрес всегда сбрасывается) или после резки без указанного
  * места для остатка. Без этой карточки они не видны нигде в "Стеллажах",
  * потому что не привязаны ни к одному стеллажу. */
-function UnplacedUnitsCard() {
+export function UnplacedUnitsCard() {
   const unplacedQuery = useQuery({ queryKey: ["units-unplaced"], queryFn: () => searchUnits({ unplaced: true }) });
   if (!unplacedQuery.data || unplacedQuery.data.length === 0) return null;
 
@@ -659,6 +659,9 @@ function UnplacedRow({ unit }: { unit: MaterialUnit }) {
         )}
         <Button size="small" onClick={() => navigate("/m/unit-card", { state: { unitId: unit.id } })}>
           Вручную
+        </Button>
+        <Button size="small" onClick={() => printLabel(unit.id)}>
+          Печать
         </Button>
       </Space>
     </div>
@@ -752,6 +755,9 @@ function RollShelfRows({
                         </Button>
                         <Button size="small" onClick={() => navigate("/materials", { state: skuToPrefill(unit.material_sku) })}>
                           В остатках
+                        </Button>
+                        <Button size="small" onClick={() => printLabel(unit.id)}>
+                          Печать
                         </Button>
                       </Space>
                     </div>

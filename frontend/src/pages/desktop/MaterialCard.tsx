@@ -218,6 +218,10 @@ export default function MaterialCard() {
   const [addUnitOpen, setAddUnitOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<MaterialUnit | null>(null);
   const [editing, setEditing] = useState<MaterialSkuUpdate>({});
+  // Раздел про поиск нужного размера на карточке материала — раньше
+  // список единиц можно было только пролистать целиком, без фильтра.
+  const [minWidthFilter, setMinWidthFilter] = useState<number | undefined>();
+  const [minLengthFilter, setMinLengthFilter] = useState<number | undefined>();
   // Архивные/без остатка позиции видны в выборе только тем, кто может их
   // редактировать (объединение "Остатков" и бывшей "Номенклатуры" по итогам
   // продуктового разбора — раньше архивные позиции были видны только на
@@ -280,6 +284,13 @@ export default function MaterialCard() {
     }
     return [...groups.values()].sort((a, b) => b.width_mm - a.width_mm);
   }, [cardQuery.data]);
+
+  const filteredUnits = useMemo(() => {
+    const units = cardQuery.data?.units ?? [];
+    return units.filter(
+      (u) => (minWidthFilter == null || u.width_mm >= minWidthFilter) && (minLengthFilter == null || u.length_m >= minLengthFilter),
+    );
+  }, [cardQuery.data, minWidthFilter, minLengthFilter]);
 
   const statusCounts = useMemo(() => {
     if (!cardQuery.data) return {} as Record<string, number>;
@@ -435,11 +446,27 @@ export default function MaterialCard() {
           </Card>
 
           <Card title="Список физических единиц">
-            <Table
+            <Space style={{ marginBottom: 12 }} wrap>
+              <InputNumber
+                placeholder="Ширина от, мм"
+                min={0}
+                value={minWidthFilter}
+                onChange={(v) => setMinWidthFilter(v ?? undefined)}
+              />
+              <InputNumber
+                placeholder="Длина от, м"
+                min={0}
+                step={0.1}
+                value={minLengthFilter}
+                onChange={(v) => setMinLengthFilter(v ?? undefined)}
+              />
+            </Space>
+            <ResponsiveTable<MaterialUnit>
+              tableKey="material-card-units"
               rowKey="id"
               size="small"
               pagination={{ pageSize: 10 }}
-              dataSource={cardQuery.data.units}
+              dataSource={filteredUnits}
               scroll={{ x: "max-content" }}
               onRow={(u) => ({
                 onClick: () => navigate("/m/unit-card", { state: { unitId: u.id } }),

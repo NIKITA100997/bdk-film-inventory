@@ -15,6 +15,7 @@ import { listAreas } from "../../api/areas";
 import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
 import { isOnboardingSeen } from "../../utils/onboarding";
 import OnboardingCard from "../../components/OnboardingCard";
+import { UnplacedUnitsCard } from "./StorageMap";
 import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "../../components/ColumnSettings";
 
 // Раздел про настраиваемый обзор — тот же приём, что уже настройка
@@ -34,6 +35,7 @@ const TILE_OPTIONS: ColumnOption[] = [
   { key: "rolls-strips", label: "Рулоны и штрипсы" },
   { key: "total-stock", label: "Общий остаток, м²" },
   { key: "cutting-discrepancies", label: "Отклонения при резке" },
+  { key: "unplaced", label: "Без места" },
 ];
 
 /** Обзор (5.5 ТЗ) — сводка сигналов по роли: у каждой роли своя выборка
@@ -73,6 +75,7 @@ export default function Overview() {
   const hasIssue = has("units.issue");
   const hasCut = has("units.cut");
   const hasReturn = has("units.return");
+  const hasPlace = has("units.place");
   // "В работе у участков" полезен всем, кто хоть как-то соприкасается со
   // складскими операциями или уже видит планирование/инвентаризацию — не
   // привязано к одной роли, чтобы не плодить очередной хардкод по имени роли.
@@ -161,6 +164,12 @@ export default function Overview() {
       </Space>
 
       {showOnboarding && <OnboardingCard onClose={() => setShowOnboarding(false)} />}
+
+      {/* Раздел про единый рабочий экран — тот же список "без места", что
+          уже есть на "Стеллажах и полках" (UnplacedUnitsCard оттуда же,
+          просто переиспользован), но прямо на "Обзоре" — куда оператор и
+          так попадает по входу, без отдельного похода в "Стеллажи". */}
+      {hasPlace && tileSettings.isVisible("unplaced") && <UnplacedUnitsCard />}
 
       <Row gutter={[16, 16]}>
         {showIssuedWork && user?.area && tileSettings.isVisible("issued-work") && (

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Button,
   Card,
+  Checkbox,
   Form,
   Input,
   InputNumber,
@@ -21,6 +22,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   getUnit,
   splitUnit,
+  splitUnitByLength,
   cutUnit,
   returnUnit,
   getReturnPreview,
@@ -76,10 +78,11 @@ export default function UnitCard() {
   const [scanForm] = Form.useForm<{ id: number }>();
   const [placeForm] = Form.useForm<{ location_code: string }>();
   const [splitForm] = Form.useForm<{ separate_width_mm: number; new_unit_location?: string }>();
-  const [cutForm] = Form.useForm<{ cut_length_m: number; remainder_location?: string }>();
+  const [cutForm] = Form.useForm<{ cut_length_m: number; remainder_location?: string; keep_as_unit?: boolean }>();
   const [returnForm] = Form.useForm<{ actual_length_m: number }>();
   const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
   const separateWidth = Form.useWatch("separate_width_mm", splitForm);
+  const keepCutAsUnit = Form.useWatch("keep_as_unit", cutForm);
 
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
   const writeOffReasonsQuery = useQuery({
@@ -147,17 +150,18 @@ export default function UnitCard() {
     mutationFn: (values: { separate_width_mm: number; new_unit_location?: string; occurred_at?: Dayjs | null }) =>
       splitUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
     onSuccess: (res) => {
-      setUnit(res.parent);
-      setAction(null);
       splitForm.resetFields();
       if (res.new_unit) {
-        message.success(
-          <>
-            Новый штрипс №{res.new_unit.id}: {res.new_unit.width_mm} мм, {res.new_unit.length_m} м —{" "}
-            <a onClick={() => printLabel(res.new_unit!.id)}>печать бирки</a>
-          </>,
-        );
+        // Раздел про единый рабочий экран — переключаемся на новую
+        // единицу и сразу открываем размещение (тот же приём, что уже
+        // даёт returnMutation ниже), вместо того чтобы отправлять
+        // оператора искать её в "Стеллажах и полках" отдельно.
+        setUnit(res.new_unit);
+        setAction("place");
+        message.success(`Новый штрипс №${res.new_unit.id} — выберите полку`);
       } else {
+        setUnit(res.parent);
+        setAction(null);
         message.success("Рулон разделён");
       }
     },
@@ -182,6 +186,32 @@ export default function UnitCard() {
       );
     },
     onError: () => message.error("Не удалось выполнить раскрой — проверьте длину и статус единицы"),
+  });
+
+  // Раскрой по длине с сохранением отреза как отдельной единицы (раздел
+  // про сохранение отреза как трекаемой единицы) — та же форма "cut", но
+  // с включённым чекбоксом; в отличие от cutMutation отрезанный кусок не
+  // списывается, а становится новой единицей — переключаемся на неё и
+  // сразу открываем размещение, как и у обычного деления выше.
+  const splitByLengthMutation = useMutation({
+    mutationFn: (values: { cut_length_m: number; remainder_location?: string; occurred_at?: Dayjs | null }) =>
+      splitUnitByLength(unit!.id, {
+        cut_length_m: values.cut_length_m,
+        new_unit_location: values.remainder_location,
+        occurred_at: toOccurredAtIso(values.occurred_at),
+      }),
+    onSuccess: (res) => {
+      cutForm.resetFields();
+      if (res.new_unit) {
+        setUnit(res.new_unit);
+        setAction("place");
+        message.success(`Новый кусок №${res.new_unit.id} — выберите полку`);
+      } else {
+        setUnit(res.parent);
+        setAction(null);
+      }
+    },
+    onError: () => message.error("Не удалось отрезать с сохранением единицы — проверьте длину и статус единицы"),
   });
 
   const returnMutation = useMutation({
@@ -396,29 +426,43 @@ export default function UnitCard() {
           )}
 
           {action === "cut" && (
-            <Form form={cutForm} layout="vertical" onFinish={(v) => cutMutation.mutate(v)} style={{ marginTop: 16 }}>
+            <Form
+              form={cutForm}
+              layout="vertical"
+              initialValues={{ keep_as_unit: false }}
+              onFinish={(v) => (v.keep_as_unit ? splitByLengthMutation.mutate(v) : cutMutation.mutate(v))}
+              style={{ marginTop: 16 }}
+            >
               {cutSuggestion.data && (
                 <Alert
                   style={{ marginBottom: 16 }}
                   type="success"
                   showIcon
-                  message={`Рекомендуем адрес для остатка: ${cutSuggestion.data}`}
+                  message={`Рекомендуем адрес для ${keepCutAsUnit ? "отрезанного куска" : "остатка"}: ${cutSuggestion.data}`}
                   description="Подставлено ниже — можно оставить как есть или указать другой (например, стеллаж Б)."
                 />
               )}
               <Form.Item name="cut_length_m" label="Отрезать, м" rules={[{ required: true }]}>
                 <InputNumber min={0.01} max={unit.length_m} step={0.01} style={{ width: "100%" }} />
               </Form.Item>
+              <Form.Item name="keep_as_unit" valuePropName="checked" style={{ marginBottom: 8 }}>
+                <Checkbox>Сохранить отрезанный кусок как отдельную единицу (со своим QR)</Checkbox>
+              </Form.Item>
               <Form.Item
                 name="remainder_location"
-                label="Ячейка для остатка (опционально)"
+                label={keepCutAsUnit ? "Ячейка для отрезанного куска (опционально)" : "Ячейка для остатка (опционально)"}
                 initialValue={cutSuggestion.data ?? undefined}
               >
                 <LocationSelect sku={unit.material_sku} placeholder="Оставить не размещённым, если не выбрать" />
               </Form.Item>
               <OccurredAtField />
-              <Button type="primary" htmlType="submit" block loading={cutMutation.isPending}>
-                Списать отрезок без бирки
+              <Button
+                type="primary"
+                htmlType="submit"
+                block
+                loading={cutMutation.isPending || splitByLengthMutation.isPending}
+              >
+                {keepCutAsUnit ? "Отрезать и сохранить как единицу" : "Списать отрезок без бирки"}
               </Button>
               <Button block style={{ marginTop: 8 }} onClick={() => setAction(null)}>
                 Отмена

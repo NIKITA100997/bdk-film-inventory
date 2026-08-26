@@ -2,7 +2,13 @@ import pytest
 
 from app.models.events import EventType
 from app.models.units import MaterialUnit, UnitStatus
-from app.services.splitting import cut_to_length, donor_remainder_write_off_m, split_lengthwise, split_lengthwise_multi
+from app.services.splitting import (
+    cut_to_length,
+    donor_remainder_write_off_m,
+    split_by_length,
+    split_lengthwise,
+    split_lengthwise_multi,
+)
 
 
 def make_unit(**overrides) -> MaterialUnit:
@@ -161,3 +167,44 @@ class TestCutToLength:
             cut_to_length(unit, cut_length_m=0)
         with pytest.raises(ValueError):
             cut_to_length(unit, cut_length_m=-5)
+
+
+class TestSplitByLength:
+    def test_parent_keeps_width_and_id_new_unit_gets_cut_length(self):
+        unit = make_unit(width_mm=1400, length_m=500)
+        outcome = split_by_length(unit, cut_length_m=120, new_unit_location="Б-1-02")
+
+        assert outcome.parent_width_mm == 1400  # ширина не меняется — не /split, а раскрой по длине
+        assert outcome.parent_length_m == 380
+        assert outcome.parent_event.unit_id == unit.id
+        assert outcome.parent_event.event_type == EventType.PRODOLNAYA_REZKA
+        assert outcome.parent_event.quantity_delta_m == 0  # материал не потерян, просто теперь две единицы
+
+        assert outcome.new_unit is not None
+        assert outcome.new_unit.parent_id == unit.id
+        assert outcome.new_unit.width_mm == 1400  # та же ширина, что у родителя
+        assert outcome.new_unit.length_m == 120
+        assert outcome.new_unit.location_code == "Б-1-02"
+        assert outcome.new_unit.status == UnitStatus.NA_KHRANENII
+        assert outcome.new_unit_event.event_type == EventType.PRODOLNAYA_REZKA
+        assert outcome.new_unit_event.quantity_delta_m == 120
+
+    def test_material_attrs_inherited_by_new_unit(self):
+        unit = make_unit()
+        outcome = split_by_length(unit, cut_length_m=120)
+        assert outcome.new_unit.material_sku_id == unit.material_sku_id
+        assert outcome.new_unit.upd_number == unit.upd_number
+
+    def test_rejects_cut_equal_or_longer_than_available(self):
+        unit = make_unit(length_m=100)
+        with pytest.raises(ValueError):
+            split_by_length(unit, cut_length_m=100)  # ничего не остаётся у родителя — не деление
+        with pytest.raises(ValueError):
+            split_by_length(unit, cut_length_m=150)
+
+    def test_rejects_zero_or_negative_length(self):
+        unit = make_unit(length_m=100)
+        with pytest.raises(ValueError):
+            split_by_length(unit, cut_length_m=0)
+        with pytest.raises(ValueError):
+            split_by_length(unit, cut_length_m=-5)

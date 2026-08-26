@@ -210,6 +210,16 @@ class CutRequest(BaseModel):
     occurred_at: OccurredAt = None
 
 
+class SplitByLengthRequest(BaseModel):
+    """Раскрой по длине с сохранением отреза как отдельной единицы —
+    в отличие от CutRequest, отрезанный кусок не списывается, а
+    становится новой трекаемой единицей (POST /units/{id}/split-length)."""
+
+    cut_length_m: float = Field(gt=0)
+    new_unit_location: str | None = None
+    occurred_at: OccurredAt = None
+
+
 class ReturnRequest(BaseModel):
     actual_length_m: float = Field(ge=0)
     occurred_at: OccurredAt = None

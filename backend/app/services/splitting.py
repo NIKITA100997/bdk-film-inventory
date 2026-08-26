@@ -191,6 +191,63 @@ def split_lengthwise_multi(unit: MaterialUnit, cut_widths_mm: list[float]) -> Mu
     )
 
 
+def split_by_length(unit: MaterialUnit, cut_length_m: float, *, new_unit_location: str | None = None) -> SplitOutcome:
+    """Раскрой по длине с сохранением отрезанного куска как отдельной
+    единицы (раздел про сохранение отреза как трекаемой единицы) — в
+    отличие от cut_to_length, где отрезанное сразу списывается, здесь
+    материал никуда не делся, просто стал двумя единицами: родитель
+    сохраняет ширину и ID, отрезанный кусок — новая единица той же
+    ширины с parent_id исходной."""
+
+    length_m = float(unit.length_m)
+    if cut_length_m <= 0:
+        raise ValueError("Длина отрезаемой части должна быть больше нуля")
+    if cut_length_m >= length_m:
+        raise ValueError("Длина отрезаемой части должна быть меньше текущей длины единицы")
+
+    remaining_length_m = length_m - cut_length_m
+    width_mm = float(unit.width_mm)
+
+    new_unit = NewUnitSpec(
+        parent_id=unit.id,
+        upd_number=unit.upd_number,
+        pallet_number=unit.pallet_number,
+        material_sku_id=unit.material_sku_id,
+        width_mm=width_mm,
+        length_m=cut_length_m,
+        status=UnitStatus.NA_KHRANENII,
+        location_code=new_unit_location,
+    )
+
+    parent_event = EventSpec(
+        unit_id=unit.id,
+        material_sku_id=unit.material_sku_id,
+        event_type=EventType.PRODOLNAYA_REZKA,
+        width_mm=width_mm,
+        from_length=length_m,
+        to_length=remaining_length_m,
+        quantity_delta_m=0,
+    )
+    new_unit_event = EventSpec(
+        unit_id=None,
+        material_sku_id=unit.material_sku_id,
+        event_type=EventType.PRODOLNAYA_REZKA,
+        width_mm=width_mm,
+        to_length=cut_length_m,
+        to_cell=new_unit_location,
+        quantity_delta_m=cut_length_m,
+    )
+
+    return SplitOutcome(
+        parent_width_mm=width_mm,
+        parent_length_m=remaining_length_m,
+        parent_status=unit.status,
+        new_unit=new_unit,
+        parent_event=parent_event,
+        new_unit_event=new_unit_event,
+    )
+
+
 def donor_remainder_write_off_m(parent_width_mm: float, donor_length_m: float, min_useful_width_mm: float) -> float | None:
     """Сколько метров реально теряется при списании остатка донора после
     резки на несколько ширин за проход (раздел про план резки), если

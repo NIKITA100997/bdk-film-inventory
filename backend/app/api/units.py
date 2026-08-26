@@ -34,6 +34,7 @@ from app.schemas.units import (
     ReceiveRequest,
     ReturnPreviewOut,
     ReturnRequest,
+    SplitByLengthRequest,
     SplitRequest,
     SplitResponse,
     UnitEventOut,
@@ -46,7 +47,13 @@ from app.services.events import record_event
 from app.services.placement import rule_matches, rules_for_location
 from app.services.production import calc_default_strip_width, compute_expected_return_length_m
 from app.services.purchasing import auto_close_on_receipt
-from app.services.splitting import cut_to_length, donor_remainder_write_off_m, split_lengthwise, split_lengthwise_multi
+from app.services.splitting import (
+    cut_to_length,
+    donor_remainder_write_off_m,
+    split_by_length,
+    split_lengthwise,
+    split_lengthwise_multi,
+)
 
 router = APIRouter(prefix="/units", tags=["units"])
 
@@ -879,6 +886,74 @@ def cut_unit(
     )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+
+
+@router.post("/{unit_id}/split-length", response_model=SplitResponse)
+def split_unit_by_length(
+    unit_id: int,
+    payload: SplitByLengthRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.split")),
+) -> SplitResponse:
+    """Раскрой по длине с сохранением отреза как отдельной единицы (раздел
+    про сохранение отреза как трекаемой единицы) — в отличие от /cut, где
+    отрезанный кусок сразу списывается, здесь он становится новой единицей
+    со своим ID/QR. Тот же статус-гейт, что у /cut — на складе или уже
+    выданной участку (сценарий "выдали в производство, порезали по факту,
+    остаток всё ещё нужно учитывать отдельно")."""
+    unit = _get_storable_unit(db, unit_id)
+    if unit.status not in (UnitStatus.NA_KHRANENII, UnitStatus.VYDAN_UCHASTKU):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Раскрой по длине доступен только на складе или у участка, которому единица выдана",
+        )
+
+    try:
+        outcome = split_by_length(unit, payload.cut_length_m, new_unit_location=payload.new_unit_location)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
+    unit.length_m = outcome.parent_length_m
+    record_event(
+        db,
+        unit=unit,
+        event_type=outcome.parent_event.event_type,
+        user_id=user.id,
+        quantity_delta_m=outcome.parent_event.quantity_delta_m,
+        from_length=outcome.parent_event.from_length,
+        to_length=outcome.parent_event.to_length,
+        occurred_at=payload.occurred_at,
+    )
+
+    spec = outcome.new_unit
+    new_unit = MaterialUnit(
+        parent_id=spec.parent_id,
+        upd_number=spec.upd_number,
+        pallet_number=spec.pallet_number,
+        material_sku_id=spec.material_sku_id,
+        width_mm=spec.width_mm,
+        length_m=spec.length_m,
+        is_strip=unit.is_strip,
+        status=spec.status,
+        location_code=spec.location_code,
+    )
+    db.add(new_unit)
+    db.flush()
+    record_event(
+        db,
+        unit=new_unit,
+        event_type=outcome.new_unit_event.event_type,
+        user_id=user.id,
+        quantity_delta_m=outcome.new_unit_event.quantity_delta_m,
+        to_length=outcome.new_unit_event.to_length,
+        to_cell=outcome.new_unit_event.to_cell,
+        occurred_at=payload.occurred_at,
+    )
+    db.commit()
+
+    parent_out = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit.id).first()
+    new_unit_out = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == new_unit.id).first()
+    return SplitResponse(parent=parent_out, new_unit=new_unit_out)
 
 
 @router.get("/{unit_id}/return-preview", response_model=ReturnPreviewOut)

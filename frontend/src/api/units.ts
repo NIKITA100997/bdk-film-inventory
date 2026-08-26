@@ -264,6 +264,21 @@ export async function cutUnit(unitId: number, payload: CutRequest): Promise<Mate
   return data;
 }
 
+// Раскрой по длине с сохранением отреза как отдельной единицы (раздел про
+// сохранение отреза как трекаемой единицы) — в отличие от cutUnit, где
+// отрезанный кусок сразу списывается, здесь он становится новой единицей
+// со своим ID/QR (тот же SplitResponse, что у splitUnit).
+export interface SplitByLengthRequest {
+  cut_length_m: number;
+  new_unit_location?: string;
+  occurred_at?: string;
+}
+
+export async function splitUnitByLength(unitId: number, payload: SplitByLengthRequest): Promise<SplitResponse> {
+  const { data } = await apiClient.post<SplitResponse>(`/units/${unitId}/split-length`, payload);
+  return data;
+}
+
 export interface ReturnRequest {
   actual_length_m: number;
   occurred_at?: string;
