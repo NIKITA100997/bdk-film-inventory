@@ -69,7 +69,7 @@ FIELD_META: dict[str, dict] = {
     "parent_ref": {"label": "Из рулона №…", "kind": "text", "has_caption": False},
     "width_mm": {"label": "Ширина (текущая), мм", "kind": "text", "stale_warning": True},
     "length_m": {"label": "Длина (текущая), м", "kind": "text", "stale_warning": True},
-    "dimensions_m": {"label": "Габарит Ш×Д, м (компактно)", "kind": "text", "stale_warning": True, "has_caption": False},
+    "dimensions_m": {"label": "Габарит Ш(мм)×Д(м) (компактно)", "kind": "text", "stale_warning": True, "has_caption": False},
     # Раздел про этикетку с назначением после резки — несколько штрипсов
     # одной ширины, выданных на разные задания/детали, иначе неотличимы
     # на глаз. Пусто у единиц без привязки к строке задания (обычные
@@ -190,11 +190,12 @@ def render_field_value(data: LabelData, key: str, *, show_label: bool = True) ->
         value = f"{data.length_m} м"
         return f"Д: {value}" if show_label else value
     if key == "dimensions_m":
-        # Ширина переведена в метры (была в мм) — компактная запись
-        # "1,4×500" вместо двух отдельных строк "Ширина: 1400 мм" /
-        # "Длина: 500 м", когда на бирке не хватает места на обе.
-        width_m = data.width_mm / 1000
-        return f"{_format_number_ru(width_m)}×{_format_number_ru(data.length_m)}"
+        # Ширина в мм (не в метрах — доли метра нечитаемы на узких
+        # штрипсах, напр. "0,096"), длина в метрах как была; разделитель
+        # "*" — компактная запись "370мм*500" вместо двух отдельных строк
+        # "Ширина: 370 мм" / "Длина: 500 м", когда на бирке не хватает
+        # места на обе.
+        return f"{_format_number_ru(data.width_mm)}мм*{_format_number_ru(data.length_m)}"
     if key == "task_assignment":
         if not data.task_name and not data.part_name:
             return None
