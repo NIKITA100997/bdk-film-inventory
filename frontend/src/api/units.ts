@@ -1,3 +1,5 @@
+import { message } from "antd";
+import { isAxiosError } from "axios";
 import { apiClient } from "./client";
 import { suggestLocation } from "./storage";
 import type { DeleteResult } from "./deletionRequests";
@@ -348,16 +350,29 @@ export interface PrintLabelOptions {
   kind?: "roll" | "strip" | "cutting_issue";
 }
 
+// Раздел про "не открывается окно печати" на планшете — раньше ошибка
+// запроса (сеть, просроченный токен, 4xx/5xx) просто терялась в
+// необработанном отклонении промиса: ни диалога печати, ни какой-либо
+// заметной реакции на экране, оператор видел ровно ничего. Теперь любая
+// ошибка хотя бы показывает message.error — вместо тишины.
+function printErrorMessage(e: unknown): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  if (isAxiosError(e) && !e.response) return "Нет связи с сервером — проверьте подключение";
+  return "Не удалось подготовить этикетку для печати";
+}
+
 export function printLabel(unitId: number, options?: PrintLabelOptions): void {
   const params = { vertical: isVerticalPrint(), kind: options?.kind };
   if (isMobileDevice()) {
-    apiClient.get(`/labels/${unitId}/html`, { params, responseType: "text" }).then(({ data }) => {
-      printHtmlDoc(data as string);
-    });
+    apiClient
+      .get(`/labels/${unitId}/html`, { params, responseType: "text" })
+      .then(({ data }) => printHtmlDoc(data as string))
+      .catch((e) => message.error(printErrorMessage(e)));
   } else {
-    apiClient.get(`/labels/${unitId}`, { params, responseType: "blob" }).then(({ data }) => {
-      printPdfBlob(data as Blob);
-    });
+    apiClient
+      .get(`/labels/${unitId}`, { params, responseType: "blob" })
+      .then(({ data }) => printPdfBlob(data as Blob))
+      .catch((e) => message.error(printErrorMessage(e)));
   }
 }
 
@@ -368,12 +383,14 @@ export function printLabelsBatch(unitIds: number[], options?: PrintLabelOptions)
   if (unitIds.length === 0) return;
   const params = { vertical: isVerticalPrint(), kind: options?.kind };
   if (isMobileDevice()) {
-    apiClient.post("/labels/batch/html", { unit_ids: unitIds }, { params, responseType: "text" }).then(({ data }) => {
-      printHtmlDoc(data as string);
-    });
+    apiClient
+      .post("/labels/batch/html", { unit_ids: unitIds }, { params, responseType: "text" })
+      .then(({ data }) => printHtmlDoc(data as string))
+      .catch((e) => message.error(printErrorMessage(e)));
   } else {
-    apiClient.post("/labels/batch", { unit_ids: unitIds }, { params, responseType: "blob" }).then(({ data }) => {
-      printPdfBlob(data as Blob);
-    });
+    apiClient
+      .post("/labels/batch", { unit_ids: unitIds }, { params, responseType: "blob" })
+      .then(({ data }) => printPdfBlob(data as Blob))
+      .catch((e) => message.error(printErrorMessage(e)));
   }
 }
