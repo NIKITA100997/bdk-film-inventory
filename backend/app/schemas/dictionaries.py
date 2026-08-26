@@ -43,6 +43,7 @@ class PartOut(BaseModel):
     width_mm: float
     length_m: float
     strip_width_mm: float | None
+    area: str | None
     is_active: bool
 
 
@@ -51,6 +52,7 @@ class PartCreate(BaseModel):
     width_mm: float = Field(gt=0)
     length_m: float = Field(gt=0)
     strip_width_mm: float | None = Field(default=None, gt=0)
+    area: str | None = None
 
 
 class PartUpdate(BaseModel):
@@ -58,6 +60,7 @@ class PartUpdate(BaseModel):
     width_mm: float | None = Field(default=None, gt=0)
     length_m: float | None = Field(default=None, gt=0)
     strip_width_mm: float | None = Field(default=None, gt=0)
+    area: str | None = None
     is_active: bool | None = None
 
 

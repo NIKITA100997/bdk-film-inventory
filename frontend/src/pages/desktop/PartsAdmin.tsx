@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Space, Typography, Button, Modal, Form, Input, InputNumber, Checkbox, Tag, Empty, Popconfirm, message } from "antd";
+import { Card, Space, Typography, Button, Modal, Form, Input, InputNumber, Select, Checkbox, Tag, Empty, Popconfirm, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import {
@@ -11,6 +11,7 @@ import {
   type PartCreate,
   type DuplicateCandidate,
 } from "../../api/dictionaries";
+import { listAreas } from "../../api/areas";
 
 /** Справочник деталей (раздел про выбор детали в задание) — физическая
  * форма детали (ширина/длина/ширина штрипса плёнки), выбирается при
@@ -28,6 +29,9 @@ export default function PartsAdmin() {
 
   const partsQuery = useQuery({ queryKey: ["parts", "all"], queryFn: listAllParts });
   const duplicatesQuery = useQuery({ queryKey: ["parts", "duplicates"], queryFn: listPartDuplicates });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : "Общая (все участки)");
+  const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
 
   const invalidateCaches = () => {
     qc.invalidateQueries({ queryKey: ["parts"] });
@@ -35,7 +39,8 @@ export default function PartsAdmin() {
   };
 
   const saveMutation = useMutation({
-    mutationFn: (payload: PartCreate) => (editingPart ? updatePart(editingPart.id, payload) : createPart(payload)),
+    mutationFn: (payload: PartCreate) =>
+      (editingPart ? updatePart(editingPart.id, { ...payload, area: payload.area ?? null }) : createPart(payload)),
     onSuccess: () => {
       invalidateCaches();
       setCreateOpen(false);
@@ -64,6 +69,7 @@ export default function PartsAdmin() {
       width_mm: part.width_mm,
       length_m: part.length_m,
       strip_width_mm: part.strip_width_mm ?? undefined,
+      area: part.area ?? undefined,
     });
     setCreateOpen(true);
   };
@@ -97,12 +103,14 @@ export default function PartsAdmin() {
           scroll={{ x: "max-content" }}
           columns={[
             { title: "Название", dataIndex: "name" },
-            { title: "Размер", render: (_, p) => `${p.width_mm} мм × ${p.length_m} м` },
+            { title: "Ширина, мм", dataIndex: "width_mm" },
+            { title: "Длина на списание, м", dataIndex: "length_m" },
             {
               title: "Штрипс (укутка), мм",
               dataIndex: "strip_width_mm",
               render: (v: number | null) => (v != null ? <Tag color="blue">{v} мм</Tag> : "—"),
             },
+            { title: "Участок", dataIndex: "area", render: (v: string | null) => areaLabel(v) },
             {
               title: "Статус",
               dataIndex: "is_active",
@@ -175,11 +183,14 @@ export default function PartsAdmin() {
           <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="length_m" label="Длина, м" rules={[{ required: true }]}>
+          <Form.Item name="length_m" label="Длина на списание, с допуском (м)" rules={[{ required: true }]}>
             <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item name="strip_width_mm" label="Ширина штрипса плёнки для укутки, мм (опционально)">
             <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="area" label="Участок (опционально — пусто значит общая для всех)">
+            <Select allowClear options={areaOptions} placeholder="Общая для всех участков" />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={saveMutation.isPending}>
             {editingPart ? "Сохранить изменения" : "Добавить деталь"}

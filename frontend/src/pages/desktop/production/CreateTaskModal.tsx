@@ -231,7 +231,8 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
           columns={[
             { title: "Деталь", render: (_, l) => l.part_name ?? "—" },
             { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
-            { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
+            { title: "Ширина, мм", dataIndex: "width_mm" },
+            { title: "Длина на списание, м", dataIndex: "length_m" },
             { title: "Кол-во, шт", dataIndex: "quantity_pieces" },
             {
               title: "",
@@ -249,6 +250,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
       <Form form={manualRowForm} layout="vertical" onFinish={addManualLine}>
         <Form.Item label="Деталь из справочника (опционально)">
           <PartSelect
+            area={Form.useWatch("area", manualForm)}
             onSelect={(part) =>
               manualRowForm.setFieldsValue({
                 part_name: part.name,
@@ -283,7 +285,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
         <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: "100%" }} />
         </Form.Item>
-        <Form.Item name="length_m" label="Длина детали, м" rules={[{ required: true }]}>
+        <Form.Item name="length_m" label="Длина детали на списание, м" rules={[{ required: true }]}>
           <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>

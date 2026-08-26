@@ -267,7 +267,13 @@ def part_duplicates(db: Session = Depends(get_db), user=Depends(manage_parts)):
 
 @router.post("/parts", response_model=PartOut, status_code=status.HTTP_201_CREATED)
 def create_part(payload: PartCreate, db: Session = Depends(get_db), user=Depends(manage_parts)) -> Part:
-    obj = Part(name=payload.name, width_mm=payload.width_mm, length_m=payload.length_m, strip_width_mm=payload.strip_width_mm)
+    obj = Part(
+        name=payload.name,
+        width_mm=payload.width_mm,
+        length_m=payload.length_m,
+        strip_width_mm=payload.strip_width_mm,
+        area=payload.area,
+    )
     db.add(obj)
     try:
         db.commit()
@@ -291,6 +297,11 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
         obj.length_m = payload.length_m
     if payload.strip_width_mm is not None:
         obj.strip_width_mm = payload.strip_width_mm
+    if "area" in payload.model_fields_set:
+        # В отличие от полей выше — area можно осознанно очистить обратно
+        # в "общая для всех участков" (null), поэтому здесь смотрим, было
+        # ли поле явно передано в запросе, а не просто "не null".
+        obj.area = payload.area
     if payload.is_active is not None:
         obj.is_active = payload.is_active
     try:

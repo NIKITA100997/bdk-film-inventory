@@ -23,6 +23,7 @@ export interface Part {
   width_mm: number;
   length_m: number;
   strip_width_mm: number | null;
+  area: string | null;
   is_active: boolean;
 }
 
@@ -31,6 +32,7 @@ export interface PartCreate {
   width_mm: number;
   length_m: number;
   strip_width_mm?: number;
+  area?: string | null;
 }
 
 export interface PartUpdate {
@@ -38,6 +40,7 @@ export interface PartUpdate {
   width_mm?: number;
   length_m?: number;
   strip_width_mm?: number;
+  area?: string | null;
   is_active?: boolean;
 }
 

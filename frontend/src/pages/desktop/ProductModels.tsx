@@ -212,7 +212,8 @@ export default function ProductModels() {
                   <Tag color="blue">{v ?? p.width_mm} мм</Tag>
                 ),
               },
-              { title: "Размер детали", render: (_, p) => `${p.width_mm} мм × ${p.length_m} м` },
+              { title: "Ширина, мм", dataIndex: "width_mm" },
+              { title: "Длина на списание, м", dataIndex: "length_m" },
               { title: "Кол-во на 1 дверь", dataIndex: "qty_per_unit" },
               {
                 title: "Действия",
@@ -260,6 +261,7 @@ export default function ProductModels() {
         <Form layout="vertical" form={partForm} onFinish={(v) => savePartMutation.mutate(v)}>
           <Form.Item label="Деталь из справочника (опционально)">
             <PartSelect
+              area={Form.useWatch("area", partForm)}
               onSelect={(part) =>
                 partForm.setFieldsValue({
                   part_name: part.name,

@@ -61,10 +61,15 @@ class Employee(Base):
 class Part(Base):
     """Справочник деталей (раздел про выбор детали в задание) — физическая
     форма детали (ширина/длина/ширина штрипса плёнки для укутки), без
-    участка и количества на изделие — это уже атрибуты конкретной строки
-    BOM (ProductModelPart)/задания (ProductionTaskLine), не самой детали
-    как таковой. Не FK-связь с ними — источник подсказки для автозаполнения
-    формы, сама строка BOM/задания как была текстом/числами, так и осталась."""
+    количества на изделие — это уже атрибут конкретной строки BOM
+    (ProductModelPart)/задания (ProductionTaskLine), не самой детали как
+    таковой. Не FK-связь с ними — источник подсказки для автозаполнения
+    формы, сама строка BOM/задания как была текстом/числами, так и осталась.
+
+    `area` — необязательная привязка к одному участку (раздел про
+    привязку деталей к участку — справочник разросся за счёт нескольких
+    разных наборов деталей от разных участков, PartSelect фильтрует по
+    ней), NULL — деталь общая, показывается независимо от участка."""
 
     __tablename__ = "parts"
 
@@ -73,6 +78,7 @@ class Part(Base):
     width_mm: Mapped[float] = mapped_column(Numeric(10, 2))
     length_m: Mapped[float] = mapped_column(Numeric(12, 3))
     strip_width_mm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
