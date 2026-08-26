@@ -18,6 +18,17 @@ export interface StockByWidthLine {
   unit_count: number;
 }
 
+export interface RollsVsStripsLine {
+  material: string;
+  color: string;
+  thickness: number;
+  manufacturer: string;
+  roll_count: number;
+  roll_length_m: number;
+  strip_count: number;
+  strip_length_m: number;
+}
+
 export interface MovementEntry {
   event_id: number;
   unit_id: number;
@@ -53,11 +64,14 @@ export interface StaleUnitLine {
   days_idle: number;
 }
 
-export const getStockSummary = async (warehouseId?: number): Promise<StockSummaryLine[]> =>
-  (await apiClient.get<StockSummaryLine[]>("/reports/stock-summary", { params: { warehouse_id: warehouseId } })).data;
+export const getStockSummary = async (warehouseId?: number, manufacturer?: string): Promise<StockSummaryLine[]> =>
+  (await apiClient.get<StockSummaryLine[]>("/reports/stock-summary", { params: { warehouse_id: warehouseId, manufacturer } })).data;
 
 export const getStockByWidth = async (warehouseId?: number): Promise<StockByWidthLine[]> =>
   (await apiClient.get<StockByWidthLine[]>("/reports/stock-by-width", { params: { warehouse_id: warehouseId } })).data;
+
+export const getRollsVsStrips = async (warehouseId?: number): Promise<RollsVsStripsLine[]> =>
+  (await apiClient.get<RollsVsStripsLine[]>("/reports/rolls-vs-strips", { params: { warehouse_id: warehouseId } })).data;
 
 export const getMovement = async (
   dateFrom: string,

@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import { useAuth } from "../../auth/AuthContext";
 import { getStockOverview, listPurchaseRequests } from "../../api/purchasing";
 import { listSessions } from "../../api/inventory";
-import { getDonorAccuracy, getStaleUnits, getDefectsOverview } from "../../api/reports";
+import { getDonorAccuracy, getStaleUnits, getDefectsOverview, getRollsVsStrips, getStockSummary, getCuttingDiscrepancies } from "../../api/reports";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { getBlanksDemand } from "../../api/production";
 import { searchUnits } from "../../api/units";
@@ -15,6 +15,26 @@ import { listAreas } from "../../api/areas";
 import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
 import { isOnboardingSeen } from "../../utils/onboarding";
 import OnboardingCard from "../../components/OnboardingCard";
+import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "../../components/ColumnSettings";
+
+// Раздел про настраиваемый обзор — тот же приём, что уже настройка
+// столбцов у таблиц (useColumnSettings полностью общий, ничего
+// специфичного для колонок в нём нет), тот же значок-шестерёнка вместо
+// нового UI-паттерна. Порядок — как карточки идут в разметке ниже.
+const TILE_OPTIONS: ColumnOption[] = [
+  { key: "issued-work", label: "В работе у участков" },
+  { key: "purchase-requests", label: "Открытых заявок поставщику" },
+  { key: "reorder", label: "Пора заказывать (по расходу)" },
+  { key: "inventory-sessions", label: "Сессий инвентаризации в процессе" },
+  { key: "donor-accuracy", label: "Точность донор-рекомендаций" },
+  { key: "defects", label: "Реальный брак/повреждения" },
+  { key: "stale", label: "Остатков давно не двигалось" },
+  { key: "blanks", label: "Заготовок не хватает по ширинам" },
+  { key: "skus", label: "Позиций в номенклатуре" },
+  { key: "rolls-strips", label: "Рулоны и штрипсы" },
+  { key: "total-stock", label: "Общий остаток, м²" },
+  { key: "cutting-discrepancies", label: "Отклонения при резке" },
+];
 
 /** Обзор (5.5 ТЗ) — сводка сигналов по роли: у каждой роли своя выборка
  * карточек, собранная из уже существующих отчётов/списков (без нового
@@ -27,6 +47,7 @@ export default function Overview() {
   const navigate = useNavigate();
   const location = useLocation();
   const has = (permission: string) => !!user?.is_superuser || !!user?.permissions.includes(permission);
+  const tileSettings = useColumnSettings("dashboard-overview", TILE_OPTIONS, []);
 
   // Раздел 16 бэклога доработок — онбординг нового сотрудника. Авто-показ
   // при первом входе (не видел ни разу — localStorage по userId) либо по
@@ -94,6 +115,20 @@ export default function Overview() {
   const blanksQuery = useQuery({ queryKey: ["blanks-demand", "overview"], queryFn: getBlanksDemand, enabled: showBlanks });
   const blanksDeficitCount = (blanksQuery.data ?? []).filter((r) => r.deficit_length_m > 0).length;
   const skusQuery = useQuery({ queryKey: ["material-skus", "overview"], queryFn: listMaterialSkus, enabled: showSales });
+  // Раздел про недостающие показатели на "Обзоре" — рулоны/штрипсы,
+  // общий остаток и отклонения при резке уже считаются в отчётах, но
+  // нигде не всплывали как сигнал на главном экране (та же проблема,
+  // что раньше была у брака/заготовок).
+  const rollsStripsQuery = useQuery({ queryKey: ["rolls-vs-strips", "overview"], queryFn: () => getRollsVsStrips(), enabled: showDonorAccuracy });
+  const rollsCount = (rollsStripsQuery.data ?? []).reduce((sum, r) => sum + r.roll_count, 0);
+  const stripsCount = (rollsStripsQuery.data ?? []).reduce((sum, r) => sum + r.strip_count, 0);
+  const stockSummaryQuery = useQuery({ queryKey: ["stock-summary", "overview"], queryFn: () => getStockSummary(), enabled: showDonorAccuracy });
+  const totalStockAreaM2 = (stockSummaryQuery.data ?? []).reduce((sum, r) => sum + r.total_area_m2, 0);
+  const cuttingDiscrepancyQuery = useQuery({
+    queryKey: ["cutting-discrepancies", "overview"],
+    queryFn: () => getCuttingDiscrepancies(dayjs().subtract(30, "day").format("YYYY-MM-DD"), dayjs().format("YYYY-MM-DD")),
+    enabled: showDonorAccuracy,
+  });
   // Начальнику участка (есть свой user.area) — только его участок; остальным
   // ролям без привязки к конкретному участку — сразу все три, разбивкой.
   const issuedUnitsQuery = useQuery({
@@ -120,12 +155,15 @@ export default function Overview() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Typography.Title level={4}>Обзор</Typography.Title>
+      <Space align="center" style={{ justifyContent: "space-between", width: "100%" }}>
+        <Typography.Title level={4} style={{ margin: 0 }}>Обзор</Typography.Title>
+        <ColumnSettingsButton columns={TILE_OPTIONS} settings={tileSettings} itemLabel="карточек" panelTitle="Карточки обзора" />
+      </Space>
 
       {showOnboarding && <OnboardingCard onClose={() => setShowOnboarding(false)} />}
 
       <Row gutter={[16, 16]}>
-        {showIssuedWork && user?.area && (
+        {showIssuedWork && user?.area && tileSettings.isVisible("issued-work") && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={issuedUnitsQuery.isLoading} {...clickableProps("/stock")}>
               <Statistic title="Выдано на участок — в работе" value={(issuedUnitsQuery.data ?? []).length} suffix="ед." />
@@ -134,6 +172,7 @@ export default function Overview() {
         )}
         {showIssuedWork &&
           !user?.area &&
+          tileSettings.isVisible("issued-work") &&
           (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => (
             <Col xs={12} sm={12} md={8} lg={6} key={a.code}>
               <Card loading={issuedUnitsQuery.isLoading} {...clickableProps("/stock")}>
@@ -141,14 +180,14 @@ export default function Overview() {
               </Card>
             </Col>
           ))}
-        {showPurchasing && (
+        {showPurchasing && tileSettings.isVisible("purchase-requests") && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={purchasingQuery.isLoading} {...clickableProps("/purchasing")}>
               <Statistic title="Открытых заявок поставщику" value={(purchasingQuery.data ?? []).length} />
             </Card>
           </Col>
         )}
-        {showPurchasing && (
+        {showPurchasing && tileSettings.isVisible("reorder") && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={reorderQuery.isLoading} {...clickableProps("/purchasing")}>
               <Statistic
@@ -159,21 +198,21 @@ export default function Overview() {
             </Card>
           </Col>
         )}
-        {showInventory && (
+        {showInventory && tileSettings.isVisible("inventory-sessions") && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={sessionsQuery.isLoading} {...clickableProps("/inventory")}>
               <Statistic title="Сессий инвентаризации в процессе" value={openSessionsCount} />
             </Card>
           </Col>
         )}
-        {showDonorAccuracy && donorQuery.data && (
+        {showDonorAccuracy && donorQuery.data && tileSettings.isVisible("donor-accuracy") && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={donorQuery.isLoading} {...clickableProps("/reports")}>
               <Statistic title="Точность донор-рекомендаций, 30 дней" value={donorQuery.data.accuracy_percent} suffix="%" />
             </Card>
           </Col>
         )}
-        {showDefects && defectsQuery.data && (
+        {showDefects && defectsQuery.data && tileSettings.isVisible("defects") && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={defectsQuery.isLoading} {...clickableProps("/defects")}>
               <Statistic
@@ -186,7 +225,7 @@ export default function Overview() {
             </Card>
           </Col>
         )}
-        {showStale && (
+        {showStale && tileSettings.isVisible("stale") && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={staleQuery.isLoading} {...clickableProps("/reports")}>
               <Statistic
@@ -197,7 +236,39 @@ export default function Overview() {
             </Card>
           </Col>
         )}
-        {showBlanks && (
+        {showDonorAccuracy && tileSettings.isVisible("rolls-strips") && (
+          <Col xs={12} sm={12} md={8} lg={6}>
+            <Card loading={rollsStripsQuery.isLoading} {...clickableProps("/reports")}>
+              <Row gutter={8}>
+                <Col span={12}>
+                  <Statistic title="Рулонов" value={rollsCount} />
+                </Col>
+                <Col span={12}>
+                  <Statistic title="Штрипсов" value={stripsCount} />
+                </Col>
+              </Row>
+            </Card>
+          </Col>
+        )}
+        {showDonorAccuracy && tileSettings.isVisible("total-stock") && (
+          <Col xs={12} sm={12} md={8} lg={6}>
+            <Card loading={stockSummaryQuery.isLoading} {...clickableProps("/reports")}>
+              <Statistic title="Общий остаток" value={totalStockAreaM2} suffix="м²" precision={1} />
+            </Card>
+          </Col>
+        )}
+        {showDonorAccuracy && tileSettings.isVisible("cutting-discrepancies") && (
+          <Col xs={12} sm={12} md={8} lg={6}>
+            <Card loading={cuttingDiscrepancyQuery.isLoading} {...clickableProps("/reports")}>
+              <Statistic
+                title="Отклонений при резке, 30 дней"
+                value={(cuttingDiscrepancyQuery.data ?? []).length}
+                valueStyle={{ color: (cuttingDiscrepancyQuery.data ?? []).length > 0 ? "#C97A2B" : undefined }}
+              />
+            </Card>
+          </Col>
+        )}
+        {showBlanks && tileSettings.isVisible("blanks") && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={blanksQuery.isLoading} {...clickableProps("/blanks")}>
               <Statistic
@@ -208,7 +279,7 @@ export default function Overview() {
             </Card>
           </Col>
         )}
-        {showSales && (
+        {showSales && tileSettings.isVisible("skus") && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={skusQuery.isLoading} {...clickableProps("/sales-calculator")}>
               <Statistic title="Позиций в номенклатуре — открыть калькулятор" value={(skusQuery.data ?? []).length} />

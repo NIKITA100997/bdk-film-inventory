@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, Select, Row, Col, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Form, Typography, Empty, Upload, Image, Checkbox, message } from "antd";
+import { Card, Select, Row, Col, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Form, Typography, Empty, Upload, Image, Checkbox, Radio, List, message } from "antd";
 import Statistic from "../../components/Statistic";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
@@ -22,7 +22,7 @@ import {
   type AnalogEntry,
 } from "../../api/dictionaries";
 import { getMaterialCard } from "../../api/materialCards";
-import { reassignUnitSku, skuLabel, type MaterialSku, type MaterialUnit } from "../../api/units";
+import { reassignUnitSku, receiveAndAutoPlace, printLabel, skuLabel, type MaterialSku, type MaterialUnit } from "../../api/units";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -212,6 +212,7 @@ export default function MaterialCard() {
   const [skuId, setSkuId] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [analogsOpen, setAnalogsOpen] = useState(false);
+  const [addUnitOpen, setAddUnitOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<MaterialUnit | null>(null);
   const [editing, setEditing] = useState<MaterialSkuUpdate>({});
   // Архивные/без остатка позиции видны в выборе только тем, кто может их
@@ -282,6 +283,23 @@ export default function MaterialCard() {
     const counts: Record<string, number> = {};
     for (const u of cardQuery.data.units) counts[u.status] = (counts[u.status] ?? 0) + 1;
     return counts;
+  }, [cardQuery.data]);
+
+  // Раздел про недостающий разбор рулон/штрипс — is_strip уже есть на
+  // каждой единице, тот же приём агрегации, что statusCounts выше.
+  const rollStripCounts = useMemo(() => {
+    const result = { rolls: 0, rollsLengthM: 0, strips: 0, stripsLengthM: 0 };
+    if (!cardQuery.data) return result;
+    for (const u of cardQuery.data.units) {
+      if (u.is_strip) {
+        result.strips += 1;
+        result.stripsLengthM += u.length_m;
+      } else {
+        result.rolls += 1;
+        result.rollsLengthM += u.length_m;
+      }
+    }
+    return result;
   }, [cardQuery.data]);
 
   return (
@@ -360,6 +378,11 @@ export default function MaterialCard() {
               <Button size="small" onClick={() => setAnalogsOpen(true)}>
                 Аналоги/фото
               </Button>
+              {canEdit && (
+                <Button size="small" type="primary" onClick={() => setAddUnitOpen(true)}>
+                  + Добавить единицу
+                </Button>
+              )}
             </Space>
           </Space>
         )}
@@ -374,6 +397,12 @@ export default function MaterialCard() {
               </Col>
               <Col xs={24} sm={12} md={8}>
                 <Statistic title="Ширин в наличии" value={byWidth.length} />
+              </Col>
+              <Col xs={24} sm={12} md={4}>
+                <Statistic title="Рулонов" value={rollStripCounts.rolls} suffix={`шт · ${rollStripCounts.rollsLengthM} м`} />
+              </Col>
+              <Col xs={24} sm={12} md={4}>
+                <Statistic title="Штрипсов" value={rollStripCounts.strips} suffix={`шт · ${rollStripCounts.stripsLengthM} м`} />
               </Col>
             </Row>
           </Card>
@@ -465,7 +494,87 @@ export default function MaterialCard() {
       )}
 
       {reassignTarget && <ReassignSkuModal unit={reassignTarget} onClose={() => setReassignTarget(null)} />}
+      {addUnitOpen && selectedSku && <AddUnitModal sku={selectedSku} onClose={() => setAddUnitOpen(false)} />}
     </Space>
+  );
+}
+
+/** Добавить ещё одну физическую единицу этого материала прямо с карточки
+ * (раздел про недостающую возможность) — материал/цвет/толщина/
+ * производитель уже зафиксированы выбранной позицией, спрашиваем только
+ * тип/размер. Тот же приём, что "Единица плёнки вне сессии приёмки" в
+ * MaterialsExplorer.tsx — receiveAndAutoPlace, без нового бэкенд-эндпоинта. */
+function AddUnitModal({ sku, onClose }: { sku: MaterialSku; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form] = Form.useForm<{ is_strip: boolean; width_mm: number; length_m: number; upd_number?: string; pallet_number?: string }>();
+  const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
+
+  const addMutation = useMutation({
+    mutationFn: (v: { is_strip: boolean; width_mm: number; length_m: number; upd_number?: string; pallet_number?: string }) =>
+      receiveAndAutoPlace({
+        material: sku.material.name,
+        color: sku.color.name,
+        thickness: sku.thickness.value_mm,
+        manufacturer: sku.manufacturer.name,
+        is_strip: v.is_strip,
+        width_mm: v.width_mm,
+        length_m: v.length_m,
+        upd_number: v.upd_number?.trim() || "Без документа",
+        pallet_number: v.pallet_number?.trim() || "-",
+        quantity: 1,
+      }),
+    onSuccess: (units) => {
+      qc.invalidateQueries({ queryKey: ["material-card", sku.id] });
+      setCreatedUnits(units);
+      form.resetFields();
+      message.success(`Единица №${units[0].id} зарегистрирована`);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось зарегистрировать единицу")),
+  });
+
+  return (
+    <Modal title={`Добавить единицу — ${skuLabel(sku)}`} open onCancel={onClose} footer={null} destroyOnHidden>
+      <Form form={form} layout="vertical" initialValues={{ is_strip: false }} onFinish={(v) => addMutation.mutate(v)}>
+        <Form.Item name="is_strip" label="Тип">
+          <Radio.Group
+            options={[
+              { label: "Рулон", value: false },
+              { label: "Штрипс", value: true },
+            ]}
+            optionType="button"
+          />
+        </Form.Item>
+        <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
+          <InputNumber min={1} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="length_m" label="Длина, м" rules={[{ required: true }]}>
+          <InputNumber min={0.1} step={0.1} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="upd_number" label="Номер УПД (необязательно)">
+          <Input placeholder="Без документа" />
+        </Form.Item>
+        <Form.Item name="pallet_number" label="Номер паллеты (необязательно)">
+          <Input />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" block loading={addMutation.isPending}>
+          Зарегистрировать
+        </Button>
+      </Form>
+
+      {createdUnits.length > 0 && (
+        <List
+          style={{ marginTop: 16 }}
+          size="small"
+          bordered
+          dataSource={createdUnits}
+          renderItem={(u) => (
+            <List.Item actions={[<Button key="print" size="small" onClick={() => printLabel(u.id)}>Печать бирки</Button>]}>
+              № {u.id} — {u.width_mm}×{u.length_m}, {u.location_code ?? "без места"}
+            </List.Item>
+          )}
+        />
+      )}
+    </Modal>
   );
 }
 

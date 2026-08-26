@@ -6,6 +6,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import {
   getStockSummary,
   getStockByWidth,
+  getRollsVsStrips,
   getMovement,
   getDonorAccuracy,
   getStaleUnits,
@@ -39,9 +40,10 @@ function useWarehouseFilter() {
 
 function StockSummaryTab() {
   const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
+  const [manufacturer, setManufacturer] = useState<string>();
   const query = useQuery({
-    queryKey: ["report-stock-summary", warehouseId],
-    queryFn: () => getStockSummary(warehouseId),
+    queryKey: ["report-stock-summary", warehouseId, manufacturer],
+    queryFn: () => getStockSummary(warehouseId, manufacturer),
   });
   const [material, setMaterial] = useState<string>();
   const [color, setColor] = useState<string>();
@@ -65,6 +67,7 @@ function StockSummaryTab() {
         <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
         <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} allowCreate={false} />
         <InputNumber placeholder="Толщина, мм" min={0} step={0.01} value={thickness} onChange={(v) => setThickness(v ?? undefined)} />
+        <DictAutoComplete kind="manufacturers" placeholder="Производитель" value={manufacturer} onChange={(v) => setManufacturer(v || undefined)} allowCreate={false} />
         {warehousePicker}
       </Space>
       <ReportTable
@@ -88,9 +91,14 @@ function StockByWidthTab() {
   const [material, setMaterial] = useState<string>();
   const [color, setColor] = useState<string>();
   const [thickness, setThickness] = useState<number>();
+  const [manufacturer, setManufacturer] = useState<string>();
 
   const rows = (query.data ?? []).filter(
-    (r) => (!material || r.material === material) && (!color || r.color === color) && (thickness === undefined || r.thickness === thickness),
+    (r) =>
+      (!material || r.material === material) &&
+      (!color || r.color === color) &&
+      (thickness === undefined || r.thickness === thickness) &&
+      (!manufacturer || r.manufacturer === manufacturer),
   );
 
   const columns: ReportColumn<(typeof rows)[number]>[] = [
@@ -109,12 +117,64 @@ function StockByWidthTab() {
         <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
         <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} allowCreate={false} />
         <InputNumber placeholder="Толщина, мм" min={0} step={0.01} value={thickness} onChange={(v) => setThickness(v ?? undefined)} />
+        <DictAutoComplete kind="manufacturers" placeholder="Производитель" value={manufacturer} onChange={(v) => setManufacturer(v || undefined)} allowCreate={false} />
         {warehousePicker}
       </Space>
       <ReportTable
         title="Остатки по ширине"
         filename="ostatki-po-shirine.csv"
         rowKey={(r) => `${r.material}-${r.color}-${r.thickness}-${r.manufacturer}-${r.width_mm}`}
+        columns={columns}
+        data={rows}
+        loading={query.isLoading}
+      />
+    </Space>
+  );
+}
+
+function RollsVsStripsTab() {
+  const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
+  const query = useQuery({
+    queryKey: ["report-rolls-vs-strips", warehouseId],
+    queryFn: () => getRollsVsStrips(warehouseId),
+  });
+  const [material, setMaterial] = useState<string>();
+  const [color, setColor] = useState<string>();
+  const [thickness, setThickness] = useState<number>();
+  const [manufacturer, setManufacturer] = useState<string>();
+
+  const rows = (query.data ?? []).filter(
+    (r) =>
+      (!material || r.material === material) &&
+      (!color || r.color === color) &&
+      (thickness === undefined || r.thickness === thickness) &&
+      (!manufacturer || r.manufacturer === manufacturer),
+  );
+
+  const columns: ReportColumn<(typeof rows)[number]>[] = [
+    { key: "material", header: "Материал", render: (r) => r.material, printValue: (r) => r.material },
+    { key: "color", header: "Цвет", render: (r) => r.color, printValue: (r) => r.color },
+    { key: "thickness", header: "Толщина, мм", render: (r) => r.thickness, printValue: (r) => r.thickness },
+    { key: "manufacturer", header: "Производитель", render: (r) => r.manufacturer, printValue: (r) => r.manufacturer },
+    { key: "roll_count", header: "Рулонов, шт", render: (r) => r.roll_count, printValue: (r) => r.roll_count, sorter: (a, b) => a.roll_count - b.roll_count },
+    { key: "roll_length_m", header: "Рулонов, м", render: (r) => r.roll_length_m, printValue: (r) => r.roll_length_m, sorter: (a, b) => a.roll_length_m - b.roll_length_m },
+    { key: "strip_count", header: "Штрипсов, шт", render: (r) => r.strip_count, printValue: (r) => r.strip_count, sorter: (a, b) => a.strip_count - b.strip_count },
+    { key: "strip_length_m", header: "Штрипсов, м", render: (r) => r.strip_length_m, printValue: (r) => r.strip_length_m, sorter: (a, b) => a.strip_length_m - b.strip_length_m },
+  ];
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space wrap>
+        <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
+        <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} allowCreate={false} />
+        <InputNumber placeholder="Толщина, мм" min={0} step={0.01} value={thickness} onChange={(v) => setThickness(v ?? undefined)} />
+        <DictAutoComplete kind="manufacturers" placeholder="Производитель" value={manufacturer} onChange={(v) => setManufacturer(v || undefined)} allowCreate={false} />
+        {warehousePicker}
+      </Space>
+      <ReportTable
+        title="Рулоны и штрипсы"
+        filename="rulony-i-shtripsy.csv"
+        rowKey={(r) => `${r.material}-${r.color}-${r.thickness}-${r.manufacturer}`}
         columns={columns}
         data={rows}
         loading={query.isLoading}
@@ -301,6 +361,7 @@ export default function Reports() {
         items={[
           { key: "summary", label: "Остатки по материалу", children: <StockSummaryTab /> },
           { key: "width", label: "Остатки по ширине", children: <StockByWidthTab /> },
+          { key: "rolls-vs-strips", label: "Рулоны и штрипсы", children: <RollsVsStripsTab /> },
           { key: "movement", label: "Движение за период", children: <MovementTab /> },
           { key: "donor", label: <>Точность донор-рекомендаций <Tag color="blue">2.9</Tag></>, children: <DonorAccuracyTab /> },
           { key: "stale", label: "Давно не двигались", children: <StaleUnitsTab /> },

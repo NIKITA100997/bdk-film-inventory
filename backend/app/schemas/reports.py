@@ -22,6 +22,17 @@ class StockByWidthLine(BaseModel):
     unit_count: int
 
 
+class RollsVsStripsLine(BaseModel):
+    material: str
+    color: str
+    thickness: float
+    manufacturer: str
+    roll_count: int
+    roll_length_m: float
+    strip_count: int
+    strip_length_m: float
+
+
 class MovementEntry(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     event_id: int

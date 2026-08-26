@@ -68,9 +68,16 @@ export function useColumnSettings(tableKey: string | undefined, columns: ColumnO
 export function ColumnSettingsButton({
   columns,
   settings,
+  itemLabel = "столбцов",
+  panelTitle = "Столбцы таблицы",
 }: {
   columns: ColumnOption[];
   settings: ReturnType<typeof useColumnSettings>;
+  /** Раздел про переиспользование за пределами таблиц (напр. карточки
+   * "Обзора") — по умолчанию текст про столбцы, но подписи можно
+   * переопределить под контекст использования. */
+  itemLabel?: string;
+  panelTitle?: string;
 }) {
   const [open, setOpen] = useState(false);
   if (!settings.enabled) return null;
@@ -78,9 +85,9 @@ export function ColumnSettingsButton({
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
       <span style={{ fontSize: 12, color: "#8A8C99" }}>
-        {settings.visibleKeys.length} из {columns.length} столбцов
+        {settings.visibleKeys.length} из {columns.length} {itemLabel}
       </span>
-      <Tooltip title="Настроить столбцы">
+      <Tooltip title={panelTitle}>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -96,7 +103,7 @@ export function ColumnSettingsButton({
             alignItems: "center",
             justifyContent: "center",
           }}
-          aria-label="Настроить столбцы"
+          aria-label={panelTitle}
         >
           <SettingOutlined />
         </button>
@@ -119,7 +126,7 @@ export function ColumnSettingsButton({
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>Столбцы таблицы</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{panelTitle}</span>
               <button
                 type="button"
                 onClick={settings.reset}
