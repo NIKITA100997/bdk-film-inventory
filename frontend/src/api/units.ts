@@ -361,19 +361,24 @@ function printErrorMessage(e: unknown): string {
   return "Не удалось подготовить этикетку для печати";
 }
 
+// Раздел про диагностику "не открывается окно печати" — три статуса на
+// одном ключе (antd подменяет сообщение в том же месте, не копит их):
+// "Готовим..." сразу же подтверждает, что нажатие вообще дошло до кода;
+// "Отправлено на печать" после — что запрос и вызов печати отработали
+// без ошибок (если после этого физически ничего не появилось — значит
+// проблема в самой печати/ОС планшета, а не в приложении); message.error
+// — если запрос или сама печать бросили исключение.
+const PRINT_MESSAGE_KEY = "print-label";
+
 export function printLabel(unitId: number, options?: PrintLabelOptions): void {
+  message.loading({ content: "Готовим этикетку к печати…", key: PRINT_MESSAGE_KEY, duration: 0 });
   const params = { vertical: isVerticalPrint(), kind: options?.kind };
-  if (isMobileDevice()) {
-    apiClient
-      .get(`/labels/${unitId}/html`, { params, responseType: "text" })
-      .then(({ data }) => printHtmlDoc(data as string))
-      .catch((e) => message.error(printErrorMessage(e)));
-  } else {
-    apiClient
-      .get(`/labels/${unitId}`, { params, responseType: "blob" })
-      .then(({ data }) => printPdfBlob(data as Blob))
-      .catch((e) => message.error(printErrorMessage(e)));
-  }
+  const request = isMobileDevice()
+    ? apiClient.get(`/labels/${unitId}/html`, { params, responseType: "text" }).then(({ data }) => printHtmlDoc(data as string))
+    : apiClient.get(`/labels/${unitId}`, { params, responseType: "blob" }).then(({ data }) => printPdfBlob(data as Blob));
+  request
+    .then(() => message.success({ content: "Отправлено на печать", key: PRINT_MESSAGE_KEY }))
+    .catch((e) => message.error({ content: printErrorMessage(e), key: PRINT_MESSAGE_KEY }));
 }
 
 // Очередь печати (раздел про ускорение работы) — один документ на
@@ -381,16 +386,16 @@ export function printLabel(unitId: number, options?: PrintLabelOptions): void {
 // N рулонов одна вкладка с N страницами вместо N открытых вкладок печати.
 export function printLabelsBatch(unitIds: number[], options?: PrintLabelOptions): void {
   if (unitIds.length === 0) return;
+  message.loading({ content: "Готовим этикетки к печати…", key: PRINT_MESSAGE_KEY, duration: 0 });
   const params = { vertical: isVerticalPrint(), kind: options?.kind };
-  if (isMobileDevice()) {
-    apiClient
-      .post("/labels/batch/html", { unit_ids: unitIds }, { params, responseType: "text" })
-      .then(({ data }) => printHtmlDoc(data as string))
-      .catch((e) => message.error(printErrorMessage(e)));
-  } else {
-    apiClient
-      .post("/labels/batch", { unit_ids: unitIds }, { params, responseType: "blob" })
-      .then(({ data }) => printPdfBlob(data as Blob))
-      .catch((e) => message.error(printErrorMessage(e)));
-  }
+  const request = isMobileDevice()
+    ? apiClient
+        .post("/labels/batch/html", { unit_ids: unitIds }, { params, responseType: "text" })
+        .then(({ data }) => printHtmlDoc(data as string))
+    : apiClient
+        .post("/labels/batch", { unit_ids: unitIds }, { params, responseType: "blob" })
+        .then(({ data }) => printPdfBlob(data as Blob));
+  request
+    .then(() => message.success({ content: "Отправлено на печать", key: PRINT_MESSAGE_KEY }))
+    .catch((e) => message.error({ content: printErrorMessage(e), key: PRINT_MESSAGE_KEY }));
 }
