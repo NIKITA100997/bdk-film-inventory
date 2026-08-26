@@ -103,6 +103,7 @@ def rack_occupancy(rack_id: int, db: Session = Depends(get_db), user=Depends(get
             MaterialUnit.location_code.like(f"{rack.code}-%"),
             MaterialUnit.status.in_([UnitStatus.NA_KHRANENII, UnitStatus.PRINYAT]),
         )
+        .order_by(MaterialUnit.id)
         .all()
     )
     units_by_code: dict[str, list[MaterialUnit]] = defaultdict(list)
