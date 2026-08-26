@@ -824,17 +824,16 @@ def cut_unit(
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("units.cut")),
 ) -> MaterialUnit:
-    """Раскрой по длине (2.4/6.4 ТЗ) — на складе (единица ещё "На хранении",
-    совмещённая резка под цельнолистовые) либо на месте у цельнолистовых на
-    стеллаже Б (единица уже "Выдан участку", area=Цельнолистовые_двери).
-    Отрезанный кусок точного размера уходит в производство сразу — новая
-    единица не создаётся, только событие в журнале."""
+    """Раскрой по длине (2.4/6.4 ТЗ) — на складе (единица ещё "На хранении")
+    либо на месте у участка, которому единица уже выдана ("Выдан участку",
+    любой участок — напр. списание фактически израсходованного метража во
+    время смены). Отрезанный кусок точного размера уходит в производство
+    сразу — новая единица не создаётся, только событие в журнале."""
     unit = _get_storable_unit(db, unit_id)
-    on_site_at_tselnolistovye = unit.status == UnitStatus.VYDAN_UCHASTKU and unit.area == "tselnolistovye_dveri"
-    if unit.status != UnitStatus.NA_KHRANENII and not on_site_at_tselnolistovye:
+    if unit.status not in (UnitStatus.NA_KHRANENII, UnitStatus.VYDAN_UCHASTKU):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Раскрой по длине доступен только на складе или на месте у цельнолистовых дверей",
+            detail="Раскрой по длине доступен только на складе или у участка, которому единица выдана",
         )
 
     try:

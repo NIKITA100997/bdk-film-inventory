@@ -167,7 +167,13 @@ export default function UnitCard() {
       setAction(null);
       cutForm.resetFields();
       message.success(
-        u.length_m > 0 ? `Останется ${u.length_m} м — тот же ID №${u.id}` : `Единица №${u.id} полностью использована`,
+        u.length_m > 0 ? (
+          <>
+            Останется {u.length_m} м — тот же ID №{u.id} — <a onClick={() => printLabel(u.id)}>печать бирки</a>
+          </>
+        ) : (
+          `Единица №${u.id} полностью использована`
+        ),
       );
     },
     onError: () => message.error("Не удалось выполнить раскрой — проверьте длину и статус единицы"),

@@ -26,9 +26,12 @@ import {
   receiveAndAutoPlace,
   placeUnit,
   printLabel,
+  printLabelsBatch,
   reassignUnitSku,
   writeOffUnit,
   deleteUnit,
+  getUnit,
+  cutUnit,
   skuLabel,
   type MaterialUnit,
   type SearchParams,
@@ -75,6 +78,7 @@ export default function MaterialsExplorer() {
   const qc = useQueryClient();
   const canManageAbc = !!user?.is_superuser || !!user?.permissions.includes("calc_settings.manage");
   const canWriteOff = !!user?.is_superuser || !!user?.permissions.includes("units.writeoff");
+  const canCut = !!user?.is_superuser || !!user?.permissions.includes("units.cut");
   const canPlace = !!user?.is_superuser || !!user?.permissions.includes("units.place");
   const canEditSku = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
   const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
@@ -100,6 +104,7 @@ export default function MaterialsExplorer() {
   const [createPositionOpen, setCreatePositionOpen] = useState(false);
   const [createUnitOpen, setCreateUnitOpen] = useState(false);
   const [writeOffOpen, setWriteOffOpen] = useState(false);
+  const [bulkCutOpen, setBulkCutOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<MaterialUnit | null>(null);
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
   const [positionForm] = Form.useForm<MaterialSkuCreate>();
@@ -111,8 +116,8 @@ export default function MaterialsExplorer() {
   });
 
   const positionsQuery = useQuery({
-    queryKey: ["materials-explorer", "positions"],
-    queryFn: () => getStockSummary(),
+    queryKey: ["materials-explorer", "positions", filters.manufacturer],
+    queryFn: () => getStockSummary(undefined, filters.manufacturer),
     enabled: viewMode === "positions",
   });
   const unitsQuery = useQuery({
@@ -240,7 +245,7 @@ export default function MaterialsExplorer() {
       if (!(u.status === "На_хранении" && classCKeys.has(key))) return false;
     }
     if (textQuery) {
-      const label = `${u.material_sku.material.name} ${u.material_sku.color.name}`.toLowerCase();
+      const label = `${u.material_sku.material.name} ${u.material_sku.color.name} ${u.material_sku.manufacturer.name}`.toLowerCase();
       if (!label.includes(textQuery)) return false;
     }
     return true;
@@ -251,19 +256,22 @@ export default function MaterialsExplorer() {
       <Card
         title="Материалы"
         extra={
-          <Dropdown
-            menu={{
-              items: [
-                { key: "position", label: "Материал — позиция без рулона" },
-                { key: "unit", label: "Единица плёнки — один рулон/штрипс вне сессии" },
-              ],
-              onClick: ({ key }) => (key === "position" ? setCreatePositionOpen(true) : setCreateUnitOpen(true)),
-            }}
-          >
-            <Button type="primary">
-              + Новое <DownOutlined />
-            </Button>
-          </Dropdown>
+          <Space>
+            {canCut && <Button onClick={() => setBulkCutOpen(true)}>Списать метраж</Button>}
+            <Dropdown
+              menu={{
+                items: [
+                  { key: "position", label: "Материал — позиция без рулона" },
+                  { key: "unit", label: "Единица плёнки — один рулон/штрипс вне сессии" },
+                ],
+                onClick: ({ key }) => (key === "position" ? setCreatePositionOpen(true) : setCreateUnitOpen(true)),
+              }}
+            >
+              <Button type="primary">
+                + Новое <DownOutlined />
+              </Button>
+            </Dropdown>
+          </Space>
         }
       >
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -297,9 +305,9 @@ export default function MaterialsExplorer() {
             <DictAutoComplete kind="materials" placeholder="Материал" value={filters.material} onChange={(v) => setFilter("material", v || undefined)} allowCreate={false} />
             <DictAutoComplete kind="colors" placeholder="Цвет" value={filters.color} onChange={(v) => setFilter("color", v || undefined)} allowCreate={false} />
             <InputNumber placeholder="Толщина, мм" min={0} step={0.01} value={filters.thickness} onChange={(v) => setFilter("thickness", v ?? undefined)} />
+            <DictAutoComplete kind="manufacturers" placeholder="Производитель" value={filters.manufacturer} onChange={(v) => setFilter("manufacturer", v || undefined)} allowCreate={false} />
             {viewMode === "units" && (
               <>
-                <DictAutoComplete kind="manufacturers" placeholder="Производитель" value={filters.manufacturer} onChange={(v) => setFilter("manufacturer", v || undefined)} allowCreate={false} />
                 <InputNumber placeholder="Ширина, мм" min={1} value={filters.width_mm} onChange={(v) => setFilter("width_mm", v ?? undefined)} />
                 <InputNumber placeholder="Мин. длина, м" min={0} step={0.1} value={filters.min_length_m} onChange={(v) => setFilter("min_length_m", v ?? undefined)} />
                 <Select placeholder="Статус" allowClear style={{ width: 160 }} options={statusOptions} value={filters.status} onChange={(v) => setFilter("status", v)} />
@@ -588,6 +596,7 @@ export default function MaterialsExplorer() {
       </Modal>
 
       {reassignTarget && <ReassignSkuModal unit={reassignTarget} onClose={() => setReassignTarget(null)} />}
+      {bulkCutOpen && <BulkCutModal onClose={() => setBulkCutOpen(false)} />}
     </Space>
   );
 }
@@ -684,6 +693,175 @@ function ReassignSkuModal({ unit, onClose }: { unit: MaterialUnit; onClose: () =
           Сохранить
         </Button>
       </Form>
+    </Modal>
+  );
+}
+
+const CUTTABLE_STATUSES: readonly string[] = ["На_хранении", "Выдан_участку"];
+
+/** Массовое списание метража (раздел про выдачу плёнки в производство) —
+ * добавление по одной единице через поиск по номеру, затем клиентский цикл
+ * по одиночному cutUnit, тот же паттерн, что bulkWriteOffMutation выше:
+ * backend-эндпоинт под пакетное списание отдельно не заводили. */
+function BulkCutModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [lookupId, setLookupId] = useState<number>();
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [foundUnit, setFoundUnit] = useState<MaterialUnit | null>(null);
+  const [cutLength, setCutLength] = useState<number>();
+  const [queue, setQueue] = useState<{ unit: MaterialUnit; cutLengthM: number }[]>([]);
+  const [results, setResults] = useState<{ id: number; before: number; after: number }[]>([]);
+
+  const lookupMutation = useMutation({
+    mutationFn: (id: number) => getUnit(id),
+    onSuccess: (unit) => {
+      if (!CUTTABLE_STATUSES.includes(unit.status)) {
+        setLookupError(`№${unit.id}: статус «${unit.status.replace(/_/g, " ")}» — раскрой недоступен`);
+        setFoundUnit(null);
+        return;
+      }
+      if (queue.some((q) => q.unit.id === unit.id)) {
+        setLookupError(`№${unit.id} уже в списке — уберите строку, чтобы изменить`);
+        setFoundUnit(null);
+        return;
+      }
+      setLookupError(null);
+      setFoundUnit(unit);
+      setCutLength(undefined);
+    },
+    onError: () => {
+      setLookupError("Единица с таким номером не найдена");
+      setFoundUnit(null);
+    },
+  });
+
+  const addToQueue = () => {
+    if (!foundUnit || !cutLength || cutLength <= 0 || cutLength > foundUnit.length_m) return;
+    setQueue((q) => [...q, { unit: foundUnit, cutLengthM: cutLength }]);
+    setFoundUnit(null);
+    setCutLength(undefined);
+    setLookupId(undefined);
+  };
+
+  const removeFromQueue = (id: number) => setQueue((q) => q.filter((item) => item.unit.id !== id));
+
+  const bulkCutMutation = useMutation({
+    mutationFn: async () => {
+      const processed: { id: number; before: number; after: number }[] = [];
+      for (const item of queue) {
+        const updated = await cutUnit(item.unit.id, { cut_length_m: item.cutLengthM });
+        processed.push({ id: updated.id, before: item.unit.length_m, after: updated.length_m });
+      }
+      return processed;
+    },
+    onSuccess: (processed) => {
+      qc.invalidateQueries({ queryKey: ["materials-explorer"] });
+      setResults(processed);
+      setQueue([]);
+      message.success(`Списано с ${processed.length} единиц`);
+    },
+    onError: () => message.error("Не удалось списать часть единиц — проверьте статусы и повторите"),
+  });
+
+  return (
+    <Modal title="Списать метраж с рулонов/штрипсов" open onCancel={onClose} footer={null} width={560} destroyOnHidden>
+      <Typography.Paragraph type="secondary">
+        Уменьшает длину конкретной единицы на месте (без создания новой) — для метража, фактически израсходованного
+        при выдаче в производство. Доступно для единиц «На хранении» или уже «Выдан участку».
+      </Typography.Paragraph>
+
+      <Space.Compact style={{ width: "100%", marginBottom: 8 }}>
+        <InputNumber
+          style={{ width: "100%" }}
+          placeholder="№ единицы"
+          min={1}
+          value={lookupId}
+          onChange={(v) => setLookupId(v ?? undefined)}
+          onPressEnter={() => lookupId && lookupMutation.mutate(lookupId)}
+        />
+        <Button loading={lookupMutation.isPending} onClick={() => lookupId && lookupMutation.mutate(lookupId)}>
+          Найти
+        </Button>
+      </Space.Compact>
+
+      {lookupError && <Alert style={{ marginBottom: 8 }} type="error" showIcon message={lookupError} />}
+
+      {foundUnit && (
+        <Card size="small" style={{ marginBottom: 8 }}>
+          <Typography.Text>
+            №{foundUnit.id} — {skuLabel(foundUnit.material_sku)}, {foundUnit.width_mm}×{foundUnit.length_m} м,{" "}
+            {foundUnit.status.replace(/_/g, " ")}
+          </Typography.Text>
+          <div style={{ marginTop: 8 }}>
+            <Space.Compact style={{ width: "100%" }}>
+              <InputNumber
+                style={{ width: "100%" }}
+                placeholder="Списать, м"
+                min={0.01}
+                max={foundUnit.length_m}
+                step={0.1}
+                value={cutLength}
+                onChange={(v) => setCutLength(v ?? undefined)}
+              />
+              <Button
+                type="primary"
+                disabled={!cutLength || cutLength <= 0 || cutLength > foundUnit.length_m}
+                onClick={addToQueue}
+              >
+                Добавить в список
+              </Button>
+            </Space.Compact>
+          </div>
+        </Card>
+      )}
+
+      {queue.length > 0 && (
+        <List
+          style={{ marginBottom: 12 }}
+          size="small"
+          bordered
+          header={`К списанию: ${queue.length}`}
+          dataSource={queue}
+          renderItem={(item) => (
+            <List.Item
+              actions={[
+                <Button key="remove" size="small" danger onClick={() => removeFromQueue(item.unit.id)}>
+                  Убрать
+                </Button>,
+              ]}
+            >
+              №{item.unit.id} — {skuLabel(item.unit.material_sku)}: было {item.unit.length_m} м, спишется{" "}
+              {item.cutLengthM} м, останется {(item.unit.length_m - item.cutLengthM).toFixed(2)} м
+            </List.Item>
+          )}
+        />
+      )}
+
+      {queue.length > 0 && (
+        <Button type="primary" block danger loading={bulkCutMutation.isPending} onClick={() => bulkCutMutation.mutate()}>
+          Списать всё ({queue.length})
+        </Button>
+      )}
+
+      {results.length > 0 && (
+        <>
+          <List
+            style={{ marginTop: 16 }}
+            size="small"
+            bordered
+            header="Обработано"
+            dataSource={results}
+            renderItem={(r) => (
+              <List.Item>
+                №{r.id} — было {r.before} м, осталось {r.after} м
+              </List.Item>
+            )}
+          />
+          <Button style={{ marginTop: 8 }} block onClick={() => printLabelsBatch(results.map((r) => r.id))}>
+            Распечатать все бирки ({results.length})
+          </Button>
+        </>
+      )}
     </Modal>
   );
 }
