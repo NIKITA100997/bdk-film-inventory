@@ -2,12 +2,15 @@
 добавить администрирование участков, какие есть и т.п."). Тот же логист,
 что управляет пользователями/ролями (`users.manage`), управляет и этим —
 участки такая же орг-структура администрирования, отдельного права не
-заводим."""
+заводим — но только на изменение. Список участков (GET) нужен любому
+аутентифицированному пользователю (раздел про выдачу без задания —
+оператор склада без users.manage не видел ни одного участка в селекте
+выдачи, потому что раньше GET был за тем же правом, что и запись)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import require_permission
+from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.schemas.areas import AreaCreate, AreaOut, AreaUpdate
@@ -19,7 +22,7 @@ manage_areas = require_permission("users.manage")
 
 
 @router.get("/areas", response_model=list[AreaOut])
-def list_areas(db: Session = Depends(get_db), user=Depends(manage_areas)) -> list[Area]:
+def list_areas(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[Area]:
     return db.query(Area).order_by(Area.name).all()
 
 
