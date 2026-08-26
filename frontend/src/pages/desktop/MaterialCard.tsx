@@ -24,7 +24,10 @@ import {
 import { getMaterialCard } from "../../api/materialCards";
 import { reassignUnitSku, receiveAndAutoPlace, printLabel, skuLabel, type MaterialSku, type MaterialUnit } from "../../api/units";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import OccurredAtField from "../../components/OccurredAtField";
 import { useAuth } from "../../auth/AuthContext";
+import { toOccurredAtIso } from "../../utils/occurredAt";
+import type { Dayjs } from "dayjs";
 
 interface MaterialCardPrefill {
   material?: string;
@@ -506,11 +509,25 @@ export default function MaterialCard() {
  * MaterialsExplorer.tsx — receiveAndAutoPlace, без нового бэкенд-эндпоинта. */
 function AddUnitModal({ sku, onClose }: { sku: MaterialSku; onClose: () => void }) {
   const qc = useQueryClient();
-  const [form] = Form.useForm<{ is_strip: boolean; width_mm: number; length_m: number; upd_number?: string; pallet_number?: string }>();
+  const [form] = Form.useForm<{
+    is_strip: boolean;
+    width_mm: number;
+    length_m: number;
+    upd_number?: string;
+    pallet_number?: string;
+    occurred_at?: Dayjs | null;
+  }>();
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
 
   const addMutation = useMutation({
-    mutationFn: (v: { is_strip: boolean; width_mm: number; length_m: number; upd_number?: string; pallet_number?: string }) =>
+    mutationFn: (v: {
+      is_strip: boolean;
+      width_mm: number;
+      length_m: number;
+      upd_number?: string;
+      pallet_number?: string;
+      occurred_at?: Dayjs | null;
+    }) =>
       receiveAndAutoPlace({
         material: sku.material.name,
         color: sku.color.name,
@@ -522,6 +539,7 @@ function AddUnitModal({ sku, onClose }: { sku: MaterialSku; onClose: () => void 
         upd_number: v.upd_number?.trim() || "Без документа",
         pallet_number: v.pallet_number?.trim() || "-",
         quantity: 1,
+        occurred_at: toOccurredAtIso(v.occurred_at),
       }),
     onSuccess: (units) => {
       qc.invalidateQueries({ queryKey: ["material-card", sku.id] });
@@ -556,6 +574,7 @@ function AddUnitModal({ sku, onClose }: { sku: MaterialSku; onClose: () => void 
         <Form.Item name="pallet_number" label="Номер паллеты (необязательно)">
           <Input />
         </Form.Item>
+        <OccurredAtField label="Дата приёмки (необязательно — по умолчанию сейчас)" />
         <Button type="primary" htmlType="submit" block loading={addMutation.isPending}>
           Зарегистрировать
         </Button>

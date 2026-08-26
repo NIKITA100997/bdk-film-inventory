@@ -47,6 +47,7 @@ export interface ReceiveRequest {
   quantity: number;
   location_code?: string;
   is_strip?: boolean;
+  occurred_at?: string;
 }
 
 export async function receiveUnits(payload: ReceiveRequest): Promise<MaterialUnit[]> {
@@ -71,7 +72,7 @@ export async function receiveAndAutoPlace(
       is_strip: unit.is_strip,
       warehouse_id: warehouseId,
     });
-    placed.push(suggestion ? await placeUnit(unit.id, suggestion) : unit);
+    placed.push(suggestion ? await placeUnit(unit.id, suggestion, payload.occurred_at) : unit);
   }
   return placed;
 }
@@ -81,8 +82,8 @@ export async function getUnit(unitId: number): Promise<MaterialUnit> {
   return data;
 }
 
-export async function placeUnit(unitId: number, location_code: string): Promise<MaterialUnit> {
-  const { data } = await apiClient.patch<MaterialUnit>(`/units/${unitId}/place`, { location_code });
+export async function placeUnit(unitId: number, location_code: string, occurred_at?: string): Promise<MaterialUnit> {
+  const { data } = await apiClient.patch<MaterialUnit>(`/units/${unitId}/place`, { location_code, occurred_at });
   return data;
 }
 
@@ -101,6 +102,7 @@ export async function reassignUnitSku(unitId: number, payload: ReassignSkuReques
 export interface SplitRequest {
   separate_width_mm: number;
   new_unit_location?: string;
+  occurred_at?: string;
 }
 
 export interface SplitResponse {
@@ -122,6 +124,7 @@ export interface IssueRequest {
   length_m: number;
   area: AreaValue;
   production_task_line_id?: number;
+  occurred_at?: string;
 }
 
 export interface DonorSuggestion {
@@ -154,10 +157,12 @@ export async function issueUnitDirect(
   unitId: number,
   area: AreaValue,
   productionTaskLineId?: number,
+  occurredAt?: string,
 ): Promise<MaterialUnit> {
   const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/issue`, {
     area,
     production_task_line_id: productionTaskLineId,
+    occurred_at: occurredAt,
   });
   return data;
 }
@@ -167,6 +172,7 @@ export interface AtomicDonorIssueRequest {
   requested_width_mm: number;
   area: AreaValue;
   production_task_line_id?: number;
+  occurred_at?: string;
 }
 
 export interface AtomicDonorIssueResponse {
@@ -220,6 +226,7 @@ export interface CuttingPlanCutSpec {
 export interface CuttingPlanExecuteRequest {
   donor_unit_id: number;
   cuts: CuttingPlanCutSpec[];
+  occurred_at?: string;
 }
 
 export interface CuttingPlanExecuteResultCut {
@@ -247,6 +254,7 @@ export async function executeCuttingPlan(payload: CuttingPlanExecuteRequest): Pr
 export interface CutRequest {
   cut_length_m: number;
   remainder_location?: string;
+  occurred_at?: string;
 }
 
 export async function cutUnit(unitId: number, payload: CutRequest): Promise<MaterialUnit> {
@@ -256,6 +264,7 @@ export async function cutUnit(unitId: number, payload: CutRequest): Promise<Mate
 
 export interface ReturnRequest {
   actual_length_m: number;
+  occurred_at?: string;
 }
 
 export async function returnUnit(unitId: number, payload: ReturnRequest): Promise<MaterialUnit> {
@@ -312,8 +321,17 @@ export async function getUnitEvents(unitId: number): Promise<UnitEvent[]> {
   return data;
 }
 
-export async function writeOffUnit(unitId: number, reason: string, note?: string): Promise<MaterialUnit> {
-  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/write-off`, { reason, note });
+export async function writeOffUnit(
+  unitId: number,
+  reason: string,
+  note?: string,
+  occurredAt?: string,
+): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/write-off`, {
+    reason,
+    note,
+    occurred_at: occurredAt,
+  });
   return data;
 }
 

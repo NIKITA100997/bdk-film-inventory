@@ -9,6 +9,7 @@ from app.models.inventory import InventoryScopeType, InventorySession, Inventory
 from app.models.storage import Rack, RackType
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
+from app.schemas.common import OccurredAt
 from app.schemas.inventory import (
     CloseSessionResult,
     InventorySessionCreate,
@@ -182,6 +183,7 @@ def scan(
             from_cell=from_cell,
             to_cell=payload.location_code,
             inventory_session_id=session_id,
+            occurred_at=payload.occurred_at,
         )
         db.commit()
         db.refresh(unit)
@@ -221,6 +223,7 @@ def scan(
         to_length=payload.length_m,
         to_cell=payload.location_code,
         inventory_session_id=session_id,
+        occurred_at=payload.occurred_at,
     )
     db.commit()
     db.refresh(unit)
@@ -230,6 +233,7 @@ def scan(
 @router.post("/{session_id}/close", response_model=CloseSessionResult)
 def close_session(
     session_id: int,
+    occurred_at: OccurredAt = None,
     db: Session = Depends(get_db),
     user: User = Depends(manage_inventory),
 ) -> CloseSessionResult:
@@ -251,6 +255,7 @@ def close_session(
             event_type=EventType.INVENTARIZATSIYA_NEDOSTACHA,
             user_id=user.id,
             inventory_session_id=session_id,
+            occurred_at=occurred_at,
         )
 
     confirmed_count = db.execute(
@@ -320,6 +325,7 @@ def resolve_shortage(
             from_length=old_length,
             to_length=0,
             inventory_session_id=session_id,
+            occurred_at=payload.occurred_at,
         )
     elif payload.action != "vernut_v_poisk":
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="action должен быть spisat или vernut_v_poisk")

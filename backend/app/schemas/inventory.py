@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.inventory import InventoryScopeType, InventoryStatus
+from app.schemas.common import OccurredAt
 from app.schemas.units import MaterialUnitOut
 
 
@@ -43,6 +44,7 @@ class ScanRequest(BaseModel):
     manufacturer: str | None = None
     width_mm: float | None = Field(default=None, gt=0)
     length_m: float | None = Field(default=None, gt=0)
+    occurred_at: OccurredAt = None
 
     @model_validator(mode="after")
     def _creation_fields_required_when_no_unit_id(self):
@@ -88,3 +90,4 @@ class CloseSessionResult(BaseModel):
 
 class ResolveShortageRequest(BaseModel):
     action: str  # "spisat" | "vernut_v_poisk"
+    occurred_at: OccurredAt = None

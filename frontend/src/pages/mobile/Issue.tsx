@@ -5,6 +5,7 @@ import {
   Card,
   Col,
   Collapse,
+  DatePicker,
   Form,
   Input,
   InputNumber,
@@ -20,7 +21,8 @@ import Statistic from "../../components/Statistic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
-import dayjs from "dayjs";
+import dayjs, { type Dayjs } from "dayjs";
+import { toOccurredAtIso } from "../../utils/occurredAt";
 import {
   executeCuttingPlan,
   getCuttingPlan,
@@ -206,6 +208,7 @@ function CuttingPlanExecuteModal({
   const [lengths, setLengths] = useState<Record<number, number>>(() =>
     Object.fromEntries(rows.map((r) => [r.line.id, donor.length_m])),
   );
+  const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
 
   const executeMutation = useMutation({
     mutationFn: () =>
@@ -216,6 +219,7 @@ function CuttingPlanExecuteModal({
           width_mm: r.line.strip_width_mm || r.line.width_mm,
           actual_length_m: lengths[r.line.id] ?? donor.length_m,
         })),
+        occurred_at: toOccurredAtIso(occurredAt),
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
@@ -277,6 +281,14 @@ function CuttingPlanExecuteModal({
           </div>
         ))}
       </Space>
+      <DatePicker
+        style={{ width: "100%", marginTop: 12 }}
+        format="DD.MM.YYYY"
+        placeholder="Дата операции: сейчас"
+        value={occurredAt}
+        onChange={setOccurredAt}
+        disabledDate={(d) => d.isAfter(dayjs(), "day")}
+      />
       <Button type="primary" block style={{ marginTop: 16 }} loading={executeMutation.isPending} onClick={() => executeMutation.mutate()}>
         Разрезать и выдать все строки
       </Button>
@@ -317,6 +329,10 @@ export default function Issue() {
   const [manualDonor, setManualDonor] = useState<DonorSuggestion | null>(null);
   const [shortageModalOpen, setShortageModalOpen] = useState(false);
   const [shortageForm] = Form.useForm<PurchaseRequestShopFloorCreate>();
+  // Раздел про дату операции задним числом — одно поле на весь экран
+  // выдачи (не дублируется в каждой из веток ниже): выдача обычно
+  // фиксируется по факту через день-два после самого события.
+  const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
 
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
@@ -416,6 +432,7 @@ export default function Issue() {
         length_m: selectedNeededLengthM,
         area: selected!.task.area,
         production_task_line_id: selected!.line.id,
+        occurred_at: toOccurredAtIso(occurredAt),
       }),
     onSuccess: (res) => {
       setResult(res);
@@ -480,7 +497,8 @@ export default function Issue() {
   };
 
   const directMutation = useMutation({
-    mutationFn: (unitId: number) => issueUnitDirect(unitId, selected!.task.area, selected!.line.id),
+    mutationFn: (unitId: number) =>
+      issueUnitDirect(unitId, selected!.task.area, selected!.line.id, toOccurredAtIso(occurredAt)),
     onSuccess: (unit) => {
       setLastIssued({ unit, remainder: null, remainderPlaced: false });
       setResult(null);
@@ -491,7 +509,12 @@ export default function Issue() {
 
   const atomicDonorMutation = useMutation({
     mutationFn: (values: { donor_unit_id: number; requested_width_mm: number }) =>
-      issueDonorAtomic({ ...values, area: selected!.task.area, production_task_line_id: selected!.line.id }),
+      issueDonorAtomic({
+        ...values,
+        area: selected!.task.area,
+        production_task_line_id: selected!.line.id,
+        occurred_at: toOccurredAtIso(occurredAt),
+      }),
     onSuccess: (res) => {
       setLastIssued({ unit: res.issued_unit, remainder: res.remainder_unit, remainderPlaced: false });
       setResult(null);
@@ -511,7 +534,8 @@ export default function Issue() {
   });
 
   const placeRemainderMutation = useMutation({
-    mutationFn: (locationCode: string) => placeUnit(lastIssued!.remainder!.id, locationCode),
+    mutationFn: (locationCode: string) =>
+      placeUnit(lastIssued!.remainder!.id, locationCode, toOccurredAtIso(occurredAt)),
     onSuccess: () => {
       setLastIssued((prev) => (prev ? { ...prev, remainderPlaced: true } : prev));
       message.success("Остаток размещён");
@@ -552,7 +576,7 @@ export default function Issue() {
   });
 
   const manualDirectMutation = useMutation({
-    mutationFn: (unitId: number) => issueUnitDirect(unitId, manualArea!),
+    mutationFn: (unitId: number) => issueUnitDirect(unitId, manualArea!, undefined, toOccurredAtIso(occurredAt)),
     onSuccess: (unit) => {
       setLastIssued({ unit, remainder: null, remainderPlaced: false });
       setManualDonor(null);
@@ -571,6 +595,7 @@ export default function Issue() {
         width_mm: v.width_mm,
         length_m: v.length_m,
         area: manualArea!,
+        occurred_at: toOccurredAtIso(occurredAt),
       }),
     onSuccess: (res) => {
       if (res.outcome === "issued" && res.unit) {
@@ -595,7 +620,7 @@ export default function Issue() {
   // карточку единицы и резать вручную в два действия.
   const manualAtomicDonorMutation = useMutation({
     mutationFn: (values: { donor_unit_id: number; requested_width_mm: number }) =>
-      issueDonorAtomic({ ...values, area: manualArea! }),
+      issueDonorAtomic({ ...values, area: manualArea!, occurred_at: toOccurredAtIso(occurredAt) }),
     onSuccess: (res) => {
       setLastIssued({ unit: res.issued_unit, remainder: res.remainder_unit, remainderPlaced: false });
       setManualDonor(null);
@@ -735,6 +760,14 @@ export default function Issue() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           allowClear
+        />
+        <DatePicker
+          style={{ width: 200 }}
+          format="DD.MM.YYYY"
+          placeholder="Дата выдачи: сейчас"
+          value={occurredAt}
+          onChange={setOccurredAt}
+          disabledDate={(d) => d.isAfter(dayjs(), "day")}
         />
       </Space>
 
@@ -1231,6 +1264,7 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
   const qc = useQueryClient();
   const [locationCode, setLocationCode] = useState("");
   const [locationTouched, setLocationTouched] = useState(false);
+  const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
 
   const previewQuery = useQuery({ queryKey: ["return-preview", unit.id], queryFn: () => getReturnPreview(unit.id) });
   const suggestionQuery = useQuery({
@@ -1246,8 +1280,9 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
 
   const acceptMutation = useMutation({
     mutationFn: async () => {
-      const returned = await returnUnit(unit.id, { actual_length_m: expected ?? unit.length_m });
-      if (locationCode.trim()) await placeUnit(returned.id, locationCode.trim());
+      const occurredAtIso = toOccurredAtIso(occurredAt);
+      const returned = await returnUnit(unit.id, { actual_length_m: expected ?? unit.length_m, occurred_at: occurredAtIso });
+      if (locationCode.trim()) await placeUnit(returned.id, locationCode.trim(), occurredAtIso);
       return { returned, placed: !!locationCode.trim() };
     },
     onSuccess: ({ returned, placed }) => {
@@ -1299,6 +1334,14 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
           setLocationTouched(true);
           setLocationCode(e.target.value);
         }}
+      />
+      <DatePicker
+        style={{ width: "100%", marginBottom: 16 }}
+        format="DD.MM.YYYY"
+        placeholder="Дата возврата: сейчас"
+        value={occurredAt}
+        onChange={setOccurredAt}
+        disabledDate={(d) => d.isAfter(dayjs(), "day")}
       />
 
       <Button type="primary" block loading={acceptMutation.isPending} onClick={() => acceptMutation.mutate()}>

@@ -8,6 +8,7 @@ import {
   Form,
   Input,
   InputNumber,
+  DatePicker,
   Select,
   Space,
   Row,
@@ -18,7 +19,9 @@ import {
   message,
   type FormInstance,
 } from "antd";
+import dayjs, { type Dayjs } from "dayjs";
 import Statistic from "../../components/Statistic";
+import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listSessions,
@@ -61,6 +64,10 @@ export default function InventoryDesktop() {
   const [closeResult, setCloseResult] = useState<CloseSessionResult | null>(null);
   const [unitIdKnown, setUnitIdKnown] = useState(true);
   const [scanForm] = Form.useForm();
+  // Раздел про дату операции задним числом — одно поле на всю сессию
+  // инвентаризации (не на каждый скан отдельно): пересчёт обычно вносят
+  // в систему уже после самого обхода.
+  const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
 
   const sessionsQuery = useQuery({ queryKey: ["inventory-sessions"], queryFn: listSessions });
   const racksQuery = useQuery({ queryKey: ["racks"], queryFn: () => listRacks() });
@@ -115,7 +122,8 @@ export default function InventoryDesktop() {
   });
 
   const scanMutation = useMutation({
-    mutationFn: (values: Record<string, unknown>) => scanUnit(expandedId!, values as never),
+    mutationFn: (values: Record<string, unknown>) =>
+      scanUnit(expandedId!, { ...values, occurred_at: toOccurredAtIso(occurredAt) } as never),
     onSuccess: (result) => {
       setScanLog((log) => [result, ...log]);
       qc.invalidateQueries({ queryKey: ["inventory-sessions"] });
@@ -128,7 +136,7 @@ export default function InventoryDesktop() {
   });
 
   const closeMutation = useMutation({
-    mutationFn: (id: number) => closeSession(id),
+    mutationFn: (id: number) => closeSession(id, toOccurredAtIso(occurredAt)),
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["inventory-sessions"] });
       setCloseResult(result);
@@ -139,7 +147,7 @@ export default function InventoryDesktop() {
 
   const resolveMutation = useMutation({
     mutationFn: ({ sessionId, unitId, action }: { sessionId: number; unitId: number; action: "spisat" | "vernut_v_poisk" }) =>
-      resolveShortage(sessionId, unitId, action),
+      resolveShortage(sessionId, unitId, action, toOccurredAtIso(occurredAt)),
     onSuccess: (_, vars) => {
       setCloseResult((r) => (r ? { ...r, shortages: r.shortages.filter((s) => s.id !== vars.unitId) } : r));
       message.success("Решение сохранено");
@@ -201,6 +209,8 @@ export default function InventoryDesktop() {
                 closeMutation={closeMutation}
                 closeResult={closeResult?.session.id === s.id ? closeResult : null}
                 resolveMutation={resolveMutation}
+                occurredAt={occurredAt}
+                setOccurredAt={setOccurredAt}
               />
             ),
           }}
@@ -287,6 +297,8 @@ function SessionPanel({
   closeMutation,
   closeResult,
   resolveMutation,
+  occurredAt,
+  setOccurredAt,
 }: {
   session: InventorySession;
   scanForm: FormInstance;
@@ -299,6 +311,8 @@ function SessionPanel({
   resolveMutation: ReturnType<
     typeof useMutation<InventorySession, unknown, { sessionId: number; unitId: number; action: "spisat" | "vernut_v_poisk" }>
   >;
+  occurredAt: Dayjs | null;
+  setOccurredAt: (v: Dayjs | null) => void;
 }) {
   if (session.status === "closed" && !closeResult) {
     return (
@@ -384,6 +398,20 @@ function SessionPanel({
                 📷 Отсканировать
               </Button>
             </Form>
+
+            <div style={{ marginTop: 12 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                Дата операции для всей сессии (необязательно — по умолчанию сейчас)
+              </Typography.Text>
+              <DatePicker
+                style={{ width: "100%", marginTop: 4 }}
+                format="DD.MM.YYYY"
+                placeholder="Сейчас"
+                value={occurredAt}
+                onChange={setOccurredAt}
+                disabledDate={(d) => d.isAfter(dayjs(), "day")}
+              />
+            </div>
 
             <Button
               danger

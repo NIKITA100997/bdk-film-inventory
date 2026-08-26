@@ -129,6 +129,12 @@ def receive(
         )
         db.add(unit)
         db.flush()  # получить unit.id для события
+        if payload.occurred_at is not None:
+            # Раздел про дату операции задним числом — приход и рождение
+            # единицы (created_at) это один и тот же реальный момент,
+            # иначе задним числом принятый рулон путал бы FIFO/донор-логику
+            # (issue_to_area считает "дней на складе" от created_at).
+            unit.created_at = payload.occurred_at
         record_event(
             db,
             unit=unit,
@@ -137,6 +143,7 @@ def receive(
             quantity_delta_m=payload.length_m,
             to_length=payload.length_m,
             to_cell=payload.location_code,
+            occurred_at=payload.occurred_at,
         )
         created.append(unit)
     auto_close_on_receipt(
@@ -212,6 +219,7 @@ def write_off_unit(
         to_length=0,
         write_off_reason=payload.reason,
         write_off_note=payload.note,
+        occurred_at=payload.occurred_at,
     )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
@@ -281,6 +289,7 @@ def place_unit(
         user_id=user.id,
         from_cell=from_cell,
         to_cell=payload.location_code,
+        occurred_at=payload.occurred_at,
     )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
@@ -332,6 +341,7 @@ def split_unit(
         quantity_delta_m=outcome.parent_event.quantity_delta_m,
         from_length=outcome.parent_event.from_length,
         to_length=outcome.parent_event.to_length,
+        occurred_at=payload.occurred_at,
     )
 
     new_unit: MaterialUnit | None = None
@@ -362,6 +372,7 @@ def split_unit(
             quantity_delta_m=outcome.new_unit_event.quantity_delta_m,
             to_length=outcome.new_unit_event.to_length,
             to_cell=None if is_waste else outcome.new_unit_event.to_cell,
+            occurred_at=payload.occurred_at,
         )
         if is_waste:
             # Ниже порога полезной ширины (5.6 ТЗ) — сразу отход, на
@@ -375,6 +386,7 @@ def split_unit(
                 from_length=float(new_unit.length_m),
                 to_length=0,
                 write_off_reason="cutting_waste",
+                occurred_at=payload.occurred_at,
             )
 
     db.commit()
@@ -411,6 +423,7 @@ def issue_unit_direct(
         user_id=user.id,
         quantity_delta_m=-float(unit.length_m),
         from_cell=from_cell,
+        occurred_at=payload.occurred_at,
     )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
@@ -463,6 +476,7 @@ def issue_to_area(
             user_id=user.id,
             quantity_delta_m=-float(exact.length_m),
             from_cell=from_cell,
+            occurred_at=payload.occurred_at,
         )
         db.commit()
         unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == exact.id).first()
@@ -656,6 +670,7 @@ def execute_cutting_plan(
         quantity_delta_m=outcome.parent_event.quantity_delta_m,
         from_length=outcome.parent_event.from_length,
         to_length=outcome.parent_event.to_length,
+        occurred_at=payload.occurred_at,
     )
     if donor_is_waste:
         # Остаток донора тоньше порога полезной ширины (5.6 ТЗ) — сразу
@@ -671,6 +686,7 @@ def execute_cutting_plan(
             from_length=float(donor.length_m),
             to_length=0,
             write_off_reason="cutting_waste",
+            occurred_at=payload.occurred_at,
         )
 
     tolerance = max(0.1, expected_length_m * 0.05)
@@ -704,6 +720,7 @@ def execute_cutting_plan(
             user_id=user.id,
             quantity_delta_m=new_unit_event.quantity_delta_m,
             to_length=expected_length_m,
+            occurred_at=payload.occurred_at,
         )
         discrepancy_flagged = abs(cut.actual_length_m - expected_length_m) > tolerance
         record_event(
@@ -714,6 +731,7 @@ def execute_cutting_plan(
             quantity_delta_m=-cut.actual_length_m,
             to_length=cut.actual_length_m,
             expected_length_m=expected_length_m,
+            occurred_at=payload.occurred_at,
         )
         cut_results.append((issued_unit.id, cut.production_task_line_id, expected_length_m, cut.actual_length_m, discrepancy_flagged))
 
@@ -771,6 +789,7 @@ def issue_donor_atomic(
         quantity_delta_m=outcome.parent_event.quantity_delta_m,
         from_length=outcome.parent_event.from_length,
         to_length=outcome.parent_event.to_length,
+        occurred_at=payload.occurred_at,
     )
 
     spec = outcome.new_unit
@@ -800,6 +819,7 @@ def issue_donor_atomic(
         user_id=user.id,
         quantity_delta_m=outcome.new_unit_event.quantity_delta_m,
         to_length=outcome.new_unit_event.to_length,
+        occurred_at=payload.occurred_at,
     )
     record_event(
         db,
@@ -807,6 +827,7 @@ def issue_donor_atomic(
         event_type=EventType.VYDACHA_UCHASTKU,
         user_id=user.id,
         quantity_delta_m=-float(issued_unit.length_m),
+        occurred_at=payload.occurred_at,
     )
 
     db.commit()
@@ -854,6 +875,7 @@ def cut_unit(
         from_length=outcome.parent_event.from_length,
         to_length=outcome.parent_event.to_length,
         to_cell=outcome.parent_event.to_cell,
+        occurred_at=payload.occurred_at,
     )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
@@ -925,6 +947,7 @@ def return_unit(
         quantity_delta_m=payload.actual_length_m - old_length,
         from_length=old_length,
         to_length=payload.actual_length_m,
+        occurred_at=payload.occurred_at,
     )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()

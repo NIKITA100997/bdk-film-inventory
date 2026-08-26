@@ -15,6 +15,7 @@ import {
   Select,
   message,
 } from "antd";
+import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -36,6 +37,8 @@ import { listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import QrScanButton from "../../components/QrScanButton";
 import LocationSelect from "../../components/LocationSelect";
+import OccurredAtField from "../../components/OccurredAtField";
+import { toOccurredAtIso } from "../../utils/occurredAt";
 
 type ActionKind = "place" | "split" | "cut" | "return" | "writeoff" | null;
 
@@ -141,7 +144,8 @@ export default function UnitCard() {
   });
 
   const splitMutation = useMutation({
-    mutationFn: (values: { separate_width_mm: number; new_unit_location?: string }) => splitUnit(unit!.id, values),
+    mutationFn: (values: { separate_width_mm: number; new_unit_location?: string; occurred_at?: Dayjs | null }) =>
+      splitUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
     onSuccess: (res) => {
       setUnit(res.parent);
       setAction(null);
@@ -161,7 +165,8 @@ export default function UnitCard() {
   });
 
   const cutMutation = useMutation({
-    mutationFn: (values: { cut_length_m: number; remainder_location?: string }) => cutUnit(unit!.id, values),
+    mutationFn: (values: { cut_length_m: number; remainder_location?: string; occurred_at?: Dayjs | null }) =>
+      cutUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
     onSuccess: (u) => {
       setUnit(u);
       setAction(null);
@@ -180,7 +185,8 @@ export default function UnitCard() {
   });
 
   const returnMutation = useMutation({
-    mutationFn: (values: { actual_length_m: number }) => returnUnit(unit!.id, values),
+    mutationFn: (values: { actual_length_m: number; occurred_at?: Dayjs | null }) =>
+      returnUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
     onSuccess: (u) => {
       setUnit(u);
       // Раздел про возврат остатка — сразу переходим к размещению
@@ -200,8 +206,8 @@ export default function UnitCard() {
   });
 
   const writeOffMutation = useMutation({
-    mutationFn: (values: { reason: string; note?: string }) =>
-      writeOffUnit(unit!.id, values.reason, values.note),
+    mutationFn: (values: { reason: string; note?: string; occurred_at?: Dayjs | null }) =>
+      writeOffUnit(unit!.id, values.reason, values.note, toOccurredAtIso(values.occurred_at)),
     onSuccess: (u) => {
       setUnit(u);
       setAction(null);
@@ -379,6 +385,7 @@ export default function UnitCard() {
               <Form.Item name="new_unit_location" label="Ячейка для отделяемой части (опционально)">
                 <LocationSelect sku={unit.material_sku} placeholder="Оставить не размещённой, если не выбрать" />
               </Form.Item>
+              <OccurredAtField />
               <Button type="primary" htmlType="submit" block loading={splitMutation.isPending}>
                 Разделить
               </Button>
@@ -409,6 +416,7 @@ export default function UnitCard() {
               >
                 <LocationSelect sku={unit.material_sku} placeholder="Оставить не размещённым, если не выбрать" />
               </Form.Item>
+              <OccurredAtField />
               <Button type="primary" htmlType="submit" block loading={cutMutation.isPending}>
                 Списать отрезок без бирки
               </Button>
@@ -463,6 +471,7 @@ export default function UnitCard() {
               <Form.Item name="actual_length_m" label="Фактическая текущая длина, м" rules={[{ required: true }]}>
                 <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
               </Form.Item>
+              <OccurredAtField />
               <Button type="primary" htmlType="submit" block loading={returnMutation.isPending}>
                 Вернуть на склад
               </Button>
@@ -531,6 +540,7 @@ export default function UnitCard() {
           <Form.Item name="note" label="Заметка (опционально)">
             <Input.TextArea rows={2} placeholder="Детали для претензии поставщику" />
           </Form.Item>
+          <OccurredAtField />
         </Form>
       </Modal>
     </Card>

@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { Alert, Button, Card, Form, InputNumber, Select, Space, Typography, List, Row, Col, message } from "antd";
+import { Alert, Button, Card, DatePicker, Form, InputNumber, Select, Space, Typography, List, Row, Col, message } from "antd";
+import dayjs, { type Dayjs } from "dayjs";
 import Statistic from "../../components/Statistic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { receiveUnits, printLabel, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import { listRacks, getRackOccupancy } from "../../api/storage";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import { toOccurredAtIso } from "../../utils/occurredAt";
 
 type LineValues = {
   shelf: number;
@@ -38,6 +40,7 @@ export default function InitialStock() {
   const [sessionUnits, setSessionUnits] = useState<MaterialUnit[]>([]);
   const [lastAdded, setLastAdded] = useState<MaterialUnit[] | null>(null);
   const [finished, setFinished] = useState(false);
+  const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
   const [lineForm] = Form.useForm<LineValues>();
 
   const racksQuery = useQuery({ queryKey: ["racks"], queryFn: () => listRacks() });
@@ -69,6 +72,7 @@ export default function InitialStock() {
         length_m: values.length_m,
         quantity: values.quantity,
         location_code: shelfCell.location_code,
+        occurred_at: toOccurredAtIso(occurredAt),
       };
       return receiveUnits(payload);
     },
@@ -92,6 +96,7 @@ export default function InitialStock() {
     setSessionUnits([]);
     setLastAdded(null);
     setFinished(false);
+    setOccurredAt(null);
     lineForm.resetFields();
   };
 
@@ -118,6 +123,17 @@ export default function InitialStock() {
             }))}
             onChange={(v) => setRackId(v)}
           />
+          <div style={{ marginTop: 12 }}>
+            <Typography.Text>Дата фактического наличия (необязательно — по умолчанию сейчас)</Typography.Text>
+            <DatePicker
+              style={{ width: "100%", marginTop: 4 }}
+              format="DD.MM.YYYY"
+              placeholder="Сейчас"
+              value={occurredAt}
+              onChange={setOccurredAt}
+              disabledDate={(d) => d.isAfter(dayjs(), "day")}
+            />
+          </div>
         </>
       )}
 

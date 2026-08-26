@@ -1,15 +1,24 @@
 import { useState } from "react";
 import { Alert, Button, Card, Form, Input, InputNumber, Select, Typography, List, Row, Col, message } from "antd";
+import type { Dayjs } from "dayjs";
 import Statistic from "../../components/Statistic";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { receiveAndAutoPlace, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import { listWarehouses } from "../../api/storage";
 import { listPurchaseRequests, fulfillPurchaseRequest } from "../../api/purchasing";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import OccurredAtField from "../../components/OccurredAtField";
+import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useDraftForm } from "../../hooks/useDraftForm";
 
-type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code">;
-type HeaderValues = { upd_number: string; pallet_number: string; warehouse_id?: number; purchase_request_id?: number };
+type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code" | "occurred_at">;
+type HeaderValues = {
+  upd_number: string;
+  pallet_number: string;
+  warehouse_id?: number;
+  purchase_request_id?: number;
+  occurred_at?: Dayjs | null;
+};
 
 // Память на частый ввод: при повторной приёмке в тот же день паллеты часто
 // идут подряд — предзаполняем последний номер, поле остаётся редактируемым.
@@ -26,6 +35,7 @@ export default function Receive() {
   const [lastAdded, setLastAdded] = useState<MaterialUnit[] | null>(null);
   const [finished, setFinished] = useState(false);
   const [warehouseId, setWarehouseId] = useState<number | undefined>(undefined);
+  const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
   const [headerForm] = Form.useForm<HeaderValues>();
   const [lineForm] = Form.useForm<LineValues>();
   const headerDraft = useDraftForm("draft:receive-header", headerForm);
@@ -48,7 +58,16 @@ export default function Receive() {
 
   const addLineMutation = useMutation({
     mutationFn: (values: LineValues) =>
-      receiveAndAutoPlace({ ...values, thickness: Number(values.thickness), upd_number: upd, pallet_number: pallet }, warehouseId),
+      receiveAndAutoPlace(
+        {
+          ...values,
+          thickness: Number(values.thickness),
+          upd_number: upd,
+          pallet_number: pallet,
+          occurred_at: toOccurredAtIso(occurredAt),
+        },
+        warehouseId,
+      ),
     onSuccess: (units) => {
       setSessionUnits((s) => [...s, ...units]);
       setLastAdded(units);
@@ -64,6 +83,7 @@ export default function Receive() {
     setUpd(v.upd_number);
     setPallet(v.pallet_number);
     setWarehouseId(v.warehouse_id);
+    setOccurredAt(v.occurred_at ?? null);
     setSessionStarted(true);
     localStorage.setItem(LAST_PALLET_STORAGE_KEY, v.pallet_number);
     headerDraft.clearDraft();
@@ -78,6 +98,7 @@ export default function Receive() {
     setLastAdded(null);
     setFinished(false);
     setWarehouseId(undefined);
+    setOccurredAt(null);
     headerForm.resetFields();
     lineForm.resetFields();
   };
@@ -123,6 +144,7 @@ export default function Receive() {
               />
             </Form.Item>
           )}
+          <OccurredAtField label="Дата приёмки всей партии (необязательно — по умолчанию сейчас)" />
           <Button size="large" type="primary" htmlType="submit" block>
             Начать приёмку
           </Button>

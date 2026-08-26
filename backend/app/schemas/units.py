@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.events import EventType
 from app.models.units import UnitStatus
+from app.schemas.common import OccurredAt
 from app.schemas.dictionaries import MaterialSkuOut
 
 
@@ -19,6 +20,7 @@ class ReceiveRequest(BaseModel):
     quantity: int = Field(gt=0, le=200)
     location_code: str | None = None
     is_strip: bool = False
+    occurred_at: OccurredAt = None
 
 
 class MaterialUnitOut(BaseModel):
@@ -55,10 +57,12 @@ class WriteOffRequest(BaseModel):
 
     reason: str
     note: str | None = None
+    occurred_at: OccurredAt = None
 
 
 class PlaceRequest(BaseModel):
     location_code: str
+    occurred_at: OccurredAt = None
 
 
 class ReassignSkuRequest(BaseModel):
@@ -77,6 +81,7 @@ class ReassignSkuRequest(BaseModel):
 class SplitRequest(BaseModel):
     separate_width_mm: float = Field(gt=0)
     new_unit_location: str | None = None
+    occurred_at: OccurredAt = None
 
 
 class SplitResponse(BaseModel):
@@ -93,6 +98,7 @@ class IssueRequest(BaseModel):
     length_m: float = Field(gt=0)
     area: str
     production_task_line_id: int | None = None
+    occurred_at: OccurredAt = None
 
 
 class IssueDirectRequest(BaseModel):
@@ -102,6 +108,7 @@ class IssueDirectRequest(BaseModel):
 
     area: str
     production_task_line_id: int | None = None
+    occurred_at: OccurredAt = None
 
 
 class DonorSuggestion(BaseModel):
@@ -129,6 +136,7 @@ class AtomicDonorIssueRequest(BaseModel):
     requested_width_mm: float = Field(gt=0)
     area: str
     production_task_line_id: int | None = None
+    occurred_at: OccurredAt = None
 
 
 class AtomicDonorIssueResponse(BaseModel):
@@ -180,6 +188,7 @@ class CuttingPlanCutSpec(BaseModel):
 class CuttingPlanExecuteRequest(BaseModel):
     donor_unit_id: int
     cuts: list[CuttingPlanCutSpec] = Field(min_length=1)
+    occurred_at: OccurredAt = None
 
 
 class CuttingPlanExecuteResultCut(BaseModel):
@@ -198,10 +207,12 @@ class CuttingPlanExecuteResponse(BaseModel):
 class CutRequest(BaseModel):
     cut_length_m: float = Field(gt=0)
     remainder_location: str | None = None
+    occurred_at: OccurredAt = None
 
 
 class ReturnRequest(BaseModel):
     actual_length_m: float = Field(ge=0)
+    occurred_at: OccurredAt = None
 
 
 class ReturnPreviewOut(BaseModel):

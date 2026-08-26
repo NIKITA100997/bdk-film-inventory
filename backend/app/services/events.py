@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from app.models.events import EventType, MaterialEvent
@@ -19,9 +21,13 @@ def record_event(
     write_off_reason: str | None = None,
     write_off_note: str | None = None,
     expected_length_m: float | None = None,
+    occurred_at: datetime | None = None,
 ) -> MaterialEvent:
     """Единая точка записи в журнал (2.6 ТЗ) — вызывается сервисным слоем при
-    каждой операции над MaterialUnit, не роутерами напрямую."""
+    каждой операции над MaterialUnit, не роутерами напрямую.
+
+    occurred_at — раздел про дату операции задним числом: если не передан,
+    остаётся server_default=func.now() на самой колонке (как раньше)."""
     event = MaterialEvent(
         unit_id=unit.id,
         material_sku_id=unit.material_sku_id,
@@ -39,6 +45,7 @@ def record_event(
         write_off_reason=write_off_reason,
         write_off_note=write_off_note,
         expected_length_m=expected_length_m,
+        **({"timestamp": occurred_at} if occurred_at is not None else {}),
     )
     db.add(event)
     return event

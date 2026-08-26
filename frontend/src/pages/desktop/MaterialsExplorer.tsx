@@ -8,6 +8,7 @@ import {
   Select,
   InputNumber,
   Input,
+  DatePicker,
   Table,
   Typography,
   Dropdown,
@@ -18,6 +19,7 @@ import {
   message,
 } from "antd";
 import { DownOutlined, SearchOutlined } from "@ant-design/icons";
+import dayjs, { type Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
@@ -44,8 +46,10 @@ import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionarie
 import { listRacks, suggestLocation } from "../../api/storage";
 import { listAreas } from "../../api/areas";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import OccurredAtField from "../../components/OccurredAtField";
 import { useAuth } from "../../auth/AuthContext";
 import { exportToCsv } from "../../utils/csv";
+import { toOccurredAtIso } from "../../utils/occurredAt";
 
 const statusOptions: { value: UnitStatusValue; label: string }[] = [
   { value: "Принят", label: "Принят" },
@@ -64,6 +68,7 @@ type UnitLineValues = {
   upd_number?: string;
   pallet_number?: string;
   is_strip?: boolean;
+  occurred_at?: Dayjs | null;
 };
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -109,7 +114,7 @@ export default function MaterialsExplorer() {
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
   const [positionForm] = Form.useForm<MaterialSkuCreate>();
   const [unitForm] = Form.useForm<UnitLineValues>();
-  const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
+  const [writeOffForm] = Form.useForm<{ reason: string; note?: string; occurred_at?: Dayjs | null }>();
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "warehouse"],
     queryFn: () => listWriteOffReasons("warehouse"),
@@ -170,6 +175,7 @@ export default function MaterialsExplorer() {
         upd_number: v.upd_number?.trim() || "Без документа",
         pallet_number: v.pallet_number?.trim() || "-",
         quantity: 1,
+        occurred_at: toOccurredAtIso(v.occurred_at),
       }),
     onSuccess: (units) => {
       qc.invalidateQueries({ queryKey: ["materials-explorer"] });
@@ -185,8 +191,9 @@ export default function MaterialsExplorer() {
   // это заводить не стали — цикл по уже существующему одиночному
   // writeOffUnit, тот же клиентский паттерн, что уже в receiveAndAutoPlace.
   const bulkWriteOffMutation = useMutation({
-    mutationFn: async (values: { reason: string; note?: string }) => {
-      for (const id of selectedUnitIds) await writeOffUnit(id, values.reason, values.note);
+    mutationFn: async (values: { reason: string; note?: string; occurred_at?: Dayjs | null }) => {
+      const occurredAt = toOccurredAtIso(values.occurred_at);
+      for (const id of selectedUnitIds) await writeOffUnit(id, values.reason, values.note, occurredAt);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["materials-explorer"] });
@@ -546,6 +553,7 @@ export default function MaterialsExplorer() {
           <Form.Item name="pallet_number" label="Номер паллеты (необязательно)">
             <Input />
           </Form.Item>
+          <OccurredAtField label="Дата приёмки (необязательно — по умолчанию сейчас)" />
           <Button type="primary" htmlType="submit" block loading={createUnitMutation.isPending}>
             Зарегистрировать
           </Button>
@@ -592,6 +600,7 @@ export default function MaterialsExplorer() {
           <Form.Item name="note" label="Заметка (опционально)">
             <Input.TextArea rows={2} placeholder="Детали для претензии поставщику" />
           </Form.Item>
+          <OccurredAtField />
         </Form>
       </Modal>
 
@@ -711,6 +720,7 @@ function BulkCutModal({ onClose }: { onClose: () => void }) {
   const [cutLength, setCutLength] = useState<number>();
   const [queue, setQueue] = useState<{ unit: MaterialUnit; cutLengthM: number }[]>([]);
   const [results, setResults] = useState<{ id: number; before: number; after: number }[]>([]);
+  const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
 
   const lookupMutation = useMutation({
     mutationFn: (id: number) => getUnit(id),
@@ -747,9 +757,10 @@ function BulkCutModal({ onClose }: { onClose: () => void }) {
 
   const bulkCutMutation = useMutation({
     mutationFn: async () => {
+      const occurredAtIso = toOccurredAtIso(occurredAt);
       const processed: { id: number; before: number; after: number }[] = [];
       for (const item of queue) {
-        const updated = await cutUnit(item.unit.id, { cut_length_m: item.cutLengthM });
+        const updated = await cutUnit(item.unit.id, { cut_length_m: item.cutLengthM, occurred_at: occurredAtIso });
         processed.push({ id: updated.id, before: item.unit.length_m, after: updated.length_m });
       }
       return processed;
@@ -769,6 +780,18 @@ function BulkCutModal({ onClose }: { onClose: () => void }) {
         Уменьшает длину конкретной единицы на месте (без создания новой) — для метража, фактически израсходованного
         при выдаче в производство. Доступно для единиц «На хранении» или уже «Выдан участку».
       </Typography.Paragraph>
+
+      <div style={{ marginBottom: 12 }}>
+        <Typography.Text>Дата операции для всего списка (необязательно — по умолчанию сейчас)</Typography.Text>
+        <DatePicker
+          style={{ width: "100%", marginTop: 4 }}
+          format="DD.MM.YYYY"
+          placeholder="Сейчас"
+          value={occurredAt}
+          onChange={setOccurredAt}
+          disabledDate={(d) => d.isAfter(dayjs(), "day")}
+        />
+      </div>
 
       <Space.Compact style={{ width: "100%", marginBottom: 8 }}>
         <InputNumber

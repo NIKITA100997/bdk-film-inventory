@@ -27,6 +27,7 @@ export interface ScanRequest {
   manufacturer?: string;
   width_mm?: number;
   length_m?: number;
+  occurred_at?: string;
 }
 
 export interface ScanResult {
@@ -74,8 +75,10 @@ export async function scanUnit(sessionId: number, payload: ScanRequest): Promise
   return data;
 }
 
-export async function closeSession(sessionId: number): Promise<CloseSessionResult> {
-  const { data } = await apiClient.post<CloseSessionResult>(`/inventory-sessions/${sessionId}/close`);
+export async function closeSession(sessionId: number, occurredAt?: string): Promise<CloseSessionResult> {
+  const { data } = await apiClient.post<CloseSessionResult>(`/inventory-sessions/${sessionId}/close`, null, {
+    params: { occurred_at: occurredAt },
+  });
   return data;
 }
 
@@ -83,9 +86,11 @@ export async function resolveShortage(
   sessionId: number,
   unitId: number,
   action: "spisat" | "vernut_v_poisk",
+  occurredAt?: string,
 ): Promise<InventorySession> {
   const { data } = await apiClient.post<InventorySession>(`/inventory-sessions/${sessionId}/resolve-shortage/${unitId}`, {
     action,
+    occurred_at: occurredAt,
   });
   return data;
 }
