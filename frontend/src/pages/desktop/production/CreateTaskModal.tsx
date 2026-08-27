@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { FormInstance } from "antd";
 import { Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, message } from "antd";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +23,82 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 
 type ManualRowFormValues = ProductionTaskLineManualCreate & { sku_id?: number };
 
+/** Поля одной строки задания — общие для "Добавить вручную" (вкладка) и
+ * "Изменить строку" (модалка поверх таблицы, см. editingIndex ниже):
+ * раньше правка строки уводила её в форму на другой вкладке, было не
+ * видно, куда она делась, и при отмене строка терялась насовсем — теперь
+ * оба места используют один и тот же набор полей, отличается только
+ * onFinish/подпись кнопки. */
+function ManualLineFields({
+  form,
+  area,
+  skuOptions,
+  skus,
+  onFinish,
+  submitLabel,
+}: {
+  form: FormInstance<ManualRowFormValues>;
+  area?: AreaValue;
+  skuOptions: { value: number; label: string }[];
+  skus: MaterialSku[] | undefined;
+  onFinish: (v: ManualRowFormValues) => void;
+  submitLabel: string;
+}) {
+  return (
+    <Form form={form} layout="vertical" onFinish={onFinish}>
+      <Form.Item label="Деталь из справочника (опционально)">
+        <PartSelect
+          area={area}
+          onSelect={(part) =>
+            form.setFieldsValue({
+              part_name: part.name,
+              width_mm: part.width_mm,
+              length_m: part.length_m,
+              strip_width_mm: part.strip_width_mm ?? undefined,
+            })
+          }
+        />
+      </Form.Item>
+      <Form.Item name="part_name" label="Название детали (опционально)">
+        <Input placeholder="Стоевая" />
+      </Form.Item>
+      <Form.Item name="sku_id" label="Материал (номенклатура)" rules={[{ required: true }]}>
+        <Select
+          showSearch
+          placeholder="Выберите позицию материала"
+          options={skuOptions}
+          optionFilterProp="label"
+          onChange={(skuId) => {
+            const sku = skus?.find((s) => s.id === skuId);
+            if (sku) form.setFieldsValue({ material: sku.material.name, color: sku.color.name, thickness: sku.thickness.value_mm });
+          }}
+        />
+      </Form.Item>
+      <Form.Item name="material" hidden rules={[{ required: true }]}>
+        <Input />
+      </Form.Item>
+      <Form.Item name="color" hidden rules={[{ required: true }]}>
+        <Input />
+      </Form.Item>
+      <Form.Item name="thickness" hidden rules={[{ required: true }]}>
+        <InputNumber />
+      </Form.Item>
+      <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
+        <InputNumber min={1} style={{ width: "100%" }} />
+      </Form.Item>
+      <Form.Item name="length_m" label="Длина детали на списание, м" rules={[{ required: true }]}>
+        <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
+      </Form.Item>
+      <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
+        <InputNumber min={1} style={{ width: "100%" }} />
+      </Form.Item>
+      <Button htmlType="submit" block>
+        {submitLabel}
+      </Button>
+    </Form>
+  );
+}
+
 /** Создание производственного задания — из состава модели (BOM), из
  * наряд-заказа (.xls) или вручную, в один и тот же редактируемый список
  * строк. Вынесено в свой компонент (раздел 16 бэклога доработок —
@@ -34,6 +111,15 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   const [manualLines, setManualLines] = useState<ProductionTaskLineManualCreate[]>([]);
   const [manualForm] = Form.useForm<{ name: string; area: AreaValue; external_order_ref?: number }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
+  // Отдельная форма и стейт для правки уже добавленной строки (см.
+  // editManualLine ниже) — правка теперь модалкой поверх таблицы, а не
+  // формой "Добавить вручную" на другой вкладке (там было не видно,
+  // куда делась строка, а при отмене она вообще терялась — строка
+  // убиралась из списка сразу при клике "Изменить", ещё до
+  // подтверждения). Свой инстанс формы, чтобы не путать с тем, что
+  // человек мог уже успеть ввести в форму добавления новой строки.
+  const [editRowForm] = Form.useForm<ManualRowFormValues>();
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number }>();
   // Общий выбор номенклатуры для обоих способов массовой загрузки строк
   // (из состава модели и из наряд-заказа) — оба означают один и тот же
@@ -57,6 +143,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   const skuOptions = (skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }));
   const activeModels = (modelsQuery.data ?? []).filter((m) => m.is_active && m.parts.length > 0);
   const bomProductModelId = Form.useWatch("product_model_id", bomForm);
+  const taskArea = Form.useWatch("area", manualForm);
 
   const applySkuFields = (form: typeof manualRowForm, sku: MaterialSku | undefined) => {
     if (!sku) return;
@@ -66,6 +153,8 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   const resetAndClose = () => {
     manualForm.resetFields();
     manualRowForm.resetFields();
+    editRowForm.resetFields();
+    setEditingIndex(null);
     bomForm.resetFields();
     setSelectedSkuId(undefined);
     setManualLines([]);
@@ -201,13 +290,19 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   };
   const removeManualLine = (index: number) => setManualLines((lines) => lines.filter((_, i) => i !== index));
 
-  // Строка уходит из таблицы в форму "Добавить строку" ниже для правки
-  // (например, деталь/материал не подобрались при импорте плана
-  // заготовок) — не привязано к конкретному источнику строки, работает
-  // для любой уже добавленной строки.
+  // Правка строки — модалка поверх таблицы (не форма на другой вкладке,
+  // как было раньше): строка остаётся на месте, пока правку не сохранят
+  // — отмена ничего не теряет, в отличие от прежнего поведения, где
+  // строка убиралась из списка сразу по клику "Изменить".
   const editManualLine = (index: number) => {
-    manualRowForm.setFieldsValue(manualLines[index]);
-    removeManualLine(index);
+    editRowForm.setFieldsValue(manualLines[index]);
+    setEditingIndex(index);
+  };
+  const saveEditedLine = (v: ManualRowFormValues) => {
+    if (editingIndex === null) return;
+    const { sku_id: _skuId, ...rest } = v;
+    setManualLines((lines) => lines.map((l, i) => (i === editingIndex ? rest : l)));
+    setEditingIndex(null);
   };
 
   return (
@@ -329,54 +424,14 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
             key: "manual",
             label: "Добавить вручную",
             children: (
-              <Form form={manualRowForm} layout="vertical" onFinish={addManualLine}>
-                <Form.Item label="Деталь из справочника (опционально)">
-                  <PartSelect
-                    area={Form.useWatch("area", manualForm)}
-                    onSelect={(part) =>
-                      manualRowForm.setFieldsValue({
-                        part_name: part.name,
-                        width_mm: part.width_mm,
-                        length_m: part.length_m,
-                        strip_width_mm: part.strip_width_mm ?? undefined,
-                      })
-                    }
-                  />
-                </Form.Item>
-                <Form.Item name="part_name" label="Название детали (опционально)">
-                  <Input placeholder="Стоевая" />
-                </Form.Item>
-                <Form.Item name="sku_id" label="Материал (номенклатура)" rules={[{ required: true }]}>
-                  <Select
-                    showSearch
-                    placeholder="Выберите позицию материала"
-                    options={skuOptions}
-                    optionFilterProp="label"
-                    onChange={(skuId) => applySkuFields(manualRowForm, skusQuery.data?.find((s) => s.id === skuId))}
-                  />
-                </Form.Item>
-                <Form.Item name="material" hidden rules={[{ required: true }]}>
-                  <Input />
-                </Form.Item>
-                <Form.Item name="color" hidden rules={[{ required: true }]}>
-                  <Input />
-                </Form.Item>
-                <Form.Item name="thickness" hidden rules={[{ required: true }]}>
-                  <InputNumber />
-                </Form.Item>
-                <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
-                  <InputNumber min={1} style={{ width: "100%" }} />
-                </Form.Item>
-                <Form.Item name="length_m" label="Длина детали на списание, м" rules={[{ required: true }]}>
-                  <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
-                </Form.Item>
-                <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
-                  <InputNumber min={1} style={{ width: "100%" }} />
-                </Form.Item>
-                <Button htmlType="submit" block>
-                  Добавить строку в задание
-                </Button>
-              </Form>
+              <ManualLineFields
+                form={manualRowForm}
+                area={taskArea}
+                skuOptions={skuOptions}
+                skus={skusQuery.data}
+                onFinish={addManualLine}
+                submitLabel="Добавить строку в задание"
+              />
             ),
           },
         ]}
@@ -464,6 +519,23 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
       >
         Создать задание ({manualLines.length} строк(и))
       </Button>
+
+      <Modal
+        title="Изменить строку"
+        open={editingIndex !== null}
+        onCancel={() => setEditingIndex(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        <ManualLineFields
+          form={editRowForm}
+          area={taskArea}
+          skuOptions={skuOptions}
+          skus={skusQuery.data}
+          onFinish={saveEditedLine}
+          submitLabel="Сохранить строку"
+        />
+      </Modal>
     </Modal>
   );
 }
