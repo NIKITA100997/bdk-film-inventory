@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, message } from "antd";
+import { Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, message } from "antd";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -211,101 +211,168 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   };
 
   return (
-    <Modal title="Новое производственное задание" open={open} onCancel={resetAndClose} footer={null} destroyOnHidden width={640}>
+    <Modal title="Новое производственное задание" open={open} onCancel={resetAndClose} footer={null} destroyOnHidden width={960}>
       <Typography.Paragraph type="secondary">
-        Строки задания — общий редактируемый список ниже: заполните их из состава модели и/или из наряд-заказа
-        (ни один из способов не знает плёнку, только форму деталей — номенклатуру для обоих выбирайте полем ниже),
-        либо добавьте вручную. Линия не выбирается здесь — задание ставится на участок, а по линиям/дням/сотрудникам
+        Строки задания — общий редактируемый список ниже, независимо от того, откуда они взялись: загрузите их из
+        файла (вкладка «Загрузить из файла») или добавляйте по одной вручную (вкладка «Добавить вручную») — можно и
+        то, и другое по очереди. Линия не выбирается здесь — задание ставится на участок, а по линиям/дням/сотрудникам
         его распределяет начальник участка отдельно (кнопка «Распределить» у уже созданного задания).
       </Typography.Paragraph>
 
-      <Typography.Title level={5}>Материал для загружаемых строк</Typography.Title>
-      <Typography.Paragraph type="secondary">
-        Общий выбор для обоих способов ниже — из состава модели и из наряд-заказа.
-      </Typography.Paragraph>
-      <Select
-        showSearch
-        placeholder="Выберите позицию материала"
-        options={skuOptions}
-        optionFilterProp="label"
-        value={selectedSkuId}
-        onChange={setSelectedSkuId}
-        style={{ width: "100%", marginBottom: 24 }}
+      <Tabs
+        items={[
+          {
+            key: "file",
+            label: "Загрузить из файла",
+            children: (
+              <>
+                <Typography.Title level={5}>Материал для загружаемых строк</Typography.Title>
+                <Typography.Paragraph type="secondary">
+                  Общий выбор для способов ниже — из состава модели и из наряд-заказа (план заготовок подбирает
+                  материал сам, построчно, свой у каждой строки).
+                </Typography.Paragraph>
+                <Select
+                  showSearch
+                  placeholder="Выберите позицию материала"
+                  options={skuOptions}
+                  optionFilterProp="label"
+                  value={selectedSkuId}
+                  onChange={setSelectedSkuId}
+                  style={{ width: "100%", marginBottom: 24 }}
+                />
+
+                <Typography.Title level={5}>Начать из модели (BOM)</Typography.Title>
+                <Form form={bomForm} layout="vertical">
+                  <Form.Item name="product_model_id" label="Модель продукции" rules={[{ required: true }]}>
+                    <Select
+                      placeholder="Выберите модель"
+                      options={activeModels.map((m) => ({ value: m.id, label: `${m.name} (${areaLabel(m.area)})` }))}
+                      notFoundContent={<Typography.Text type="secondary">Нет моделей с заполненным BOM — заведите на вкладке «Модели продукции»</Typography.Text>}
+                    />
+                  </Form.Item>
+                  <Form.Item name="quantity" label="Количество, шт" rules={[{ required: true }]}>
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                  <Button block disabled={!bomProductModelId || !selectedSkuId} onClick={loadLinesFromBom}>
+                    Загрузить строки из состава
+                  </Button>
+                </Form>
+
+                <Typography.Title level={5} style={{ marginTop: 24 }}>
+                  Загрузить наряд-заказ
+                </Typography.Title>
+                <Typography.Paragraph type="secondary">
+                  Файл содержит только форму деталей (название/ширина/длина/кол-во) — материал выбирается общим полем выше.
+                </Typography.Paragraph>
+                <Upload
+                  accept=".xls"
+                  showUploadList={false}
+                  disabled={!selectedSkuId}
+                  beforeUpload={(file) => {
+                    parseNaryadMutation.mutate(file);
+                    return false;
+                  }}
+                >
+                  <Button block disabled={!selectedSkuId} loading={parseNaryadMutation.isPending}>
+                    Загрузить файл наряд-заказа (.xls)
+                  </Button>
+                </Upload>
+
+                <Typography.Title level={5} style={{ marginTop: 24 }}>
+                  Загрузить план заготовок
+                </Typography.Title>
+                <Typography.Paragraph type="secondary">
+                  Лист планирования окутки/раскроя на дату (Номенклатура/Цвет/.../Заказ) — цвет свой у каждой строки,
+                  материал подбирается автоматически там, где это однозначно; один файл может содержать несколько
+                  блоков (бок о бок или на разных листах) — каждый блок становится отдельным заданием.
+                </Typography.Paragraph>
+                <Upload
+                  accept=".xlsx"
+                  showUploadList={false}
+                  beforeUpload={(file) => {
+                    parseBlankPlanMutation.mutate(file);
+                    return false;
+                  }}
+                >
+                  <Button block loading={parseBlankPlanMutation.isPending}>
+                    Загрузить файл плана заготовок (.xlsx)
+                  </Button>
+                </Upload>
+                {blankPlanBlocks.length > 0 && (
+                  <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                    <Select
+                      style={{ flex: 1 }}
+                      value={selectedBlockIndex}
+                      onChange={setSelectedBlockIndex}
+                      options={blankPlanBlocks.map((b, i) => ({
+                        value: i,
+                        label: `${b.sheet_name} — ${b.suggested_name} (${b.lines.length} строк)`,
+                      }))}
+                    />
+                    <Button onClick={loadBlankPlanBlock} disabled={selectedBlockIndex === undefined}>
+                      Загрузить строки блока
+                    </Button>
+                  </div>
+                )}
+              </>
+            ),
+          },
+          {
+            key: "manual",
+            label: "Добавить вручную",
+            children: (
+              <Form form={manualRowForm} layout="vertical" onFinish={addManualLine}>
+                <Form.Item label="Деталь из справочника (опционально)">
+                  <PartSelect
+                    area={Form.useWatch("area", manualForm)}
+                    onSelect={(part) =>
+                      manualRowForm.setFieldsValue({
+                        part_name: part.name,
+                        width_mm: part.width_mm,
+                        length_m: part.length_m,
+                        strip_width_mm: part.strip_width_mm ?? undefined,
+                      })
+                    }
+                  />
+                </Form.Item>
+                <Form.Item name="part_name" label="Название детали (опционально)">
+                  <Input placeholder="Стоевая" />
+                </Form.Item>
+                <Form.Item name="sku_id" label="Материал (номенклатура)" rules={[{ required: true }]}>
+                  <Select
+                    showSearch
+                    placeholder="Выберите позицию материала"
+                    options={skuOptions}
+                    optionFilterProp="label"
+                    onChange={(skuId) => applySkuFields(manualRowForm, skusQuery.data?.find((s) => s.id === skuId))}
+                  />
+                </Form.Item>
+                <Form.Item name="material" hidden rules={[{ required: true }]}>
+                  <Input />
+                </Form.Item>
+                <Form.Item name="color" hidden rules={[{ required: true }]}>
+                  <Input />
+                </Form.Item>
+                <Form.Item name="thickness" hidden rules={[{ required: true }]}>
+                  <InputNumber />
+                </Form.Item>
+                <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
+                  <InputNumber min={1} style={{ width: "100%" }} />
+                </Form.Item>
+                <Form.Item name="length_m" label="Длина детали на списание, м" rules={[{ required: true }]}>
+                  <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
+                </Form.Item>
+                <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
+                  <InputNumber min={1} style={{ width: "100%" }} />
+                </Form.Item>
+                <Button htmlType="submit" block>
+                  Добавить строку в задание
+                </Button>
+              </Form>
+            ),
+          },
+        ]}
       />
-
-      <Typography.Title level={5}>Начать из модели (BOM)</Typography.Title>
-      <Form form={bomForm} layout="vertical">
-        <Form.Item name="product_model_id" label="Модель продукции" rules={[{ required: true }]}>
-          <Select
-            placeholder="Выберите модель"
-            options={activeModels.map((m) => ({ value: m.id, label: `${m.name} (${areaLabel(m.area)})` }))}
-            notFoundContent={<Typography.Text type="secondary">Нет моделей с заполненным BOM — заведите на вкладке «Модели продукции»</Typography.Text>}
-          />
-        </Form.Item>
-        <Form.Item name="quantity" label="Количество, шт" rules={[{ required: true }]}>
-          <InputNumber min={1} style={{ width: "100%" }} />
-        </Form.Item>
-        <Button block disabled={!bomProductModelId || !selectedSkuId} onClick={loadLinesFromBom}>
-          Загрузить строки из состава
-        </Button>
-      </Form>
-
-      <Typography.Title level={5} style={{ marginTop: 24 }}>
-        Загрузить наряд-заказ
-      </Typography.Title>
-      <Typography.Paragraph type="secondary">
-        Файл содержит только форму деталей (название/ширина/длина/кол-во) — материал выбирается общим полем выше.
-      </Typography.Paragraph>
-      <Upload
-        accept=".xls"
-        showUploadList={false}
-        disabled={!selectedSkuId}
-        beforeUpload={(file) => {
-          parseNaryadMutation.mutate(file);
-          return false;
-        }}
-      >
-        <Button block disabled={!selectedSkuId} loading={parseNaryadMutation.isPending}>
-          Загрузить файл наряд-заказа (.xls)
-        </Button>
-      </Upload>
-
-      <Typography.Title level={5} style={{ marginTop: 24 }}>
-        Загрузить план заготовок
-      </Typography.Title>
-      <Typography.Paragraph type="secondary">
-        Лист планирования окутки/раскроя на дату (Номенклатура/Цвет/.../Заказ) — цвет свой у каждой строки,
-        материал подбирается автоматически там, где это однозначно; один файл может содержать несколько
-        блоков (бок о бок или на разных листах) — каждый блок становится отдельным заданием.
-      </Typography.Paragraph>
-      <Upload
-        accept=".xlsx"
-        showUploadList={false}
-        beforeUpload={(file) => {
-          parseBlankPlanMutation.mutate(file);
-          return false;
-        }}
-      >
-        <Button block loading={parseBlankPlanMutation.isPending}>
-          Загрузить файл плана заготовок (.xlsx)
-        </Button>
-      </Upload>
-      {blankPlanBlocks.length > 0 && (
-        <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-          <Select
-            style={{ flex: 1 }}
-            value={selectedBlockIndex}
-            onChange={setSelectedBlockIndex}
-            options={blankPlanBlocks.map((b, i) => ({
-              value: i,
-              label: `${b.sheet_name} — ${b.suggested_name} (${b.lines.length} строк)`,
-            }))}
-          />
-          <Button onClick={loadBlankPlanBlock} disabled={selectedBlockIndex === undefined}>
-            Загрузить строки блока
-          </Button>
-        </div>
-      )}
 
       <Typography.Title level={5} style={{ marginTop: 24 }}>
         Название и участок задания
@@ -366,56 +433,6 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
           )}
         </>
       )}
-
-      <Typography.Title level={5}>Добавить строку</Typography.Title>
-      <Form form={manualRowForm} layout="vertical" onFinish={addManualLine}>
-        <Form.Item label="Деталь из справочника (опционально)">
-          <PartSelect
-            area={Form.useWatch("area", manualForm)}
-            onSelect={(part) =>
-              manualRowForm.setFieldsValue({
-                part_name: part.name,
-                width_mm: part.width_mm,
-                length_m: part.length_m,
-                strip_width_mm: part.strip_width_mm ?? undefined,
-              })
-            }
-          />
-        </Form.Item>
-        <Form.Item name="part_name" label="Название детали (опционально)">
-          <Input placeholder="Стоевая" />
-        </Form.Item>
-        <Form.Item name="sku_id" label="Материал (номенклатура)" rules={[{ required: true }]}>
-          <Select
-            showSearch
-            placeholder="Выберите позицию материала"
-            options={skuOptions}
-            optionFilterProp="label"
-            onChange={(skuId) => applySkuFields(manualRowForm, skusQuery.data?.find((s) => s.id === skuId))}
-          />
-        </Form.Item>
-        <Form.Item name="material" hidden rules={[{ required: true }]}>
-          <Input />
-        </Form.Item>
-        <Form.Item name="color" hidden rules={[{ required: true }]}>
-          <Input />
-        </Form.Item>
-        <Form.Item name="thickness" hidden rules={[{ required: true }]}>
-          <InputNumber />
-        </Form.Item>
-        <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
-          <InputNumber min={1} style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item name="length_m" label="Длина детали на списание, м" rules={[{ required: true }]}>
-          <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
-          <InputNumber min={1} style={{ width: "100%" }} />
-        </Form.Item>
-        <Button htmlType="submit" block>
-          Добавить строку в задание
-        </Button>
-      </Form>
 
       <Button
         type="primary"
