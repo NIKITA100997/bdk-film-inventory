@@ -295,6 +295,14 @@ export default function MaterialsExplorer() {
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
           <Input
             size="large"
+            // enterKeyHint — на этой странице ниже есть ещё несколько
+            // текстовых полей (Материал/Цвет/Толщина), и на планшете
+            // (Android) виртуальная клавиатура в такой ситуации по
+            // умолчанию показывает "Далее" вместо "Найти" — Enter просто
+            // переводит фокус на следующее поле, ни разу не вызывая
+            // onPressEnter (баг: ввод ID на "Остатках" не искал единицу, а
+            // фокус утекал в фильтры — выглядело как "просит материал").
+            enterKeyHint="search"
             prefix={<SearchOutlined />}
             placeholder="Введите ID единицы (переход в карточку) или название материала…"
             value={globalQuery}
