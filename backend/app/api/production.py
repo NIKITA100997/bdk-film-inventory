@@ -18,6 +18,9 @@ from app.models.production import (
 from app.models.users import User
 from app.schemas.production import (
     BlankDemandLineOut,
+    BlankPlanBlockOut,
+    BlankPlanParsedLineOut,
+    BlankPlanParseResultOut,
     NaryadParsedLineOut,
     NaryadParseResultOut,
     ProductionLineCreate,
@@ -40,6 +43,7 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness
+from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
 from app.services.naryad_import import parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.production import (
@@ -558,6 +562,44 @@ async def parse_naryad(file: UploadFile = File(...), user: User = Depends(manage
         suggested_name=result.suggested_name,
         lines=[NaryadParsedLineOut(**l.__dict__) for l in result.lines],
         order_number=result.order_number,
+    )
+
+
+@router.post("/production-tasks/parse-blank-plan", response_model=BlankPlanParseResultOut)
+async def parse_blank_plan(
+    file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> BlankPlanParseResultOut:
+    """Раздел про импорт плана заготовок (Excel) — лист планирования
+    окутки/раскроя на дату («Номенклатура/Цвет/.../Заказ»), в отличие от
+    наряд-заказа даёт цвет отдельно у каждой строки, поэтому материал
+    подбирается построчно уже здесь (services.blank_plan_import.enrich_blank_plan_blocks),
+    не общим полем на фронтенде. Один файл может содержать несколько
+    листов и несколько блоков на лист (бок о бок) — каждый блок отдаётся
+    отдельно, задание создаётся на каждый по отдельности (тот же
+    POST /production-tasks/manual, что и у остальных способов) — только
+    предпросмотр, в БД ничего не пишет."""
+    data = await file.read()
+    try:
+        blocks = parse_blank_plan_xlsx_bytes(data)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не удалось прочитать файл — убедитесь, что это .xlsx и он не повреждён"
+        )
+    if not blocks:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Не найдено ни одного блока со строками для производства (везде «Заказ» = 0 или пусто)",
+        )
+    enriched = enrich_blank_plan_blocks(db, blocks)
+    return BlankPlanParseResultOut(
+        blocks=[
+            BlankPlanBlockOut(
+                sheet_name=b.sheet_name,
+                suggested_name=b.suggested_name,
+                lines=[BlankPlanParsedLineOut(**l.__dict__) for l in b.lines],
+            )
+            for b in enriched
+        ]
     )
 
 

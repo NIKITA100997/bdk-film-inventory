@@ -216,6 +216,44 @@ export const parseNaryadFile = async (file: File): Promise<NaryadParseResult> =>
   return data;
 };
 
+// Раздел про импорт плана заготовок (Excel) — в отличие от наряд-заказа
+// цвет свой у каждой строки, поэтому материал подбирается построчно уже
+// на сервере (backend/app/services/blank_plan_import.py); если
+// получилось однозначно (у цвета ровно одна активная позиция) — поля
+// уже заполнены подсказкой, иначе пустые, и фронтенд не даст создать
+// задание, пока оператор не заполнит их сам.
+export interface BlankPlanParsedLine {
+  part_name: string;
+  suggested_part_id: number | null;
+  width_mm: number | null;
+  length_m: number | null;
+  strip_width_mm: number | null;
+  color_raw: string;
+  suggested_sku_id: number | null;
+  material: string | null;
+  thickness: number | null;
+  quantity_pieces: number;
+}
+
+export interface BlankPlanBlock {
+  sheet_name: string;
+  suggested_name: string;
+  lines: BlankPlanParsedLine[];
+}
+
+export interface BlankPlanParseResult {
+  blocks: BlankPlanBlock[];
+}
+
+export const parseBlankPlan = async (file: File): Promise<BlankPlanParseResult> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await apiClient.post<BlankPlanParseResult>("/production-tasks/parse-blank-plan", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+};
+
 export const listTaskLineReports = async (taskId: number, lineId: number): Promise<ProductionTaskLineReport[]> =>
   (await apiClient.get<ProductionTaskLineReport[]>(`/production-tasks/${taskId}/lines/${lineId}/reports`)).data;
 

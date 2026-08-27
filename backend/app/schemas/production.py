@@ -98,6 +98,37 @@ class NaryadParseResultOut(BaseModel):
     order_number: int | None = None
 
 
+class BlankPlanParsedLineOut(BaseModel):
+    """Раздел про импорт плана заготовок (Excel) — в отличие от
+    NaryadParsedLineOut, здесь цвет свой у каждой строки (не общий на всё
+    задание), поэтому подбор материала/детали делается построчно ещё на
+    сервере (services.blank_plan_import.enrich_blank_plan_blocks) — если
+    получилось однозначно, поля уже заполнены подсказкой, которую можно
+    поправить на фронтенде; если нет — пустые, и фронтенд не даст создать
+    задание, пока оператор не заполнит их вручную."""
+
+    part_name: str
+    suggested_part_id: int | None = None
+    width_mm: float | None = None
+    length_m: float | None = None
+    strip_width_mm: float | None = None
+    color_raw: str
+    suggested_sku_id: int | None = None
+    material: str | None = None
+    thickness: float | None = None
+    quantity_pieces: float
+
+
+class BlankPlanBlockOut(BaseModel):
+    sheet_name: str
+    suggested_name: str
+    lines: list[BlankPlanParsedLineOut]
+
+
+class BlankPlanParseResultOut(BaseModel):
+    blocks: list[BlankPlanBlockOut]
+
+
 class ProductionTaskManualCreate(BaseModel):
     name: str
     area: str

@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, message } from "antd";
+import { Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, message } from "antd";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProductModels,
   createProductionTaskManual,
   parseNaryadFile,
+  parseBlankPlan,
+  type BlankPlanBlock,
   type ProductionTaskLineManualCreate,
 } from "../../../api/production";
 import { listMaterialSkus } from "../../../api/dictionaries";
@@ -40,6 +42,12 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   // вручную" ниже — отдельный, самостоятельный выбор (там материал реально
   // может отличаться от строки к строке).
   const [selectedSkuId, setSelectedSkuId] = useState<number>();
+  // Раздел про импорт плана заготовок (Excel) — в отличие от BOM/наряда,
+  // цвет свой у каждой строки: материал подбирается построчно уже на
+  // сервере (не через общий selectedSkuId), поэтому свой стейт вместо
+  // переиспользования того же поля.
+  const [blankPlanBlocks, setBlankPlanBlocks] = useState<BlankPlanBlock[]>([]);
+  const [selectedBlockIndex, setSelectedBlockIndex] = useState<number>();
 
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
@@ -61,8 +69,21 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
     bomForm.resetFields();
     setSelectedSkuId(undefined);
     setManualLines([]);
+    setBlankPlanBlocks([]);
+    setSelectedBlockIndex(undefined);
     onClose();
   };
+
+  // Незаполненные обязательные поля (деталь не подобралась — нет
+  // width_mm/length_m, или материал не подобрался — нет material/color/
+  // thickness) — раздел про импорт плана заготовок: такие строки не
+  // проходят через форму "Добавить строку" (там уже есть required-
+  // валидация), а добавляются напрямую из разобранного файла, где
+  // подсказка может не найтись. Строку нельзя отправить в задание, пока
+  // её не поправят через "Изменить" ниже.
+  const isLineComplete = (l: ProductionTaskLineManualCreate) =>
+    !!l.material && !!l.color && l.thickness > 0 && l.width_mm > 0 && l.length_m > 0 && l.quantity_pieces > 0;
+  const hasIncompleteLines = manualLines.some((l) => !isLineComplete(l));
 
   const manualCreateMutation = useMutation({
     mutationFn: createProductionTaskManual,
@@ -133,6 +154,41 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось разобрать файл наряд-заказа")),
   });
 
+  // Раздел про импорт плана заготовок (Excel) — лист планирования окутки/
+  // раскроя на дату («Номенклатура/Цвет/.../Заказ»), с цветом отдельно у
+  // каждой строки (в отличие от наряд-заказа/BOM — там плёнка одна на всё
+  // задание). Подбор детали/материала — уже на сервере
+  // (services.blank_plan_import.enrich_blank_plan_blocks); здесь только
+  // раскладываем результат по строкам, что не подобралось — 0/пусто, и
+  // такую строку не даст отправить isLineComplete выше.
+  const parseBlankPlanMutation = useMutation({
+    mutationFn: parseBlankPlan,
+    onSuccess: (result) => {
+      setBlankPlanBlocks(result.blocks);
+      setSelectedBlockIndex(result.blocks.length > 0 ? 0 : undefined);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось разобрать файл плана заготовок")),
+  });
+
+  const loadBlankPlanBlock = () => {
+    if (selectedBlockIndex === undefined) return;
+    const block = blankPlanBlocks[selectedBlockIndex];
+    if (!block) return;
+    const loaded: ProductionTaskLineManualCreate[] = block.lines.map((l) => ({
+      material: l.material ?? "",
+      color: l.color_raw,
+      thickness: l.thickness ?? 0,
+      quantity_pieces: l.quantity_pieces,
+      width_mm: l.width_mm ?? 0,
+      length_m: l.length_m ?? 0,
+      strip_width_mm: l.strip_width_mm ?? undefined,
+      part_name: l.part_name,
+    }));
+    setManualLines((lines) => [...lines, ...loaded]);
+    manualForm.setFieldsValue({ name: manualForm.getFieldValue("name") || block.suggested_name });
+    message.success(`Из блока «${block.suggested_name}» добавлено строк: ${loaded.length}`);
+  };
+
   const addManualLine = (v: ManualRowFormValues) => {
     const { sku_id: _skuId, ...rest } = v;
     setManualLines((lines) => [...lines, rest]);
@@ -144,6 +200,15 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
     }
   };
   const removeManualLine = (index: number) => setManualLines((lines) => lines.filter((_, i) => i !== index));
+
+  // Строка уходит из таблицы в форму "Добавить строку" ниже для правки
+  // (например, деталь/материал не подобрались при импорте плана
+  // заготовок) — не привязано к конкретному источнику строки, работает
+  // для любой уже добавленной строки.
+  const editManualLine = (index: number) => {
+    manualRowForm.setFieldsValue(manualLines[index]);
+    removeManualLine(index);
+  };
 
   return (
     <Modal title="Новое производственное задание" open={open} onCancel={resetAndClose} footer={null} destroyOnHidden width={640}>
@@ -206,6 +271,43 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
       </Upload>
 
       <Typography.Title level={5} style={{ marginTop: 24 }}>
+        Загрузить план заготовок
+      </Typography.Title>
+      <Typography.Paragraph type="secondary">
+        Лист планирования окутки/раскроя на дату (Номенклатура/Цвет/.../Заказ) — цвет свой у каждой строки,
+        материал подбирается автоматически там, где это однозначно; один файл может содержать несколько
+        блоков (бок о бок или на разных листах) — каждый блок становится отдельным заданием.
+      </Typography.Paragraph>
+      <Upload
+        accept=".xlsx"
+        showUploadList={false}
+        beforeUpload={(file) => {
+          parseBlankPlanMutation.mutate(file);
+          return false;
+        }}
+      >
+        <Button block loading={parseBlankPlanMutation.isPending}>
+          Загрузить файл плана заготовок (.xlsx)
+        </Button>
+      </Upload>
+      {blankPlanBlocks.length > 0 && (
+        <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+          <Select
+            style={{ flex: 1 }}
+            value={selectedBlockIndex}
+            onChange={setSelectedBlockIndex}
+            options={blankPlanBlocks.map((b, i) => ({
+              value: i,
+              label: `${b.sheet_name} — ${b.suggested_name} (${b.lines.length} строк)`,
+            }))}
+          />
+          <Button onClick={loadBlankPlanBlock} disabled={selectedBlockIndex === undefined}>
+            Загрузить строки блока
+          </Button>
+        </div>
+      )}
+
+      <Typography.Title level={5} style={{ marginTop: 24 }}>
         Название и участок задания
       </Typography.Title>
       <Form layout="vertical" form={manualForm}>
@@ -221,29 +323,48 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
       </Form>
 
       {manualLines.length > 0 && (
-        <Table
-          rowKey={(_, i) => String(i)}
-          size="small"
-          pagination={false}
-          dataSource={manualLines}
-          style={{ marginBottom: 16 }}
-          scroll={{ x: "max-content" }}
-          columns={[
-            { title: "Деталь", render: (_, l) => l.part_name ?? "—" },
-            { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
-            { title: "Ширина, мм", dataIndex: "width_mm" },
-            { title: "Длина на списание, м", dataIndex: "length_m" },
-            { title: "Кол-во, шт", dataIndex: "quantity_pieces" },
-            {
-              title: "",
-              render: (_, __, index) => (
-                <Button size="small" danger onClick={() => removeManualLine(index)}>
-                  Убрать
-                </Button>
-              ),
-            },
-          ]}
-        />
+        <>
+          <Table
+            rowKey={(_, i) => String(i)}
+            size="small"
+            pagination={false}
+            dataSource={manualLines}
+            style={{ marginBottom: hasIncompleteLines ? 8 : 16 }}
+            scroll={{ x: "max-content" }}
+            onRow={(l) => (isLineComplete(l) ? {} : { style: { background: "#fff1f0" } })}
+            columns={[
+              {
+                title: "Деталь",
+                render: (_, l) => (l.width_mm > 0 && l.length_m > 0 ? l.part_name ?? "—" : `${l.part_name ?? "—"} (не подобралась)`),
+              },
+              {
+                title: "Материал",
+                render: (_, l) => (l.material && l.color ? `${l.material}, ${l.color}, ${l.thickness} мм` : `цвет: ${l.color || "—"} (не подобран)`),
+              },
+              { title: "Ширина, мм", render: (_, l) => l.width_mm || "—" },
+              { title: "Длина на списание, м", render: (_, l) => l.length_m || "—" },
+              { title: "Кол-во, шт", dataIndex: "quantity_pieces" },
+              {
+                title: "",
+                render: (_, __, index) => (
+                  <Space size={4}>
+                    <Button size="small" onClick={() => editManualLine(index)}>
+                      Изменить
+                    </Button>
+                    <Button size="small" danger onClick={() => removeManualLine(index)}>
+                      Убрать
+                    </Button>
+                  </Space>
+                ),
+              },
+            ]}
+          />
+          {hasIncompleteLines && (
+            <Typography.Text type="danger" style={{ display: "block", marginBottom: 16 }}>
+              Есть незаполненные строки (подсвечены) — нажмите «Изменить» и подберите деталь/материал, либо уберите строку.
+            </Typography.Text>
+          )}
+        </>
       )}
 
       <Typography.Title level={5}>Добавить строку</Typography.Title>
@@ -300,7 +421,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
         type="primary"
         block
         style={{ marginTop: 16 }}
-        disabled={manualLines.length === 0}
+        disabled={manualLines.length === 0 || hasIncompleteLines}
         loading={manualCreateMutation.isPending}
         onClick={() => {
           manualForm
