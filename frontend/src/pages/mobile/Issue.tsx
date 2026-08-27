@@ -439,6 +439,17 @@ export default function Issue() {
   // на участке). См. neededLengthM выше.
   const selectedNeededLengthM = selected ? neededLengthM(selected) : 0;
 
+  // findMutation (issueUnit/POST /units/issue) сам выдаёт единицу и коммитит
+  // это в БД, когда находит точное совпадение по ширине — раньше вызывался
+  // сразу по выбору строки в очереди, без подтверждения (клик по карточке
+  // = реальное списание склада, баг: строку выбирали просто посмотреть, а
+  // плёнка уже уходила). Теперь при точном совпадении вызывать его вообще
+  // не нужно — оно видно и так из уже загруженного availableQuery
+  // (exactMatch ниже), показывается предпросмотром, а выдаёт по клику
+  // "Выдать" уже issueUnitDirect/directMutation (та же функция, что и в
+  // "Показать остатки" ниже) — сам find-эндпоинт вызывается только когда
+  // точного совпадения точно нет, тогда он ничего сам не выдаст, только
+  // предложит донора (или скажет, что и донора нет).
   const findMutation = useMutation({
     mutationFn: () =>
       issueUnit({
@@ -452,13 +463,7 @@ export default function Issue() {
         production_task_line_id: selected!.line.id,
         occurred_at: toOccurredAtIso(occurredAt),
       }),
-    onSuccess: (res) => {
-      setResult(res);
-      if (res.outcome === "issued" && res.unit) {
-        setLastIssued({ unit: res.unit, remainder: null, remainderPlaced: false });
-        qc.invalidateQueries({ queryKey: ["issue-available-units"] });
-      }
-    },
+    onSuccess: (res) => setResult(res),
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось подобрать штрипс")),
   });
 
@@ -466,8 +471,6 @@ export default function Issue() {
     if (!selected || !selectedSku) return;
     setResult(null);
     setLastIssued(null);
-    findMutation.mutate();
-    // findMutation.mutate имеет стабильную идентичность между рендерами (react-query) — не в зависимостях намеренно
   }, [selected?.line.id, selectedSku?.id]);
 
   const availableQuery = useQuery({
@@ -482,6 +485,31 @@ export default function Issue() {
       }),
     enabled: !!selectedSku,
   });
+
+  // Точное совпадение по ширине — предпросмотр из уже загруженного
+  // availableQuery (без похода на бэкенд), с сортировкой по длине, чтобы
+  // предлагать в первую очередь короткий, но достаточный кусок (не
+  // залёживать длинные, тот же принцип, что и у backend-подбора). Явное
+  // подтверждение — кнопка "Выдать" ниже (directMutation), не сам факт
+  // выбора строки.
+  const exactMatch = useMemo(() => {
+    if (!selected) return null;
+    const candidates = (availableQuery.data ?? []).filter(
+      (u) => u.width_mm === selectedStripWidth && u.length_m >= selectedNeededLengthM,
+    );
+    if (candidates.length === 0) return null;
+    return [...candidates].sort((a, b) => a.length_m - b.length_m)[0];
+  }, [selected, availableQuery.data, selectedStripWidth, selectedNeededLengthM]);
+
+  // findMutation вызывается только когда точного совпадения точно нет
+  // (availableQuery уже загрузился и exactMatch пуст) — тогда find-эндпоинт
+  // сам ничего не выдаст, только предложит донора или скажет, что и его нет.
+  useEffect(() => {
+    if (!selected || !selectedSku) return;
+    if (availableQuery.isLoading || exactMatch) return;
+    findMutation.mutate();
+    // findMutation.mutate имеет стабильную идентичность между рендерами (react-query) — не в зависимостях намеренно
+  }, [selected?.line.id, selectedSku?.id, availableQuery.isLoading, exactMatch]);
 
   // --- Нехватка остатка под выбранную строку задания (раздел про замену
   // "Заказов покупателей" — нехватка обнаруживается в моменте выдачи, не
@@ -887,7 +915,28 @@ export default function Issue() {
                   />
                 )}
 
-                {findMutation.isPending && <Typography.Text type="secondary">Подбираем штрипс…</Typography.Text>}
+                {(availableQuery.isLoading || findMutation.isPending) && (
+                  <Typography.Text type="secondary">Подбираем штрипс…</Typography.Text>
+                )}
+
+                {exactMatch && (
+                  <div style={{ background: "#E7F5EE", border: "1px solid #B7E0CD", borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                    <div style={{ fontWeight: 700, color: "#146B4E" }}>Есть точный штрипс №{exactMatch.id}</div>
+                    <div style={{ fontSize: 12.5, marginTop: 4 }}>
+                      {exactMatch.width_mm} мм × {exactMatch.length_m} м
+                      {exactMatch.location_code ? ` · ${exactMatch.location_code}` : ""}
+                    </div>
+                    <Button
+                      type="primary"
+                      block
+                      style={{ marginTop: 10 }}
+                      loading={directMutation.isPending}
+                      onClick={() => directMutation.mutate(exactMatch.id)}
+                    >
+                      Выдать
+                    </Button>
+                  </div>
+                )}
 
                 {result?.outcome === "not_found" && (
                   <div style={{ background: "#FBEAE7", border: "1px solid #E3B5AC", borderRadius: 10, padding: 12, marginBottom: 12 }}>
