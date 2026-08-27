@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session, joinedload
 
@@ -7,17 +7,35 @@ from app.db.session import get_db
 from app.models.roles import Permission
 from app.models.users import User
 from app.schemas.users import CurrentUserOut, Token, UserOut
+from app.services.login_throttle import register_failure, register_success, seconds_until_unlocked
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)) -> Token:
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)) -> Token:
+    # Раздел про открытие сервера в интернет под доменом — до этого
+    # подбор пароля посторонним не грозил (доступ только из Tailscale-сети);
+    # ключи и по логину, и по IP независимо, см. services/login_throttle.py.
+    ip = request.client.host if request.client else "unknown"
+    throttle_keys = [f"user:{form_data.username}", f"ip:{ip}"]
+    for key in throttle_keys:
+        wait = seconds_until_unlocked(key)
+        if wait is not None:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Слишком много неудачных попыток входа — попробуйте через {int(wait // 60) + 1} мин.",
+            )
+
     user = db.query(User).filter(User.username == form_data.username).first()
     if user is None or not verify_password(form_data.password, user.password_hash):
+        for key in throttle_keys:
+            register_failure(key)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный логин или пароль")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Пользователь отключён")
+    for key in throttle_keys:
+        register_success(key)
     return Token(access_token=create_access_token(subject=user.username))
 
 
