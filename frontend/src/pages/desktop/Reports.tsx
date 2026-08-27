@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tabs, DatePicker, Select, Space, Row, Col, Tag, InputNumber } from "antd";
+import { Card, Tabs, DatePicker, Space, Row, Col, Tag, InputNumber } from "antd";
 import Statistic from "../../components/Statistic";
 import { useQuery } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";
@@ -15,28 +15,7 @@ import {
 import ReportTable, { type ReportColumn } from "../../components/ReportTable";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { listAreas } from "../../api/areas";
-import { listWarehouses } from "../../api/storage";
-
-// Раздел про отчёты по складам отдельно — выбор склада показываем только
-// если складов больше одного (тот же принцип, что уже в Receive.tsx для
-// поля "Склад" при приёмке), иначе лишний фильтр без смысла.
-function useWarehouseFilter() {
-  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
-  const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
-  const [warehouseId, setWarehouseId] = useState<number>();
-  const picker =
-    activeWarehouses.length > 1 ? (
-      <Select
-        allowClear
-        placeholder="Склад"
-        style={{ width: 200 }}
-        options={activeWarehouses.map((w) => ({ value: w.id, label: w.name }))}
-        value={warehouseId}
-        onChange={setWarehouseId}
-      />
-    ) : null;
-  return { warehouseId, picker };
-}
+import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 
 function StockSummaryTab() {
   const { warehouseId, picker: warehousePicker } = useWarehouseFilter();

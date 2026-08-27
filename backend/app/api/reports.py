@@ -2,7 +2,7 @@ import datetime as dt
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, false, func, or_
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_permission
@@ -11,7 +11,6 @@ from app.models.abc import CalcSettings
 from app.models.areas import Area
 from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
 from app.models.events import EventType, MaterialEvent
-from app.models.storage import Rack
 from app.models.production import (
     ProductionLine,
     ProductionTask,
@@ -42,27 +41,9 @@ from app.schemas.reports import (
     WriteOffLine,
 )
 from app.services.defects_reports import PivotInputRow, build_defect_pivot, bucket_date_range, defect_rate_percent, delta_percent
+from app.services.warehouses import filter_by_warehouse as _filter_by_warehouse
 
 router = APIRouter(prefix="/reports", tags=["reports"])
-
-
-def _rack_codes_for_warehouse(db: Session, warehouse_id: int) -> list[str]:
-    return [code for (code,) in db.query(Rack.code).filter(Rack.warehouse_id == warehouse_id).all()]
-
-
-def _filter_by_warehouse(query, column, db: Session, warehouse_id: int | None):
-    """Раздел про отчёты по складам отдельно — у MaterialUnit/MaterialEvent
-    нет прямого warehouse_id, склад определяется только префиксом
-    location_code/to_cell относительно Rack.code (Rack.warehouse_id — уже
-    реальная связь, см. api/storage.py/services/placement.py). Единицы,
-    выданные участку (без ячейки), в фильтр по складу закономерно не
-    попадают — они физически не на складе."""
-    if warehouse_id is None:
-        return query
-    codes = _rack_codes_for_warehouse(db, warehouse_id)
-    if not codes:
-        return query.filter(false())
-    return query.filter(or_(*[column.like(f"{code}-%") for code in codes]))
 
 
 @router.get("/stock-summary", response_model=list[StockSummaryLine])

@@ -31,6 +31,9 @@ export interface MaterialUnit {
   location_code: string | null;
   production_task_line_id: number | null;
   area_m2: number;
+  // Раздел про остатки по конкретному складу — не прямое поле в БД,
+  // заполняется бэкендом только в /units/search/available.
+  warehouse_name: string | null;
 }
 
 export function skuLabel(sku: MaterialSku): string {
@@ -312,6 +315,7 @@ export interface SearchParams {
   status?: UnitStatusValue;
   area?: AreaValue;
   unplaced?: boolean;
+  warehouse_id?: number;
 }
 
 export async function searchUnits(params: SearchParams): Promise<MaterialUnit[]> {

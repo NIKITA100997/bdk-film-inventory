@@ -10,6 +10,7 @@ from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import MaterialSku
 from app.models.events import EventType, MaterialEvent
 from app.models.production import ProductionTaskLine, ProductionTaskLineReport
+from app.models.storage import Rack, Warehouse
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
 from app.models.write_off_reasons import WriteOffReasonEntry
@@ -54,6 +55,7 @@ from app.services.splitting import (
     split_lengthwise,
     split_lengthwise_multi,
 )
+from app.services.warehouses import filter_by_warehouse
 
 router = APIRouter(prefix="/units", tags=["units"])
 
@@ -1039,9 +1041,10 @@ def search_units(
     status: UnitStatus | None = None,
     area: str | None = None,
     unplaced: bool | None = None,
+    warehouse_id: int | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> list[MaterialUnit]:
+) -> list[MaterialUnitOut]:
     """Поиск остатка (5.3 "Поиск остатка", 6.7 "погонаж" ТЗ) — фильтр по
     минимальной длине задаётся в метрах при конкретной ширине, не в м².
 
@@ -1055,7 +1058,12 @@ def search_units(
     зависли посреди приёмки, после возврата (адрес всегда сбрасывается,
     см. return_unit) или после резки без указанного места для остатка.
     Выдан_участку/Списан намеренно не в счёт — у них отсутствие ячейки не
-    аномалия, а нормальное состояние."""
+    аномалия, а нормальное состояние.
+
+    warehouse_id (раздел про остатки по конкретному складу) — тот же
+    приём, что уже в отчётах (filter_by_warehouse, префикс location_code
+    относительно Rack.code); единицы, выданные участку или ещё без ячейки,
+    закономерно не попадают ни под какой склад."""
     query = _with_sku(db.query(MaterialUnit))
     if status is not None:
         query = query.filter(MaterialUnit.status == status)
@@ -1079,4 +1087,26 @@ def search_units(
         query = query.filter(MaterialUnit.width_mm == width_mm)
     if min_length_m is not None:
         query = query.filter(MaterialUnit.length_m >= min_length_m)
-    return query.order_by(MaterialUnit.width_mm.asc(), MaterialUnit.length_m.desc()).limit(200).all()
+    query = filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
+    units = query.order_by(MaterialUnit.width_mm.asc(), MaterialUnit.length_m.desc()).limit(200).all()
+
+    # Название склада — не прямое поле единицы (только префикс location_code
+    # относительно Rack.code), разрешаем один раз для всех стеллажей и
+    # сопоставляем в python, тот же приём, что уже даёт rackForLocation() на
+    # фронте (MaterialsExplorer.tsx).
+    rack_warehouse_names = {
+        code: name for code, name in db.query(Rack.code, Warehouse.name).join(Warehouse, Rack.warehouse_id == Warehouse.id).all()
+    }
+
+    def resolve_warehouse_name(location_code: str | None) -> str | None:
+        if not location_code:
+            return None
+        for code, name in rack_warehouse_names.items():
+            if location_code.startswith(f"{code}-"):
+                return name
+        return None
+
+    return [
+        MaterialUnitOut.model_validate(u).model_copy(update={"warehouse_name": resolve_warehouse_name(u.location_code)})
+        for u in units
+    ]

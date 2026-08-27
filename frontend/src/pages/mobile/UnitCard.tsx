@@ -41,6 +41,7 @@ import QrScanButton from "../../components/QrScanButton";
 import LocationSelect from "../../components/LocationSelect";
 import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
+import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 
 type ActionKind = "place" | "split" | "cut" | "return" | "writeoff" | null;
 
@@ -91,6 +92,11 @@ export default function UnitCard() {
   });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  // Раздел про перемещение между складами — выбор склада перед выбором
+  // стеллажа (LocationSelect уже умеет фильтровать по warehouseId, просто
+  // раньше сюда не передавался): один общий пикер для всех трёх форм
+  // ниже (place/split/cut), т.к. активно только одно действие за раз.
+  const { warehouseId: locationWarehouseId, picker: warehousePicker } = useWarehouseFilter();
   const eventsQuery = useQuery({
     queryKey: ["unit-events", unit?.id],
     queryFn: () => getUnitEvents(unit!.id),
@@ -377,13 +383,19 @@ export default function UnitCard() {
                   }
                 />
               )}
+              {warehousePicker && (
+                <div style={{ marginBottom: 16 }}>
+                  <Typography.Text style={{ display: "block", marginBottom: 4 }}>Склад</Typography.Text>
+                  {warehousePicker}
+                </div>
+              )}
               <Form.Item
                 name="location_code"
                 label="Адрес ячейки"
                 rules={[{ required: true }]}
                 initialValue={unit.location_code ?? undefined}
               >
-                <LocationSelect sku={unit.material_sku} autoFocus />
+                <LocationSelect sku={unit.material_sku} warehouseId={locationWarehouseId} autoFocus />
               </Form.Item>
               <Button type="primary" htmlType="submit" block loading={placeMutation.isPending}>
                 Сохранить адрес
@@ -412,8 +424,14 @@ export default function UnitCard() {
                   }
                 />
               )}
+              {warehousePicker && (
+                <div style={{ marginBottom: 16 }}>
+                  <Typography.Text style={{ display: "block", marginBottom: 4 }}>Склад</Typography.Text>
+                  {warehousePicker}
+                </div>
+              )}
               <Form.Item name="new_unit_location" label="Ячейка для отделяемой части (опционально)">
-                <LocationSelect sku={unit.material_sku} placeholder="Оставить не размещённой, если не выбрать" />
+                <LocationSelect sku={unit.material_sku} warehouseId={locationWarehouseId} placeholder="Оставить не размещённой, если не выбрать" />
               </Form.Item>
               <OccurredAtField />
               <Button type="primary" htmlType="submit" block loading={splitMutation.isPending}>
@@ -448,12 +466,18 @@ export default function UnitCard() {
               <Form.Item name="keep_as_unit" valuePropName="checked" style={{ marginBottom: 8 }}>
                 <Checkbox>Сохранить отрезанный кусок как отдельную единицу (со своим QR)</Checkbox>
               </Form.Item>
+              {warehousePicker && (
+                <div style={{ marginBottom: 16 }}>
+                  <Typography.Text style={{ display: "block", marginBottom: 4 }}>Склад</Typography.Text>
+                  {warehousePicker}
+                </div>
+              )}
               <Form.Item
                 name="remainder_location"
                 label={keepCutAsUnit ? "Ячейка для отрезанного куска (опционально)" : "Ячейка для остатка (опционально)"}
                 initialValue={cutSuggestion.data ?? undefined}
               >
-                <LocationSelect sku={unit.material_sku} placeholder="Оставить не размещённым, если не выбрать" />
+                <LocationSelect sku={unit.material_sku} warehouseId={locationWarehouseId} placeholder="Оставить не размещённым, если не выбрать" />
               </Form.Item>
               <OccurredAtField />
               <Button

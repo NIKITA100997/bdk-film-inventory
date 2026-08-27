@@ -50,6 +50,7 @@ import OccurredAtField from "../../components/OccurredAtField";
 import { useAuth } from "../../auth/AuthContext";
 import { exportToCsv } from "../../utils/csv";
 import { toOccurredAtIso } from "../../utils/occurredAt";
+import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 
 const statusOptions: { value: UnitStatusValue; label: string }[] = [
   { value: "Принят", label: "Принят" },
@@ -125,9 +126,13 @@ export default function MaterialsExplorer() {
     queryFn: () => getStockSummary(undefined, filters.manufacturer),
     enabled: viewMode === "positions",
   });
+  // Раздел про остатки по конкретному складу — отдельное состояние от
+  // остальных фильтров (тот же хук, что уже даёт "Отчёты"), сливается с
+  // filters только в момент запроса.
+  const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
   const unitsQuery = useQuery({
-    queryKey: ["materials-explorer", "units", filters],
-    queryFn: () => searchUnits(filters),
+    queryKey: ["materials-explorer", "units", filters, warehouseId],
+    queryFn: () => searchUnits({ ...filters, warehouse_id: warehouseId }),
     enabled: viewMode === "units",
   });
   const classesQuery = useQuery({ queryKey: ["abc-classes", "all"], queryFn: () => listAbcClasses() });
@@ -319,6 +324,7 @@ export default function MaterialsExplorer() {
                 <InputNumber placeholder="Мин. длина, м" min={0} step={0.1} value={filters.min_length_m} onChange={(v) => setFilter("min_length_m", v ?? undefined)} />
                 <Select placeholder="Статус" allowClear style={{ width: 160 }} options={statusOptions} value={filters.status} onChange={(v) => setFilter("status", v)} />
                 <Select placeholder="Участок" allowClear style={{ width: 180 }} options={areaOptions} value={filters.area} onChange={(v) => setFilter("area", v)} />
+                {warehousePicker}
                 <Space size={4}>
                   <Switch checked={donorOnly} onChange={setDonorOnly} />
                   <Typography.Text>класс C, есть донор-кандидат</Typography.Text>
@@ -428,6 +434,7 @@ export default function MaterialsExplorer() {
               { title: "Материал", render: (_, u) => skuLabel(u.material_sku) },
               { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м`, sorter: (a, b) => a.width_mm - b.width_mm },
               { title: "Статус", render: (_, u) => u.status.replace(/_/g, " ") },
+              { title: "Склад", render: (_, u) => u.warehouse_name ?? "—" },
               {
                 title: "Адрес/участок",
                 render: (_, u) => {

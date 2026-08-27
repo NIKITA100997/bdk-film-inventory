@@ -40,6 +40,10 @@ class MaterialUnitOut(BaseModel):
     production_task_line_id: int | None
     created_at: datetime
     updated_at: datetime
+    # Раздел про остатки по конкретному складу — не прямое поле в БД (см.
+    # search_units в api/units.py), заполняется только там, где реально
+    # разрешается; в остальных ответах остаётся None.
+    warehouse_name: str | None = None
 
     @computed_field
     @property
