@@ -211,7 +211,15 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   };
 
   return (
-    <Modal title="Новое производственное задание" open={open} onCancel={resetAndClose} footer={null} destroyOnHidden width={960}>
+    <Modal
+      title="Новое производственное задание"
+      open={open}
+      onCancel={resetAndClose}
+      footer={null}
+      destroyOnHidden
+      width="95vw"
+      style={{ maxWidth: 1400, top: 16 }}
+    >
       <Typography.Paragraph type="secondary">
         Строки задания — общий редактируемый список ниже, независимо от того, откуда они взялись: загрузите их из
         файла (вкладка «Загрузить из файла») или добавляйте по одной вручную (вкладка «Добавить вручную») — можно и
