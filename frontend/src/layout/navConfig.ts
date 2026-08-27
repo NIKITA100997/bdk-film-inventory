@@ -1,4 +1,4 @@
-import type { Area } from "../auth/types";
+import type { Area, CurrentUser } from "../auth/types";
 
 export interface NavItem {
   key: string;
@@ -111,3 +111,15 @@ export const navTree: NavBlock[] = [
 ];
 
 export const allNav = navTree.flatMap((block) => block.items);
+
+// Раздел про телефонную версию — та же проверка видимости пункта меню,
+// что раньше жила только внутри AppLayout.tsx (локальная isVisible),
+// вынесена сюда, чтобы PhoneTabBar (список "Ещё") мог использовать ту же
+// логику, не дублируя её.
+export function isNavItemVisible(item: NavItem, user: CurrentUser): boolean {
+  if (!user.is_superuser && item.permissions?.length && !item.permissions.some((p) => user.permissions.includes(p))) {
+    return false;
+  }
+  if (item.areas && !(user.area && item.areas.includes(user.area))) return false;
+  return true;
+}

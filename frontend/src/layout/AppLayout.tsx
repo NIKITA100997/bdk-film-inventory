@@ -1,16 +1,17 @@
 import { useState } from "react";
-import { Layout, Menu, Typography, Button, Input, Avatar, Dropdown, Switch } from "antd";
+import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch } from "antd";
 import type { MenuProps } from "antd";
 import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { navTree, type NavItem } from "./navConfig";
+import { navTree, isNavItemVisible, type NavItem } from "./navConfig";
 import { fontHeading } from "../theme";
 import { runUnitOrMaterialSearch } from "../utils/unitSearch";
 import { isVerticalPrint, setVerticalPrint } from "../utils/printLabel";
 import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
 import NotificationBell from "../components/NotificationBell";
+import PhoneTabBar from "./PhoneTabBar";
 
 const { Header, Content } = Layout;
 
@@ -27,6 +28,12 @@ export default function AppLayout() {
   // тапу на лупу и сворачивается обратно.
   const [searchOpen, setSearchOpen] = useState(false);
   const [verticalPrint, setVerticalPrintState] = useState(isVerticalPrint());
+  // Раздел про телефонную версию — единственная уже используемая в
+  // проекте конвенция "мобильный/десктоп" (ResponsiveTable.tsx). !sm —
+  // именно телефон (<576px), не портретный планшет — тот должен остаться
+  // на уже сделанной под него верхней навигации.
+  const screens = Grid.useBreakpoint();
+  const isPhone = !screens.sm;
 
   if (!user) return null;
 
@@ -34,13 +41,7 @@ export default function AppLayout() {
   // любом экране, не только на "Остатках".
   const runHeaderSearch = () => runUnitOrMaterialSearch(headerQuery, navigate);
 
-  const isVisible = (item: NavItem) => {
-    if (!user.is_superuser && item.permissions?.length && !item.permissions.some((p) => user.permissions.includes(p))) {
-      return false;
-    }
-    if (item.areas && !(user.area && item.areas.includes(user.area))) return false;
-    return true;
-  };
+  const isVisible = (item: NavItem) => isNavItemVisible(item, user);
 
   // Единое функциональное дерево (8.2 раздел бэклога доработок) — блоки без
   // заголовка отрисовываются как плоские пункты верхнего уровня, блоки с
@@ -205,14 +206,18 @@ export default function AppLayout() {
           под планшет — боковая колонка отъедала до 240px ширины даже в
           свёрнутом с иконками виде, а на планшете каждый пиксель на счету).
           mode="horizontal" сам собирает пункты, которые не влезли, в
-          выпадающий пункт "…" — прокрутки/переполнения здесь не бывает. */}
-      <Menu
-        mode="horizontal"
-        style={{ flexShrink: 0 }}
-        selectedKeys={[location.pathname]}
-        items={items}
-        onClick={(e) => navigate(e.key)}
-      />
+          выпадающий пункт "…" — прокрутки/переполнения здесь не бывает.
+          На телефоне (isPhone) вместо этого — нижняя панель вкладок ниже
+          Content, верхнее меню туда физически не помещается. */}
+      {!isPhone && (
+        <Menu
+          mode="horizontal"
+          style={{ flexShrink: 0 }}
+          selectedKeys={[location.pathname]}
+          items={items}
+          onClick={(e) => navigate(e.key)}
+        />
+      )}
       <OfflineBanner />
       {/* minWidth: 0 — без этого antd Layout не даёт Content сжаться уже
           своей колонки: широкая таблица внутри раздвигала всю страницу
@@ -222,6 +227,12 @@ export default function AppLayout() {
       <Content style={{ padding: 24, minWidth: 0, overflow: "auto", flex: "1 1 auto", minHeight: 0 }}>
         <Outlet />
       </Content>
+      {/* Нижняя панель вкладок на телефоне — ещё один flexShrink:0 сосед
+          внутри уже существующей рамки height:100vh/overflow:hidden, тем
+          же приёмом, что Header/Menu/OfflineBanner выше: естественно
+          прижимается к низу без position:fixed и без компенсирующих
+          отступов у Content. */}
+      {isPhone && <PhoneTabBar onManualSearchRequest={() => setSearchOpen(true)} />}
     </Layout>
   );
 }
