@@ -112,12 +112,12 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   const [manualForm] = Form.useForm<{ name: string; area: AreaValue; external_order_ref?: number }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
   // Отдельная форма и стейт для правки уже добавленной строки (см.
-  // editManualLine ниже) — правка теперь модалкой поверх таблицы, а не
-  // формой "Добавить вручную" на другой вкладке (там было не видно,
-  // куда делась строка, а при отмене она вообще терялась — строка
-  // убиралась из списка сразу при клике "Изменить", ещё до
-  // подтверждения). Свой инстанс формы, чтобы не путать с тем, что
-  // человек мог уже успеть ввести в форму добавления новой строки.
+  // editManualLine/editingIndex ниже) — правится прямо в ячейках таблицы
+  // (см. columns у Table ниже), а не формой "Добавить вручную" на другой
+  // вкладке (там было не видно, куда делась строка) и не отдельной
+  // модалкой (тоже уводила взгляд от таблицы). Свой инстанс формы, чтобы
+  // не путать с тем, что человек мог уже успеть ввести в форму добавления
+  // новой строки.
   const [editRowForm] = Form.useForm<ManualRowFormValues>();
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [bomForm] = Form.useForm<{ product_model_id: number; quantity: number }>();
@@ -454,41 +454,152 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
 
       {manualLines.length > 0 && (
         <>
-          <Table
-            rowKey={(_, i) => String(i)}
-            size="small"
-            pagination={false}
-            dataSource={manualLines}
-            style={{ marginBottom: hasIncompleteLines ? 8 : 16 }}
-            scroll={{ x: "max-content" }}
-            onRow={(l) => (isLineComplete(l) ? {} : { style: { background: "#fff1f0" } })}
-            columns={[
-              {
-                title: "Деталь",
-                render: (_, l) => (l.width_mm > 0 && l.length_m > 0 ? l.part_name ?? "—" : `${l.part_name ?? "—"} (не подобралась)`),
-              },
-              {
-                title: "Материал",
-                render: (_, l) => (l.material && l.color ? `${l.material}, ${l.color}, ${l.thickness} мм` : `цвет: ${l.color || "—"} (не подобран)`),
-              },
-              { title: "Ширина, мм", render: (_, l) => l.width_mm || "—" },
-              { title: "Длина на списание, м", render: (_, l) => l.length_m || "—" },
-              { title: "Кол-во, шт", dataIndex: "quantity_pieces" },
-              {
-                title: "",
-                render: (_, __, index) => (
-                  <Space size={4}>
-                    <Button size="small" onClick={() => editManualLine(index)}>
-                      Изменить
-                    </Button>
-                    <Button size="small" danger onClick={() => removeManualLine(index)}>
-                      Убрать
-                    </Button>
-                  </Space>
-                ),
-              },
-            ]}
-          />
+          {/* component={false} — Form здесь только даёт контекст полям
+              редактируемой строки (editingIndex), сама не рендерит
+              обёрточный <form>, который бы иначе оказался внутри <table>
+              (невалидный HTML, антд рекомендует именно так для
+              "редактируемых таблиц"). Правится всегда только ОДНА
+              строка за раз — у остальных строк тех же имён полей просто
+              нет в дереве, так что Form ими не путается. */}
+          <Form form={editRowForm} component={false}>
+            <Table
+              rowKey={(_, i) => String(i)}
+              size="small"
+              pagination={false}
+              dataSource={manualLines}
+              style={{ marginBottom: hasIncompleteLines ? 8 : 16 }}
+              scroll={{ x: "max-content" }}
+              onRow={(l) => (isLineComplete(l) ? {} : { style: { background: "#fff1f0" } })}
+              columns={[
+                {
+                  title: "Деталь",
+                  width: 260,
+                  render: (_, l, index) =>
+                    index === editingIndex ? (
+                      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                        <PartSelect
+                          area={taskArea}
+                          onSelect={(part) =>
+                            editRowForm.setFieldsValue({
+                              part_name: part.name,
+                              width_mm: part.width_mm,
+                              length_m: part.length_m,
+                              strip_width_mm: part.strip_width_mm ?? undefined,
+                            })
+                          }
+                        />
+                        <Form.Item name="part_name" noStyle>
+                          <Input placeholder="Название детали" />
+                        </Form.Item>
+                      </Space>
+                    ) : l.width_mm > 0 && l.length_m > 0 ? (
+                      l.part_name ?? "—"
+                    ) : (
+                      `${l.part_name ?? "—"} (не подобралась)`
+                    ),
+                },
+                {
+                  title: "Материал",
+                  width: 260,
+                  render: (_, l, index) =>
+                    index === editingIndex ? (
+                      <>
+                        <Form.Item name="sku_id" noStyle>
+                          <Select
+                            showSearch
+                            style={{ width: "100%" }}
+                            placeholder="Выберите позицию материала"
+                            options={skuOptions}
+                            optionFilterProp="label"
+                            onChange={(skuId) => {
+                              const sku = skusQuery.data?.find((s) => s.id === skuId);
+                              if (sku) applySkuFields(editRowForm, sku);
+                            }}
+                          />
+                        </Form.Item>
+                        <Form.Item name="material" hidden>
+                          <Input />
+                        </Form.Item>
+                        <Form.Item name="color" hidden>
+                          <Input />
+                        </Form.Item>
+                        <Form.Item name="thickness" hidden>
+                          <InputNumber />
+                        </Form.Item>
+                      </>
+                    ) : l.material && l.color ? (
+                      `${l.material}, ${l.color}, ${l.thickness} мм`
+                    ) : (
+                      `цвет: ${l.color || "—"} (не подобран)`
+                    ),
+                },
+                {
+                  title: "Ширина, мм",
+                  width: 110,
+                  render: (_, l, index) =>
+                    index === editingIndex ? (
+                      <Form.Item name="width_mm" noStyle>
+                        <InputNumber min={1} style={{ width: "100%" }} />
+                      </Form.Item>
+                    ) : (
+                      l.width_mm || "—"
+                    ),
+                },
+                {
+                  title: "Длина на списание, м",
+                  width: 130,
+                  render: (_, l, index) =>
+                    index === editingIndex ? (
+                      <Form.Item name="length_m" noStyle>
+                        <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
+                      </Form.Item>
+                    ) : (
+                      l.length_m || "—"
+                    ),
+                },
+                {
+                  title: "Кол-во, шт",
+                  width: 110,
+                  render: (_, l, index) =>
+                    index === editingIndex ? (
+                      <Form.Item name="quantity_pieces" noStyle>
+                        <InputNumber min={1} style={{ width: "100%" }} />
+                      </Form.Item>
+                    ) : (
+                      l.quantity_pieces
+                    ),
+                },
+                {
+                  title: "",
+                  width: 160,
+                  render: (_, __, index) =>
+                    index === editingIndex ? (
+                      <Space size={4}>
+                        <Button
+                          size="small"
+                          type="primary"
+                          onClick={() => editRowForm.validateFields().then(saveEditedLine).catch(() => {})}
+                        >
+                          Сохранить
+                        </Button>
+                        <Button size="small" onClick={() => setEditingIndex(null)}>
+                          Отмена
+                        </Button>
+                      </Space>
+                    ) : (
+                      <Space size={4}>
+                        <Button size="small" onClick={() => editManualLine(index)} disabled={editingIndex !== null}>
+                          Изменить
+                        </Button>
+                        <Button size="small" danger onClick={() => removeManualLine(index)} disabled={editingIndex !== null}>
+                          Убрать
+                        </Button>
+                      </Space>
+                    ),
+                },
+              ]}
+            />
+          </Form>
           {hasIncompleteLines && (
             <Typography.Text type="danger" style={{ display: "block", marginBottom: 16 }}>
               Есть незаполненные строки (подсвечены) — нажмите «Изменить» и подберите деталь/материал, либо уберите строку.
@@ -519,23 +630,6 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
       >
         Создать задание ({manualLines.length} строк(и))
       </Button>
-
-      <Modal
-        title="Изменить строку"
-        open={editingIndex !== null}
-        onCancel={() => setEditingIndex(null)}
-        footer={null}
-        destroyOnHidden
-      >
-        <ManualLineFields
-          form={editRowForm}
-          area={taskArea}
-          skuOptions={skuOptions}
-          skus={skusQuery.data}
-          onFinish={saveEditedLine}
-          submitLabel="Сохранить строку"
-        />
-      </Modal>
     </Modal>
   );
 }
