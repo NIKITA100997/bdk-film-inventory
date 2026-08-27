@@ -3,6 +3,7 @@ import {
   Card,
   Radio,
   Switch,
+  Checkbox,
   Button,
   Space,
   Select,
@@ -91,6 +92,11 @@ export default function MaterialsExplorer() {
 
   const [viewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
   const [donorOnly, setDonorOnly] = useState(false);
+  // Раздел про архивные позиции в "Остатках" — без группировки по
+  // производителю остаток архивной позиции молча подмешивался в сумму
+  // активной с тем же материалом/цветом/толщиной; по умолчанию скрыт, тот
+  // же переключатель, что уже есть на "Карточке материала".
+  const [showArchived, setShowArchived] = useState(false);
   const [filters, setFilters] = useState<SearchParams>(
     isUchastka ? { status: "Выдан_участку", area: user?.area ?? undefined } : {},
   );
@@ -122,8 +128,8 @@ export default function MaterialsExplorer() {
   });
 
   const positionsQuery = useQuery({
-    queryKey: ["materials-explorer", "positions", filters.manufacturer],
-    queryFn: () => getStockSummary(undefined, filters.manufacturer),
+    queryKey: ["materials-explorer", "positions", filters.manufacturer, showArchived],
+    queryFn: () => getStockSummary(undefined, filters.manufacturer, showArchived),
     enabled: viewMode === "positions",
   });
   // Раздел про остатки по конкретному складу — отдельное состояние от
@@ -301,6 +307,11 @@ export default function MaterialsExplorer() {
               <Radio.Button value="positions">По позициям материала</Radio.Button>
               <Radio.Button value="units">По физическим единицам</Radio.Button>
             </Radio.Group>
+            {viewMode === "positions" && (
+              <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+                Показывать архивные
+              </Checkbox>
+            )}
             {canManageAbc && (
               <Button onClick={() => recomputeMutation.mutate()} loading={recomputeMutation.isPending}>
                 Пересчитать ABC

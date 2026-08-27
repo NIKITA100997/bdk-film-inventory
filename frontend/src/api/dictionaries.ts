@@ -52,8 +52,10 @@ export const createPart = async (payload: PartCreate): Promise<Part> => (await a
 export const updatePart = async (id: number, payload: PartUpdate): Promise<Part> =>
   (await apiClient.patch<Part>(`/parts/${id}`, payload)).data;
 
-export const listMaterialSkus = async (): Promise<MaterialSku[]> =>
-  (await apiClient.get<MaterialSku[]>("/material-skus")).data;
+// in_stock_only (раздел про нулевые позиции при выдаче) — сужает до
+// позиций, у которых реально есть остаток "На хранении" прямо сейчас.
+export const listMaterialSkus = async (inStockOnly = false): Promise<MaterialSku[]> =>
+  (await apiClient.get<MaterialSku[]>("/material-skus", { params: { in_stock_only: inStockOnly } })).data;
 
 export interface MaterialSkuCreate {
   material: string;

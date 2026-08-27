@@ -10,7 +10,7 @@ from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Employee, Manufacturer, Material, MaterialSku, Part, SkuAnalog, Thickness
 from app.models.events import MaterialEvent
-from app.models.units import MaterialUnit
+from app.models.units import MaterialUnit, UnitStatus
 from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.dictionaries import (
     AnalogEntryOut,
@@ -343,8 +343,18 @@ def _skus_query(db: Session):
 
 
 @router.get("/material-skus", response_model=list[MaterialSkuOut])
-def list_material_skus(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[MaterialSku]:
-    return _skus_query(db).filter(MaterialSku.is_active).all()
+def list_material_skus(
+    in_stock_only: bool = False, db: Session = Depends(get_db), user=Depends(get_current_user)
+) -> list[MaterialSku]:
+    """in_stock_only (раздел про нулевые позиции при выдаче) — сужает до
+    позиций, у которых реально есть остаток "На хранении" прямо сейчас;
+    без этого в ручном подборе на выдаче можно было выбрать позицию, у
+    которой физически нечего выдавать."""
+    query = _skus_query(db).filter(MaterialSku.is_active)
+    if in_stock_only:
+        in_stock_ids = db.query(MaterialUnit.material_sku_id).filter(MaterialUnit.status == UnitStatus.NA_KHRANENII).distinct()
+        query = query.filter(MaterialSku.id.in_(in_stock_ids))
+    return query.all()
 
 
 @router.get("/material-skus/all", response_model=list[MaterialSkuOut])

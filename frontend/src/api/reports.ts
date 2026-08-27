@@ -64,8 +64,16 @@ export interface StaleUnitLine {
   days_idle: number;
 }
 
-export const getStockSummary = async (warehouseId?: number, manufacturer?: string): Promise<StockSummaryLine[]> =>
-  (await apiClient.get<StockSummaryLine[]>("/reports/stock-summary", { params: { warehouse_id: warehouseId, manufacturer } })).data;
+export const getStockSummary = async (
+  warehouseId?: number,
+  manufacturer?: string,
+  showArchived?: boolean,
+): Promise<StockSummaryLine[]> =>
+  (
+    await apiClient.get<StockSummaryLine[]>("/reports/stock-summary", {
+      params: { warehouse_id: warehouseId, manufacturer, show_archived: showArchived },
+    })
+  ).data;
 
 export const getStockByWidth = async (warehouseId?: number): Promise<StockByWidthLine[]> =>
   (await apiClient.get<StockByWidthLine[]>("/reports/stock-by-width", { params: { warehouse_id: warehouseId } })).data;

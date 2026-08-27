@@ -117,7 +117,7 @@ export default function Overview() {
   // 2.2), источник потребности виден только тому, кто зашёл специально.
   const blanksQuery = useQuery({ queryKey: ["blanks-demand", "overview"], queryFn: getBlanksDemand, enabled: showBlanks });
   const blanksDeficitCount = (blanksQuery.data ?? []).filter((r) => r.deficit_length_m > 0).length;
-  const skusQuery = useQuery({ queryKey: ["material-skus", "overview"], queryFn: listMaterialSkus, enabled: showSales });
+  const skusQuery = useQuery({ queryKey: ["material-skus", "overview"], queryFn: () => listMaterialSkus(), enabled: showSales });
   // Раздел про недостающие показатели на "Обзоре" — рулоны/штрипсы,
   // общий остаток и отклонения при резке уже считаются в отчётах, но
   // нигде не всплывали как сигнал на главном экране (та же проблема,

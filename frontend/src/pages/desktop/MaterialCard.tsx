@@ -226,7 +226,10 @@ export default function MaterialCard() {
   // редактировать (объединение "Остатков" и бывшей "Номенклатуры" по итогам
   // продуктового разбора — раньше архивные позиции были видны только на
   // отдельном администраторском экране).
-  const skusQuery = useQuery({ queryKey: ["material-skus", canEdit ? "all" : "active"], queryFn: canEdit ? listAllMaterialSkus : listMaterialSkus });
+  const skusQuery = useQuery({
+    queryKey: ["material-skus", canEdit ? "all" : "active"],
+    queryFn: () => (canEdit ? listAllMaterialSkus() : listMaterialSkus()),
+  });
   const qc = useQueryClient();
 
   useEffect(() => {

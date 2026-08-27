@@ -71,7 +71,7 @@ export default function InventoryDesktop() {
 
   const sessionsQuery = useQuery({ queryKey: ["inventory-sessions"], queryFn: listSessions });
   const racksQuery = useQuery({ queryKey: ["racks"], queryFn: () => listRacks() });
-  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
+  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
 
   const participantNames = (ids: number[]) =>

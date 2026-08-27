@@ -42,7 +42,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   const [selectedSkuId, setSelectedSkuId] = useState<number>();
 
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
-  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
+  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));

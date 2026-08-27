@@ -36,7 +36,7 @@ export default function SalesCalculator() {
   const [skuId, setSkuId] = useState<number | undefined>();
   const [neededM2, setNeededM2] = useState<number | undefined>();
 
-  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
+  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
   const analogsQuery = useQuery({
     queryKey: ["sku-analogs", skuId],
     queryFn: () => getSkuAnalogs(skuId!),

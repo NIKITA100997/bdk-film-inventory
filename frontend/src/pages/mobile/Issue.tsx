@@ -334,7 +334,13 @@ export default function Issue() {
   // фиксируется по факту через день-два после самого события.
   const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
 
-  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: listMaterialSkus });
+  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
+  // Раздел про нулевые позиции при выдаче — отдельный запрос только для
+  // списка в ручном подборе (skusQuery выше нужен целиком, включая
+  // позиции без остатка: findSku по строке задания должен находить их
+  // тоже, иначе очередь по заданию не сможет предложить донора/заявку на
+  // нехватку для материала, которого сейчас физически нет вообще).
+  const manualSkusQuery = useQuery({ queryKey: ["material-skus", "in-stock"], queryFn: () => listMaterialSkus(true) });
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
@@ -1075,7 +1081,8 @@ export default function Issue() {
                         showSearch
                         style={{ width: "100%" }}
                         placeholder="Позиция материала"
-                        options={(skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
+                        loading={manualSkusQuery.isLoading}
+                        options={(manualSkusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
                         filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
                         value={manualSkuId ?? undefined}
                         onChange={(v) => {

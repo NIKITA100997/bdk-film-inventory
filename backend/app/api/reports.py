@@ -50,6 +50,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 def stock_summary(
     warehouse_id: int | None = None,
     manufacturer: str | None = None,
+    show_archived: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[StockSummaryLine]:
@@ -57,7 +58,13 @@ def stock_summary(
     учёта производителя, как и заявка на плёнку (2.7). `manufacturer` —
     необязательный фильтр исходных единиц (раздел про недостающий поиск
     по производителю на вкладке "По позициям материала"), не меняет
-    группировку — просто сужает, чей сток считается."""
+    группировку — просто сужает, чей сток считается.
+
+    show_archived (раздел про архивные позиции в "Остатках") — без
+    группировки по производителю остаток архивной позиции раньше молча
+    подмешивался в сумму активной с тем же материалом/цветом/толщиной;
+    по умолчанию архивные исключены, тот же принцип, что уже на "Карточке
+    материала" (показывать архивные — отдельным явным переключателем)."""
     query = (
         db.query(
             Material.name,
@@ -72,6 +79,8 @@ def stock_summary(
         .join(Thickness, MaterialSku.thickness_id == Thickness.id)
         .filter(MaterialUnit.status != UnitStatus.SPISAN)
     )
+    if not show_archived:
+        query = query.filter(MaterialSku.is_active)
     if manufacturer:
         query = query.join(Manufacturer, MaterialSku.manufacturer_id == Manufacturer.id).filter(Manufacturer.name == manufacturer)
     query = _filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
