@@ -128,15 +128,18 @@ export default function MaterialsExplorer() {
     queryFn: () => listWriteOffReasons("warehouse"),
   });
 
-  const positionsQuery = useQuery({
-    queryKey: ["materials-explorer", "positions", filters.manufacturer, showArchived],
-    queryFn: () => getStockSummary(undefined, filters.manufacturer, showArchived),
-    enabled: viewMode === "positions",
-  });
   // Раздел про остатки по конкретному складу — отдельное состояние от
   // остальных фильтров (тот же хук, что уже даёт "Отчёты"), сливается с
-  // filters только в момент запроса.
+  // filters только в момент запроса. Один и тот же выбор склада работает
+  // в обоих режимах ("по позициям" и "по единицам") — раньше warehouseId
+  // передавался только в поиск по единицам, "по позициям" всегда получал
+  // undefined и показывал остаток по всем складам сразу.
   const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
+  const positionsQuery = useQuery({
+    queryKey: ["materials-explorer", "positions", filters.manufacturer, showArchived, warehouseId],
+    queryFn: () => getStockSummary(warehouseId, filters.manufacturer, showArchived),
+    enabled: viewMode === "positions",
+  });
   const unitsQuery = useQuery({
     queryKey: ["materials-explorer", "units", filters, warehouseId],
     queryFn: () => searchUnits({ ...filters, warehouse_id: warehouseId }),
@@ -317,9 +320,12 @@ export default function MaterialsExplorer() {
               <Radio.Button value="units">По физическим единицам</Radio.Button>
             </Radio.Group>
             {viewMode === "positions" && (
-              <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
-                Показывать архивные
-              </Checkbox>
+              <>
+                <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+                  Показывать архивные
+                </Checkbox>
+                {warehousePicker}
+              </>
             )}
             {canManageAbc && (
               <Button onClick={() => recomputeMutation.mutate()} loading={recomputeMutation.isPending}>

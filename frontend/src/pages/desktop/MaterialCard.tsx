@@ -22,11 +22,13 @@ import {
   type AnalogEntry,
 } from "../../api/dictionaries";
 import { getMaterialCard } from "../../api/materialCards";
+import { listWarehouses } from "../../api/storage";
 import { reassignUnitSku, receiveAndAutoPlace, printLabel, skuLabel, type MaterialSku, type MaterialUnit } from "../../api/units";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import OccurredAtField from "../../components/OccurredAtField";
 import { useAuth } from "../../auth/AuthContext";
 import { toOccurredAtIso } from "../../utils/occurredAt";
+import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import type { Dayjs } from "dayjs";
 
 interface MaterialCardPrefill {
@@ -276,17 +278,31 @@ export default function MaterialCard() {
     enabled: !!skuId,
   });
 
+  // Раздел про выбор конкретного склада на карточке материала — units уже
+  // несут warehouse_name (см. byWarehouse ниже), но раньше это можно было
+  // только посмотреть, а не отфильтровать. Тот же хук, что уже даёт выбор
+  // склада в "Остатках"/"Отчётах"; сопоставляем выбранный id с именем
+  // склада, потому что MaterialUnitOut отдаёт только имя, не id.
+  const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  const selectedWarehouseName = warehousesQuery.data?.find((w) => w.id === warehouseId)?.name;
+
+  const scopedUnits = useMemo(() => {
+    const units = cardQuery.data?.units ?? [];
+    if (!selectedWarehouseName) return units;
+    return units.filter((u) => u.warehouse_name === selectedWarehouseName);
+  }, [cardQuery.data, selectedWarehouseName]);
+
   const byWidth = useMemo(() => {
-    if (!cardQuery.data) return [];
     const groups = new Map<number, { width_mm: number; length_m: number; locations: Set<string> }>();
-    for (const u of cardQuery.data.units) {
+    for (const u of scopedUnits) {
       const g = groups.get(u.width_mm) ?? { width_mm: u.width_mm, length_m: 0, locations: new Set() };
       g.length_m += u.length_m;
       g.locations.add(u.location_code ?? u.area ?? "—");
       groups.set(u.width_mm, g);
     }
     return [...groups.values()].sort((a, b) => b.width_mm - a.width_mm);
-  }, [cardQuery.data]);
+  }, [scopedUnits]);
 
   // Раздел про остатки по складам в карточке материала — раньше был один
   // общий "Общий остаток" без разбивки; warehouse_name уже приходит на
@@ -307,26 +323,28 @@ export default function MaterialCard() {
     return [...groups.values()].sort((a, b) => b.area_m2 - a.area_m2);
   }, [cardQuery.data]);
 
+  const scopedTotalAreaM2 = useMemo(
+    () => scopedUnits.reduce((sum, u) => sum + (u.width_mm * u.length_m) / 1000, 0),
+    [scopedUnits],
+  );
+
   const filteredUnits = useMemo(() => {
-    const units = cardQuery.data?.units ?? [];
-    return units.filter(
+    return scopedUnits.filter(
       (u) => (minWidthFilter == null || u.width_mm >= minWidthFilter) && (minLengthFilter == null || u.length_m >= minLengthFilter),
     );
-  }, [cardQuery.data, minWidthFilter, minLengthFilter]);
+  }, [scopedUnits, minWidthFilter, minLengthFilter]);
 
   const statusCounts = useMemo(() => {
-    if (!cardQuery.data) return {} as Record<string, number>;
     const counts: Record<string, number> = {};
-    for (const u of cardQuery.data.units) counts[u.status] = (counts[u.status] ?? 0) + 1;
+    for (const u of scopedUnits) counts[u.status] = (counts[u.status] ?? 0) + 1;
     return counts;
-  }, [cardQuery.data]);
+  }, [scopedUnits]);
 
   // Раздел про недостающий разбор рулон/штрипс — is_strip уже есть на
   // каждой единице, тот же приём агрегации, что statusCounts выше.
   const rollStripCounts = useMemo(() => {
     const result = { rolls: 0, rollsLengthM: 0, strips: 0, stripsLengthM: 0 };
-    if (!cardQuery.data) return result;
-    for (const u of cardQuery.data.units) {
+    for (const u of scopedUnits) {
       if (u.is_strip) {
         result.strips += 1;
         result.stripsLengthM += u.length_m;
@@ -336,7 +354,7 @@ export default function MaterialCard() {
       }
     }
     return result;
-  }, [cardQuery.data]);
+  }, [scopedUnits]);
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -362,6 +380,7 @@ export default function MaterialCard() {
           value={skuId ?? undefined}
           onChange={setSkuId}
         />
+        {warehousePicker && selectedSku && <span style={{ marginLeft: 12 }}>{warehousePicker}</span>}
 
         {selectedSku && (
           <Space direction="vertical" size="small" style={{ marginTop: 16, width: "100%" }}>
@@ -429,7 +448,11 @@ export default function MaterialCard() {
           <Card>
             <Row gutter={[16, 16]}>
               <Col xs={24} sm={12} md={8}>
-                <Statistic title="Общий остаток" value={cardQuery.data.total_area_m2} suffix="м²" />
+                <Statistic
+                  title={selectedWarehouseName ? `Остаток — ${selectedWarehouseName}` : "Общий остаток"}
+                  value={selectedWarehouseName ? Math.round(scopedTotalAreaM2 * 100) / 100 : cardQuery.data.total_area_m2}
+                  suffix="м²"
+                />
               </Col>
               <Col xs={24} sm={12} md={8}>
                 <Statistic title="Ширин в наличии" value={byWidth.length} />
@@ -443,7 +466,7 @@ export default function MaterialCard() {
             </Row>
           </Card>
 
-          {byWarehouse.length > 1 && (
+          {byWarehouse.length > 1 && !selectedWarehouseName && (
             <Card title="По складам">
               <Row gutter={[16, 16]}>
                 {byWarehouse.map((w) => (
