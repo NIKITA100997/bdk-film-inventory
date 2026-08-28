@@ -46,6 +46,7 @@ import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionarie
 import { listRacks, suggestLocation } from "../../api/storage";
 import { listAreas } from "../../api/areas";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import ExistingSkuPicker from "../../components/ExistingSkuPicker";
 import OccurredAtField from "../../components/OccurredAtField";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { useAuth } from "../../auth/AuthContext";
@@ -509,6 +510,18 @@ export default function MaterialsExplorer() {
       <Modal title="Новая позиция материала" open={createPositionOpen} onCancel={() => setCreatePositionOpen(false)} footer={null} destroyOnHidden>
         <Typography.Paragraph type="secondary">Без физического рулона — например, под будущую поставку.</Typography.Paragraph>
         <Form form={positionForm} layout="vertical" onFinish={(v) => createPositionMutation.mutate(v)}>
+          <Form.Item style={{ marginBottom: 16 }}>
+            <ExistingSkuPicker
+              onSelect={(sku) =>
+                positionForm.setFieldsValue({
+                  material: sku.material.name,
+                  color: sku.color.name,
+                  thickness: sku.thickness.value_mm,
+                  manufacturer: sku.manufacturer.name,
+                })
+              }
+            />
+          </Form.Item>
           <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
             <DictAutoComplete kind="materials" />
           </Form.Item>
@@ -555,6 +568,18 @@ export default function MaterialsExplorer() {
                 { label: "Штрипс", value: true },
               ]}
               optionType="button"
+            />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 16 }}>
+            <ExistingSkuPicker
+              onSelect={(sku) =>
+                unitForm.setFieldsValue({
+                  material: sku.material.name,
+                  color: sku.color.name,
+                  thickness: sku.thickness.value_mm,
+                  manufacturer: sku.manufacturer.name,
+                })
+              }
             />
           </Form.Item>
           <Form.Item name="material" label="Материал" rules={[{ required: true }]}>

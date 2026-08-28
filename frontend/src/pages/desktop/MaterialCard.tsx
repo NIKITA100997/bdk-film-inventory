@@ -288,6 +288,25 @@ export default function MaterialCard() {
     return [...groups.values()].sort((a, b) => b.width_mm - a.width_mm);
   }, [cardQuery.data]);
 
+  // Раздел про остатки по складам в карточке материала — раньше был один
+  // общий "Общий остаток" без разбивки; warehouse_name уже приходит на
+  // каждой единице (backend/app/api/material_cards.py, тот же приём, что
+  // уже даёт search_units в "Остатках"). Показываем разбивку только когда
+  // складов реально больше одного — если склад один (как у большинства
+  // позиций), ничего визуально не меняется.
+  const byWarehouse = useMemo(() => {
+    if (!cardQuery.data) return [];
+    const groups = new Map<string, { name: string; area_m2: number; count: number }>();
+    for (const u of cardQuery.data.units) {
+      const name = u.warehouse_name ?? "Без склада";
+      const g = groups.get(name) ?? { name, area_m2: 0, count: 0 };
+      g.area_m2 += (u.width_mm * u.length_m) / 1000;
+      g.count += 1;
+      groups.set(name, g);
+    }
+    return [...groups.values()].sort((a, b) => b.area_m2 - a.area_m2);
+  }, [cardQuery.data]);
+
   const filteredUnits = useMemo(() => {
     const units = cardQuery.data?.units ?? [];
     return units.filter(
@@ -424,6 +443,22 @@ export default function MaterialCard() {
             </Row>
           </Card>
 
+          {byWarehouse.length > 1 && (
+            <Card title="По складам">
+              <Row gutter={[16, 16]}>
+                {byWarehouse.map((w) => (
+                  <Col xs={12} sm={8} md={6} key={w.name}>
+                    <Statistic
+                      title={w.name}
+                      value={Math.round(w.area_m2 * 100) / 100}
+                      suffix={`м² · ${w.count} шт`}
+                    />
+                  </Col>
+                ))}
+              </Row>
+            </Card>
+          )}
+
           <Card title="Остатки по ширинам — где физически искать">
             <Table
               rowKey="width_mm"
@@ -479,6 +514,7 @@ export default function MaterialCard() {
                 { title: "ID", dataIndex: "id" },
                 { title: "Ширина×длина", render: (_, u) => `${u.width_mm}×${u.length_m}` },
                 { title: "Статус", dataIndex: "status" },
+                { title: "Склад", render: (_, u) => u.warehouse_name ?? "—" },
                 { title: "Адрес/участок", render: (_, u) => u.location_code ?? u.area ?? "—" },
                 ...(canEdit
                   ? [

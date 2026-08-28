@@ -10,8 +10,11 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.abc import WidthAbcClass
 from app.models.dictionaries import Color, Employee, Manufacturer, Material, MaterialSku, Thickness
-from app.models.purchasing import Supplier
+from app.models.production import ProductionTaskLine
+from app.models.purchasing import PurchaseRequest, Supplier
+from app.models.storage import MacroZoneRule
 from app.models.units import MaterialUnit, UnitStatus
 
 
@@ -116,3 +119,48 @@ def current_stock_m2(db: Session, *, material_id: int, color_id: int, thickness_
         .scalar()
     )
     return round(float(total or 0) / 1000, 3)
+
+
+# Раздел про удаление неиспользуемых записей справочника — материал/цвет/
+# толщина упоминаются напрямую (не только через MaterialSku) ещё в четырёх
+# таблицах: MacroZoneRule (правило зонирования, поля необязательные — NULL
+# означает "любое значение", а не привязку к конкретной записи, потому
+# фильтруем именно на равенство id, не просто на непустоту строки),
+# WidthAbcClass/ProductionTaskLine/PurchaseRequest (везде обязательные).
+# Производитель — только в MaterialSku/MacroZoneRule, третьей стороны у него
+# нет ни в одной из остальных трёх таблиц.
+def material_in_use(db: Session, material_id: int) -> bool:
+    return (
+        db.query(MaterialSku.id).filter(MaterialSku.material_id == material_id).first() is not None
+        or db.query(MacroZoneRule.id).filter(MacroZoneRule.material_id == material_id).first() is not None
+        or db.query(WidthAbcClass.id).filter(WidthAbcClass.material_id == material_id).first() is not None
+        or db.query(ProductionTaskLine.id).filter(ProductionTaskLine.material_id == material_id).first() is not None
+        or db.query(PurchaseRequest.id).filter(PurchaseRequest.material_id == material_id).first() is not None
+    )
+
+
+def color_in_use(db: Session, color_id: int) -> bool:
+    return (
+        db.query(MaterialSku.id).filter(MaterialSku.color_id == color_id).first() is not None
+        or db.query(MacroZoneRule.id).filter(MacroZoneRule.color_id == color_id).first() is not None
+        or db.query(WidthAbcClass.id).filter(WidthAbcClass.color_id == color_id).first() is not None
+        or db.query(ProductionTaskLine.id).filter(ProductionTaskLine.color_id == color_id).first() is not None
+        or db.query(PurchaseRequest.id).filter(PurchaseRequest.color_id == color_id).first() is not None
+    )
+
+
+def thickness_in_use(db: Session, thickness_id: int) -> bool:
+    return (
+        db.query(MaterialSku.id).filter(MaterialSku.thickness_id == thickness_id).first() is not None
+        or db.query(MacroZoneRule.id).filter(MacroZoneRule.thickness_id == thickness_id).first() is not None
+        or db.query(WidthAbcClass.id).filter(WidthAbcClass.thickness_id == thickness_id).first() is not None
+        or db.query(ProductionTaskLine.id).filter(ProductionTaskLine.thickness_id == thickness_id).first() is not None
+        or db.query(PurchaseRequest.id).filter(PurchaseRequest.thickness_id == thickness_id).first() is not None
+    )
+
+
+def manufacturer_in_use(db: Session, manufacturer_id: int) -> bool:
+    return (
+        db.query(MaterialSku.id).filter(MaterialSku.manufacturer_id == manufacturer_id).first() is not None
+        or db.query(MacroZoneRule.id).filter(MacroZoneRule.manufacturer_id == manufacturer_id).first() is not None
+    )

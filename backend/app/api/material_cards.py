@@ -8,6 +8,8 @@ from app.models.events import MaterialEvent
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
 from app.schemas.material_cards import MaterialCardOut
+from app.schemas.units import MaterialUnitOut
+from app.services.warehouses import rack_warehouse_names, resolve_warehouse_name
 
 router = APIRouter(prefix="/material-cards", tags=["material-cards"])
 
@@ -44,6 +46,15 @@ def get_material_card(sku_id: int, db: Session = Depends(get_db), user: User = D
     )
     total_area_m2 = round(sum(float(u.width_mm) * float(u.length_m) / 1000 for u in units), 3)
 
+    # Название склада по единице (раздел про остатки по складам в карточке
+    # материала) — того же приёма, что уже есть в search_units, здесь не
+    # было вообще: MaterialUnitOut.warehouse_name оставался пустым.
+    names = rack_warehouse_names(db)
+    units_out = [
+        MaterialUnitOut.model_validate(u).model_copy(update={"warehouse_name": resolve_warehouse_name(names, u.location_code)})
+        for u in units
+    ]
+
     events = (
         db.query(MaterialEvent)
         .filter(MaterialEvent.material_sku_id == sku_id)
@@ -55,6 +66,6 @@ def get_material_card(sku_id: int, db: Session = Depends(get_db), user: User = D
     return MaterialCardOut(
         sku=sku,
         total_area_m2=total_area_m2,
-        units=units,
+        units=units_out,
         events=events,
     )

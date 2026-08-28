@@ -7,6 +7,7 @@ import { receiveAndAutoPlace, printLabelsBatch, skuLabel, type MaterialUnit, typ
 import { listWarehouses } from "../../api/storage";
 import { listPurchaseRequests, fulfillPurchaseRequest } from "../../api/purchasing";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import ExistingSkuPicker from "../../components/ExistingSkuPicker";
 import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useDraftForm } from "../../hooks/useDraftForm";
@@ -165,6 +166,18 @@ export default function Receive() {
             onValuesChange={lineDraft.handleValuesChange}
             initialValues={{ quantity: 1 }}
           >
+            <Form.Item style={{ marginBottom: 16 }}>
+              <ExistingSkuPicker
+                onSelect={(sku) =>
+                  lineForm.setFieldsValue({
+                    material: sku.material.name,
+                    color: sku.color.name,
+                    thickness: sku.thickness.value_mm,
+                    manufacturer: sku.manufacturer.name,
+                  })
+                }
+              />
+            </Form.Item>
             <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
               <DictAutoComplete kind="materials" />
             </Form.Item>

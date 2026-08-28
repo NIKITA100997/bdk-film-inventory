@@ -1,20 +1,28 @@
 import { useState } from "react";
 import { Card, Tabs, Button, Input, InputNumber, Select, Tag, Space, Popconfirm, Typography, Empty, Checkbox, Modal, Form, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import {
   listAllNameDict,
   listNameDictDuplicates,
   createNameDictEntry,
   updateNameDictEntry,
+  deleteNameDictEntry,
   listAllThicknesses,
   createThicknessEntry,
   updateThicknessEntry,
+  deleteThicknessEntry,
   type NameDictKind,
   type DictEntry,
   type DuplicateCandidate,
   type ThicknessEntry,
 } from "../../api/dictionaries";
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
 import {
   listAllWriteOffReasons,
   createWriteOffReason,
@@ -75,6 +83,19 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
     onError: () => message.error("Не удалось сохранить — проверьте, что значение не занято"),
   });
 
+  // Настоящее удаление (раздел про чистку неиспользуемых записей) — только
+  // materials/colors/manufacturers, "employees" не FK-справочник и такого
+  // эндпоинта не имеет (см. deleteNameDictEntry).
+  const canDelete = kind !== "employees";
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteNameDictEntry(kind as Exclude<NameDictKind, "employees">, id),
+    onSuccess: () => {
+      invalidateDictCaches();
+      message.success("Удалено");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить")),
+  });
+
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Space style={{ width: "100%", justifyContent: "space-between" }}>
@@ -122,9 +143,9 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
           },
           {
             title: "",
-            width: 220,
+            width: 320,
             render: (_, entry) => (
-              <Space>
+              <Space wrap>
                 <Button
                   size="small"
                   disabled={!editing[entry.id] || editing[entry.id] === entry.name}
@@ -138,6 +159,17 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
                 >
                   {entry.is_active ? "В архив" : "Восстановить"}
                 </Button>
+                {canDelete && (
+                  <Popconfirm
+                    title={`Удалить «${entry.name}»?`}
+                    description="Насовсем — не в архив. Если значение где-то используется, удаление не пройдёт."
+                    onConfirm={() => deleteMutation.mutate(entry.id)}
+                  >
+                    <Button size="small" danger loading={deleteMutation.isPending}>
+                      Удалить
+                    </Button>
+                  </Popconfirm>
+                )}
               </Space>
             ),
           },
@@ -215,6 +247,15 @@ function ThicknessTab() {
     onError: () => message.error("Не удалось сохранить — такая толщина уже есть"),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteThicknessEntry(id),
+    onSuccess: () => {
+      invalidateThicknessCaches();
+      message.success("Удалено");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить")),
+  });
+
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Space style={{ width: "100%", justifyContent: "space-between" }}>
@@ -262,9 +303,9 @@ function ThicknessTab() {
         },
         {
           title: "",
-          width: 220,
+          width: 320,
           render: (_, entry) => (
-            <Space>
+            <Space wrap>
               <Button
                 size="small"
                 disabled={editing[entry.id] === undefined || editing[entry.id] === entry.value_mm}
@@ -278,6 +319,15 @@ function ThicknessTab() {
               >
                 {entry.is_active ? "В архив" : "Восстановить"}
               </Button>
+              <Popconfirm
+                title={`Удалить «${entry.value_mm} мм»?`}
+                description="Насовсем — не в архив. Если значение где-то используется, удаление не пройдёт."
+                onConfirm={() => deleteMutation.mutate(entry.id)}
+              >
+                <Button size="small" danger loading={deleteMutation.isPending}>
+                  Удалить
+                </Button>
+              </Popconfirm>
             </Space>
           ),
         },

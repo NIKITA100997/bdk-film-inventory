@@ -10,7 +10,6 @@ from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import MaterialSku
 from app.models.events import EventType, MaterialEvent
 from app.models.production import ProductionTaskLine, ProductionTaskLineReport
-from app.models.storage import Rack, Warehouse
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
 from app.models.write_off_reasons import WriteOffReasonEntry
@@ -55,7 +54,7 @@ from app.services.splitting import (
     split_lengthwise,
     split_lengthwise_multi,
 )
-from app.services.warehouses import filter_by_warehouse
+from app.services.warehouses import filter_by_warehouse, rack_warehouse_names, resolve_warehouse_name
 
 router = APIRouter(prefix="/units", tags=["units"])
 
@@ -1094,19 +1093,8 @@ def search_units(
     # относительно Rack.code), разрешаем один раз для всех стеллажей и
     # сопоставляем в python, тот же приём, что уже даёт rackForLocation() на
     # фронте (MaterialsExplorer.tsx).
-    rack_warehouse_names = {
-        code: name for code, name in db.query(Rack.code, Warehouse.name).join(Warehouse, Rack.warehouse_id == Warehouse.id).all()
-    }
-
-    def resolve_warehouse_name(location_code: str | None) -> str | None:
-        if not location_code:
-            return None
-        for code, name in rack_warehouse_names.items():
-            if location_code.startswith(f"{code}-"):
-                return name
-        return None
-
+    names = rack_warehouse_names(db)
     return [
-        MaterialUnitOut.model_validate(u).model_copy(update={"warehouse_name": resolve_warehouse_name(u.location_code)})
+        MaterialUnitOut.model_validate(u).model_copy(update={"warehouse_name": resolve_warehouse_name(names, u.location_code)})
         for u in units
     ]

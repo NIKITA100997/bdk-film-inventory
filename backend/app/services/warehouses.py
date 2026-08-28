@@ -2,7 +2,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import false
 
-from app.models.storage import Rack
+from app.models.storage import Rack, Warehouse
 
 
 def rack_codes_for_warehouse(db: Session, warehouse_id: int) -> list[str]:
@@ -22,3 +22,23 @@ def filter_by_warehouse(query, column, db: Session, warehouse_id: int | None):
     if not codes:
         return query.filter(false())
     return query.filter(or_(*[column.like(f"{code}-%") for code in codes]))
+
+
+def rack_warehouse_names(db: Session) -> dict[str, str]:
+    """Название склада по коду стеллажа — раньше жило инлайном только в
+    api/units.py::search_units, теперь общее и для "Карточки материала"
+    (get_material_card) тоже: у MaterialUnit нет прямого warehouse_id, только
+    префикс location_code относительно Rack.code."""
+    return {
+        code: name
+        for code, name in db.query(Rack.code, Warehouse.name).join(Warehouse, Rack.warehouse_id == Warehouse.id).all()
+    }
+
+
+def resolve_warehouse_name(names: dict[str, str], location_code: str | None) -> str | None:
+    if not location_code:
+        return None
+    for code, name in names.items():
+        if location_code.startswith(f"{code}-"):
+            return name
+    return None

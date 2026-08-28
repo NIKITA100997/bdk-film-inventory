@@ -43,7 +43,13 @@ from app.services.analogs import (
 )
 from app.services.deletion_requests import request_deletion
 from app.services.dict_admin import find_fuzzy_duplicates
-from app.services.dictionaries import find_or_create_sku
+from app.services.dictionaries import (
+    color_in_use,
+    find_or_create_sku,
+    manufacturer_in_use,
+    material_in_use,
+    thickness_in_use,
+)
 
 router = APIRouter(tags=["dictionaries"])
 
@@ -118,6 +124,22 @@ def update_material(
     return _update_name_entry(db, Material, material_id, payload)
 
 
+@router.delete("/materials/{material_id}", response_model=DeleteResultOut)
+def delete_material(material_id: int, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> DeleteResultOut:
+    """Настоящее удаление (не архив, как у MaterialSku) — раздел про чистку
+    неиспользуемых записей справочника. Лёгкая справочная запись без своей
+    истории событий, поэтому без ветки "заявка на удаление" для не-
+    суперпользователей — уже гейтится materials.manage, как и PATCH."""
+    obj = db.get(Material, material_id)
+    if obj is None:
+        raise HTTPException(404, "Материал не найден")
+    if material_in_use(db, material_id):
+        raise HTTPException(409, "Нельзя удалить — используется в позициях номенклатуры/правилах/заданиях/заявках")
+    db.delete(obj)
+    db.commit()
+    return DeleteResultOut(deleted=True, requested=False)
+
+
 @router.get("/colors", response_model=list[ColorOut])
 def list_colors(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[Color]:
     return db.query(Color).filter(Color.is_active).order_by(Color.name).all()
@@ -143,6 +165,18 @@ def update_color(
     color_id: int, payload: DictEntryUpdate, db: Session = Depends(get_db), user=Depends(manage_dicts)
 ) -> Color:
     return _update_name_entry(db, Color, color_id, payload)
+
+
+@router.delete("/colors/{color_id}", response_model=DeleteResultOut)
+def delete_color(color_id: int, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> DeleteResultOut:
+    obj = db.get(Color, color_id)
+    if obj is None:
+        raise HTTPException(404, "Цвет не найден")
+    if color_in_use(db, color_id):
+        raise HTTPException(409, "Нельзя удалить — используется в позициях номенклатуры/правилах/заданиях/заявках")
+    db.delete(obj)
+    db.commit()
+    return DeleteResultOut(deleted=True, requested=False)
 
 
 @router.get("/thicknesses", response_model=list[ThicknessOut])
@@ -188,6 +222,18 @@ def update_thickness(
     return obj
 
 
+@router.delete("/thicknesses/{thickness_id}", response_model=DeleteResultOut)
+def delete_thickness(thickness_id: int, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> DeleteResultOut:
+    obj = db.get(Thickness, thickness_id)
+    if obj is None:
+        raise HTTPException(404, "Значение справочника не найдено")
+    if thickness_in_use(db, thickness_id):
+        raise HTTPException(409, "Нельзя удалить — используется в позициях номенклатуры/правилах/заданиях/заявках")
+    db.delete(obj)
+    db.commit()
+    return DeleteResultOut(deleted=True, requested=False)
+
+
 @router.get("/manufacturers", response_model=list[ManufacturerOut])
 def list_manufacturers(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[Manufacturer]:
     return db.query(Manufacturer).filter(Manufacturer.is_active).order_by(Manufacturer.name).all()
@@ -213,6 +259,18 @@ def update_manufacturer(
     manufacturer_id: int, payload: DictEntryUpdate, db: Session = Depends(get_db), user=Depends(manage_dicts)
 ) -> Manufacturer:
     return _update_name_entry(db, Manufacturer, manufacturer_id, payload)
+
+
+@router.delete("/manufacturers/{manufacturer_id}", response_model=DeleteResultOut)
+def delete_manufacturer(manufacturer_id: int, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> DeleteResultOut:
+    obj = db.get(Manufacturer, manufacturer_id)
+    if obj is None:
+        raise HTTPException(404, "Производитель не найден")
+    if manufacturer_in_use(db, manufacturer_id):
+        raise HTTPException(409, "Нельзя удалить — используется в позициях номенклатуры/правилах")
+    db.delete(obj)
+    db.commit()
+    return DeleteResultOut(deleted=True, requested=False)
 
 
 @router.get("/employees", response_model=list[EmployeeOut])

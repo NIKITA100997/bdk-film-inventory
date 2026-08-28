@@ -119,6 +119,14 @@ export const updateNameDictEntry = async (
   payload: { name?: string; is_active?: boolean },
 ): Promise<DictEntry> => (await apiClient.patch<DictEntry>(`/${kind}/${id}`, payload)).data;
 
+// Настоящее удаление (не архив) — раздел про чистку неиспользуемых записей
+// справочника. Только materials/colors/manufacturers — у "employees" такого
+// эндпоинта нет (не FK-справочник, свободный текст в назначениях по дням).
+export const deleteNameDictEntry = async (
+  kind: Exclude<NameDictKind, "employees">,
+  id: number,
+): Promise<DeleteResult> => (await apiClient.delete<DeleteResult>(`/${kind}/${id}`)).data;
+
 export const listAllThicknesses = async (): Promise<ThicknessEntry[]> =>
   (await apiClient.get<ThicknessEntry[]>("/thicknesses/all")).data;
 
@@ -129,6 +137,9 @@ export const updateThicknessEntry = async (
   id: number,
   payload: { value_mm?: number; is_active?: boolean },
 ): Promise<ThicknessEntry> => (await apiClient.patch<ThicknessEntry>(`/thicknesses/${id}`, payload)).data;
+
+export const deleteThicknessEntry = async (id: number): Promise<DeleteResult> =>
+  (await apiClient.delete<DeleteResult>(`/thicknesses/${id}`)).data;
 
 // Аналоги позиций и фото плёнки (8 раздел обратной связи) — ручная привязка
 // логистом/админом, признак неликвида считает бэкенд (services/analogs.py).

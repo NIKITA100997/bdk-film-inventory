@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { receiveUnits, printLabel, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
 import { listRacks, getRackOccupancy } from "../../api/storage";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import ExistingSkuPicker from "../../components/ExistingSkuPicker";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 
 type LineValues = {
@@ -157,6 +158,18 @@ export default function InitialStock() {
                   value: c.shelf,
                   label: c.capacity > 1 ? `Полка ${c.shelf} — ${c.units.length} из ${c.capacity}` : `Полка ${c.shelf} — свободно`,
                 }))}
+              />
+            </Form.Item>
+            <Form.Item style={{ marginBottom: 16 }}>
+              <ExistingSkuPicker
+                onSelect={(sku) =>
+                  lineForm.setFieldsValue({
+                    material: sku.material.name,
+                    color: sku.color.name,
+                    thickness: String(sku.thickness.value_mm),
+                    manufacturer: sku.manufacturer.name,
+                  })
+                }
               />
             </Form.Item>
             <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
