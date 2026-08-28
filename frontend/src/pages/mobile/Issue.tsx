@@ -371,13 +371,21 @@ export default function Issue() {
   // производство ещё не отчиталось о готовых деталях. Довыдача
   // открывается заново только отчётом о браке (см.
   // compute_shortfall_length_m) — сам факт остатка штук её не включает.
+  // task.is_active — заархивированное задание (раздел про удаление
+  // сущностей — задание с реальной историей выдачи нельзя удалить,
+  // только заархивировать) не должно ни просить довыдать плёнку, ни
+  // висеть в ленте расхода: экран "Выдача" раньше вообще не смотрел на
+  // is_active, и заархивированное тестовое задание с ещё не выданными
+  // строками продолжало значиться в очереди как реальная потребность.
   const activeLines = useMemo(
     () =>
-      (tasksQuery.data ?? []).flatMap((task) =>
-        task.lines
-          .filter((line) => line.remaining_pieces > 0 && line.shortfall_length_m > 0)
-          .map((line) => ({ task, line })),
-      ),
+      (tasksQuery.data ?? [])
+        .filter((task) => task.is_active)
+        .flatMap((task) =>
+          task.lines
+            .filter((line) => line.remaining_pieces > 0 && line.shortfall_length_m > 0)
+            .map((line) => ({ task, line })),
+        ),
     [tasksQuery.data],
   );
 
@@ -402,12 +410,15 @@ export default function Issue() {
 
   // "Выдано по заданиям" — по всем строкам, не только активным
   // (remaining_pieces > 0): завершённая строка с уже выданной плёнкой
-  // остаётся в ленте расхода, это не список "что ещё нужно выдать".
+  // остаётся в ленте расхода, это не список "что ещё нужно выдать". Но
+  // заархивированное задание (task.is_active) — уже нет, ленту расхода
+  // рабочего экрана "Выдача" оно засорять не должно (сама история
+  // событий никуда не девается, просто здесь не показывается).
   const issuedLines = useMemo(
     () =>
-      (tasksQuery.data ?? []).flatMap((task) =>
-        task.lines.filter((line) => line.issued_length_m > 0).map((line) => ({ task, line })),
-      ),
+      (tasksQuery.data ?? [])
+        .filter((task) => task.is_active)
+        .flatMap((task) => task.lines.filter((line) => line.issued_length_m > 0).map((line) => ({ task, line }))),
     [tasksQuery.data],
   );
 
