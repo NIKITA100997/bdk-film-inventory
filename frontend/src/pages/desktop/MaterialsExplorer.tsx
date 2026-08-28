@@ -929,13 +929,20 @@ function BulkCutModal({ onClose }: { onClose: () => void }) {
             dataSource={results}
             renderItem={(r) => (
               <List.Item>
-                №{r.id} — было {r.before} м, осталось {r.after} м
+                №{r.id} — было {r.before} м, осталось {r.after} м{r.after === 0 && " — списан полностью"}
               </List.Item>
             )}
           />
-          <Button style={{ marginTop: 8 }} block onClick={() => printLabelsBatch(results.map((r) => r.id))}>
-            Распечатать все бирки ({results.length})
-          </Button>
+          {(() => {
+            const stillActiveIds = results.filter((r) => r.after > 0).map((r) => r.id);
+            return (
+              stillActiveIds.length > 0 && (
+                <Button style={{ marginTop: 8 }} block onClick={() => printLabelsBatch(stillActiveIds)}>
+                  Распечатать бирки с остатком ({stillActiveIds.length})
+                </Button>
+              )
+            );
+          })()}
         </>
       )}
     </Modal>
