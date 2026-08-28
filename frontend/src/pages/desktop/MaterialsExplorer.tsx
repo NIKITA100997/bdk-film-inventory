@@ -89,6 +89,11 @@ export default function MaterialsExplorer() {
   const canCut = !!user?.is_superuser || !!user?.permissions.includes("units.cut");
   const canPlace = !!user?.is_superuser || !!user?.permissions.includes("units.place");
   const canEditSku = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
+  // Раздел про аудит прав — "+ Новое" показывалось всем на этой намеренно
+  // открытой всем странице (/stock), хотя оба пункта — мутирующие действия
+  // с реальной проверкой на бэкенде (dictionaries.py:378, units.py:116).
+  const canReceive = !!user?.is_superuser || !!user?.permissions.includes("units.receive");
+  const canCreatePosition = canReceive || canEditSku;
   const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
 
   const [viewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
@@ -280,19 +285,21 @@ export default function MaterialsExplorer() {
         extra={
           <Space>
             {canCut && <Button onClick={() => setBulkCutOpen(true)}>Списать метраж</Button>}
-            <Dropdown
-              menu={{
-                items: [
-                  { key: "position", label: "Материал — позиция без рулона" },
-                  { key: "unit", label: "Единица плёнки — один рулон/штрипс вне сессии" },
-                ],
-                onClick: ({ key }) => (key === "position" ? setCreatePositionOpen(true) : setCreateUnitOpen(true)),
-              }}
-            >
-              <Button type="primary">
-                + Новое <DownOutlined />
-              </Button>
-            </Dropdown>
+            {canCreatePosition && (
+              <Dropdown
+                menu={{
+                  items: [
+                    ...(canCreatePosition ? [{ key: "position", label: "Материал — позиция без рулона" }] : []),
+                    ...(canReceive ? [{ key: "unit", label: "Единица плёнки — один рулон/штрипс вне сессии" }] : []),
+                  ],
+                  onClick: ({ key }) => (key === "position" ? setCreatePositionOpen(true) : setCreateUnitOpen(true)),
+                }}
+              >
+                <Button type="primary">
+                  + Новое <DownOutlined />
+                </Button>
+              </Dropdown>
+            )}
           </Space>
         }
       >

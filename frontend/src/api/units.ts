@@ -77,7 +77,21 @@ export async function receiveAndAutoPlace(
       is_strip: unit.is_strip,
       warehouse_id: warehouseId,
     });
-    placed.push(suggestion ? await placeUnit(unit.id, suggestion, payload.occurred_at) : unit);
+    if (!suggestion) {
+      placed.push(unit);
+      continue;
+    }
+    try {
+      // Раздел про аудит прав — единица уже реально создана (receiveUnits
+      // выше отработал), авто-размещение здесь просто дополнительный шаг
+      // поверх. Если оно падает по любой причине (нет units.place, стеллаж
+      // занят и т.п.) — не роняем всю операцию с обманчивым "не удалось
+      // зарегистрировать", а просто оставляем единицу без места, как и в
+      // случае "правило зонирования не подобрало ничего" чуть выше.
+      placed.push(await placeUnit(unit.id, suggestion, payload.occurred_at));
+    } catch {
+      placed.push(unit);
+    }
   }
   return placed;
 }
