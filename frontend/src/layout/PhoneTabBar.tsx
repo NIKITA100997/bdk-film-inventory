@@ -18,7 +18,7 @@ interface PhoneTab extends NavItem {
 const PINNED_TABS: PhoneTab[] = [
   { key: "home", path: "/", label: "Сегодня", icon: <HomeOutlined /> },
   { key: "stock", path: "/stock", label: "Остатки", icon: <InboxOutlined /> },
-  { key: "issue", path: "/m/issue", label: "Выдача", icon: <ExportOutlined />, permissions: ["units.issue"] },
+  { key: "issue", path: "/m/issue", label: "Выдача", icon: <ExportOutlined />, permissions: ["units.issue", "units.return"] },
 ];
 const PINNED_PATHS = new Set(PINNED_TABS.map((t) => t.path));
 
