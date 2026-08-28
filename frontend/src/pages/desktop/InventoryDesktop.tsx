@@ -29,6 +29,7 @@ import {
   scanUnit,
   closeSession,
   resolveShortage,
+  getUnresolvedShortages,
   type InventoryScopeType,
   type InventorySession,
   type ScanResult,
@@ -149,7 +150,7 @@ export default function InventoryDesktop() {
     mutationFn: ({ sessionId, unitId, action }: { sessionId: number; unitId: number; action: "spisat" | "vernut_v_poisk" }) =>
       resolveShortage(sessionId, unitId, action, toOccurredAtIso(occurredAt)),
     onSuccess: (_, vars) => {
-      setCloseResult((r) => (r ? { ...r, shortages: r.shortages.filter((s) => s.id !== vars.unitId) } : r));
+      qc.invalidateQueries({ queryKey: ["inventory-shortages", vars.sessionId] });
       message.success("Решение сохранено");
     },
   });
@@ -314,15 +315,11 @@ function SessionPanel({
   occurredAt: Dayjs | null;
   setOccurredAt: (v: Dayjs | null) => void;
 }) {
-  if (session.status === "closed" && !closeResult) {
-    return (
-      <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-        Сессия закрыта. Ожидалось {session.expected_count}, отсканировано {session.scanned_count}. Подробности по
-        недостачам сохраняются только в момент закрытия — если сессию закрыли не в этом окне браузера, детали уже не
-        восстановить, только итоговые счётчики.
-      </Typography.Paragraph>
-    );
-  }
+  const shortagesQuery = useQuery({
+    queryKey: ["inventory-shortages", session.id],
+    queryFn: () => getUnresolvedShortages(session.id),
+    enabled: session.status === "closed",
+  });
 
   return (
     <div style={{ maxWidth: 900 }}>
@@ -458,54 +455,64 @@ function SessionPanel({
         </Row>
       )}
 
-      {closeResult && (
+      {session.status === "closed" && (
         <>
           <Divider style={{ margin: "8px 0 16px" }}>Итоги закрытия</Divider>
-          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col xs={12} sm={12} md={6}>
-              <Statistic title="Подтверждено" value={closeResult.confirmed_count} />
-            </Col>
-            <Col xs={12} sm={12} md={6}>
-              <Statistic title="Перемещено" value={closeResult.moved_count} />
-            </Col>
-            <Col xs={12} sm={12} md={6}>
-              <Statistic title="Излишков" value={closeResult.surplus_count} />
-            </Col>
-            <Col xs={12} sm={12} md={6}>
-              <Statistic title="Недостач" value={closeResult.shortages.length} valueStyle={{ color: "#C97A2B" }} />
-            </Col>
-          </Row>
-          {closeResult.shortages.length > 0 && (
-            <>
-              <Divider>Недостачи — решение по каждой</Divider>
-              <List
-                dataSource={closeResult.shortages}
-                renderItem={(s) => (
-                  <List.Item
-                    actions={[
-                      <Button
-                        key="write-off"
-                        danger
-                        size="small"
-                        onClick={() => resolveMutation.mutate({ sessionId: session.id, unitId: s.id, action: "spisat" })}
-                      >
-                        Списать
-                      </Button>,
-                      <Button
-                        key="keep"
-                        size="small"
-                        onClick={() => resolveMutation.mutate({ sessionId: session.id, unitId: s.id, action: "vernut_v_poisk" })}
-                      >
-                        Вернуть в поиск
-                      </Button>,
-                    ]}
-                  >
-                    № {s.id} — {s.width_mm} мм × {s.length_m} м, числилась в {s.location_code}
-                  </List.Item>
-                )}
-              />
-            </>
+          {closeResult ? (
+            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+              <Col xs={12} sm={12} md={6}>
+                <Statistic title="Подтверждено" value={closeResult.confirmed_count} />
+              </Col>
+              <Col xs={12} sm={12} md={6}>
+                <Statistic title="Перемещено" value={closeResult.moved_count} />
+              </Col>
+              <Col xs={12} sm={12} md={6}>
+                <Statistic title="Излишков" value={closeResult.surplus_count} />
+              </Col>
+              <Col xs={12} sm={12} md={6}>
+                <Statistic
+                  title="Недостач не решено"
+                  value={shortagesQuery.data?.length ?? closeResult.shortages.length}
+                  valueStyle={{ color: "#C97A2B" }}
+                />
+              </Col>
+            </Row>
+          ) : (
+            <Typography.Paragraph type="secondary">
+              Ожидалось {session.expected_count}, отсканировано {session.scanned_count}. Разбивка на
+              подтверждённые/перемещённые/излишки видна только сразу после закрытия — а вот недостачи и решения по
+              ним сохраняются и доступны здесь всегда, даже после перезагрузки страницы.
+            </Typography.Paragraph>
           )}
+          <Divider>Недостачи — решение по каждой</Divider>
+          <List
+            loading={shortagesQuery.isLoading}
+            dataSource={shortagesQuery.data ?? []}
+            locale={{ emptyText: "Недостач нет или все уже решены" }}
+            renderItem={(s) => (
+              <List.Item
+                actions={[
+                  <Button
+                    key="write-off"
+                    danger
+                    size="small"
+                    onClick={() => resolveMutation.mutate({ sessionId: session.id, unitId: s.id, action: "spisat" })}
+                  >
+                    Списать
+                  </Button>,
+                  <Button
+                    key="keep"
+                    size="small"
+                    onClick={() => resolveMutation.mutate({ sessionId: session.id, unitId: s.id, action: "vernut_v_poisk" })}
+                  >
+                    Вернуть в поиск
+                  </Button>,
+                ]}
+              >
+                № {s.id} — {s.width_mm} мм × {s.length_m} м, числилась в {s.location_code}
+              </List.Item>
+            )}
+          />
         </>
       )}
     </div>

@@ -1405,11 +1405,20 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
   }, [suggestionQuery.data, locationTouched]);
 
   const expected = previewQuery.data?.expected_return_length_m;
+  const [actualLength, setActualLength] = useState<number | null>(null);
+  const [lengthTouched, setLengthTouched] = useState(false);
+
+  useEffect(() => {
+    if (!lengthTouched) setActualLength(expected ?? unit.length_m);
+  }, [expected, unit.length_m, lengthTouched]);
 
   const acceptMutation = useMutation({
     mutationFn: async () => {
       const occurredAtIso = toOccurredAtIso(occurredAt);
-      const returned = await returnUnit(unit.id, { actual_length_m: expected ?? unit.length_m, occurred_at: occurredAtIso });
+      const returned = await returnUnit(unit.id, {
+        actual_length_m: actualLength ?? expected ?? unit.length_m,
+        occurred_at: occurredAtIso,
+      });
       if (locationCode.trim()) await placeUnit(returned.id, locationCode.trim(), occurredAtIso);
       return { returned, placed: !!locationCode.trim() };
     },
@@ -1433,21 +1442,32 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
     <Modal title={`Принять №${unit.id} на склад`} open onCancel={onClose} footer={null} destroyOnHidden>
       {expected != null ? (
         <Alert
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 8 }}
           type="info"
           showIcon
-          message={`Остаток по расчёту: ${expected} м (хорошие и брак уже учтены) — впишется автоматически.`}
+          message={`Остаток по расчёту: ${expected} м (хорошие и брак уже учтены) — поправьте ниже, если обмер показал другое.`}
         />
       ) : (
         !previewQuery.isLoading && (
           <Alert
-            style={{ marginBottom: 16 }}
+            style={{ marginBottom: 8 }}
             type="warning"
             showIcon
-            message="Расчёт остатка недоступен — вернётся как есть, без изменения длины."
+            message="Расчёт остатка недоступен — впишите фактическую длину вручную."
           />
         )
       )}
+      <Typography.Text strong>Фактическая длина остатка, м</Typography.Text>
+      <InputNumber
+        style={{ width: "100%", marginTop: 8, marginBottom: 16 }}
+        min={0}
+        step={0.1}
+        value={actualLength}
+        onChange={(v) => {
+          setLengthTouched(true);
+          setActualLength(v);
+        }}
+      />
 
       {suggestionQuery.isLoading ? null : suggestionQuery.data ? (
         <Alert style={{ marginBottom: 8 }} type="success" showIcon message={`По правилу зонирования подходит: ${suggestionQuery.data}`} />
@@ -1473,7 +1493,13 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
         disabledDate={(d) => d.isAfter(dayjs(), "day")}
       />
 
-      <Button type="primary" block loading={acceptMutation.isPending} onClick={() => acceptMutation.mutate()}>
+      <Button
+        type="primary"
+        block
+        loading={acceptMutation.isPending}
+        disabled={actualLength == null}
+        onClick={() => acceptMutation.mutate()}
+      >
         {locationCode.trim() ? "Принять и разместить" : "Принять без места"}
       </Button>
       <Button block style={{ marginTop: 8 }} onClick={onClose}>

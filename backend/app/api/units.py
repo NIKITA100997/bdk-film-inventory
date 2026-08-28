@@ -998,18 +998,6 @@ def return_unit(
     if unit.status != UnitStatus.VYDAN_UCHASTKU:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Вернуть можно только единицу, выданную участку")
 
-    if unit.production_task_line_id:
-        report_exists = (
-            db.query(ProductionTaskLineReport)
-            .filter(ProductionTaskLineReport.task_line_id == unit.production_task_line_id)
-            .first()
-        )
-        if not report_exists:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Возврат рулона невозможно выполнить: мастер участка ещё не внёс отчёт о произведённых деталях и браке!",
-            )
-
     old_length = float(unit.length_m)
     unit.length_m = payload.actual_length_m
     unit.status = UnitStatus.NA_KHRANENII

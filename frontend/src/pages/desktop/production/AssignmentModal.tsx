@@ -1,5 +1,6 @@
 import { Modal, Form, Select, DatePicker, InputNumber, Button, Table, Typography, message } from "antd";
 import dayjs from "dayjs";
+import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProductionLines,
@@ -10,6 +11,11 @@ import {
   type ProductionTaskLineAssignmentCreate,
 } from "../../../api/production";
 import EmployeesTagSelect from "../../../components/EmployeesTagSelect";
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
 
 /** Распределение строки задания по линиям/дням/сотрудникам (раздел 12.5)
  * — отдельный экран начальника участка поверх уже созданного задания.
@@ -45,7 +51,7 @@ export default function AssignmentModal({
       assignForm.resetFields();
       message.success("Распределение сохранено");
     },
-    onError: () => message.error("Не удалось сохранить распределение"),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить распределение")),
   });
 
   return (
@@ -84,7 +90,7 @@ export default function AssignmentModal({
           <EmployeesTagSelect placeholder="Иванов, Петров" />
         </Form.Item>
         <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
-          <InputNumber min={1} style={{ width: "100%" }} />
+          <InputNumber min={1} max={line.quantity_pieces - assignedSoFar} style={{ width: "100%" }} />
         </Form.Item>
         <Button type="primary" htmlType="submit" block loading={assignMutation.isPending}>
           Добавить

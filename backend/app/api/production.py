@@ -732,6 +732,19 @@ def create_task_line_assignment(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Линия принадлежит другому участку, чем задание"
         )
+    assigned_so_far = float(
+        db.query(func.coalesce(func.sum(ProductionTaskLineAssignment.quantity_pieces), 0))
+        .filter(ProductionTaskLineAssignment.task_line_id == line_id)
+        .scalar()
+    )
+    if assigned_so_far + payload.quantity_pieces > float(task_line.quantity_pieces):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Распределено уже {assigned_so_far:g} из {float(task_line.quantity_pieces):g} шт. — "
+                f"нельзя добавить ещё {payload.quantity_pieces:g}"
+            ),
+        )
     find_or_create_employees(db, payload.employee_names.split(","))
     assignment = ProductionTaskLineAssignment(
         task_line_id=line_id,

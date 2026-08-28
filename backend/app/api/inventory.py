@@ -77,6 +77,25 @@ def _scanned_unit_ids(db: Session, session_id: int) -> set[int]:
     return {r[0] for r in rows}
 
 
+def _unresolved_shortages(db: Session, inv_session: InventorySession) -> list[MaterialUnit]:
+    """Недостачи закрытой сессии, по которым логист ещё не принял решение
+    (раздел про итоги закрытия) — пересчитывается из журнала при каждом
+    обращении, а не хранится в ответе /close, чтобы список переживал
+    перезагрузку страницы и повторное открытие уже закрытой сессии."""
+    scanned_ids = _scanned_unit_ids(db, inv_session.id)
+    missing_units = [u for u in _expected_units_query(db, inv_session).all() if u.id not in scanned_ids]
+    resolved_ids = {
+        row[0]
+        for row in db.execute(
+            select(MaterialEvent.unit_id).where(
+                MaterialEvent.inventory_session_id == inv_session.id,
+                MaterialEvent.event_type.in_([EventType.SPISANIE, EventType.INVENTARIZATSIYA_NEDOSTACHA_OSTAVLENO]),
+            )
+        ).all()
+    }
+    return [u for u in missing_units if u.id not in resolved_ids]
+
+
 def _get_session(db: Session, session_id: int) -> InventorySession:
     inv_session = db.get(InventorySession, session_id)
     if inv_session is None:
@@ -298,6 +317,23 @@ def close_session(
     )
 
 
+@router.get("/{session_id}/shortages", response_model=list[ShortageOut])
+def get_unresolved_shortages(
+    session_id: int, db: Session = Depends(get_db), user: User = Depends(manage_inventory)
+) -> list[ShortageOut]:
+    """Нерешённые недостачи закрытой сессии (продолжение раздела про итоги
+    закрытия) — пересчитывается из журнала, а не из ответа /close, поэтому
+    доступно и после перезагрузки страницы, и при повторном открытии уже
+    закрытой сессии."""
+    inv_session = _get_session(db, session_id)
+    if inv_session.status != InventoryStatus.CLOSED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Сессия ещё не закрыта")
+    return [
+        ShortageOut(id=u.id, material_sku_id=u.material_sku_id, width_mm=u.width_mm, length_m=u.length_m, location_code=u.location_code)
+        for u in _unresolved_shortages(db, inv_session)
+    ]
+
+
 @router.post("/{session_id}/resolve-shortage/{unit_id}", response_model=InventorySessionOut)
 def resolve_shortage(
     session_id: int,
@@ -327,7 +363,16 @@ def resolve_shortage(
             inventory_session_id=session_id,
             occurred_at=payload.occurred_at,
         )
-    elif payload.action != "vernut_v_poisk":
+    elif payload.action == "vernut_v_poisk":
+        record_event(
+            db,
+            unit=unit,
+            event_type=EventType.INVENTARIZATSIYA_NEDOSTACHA_OSTAVLENO,
+            user_id=user.id,
+            inventory_session_id=session_id,
+            occurred_at=payload.occurred_at,
+        )
+    else:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="action должен быть spisat или vernut_v_poisk")
 
     db.commit()

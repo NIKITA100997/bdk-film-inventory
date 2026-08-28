@@ -82,6 +82,11 @@ export async function closeSession(sessionId: number, occurredAt?: string): Prom
   return data;
 }
 
+export async function getUnresolvedShortages(sessionId: number): Promise<Shortage[]> {
+  const { data } = await apiClient.get<Shortage[]>(`/inventory-sessions/${sessionId}/shortages`);
+  return data;
+}
+
 export async function resolveShortage(
   sessionId: number,
   unitId: number,

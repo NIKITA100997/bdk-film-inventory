@@ -21,6 +21,7 @@ class EventType(str, enum.Enum):
     INVENTARIZATSIYA_PEREMESHCHENO = "Инвентаризация_перемещено"
     INVENTARIZATSIYA_IZLISHEK = "Инвентаризация_излишек"
     INVENTARIZATSIYA_NEDOSTACHA = "Инвентаризация_недостача"
+    INVENTARIZATSIYA_NEDOSTACHA_OSTAVLENO = "Инвентаризация_недостача_оставлено"
     DONOR_PREDLOZHEN = "Донор_предложен"
 
 
