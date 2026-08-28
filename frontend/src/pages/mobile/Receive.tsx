@@ -12,7 +12,9 @@ import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useDraftForm } from "../../hooks/useDraftForm";
 
-type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code" | "occurred_at">;
+type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code" | "occurred_at" | "thickness"> & {
+  thickness: string;
+};
 type HeaderValues = {
   upd_number: string;
   pallet_number: string;
@@ -172,7 +174,7 @@ export default function Receive() {
                   lineForm.setFieldsValue({
                     material: sku.material.name,
                     color: sku.color.name,
-                    thickness: sku.thickness.value_mm,
+                    thickness: String(sku.thickness.value_mm),
                     manufacturer: sku.manufacturer.name,
                   })
                 }
