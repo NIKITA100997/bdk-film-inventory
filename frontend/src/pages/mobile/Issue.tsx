@@ -46,6 +46,8 @@ import { suggestLocation } from "../../api/storage";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { createShopFloorPurchaseRequest, type PurchaseRequestShopFloorCreate } from "../../api/purchasing";
 import { listAreas } from "../../api/areas";
+import { listSites } from "../../api/sites";
+import { listWarehouses } from "../../api/storage";
 import {
   listProductionTasks,
   type ProductionTask,
@@ -345,6 +347,44 @@ export default function Issue() {
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
+
+  // Раздел про площадки — домашний склад участка (Северный/Фабрика), чтобы
+  // подбор донора в первую очередь искал "на своём" складе и предупреждал,
+  // если оператор всё же берёт единицу с другого. Участок без площадки —
+  // домашнего склада нет, ищем/выдаём как раньше, без ограничения.
+  const sitesQuery = useQuery({ queryKey: ["sites"], queryFn: listSites });
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  const homeWarehouseFor = (areaCode: string | null | undefined): { id: number; name: string } | null => {
+    const area = areasQuery.data?.find((a) => a.code === areaCode);
+    if (!area?.site_id) return null;
+    const site = sitesQuery.data?.find((s) => s.id === area.site_id);
+    if (!site) return null;
+    const warehouse = warehousesQuery.data?.find((w) => w.id === site.warehouse_id);
+    return warehouse ? { id: warehouse.id, name: warehouse.name } : null;
+  };
+
+  // Раздел про площадки — "предупредить, но разрешить": если у участка есть
+  // домашний склад и выбранная единица физически лежит на другом, спросить
+  // подтверждение (тот же приём Modal.confirm, что уже в UnitCard.tsx для
+  // расхождения длины при возврате), иначе выполнить действие сразу.
+  const confirmIfWrongWarehouse = (
+    unitWarehouseName: string | null | undefined,
+    areaCode: string | null | undefined,
+    onConfirmed: () => void,
+  ) => {
+    const home = homeWarehouseFor(areaCode);
+    if (!home || !unitWarehouseName || unitWarehouseName === home.name) {
+      onConfirmed();
+      return;
+    }
+    Modal.confirm({
+      title: "Плёнка с другого склада",
+      content: `Единица физически лежит на складе «${unitWarehouseName}», а для этого участка домашний склад — «${home.name}». Всё равно выдать?`,
+      okText: "Всё равно выдать",
+      cancelText: "Отмена",
+      onOk: onConfirmed,
+    });
+  };
 
   // Раздел про видимость выданного вручную — "Выдано по заданиям" ниже
   // строится строго из строк заданий и никогда не покажет единицу,
@@ -946,7 +986,11 @@ export default function Issue() {
                       block
                       style={{ marginTop: 10 }}
                       loading={directMutation.isPending}
-                      onClick={() => directMutation.mutate(exactMatch.id)}
+                      onClick={() =>
+                        confirmIfWrongWarehouse(exactMatch.warehouse_name, selected?.task.area, () =>
+                          directMutation.mutate(exactMatch.id),
+                        )
+                      }
                     >
                       Выдать
                     </Button>
@@ -979,10 +1023,12 @@ export default function Issue() {
                       style={{ marginTop: 10 }}
                       loading={atomicDonorMutation.isPending}
                       onClick={() =>
-                        atomicDonorMutation.mutate({
-                          donor_unit_id: result.donor!.unit_id,
-                          requested_width_mm: result.donor!.recommended_cut_mm,
-                        })
+                        confirmIfWrongWarehouse(result.donor!.warehouse_name, selected?.task.area, () =>
+                          atomicDonorMutation.mutate({
+                            donor_unit_id: result.donor!.unit_id,
+                            requested_width_mm: result.donor!.recommended_cut_mm,
+                          }),
+                        )
                       }
                     >
                       ⚡ Разрезать и выдать
@@ -1018,13 +1064,20 @@ export default function Issue() {
                                     size="small"
                                     loading={atomicDonorMutation.isPending}
                                     onClick={() =>
-                                      atomicDonorMutation.mutate({ donor_unit_id: u.id, requested_width_mm: selectedStripWidth })
+                                      confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () =>
+                                        atomicDonorMutation.mutate({ donor_unit_id: u.id, requested_width_mm: selectedStripWidth }),
+                                      )
                                     }
                                   >
                                     Разрезать на {selectedStripWidth} мм
                                   </Button>
                                 ) : u.width_mm === selectedStripWidth ? (
-                                  <Button size="small" type="primary" loading={directMutation.isPending} onClick={() => directMutation.mutate(u.id)}>
+                                  <Button
+                                    size="small"
+                                    type="primary"
+                                    loading={directMutation.isPending}
+                                    onClick={() => confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () => directMutation.mutate(u.id))}
+                                  >
                                     Выдать целиком
                                   </Button>
                                 ) : (
@@ -1183,7 +1236,9 @@ export default function Issue() {
                                     type="primary"
                                     disabled={!manualArea}
                                     loading={manualDirectMutation.isPending}
-                                    onClick={() => manualDirectMutation.mutate(u.id)}
+                                    onClick={() =>
+                                      confirmIfWrongWarehouse(u.warehouse_name, manualArea, () => manualDirectMutation.mutate(u.id))
+                                    }
                                   >
                                     Выдать целиком
                                   </Button>
@@ -1222,10 +1277,12 @@ export default function Issue() {
                                 disabled={!manualArea}
                                 loading={manualAtomicDonorMutation.isPending}
                                 onClick={() =>
-                                  manualAtomicDonorMutation.mutate({
-                                    donor_unit_id: manualDonor.unit_id,
-                                    requested_width_mm: manualDonor.recommended_cut_mm,
-                                  })
+                                  confirmIfWrongWarehouse(manualDonor.warehouse_name, manualArea, () =>
+                                    manualAtomicDonorMutation.mutate({
+                                      donor_unit_id: manualDonor.unit_id,
+                                      requested_width_mm: manualDonor.recommended_cut_mm,
+                                    }),
+                                  )
                                 }
                               >
                                 ⚡ Разрезать и выдать

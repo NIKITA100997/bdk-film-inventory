@@ -127,6 +127,10 @@ class DonorSuggestion(BaseModel):
     recommended_cut_mm: float
     waste_mm: float
     days_in_storage: int = 0
+    # Раздел про площадки — на каком складе физически лежит донор, чтобы
+    # фронт мог предупредить, если он не совпадает с домашним складом
+    # площадки участка (см. MaterialUnitOut.warehouse_name).
+    warehouse_name: str | None = None
 
 
 class IssueResult(BaseModel):

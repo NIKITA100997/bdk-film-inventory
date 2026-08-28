@@ -547,6 +547,7 @@ def issue_to_area(
         db.commit()
         created_at_utc = donor_unit.created_at.replace(tzinfo=timezone.utc) if donor_unit.created_at.tzinfo is None else donor_unit.created_at
         days = max((datetime.now(timezone.utc) - created_at_utc).days, 0)
+        warehouse_name = resolve_warehouse_name(rack_warehouse_names(db), donor_unit.location_code)
         return IssueResult(
             outcome="donor_suggested",
             donor=DonorSuggestion(
@@ -557,6 +558,7 @@ def issue_to_area(
                 recommended_cut_mm=payload.width_mm,
                 waste_mm=round(float(donor_unit.width_mm) - payload.width_mm, 2),
                 days_in_storage=days,
+                warehouse_name=warehouse_name,
             ),
         )
 

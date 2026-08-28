@@ -154,6 +154,7 @@ export interface DonorSuggestion {
   recommended_cut_mm: number;
   waste_mm: number;
   days_in_storage?: number;
+  warehouse_name: string | null;
 }
 
 export interface IssueResult {
