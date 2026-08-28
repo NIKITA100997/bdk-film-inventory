@@ -42,8 +42,21 @@ import LocationSelect from "../../components/LocationSelect";
 import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
+import { useAuth } from "../../auth/AuthContext";
 
 type ActionKind = "place" | "split" | "cut" | "return" | "writeoff" | null;
+
+// Раздел про аудит прав — раньше действия показывались по статусу единицы
+// без единой проверки прав: с одним лишь units.place человек видел и мог
+// нажать "Списать"/"Раскрой", получая отказ только в момент клика. Здесь —
+// то же право, что реально проверяет каждый эндпоинт (units.py).
+const actionPermissions: Record<Exclude<ActionKind, null>, string> = {
+  place: "units.place",
+  split: "units.split",
+  cut: "units.cut",
+  return: "units.return",
+  writeoff: "units.writeoff",
+};
 
 const statusLabels: Record<string, string> = {
   Принят: "Принят",
@@ -73,6 +86,9 @@ export default function UnitCard() {
   const navigate = useNavigate();
   const location = useLocation();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const hasPermission = (code: string) => !!user?.is_superuser || !!user?.permissions.includes(code);
+  const canIssue = hasPermission("units.issue");
   const [unit, setUnit] = useState<MaterialUnit | null>(null);
   const [action, setAction] = useState<ActionKind>(null);
   const [writeOffOpen, setWriteOffOpen] = useState(false);
@@ -327,18 +343,20 @@ export default function UnitCard() {
           {!action && (
             <Space direction="vertical" style={{ width: "100%" }} size="middle">
               <Space wrap size="middle">
-                {availableActions(unit).map((a) =>
-                  a === "writeoff" ? (
-                    <Button key={a} size="large" danger onClick={() => setWriteOffOpen(true)}>
-                      {actionLabels[a]}
-                    </Button>
-                  ) : (
-                    <Button size="large" key={a} type="primary" onClick={() => setAction(a)}>
-                      {actionLabels[a]}
-                    </Button>
-                  ),
-                )}
-                {unit.status === "На_хранении" && (
+                {availableActions(unit)
+                  .filter((a) => hasPermission(actionPermissions[a]))
+                  .map((a) =>
+                    a === "writeoff" ? (
+                      <Button key={a} size="large" danger onClick={() => setWriteOffOpen(true)}>
+                        {actionLabels[a]}
+                      </Button>
+                    ) : (
+                      <Button size="large" key={a} type="primary" onClick={() => setAction(a)}>
+                        {actionLabels[a]}
+                      </Button>
+                    ),
+                  )}
+                {unit.status === "На_хранении" && canIssue && (
                   <Button
                     size="large"
                     onClick={() =>
@@ -463,9 +481,11 @@ export default function UnitCard() {
               <Form.Item name="cut_length_m" label="Отрезать, м" rules={[{ required: true }]}>
                 <InputNumber min={0.01} max={unit.length_m} step={0.01} style={{ width: "100%" }} />
               </Form.Item>
-              <Form.Item name="keep_as_unit" valuePropName="checked" style={{ marginBottom: 8 }}>
-                <Checkbox>Сохранить отрезанный кусок как отдельную единицу (со своим QR)</Checkbox>
-              </Form.Item>
+              {hasPermission("units.split") && (
+                <Form.Item name="keep_as_unit" valuePropName="checked" style={{ marginBottom: 8 }}>
+                  <Checkbox>Сохранить отрезанный кусок как отдельную единицу (со своим QR)</Checkbox>
+                </Form.Item>
+              )}
               {warehousePicker && (
                 <div style={{ marginBottom: 16 }}>
                   <Typography.Text style={{ display: "block", marginBottom: 4 }}>Склад</Typography.Text>
