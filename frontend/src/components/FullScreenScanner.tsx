@@ -115,8 +115,14 @@ export default function FullScreenScanner({ open, onClose, onScan, onManualEntry
           {errorMessage}
         </div>
       )}
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0, padding: "0 16px" }}>
-        <div id={QR_REGION_ID} style={{ width: "100%", maxWidth: 420, minHeight: 320, borderRadius: 12, overflow: "hidden" }} />
+      {/* Раньше здесь была ещё одна обёртка (flex-центрирование +
+          maxWidth: 420) вокруг QR_REGION_ID — на части экранов
+          прямоугольник камеры/рамка наведения оказывались смещены не по
+          центру. QrScanModal.tsx (тот же html5-qrcode, уже проверенная
+          вёрстка) обходится без вложенного центрирования — сам регион
+          просто на всю ширину строки, тем же приёмом заменено и здесь. */}
+      <div style={{ flex: 1, minHeight: 0, padding: "0 16px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <div id={QR_REGION_ID} style={{ width: "100%", minHeight: 280, borderRadius: 12, overflow: "hidden" }} />
       </div>
       <div style={{ textAlign: "center", color: "#fff", opacity: 0.85, fontSize: 13, padding: "0 20px 18px" }}>
         Наведите камеру на QR-код на бирке

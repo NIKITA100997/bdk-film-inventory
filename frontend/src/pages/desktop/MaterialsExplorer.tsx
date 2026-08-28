@@ -10,7 +10,6 @@ import {
   InputNumber,
   Input,
   DatePicker,
-  Table,
   Typography,
   Dropdown,
   Modal,
@@ -48,6 +47,7 @@ import { listRacks, suggestLocation } from "../../api/storage";
 import { listAreas } from "../../api/areas";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import OccurredAtField from "../../components/OccurredAtField";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { useAuth } from "../../auth/AuthContext";
 import { exportToCsv } from "../../utils/csv";
 import { toOccurredAtIso } from "../../utils/occurredAt";
@@ -376,7 +376,8 @@ export default function MaterialsExplorer() {
             </Button>
           }
         >
-          <Table<StockSummaryLine>
+          <ResponsiveTable<StockSummaryLine>
+            cardBreakpoint="sm"
             rowKey={(r) => `${r.material}-${r.color}-${r.thickness}`}
             loading={positionsQuery.isLoading}
             dataSource={filteredPositions}
@@ -431,7 +432,8 @@ export default function MaterialsExplorer() {
               </Button>
             </Space>
           )}
-          <Table<MaterialUnit>
+          <ResponsiveTable<MaterialUnit>
+            cardBreakpoint="sm"
             rowKey="id"
             loading={unitsQuery.isLoading}
             dataSource={displayedUnits}

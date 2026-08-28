@@ -55,6 +55,8 @@ export default function ResponsiveTable<T extends object>({
   const screens = Grid.useBreakpoint();
   const wide = screens[cardBreakpoint] ?? true;
 
+  const onRow = rest.onRow as TableProps<T>["onRow"];
+
   const cols = (columns ?? []) as Column<T>[];
   const labelable = cols.filter((c) => c.title);
   const unlabelable = cols.filter((c) => !c.title);
@@ -137,6 +139,7 @@ export default function ResponsiveTable<T extends object>({
             unlabelable={unlabelable}
             cellValue={cellValue}
             loading={typeof loading === "boolean" ? loading : undefined}
+            rowProps={onRow?.(record, index)}
           />
         ))}
       </Space>
@@ -152,6 +155,7 @@ function PlanCard<T extends object>({
   unlabelable,
   cellValue,
   loading,
+  rowProps,
 }: {
   record: T;
   index: number;
@@ -160,11 +164,20 @@ function PlanCard<T extends object>({
   unlabelable: Column<T>[];
   cellValue: (col: Column<T>, record: T, index: number) => React.ReactNode;
   loading?: boolean;
+  // onRow (раздел про клики по строке — "Остатки" на телефоне, где строка
+  // ведёт на карточку единицы/материала) — тот же обработчик, что и у
+  // обычной Table, только применённый к карточке целиком вместо <tr>.
+  rowProps?: React.HTMLAttributes<HTMLDivElement>;
 }) {
   const [peekOpen, setPeekOpen] = useState(false);
 
   return (
-    <Card size="small" loading={loading}>
+    <Card
+      size="small"
+      loading={loading}
+      {...rowProps}
+      style={{ ...(rowProps?.onClick ? { cursor: "pointer" } : undefined), ...rowProps?.style }}
+    >
       <Space direction="vertical" size={4} style={{ width: "100%" }}>
         {visibleLabelable.map((col, ci) => (
           <div key={ci} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
