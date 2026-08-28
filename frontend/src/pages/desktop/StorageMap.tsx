@@ -16,6 +16,7 @@ import {
   Empty,
   Progress,
   Checkbox,
+  Grid,
   message,
 } from "antd";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -606,6 +607,14 @@ export function UnplacedUnitsCard() {
 function UnplacedRow({ unit }: { unit: MaterialUnit }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  // Раздел про телефонную версию — на узком экране строка (название
+  // позиции слева + до трёх кнопок справа) не помещалась в одну линию;
+  // без flexWrap/minWidth текст сжимался до долей символа в строку (тот
+  // же класс бага, что уже описан в index.css про "font boosting", только
+  // здесь — обычное сжатие flex-элемента без защиты). На телефоне обе
+  // группы просто идут одна под другой, не соревнуясь за ширину.
+  const screens = Grid.useBreakpoint();
+  const isPhone = !screens.sm;
   const suggestion = useQuery({
     queryKey: ["suggest-location", "unplaced", unit.id],
     queryFn: () => suggestLocation({ material_sku_id: unit.material_sku.id, is_strip: unit.is_strip }),
@@ -628,15 +637,17 @@ function UnplacedRow({ unit }: { unit: MaterialUnit }) {
     <div
       style={{
         display: "flex",
-        alignItems: "center",
+        flexDirection: isPhone ? "column" : "row",
+        alignItems: isPhone ? "stretch" : "center",
         justifyContent: "space-between",
+        gap: isPhone ? 8 : 0,
         background: "#fff",
         border: "1px solid #E3B5AC",
         borderRadius: 8,
         padding: "7px 12px",
       }}
     >
-      <Space size={12}>
+      <Space size={12} wrap style={{ minWidth: 0 }}>
         <Typography.Text strong>№{unit.id}</Typography.Text>
         <Typography.Text>{skuLabel(unit.material_sku)}</Typography.Text>
         <Typography.Text type="secondary">
@@ -644,7 +655,7 @@ function UnplacedRow({ unit }: { unit: MaterialUnit }) {
         </Typography.Text>
         <Tag>{unit.status.replace(/_/g, " ")}</Tag>
       </Space>
-      <Space size={8}>
+      <Space size={8} wrap>
         {suggestion.data ? (
           <>
             <Tag color="orange">{suggestion.data}</Tag>
