@@ -49,9 +49,16 @@ export default function PhoneTabBar({ onManualSearchRequest }: PhoneTabBarProps)
 
   return (
     <>
+      {/* position+zIndex — защитная мера: кнопка "Скан" приподнята над
+          баром (marginTop: -18 у самого кружка), а без собственного
+          stacking context могла оказаться визуально под содержимым
+          Content, если внутри него что-то создаёт свой (антд-дропдауны,
+          sticky-блоки и т.п.). */}
       <div
         style={{
           display: "flex",
+          position: "relative",
+          zIndex: 10,
           borderTop: "1px solid #EAE8E2",
           background: "#fff",
           flexShrink: 0,

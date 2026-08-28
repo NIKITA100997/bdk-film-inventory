@@ -246,7 +246,11 @@ export default function Overview() {
           </Col>
         )}
         {showDonorAccuracy && tileSettings.isVisible("rolls-strips") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
+          // xs=24 (не 12, как у остальных плиток) — внутри уже свой Row из
+          // двух колонок (Рулонов/Штрипсов); при xs=12 снаружи они сжимались
+          // ещё вдвое — на телефоне оставалась четверть экрана на каждую
+          // цифру, и подпись/число переносились как попало.
+          <Col xs={24} sm={12} md={8} lg={6}>
             <Card loading={rollsStripsQuery.isLoading} {...clickableProps("/reports")}>
               <Row gutter={8}>
                 <Col span={12}>

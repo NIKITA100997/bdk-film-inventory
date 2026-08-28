@@ -142,8 +142,11 @@ export default function AppLayout() {
     // за чего нижняя панель вкладок (PhoneTabBar) уезжала за пределы
     // видимого экрана и появлялась только после скролла (он схлопывает
     // адресную строку). 100svh — всегда высота с учётом развёрнутой
-    // адресной строки, панель видна сразу, без скролла.
-    <Layout style={{ height: "100svh", overflow: "hidden" }}>
+    // адресной строки, панель видна сразу, без скролла. Класс (не inline
+    // style) — 100svh нужен запасной вариант 100vh на случай, если
+    // конкретный WebView его не понимает (см. index.css), а inline style
+    // не может держать две строки на одно и то же свойство.
+    <Layout className="app-shell" style={{ overflow: "hidden" }}>
       <Header style={{ display: "flex", alignItems: "center", padding: "0 8px", gap: 4, flexShrink: 0 }}>
         {searchOpen ? (
           // Раскрытый поиск занимает всю шапку — так на любой ширине

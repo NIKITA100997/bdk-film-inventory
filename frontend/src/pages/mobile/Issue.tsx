@@ -802,24 +802,28 @@ export default function Issue() {
         </Col>
       </Row>
 
-      <Space style={{ marginBottom: 16, width: "100%" }}>
+      {/* wrap + maxWidth:100% на каждом поле — раньше три поля с
+          фиксированной шириной (220+320+200 = 740px) не помещались на
+          телефоне ни в одну строку, ни по отдельности (поиск один шире
+          самого экрана), и уезжали за правый край без переноса. */}
+      <Space wrap size={[12, 12]} style={{ marginBottom: 16, width: "100%" }}>
         <Select
           allowClear
           placeholder="Все участки"
-          style={{ width: 220 }}
+          style={{ width: 220, maxWidth: "100%" }}
           options={areaOptions}
           value={areaFilter}
           onChange={setAreaFilter}
         />
         <Input.Search
           placeholder="Поиск по детали, заданию, плёнке…"
-          style={{ width: 320 }}
+          style={{ width: 320, maxWidth: "100%" }}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           allowClear
         />
         <DatePicker
-          style={{ width: 200 }}
+          style={{ width: 200, maxWidth: "100%" }}
           format="DD.MM.YYYY"
           placeholder="Дата выдачи: сейчас"
           value={occurredAt}
