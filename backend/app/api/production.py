@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.security import get_current_user, require_permission
+from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Color, Material, MaterialSku, Thickness
 from app.models.units import MaterialUnit, UnitStatus
@@ -66,6 +66,32 @@ manage_production = require_permission("production_tasks.manage")
 # начальник участка (уже смотрит задания своего участка) или начальник
 # цеха.
 report_production = require_permission("production_tasks.manage", "production_tasks.report")
+# Раздел про аудит прав — чтение заданий/линий/моделей раньше проверяло
+# только валидный вход (get_current_user), без единого права: любой
+# авторизованный (хоть продажник с sales_calculator.view) видел все задания
+# всех участков напрямую через API, "видит только своё" было исключительно
+# фильтром в браузере. production_tasks.view — единственное право без
+# доступа к manage/report, поэтому для него дополнительно скопируем
+# видимость до user.area прямо в запросе (см. _require_task_access ниже).
+view_production = require_permission("production_tasks.manage", "production_tasks.report", "production_tasks.view")
+# Список заданий отдельно ещё и от units.issue — склад читает те же задания
+# на "Выдаче участку" (Issue.tsx), чтобы знать, что кроить/выдавать; складская
+# роль по своей сути не привязана к одному участку производства (в отличие
+# от production_tasks.report/.view), поэтому не сужается по user.area.
+view_tasks = require_permission("production_tasks.manage", "production_tasks.report", "production_tasks.view", "units.issue")
+
+
+def _can_see_all_areas(user: User) -> bool:
+    if user.is_superuser:
+        return True
+    codes = get_permission_codes(user)
+    return "production_tasks.manage" in codes or "units.issue" in codes
+
+
+def _require_task_access(user: User, task: ProductionTask) -> None:
+    if _can_see_all_areas(user) or task.area == user.area:
+        return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
 
 
 def _line_out(line: ProductionLine) -> ProductionLineOut:
@@ -267,7 +293,7 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
 
 
 @router.get("/production-lines", response_model=list[ProductionLineOut])
-def list_production_lines(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[ProductionLine]:
+def list_production_lines(db: Session = Depends(get_db), user: User = Depends(view_production)) -> list[ProductionLine]:
     return db.query(ProductionLine).order_by(ProductionLine.name).all()
 
 
@@ -308,13 +334,13 @@ def update_production_line(
 
 
 @router.get("/product-models", response_model=list[ProductModelOut])
-def list_product_models(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[ProductModelOut]:
+def list_product_models(db: Session = Depends(get_db), user: User = Depends(view_production)) -> list[ProductModelOut]:
     models = db.query(ProductModel).options(joinedload(ProductModel.parts)).order_by(ProductModel.name).all()
     return [_model_out(db, m) for m in models]
 
 
 @router.get("/product-models/{model_id}", response_model=ProductModelOut)
-def get_product_model(model_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> ProductModelOut:
+def get_product_model(model_id: int, db: Session = Depends(get_db), user: User = Depends(view_production)) -> ProductModelOut:
     model = db.get(ProductModel, model_id)
     if model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Модель не найдена")
@@ -409,13 +435,11 @@ def delete_product_model_part(
 
 
 @router.get("/production-tasks", response_model=list[ProductionTaskOut])
-def list_production_tasks(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[ProductionTaskOut]:
-    tasks = (
-        db.query(ProductionTask)
-        .options(joinedload(ProductionTask.lines))
-        .order_by(ProductionTask.created_at.desc())
-        .all()
-    )
+def list_production_tasks(db: Session = Depends(get_db), user: User = Depends(view_tasks)) -> list[ProductionTaskOut]:
+    query = db.query(ProductionTask).options(joinedload(ProductionTask.lines))
+    if not _can_see_all_areas(user):
+        query = query.filter(ProductionTask.area == user.area)
+    tasks = query.order_by(ProductionTask.created_at.desc()).all()
     return [_task_out(db, t) for t in tasks]
 
 
@@ -619,9 +643,10 @@ def _get_task_line(db: Session, task_id: int, line_id: int) -> ProductionTaskLin
 
 @router.get("/production-tasks/{task_id}/lines/{line_id}/reports", response_model=list[ProductionTaskLineReportOut])
 def list_task_line_reports(
-    task_id: int, line_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    task_id: int, line_id: int, db: Session = Depends(get_db), user: User = Depends(view_production)
 ) -> list[ProductionTaskLineReport]:
-    _get_task_line(db, task_id, line_id)
+    line = _get_task_line(db, task_id, line_id)
+    _require_task_access(user, line.task)
     return (
         db.query(ProductionTaskLineReport)
         .filter(ProductionTaskLineReport.task_line_id == line_id)
@@ -694,9 +719,10 @@ def _assignment_out(
     "/production-tasks/{task_id}/lines/{line_id}/assignments", response_model=list[ProductionTaskLineAssignmentOut]
 )
 def list_task_line_assignments(
-    task_id: int, line_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    task_id: int, line_id: int, db: Session = Depends(get_db), user: User = Depends(view_production)
 ) -> list[ProductionTaskLineAssignmentOut]:
-    _get_task_line(db, task_id, line_id)
+    line = _get_task_line(db, task_id, line_id)
+    _require_task_access(user, line.task)
     assignments = (
         db.query(ProductionTaskLineAssignment)
         .filter(ProductionTaskLineAssignment.task_line_id == line_id)
@@ -761,10 +787,11 @@ def create_task_line_assignment(
 
 
 @router.get("/production-tasks/{task_id}", response_model=ProductionTaskOut)
-def get_production_task(task_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> ProductionTaskOut:
+def get_production_task(task_id: int, db: Session = Depends(get_db), user: User = Depends(view_tasks)) -> ProductionTaskOut:
     task = db.get(ProductionTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+    _require_task_access(user, task)
     return _task_out(db, task)
 
 
