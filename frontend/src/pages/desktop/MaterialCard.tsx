@@ -213,6 +213,12 @@ export default function MaterialCard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const canEdit = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
+  // Раздел про кнопку "+ Добавить единицу" — сама операция бьёт в тот же
+  // /units/receive, что и обычная "Приёмка плёнки" (units.receive), а не
+  // в справочники (materials.manage) — раньше кнопка была спрятана за
+  // materials.manage, из-за чего кладовщик с units.receive (у него и так
+  // есть доступ к "Приёмке") не видел её на карточке материала вообще.
+  const canAddUnit = !!user?.is_superuser || !!user?.permissions.includes("units.receive");
 
   const [skuId, setSkuId] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -433,7 +439,7 @@ export default function MaterialCard() {
               <Button size="small" onClick={() => setAnalogsOpen(true)}>
                 Аналоги/фото
               </Button>
-              {canEdit && (
+              {canAddUnit && (
                 <Button size="small" type="primary" onClick={() => setAddUnitOpen(true)}>
                   + Добавить единицу
                 </Button>
