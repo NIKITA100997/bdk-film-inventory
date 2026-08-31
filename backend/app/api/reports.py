@@ -34,7 +34,9 @@ from app.schemas.reports import (
     RollsVsStripsLine,
     StaleUnitLine,
     StockByWidthLine,
+    StockSummaryGroupedLine,
     StockSummaryLine,
+    StockSummaryManufacturerLine,
     TopDefectGroupLine,
     TopWriteOffMaterialLine,
     TrendPoint,
@@ -89,6 +91,65 @@ def stock_summary(
         StockSummaryLine(material=m, color=c, thickness=float(t), total_area_m2=round(float(area or 0), 3), unit_count=cnt)
         for m, c, t, area, cnt in rows
     ]
+
+
+@router.get("/stock-summary-grouped", response_model=list[StockSummaryGroupedLine])
+def stock_summary_grouped(
+    warehouse_id: int | None = None,
+    show_archived: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[StockSummaryGroupedLine]:
+    """Остатки по материалу/цвету/толщине с разбивкой по производителю
+    (раздел про два производителя одной плёнки — например "ПЭТ 2Д Белый"
+    от разных поставщиков) — только для экрана "Остатки"
+    (MaterialsExplorer.tsx). stock_summary выше специально группирует БЕЗ
+    производителя (та же агрегация нужна отчётам и заявке на плёнку) —
+    здесь наоборот, производителя нужно видеть и явно выбирать, иначе
+    второй производитель молча схлопывается в один агрегат с первым и
+    не участвует в поиске по имени производителя."""
+    query = (
+        db.query(
+            Material.name,
+            Color.name,
+            Thickness.value_mm,
+            Manufacturer.name,
+            Manufacturer.id,
+            func.sum(MaterialUnit.width_mm * MaterialUnit.length_m / 1000).label("area"),
+            func.count(MaterialUnit.id).label("unit_count"),
+        )
+        .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
+        .join(Material, MaterialSku.material_id == Material.id)
+        .join(Color, MaterialSku.color_id == Color.id)
+        .join(Thickness, MaterialSku.thickness_id == Thickness.id)
+        .join(Manufacturer, MaterialSku.manufacturer_id == Manufacturer.id)
+        .filter(MaterialUnit.status != UnitStatus.SPISAN)
+    )
+    if not show_archived:
+        query = query.filter(MaterialSku.is_active)
+    query = _filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
+    rows = (
+        query.group_by(Material.name, Color.name, Thickness.value_mm, Manufacturer.name, Manufacturer.id)
+        .order_by(Material.name, Color.name, Thickness.value_mm, Manufacturer.name)
+        .all()
+    )
+
+    grouped: dict[tuple[str, str, float], StockSummaryGroupedLine] = {}
+    order: list[tuple[str, str, float]] = []
+    for mat, col, th, man_name, man_id, area, cnt in rows:
+        key = (mat, col, float(th))
+        line = grouped.get(key)
+        if line is None:
+            line = StockSummaryGroupedLine(material=mat, color=col, thickness=float(th), total_area_m2=0, unit_count=0, manufacturers=[])
+            grouped[key] = line
+            order.append(key)
+        area_m2 = round(float(area or 0), 3)
+        line.total_area_m2 = round(line.total_area_m2 + area_m2, 3)
+        line.unit_count += cnt
+        line.manufacturers.append(
+            StockSummaryManufacturerLine(manufacturer=man_name, manufacturer_id=man_id, total_area_m2=area_m2, unit_count=cnt)
+        )
+    return [grouped[k] for k in order]
 
 
 @router.get("/stock-by-width", response_model=list[StockByWidthLine])

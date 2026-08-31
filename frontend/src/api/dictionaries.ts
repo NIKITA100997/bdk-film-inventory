@@ -7,6 +7,7 @@ export interface DictEntry {
   name: string;
   is_active: boolean;
   in_use?: boolean;
+  sku_count?: number;
 }
 
 export interface ThicknessEntry {
@@ -14,6 +15,7 @@ export interface ThicknessEntry {
   value_mm: number;
   is_active: boolean;
   in_use?: boolean;
+  sku_count?: number;
 }
 
 // Справочник деталей (раздел про выбор детали в задание) — физическая

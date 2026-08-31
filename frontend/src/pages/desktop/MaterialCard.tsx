@@ -35,6 +35,7 @@ interface MaterialCardPrefill {
   material?: string;
   color?: string;
   thickness?: number;
+  manufacturer?: string;
 }
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -244,12 +245,17 @@ export default function MaterialCard() {
     const prefill = location.state as MaterialCardPrefill | null;
     if (!prefill || !skusQuery.data || skuId !== null) return;
     const match = skusQuery.data.find(
-      (s) => s.material.name === prefill.material && s.color.name === prefill.color && s.thickness.value_mm === prefill.thickness,
+      (s) =>
+        s.material.name === prefill.material &&
+        s.color.name === prefill.color &&
+        s.thickness.value_mm === prefill.thickness &&
+        (!prefill.manufacturer || s.manufacturer.name === prefill.manufacturer),
     );
     if (match) setSkuId(match.id);
     // Приходим сюда по клику из агрегатной строки "Материалы" (2.2 раздел
-    // бэклога доработок) — предвыбираем первую подходящую позицию по
-    // материалу/цвету/толщине (без учёта производителя, как и сама агрегация).
+    // бэклога доработок) — предвыбираем подходящую позицию по
+    // материалу/цвету/толщине, и по производителю, если он передан
+    // (экран "Остатки" передаёт его после разбивки по производителю).
   }, [location.state, skusQuery.data, skuId]);
 
   const selectedSku = (skusQuery.data ?? []).find((s) => s.id === skuId) ?? null;

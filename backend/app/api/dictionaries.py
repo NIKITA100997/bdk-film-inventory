@@ -2,6 +2,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -97,6 +98,15 @@ def _duplicates_for(db: Session, model) -> list:
     return find_fuzzy_duplicates(entries)
 
 
+def _sku_count(db: Session, column, value_id: int) -> int:
+    """Раздел про счётчики в справочнике — сколько позиций номенклатуры
+    (MaterialSku) сейчас используют это значение материала/цвета/
+    толщины/производителя, рядом с уже существующим in_use (та проверка
+    смотрит ещё несколько таблиц ради безопасности удаления — здесь
+    только позиции, ровно то, что спросил пользователь)."""
+    return db.query(func.count(MaterialSku.id)).filter(column == value_id).scalar() or 0
+
+
 @router.get("/materials", response_model=list[MaterialOut])
 def list_materials(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[Material]:
     return db.query(Material).filter(Material.is_active).order_by(Material.name).all()
@@ -105,7 +115,10 @@ def list_materials(db: Session = Depends(get_db), user=Depends(get_current_user)
 @router.get("/materials/all", response_model=list[MaterialOut])
 def list_all_materials(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[MaterialOut]:
     return [
-        MaterialOut(id=m.id, name=m.name, is_active=m.is_active, in_use=material_in_use(db, m.id))
+        MaterialOut(
+            id=m.id, name=m.name, is_active=m.is_active, in_use=material_in_use(db, m.id),
+            sku_count=_sku_count(db, MaterialSku.material_id, m.id),
+        )
         for m in db.query(Material).order_by(Material.name).all()
     ]
 
@@ -151,7 +164,10 @@ def list_colors(db: Session = Depends(get_db), user=Depends(get_current_user)) -
 @router.get("/colors/all", response_model=list[ColorOut])
 def list_all_colors(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[ColorOut]:
     return [
-        ColorOut(id=c.id, name=c.name, is_active=c.is_active, in_use=color_in_use(db, c.id))
+        ColorOut(
+            id=c.id, name=c.name, is_active=c.is_active, in_use=color_in_use(db, c.id),
+            sku_count=_sku_count(db, MaterialSku.color_id, c.id),
+        )
         for c in db.query(Color).order_by(Color.name).all()
     ]
 
@@ -193,7 +209,10 @@ def list_thicknesses(db: Session = Depends(get_db), user=Depends(get_current_use
 @router.get("/thicknesses/all", response_model=list[ThicknessOut])
 def list_all_thicknesses(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[ThicknessOut]:
     return [
-        ThicknessOut(id=t.id, value_mm=t.value_mm, is_active=t.is_active, in_use=thickness_in_use(db, t.id))
+        ThicknessOut(
+            id=t.id, value_mm=t.value_mm, is_active=t.is_active, in_use=thickness_in_use(db, t.id),
+            sku_count=_sku_count(db, MaterialSku.thickness_id, t.id),
+        )
         for t in db.query(Thickness).order_by(Thickness.value_mm).all()
     ]
 
@@ -251,7 +270,10 @@ def list_manufacturers(db: Session = Depends(get_db), user=Depends(get_current_u
 @router.get("/manufacturers/all", response_model=list[ManufacturerOut])
 def list_all_manufacturers(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[ManufacturerOut]:
     return [
-        ManufacturerOut(id=m.id, name=m.name, is_active=m.is_active, in_use=manufacturer_in_use(db, m.id))
+        ManufacturerOut(
+            id=m.id, name=m.name, is_active=m.is_active, in_use=manufacturer_in_use(db, m.id),
+            sku_count=_sku_count(db, MaterialSku.manufacturer_id, m.id),
+        )
         for m in db.query(Manufacturer).order_by(Manufacturer.name).all()
     ]
 

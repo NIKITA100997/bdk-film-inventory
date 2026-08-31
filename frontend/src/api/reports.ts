@@ -75,6 +75,35 @@ export const getStockSummary = async (
     })
   ).data;
 
+export interface StockSummaryManufacturerLine {
+  manufacturer: string;
+  manufacturer_id: number;
+  total_area_m2: number;
+  unit_count: number;
+}
+
+// Раздел про два производителя одной плёнки (экран "Остатки") — та же
+// группировка, что у StockSummaryLine, но с разбивкой по производителю
+// внутри, чтобы второй производитель не терялся молча в общем агрегате.
+export interface StockSummaryGroupedLine {
+  material: string;
+  color: string;
+  thickness: number;
+  total_area_m2: number;
+  unit_count: number;
+  manufacturers: StockSummaryManufacturerLine[];
+}
+
+export const getStockSummaryGrouped = async (
+  warehouseId?: number,
+  showArchived?: boolean,
+): Promise<StockSummaryGroupedLine[]> =>
+  (
+    await apiClient.get<StockSummaryGroupedLine[]>("/reports/stock-summary-grouped", {
+      params: { warehouse_id: warehouseId, show_archived: showArchived },
+    })
+  ).data;
+
 export const getStockByWidth = async (warehouseId?: number): Promise<StockByWidthLine[]> =>
   (await apiClient.get<StockByWidthLine[]>("/reports/stock-by-width", { params: { warehouse_id: warehouseId } })).data;
 

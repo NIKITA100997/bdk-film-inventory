@@ -12,6 +12,29 @@ class StockSummaryLine(BaseModel):
     unit_count: int
 
 
+class StockSummaryManufacturerLine(BaseModel):
+    manufacturer: str
+    manufacturer_id: int
+    total_area_m2: float
+    unit_count: int
+
+
+class StockSummaryGroupedLine(BaseModel):
+    """Раздел про два производителя одной плёнки — та же группировка,
+    что у StockSummaryLine (материал+цвет+толщина, без производителя в
+    ключе), но с разбивкой по производителю внутри — используется только
+    экраном "Остатки" (MaterialsExplorer.tsx), где производителя нужно
+    видеть и выбирать. StockSummaryLine/stock_summary остаются как есть —
+    та же намеренная агрегация нужна отчётам и заявке на плёнку."""
+
+    material: str
+    color: str
+    thickness: float
+    total_area_m2: float
+    unit_count: int
+    manufacturers: list[StockSummaryManufacturerLine]
+
+
 class StockByWidthLine(BaseModel):
     material: str
     color: str

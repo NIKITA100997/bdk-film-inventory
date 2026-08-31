@@ -143,6 +143,7 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
               <Space size={4}>
                 {active ? <Tag color="green">Активно</Tag> : <Tag>В архиве</Tag>}
                 {entry.in_use && <Tag color="gold">используется</Tag>}
+                <Tag>{entry.sku_count ?? 0} поз.</Tag>
               </Space>
             ),
           },
@@ -313,6 +314,7 @@ function ThicknessTab() {
             <Space size={4}>
               {active ? <Tag color="green">Активно</Tag> : <Tag>В архиве</Tag>}
               {entry.in_use && <Tag color="gold">используется</Tag>}
+              <Tag>{entry.sku_count ?? 0} поз.</Tag>
             </Space>
           ),
         },

@@ -16,6 +16,8 @@ import {
   Form,
   List,
   Alert,
+  Table,
+  Tag,
   message,
 } from "antd";
 import { DownOutlined, SearchOutlined } from "@ant-design/icons";
@@ -40,7 +42,7 @@ import {
   type UnitStatusValue,
 } from "../../api/units";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
-import { getStockSummary, type StockSummaryLine } from "../../api/reports";
+import { getStockSummaryGrouped, type StockSummaryGroupedLine } from "../../api/reports";
 import { listAbcClasses, recomputeAbc } from "../../api/abc";
 import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionaries";
 import { listRacks, suggestLocation } from "../../api/storage";
@@ -140,9 +142,14 @@ export default function MaterialsExplorer() {
   // передавался только в поиск по единицам, "по позициям" всегда получал
   // undefined и показывал остаток по всем складам сразу.
   const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
+  // Раздел про два производителя одной плёнки — группировка теперь с
+  // разбивкой по производителю внутри (StockSummaryGroupedLine), сам
+  // фильтр "Производитель" применяется на фронте по уже загруженным
+  // данным (см. filteredPositions ниже), не параметром запроса — иначе
+  // группы, где остался только ДРУГОЙ производитель, исчезали бы целиком.
   const positionsQuery = useQuery({
-    queryKey: ["materials-explorer", "positions", filters.manufacturer, showArchived, warehouseId],
-    queryFn: () => getStockSummary(warehouseId, filters.manufacturer, showArchived),
+    queryKey: ["materials-explorer", "positions", showArchived, warehouseId],
+    queryFn: () => getStockSummaryGrouped(warehouseId, showArchived),
     enabled: viewMode === "positions",
   });
   const unitsQuery = useQuery({
@@ -262,7 +269,15 @@ export default function MaterialsExplorer() {
     if (filters.material && p.material !== filters.material) return false;
     if (filters.color && p.color !== filters.color) return false;
     if (filters.thickness !== undefined && p.thickness !== filters.thickness) return false;
-    if (textQuery && !`${p.material} ${p.color}`.toLowerCase().includes(textQuery)) return false;
+    // Раздел про два производителя одной плёнки — фильтр "Производитель"
+    // теперь применяется здесь (не параметром запроса): оставляем группу,
+    // только если у неё есть подходящий производитель внутри.
+    if (filters.manufacturer && !p.manufacturers.some((m) => m.manufacturer === filters.manufacturer)) return false;
+    if (textQuery) {
+      const matchesGroup = `${p.material} ${p.color}`.toLowerCase().includes(textQuery);
+      const matchesManufacturer = p.manufacturers.some((m) => m.manufacturer.toLowerCase().includes(textQuery));
+      if (!matchesGroup && !matchesManufacturer) return false;
+    }
     return true;
   });
 
@@ -390,8 +405,7 @@ export default function MaterialsExplorer() {
             </Button>
           }
         >
-          <ResponsiveTable<StockSummaryLine>
-            cardBreakpoint="sm"
+          <Table<StockSummaryGroupedLine>
             rowKey={(r) => `${r.material}-${r.color}-${r.thickness}`}
             loading={positionsQuery.isLoading}
             dataSource={filteredPositions}
@@ -399,10 +413,47 @@ export default function MaterialsExplorer() {
             scroll={{ x: "max-content" }}
             onRow={(r) => ({
               onClick: () =>
-                navigate("/materials", { state: { material: r.material, color: r.color, thickness: r.thickness } }),
+                r.manufacturers.length === 1
+                  ? navigate("/materials", {
+                      state: { material: r.material, color: r.color, thickness: r.thickness, manufacturer: r.manufacturers[0].manufacturer },
+                    })
+                  : undefined,
             })}
+            expandable={{
+              expandedRowRender: (r) => (
+                <Table<StockSummaryGroupedLine["manufacturers"][number]>
+                  rowKey="manufacturer_id"
+                  dataSource={r.manufacturers}
+                  pagination={false}
+                  size="small"
+                  onRow={(m) => ({
+                    onClick: (e) => {
+                      e.stopPropagation();
+                      navigate("/materials", {
+                        state: { material: r.material, color: r.color, thickness: r.thickness, manufacturer: m.manufacturer },
+                      });
+                    },
+                  })}
+                  columns={[
+                    { title: "Производитель", dataIndex: "manufacturer" },
+                    { title: "Остаток, м²", dataIndex: "total_area_m2" },
+                    { title: "Единиц", dataIndex: "unit_count" },
+                  ]}
+                />
+              ),
+              rowExpandable: (r) => r.manufacturers.length > 1,
+            }}
             columns={[
-              { title: "Материал", render: (_, r) => `${r.material}, ${r.color}, ${r.thickness} мм`, sorter: (a, b) => a.material.localeCompare(b.material) },
+              {
+                title: "Материал",
+                render: (_, r) => (
+                  <Space>
+                    {`${r.material}, ${r.color}, ${r.thickness} мм`}
+                    {r.manufacturers.length > 1 && <Tag color="blue">{r.manufacturers.length} произв.</Tag>}
+                  </Space>
+                ),
+                sorter: (a, b) => a.material.localeCompare(b.material),
+              },
               { title: "Остаток, м²", dataIndex: "total_area_m2", sorter: (a, b) => a.total_area_m2 - b.total_area_m2 },
               { title: "Единиц", dataIndex: "unit_count", sorter: (a, b) => a.unit_count - b.unit_count },
             ]}

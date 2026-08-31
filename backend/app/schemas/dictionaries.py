@@ -7,6 +7,12 @@ class MaterialOut(BaseModel):
     name: str
     is_active: bool
     in_use: bool = False
+    # Раздел про счётчики в справочнике — сколько позиций номенклатуры
+    # (MaterialSku) сейчас используют это значение; отдельно от in_use
+    # (та проверка перед удалением смотрит ещё MacroZoneRule/
+    # WidthAbcClass/ProductionTaskLine/PurchaseRequest) — sku_count=0 не
+    # означает in_use=false.
+    sku_count: int = 0
 
 
 class ColorOut(BaseModel):
@@ -15,6 +21,12 @@ class ColorOut(BaseModel):
     name: str
     is_active: bool
     in_use: bool = False
+    # Раздел про счётчики в справочнике — сколько позиций номенклатуры
+    # (MaterialSku) сейчас используют это значение; отдельно от in_use
+    # (та проверка перед удалением смотрит ещё MacroZoneRule/
+    # WidthAbcClass/ProductionTaskLine/PurchaseRequest) — sku_count=0 не
+    # означает in_use=false.
+    sku_count: int = 0
 
 
 class ThicknessOut(BaseModel):
@@ -23,6 +35,12 @@ class ThicknessOut(BaseModel):
     value_mm: float
     is_active: bool
     in_use: bool = False
+    # Раздел про счётчики в справочнике — сколько позиций номенклатуры
+    # (MaterialSku) сейчас используют это значение; отдельно от in_use
+    # (та проверка перед удалением смотрит ещё MacroZoneRule/
+    # WidthAbcClass/ProductionTaskLine/PurchaseRequest) — sku_count=0 не
+    # означает in_use=false.
+    sku_count: int = 0
 
 
 class ManufacturerOut(BaseModel):
@@ -31,6 +49,12 @@ class ManufacturerOut(BaseModel):
     name: str
     is_active: bool
     in_use: bool = False
+    # Раздел про счётчики в справочнике — сколько позиций номенклатуры
+    # (MaterialSku) сейчас используют это значение; отдельно от in_use
+    # (та проверка перед удалением смотрит ещё MacroZoneRule/
+    # WidthAbcClass/ProductionTaskLine/PurchaseRequest) — sku_count=0 не
+    # означает in_use=false.
+    sku_count: int = 0
 
 
 class EmployeeOut(BaseModel):
