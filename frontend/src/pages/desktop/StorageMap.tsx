@@ -180,6 +180,7 @@ function RacksConsole() {
       setRackId(rack.id);
       message.success("Стеллаж добавлен");
     },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось добавить стеллаж")),
   });
   const updateRackMutation = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: RackUpdate }) => updateRack(id, payload),
@@ -188,7 +189,7 @@ function RacksConsole() {
       setEditingRack(null);
       message.success("Сохранено");
     },
-    onError: () => message.error("Не удалось сохранить — код уже занят?"),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить стеллаж")),
   });
   const createRuleMutation = useMutation({
     mutationFn: (payload: MacroZoneRuleCreate) => createMacroZoneRule(selectedRack!.id, payload),
