@@ -86,6 +86,10 @@ export interface ProductionTaskLine {
   assigned_pieces: number;
   unassigned_pieces: number;
   assignments: ProductionTaskLineAssignment[];
+  // Раздел про план/факт по расходу плёнки — план (кол-во деталей × длина
+  // на деталь) против факта (уже выдано/отрезано складом, issued_length_m
+  // ниже же) — не зависит от бумажной самоотчётности цеха о производстве.
+  planned_length_m: number;
   issued_length_m: number;
   issued_units: ProductionTaskLineIssuedUnit[];
 }
@@ -102,6 +106,10 @@ export interface ProductionTask {
   created_at: string;
   is_active: boolean;
   lines: ProductionTaskLine[];
+  // Сумма planned_length_m/issued_length_m по всем строкам — прогресс по
+  // заданию в целом.
+  planned_length_m: number;
+  issued_length_m: number;
 }
 
 export interface ProductionTaskLineManualCreate {

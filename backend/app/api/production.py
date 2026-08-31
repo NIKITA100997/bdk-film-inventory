@@ -166,6 +166,7 @@ def _task_line_out(
         assignments=[
             _assignment_out(db, a, *assignment_report_aggs.get(a.id, (0.0, 0.0))) for a in line.assignments
         ],
+        planned_length_m=round(float(line.quantity_pieces) * float(line.length_m), 2),
         issued_length_m=issued_length_m,
         issued_units=[
             ProductionTaskLineIssuedUnitOut(
@@ -263,6 +264,18 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
     assignment_report_aggs = _assignment_report_aggregates(db, assignment_ids)
     issued_length_by_line = fetch_issued_length_by_task_line(db, line_ids)
     issued_units_by_line = _line_issued_units_map(db, line_ids)
+    line_outs = [
+        _task_line_out(
+            db,
+            l,
+            *report_aggregates.get(l.id, (0.0, 0.0)),
+            assignment_aggregates.get(l.id, 0.0),
+            assignment_report_aggs,
+            issued_length_by_line.get(l.id, 0.0),
+            issued_units_by_line.get(l.id, []),
+        )
+        for l in task.lines
+    ]
     return ProductionTaskOut(
         id=task.id,
         product_model_id=task.product_model_id,
@@ -274,18 +287,9 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
         created_by=task.created_by,
         created_at=task.created_at,
         is_active=task.is_active,
-        lines=[
-            _task_line_out(
-                db,
-                l,
-                *report_aggregates.get(l.id, (0.0, 0.0)),
-                assignment_aggregates.get(l.id, 0.0),
-                assignment_report_aggs,
-                issued_length_by_line.get(l.id, 0.0),
-                issued_units_by_line.get(l.id, []),
-            )
-            for l in task.lines
-        ],
+        lines=line_outs,
+        planned_length_m=round(sum(l.planned_length_m for l in line_outs), 2),
+        issued_length_m=round(sum(l.issued_length_m for l in line_outs), 2),
     )
 
 

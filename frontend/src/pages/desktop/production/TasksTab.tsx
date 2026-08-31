@@ -199,6 +199,19 @@ export default function TasksTab() {
               { title: "Модель", width: 320, ellipsis: true, render: (_, t) => t.product_model_name ?? t.name ?? "—" },
               { title: "Участок", width: 140, dataIndex: "area", render: (v: string) => areaLabel(v) },
               { title: "Количество", width: 110, render: (_, t) => t.quantity ?? "—" },
+              {
+                // Раздел про план/факт по расходу плёнки — план не мутируется
+                // (кол-во деталей × длина на деталь по всем строкам), факт —
+                // уже выдано/отрезано складом (issued_length_m), не зависит
+                // от бумажной самоотчётности цеха о производстве.
+                title: "План/факт, м",
+                width: 150,
+                render: (_, t) => (
+                  <Tag color={t.planned_length_m > 0 && t.issued_length_m >= t.planned_length_m ? "green" : "orange"}>
+                    {t.issued_length_m} / {t.planned_length_m}
+                  </Tag>
+                ),
+              },
               { title: "Автор", width: 160, ellipsis: true, dataIndex: "created_by", render: (id: number) => userName(id) },
               { title: "Создано", width: 170, dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
               {

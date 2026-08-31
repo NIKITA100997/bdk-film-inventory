@@ -232,9 +232,15 @@ class ProductionTaskLineOut(BaseModel):
     assigned_pieces: float
     unassigned_pieces: float
     assignments: list[ProductionTaskLineAssignmentOut] = []
+    # Раздел про план/факт по расходу плёнки — сколько метров плёнки
+    # положено по количеству деталей (quantity_pieces × length_m), план
+    # не мутируется, задаётся один раз при создании строки задания.
+    planned_length_m: float = 0.0
     # Раздел "Выдано по заданиям" на экране "Выдача участку" — сколько
     # метров плёнки реально выдано складом под эту строку (журнал
-    # Выдача_участку), независимо от того, что с этим потом стало.
+    # Выдача_участку), независимо от того, что с этим потом стало. Это же
+    # число — «факт» в плане/факте: warehouse-driven, не зависит от того,
+    # отчитался ли цех о производстве бумажно (на практике не используется).
     issued_length_m: float = 0.0
     # Раздел про единый процесс возврата — какие конкретно единицы сейчас
     # выданы под эту строку и могут быть возвращены прямо отсюда (обычно
@@ -254,6 +260,11 @@ class ProductionTaskOut(BaseModel):
     created_at: datetime
     is_active: bool
     lines: list[ProductionTaskLineOut]
+    # Раздел про план/факт по расходу плёнки — сумма planned_length_m/
+    # issued_length_m по всем строкам задания, чтобы видеть прогресс по
+    # заданию в целом, не только по каждой строке отдельно.
+    planned_length_m: float = 0.0
+    issued_length_m: float = 0.0
 
 
 class BlankDemandLineOut(BaseModel):

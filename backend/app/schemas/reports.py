@@ -113,6 +113,28 @@ class CuttingDiscrepancyLine(BaseModel):
     user_id: int
 
 
+class PlanFactTaskLineOut(BaseModel):
+    """План/факт по расходу плёнки на строку задания (раздел про выдачу
+    мимо хаба) — план не мутируется (quantity_pieces × length_m на
+    строке), факт — уже выданный/отрезанный складом метраж
+    (fetch_issued_length_by_task_line, warehouse-driven, не зависит от
+    бумажной самоотчётности цеха о производстве)."""
+
+    task_id: int
+    task_name: str | None
+    area: str
+    line_id: int
+    part_name: str | None
+    material: str
+    color: str
+    thickness: float
+    planned_length_m: float
+    actual_length_m: float
+    remaining_length_m: float
+    completion_percent: float
+    created_at: datetime
+
+
 # ---------- Раздел про модуль "Брак и списания" ----------
 
 
