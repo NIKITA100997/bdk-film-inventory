@@ -1,5 +1,12 @@
 import { useState } from "react";
 import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message } from "antd";
+// Раздел про широкую таблицу строк задания — ResponsiveTable только для
+// внутренней таблицы строк (плоский список, без expandable). Внешняя
+// таблица заданий использует expandable (клик-разворот строки задания)
+// — ResponsiveTable в узком/карточном режиме (ниже cardBreakpoint) не
+// умеет expandable вообще, там осталась обычная antd Table, чтобы не
+// сломать разворот на планшете в портретной ориентации.
+import ResponsiveTable from "../../../components/ResponsiveTable";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -120,7 +127,10 @@ export default function TasksTab() {
                         </Typography.Text>
                       ))}
                     </Space>
-                    <Table<ProductionTaskLine>
+                    <ResponsiveTable<ProductionTaskLine>
+                      tableKey="production-task-lines"
+                      lockedColumns={["Деталь"]}
+                      defaultHiddenColumns={["Линия", "Материал", "Размер детали", "Погонаж на строку, м"]}
                       rowKey="id"
                       size="small"
                       pagination={false}

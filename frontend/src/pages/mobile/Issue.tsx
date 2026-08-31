@@ -11,6 +11,7 @@ import {
   InputNumber,
   Modal,
   Row,
+  Segmented,
   Select,
   Space,
   Tag,
@@ -153,6 +154,29 @@ function groupQueueRows(rows: QueueRowData[]) {
   return order.map((k) => groups.get(k)!);
 }
 
+/** Альтернативная группировка очереди — по детали, а не по плёнке
+ * (раздел про удобство просмотра: мастеру иногда проще искать
+ * "все двери с этой филёнкой", а не "все задания под эту плёнку").
+ * Внутри каждой группы деталей строки всё равно повторно группируются
+ * groupQueueRows (по плёнке) — деталь может понадобиться в разных
+ * плёнках на разных заданиях, а план резки/CuttingPlanGroupButton
+ * рассчитан ровно на одну плёнку за раз, эту гарантию нельзя терять. */
+function groupQueueRowsByPart(rows: QueueRowData[]) {
+  const order: string[] = [];
+  const groups = new Map<string, { key: string; partName: string; rows: QueueRowData[] }>();
+  for (const r of rows) {
+    const key = r.line.part_name ?? "Без названия детали";
+    let g = groups.get(key);
+    if (!g) {
+      g = { key, partName: key, rows: [] };
+      groups.set(key, g);
+      order.push(key);
+    }
+    g.rows.push(r);
+  }
+  return order.map((k) => groups.get(k)!);
+}
+
 /** Подсказка плана резки для группы разноширинных потребностей одной
  * плёнки (раздел про несколько разных ширин штрипса на один день) —
  * щелевая резка режет донора на несколько полос за проход, так что вместо
@@ -237,6 +261,9 @@ export default function Issue() {
 
   const [selected, setSelected] = useState<QueueSelection | null>(null);
   const [areaFilter, setAreaFilter] = useState<AreaValue | undefined>(undefined);
+  // Раздел про группировку очереди по детали — переключатель "по плёнке"
+  // (как раньше, groupQueueRows) / "по детали" (groupQueueRowsByPart).
+  const [groupBy, setGroupBy] = useState<"film" | "part">("film");
   const [search, setSearch] = useState("");
   const [result, setResult] = useState<IssueResult | null>(null);
   const [lastIssued, setLastIssued] = useState<IssuedResult | null>(null);
@@ -700,45 +727,59 @@ export default function Issue() {
     );
   };
 
-  const renderQueueRows = (rows: QueueRowData[], variant: "today" | "week") =>
-    groupQueueRows(rows).map((g) =>
-      g.rows.length > 1 ? (
-        <div
-          key={g.key}
-          style={{
-            marginBottom: 12,
-            padding: "10px 12px 2px",
-            borderRadius: 10,
-            background: "#FBF6EE",
-            border: "1px dashed #D8B98A",
-          }}
-        >
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#8A6A2F", marginBottom: 4 }}>
-            🧩 Одна плёнка на {g.rows.length} задания: {g.material}, {g.color}, {g.thickness} мм — итого{" "}
-            {g.rows.reduce((sum, r) => sum + neededLengthM(r), 0).toFixed(2)} м
-          </div>
-          <CuttingPlanGroupButton
-            sku={findSku(skusQuery.data, g.material, g.color, g.thickness)}
-            rows={g.rows}
-            onCut={(donor, widthCuts) =>
-              setCuttingSession({
-                donor,
-                widthCuts,
-                onDone: () => {
-                  setCuttingSession(null);
-                  qc.invalidateQueries({ queryKey: ["production-tasks"] });
-                  qc.invalidateQueries({ queryKey: ["issue-available-units"] });
-                  qc.invalidateQueries({ queryKey: ["cutting-plan"] });
-                },
-              })
-            }
-          />
-          {g.rows.map((r) => queueRow(r, variant))}
+  const renderFilmGroup = (g: ReturnType<typeof groupQueueRows>[number], variant: "today" | "week") =>
+    g.rows.length > 1 ? (
+      <div
+        key={g.key}
+        style={{
+          marginBottom: 12,
+          padding: "10px 12px 2px",
+          borderRadius: 10,
+          background: "#FBF6EE",
+          border: "1px dashed #D8B98A",
+        }}
+      >
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: "#8A6A2F", marginBottom: 4 }}>
+          🧩 Одна плёнка на {g.rows.length} задания: {g.material}, {g.color}, {g.thickness} мм — итого{" "}
+          {g.rows.reduce((sum, r) => sum + neededLengthM(r), 0).toFixed(2)} м
         </div>
-      ) : (
-        queueRow(g.rows[0], variant)
-      ),
+        <CuttingPlanGroupButton
+          sku={findSku(skusQuery.data, g.material, g.color, g.thickness)}
+          rows={g.rows}
+          onCut={(donor, widthCuts) =>
+            setCuttingSession({
+              donor,
+              widthCuts,
+              onDone: () => {
+                setCuttingSession(null);
+                qc.invalidateQueries({ queryKey: ["production-tasks"] });
+                qc.invalidateQueries({ queryKey: ["issue-available-units"] });
+                qc.invalidateQueries({ queryKey: ["cutting-plan"] });
+              },
+            })
+          }
+        />
+        {g.rows.map((r) => queueRow(r, variant))}
+      </div>
+    ) : (
+      queueRow(g.rows[0], variant)
     );
+
+  const renderByFilm = (rows: QueueRowData[], variant: "today" | "week") =>
+    groupQueueRows(rows).map((g) => renderFilmGroup(g, variant));
+
+  const renderByPart = (rows: QueueRowData[], variant: "today" | "week") =>
+    groupQueueRowsByPart(rows).map((pg) => (
+      <div key={`part-${pg.key}`} style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: "#5B6472", marginBottom: 6 }}>
+          🔧 {pg.partName} <Tag style={{ marginLeft: 4 }}>{pg.rows.length}</Tag>
+        </div>
+        {groupQueueRows(pg.rows).map((g) => renderFilmGroup(g, variant))}
+      </div>
+    ));
+
+  const renderQueueRows = (rows: QueueRowData[], variant: "today" | "week") =>
+    groupBy === "part" ? renderByPart(rows, variant) : renderByFilm(rows, variant);
 
   return (
     <div>
@@ -795,6 +836,14 @@ export default function Issue() {
           onChange={setOccurredAt}
           disabledDate={(d) => d.isAfter(dayjs(), "day")}
         />
+        <Segmented
+          value={groupBy}
+          onChange={(v) => setGroupBy(v as "film" | "part")}
+          options={[
+            { label: "По плёнке", value: "film" },
+            { label: "По детали", value: "part" },
+          ]}
+        />
       </Space>
 
       <Row gutter={[20, 20]}>
@@ -821,7 +870,24 @@ export default function Issue() {
         </Col>
 
         <Col xs={24} lg={9}>
-          <div style={{ position: "sticky", top: 16 }}>
+          {/* Раздел про скролл на планшете — правая колонка растягивается
+              по высоте левой (Row без align — дефолтный stretch), а
+              position:sticky без своего overflow застревал наверху: пока
+              не прокрутишь весь список слева, до конца содержимого
+              справа было не добраться. Даём этому блоку собственный
+              потолок высоты и прокрутку — sticky продолжает липнуть к
+              верху при скролле страницы, а если содержимого больше, чем
+              видно, оно скроллится само внутри, независимо от левой
+              колонки. */}
+          <div
+            style={{
+              position: "sticky",
+              top: 16,
+              maxHeight: "calc(100vh - 140px)",
+              overflowY: "auto",
+              paddingRight: 4,
+            }}
+          >
             {!selected && !lastIssued && (
               <Card style={{ textAlign: "center", padding: "24px 8px", color: "#8A8C99" }}>
                 Выберите потребность слева — материал, штрипс и участок подставятся автоматически.
