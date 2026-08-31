@@ -37,7 +37,7 @@ class Rack(Base):
     __tablename__ = "racks"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(16), unique=True, index=True)  # "Р-3", "Ш-2"
+    code: Mapped[str] = mapped_column(String(128), unique=True, index=True)  # "Р-3", "Ш-2"
     type: Mapped[RackType] = mapped_column(Enum(RackType, name="rack_type"))
     shelf_count: Mapped[int] = mapped_column(Integer)
     # Вместимость полки в штрипсах — только для RackType.STRIP (сколько
