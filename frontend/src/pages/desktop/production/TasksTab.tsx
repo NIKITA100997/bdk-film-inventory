@@ -196,18 +196,20 @@ export default function TasksTab() {
               },
             }}
             columns={[
-              { title: "Модель", render: (_, t) => t.product_model_name ?? t.name ?? "—" },
-              { title: "Участок", dataIndex: "area", render: (v: string) => areaLabel(v) },
-              { title: "Количество", render: (_, t) => t.quantity ?? "—" },
-              { title: "Автор", dataIndex: "created_by", render: (id: number) => userName(id) },
-              { title: "Создано", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
+              { title: "Модель", width: 320, ellipsis: true, render: (_, t) => t.product_model_name ?? t.name ?? "—" },
+              { title: "Участок", width: 140, dataIndex: "area", render: (v: string) => areaLabel(v) },
+              { title: "Количество", width: 110, render: (_, t) => t.quantity ?? "—" },
+              { title: "Автор", width: 160, ellipsis: true, dataIndex: "created_by", render: (id: number) => userName(id) },
+              { title: "Создано", width: 170, dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
               {
                 title: "Статус",
+                width: 110,
                 dataIndex: "is_active",
                 render: (v: boolean) => (v ? <Tag color="green">Активно</Tag> : <Tag>В архиве</Tag>),
               },
               {
                 title: "Действия",
+                width: 240,
                 render: (_, t) =>
                   canManage && (
                     <Space onClick={(e) => e.stopPropagation()}>
