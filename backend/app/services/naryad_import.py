@@ -24,10 +24,14 @@ parse_naryad_xls_bytes — тонкая обёртка, читающая .xls ч
 номерам — печатные формы этой ERP используют неодинаковую раскладку
 колонок между файлами."""
 
+import difflib
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import xlrd
+from sqlalchemy.orm import Session
+
+from app.models.dictionaries import Part
 
 RASKLADKA_MARKER = "раскладка"
 STOP_MARKERS = ("ведомость", "#оттискктокогда#")
@@ -64,6 +68,12 @@ class ParsedNaryadLine:
     length_m: float
     quantity_pieces: float
     strip_width_mm: float | None = None
+    # Раздел про соответствие деталям у наряд-заказа (enrich_naryad_lines
+    # ниже) — id найденной в справочнике детали, если совпадение
+    # уверенное (по категории+размерам); None — совпадения не нашлось,
+    # ширина штрипса досчитается позже calc_default_strip_width как и
+    # раньше.
+    suggested_part_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -258,3 +268,107 @@ def parse_naryad_xls_bytes(data: bytes) -> NaryadParseResult:
         return parse_naryad_grid(grid)
     except ValueError:
         return parse_pogonazh_grid(grid)
+
+
+# Раздел про соответствие деталям у наряд-заказа — те же категории, что
+# уже узнаёт calc_default_strip_width по ключевому слову в названии
+# (services/production.py), но здесь категория используется не для
+# формулы, а чтобы сузить поиск по справочнику деталей до нужной группы.
+_NAME_CATEGORIES = ("стоевая", "поперечная", "филенка", "наличник", "добор", "планка", "короб")
+_WIDTH_TOLERANCE_MM = 2.0
+_LENGTH_TOLERANCE_M = 0.005
+
+
+def _detect_category(name_lower: str) -> str | None:
+    if "филёнка" in name_lower:
+        return "филенка"
+    for category in _NAME_CATEGORIES:
+        if category in name_lower:
+            return category
+    return None
+
+
+_NAME_MATCH_CUTOFF = 0.6
+# Скобочные группы в тексте названия наряд-заказа — цвет дерева/МДФ
+# ("(Капучино)") и/или маркер "(МежКомн)" (реальный образец:
+# "Поперечная (МежКомн) 30х110х504 (Капучино) ПАЗ-11"), ни того ни
+# другого нет в справочнике деталей (там голое "Поперечная 30х110х1840
+# ПАЗ-11") — убираем целиком перед сравнением, иначе шум сбивает
+# коэффициент похожести. Профиль паза в реальных образцах всегда идёт
+# отдельным текстом без скобок ("ПАЗ-11"), поэтому его не задевает.
+_PAREN_NOISE_RE = re.compile(r"\([^()]*\)")
+
+
+def _normalize_for_match(name: str) -> str:
+    return re.sub(r"\s+", " ", _PAREN_NOISE_RE.sub("", name)).strip().lower()
+
+
+def _match_catalog_part(parts_by_category: dict[str, list[Part]], name: str, width_mm: float, length_m: float) -> Part | None:
+    """Раздел про соответствие деталям (справочник) — категория по
+    ключевому слову + совпадение ширины детали (дерево/МДФ) с точностью
+    до допуска сужает поиск до кандидатов той же ширины. Дальше — по
+    убыванию надёжности:
+    1) точный/близкий текст названия (сработает для погонажа —
+       "Добор"/"Наличник"/"Планка"/короб несут в тексте профиль паза,
+       "ПАЗ-4" и т.п. — то же самое, что уже есть в справочнике);
+    2) если у всех кандидатов той же ширины одна и та же ширина штрипса —
+       профиль паза не виден в разделе РАСКЛАДКА (голое "Стоевая"/
+       "Поперечная"/"Филёнка", без текста паза), но раз они все дают один
+       и тот же результат, не важно, какой конкретно паз — берём любой;
+    3) длина — последний рубеж, если по названию/ширине штрипса не
+       разрешилось (у некоторых позиций справочника length_m не совпадает
+       с тем, что написано в самом названии — не самый надёжный сигнал,
+       поэтому проверяется последним, не первым).
+    Если ни один способ не дал однозначности — не гадаем, оставляем
+    пусто (тот же принцип, что и у плана заготовок: без уверенности
+    лучше оставить для ручного выбора, чем подставить не то)."""
+    category = _detect_category(name.lower())
+    if category is None:
+        return None
+    width_matches = [p for p in parts_by_category.get(category, []) if abs(float(p.width_mm) - width_mm) <= _WIDTH_TOLERANCE_MM]
+    if not width_matches:
+        return None
+
+    by_lower_name = {p.name.strip().lower(): p for p in width_matches}
+    name_match = difflib.get_close_matches(_normalize_for_match(name), list(by_lower_name), n=1, cutoff=_NAME_MATCH_CUTOFF)
+    if name_match:
+        return by_lower_name[name_match[0]]
+
+    distinct_strips = {float(p.strip_width_mm) for p in width_matches if p.strip_width_mm is not None}
+    if len(distinct_strips) == 1:
+        return width_matches[0]
+
+    length_matches = [p for p in width_matches if abs(float(p.length_m) - length_m) <= _LENGTH_TOLERANCE_M]
+    return length_matches[0] if len(length_matches) == 1 else None
+
+
+def enrich_naryad_lines(db: Session, result: NaryadParseResult) -> NaryadParseResult:
+    """Раздел про соответствие деталям у наряд-заказа — раньше загрузчик
+    вообще не смотрел в справочник деталей (в отличие от плана заготовок,
+    services.blank_plan_import.enrich_blank_plan_blocks), поэтому ширина
+    штрипса всегда шла через грубую calc_default_strip_width (одна
+    формула на ключевое слово, без учёта конкретной модели/паза — для
+    "планки", например, она даёт фиксированные 140/100 мм, тогда как в
+    реальном справочнике ширина штрипса планки скачет от 25 до 188 мм в
+    зависимости от модели), и совпадение с деталью никогда не
+    проставлялось. Здесь — то же сопоставление по духу, что у плана
+    заготовок, но по размерам, не по нечёткому тексту (см.
+    _match_catalog_part): найденное совпадение даёт точную ширину
+    штрипса из справочника вместо формулы; не найденное — всё остаётся
+    как раньше, calc_default_strip_width досчитает как запасной
+    вариант."""
+    parts = db.query(Part).filter(Part.is_active).all()
+    parts_by_category: dict[str, list[Part]] = {}
+    for p in parts:
+        category = _detect_category(p.name.lower())
+        if category:
+            parts_by_category.setdefault(category, []).append(p)
+
+    enriched_lines = []
+    for line in result.lines:
+        part = _match_catalog_part(parts_by_category, line.part_name, line.width_mm, line.length_m)
+        if part is not None and part.strip_width_mm is not None:
+            enriched_lines.append(replace(line, strip_width_mm=float(part.strip_width_mm), suggested_part_id=part.id))
+        else:
+            enriched_lines.append(line)
+    return replace(result, lines=enriched_lines)

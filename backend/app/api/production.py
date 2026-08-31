@@ -44,7 +44,7 @@ from app.schemas.deletion_requests import DeleteResultOut
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
-from app.services.naryad_import import parse_naryad_xls_bytes
+from app.services.naryad_import import enrich_naryad_lines, parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.production import (
     BlankDemandInputLine,
@@ -563,13 +563,18 @@ def create_production_task_manual(
 
 
 @router.post("/production-tasks/parse-naryad", response_model=NaryadParseResultOut)
-async def parse_naryad(file: UploadFile = File(...), user: User = Depends(manage_production)) -> NaryadParseResultOut:
+async def parse_naryad(
+    file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> NaryadParseResultOut:
     """Раздел про загрузку наряд-заказа — разбирает печатную форму
     («Перечень деталей столярных изделий», раздел «РАСКЛАДКА») в строки
     задания. Только предпросмотр: ничего не создаёт и не пишет в БД —
     материал/цвет/толщину плёнки и участок пользователь выбирает на
     фронтенде (файл их не содержит), после чего строки уходят в тот же
-    POST /production-tasks/manual, что и при ручном/BOM-создании."""
+    POST /production-tasks/manual, что и при ручном/BOM-создании.
+    enrich_naryad_lines — соответствие деталям и точная ширина штрипса
+    из справочника вместо грубой формулы, тот же принцип, что уже есть у
+    плана заготовок (parse_blank_plan ниже)."""
     data = await file.read()
     try:
         result = parse_naryad_xls_bytes(data)
@@ -582,6 +587,7 @@ async def parse_naryad(file: UploadFile = File(...), user: User = Depends(manage
         )
     if not result.lines:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="В файле не найдено ни одной строки с деталями")
+    result = enrich_naryad_lines(db, result)
     return NaryadParseResultOut(
         suggested_name=result.suggested_name,
         lines=[NaryadParsedLineOut(**l.__dict__) for l in result.lines],

@@ -1,6 +1,7 @@
 import pytest
 
-from app.services.naryad_import import parse_naryad_grid, parse_pogonazh_grid
+from app.models.dictionaries import Part
+from app.services.naryad_import import _detect_category, _match_catalog_part, parse_naryad_grid, parse_pogonazh_grid
 
 
 def _row(width: int, cols: dict[int, object]) -> list:
@@ -161,3 +162,97 @@ class TestParsePogonazhGrid:
         result = parse_pogonazh_grid(grid)
         assert len(result.lines) == 1
         assert result.lines[0].part_name == "Добор телескоп 10х100х2070"
+
+
+def _part(id_: int, name: str, width_mm: float, length_m: float, strip_width_mm: float | None) -> Part:
+    return Part(id=id_, name=name, width_mm=width_mm, length_m=length_m, strip_width_mm=strip_width_mm, is_active=True)
+
+
+class TestDetectCategory:
+    def test_recognizes_known_categories(self):
+        assert _detect_category("стоевая 36х108х2035 паз-11") == "стоевая"
+        assert _detect_category("поперечная (межкомн) 30х110х504") == "поперечная"
+        assert _detect_category("планка 34х90х1840 паз-4") == "планка"
+        assert _detect_category("наличник телескоп 8х70х2150") == "наличник"
+        assert _detect_category("добор телескоп 10х100х2070") == "добор"
+        assert _detect_category("коробка с упл. телескоп мдф 32х75х2070") == "короб"
+
+    def test_yo_spelling_maps_to_same_category_as_ye(self):
+        assert _detect_category("филёнка 10х163х2050") == "филенка"
+        assert _detect_category("филенка 10х163х2050") == "филенка"
+
+    def test_unknown_name_returns_none(self):
+        assert _detect_category("штрипс произвольный") is None
+
+
+class TestMatchCatalogPart:
+    def test_matches_exact_width_and_length_when_unambiguous(self):
+        parts_by_category = {"планка": [_part(1, "Планка 34х90х1840 ПАЗ-4", 90.0, 1.840, 150.0)]}
+        match = _match_catalog_part(parts_by_category, "Планка 34х90х1840 ПАЗ-4", 90.0, 1.840)
+        assert match is not None
+        assert match.id == 1
+
+    def test_no_match_for_unknown_category(self):
+        parts_by_category = {"планка": [_part(1, "Планка 34х90х1840 ПАЗ-4", 90.0, 1.840, 150.0)]}
+        assert _match_catalog_part(parts_by_category, "Штрипс произвольный", 90.0, 1.840) is None
+
+    def test_no_match_when_width_outside_tolerance(self):
+        parts_by_category = {"планка": [_part(1, "Планка 34х90х1840 ПАЗ-4", 90.0, 1.840, 150.0)]}
+        assert _match_catalog_part(parts_by_category, "Планка какая-то", 95.0, 1.840) is None
+
+    def test_ambiguous_width_narrowed_by_length(self):
+        # Одна и та же ширина, разные модели/длины (реальный образец —
+        # "Планка 30х110х1840"/"Планка 30х110х1840 ПАЗ-15" с разной шириной
+        # штрипса) — без длины неоднозначно, с ней разрешается однозначно.
+        parts_by_category = {
+            "планка": [
+                _part(1, "Планка 30х110х1840 ПАЗ-11", 110.0, 1.840, 150.0),
+                _part(2, "Планка 30х110х2070 ПАЗ-11", 110.0, 2.070, 160.0),
+            ]
+        }
+        match = _match_catalog_part(parts_by_category, "Планка 30х110х2070 ПАЗ-11", 110.0, 2.070)
+        assert match is not None
+        assert match.id == 2
+
+    def test_still_ambiguous_after_length_narrowing_returns_none(self):
+        # Раздел РАСКЛАДКА без профиля в тексте ("Планка", без паза) + два
+        # реальных по форме кандидата той же ширины и длины, но с разной
+        # шириной штрипса (как настоящие ПАЗ-11/ПАЗ-15 у одной и той же
+        # ширины) — ни имя, ни длина не разрешают, какой из двух.
+        parts_by_category = {
+            "планка": [
+                _part(1, "Планка 30х110х1840 ПАЗ-11", 110.0, 1.840, 150.0),
+                _part(2, "Планка 30х110х1840 ПАЗ-15", 110.0, 1.840, 160.0),
+            ]
+        }
+        assert _match_catalog_part(parts_by_category, "Планка", 110.0, 1.840) is None
+
+    def test_disambiguates_by_profile_text_when_length_in_catalog_is_unreliable(self):
+        # Реальный образец из справочника: две "Планки" одной ширины,
+        # разный паз в названии (ПАЗ-10х12/ПАЗ-4) — length_m в справочнике
+        # не совпадает с тем, что написано в самом названии ни у одной из
+        # них, так что по длине не разрешить; текст названия (профиль
+        # паза) разрешает однозначно.
+        parts_by_category = {
+            "планка": [
+                _part(1, "Планка 34х90х1840 ПАЗ-10х12", 90.0, 3.760, 150.0),
+                _part(2, "Планка 34х90х1840 ПАЗ-4", 90.0, 1.840, 150.0),
+            ]
+        }
+        match = _match_catalog_part(parts_by_category, "Планка 34х90х1840 ПАЗ-4", 90.0, 1.840)
+        assert match is not None
+        assert match.id == 2
+
+    def test_ambiguous_profile_but_same_strip_width_is_still_confident(self):
+        # Раздел РАСКЛАДКА не несёт текста паза вообще (голое "Стоевая"),
+        # но если все кандидаты той же ширины сходятся на одной и той же
+        # ширине штрипса — какой именно паз, не важно для результата.
+        parts_by_category = {
+            "стоевая": [
+                _part(1, "Стоевая 36х108х2035 ПАЗ-11", 108.0, 2.035, 290.0),
+                _part(2, "Стоевая 36х108х2035 ПАЗ-4", 108.0, 2.035, 290.0),
+            ]
+        }
+        match = _match_catalog_part(parts_by_category, "Стоевая", 108.0, 2.035)
+        assert match is not None
+        assert match.strip_width_mm == 290.0
