@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -82,17 +83,6 @@ class ReassignSkuRequest(BaseModel):
     manufacturer: str
 
 
-class SplitRequest(BaseModel):
-    separate_width_mm: float = Field(gt=0)
-    new_unit_location: str | None = None
-    occurred_at: OccurredAt = None
-
-
-class SplitResponse(BaseModel):
-    parent: MaterialUnitOut
-    new_unit: MaterialUnitOut | None
-
-
 class IssueRequest(BaseModel):
     material: str
     color: str
@@ -139,19 +129,6 @@ class IssueResult(BaseModel):
     donor: DonorSuggestion | None = None
 
 
-class AtomicDonorIssueRequest(BaseModel):
-    donor_unit_id: int
-    requested_width_mm: float = Field(gt=0)
-    area: str
-    production_task_line_id: int | None = None
-    occurred_at: OccurredAt = None
-
-
-class AtomicDonorIssueResponse(BaseModel):
-    issued_unit: MaterialUnitOut
-    remainder_unit: MaterialUnitOut | None = None
-
-
 class CuttingPlanRequest(BaseModel):
     """Раздел про план резки на несколько разных штрипсов одной плёнки —
     needed_widths_mm обычно приходит из группы "одна плёнка на N заданий"
@@ -184,48 +161,57 @@ class CuttingPlanOut(BaseModel):
     covered_indices: list[int]
 
 
-class CuttingPlanCutSpec(BaseModel):
-    """Один кусок из плана резки — на какую строку задания идёт, какой
-    ширины, и контрольная (реально отмотанная станком) длина."""
-
-    production_task_line_id: int
-    width_mm: float = Field(gt=0)
-    actual_length_m: float = Field(ge=0)
-
-
-class CuttingPlanExecuteRequest(BaseModel):
-    donor_unit_id: int
-    cuts: list[CuttingPlanCutSpec] = Field(min_length=1)
-    occurred_at: OccurredAt = None
-
-
-class CuttingPlanExecuteResultCut(BaseModel):
-    unit: MaterialUnitOut
-    production_task_line_id: int
-    expected_length_m: float
-    actual_length_m: float
-    discrepancy_flagged: bool
-
-
-class CuttingPlanExecuteResponse(BaseModel):
-    donor_remainder: MaterialUnitOut | None
-    cuts: list[CuttingPlanExecuteResultCut]
-
-
 class CutRequest(BaseModel):
     cut_length_m: float = Field(gt=0)
     remainder_location: str | None = None
     occurred_at: OccurredAt = None
 
 
-class SplitByLengthRequest(BaseModel):
-    """Раскрой по длине с сохранением отреза как отдельной единицы —
-    в отличие от CutRequest, отрезанный кусок не списывается, а
-    становится новой трекаемой единицей (POST /units/{id}/split-length)."""
+class CuttingDestination(BaseModel):
+    """Куда девается один отрезанный кусок (раздел про единую форму резки)
+    — "keep" (остаётся на складе, опционально сразу с ячейкой), "issue"
+    (сразу выдаётся участку/строке задания), "discard" (списывается на
+    месте без своей единицы — только для отреза по длине, кусок ширины
+    донора никогда не бывает "сразу отход", для этого его просто не
+    режут)."""
 
-    cut_length_m: float = Field(gt=0)
-    new_unit_location: str | None = None
+    kind: Literal["keep", "issue", "discard"]
+    location_code: str | None = None
+    area: str | None = None
+    production_task_line_id: int | None = None
+
+
+class CuttingWidthSpec(BaseModel):
+    width_mm: float = Field(gt=0)
+    destination: CuttingDestination
+    actual_length_m: float | None = None
+
+
+class CuttingRecipeRequest(BaseModel):
+    """Единая резка донора (раздел про объединение резки в одну форму) —
+    опциональный отрез по длине на всю ширину донора, затем ноль и более
+    кусков по ширине из остатка. Заменяет /split, /split-length,
+    /issue-donor-atomic, /cutting-plan/execute одним атомарным запросом,
+    с автосписанием остатка донора тоньше порога полезной ширины в конце
+    (донор — общая логика с donor_remainder_write_off_m, ранее
+    применявшаяся только в execute_cutting_plan)."""
+
+    donor_unit_id: int
+    length_precut_m: float | None = Field(default=None, gt=0)
+    length_destination: CuttingDestination | None = None
+    width_cuts: list[CuttingWidthSpec] = Field(default_factory=list)
     occurred_at: OccurredAt = None
+
+
+class CuttingRecipeResultPiece(BaseModel):
+    unit: MaterialUnitOut
+    discrepancy_flagged: bool = False
+
+
+class CuttingRecipeResponse(BaseModel):
+    length_result: CuttingRecipeResultPiece | None
+    width_results: list[CuttingRecipeResultPiece]
+    donor_remainder: MaterialUnitOut
 
 
 class ReturnRequest(BaseModel):

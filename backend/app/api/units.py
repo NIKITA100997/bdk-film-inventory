@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Query, Session, joinedload
 
-from app.core.security import get_current_user, require_permission
+from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.dictionaries import MaterialSku
@@ -15,15 +15,13 @@ from app.models.users import User
 from app.models.write_off_reasons import WriteOffReasonEntry
 from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.units import (
-    AtomicDonorIssueRequest,
-    AtomicDonorIssueResponse,
     CutRequest,
     CuttingPlanDonorOut,
-    CuttingPlanExecuteRequest,
-    CuttingPlanExecuteResponse,
-    CuttingPlanExecuteResultCut,
     CuttingPlanOut,
     CuttingPlanRequest,
+    CuttingRecipeRequest,
+    CuttingRecipeResponse,
+    CuttingRecipeResultPiece,
     DonorSuggestion,
     IssueDirectRequest,
     IssueRequest,
@@ -34,9 +32,6 @@ from app.schemas.units import (
     ReceiveRequest,
     ReturnPreviewOut,
     ReturnRequest,
-    SplitByLengthRequest,
-    SplitRequest,
-    SplitResponse,
     UnitEventOut,
     WriteOffRequest,
 )
@@ -51,7 +46,6 @@ from app.services.splitting import (
     cut_to_length,
     donor_remainder_write_off_m,
     split_by_length,
-    split_lengthwise,
     split_lengthwise_multi,
 )
 from app.services.warehouses import filter_by_warehouse, rack_warehouse_names, resolve_warehouse_name
@@ -321,89 +315,6 @@ def reassign_unit_sku(
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 
-@router.post("/{unit_id}/split", response_model=SplitResponse)
-def split_unit(
-    unit_id: int,
-    payload: SplitRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_permission("units.split")),
-) -> SplitResponse:
-    """Продольная резка (2.3/2.4 ТЗ) — всегда на складе, из статуса "На
-    хранении". Одна часть остаётся тем же ID, другая — новой единицей."""
-    unit = _get_storable_unit(db, unit_id)
-    if unit.status != UnitStatus.NA_KHRANENII:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Резать можно только единицу на хранении")
-
-    try:
-        outcome = split_lengthwise(unit, payload.separate_width_mm, new_unit_location=payload.new_unit_location)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-
-    unit.width_mm = outcome.parent_width_mm
-    unit.length_m = outcome.parent_length_m
-    record_event(
-        db,
-        unit=unit,
-        event_type=outcome.parent_event.event_type,
-        user_id=user.id,
-        quantity_delta_m=outcome.parent_event.quantity_delta_m,
-        from_length=outcome.parent_event.from_length,
-        to_length=outcome.parent_event.to_length,
-        occurred_at=payload.occurred_at,
-    )
-
-    new_unit: MaterialUnit | None = None
-    if outcome.new_unit is not None:
-        spec = outcome.new_unit
-        settings = db.get(CalcSettings, 1)
-        min_useful_width = float(settings.min_useful_width_mm) if settings else 30.0
-        is_waste = spec.width_mm < min_useful_width
-
-        new_unit = MaterialUnit(
-            parent_id=spec.parent_id,
-            upd_number=spec.upd_number,
-            pallet_number=spec.pallet_number,
-            material_sku_id=spec.material_sku_id,
-            width_mm=spec.width_mm,
-            length_m=spec.length_m,
-            is_strip=True,
-            status=UnitStatus.SPISAN if is_waste else spec.status,
-            location_code=None if is_waste else spec.location_code,
-        )
-        db.add(new_unit)
-        db.flush()
-        record_event(
-            db,
-            unit=new_unit,
-            event_type=outcome.new_unit_event.event_type,
-            user_id=user.id,
-            quantity_delta_m=outcome.new_unit_event.quantity_delta_m,
-            to_length=outcome.new_unit_event.to_length,
-            to_cell=None if is_waste else outcome.new_unit_event.to_cell,
-            occurred_at=payload.occurred_at,
-        )
-        if is_waste:
-            # Ниже порога полезной ширины (5.6 ТЗ) — сразу отход, на
-            # штрипсовый стеллаж не идёт.
-            record_event(
-                db,
-                unit=new_unit,
-                event_type=EventType.SPISANIE,
-                user_id=user.id,
-                quantity_delta_m=-float(new_unit.length_m),
-                from_length=float(new_unit.length_m),
-                to_length=0,
-                write_off_reason="cutting_waste",
-                occurred_at=payload.occurred_at,
-            )
-
-    db.commit()
-    unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit.id).first()
-    if new_unit is not None:
-        new_unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == new_unit.id).first()
-    return SplitResponse(parent=unit, new_unit=new_unit)
-
-
 @router.post("/{unit_id}/issue", response_model=MaterialUnitOut)
 def issue_unit_direct(
     unit_id: int,
@@ -629,64 +540,252 @@ def get_cutting_plan(
     )
 
 
-@router.post("/cutting-plan/execute", response_model=CuttingPlanExecuteResponse)
-def execute_cutting_plan(
-    payload: CuttingPlanExecuteRequest,
+def _cutting_recipe_required_permissions(payload: CuttingRecipeRequest) -> set[str]:
+    """Права под конкретно запрошенные шаги резки (раздел про единую форму
+    резки) — не Depends(require_permission(...)) с его OR-семантикой
+    (require_permission ниже в core/security.py — "любое из перечисленных"),
+    здесь нужно AND: пользователь должен иметь ВСЕ права под факт
+    запрошенных назначений, не любое одно. Подтверждено разбором реальных
+    ролей в БД — есть роль только с units.cut+units.return, без
+    split/issue, для персонала на площадке."""
+    required: set[str] = set()
+    if payload.length_destination is not None:
+        kind = payload.length_destination.kind
+        if kind == "discard":
+            required.add("units.cut")
+        elif kind == "keep":
+            required.add("units.split")
+        elif kind == "issue":
+            required.add("units.issue")
+    for w in payload.width_cuts:
+        required.add("units.split" if w.destination.kind == "keep" else "units.issue")
+    return required
+
+
+@router.post("/cutting-recipe", response_model=CuttingRecipeResponse)
+def execute_cutting_recipe(
+    payload: CuttingRecipeRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permission("units.issue")),
-) -> CuttingPlanExecuteResponse:
-    """Взять план резки в работу (раздел про несколько разных ширин за
-    проход) — один запрос режет донора сразу на все указанные куски и
-    выдаёт каждый на свою строку задания, с контрольной (реально
-    отмотанной станком) длиной вместо теоретической. Без отдельного
-    статуса "в резке" — резка и выдача атомарны, тем же приёмом, что
-    issue_donor_atomic для одной ширины, только на N кусков сразу."""
+    user: User = Depends(get_current_user),
+) -> CuttingRecipeResponse:
+    """Единая резка донора (раздел про объединение резки в одну форму) —
+    заменяет /split, /split-length, /issue-donor-atomic,
+    /cutting-plan/execute одним атомарным запросом: опциональный отрез по
+    длине на всю ширину донора (оставить на складе/выдать участку/списать
+    сразу), затем ноль и более кусков по ширине из остатка (оставить на
+    складе/выдать участку). Автосписание остатка донора тоньше порога
+    полезной ширины в конце — donor_remainder_write_off_m, раньше
+    применявшаяся только в execute_cutting_plan, теперь единственное
+    место резки вообще, что и чинит баг "штрипсы-огрызки не списывались
+    сами" (реальные данные — 30 ручных списаний причиной 'other', ни
+    одного автоматического 'cutting_waste')."""
+    if payload.length_precut_m is None and not payload.width_cuts:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Нужен хотя бы один отрез")
+    if payload.length_precut_m is not None and payload.length_destination is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не указано назначение отреза по длине"
+        )
+    for w in payload.width_cuts:
+        if w.destination.kind == "discard":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Кусок по ширине нельзя сразу списать — просто не режьте эту ширину",
+            )
+    if payload.length_destination is not None and payload.length_destination.kind == "issue" and not payload.length_destination.area:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не указан участок для отреза по длине")
+    for w in payload.width_cuts:
+        if w.destination.kind == "issue" and not w.destination.area:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не указан участок для одного из кусков")
+
+    required = _cutting_recipe_required_permissions(payload)
+    if not user.is_superuser and not required <= get_permission_codes(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Недостаточно прав для одного из запрошенных действий резки"
+        )
+
     donor = _get_storable_unit(db, payload.donor_unit_id)
-    if donor.status != UnitStatus.NA_KHRANENII:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Донор должен быть в статусе 'На хранении'")
+    if payload.width_cuts:
+        if donor.status != UnitStatus.NA_KHRANENII:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Резать по ширине можно только единицу на хранении")
+    elif donor.status not in (UnitStatus.NA_KHRANENII, UnitStatus.VYDAN_UCHASTKU):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Раскрой по длине доступен только на складе или у участка, которому единица выдана",
+        )
 
-    lines: dict[int, ProductionTaskLine] = {}
-    for cut in payload.cuts:
-        line = db.get(ProductionTaskLine, cut.production_task_line_id)
-        if line is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
-        _validate_matches_task_line(db, cut.production_task_line_id, donor.material_sku, cut.width_mm)
-        lines[cut.production_task_line_id] = line
+    # Провалидировать все строки заданий заранее, до любых мутаций доноров
+    # (тот же порядок, что уже в execute_cutting_plan/issue_donor_atomic).
+    length_line: ProductionTaskLine | None = None
+    if payload.length_destination is not None and payload.length_destination.production_task_line_id is not None:
+        _validate_matches_task_line(
+            db, payload.length_destination.production_task_line_id, donor.material_sku, float(donor.width_mm)
+        )
+        length_line = db.get(ProductionTaskLine, payload.length_destination.production_task_line_id)
 
-    try:
-        outcome = split_lengthwise_multi(donor, [cut.width_mm for cut in payload.cuts])
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    width_lines: dict[int, ProductionTaskLine] = {}
+    for w in payload.width_cuts:
+        if w.destination.production_task_line_id is not None:
+            _validate_matches_task_line(db, w.destination.production_task_line_id, donor.material_sku, w.width_mm)
+            width_lines[w.destination.production_task_line_id] = db.get(
+                ProductionTaskLine, w.destination.production_task_line_id
+            )
 
-    # Теоретическая длина — длина донора ДО резки (резка вдоль её не
-    # меняет), с ней сверяем реально введённые контрольные длины.
-    expected_length_m = float(donor.length_m)
+    length_result_id: int | None = None
+
+    if payload.length_precut_m is not None:
+        dest = payload.length_destination
+        if dest.kind == "discard":
+            try:
+                outcome = cut_to_length(donor, payload.length_precut_m, remainder_location=dest.location_code)
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+            donor.width_mm = outcome.parent_width_mm
+            donor.length_m = outcome.parent_length_m
+            donor.status = outcome.parent_status
+            record_event(
+                db,
+                unit=donor,
+                event_type=outcome.parent_event.event_type,
+                user_id=user.id,
+                quantity_delta_m=outcome.parent_event.quantity_delta_m,
+                from_length=outcome.parent_event.from_length,
+                to_length=outcome.parent_event.to_length,
+                to_cell=outcome.parent_event.to_cell,
+                occurred_at=payload.occurred_at,
+            )
+        else:
+            try:
+                outcome = split_by_length(donor, payload.length_precut_m, new_unit_location=dest.location_code)
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+            donor.length_m = outcome.parent_length_m
+            record_event(
+                db,
+                unit=donor,
+                event_type=outcome.parent_event.event_type,
+                user_id=user.id,
+                quantity_delta_m=outcome.parent_event.quantity_delta_m,
+                from_length=outcome.parent_event.from_length,
+                to_length=outcome.parent_event.to_length,
+                occurred_at=payload.occurred_at,
+            )
+            spec = outcome.new_unit
+            is_issue = dest.kind == "issue"
+            new_unit = MaterialUnit(
+                parent_id=spec.parent_id,
+                upd_number=spec.upd_number,
+                pallet_number=spec.pallet_number,
+                material_sku_id=spec.material_sku_id,
+                width_mm=spec.width_mm,
+                length_m=spec.length_m,
+                is_strip=donor.is_strip,
+                status=UnitStatus.VYDAN_UCHASTKU if is_issue else UnitStatus.NA_KHRANENII,
+                area=(length_line.task.area if length_line is not None else dest.area) if is_issue else None,
+                production_task_line_id=dest.production_task_line_id if is_issue else None,
+                location_code=None if is_issue else dest.location_code,
+            )
+            db.add(new_unit)
+            db.flush()
+            record_event(
+                db,
+                unit=new_unit,
+                event_type=outcome.new_unit_event.event_type,
+                user_id=user.id,
+                quantity_delta_m=outcome.new_unit_event.quantity_delta_m,
+                to_length=outcome.new_unit_event.to_length,
+                to_cell=None if is_issue else outcome.new_unit_event.to_cell,
+                occurred_at=payload.occurred_at,
+            )
+            if is_issue:
+                record_event(
+                    db,
+                    unit=new_unit,
+                    event_type=EventType.VYDACHA_UCHASTKU,
+                    user_id=user.id,
+                    quantity_delta_m=-float(new_unit.length_m),
+                    occurred_at=payload.occurred_at,
+                )
+            length_result_id = new_unit.id
+
+    width_result_ids: list[tuple[int, bool]] = []
+
+    if payload.width_cuts:
+        if float(donor.length_m) <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="После отреза по длине у донора не осталось длины для резки по ширине"
+            )
+        try:
+            outcome = split_lengthwise_multi(donor, [w.width_mm for w in payload.width_cuts])
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
+        donor.width_mm = outcome.parent_width_mm
+        donor.length_m = outcome.parent_length_m
+        record_event(
+            db,
+            unit=donor,
+            event_type=outcome.parent_event.event_type,
+            user_id=user.id,
+            quantity_delta_m=outcome.parent_event.quantity_delta_m,
+            from_length=outcome.parent_event.from_length,
+            to_length=outcome.parent_event.to_length,
+            occurred_at=payload.occurred_at,
+        )
+
+        expected_length_m = float(donor.length_m)
+        tolerance = max(0.1, expected_length_m * 0.05)
+
+        for w, spec, new_unit_event in zip(payload.width_cuts, outcome.new_units, outcome.new_unit_events):
+            dest = w.destination
+            is_issue = dest.kind == "issue"
+            line = width_lines.get(dest.production_task_line_id) if dest.production_task_line_id else None
+            actual_length_m = w.actual_length_m if (is_issue and w.actual_length_m is not None) else expected_length_m
+            new_unit = MaterialUnit(
+                parent_id=spec.parent_id,
+                upd_number=spec.upd_number,
+                pallet_number=spec.pallet_number,
+                material_sku_id=spec.material_sku_id,
+                width_mm=spec.width_mm,
+                length_m=actual_length_m if is_issue else spec.length_m,
+                is_strip=True,
+                status=UnitStatus.VYDAN_UCHASTKU if is_issue else UnitStatus.NA_KHRANENII,
+                area=(line.task.area if line is not None else dest.area) if is_issue else None,
+                production_task_line_id=dest.production_task_line_id if is_issue else None,
+                location_code=None if is_issue else dest.location_code,
+            )
+            db.add(new_unit)
+            db.flush()
+            record_event(
+                db,
+                unit=new_unit,
+                event_type=new_unit_event.event_type,
+                user_id=user.id,
+                quantity_delta_m=new_unit_event.quantity_delta_m,
+                to_length=expected_length_m if is_issue else new_unit_event.to_length,
+                to_cell=None if is_issue else new_unit_event.to_cell,
+                occurred_at=payload.occurred_at,
+            )
+            discrepancy_flagged = False
+            if is_issue:
+                discrepancy_flagged = abs(actual_length_m - expected_length_m) > tolerance
+                record_event(
+                    db,
+                    unit=new_unit,
+                    event_type=EventType.VYDACHA_UCHASTKU,
+                    user_id=user.id,
+                    quantity_delta_m=-actual_length_m,
+                    to_length=actual_length_m,
+                    expected_length_m=expected_length_m,
+                    occurred_at=payload.occurred_at,
+                )
+            width_result_ids.append((new_unit.id, discrepancy_flagged))
 
     settings = db.get(CalcSettings, 1)
     min_useful_width = float(settings.min_useful_width_mm) if settings else 30.0
-    write_off_m = donor_remainder_write_off_m(outcome.parent_width_mm, float(donor.length_m), min_useful_width)
-    donor_is_waste = write_off_m is not None
-
-    donor.width_mm = outcome.parent_width_mm
-    donor.length_m = outcome.parent_length_m
-    if donor_is_waste:
+    write_off_m = donor_remainder_write_off_m(float(donor.width_mm), float(donor.length_m), min_useful_width)
+    if write_off_m is not None:
         donor.status = UnitStatus.SPISAN
         donor.location_code = None
-    record_event(
-        db,
-        unit=donor,
-        event_type=outcome.parent_event.event_type,
-        user_id=user.id,
-        quantity_delta_m=outcome.parent_event.quantity_delta_m,
-        from_length=outcome.parent_event.from_length,
-        to_length=outcome.parent_event.to_length,
-        occurred_at=payload.occurred_at,
-    )
-    if donor_is_waste:
-        # Остаток донора тоньше порога полезной ширины (5.6 ТЗ) — сразу
-        # отход, та же ветка, что у одиночной резки в split_unit. write_off_m
-        # — 0, если остаток 0мм (весь донор ровно ушёл в куски, реального
-        # остатка нет — см. donor_remainder_write_off_m).
         record_event(
             db,
             unit=donor,
@@ -699,153 +798,22 @@ def execute_cutting_plan(
             occurred_at=payload.occurred_at,
         )
 
-    tolerance = max(0.1, expected_length_m * 0.05)
-    # Собираем сырые данные первым проходом, строим Pydantic-объекты
-    # ответа только в самом конце после повторной подгрузки со SKU (тот
-    # же порядок, что у issue_donor_atomic) — не пересобираем уже
-    # сконструированные CuttingPlanExecuteResultCut задним числом.
-    cut_results: list[tuple[int, int, float, float, bool]] = []
-    for cut, spec, new_unit_event in zip(payload.cuts, outcome.new_units, outcome.new_unit_events):
-        line = lines[cut.production_task_line_id]
-        issued_unit = MaterialUnit(
-            parent_id=spec.parent_id,
-            upd_number=spec.upd_number,
-            pallet_number=spec.pallet_number,
-            material_sku_id=spec.material_sku_id,
-            width_mm=spec.width_mm,
-            length_m=cut.actual_length_m,
-            is_strip=True,
-            status=UnitStatus.VYDAN_UCHASTKU,
-            area=line.task.area,
-            production_task_line_id=cut.production_task_line_id,
-            location_code=None,
-        )
-        db.add(issued_unit)
-        db.flush()
-
-        record_event(
-            db,
-            unit=issued_unit,
-            event_type=new_unit_event.event_type,
-            user_id=user.id,
-            quantity_delta_m=new_unit_event.quantity_delta_m,
-            to_length=expected_length_m,
-            occurred_at=payload.occurred_at,
-        )
-        discrepancy_flagged = abs(cut.actual_length_m - expected_length_m) > tolerance
-        record_event(
-            db,
-            unit=issued_unit,
-            event_type=EventType.VYDACHA_UCHASTKU,
-            user_id=user.id,
-            quantity_delta_m=-cut.actual_length_m,
-            to_length=cut.actual_length_m,
-            expected_length_m=expected_length_m,
-            occurred_at=payload.occurred_at,
-        )
-        cut_results.append((issued_unit.id, cut.production_task_line_id, expected_length_m, cut.actual_length_m, discrepancy_flagged))
-
     db.commit()
 
-    donor_remainder = None
-    if not donor_is_waste:
-        donor_remainder = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == donor.id).first()
-
-    result_cuts = [
-        CuttingPlanExecuteResultCut(
-            unit=_with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first(),
-            production_task_line_id=task_line_id,
-            expected_length_m=expected,
-            actual_length_m=actual,
-            discrepancy_flagged=flagged,
+    length_result = None
+    if length_result_id is not None:
+        length_result = CuttingRecipeResultPiece(
+            unit=_with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == length_result_id).first()
         )
-        for unit_id, task_line_id, expected, actual, flagged in cut_results
+    width_results = [
+        CuttingRecipeResultPiece(
+            unit=_with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == uid).first(), discrepancy_flagged=flagged
+        )
+        for uid, flagged in width_result_ids
     ]
+    donor_remainder = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == donor.id).first()
 
-    return CuttingPlanExecuteResponse(donor_remainder=donor_remainder, cuts=result_cuts)
-
-
-@router.post("/issue-donor-atomic", response_model=AtomicDonorIssueResponse)
-def issue_donor_atomic(
-    payload: AtomicDonorIssueRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_permission("units.issue")),
-) -> AtomicDonorIssueResponse:
-    """Атомарная резка донора и выдача в 1 клик (раздел 6 бэклога доработок):
-    берет донорский рулон/штрипс на хранении, отделяет от него кусок requested_width_mm,
-    мгновенно выдает отделенный кусок участку, а остаток оставляет/размещает на складе."""
-    unit = _get_storable_unit(db, payload.donor_unit_id)
-    if unit.status != UnitStatus.NA_KHRANENII:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Донор должен быть в статусе 'На хранении'")
-    if payload.requested_width_mm >= unit.width_mm:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Запрашиваемая ширина должна быть меньше ширины донора"
-        )
-    if payload.production_task_line_id is not None:
-        _validate_matches_task_line(db, payload.production_task_line_id, unit.material_sku, payload.requested_width_mm)
-
-    try:
-        outcome = split_lengthwise(unit, payload.requested_width_mm)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-
-    unit.width_mm = outcome.parent_width_mm
-    unit.length_m = outcome.parent_length_m
-    record_event(
-        db,
-        unit=unit,
-        event_type=outcome.parent_event.event_type,
-        user_id=user.id,
-        quantity_delta_m=outcome.parent_event.quantity_delta_m,
-        from_length=outcome.parent_event.from_length,
-        to_length=outcome.parent_event.to_length,
-        occurred_at=payload.occurred_at,
-    )
-
-    spec = outcome.new_unit
-    if spec is None:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Не удалось отделить кусок донора")
-
-    issued_unit = MaterialUnit(
-        parent_id=spec.parent_id,
-        upd_number=spec.upd_number,
-        pallet_number=spec.pallet_number,
-        material_sku_id=spec.material_sku_id,
-        width_mm=spec.width_mm,
-        length_m=spec.length_m,
-        is_strip=True,
-        status=UnitStatus.VYDAN_UCHASTKU,
-        area=payload.area,
-        production_task_line_id=payload.production_task_line_id,
-        location_code=None,
-    )
-    db.add(issued_unit)
-    db.flush()
-
-    record_event(
-        db,
-        unit=issued_unit,
-        event_type=outcome.new_unit_event.event_type,
-        user_id=user.id,
-        quantity_delta_m=outcome.new_unit_event.quantity_delta_m,
-        to_length=outcome.new_unit_event.to_length,
-        occurred_at=payload.occurred_at,
-    )
-    record_event(
-        db,
-        unit=issued_unit,
-        event_type=EventType.VYDACHA_UCHASTKU,
-        user_id=user.id,
-        quantity_delta_m=-float(issued_unit.length_m),
-        occurred_at=payload.occurred_at,
-    )
-
-    db.commit()
-
-    issued_unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == issued_unit.id).first()
-    remainder_unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit.id).first()
-
-    return AtomicDonorIssueResponse(issued_unit=issued_unit, remainder_unit=remainder_unit)
+    return CuttingRecipeResponse(length_result=length_result, width_results=width_results, donor_remainder=donor_remainder)
 
 
 @router.post("/{unit_id}/cut", response_model=MaterialUnitOut)
@@ -889,74 +857,6 @@ def cut_unit(
     )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
-
-
-@router.post("/{unit_id}/split-length", response_model=SplitResponse)
-def split_unit_by_length(
-    unit_id: int,
-    payload: SplitByLengthRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_permission("units.split")),
-) -> SplitResponse:
-    """Раскрой по длине с сохранением отреза как отдельной единицы (раздел
-    про сохранение отреза как трекаемой единицы) — в отличие от /cut, где
-    отрезанный кусок сразу списывается, здесь он становится новой единицей
-    со своим ID/QR. Тот же статус-гейт, что у /cut — на складе или уже
-    выданной участку (сценарий "выдали в производство, порезали по факту,
-    остаток всё ещё нужно учитывать отдельно")."""
-    unit = _get_storable_unit(db, unit_id)
-    if unit.status not in (UnitStatus.NA_KHRANENII, UnitStatus.VYDAN_UCHASTKU):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Раскрой по длине доступен только на складе или у участка, которому единица выдана",
-        )
-
-    try:
-        outcome = split_by_length(unit, payload.cut_length_m, new_unit_location=payload.new_unit_location)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-
-    unit.length_m = outcome.parent_length_m
-    record_event(
-        db,
-        unit=unit,
-        event_type=outcome.parent_event.event_type,
-        user_id=user.id,
-        quantity_delta_m=outcome.parent_event.quantity_delta_m,
-        from_length=outcome.parent_event.from_length,
-        to_length=outcome.parent_event.to_length,
-        occurred_at=payload.occurred_at,
-    )
-
-    spec = outcome.new_unit
-    new_unit = MaterialUnit(
-        parent_id=spec.parent_id,
-        upd_number=spec.upd_number,
-        pallet_number=spec.pallet_number,
-        material_sku_id=spec.material_sku_id,
-        width_mm=spec.width_mm,
-        length_m=spec.length_m,
-        is_strip=unit.is_strip,
-        status=spec.status,
-        location_code=spec.location_code,
-    )
-    db.add(new_unit)
-    db.flush()
-    record_event(
-        db,
-        unit=new_unit,
-        event_type=outcome.new_unit_event.event_type,
-        user_id=user.id,
-        quantity_delta_m=outcome.new_unit_event.quantity_delta_m,
-        to_length=outcome.new_unit_event.to_length,
-        to_cell=outcome.new_unit_event.to_cell,
-        occurred_at=payload.occurred_at,
-    )
-    db.commit()
-
-    parent_out = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit.id).first()
-    new_unit_out = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == new_unit.id).first()
-    return SplitResponse(parent=parent_out, new_unit=new_unit_out)
 
 
 @router.get("/{unit_id}/return-preview", response_model=ReturnPreviewOut)

@@ -20,15 +20,13 @@ import {
 } from "antd";
 import Statistic from "../../components/Statistic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { isAxiosError } from "axios";
 import dayjs, { type Dayjs } from "dayjs";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import {
-  executeCuttingPlan,
   getCuttingPlan,
   getReturnPreview,
-  issueDonorAtomic,
   issueUnit,
   issueUnitDirect,
   placeUnit,
@@ -38,6 +36,7 @@ import {
   searchUnits,
   skuLabel,
   type AreaValue,
+  type CuttingRecipeResponse,
   type DonorSuggestion,
   type IssueResult,
   type MaterialSku,
@@ -57,11 +56,37 @@ import {
   type ProductionTaskLineIssuedUnit,
 } from "../../api/production";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import CuttingForm, { type CuttingFormInitialWidthCut } from "../../components/CuttingForm";
 import { useAuth } from "../../auth/AuthContext";
 
 function issueErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
   return fallback;
+}
+
+// Раздел про единую форму резки — донор для CuttingForm нужен как
+// MaterialUnit целиком (адрес ячейки/статус/номенклатура), а результат
+// поиска донора (DonorSuggestion/план резки) несёт только часть этих
+// полей — остальное довоссоздаём из уже известного контекста (sku уже
+// выбранной номенклатуры, статус донора всегда "На хранении" — иначе он
+// не попал бы в подсказку донора вообще).
+function makeDonorUnit(unitId: number, widthMm: number, lengthM: number, warehouseName: string | null, sku: MaterialSku): MaterialUnit {
+  return {
+    id: unitId,
+    parent_id: null,
+    upd_number: "",
+    pallet_number: "",
+    material_sku: sku,
+    width_mm: widthMm,
+    length_m: lengthM,
+    is_strip: false,
+    status: "На_хранении",
+    area: null,
+    location_code: null,
+    production_task_line_id: null,
+    area_m2: Math.round(((widthMm * lengthM) / 1000) * 1000) / 1000,
+    warehouse_name: warehouseName,
+  };
 }
 
 function findSku(skus: MaterialSku[] | undefined, material: string, color: string, thickness: number) {
@@ -137,29 +162,34 @@ function groupQueueRows(rows: QueueRowData[]) {
  * CuttingPlanExecuteModal) — план и выдача больше не два независимых
  * потока: строки, которых план не покрыл (uncovered), по-прежнему идут
  * через обычный клик по строке (независимый одноширинный подбор). */
-function CuttingPlanHint({
-  material,
-  color,
-  thickness,
-  manufacturer,
+/** Подсказка донора на группу строк одной плёнки (раздел про объединение
+ * резки в одну форму) — только поиск (getCuttingPlan, не меняется), само
+ * исполнение теперь всегда через общий CuttingForm (см. cuttingSession
+ * ниже в Issue()), не свою модалку. */
+function CuttingPlanGroupButton({
+  sku,
   rows,
+  onCut,
 }: {
-  material: string;
-  color: string;
-  thickness: number;
-  manufacturer: string | undefined;
+  sku: MaterialSku | undefined;
   rows: QueueRowData[];
+  onCut: (donor: MaterialUnit, widthCuts: CuttingFormInitialWidthCut[]) => void;
 }) {
-  const navigate = useNavigate();
-  const [executeOpen, setExecuteOpen] = useState(false);
   const widths = rows.map((r) => r.line.strip_width_mm || r.line.width_mm);
   const planQuery = useQuery({
-    queryKey: ["cutting-plan", material, color, thickness, manufacturer, widths.join(",")],
-    queryFn: () => getCuttingPlan({ material, color, thickness, manufacturer: manufacturer!, needed_widths_mm: widths }),
-    enabled: !!manufacturer,
+    queryKey: ["cutting-plan", sku?.material.name, sku?.color.name, sku?.thickness.value_mm, sku?.manufacturer.name, widths.join(",")],
+    queryFn: () =>
+      getCuttingPlan({
+        material: sku!.material.name,
+        color: sku!.color.name,
+        thickness: sku!.thickness.value_mm,
+        manufacturer: sku!.manufacturer.name,
+        needed_widths_mm: widths,
+      }),
+    enabled: !!sku,
   });
 
-  if (!manufacturer || !planQuery.data) return null;
+  if (!sku || !planQuery.data) return null;
   const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm, covered_indices } = planQuery.data;
 
   if (!donor) {
@@ -171,134 +201,24 @@ function CuttingPlanHint({
   }
 
   const coveredRows = covered_indices.map((i) => rows[i]);
+  const widthCuts: CuttingFormInitialWidthCut[] = coveredRows.map((r) => ({
+    width_mm: r.line.strip_width_mm || r.line.width_mm,
+    area: r.task.area,
+    production_task_line_id: r.line.id,
+    label: r.line.part_name ?? "Деталь",
+    locked: true,
+  }));
 
   return (
-    <>
-      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-        ✂️ План резки: донор{" "}
-        <a onClick={() => navigate("/m/unit-card", { state: { unitId: donor.unit_id } })}>№{donor.unit_id}</a> (
-        {donor.width_mm} мм, {donor.length_m} м) → режем {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
-        {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
-        {" · "}
-        <a onClick={() => setExecuteOpen(true)}>Взять в работу</a>
-      </Typography.Text>
-      {executeOpen && (
-        <CuttingPlanExecuteModal donor={donor} rows={coveredRows} onClose={() => setExecuteOpen(false)} />
-      )}
-    </>
-  );
-}
-
-/** Исполнение плана резки одним действием (раздел про несколько ширин за
- * проход) — без отдельного статуса "в резке": форма открывается сразу с
- * предзаполненными по плану кусками, оператор тут же вводит контрольные
- * (реально отмотанные станком) длины и отправляет — резка и выдача по
- * всем строкам выполняются одним атомарным запросом
- * (POST /units/cutting-plan/execute). Расхождение с теоретической длиной
- * не блокирует отправку — только помечается в ответе и уходит в отчёт
- * "Отклонения при резке", тем же приёмом, что уже был бы у диалога
- * возврата, но сохраняется, а не теряется после разового подтверждения. */
-function CuttingPlanExecuteModal({
-  donor,
-  rows,
-  onClose,
-}: {
-  donor: { unit_id: number; width_mm: number; length_m: number };
-  rows: QueueRowData[];
-  onClose: () => void;
-}) {
-  const qc = useQueryClient();
-  const [lengths, setLengths] = useState<Record<number, number>>(() =>
-    Object.fromEntries(rows.map((r) => [r.line.id, donor.length_m])),
-  );
-  const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
-
-  const executeMutation = useMutation({
-    mutationFn: () =>
-      executeCuttingPlan({
-        donor_unit_id: donor.unit_id,
-        cuts: rows.map((r) => ({
-          production_task_line_id: r.line.id,
-          width_mm: r.line.strip_width_mm || r.line.width_mm,
-          actual_length_m: lengths[r.line.id] ?? donor.length_m,
-        })),
-        occurred_at: toOccurredAtIso(occurredAt),
-      }),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["production-tasks"] });
-      qc.invalidateQueries({ queryKey: ["units-unplaced"] });
-      qc.invalidateQueries({ queryKey: ["cutting-plan"] });
-      const flagged = res.cuts.filter((c) => c.discrepancy_flagged);
-      const unitIds = res.cuts.map((c) => c.unit.id);
-      message.success(
-        <>
-          Разрезано и выдано {res.cuts.length} шт. ({unitIds.map((id) => `№${id}`).join(", ")}) —{" "}
-          <a onClick={() => printLabelsBatch(unitIds, { kind: "cutting_issue" })}>печать этикеток</a>
-          {flagged.length > 0 && (
-            <>
-              {" "}
-              · ⚠️ заметное отклонение по: {flagged.map((c) => `№${c.unit.id}`).join(", ")} — попадёт в отчёт «Отклонения при
-              резке».
-            </>
-          )}
-        </>,
-      );
-      onClose();
-    },
-    onError: (e) => message.error(issueErrorMessage(e, "Не удалось выполнить план резки")),
-  });
-
-  return (
-    <Modal
-      title={`Взять в работу донора №${donor.unit_id}`}
-      open
-      onCancel={onClose}
-      footer={null}
-      destroyOnHidden
-      width={560}
-    >
-      <Typography.Paragraph type="secondary">
-        {donor.width_mm} мм, {donor.length_m} м — режем сразу на {rows.length} {rows.length === 1 ? "штрипс" : "штрипса"}.
-        Длина по умолчанию — расчётная (как у донора); поправьте на контрольную длину со станка, если она отличается.
-      </Typography.Paragraph>
-      <Space direction="vertical" style={{ width: "100%" }} size="small">
-        {rows.map((r) => (
-          <div
-            key={r.line.id}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: "1px solid #EDEDE8" }}
-          >
-            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
-              <div style={{ fontWeight: 600 }}>{r.line.part_name ?? "Деталь"}</div>
-              <div style={{ fontSize: 12, color: "#8A8C99" }}>
-                {r.task.product_model_name ?? r.task.name} · штрипс {r.line.strip_width_mm || r.line.width_mm} мм
-              </div>
-            </div>
-            <InputNumber
-              min={0}
-              step={0.01}
-              style={{ width: 130 }}
-              value={lengths[r.line.id]}
-              addonAfter="м"
-              onChange={(v) => setLengths((s) => ({ ...s, [r.line.id]: v ?? 0 }))}
-            />
-          </div>
-        ))}
-      </Space>
-      <DatePicker
-        style={{ width: "100%", marginTop: 12 }}
-        format="DD.MM.YYYY"
-        placeholder="Дата операции: сейчас"
-        value={occurredAt}
-        onChange={setOccurredAt}
-        disabledDate={(d) => d.isAfter(dayjs(), "day")}
-      />
-      <Button type="primary" block style={{ marginTop: 16 }} loading={executeMutation.isPending} onClick={() => executeMutation.mutate()}>
-        Разрезать и выдать все строки
-      </Button>
-      <Button block style={{ marginTop: 8 }} onClick={onClose}>
-        Отмена
-      </Button>
-    </Modal>
+    <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+      ✂️ План резки: донор №{donor.unit_id} ({donor.width_mm} мм, {donor.length_m} м) → режем{" "}
+      {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
+      {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
+      {" · "}
+      <a onClick={() => onCut(makeDonorUnit(donor.unit_id, donor.width_mm, donor.length_m, null, sku), widthCuts)}>
+        Резать
+      </a>
+    </Typography.Text>
   );
 }
 
@@ -320,6 +240,17 @@ export default function Issue() {
   const [search, setSearch] = useState("");
   const [result, setResult] = useState<IssueResult | null>(null);
   const [lastIssued, setLastIssued] = useState<IssuedResult | null>(null);
+  // Раздел про единую форму резки — один общий модальный CuttingForm для
+  // всех сценариев резки+выдачи на этом экране (точечный донор у строки
+  // задания, план резки на несколько строк сразу, ручной подбор без
+  // задания), вместо трёх разных модалок/мутаций раньше. onDone у каждого
+  // вызова свой — одиночная резка заводит карточку "Выдано" (lastIssued),
+  // групповой план резки просто закрывается и инвалидирует кэш заданий.
+  const [cuttingSession, setCuttingSession] = useState<{
+    donor: MaterialUnit;
+    widthCuts: CuttingFormInitialWidthCut[];
+    onDone: (res: CuttingRecipeResponse) => void;
+  } | null>(null);
 
   const [manualSkuId, setManualSkuId] = useState<number | null>(null);
   const [manualArea, setManualArea] = useState<AreaValue | null>(null);
@@ -605,21 +536,22 @@ export default function Issue() {
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось выдать")),
   });
 
-  const atomicDonorMutation = useMutation({
-    mutationFn: (values: { donor_unit_id: number; requested_width_mm: number }) =>
-      issueDonorAtomic({
-        ...values,
-        area: selected!.task.area,
-        production_task_line_id: selected!.line.id,
-        occurred_at: toOccurredAtIso(occurredAt),
-      }),
-    onSuccess: (res) => {
-      setLastIssued({ unit: res.issued_unit, remainder: res.remainder_unit, remainderPlaced: false });
-      setResult(null);
-      qc.invalidateQueries({ queryKey: ["issue-available-units"] });
-    },
-    onError: (e) => message.error(issueErrorMessage(e, "Не удалось разрезать и выдать донора")),
-  });
+  // Один и тот же результат одиночной резки+выдачи (result.donor, строка
+  // остатков на складе, ручной подбор) заводится в уже существующую
+  // карточку "Выдано / остаток" ниже (lastIssued) — та же полировка
+  // (печать бирки, подсказка адреса для остатка), что была у прежнего
+  // atomicDonorMutation, теперь общая для всех трёх мест.
+  const finishSingleCut = (res: CuttingRecipeResponse) => {
+    const piece = res.width_results[0] ?? res.length_result;
+    if (!piece) return;
+    setLastIssued({
+      unit: piece.unit,
+      remainder: res.donor_remainder.status === "На_хранении" ? res.donor_remainder : null,
+      remainderPlaced: false,
+    });
+    setResult(null);
+    qc.invalidateQueries({ queryKey: ["issue-available-units"] });
+  };
 
   const remainderSuggestion = useQuery({
     queryKey: ["suggest-location", "issue-remainder", lastIssued?.remainder?.id],
@@ -710,23 +642,6 @@ export default function Issue() {
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось оформить выдачу")),
   });
 
-  // Раздел про нарезку в ширину без привязки к заданию — тот же атомарный
-  // "разрезать и выдать", что уже есть у выбранной строки задания выше
-  // (issueDonorAtomic), но без production_task_line_id: бэкенд его и так
-  // принимает необязательным, не хватало только этой кнопки в ручном
-  // подборе — раньше при donor_suggested оставалось только открыть
-  // карточку единицы и резать вручную в два действия.
-  const manualAtomicDonorMutation = useMutation({
-    mutationFn: (values: { donor_unit_id: number; requested_width_mm: number }) =>
-      issueDonorAtomic({ ...values, area: manualArea!, occurred_at: toOccurredAtIso(occurredAt) }),
-    onSuccess: (res) => {
-      setLastIssued({ unit: res.issued_unit, remainder: res.remainder_unit, remainderPlaced: false });
-      setManualDonor(null);
-      qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
-    },
-    onError: (e) => message.error(issueErrorMessage(e, "Не удалось разрезать и выдать донора")),
-  });
-
   const queueRow = (
     r: { task: ProductionTask; line: ProductionTaskLine; assignment?: ProductionTaskLineAssignment; overdue?: boolean },
     variant: "today" | "week",
@@ -802,12 +717,21 @@ export default function Issue() {
             🧩 Одна плёнка на {g.rows.length} задания: {g.material}, {g.color}, {g.thickness} мм — итого{" "}
             {g.rows.reduce((sum, r) => sum + neededLengthM(r), 0).toFixed(2)} м
           </div>
-          <CuttingPlanHint
-            material={g.material}
-            color={g.color}
-            thickness={g.thickness}
-            manufacturer={findSku(skusQuery.data, g.material, g.color, g.thickness)?.manufacturer.name}
+          <CuttingPlanGroupButton
+            sku={findSku(skusQuery.data, g.material, g.color, g.thickness)}
             rows={g.rows}
+            onCut={(donor, widthCuts) =>
+              setCuttingSession({
+                donor,
+                widthCuts,
+                onDone: () => {
+                  setCuttingSession(null);
+                  qc.invalidateQueries({ queryKey: ["production-tasks"] });
+                  qc.invalidateQueries({ queryKey: ["issue-available-units"] });
+                  qc.invalidateQueries({ queryKey: ["cutting-plan"] });
+                },
+              })
+            }
           />
           {g.rows.map((r) => queueRow(r, variant))}
         </div>
@@ -1025,15 +949,28 @@ export default function Issue() {
                       type="primary"
                       block
                       style={{ marginTop: 10 }}
-                      loading={atomicDonorMutation.isPending}
-                      onClick={() =>
-                        confirmIfWrongWarehouse(result.donor!.warehouse_name, selected?.task.area, () =>
-                          atomicDonorMutation.mutate({
-                            donor_unit_id: result.donor!.unit_id,
-                            requested_width_mm: result.donor!.recommended_cut_mm,
-                          }),
-                        )
-                      }
+                      onClick={() => {
+                        if (!selectedSku || !selected) return;
+                        setCuttingSession({
+                          donor: makeDonorUnit(
+                            result.donor!.unit_id,
+                            result.donor!.width_mm,
+                            result.donor!.length_m,
+                            result.donor!.warehouse_name,
+                            selectedSku,
+                          ),
+                          widthCuts: [
+                            {
+                              width_mm: result.donor!.recommended_cut_mm,
+                              area: selected.task.area,
+                              production_task_line_id: selected.line.id,
+                              label: selected.line.part_name ?? "Деталь",
+                              locked: true,
+                            },
+                          ],
+                          onDone: finishSingleCut,
+                        });
+                      }}
                     >
                       ⚡ Разрезать и выдать
                     </Button>
@@ -1066,12 +1003,22 @@ export default function Issue() {
                                 u.width_mm > selectedStripWidth ? (
                                   <Button
                                     size="small"
-                                    loading={atomicDonorMutation.isPending}
-                                    onClick={() =>
-                                      confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () =>
-                                        atomicDonorMutation.mutate({ donor_unit_id: u.id, requested_width_mm: selectedStripWidth }),
-                                      )
-                                    }
+                                    onClick={() => {
+                                      if (!selected) return;
+                                      setCuttingSession({
+                                        donor: u,
+                                        widthCuts: [
+                                          {
+                                            width_mm: selectedStripWidth,
+                                            area: selected.task.area,
+                                            production_task_line_id: selected.line.id,
+                                            label: selected.line.part_name ?? "Деталь",
+                                            locked: true,
+                                          },
+                                        ],
+                                        onDone: finishSingleCut,
+                                      });
+                                    }}
                                   >
                                     Разрезать на {selectedStripWidth} мм
                                   </Button>
@@ -1282,15 +1229,31 @@ export default function Issue() {
                                 block
                                 style={{ marginTop: 10 }}
                                 disabled={!manualArea}
-                                loading={manualAtomicDonorMutation.isPending}
-                                onClick={() =>
-                                  confirmIfWrongWarehouse(manualDonor.warehouse_name, manualArea, () =>
-                                    manualAtomicDonorMutation.mutate({
-                                      donor_unit_id: manualDonor.unit_id,
-                                      requested_width_mm: manualDonor.recommended_cut_mm,
-                                    }),
-                                  )
-                                }
+                                onClick={() => {
+                                  if (!manualSku || !manualArea) return;
+                                  setCuttingSession({
+                                    donor: makeDonorUnit(
+                                      manualDonor.unit_id,
+                                      manualDonor.width_mm,
+                                      manualDonor.length_m,
+                                      manualDonor.warehouse_name,
+                                      manualSku,
+                                    ),
+                                    widthCuts: [
+                                      {
+                                        width_mm: manualDonor.recommended_cut_mm,
+                                        area: manualArea,
+                                        label: "Ручной подбор",
+                                        locked: false,
+                                      },
+                                    ],
+                                    onDone: (res) => {
+                                      finishSingleCut(res);
+                                      setManualDonor(null);
+                                      qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
+                                    },
+                                  });
+                                }}
                               >
                                 ⚡ Разрезать и выдать
                               </Button>
@@ -1429,6 +1392,26 @@ export default function Issue() {
           </Button>
         </Form>
       </Modal>
+
+      {cuttingSession && (
+        <Modal
+          title={`Резать донора №${cuttingSession.donor.id}`}
+          open
+          onCancel={() => setCuttingSession(null)}
+          footer={null}
+          destroyOnHidden
+          width={560}
+        >
+          <CuttingForm
+            donor={cuttingSession.donor}
+            initialWidthCuts={cuttingSession.widthCuts}
+            areaOptions={areaOptions}
+            confirmDestination={confirmIfWrongWarehouse}
+            onDone={cuttingSession.onDone}
+            onCancel={() => setCuttingSession(null)}
+          />
+        </Modal>
+      )}
     </div>
   );
 }

@@ -118,22 +118,6 @@ export async function reassignUnitSku(unitId: number, payload: ReassignSkuReques
   return data;
 }
 
-export interface SplitRequest {
-  separate_width_mm: number;
-  new_unit_location?: string;
-  occurred_at?: string;
-}
-
-export interface SplitResponse {
-  parent: MaterialUnit;
-  new_unit: MaterialUnit | null;
-}
-
-export async function splitUnit(unitId: number, payload: SplitRequest): Promise<SplitResponse> {
-  const { data } = await apiClient.post<SplitResponse>(`/units/${unitId}/split`, payload);
-  return data;
-}
-
 export interface IssueRequest {
   material: string;
   color: string;
@@ -187,24 +171,6 @@ export async function issueUnitDirect(
   return data;
 }
 
-export interface AtomicDonorIssueRequest {
-  donor_unit_id: number;
-  requested_width_mm: number;
-  area: AreaValue;
-  production_task_line_id?: number;
-  occurred_at?: string;
-}
-
-export interface AtomicDonorIssueResponse {
-  issued_unit: MaterialUnit;
-  remainder_unit: MaterialUnit | null;
-}
-
-export async function issueDonorAtomic(payload: AtomicDonorIssueRequest): Promise<AtomicDonorIssueResponse> {
-  const { data } = await apiClient.post<AtomicDonorIssueResponse>("/units/issue-donor-atomic", payload);
-  return data;
-}
-
 export interface CuttingPlanRequest {
   material: string;
   color: string;
@@ -237,63 +203,59 @@ export async function getCuttingPlan(payload: CuttingPlanRequest): Promise<Cutti
   return data;
 }
 
-export interface CuttingPlanCutSpec {
-  production_task_line_id: number;
-  width_mm: number;
-  actual_length_m: number;
-}
-
-export interface CuttingPlanExecuteRequest {
-  donor_unit_id: number;
-  cuts: CuttingPlanCutSpec[];
-  occurred_at?: string;
-}
-
-export interface CuttingPlanExecuteResultCut {
-  unit: MaterialUnit;
-  production_task_line_id: number;
-  expected_length_m: number;
-  actual_length_m: number;
-  discrepancy_flagged: boolean;
-}
-
-export interface CuttingPlanExecuteResponse {
-  donor_remainder: MaterialUnit | null;
-  cuts: CuttingPlanExecuteResultCut[];
-}
-
-// Взять план резки в работу (раздел про несколько ширин за проход) —
-// режет донора сразу на все указанные куски и выдаёт каждый на свою
-// строку задания одним атомарным запросом, с контрольной длиной со
-// станка вместо теоретической.
-export async function executeCuttingPlan(payload: CuttingPlanExecuteRequest): Promise<CuttingPlanExecuteResponse> {
-  const { data } = await apiClient.post<CuttingPlanExecuteResponse>("/units/cutting-plan/execute", payload);
-  return data;
-}
-
 export interface CutRequest {
   cut_length_m: number;
   remainder_location?: string;
   occurred_at?: string;
 }
 
+// Раскрой пачкой (MaterialsExplorer.tsx) — независимый инструмент, режет
+// список РАЗНЫХ единиц по длине без сохранения куска, не относится к
+// единой резке одного донора ниже.
 export async function cutUnit(unitId: number, payload: CutRequest): Promise<MaterialUnit> {
   const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/cut`, payload);
   return data;
 }
 
-// Раскрой по длине с сохранением отреза как отдельной единицы (раздел про
-// сохранение отреза как трекаемой единицы) — в отличие от cutUnit, где
-// отрезанный кусок сразу списывается, здесь он становится новой единицей
-// со своим ID/QR (тот же SplitResponse, что у splitUnit).
-export interface SplitByLengthRequest {
-  cut_length_m: number;
-  new_unit_location?: string;
+// Единая резка донора (раздел про объединение резки в одну форму,
+// CuttingForm.tsx) — заменяет прежние /split, /split-length,
+// /issue-donor-atomic, /cutting-plan/execute одним атомарным запросом:
+// опциональный отрез по длине на всю ширину донора, затем ноль и более
+// кусков по ширине из остатка, каждый со своим назначением.
+export interface CuttingDestination {
+  kind: "keep" | "issue" | "discard";
+  location_code?: string;
+  area?: AreaValue;
+  production_task_line_id?: number;
+}
+
+export interface CuttingWidthSpec {
+  width_mm: number;
+  destination: CuttingDestination;
+  actual_length_m?: number;
+}
+
+export interface CuttingRecipeRequest {
+  donor_unit_id: number;
+  length_precut_m?: number;
+  length_destination?: CuttingDestination;
+  width_cuts?: CuttingWidthSpec[];
   occurred_at?: string;
 }
 
-export async function splitUnitByLength(unitId: number, payload: SplitByLengthRequest): Promise<SplitResponse> {
-  const { data } = await apiClient.post<SplitResponse>(`/units/${unitId}/split-length`, payload);
+export interface CuttingRecipeResultPiece {
+  unit: MaterialUnit;
+  discrepancy_flagged: boolean;
+}
+
+export interface CuttingRecipeResponse {
+  length_result: CuttingRecipeResultPiece | null;
+  width_results: CuttingRecipeResultPiece[];
+  donor_remainder: MaterialUnit;
+}
+
+export async function executeCuttingRecipe(payload: CuttingRecipeRequest): Promise<CuttingRecipeResponse> {
+  const { data } = await apiClient.post<CuttingRecipeResponse>("/units/cutting-recipe", payload);
   return data;
 }
 

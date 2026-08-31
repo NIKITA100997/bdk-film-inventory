@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   Button,
   Card,
-  Checkbox,
   Form,
   Input,
   InputNumber,
@@ -21,9 +20,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   getUnit,
-  splitUnit,
-  splitUnitByLength,
-  cutUnit,
   returnUnit,
   getReturnPreview,
   placeUnit,
@@ -32,6 +28,7 @@ import {
   printLabel,
   skuLabel,
   type MaterialUnit,
+  type CuttingRecipeResponse,
 } from "../../api/units";
 import { suggestLocation } from "../../api/storage";
 import { listUsers } from "../../api/users";
@@ -40,20 +37,22 @@ import { listWriteOffReasons } from "../../api/writeOffReasons";
 import QrScanButton from "../../components/QrScanButton";
 import LocationSelect from "../../components/LocationSelect";
 import OccurredAtField from "../../components/OccurredAtField";
+import CuttingForm from "../../components/CuttingForm";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { useAuth } from "../../auth/AuthContext";
 
-type ActionKind = "place" | "split" | "cut" | "return" | "writeoff" | null;
+type ActionKind = "place" | "cut" | "return" | "writeoff" | null;
 
 // Раздел про аудит прав — раньше действия показывались по статусу единицы
 // без единой проверки прав: с одним лишь units.place человек видел и мог
 // нажать "Списать"/"Раскрой", получая отказ только в момент клика. Здесь —
-// то же право, что реально проверяет каждый эндпоинт (units.py).
-const actionPermissions: Record<Exclude<ActionKind, null>, string> = {
+// то же право, что реально проверяет каждый эндпоинт (units.py). "cut"
+// (единая резка, раздел про объединение резки в одну форму) — особый
+// случай, показывается если есть units.split ИЛИ units.cut, реальную
+// проверку по факту запрошенных шагов делает сам бэкенд при отправке.
+const actionPermissions: Record<Exclude<ActionKind, "cut" | null>, string> = {
   place: "units.place",
-  split: "units.split",
-  cut: "units.cut",
   return: "units.return",
   writeoff: "units.writeoff",
 };
@@ -67,7 +66,7 @@ const statusLabels: Record<string, string> = {
 
 function availableActions(unit: MaterialUnit): Exclude<ActionKind, null>[] {
   if (unit.status === "Принят") return ["place"];
-  if (unit.status === "На_хранении") return ["split", "cut", "place", "writeoff"];
+  if (unit.status === "На_хранении") return ["cut", "place", "writeoff"];
   if (unit.status === "Выдан_участку") {
     return unit.area === "tselnolistovye_dveri" ? ["cut", "return"] : ["return"];
   }
@@ -76,8 +75,7 @@ function availableActions(unit: MaterialUnit): Exclude<ActionKind, null>[] {
 
 const actionLabels: Record<Exclude<ActionKind, null>, string> = {
   place: "Разместить / переместить",
-  split: "Разделить",
-  cut: "Раскрой",
+  cut: "Резать",
   return: "Вернуть",
   writeoff: "Списать",
 };
@@ -92,14 +90,15 @@ export default function UnitCard() {
   const [unit, setUnit] = useState<MaterialUnit | null>(null);
   const [action, setAction] = useState<ActionKind>(null);
   const [writeOffOpen, setWriteOffOpen] = useState(false);
+  // Раздел про единую форму резки — после резки может остаться несколько
+  // ещё не размещённых "keep"-кусков (несколько ширин из остатка сразу);
+  // разместить их предлагаем по очереди, один за другим, тем же приёмом,
+  // что раньше был только для одного нового штрипса у splitMutation.
+  const [placeQueue, setPlaceQueue] = useState<MaterialUnit[]>([]);
   const [scanForm] = Form.useForm<{ id: number }>();
   const [placeForm] = Form.useForm<{ location_code: string }>();
-  const [splitForm] = Form.useForm<{ separate_width_mm: number; new_unit_location?: string }>();
-  const [cutForm] = Form.useForm<{ cut_length_m: number; remainder_location?: string; keep_as_unit?: boolean }>();
   const [returnForm] = Form.useForm<{ actual_length_m: number }>();
   const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
-  const separateWidth = Form.useWatch("separate_width_mm", splitForm);
-  const keepCutAsUnit = Form.useWatch("keep_as_unit", cutForm);
 
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
   const writeOffReasonsQuery = useQuery({
@@ -108,10 +107,12 @@ export default function UnitCard() {
   });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
   // Раздел про перемещение между складами — выбор склада перед выбором
   // стеллажа (LocationSelect уже умеет фильтровать по warehouseId, просто
-  // раньше сюда не передавался): один общий пикер для всех трёх форм
-  // ниже (place/split/cut), т.к. активно только одно действие за раз.
+  // раньше сюда не передавался): один общий пикер для форм place/return,
+  // т.к. активно только одно действие за раз (CuttingForm подбирает адрес
+  // сама, без этого общего пикера).
   const { warehouseId: locationWarehouseId, picker: warehousePicker } = useWarehouseFilter();
   const eventsQuery = useQuery({
     queryKey: ["unit-events", unit?.id],
@@ -123,18 +124,6 @@ export default function UnitCard() {
     queryKey: ["suggest-location", "place", unit?.material_sku.id, unit?.is_strip],
     queryFn: () => suggestLocation({ material_sku_id: unit!.material_sku.id, is_strip: unit!.is_strip }),
     enabled: !!unit && action === "place",
-  });
-  const splitSuggestion = useQuery({
-    queryKey: ["suggest-location", "split", unit?.material_sku.id, separateWidth, unit?.id],
-    // Отделяемый кусок — всегда штрипс (раздел про приёмку отдельных
-    // штрипсов: любой кусок, отрезанный от донора, MaterialUnit.is_strip=True).
-    queryFn: () => suggestLocation({ material_sku_id: unit!.material_sku.id, is_strip: true }),
-    enabled: !!unit && action === "split" && !!separateWidth && separateWidth > 0 && separateWidth < unit.width_mm,
-  });
-  const cutSuggestion = useQuery({
-    queryKey: ["suggest-location", "cut", unit?.material_sku.id, unit?.is_strip],
-    queryFn: () => suggestLocation({ material_sku_id: unit!.material_sku.id, is_strip: unit!.is_strip }),
-    enabled: !!unit && action === "cut",
   });
   const returnPreviewQuery = useQuery({
     queryKey: ["return-preview", unit?.id],
@@ -160,81 +149,39 @@ export default function UnitCard() {
   const placeMutation = useMutation({
     mutationFn: (values: { location_code: string }) => placeUnit(unit!.id, values.location_code),
     onSuccess: (u) => {
-      setUnit(u);
-      setAction(null);
       placeForm.resetFields();
-      message.success("Адрес сохранён");
+      // Раздел про единую форму резки — если после резки в очереди ещё
+      // есть неразмещённые куски, переходим к следующему вместо закрытия
+      // действия (та же цепочка "выберите полку", что раньше была только
+      // для одного нового штрипса).
+      if (placeQueue.length > 0) {
+        const [next, ...rest] = placeQueue;
+        setPlaceQueue(rest);
+        setUnit(next);
+        message.success(`Адрес сохранён — далее №${next.id}`);
+      } else {
+        setUnit(u);
+        setAction(null);
+        message.success("Адрес сохранён");
+      }
     },
     onError: () => message.error("Не удалось разместить"),
   });
 
-  const splitMutation = useMutation({
-    mutationFn: (values: { separate_width_mm: number; new_unit_location?: string; occurred_at?: Dayjs | null }) =>
-      splitUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
-    onSuccess: (res) => {
-      splitForm.resetFields();
-      if (res.new_unit) {
-        // Раздел про единый рабочий экран — переключаемся на новую
-        // единицу и сразу открываем размещение (тот же приём, что уже
-        // даёт returnMutation ниже), вместо того чтобы отправлять
-        // оператора искать её в "Стеллажах и полках" отдельно.
-        setUnit(res.new_unit);
-        setAction("place");
-        message.success(`Новый штрипс №${res.new_unit.id} — выберите полку`);
-      } else {
-        setUnit(res.parent);
-        setAction(null);
-        message.success("Рулон разделён");
-      }
-    },
-    onError: () => message.error("Не удалось разделить — проверьте ширину и статус единицы"),
-  });
-
-  const cutMutation = useMutation({
-    mutationFn: (values: { cut_length_m: number; remainder_location?: string; occurred_at?: Dayjs | null }) =>
-      cutUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
-    onSuccess: (u) => {
-      setUnit(u);
+  const onCuttingDone = (res: CuttingRecipeResponse) => {
+    const pieces = [res.length_result?.unit, ...res.width_results.map((w) => w.unit)].filter(
+      (u): u is MaterialUnit => !!u,
+    );
+    const unplaced = pieces.filter((p) => p.status === "На_хранении" && !p.location_code);
+    if (unplaced.length > 0) {
+      setUnit(unplaced[0]);
+      setPlaceQueue(unplaced.slice(1));
+      setAction("place");
+    } else {
+      setUnit(res.donor_remainder);
       setAction(null);
-      cutForm.resetFields();
-      message.success(
-        u.length_m > 0 ? (
-          <>
-            Останется {u.length_m} м — тот же ID №{u.id} — <a onClick={() => printLabel(u.id)}>печать бирки</a>
-          </>
-        ) : (
-          `Единица №${u.id} полностью использована`
-        ),
-      );
-    },
-    onError: () => message.error("Не удалось выполнить раскрой — проверьте длину и статус единицы"),
-  });
-
-  // Раскрой по длине с сохранением отреза как отдельной единицы (раздел
-  // про сохранение отреза как трекаемой единицы) — та же форма "cut", но
-  // с включённым чекбоксом; в отличие от cutMutation отрезанный кусок не
-  // списывается, а становится новой единицей — переключаемся на неё и
-  // сразу открываем размещение, как и у обычного деления выше.
-  const splitByLengthMutation = useMutation({
-    mutationFn: (values: { cut_length_m: number; remainder_location?: string; occurred_at?: Dayjs | null }) =>
-      splitUnitByLength(unit!.id, {
-        cut_length_m: values.cut_length_m,
-        new_unit_location: values.remainder_location,
-        occurred_at: toOccurredAtIso(values.occurred_at),
-      }),
-    onSuccess: (res) => {
-      cutForm.resetFields();
-      if (res.new_unit) {
-        setUnit(res.new_unit);
-        setAction("place");
-        message.success(`Новый кусок №${res.new_unit.id} — выберите полку`);
-      } else {
-        setUnit(res.parent);
-        setAction(null);
-      }
-    },
-    onError: () => message.error("Не удалось отрезать с сохранением единицы — проверьте длину и статус единицы"),
-  });
+    }
+  };
 
   const returnMutation = useMutation({
     mutationFn: (values: { actual_length_m: number; occurred_at?: Dayjs | null }) =>
@@ -344,7 +291,7 @@ export default function UnitCard() {
             <Space direction="vertical" style={{ width: "100%" }} size="middle">
               <Space wrap size="middle">
                 {availableActions(unit)
-                  .filter((a) => hasPermission(actionPermissions[a]))
+                  .filter((a) => (a === "cut" ? hasPermission("units.split") || hasPermission("units.cut") : hasPermission(actionPermissions[a])))
                   .map((a) =>
                     a === "writeoff" ? (
                       <Button key={a} size="large" danger onClick={() => setWriteOffOpen(true)}>
@@ -424,94 +371,13 @@ export default function UnitCard() {
             </Form>
           )}
 
-          {action === "split" && (
-            <Form form={splitForm} layout="vertical" onFinish={(v) => splitMutation.mutate(v)} style={{ marginTop: 16 }}>
-              <Form.Item name="separate_width_mm" label="Ширина отделяемой части, мм" rules={[{ required: true }]}>
-                <InputNumber min={1} max={unit.width_mm - 1} style={{ width: "100%" }} />
-              </Form.Item>
-              {splitSuggestion.data && (
-                <Alert
-                  style={{ marginBottom: 16 }}
-                  type="success"
-                  showIcon
-                  message={`Рекомендуем адрес: ${splitSuggestion.data}`}
-                  action={
-                    <Button size="small" onClick={() => splitForm.setFieldValue("new_unit_location", splitSuggestion.data)}>
-                      Подставить
-                    </Button>
-                  }
-                />
-              )}
-              {warehousePicker && (
-                <div style={{ marginBottom: 16 }}>
-                  <Typography.Text style={{ display: "block", marginBottom: 4 }}>Склад</Typography.Text>
-                  {warehousePicker}
-                </div>
-              )}
-              <Form.Item name="new_unit_location" label="Ячейка для отделяемой части (опционально)">
-                <LocationSelect sku={unit.material_sku} warehouseId={locationWarehouseId} placeholder="Оставить не размещённой, если не выбрать" />
-              </Form.Item>
-              <OccurredAtField />
-              <Button type="primary" htmlType="submit" block loading={splitMutation.isPending}>
-                Разделить
-              </Button>
-              <Button block style={{ marginTop: 8 }} onClick={() => setAction(null)}>
-                Отмена
-              </Button>
-            </Form>
-          )}
-
           {action === "cut" && (
-            <Form
-              form={cutForm}
-              layout="vertical"
-              initialValues={{ keep_as_unit: false }}
-              onFinish={(v) => (v.keep_as_unit ? splitByLengthMutation.mutate(v) : cutMutation.mutate(v))}
-              style={{ marginTop: 16 }}
-            >
-              {cutSuggestion.data && (
-                <Alert
-                  style={{ marginBottom: 16 }}
-                  type="success"
-                  showIcon
-                  message={`Рекомендуем адрес для ${keepCutAsUnit ? "отрезанного куска" : "остатка"}: ${cutSuggestion.data}`}
-                  description="Подставлено ниже — можно оставить как есть или указать другой (например, стеллаж Б)."
-                />
-              )}
-              <Form.Item name="cut_length_m" label="Отрезать, м" rules={[{ required: true }]}>
-                <InputNumber min={0.01} max={unit.length_m} step={0.01} style={{ width: "100%" }} />
-              </Form.Item>
-              {hasPermission("units.split") && (
-                <Form.Item name="keep_as_unit" valuePropName="checked" style={{ marginBottom: 8 }}>
-                  <Checkbox>Сохранить отрезанный кусок как отдельную единицу (со своим QR)</Checkbox>
-                </Form.Item>
-              )}
-              {warehousePicker && (
-                <div style={{ marginBottom: 16 }}>
-                  <Typography.Text style={{ display: "block", marginBottom: 4 }}>Склад</Typography.Text>
-                  {warehousePicker}
-                </div>
-              )}
-              <Form.Item
-                name="remainder_location"
-                label={keepCutAsUnit ? "Ячейка для отрезанного куска (опционально)" : "Ячейка для остатка (опционально)"}
-                initialValue={cutSuggestion.data ?? undefined}
-              >
-                <LocationSelect sku={unit.material_sku} warehouseId={locationWarehouseId} placeholder="Оставить не размещённым, если не выбрать" />
-              </Form.Item>
-              <OccurredAtField />
-              <Button
-                type="primary"
-                htmlType="submit"
-                block
-                loading={cutMutation.isPending || splitByLengthMutation.isPending}
-              >
-                {keepCutAsUnit ? "Отрезать и сохранить как единицу" : "Списать отрезок без бирки"}
-              </Button>
-              <Button block style={{ marginTop: 8 }} onClick={() => setAction(null)}>
-                Отмена
-              </Button>
-            </Form>
+            <CuttingForm
+              donor={unit}
+              areaOptions={areaOptions}
+              onDone={onCuttingDone}
+              onCancel={() => setAction(null)}
+            />
           )}
 
           {action === "return" && (
