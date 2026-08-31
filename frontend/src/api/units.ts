@@ -223,10 +223,11 @@ export async function cutUnit(unitId: number, payload: CutRequest): Promise<Mate
 // опциональный отрез по длине на всю ширину донора, затем ноль и более
 // кусков по ширине из остатка, каждый со своим назначением.
 export interface CuttingDestination {
-  kind: "keep" | "issue" | "discard";
+  kind: "keep" | "issue" | "discard" | "transfer";
   location_code?: string;
   area?: AreaValue;
   production_task_line_id?: number;
+  to_warehouse_id?: number;
 }
 
 export interface CuttingWidthSpec {

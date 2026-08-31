@@ -23,6 +23,8 @@ class EventType(str, enum.Enum):
     INVENTARIZATSIYA_NEDOSTACHA = "Инвентаризация_недостача"
     INVENTARIZATSIYA_NEDOSTACHA_OSTAVLENO = "Инвентаризация_недостача_оставлено"
     DONOR_PREDLOZHEN = "Донор_предложен"
+    PEREMESHCHENIE_NACHATO = "Перемещение_начато"
+    PEREMESHCHENIE_PRINYATO = "Перемещение_принято"
 
 
 class MaterialEvent(Base):

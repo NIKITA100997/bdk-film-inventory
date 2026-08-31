@@ -42,3 +42,16 @@ def resolve_warehouse_name(names: dict[str, str], location_code: str | None) -> 
         if location_code.startswith(f"{code}-"):
             return name
     return None
+
+
+def resolve_warehouse_id(db: Session, location_code: str | None) -> int | None:
+    """Тот же приём, что resolve_warehouse_name, только возвращает id
+    склада, а не имя — нужен для перемещений между складами (раздел про
+    хаб на перемещение), где важен именно id (FK на warehouse), а не
+    подпись для отображения."""
+    if not location_code:
+        return None
+    for code, warehouse_id in db.query(Rack.code, Rack.warehouse_id).all():
+        if location_code.startswith(f"{code}-"):
+            return warehouse_id
+    return None

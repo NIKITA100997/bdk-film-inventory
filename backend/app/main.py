@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.abc import router as abc_router
 from app.api.areas import router as areas_router
 from app.api.sites import router as sites_router
+from app.api.warehouse_transfers import router as warehouse_transfers_router
 from app.api.auth import router as auth_router
 from app.api.deletion_requests import router as deletion_requests_router
 from app.api.dictionaries import router as dictionaries_router
@@ -76,6 +77,7 @@ app.include_router(auth_router, prefix=API_PREFIX)
 app.include_router(deletion_requests_router, prefix=API_PREFIX)
 app.include_router(areas_router, prefix=API_PREFIX)
 app.include_router(sites_router, prefix=API_PREFIX)
+app.include_router(warehouse_transfers_router, prefix=API_PREFIX)
 app.include_router(units_router, prefix=API_PREFIX)
 app.include_router(labels_router, prefix=API_PREFIX)
 app.include_router(storage_router, prefix=API_PREFIX)

@@ -173,12 +173,14 @@ class CuttingDestination(BaseModel):
     (сразу выдаётся участку/строке задания), "discard" (списывается на
     месте без своей единицы — только для отреза по длине, кусок ширины
     донора никогда не бывает "сразу отход", для этого его просто не
-    режут)."""
+    режут), "transfer" (раздел про перемещение между складами — сразу в
+    хаб на другой склад вместо места на своём)."""
 
-    kind: Literal["keep", "issue", "discard"]
+    kind: Literal["keep", "issue", "discard", "transfer"]
     location_code: str | None = None
     area: str | None = None
     production_task_line_id: int | None = None
+    to_warehouse_id: int | None = None
 
 
 class CuttingWidthSpec(BaseModel):

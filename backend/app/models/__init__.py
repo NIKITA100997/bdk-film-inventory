@@ -10,6 +10,7 @@ from app.models.units import MaterialUnit, UnitStatus
 from app.models.events import MaterialEvent, EventType
 from app.models.write_off_reasons import WriteOffReasonEntry
 from app.models.purchasing import PurchaseRequest, Supplier
+from app.models.warehouse_transfers import WarehouseTransfer, WarehouseTransferLine
 from app.models.labels import LabelTemplate
 from app.models.production import (
     ProductionLine,
@@ -52,6 +53,8 @@ __all__ = [
     "WriteOffReasonEntry",
     "PurchaseRequest",
     "Supplier",
+    "WarehouseTransfer",
+    "WarehouseTransferLine",
     "LabelTemplate",
     "ProductionLine",
     "ProductModel",

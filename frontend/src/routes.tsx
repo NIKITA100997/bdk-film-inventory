@@ -15,6 +15,7 @@ import Reports from "./pages/desktop/Reports";
 import Defects from "./pages/desktop/Defects";
 import Blanks from "./pages/desktop/Blanks";
 import StorageMap from "./pages/desktop/StorageMap";
+import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
 import CalcSettingsAdmin from "./pages/desktop/CalcSettingsAdmin";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
 import InventoryDesktop from "./pages/desktop/InventoryDesktop";
@@ -76,6 +77,14 @@ export default function AppRoutes() {
         {/* "Стеллажи" видны всем (как "Остатки") — вкладка "Управление" внутри
         сама решает, показываться ли, по storage.manage. */}
         <Route path="/storage" element={<StorageMap />} />
+        <Route
+          path="/warehouse-transfers"
+          element={
+            <RequirePermission permissions={["warehouse_transfers.manage"]}>
+              <WarehouseTransfers />
+            </RequirePermission>
+          }
+        />
         <Route
           path="/calc-settings"
           element={<RequirePermission permissions={["calc_settings.manage"]}><CalcSettingsAdmin /></RequirePermission>}

@@ -30,7 +30,8 @@ import {
   type MaterialUnit,
   type CuttingRecipeResponse,
 } from "../../api/units";
-import { suggestLocation } from "../../api/storage";
+import { suggestLocation, listWarehouses } from "../../api/storage";
+import { addUnitToTransfer } from "../../api/warehouseTransfers";
 import { listUsers } from "../../api/users";
 import { listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
@@ -42,7 +43,7 @@ import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { useAuth } from "../../auth/AuthContext";
 
-type ActionKind = "place" | "cut" | "return" | "writeoff" | null;
+type ActionKind = "place" | "cut" | "return" | "writeoff" | "transfer" | null;
 
 // Раздел про аудит прав — раньше действия показывались по статусу единицы
 // без единой проверки прав: с одним лишь units.place человек видел и мог
@@ -55,6 +56,7 @@ const actionPermissions: Record<Exclude<ActionKind, "cut" | null>, string> = {
   place: "units.place",
   return: "units.return",
   writeoff: "units.writeoff",
+  transfer: "warehouse_transfers.manage",
 };
 
 const statusLabels: Record<string, string> = {
@@ -66,7 +68,7 @@ const statusLabels: Record<string, string> = {
 
 function availableActions(unit: MaterialUnit): Exclude<ActionKind, null>[] {
   if (unit.status === "Принят") return ["place"];
-  if (unit.status === "На_хранении") return ["cut", "place", "writeoff"];
+  if (unit.status === "На_хранении") return ["cut", "place", "transfer", "writeoff"];
   if (unit.status === "Выдан_участку") {
     return unit.area === "tselnolistovye_dveri" ? ["cut", "return"] : ["return"];
   }
@@ -78,6 +80,7 @@ const actionLabels: Record<Exclude<ActionKind, null>, string> = {
   cut: "Резать",
   return: "Вернуть",
   writeoff: "Списать",
+  transfer: "Отправить на другой склад",
 };
 
 export default function UnitCard() {
@@ -99,6 +102,10 @@ export default function UnitCard() {
   const [placeForm] = Form.useForm<{ location_code: string }>();
   const [returnForm] = Form.useForm<{ actual_length_m: number }>();
   const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
+  const [transferWarehouseId, setTransferWarehouseId] = useState<number>();
+
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
 
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
   const writeOffReasonsQuery = useQuery({
@@ -182,6 +189,22 @@ export default function UnitCard() {
       setAction(null);
     }
   };
+
+  // Раздел про перемещение между складами — единица уже лежит на складе
+  // целиком, без резки: просто попадает в хаб на другой склад, тот же
+  // сервис add_unit_to_transfer, что и у назначения "transfer" в
+  // CuttingForm, только без самой резки.
+  const transferMutation = useMutation({
+    mutationFn: (toWarehouseId: number) => addUnitToTransfer({ unit_id: unit!.id, to_warehouse_id: toWarehouseId }),
+    onSuccess: (transfer) => {
+      const line = transfer.lines.find((l) => l.unit.id === unit!.id);
+      if (line) setUnit(line.unit);
+      setAction(null);
+      setTransferWarehouseId(undefined);
+      message.success("Единица добавлена в хаб на перемещение");
+    },
+    onError: () => message.error("Не удалось добавить в перемещение"),
+  });
 
   const returnMutation = useMutation({
     mutationFn: (values: { actual_length_m: number; occurred_at?: Dayjs | null }) =>
@@ -292,6 +315,7 @@ export default function UnitCard() {
               <Space wrap size="middle">
                 {availableActions(unit)
                   .filter((a) => (a === "cut" ? hasPermission("units.split") || hasPermission("units.cut") : hasPermission(actionPermissions[a])))
+                  .filter((a) => a !== "transfer" || activeWarehouses.length > 1)
                   .map((a) =>
                     a === "writeoff" ? (
                       <Button key={a} size="large" danger onClick={() => setWriteOffOpen(true)}>
@@ -378,6 +402,31 @@ export default function UnitCard() {
               onDone={onCuttingDone}
               onCancel={() => setAction(null)}
             />
+          )}
+
+          {action === "transfer" && (
+            <Space direction="vertical" style={{ width: "100%", marginTop: 16 }}>
+              <Typography.Text>Склад назначения</Typography.Text>
+              <Select
+                style={{ width: "100%" }}
+                placeholder="Выберите склад"
+                options={activeWarehouses.map((w) => ({ value: w.id, label: w.name }))}
+                value={transferWarehouseId}
+                onChange={setTransferWarehouseId}
+              />
+              <Button
+                type="primary"
+                block
+                disabled={!transferWarehouseId}
+                loading={transferMutation.isPending}
+                onClick={() => transferMutation.mutate(transferWarehouseId!)}
+              >
+                Добавить в хаб на перемещение
+              </Button>
+              <Button block onClick={() => setAction(null)}>
+                Отмена
+              </Button>
+            </Space>
           )}
 
           {action === "return" && (

@@ -13,7 +13,7 @@ import {
   type MaterialUnit,
 } from "../api/units";
 import { getCalcSettings } from "../api/abc";
-import { suggestLocation } from "../api/storage";
+import { suggestLocation, listWarehouses } from "../api/storage";
 import LocationSelect from "./LocationSelect";
 import { toOccurredAtIso } from "../utils/occurredAt";
 import { useAuth } from "../auth/AuthContext";
@@ -23,8 +23,8 @@ function apiErrorMessage(e: unknown, fallback: string): string {
   return fallback;
 }
 
-type LengthDestKind = "keep" | "issue" | "discard";
-type WidthDestKind = "keep" | "issue";
+type LengthDestKind = "keep" | "issue" | "discard" | "transfer";
+type WidthDestKind = "keep" | "issue" | "transfer";
 
 interface WidthRow {
   id: string;
@@ -34,6 +34,7 @@ interface WidthRow {
   production_task_line_id?: number;
   actual_length_m?: number;
   location_code?: string;
+  to_warehouse_id?: number;
   label?: string;
   locked?: boolean;
 }
@@ -84,6 +85,16 @@ export default function CuttingForm({
   const canSplit = hasPermission("units.split");
   const canCut = hasPermission("units.cut");
   const canIssue = hasPermission("units.issue");
+  const canTransferPermission = hasPermission("warehouse_transfers.manage");
+
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
+  const warehouseOptions = activeWarehouses.map((w) => ({ value: w.id, label: w.name }));
+  // Раздел про перемещение между складами — назначение "→ Перемещение"
+  // имеет смысл, только если складов больше одного и у пользователя есть
+  // право распоряжаться хабом (реальную проверку по факту выбранного
+  // назначения всё равно делает бэкенд при отправке).
+  const canTransfer = canTransferPermission && activeWarehouses.length > 1;
 
   const canWidthCut = donor.status === "На_хранении";
 
@@ -92,6 +103,7 @@ export default function CuttingForm({
   const [lengthDestKind, setLengthDestKind] = useState<LengthDestKind>(canCut ? "discard" : canSplit ? "keep" : "issue");
   const [lengthArea, setLengthArea] = useState<string | undefined>(defaultArea);
   const [lengthLocation, setLengthLocation] = useState<string>();
+  const [lengthToWarehouseId, setLengthToWarehouseId] = useState<number>();
 
   const [widthRows, setWidthRows] = useState<WidthRow[]>(() =>
     initialWidthCuts.map((w) => ({ id: nextRowId(), ...w, destination: "issue" as const })),
@@ -125,7 +137,9 @@ export default function CuttingForm({
           ? { kind: "discard", location_code: lengthLocation }
           : lengthDestKind === "issue"
             ? { kind: "issue", area: lengthArea }
-            : { kind: "keep", location_code: lengthLocation }
+            : lengthDestKind === "transfer"
+              ? { kind: "transfer", to_warehouse_id: lengthToWarehouseId }
+              : { kind: "keep", location_code: lengthLocation }
         : undefined;
 
       const width_cuts: CuttingWidthSpec[] = widthRows.map((r) => ({
@@ -133,7 +147,9 @@ export default function CuttingForm({
         destination:
           r.destination === "issue"
             ? { kind: "issue", area: r.area, production_task_line_id: r.production_task_line_id }
-            : { kind: "keep", location_code: r.location_code },
+            : r.destination === "transfer"
+              ? { kind: "transfer", to_warehouse_id: r.to_warehouse_id }
+              : { kind: "keep", location_code: r.location_code },
         actual_length_m: r.destination === "issue" ? r.actual_length_m ?? remainingLength : undefined,
       }));
 
@@ -180,6 +196,14 @@ export default function CuttingForm({
       message.warning("Укажите участок для каждого куска на выдачу");
       return;
     }
+    if (lengthEnabled && lengthDestKind === "transfer" && !lengthToWarehouseId) {
+      message.warning("Укажите склад назначения для отреза по длине");
+      return;
+    }
+    if (widthRows.some((r) => r.destination === "transfer" && !r.to_warehouse_id)) {
+      message.warning("Укажите склад назначения для каждого куска на перемещение");
+      return;
+    }
     const issueAreas: (string | undefined)[] = [];
     if (lengthEnabled && lengthDestKind === "issue") issueAreas.push(lengthArea);
     for (const r of widthRows) if (r.destination === "issue") issueAreas.push(r.area);
@@ -205,7 +229,7 @@ export default function CuttingForm({
         {donor.warehouse_name ? ` · ${donor.warehouse_name}` : ""}
       </Typography.Paragraph>
 
-      {(canCut || canSplit || canIssue) && (
+      {(canCut || canSplit || canIssue || canTransfer) && (
         <Card
           size="small"
           type="inner"
@@ -233,6 +257,7 @@ export default function CuttingForm({
                 {canSplit && <Radio.Button value="keep">Оставить на складе</Radio.Button>}
                 {canIssue && <Radio.Button value="issue">Выдать участку</Radio.Button>}
                 {canCut && <Radio.Button value="discard">Списать сразу</Radio.Button>}
+                {canTransfer && <Radio.Button value="transfer">→ Перемещение</Radio.Button>}
               </Radio.Group>
               {lengthDestKind === "issue" && (
                 <Select
@@ -241,6 +266,15 @@ export default function CuttingForm({
                   options={areaOptions}
                   value={lengthArea}
                   onChange={setLengthArea}
+                />
+              )}
+              {lengthDestKind === "transfer" && (
+                <Select
+                  placeholder="Склад назначения"
+                  style={{ width: "100%" }}
+                  options={warehouseOptions}
+                  value={lengthToWarehouseId}
+                  onChange={setLengthToWarehouseId}
                 />
               )}
               {(lengthDestKind === "keep" || lengthDestKind === "discard") && (
@@ -285,6 +319,7 @@ export default function CuttingForm({
                     >
                       {canSplit && <Radio.Button value="keep">Склад</Radio.Button>}
                       {canIssue && <Radio.Button value="issue">Выдать</Radio.Button>}
+                      {canTransfer && <Radio.Button value="transfer">Перемещение</Radio.Button>}
                     </Radio.Group>
                   )}
                   {r.destination === "issue" ? (
@@ -307,6 +342,14 @@ export default function CuttingForm({
                         onChange={(v) => updateWidthRow(r.id, { actual_length_m: v ?? undefined })}
                       />
                     </>
+                  ) : r.destination === "transfer" ? (
+                    <Select
+                      placeholder="Склад назначения"
+                      style={{ width: 180 }}
+                      options={warehouseOptions}
+                      value={r.to_warehouse_id}
+                      onChange={(v) => updateWidthRow(r.id, { to_warehouse_id: v })}
+                    />
                   ) : (
                     <Space.Compact>
                       <LocationSelect

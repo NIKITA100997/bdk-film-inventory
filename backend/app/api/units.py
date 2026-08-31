@@ -48,7 +48,8 @@ from app.services.splitting import (
     split_by_length,
     split_lengthwise_multi,
 )
-from app.services.warehouses import filter_by_warehouse, rack_warehouse_names, resolve_warehouse_name
+from app.services.warehouse_transfers import add_unit_to_transfer
+from app.services.warehouses import filter_by_warehouse, rack_warehouse_names, resolve_warehouse_id, resolve_warehouse_name
 
 router = APIRouter(prefix="/units", tags=["units"])
 
@@ -548,17 +549,17 @@ def _cutting_recipe_required_permissions(payload: CuttingRecipeRequest) -> set[s
     запрошенных назначений, не любое одно. Подтверждено разбором реальных
     ролей в БД — есть роль только с units.cut+units.return, без
     split/issue, для персонала на площадке."""
+    permission_for_kind = {
+        "discard": "units.cut",
+        "keep": "units.split",
+        "issue": "units.issue",
+        "transfer": "warehouse_transfers.manage",
+    }
     required: set[str] = set()
     if payload.length_destination is not None:
-        kind = payload.length_destination.kind
-        if kind == "discard":
-            required.add("units.cut")
-        elif kind == "keep":
-            required.add("units.split")
-        elif kind == "issue":
-            required.add("units.issue")
+        required.add(permission_for_kind[payload.length_destination.kind])
     for w in payload.width_cuts:
-        required.add("units.split" if w.destination.kind == "keep" else "units.issue")
+        required.add(permission_for_kind[w.destination.kind])
     return required
 
 
@@ -596,6 +597,11 @@ def execute_cutting_recipe(
     for w in payload.width_cuts:
         if w.destination.kind == "issue" and not w.destination.area:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не указан участок для одного из кусков")
+    if payload.length_destination is not None and payload.length_destination.kind == "transfer" and not payload.length_destination.to_warehouse_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не указан склад назначения для отреза по длине")
+    for w in payload.width_cuts:
+        if w.destination.kind == "transfer" and not w.destination.to_warehouse_id:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не указан склад назначения для одного из кусков")
 
     required = _cutting_recipe_required_permissions(payload)
     if not user.is_superuser and not required <= get_permission_codes(user):
@@ -628,6 +634,21 @@ def execute_cutting_recipe(
             _validate_matches_task_line(db, w.destination.production_task_line_id, donor.material_sku, w.width_mm)
             width_lines[w.destination.production_task_line_id] = db.get(
                 ProductionTaskLine, w.destination.production_task_line_id
+            )
+
+    # Раздел про перемещение между складами — склад отправления берём с
+    # донора один раз, до любых мутаций его адреса, если хоть один шаг
+    # уходит "на перемещение" (add_unit_to_transfer сама переведёт
+    # получившийся кусок в В_перемещении).
+    has_transfer_step = (payload.length_destination is not None and payload.length_destination.kind == "transfer") or any(
+        w.destination.kind == "transfer" for w in payload.width_cuts
+    )
+    donor_warehouse_id: int | None = None
+    if has_transfer_step:
+        donor_warehouse_id = resolve_warehouse_id(db, donor.location_code)
+        if donor_warehouse_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Не удалось определить склад отправления для донора"
             )
 
     length_result_id: int | None = None
@@ -671,6 +692,7 @@ def execute_cutting_recipe(
             )
             spec = outcome.new_unit
             is_issue = dest.kind == "issue"
+            is_transfer = dest.kind == "transfer"
             new_unit = MaterialUnit(
                 parent_id=spec.parent_id,
                 upd_number=spec.upd_number,
@@ -682,7 +704,7 @@ def execute_cutting_recipe(
                 status=UnitStatus.VYDAN_UCHASTKU if is_issue else UnitStatus.NA_KHRANENII,
                 area=(length_line.task.area if length_line is not None else dest.area) if is_issue else None,
                 production_task_line_id=dest.production_task_line_id if is_issue else None,
-                location_code=None if is_issue else dest.location_code,
+                location_code=None if (is_issue or is_transfer) else dest.location_code,
             )
             db.add(new_unit)
             db.flush()
@@ -693,7 +715,7 @@ def execute_cutting_recipe(
                 user_id=user.id,
                 quantity_delta_m=outcome.new_unit_event.quantity_delta_m,
                 to_length=outcome.new_unit_event.to_length,
-                to_cell=None if is_issue else outcome.new_unit_event.to_cell,
+                to_cell=None if (is_issue or is_transfer) else outcome.new_unit_event.to_cell,
                 occurred_at=payload.occurred_at,
             )
             if is_issue:
@@ -705,6 +727,8 @@ def execute_cutting_recipe(
                     quantity_delta_m=-float(new_unit.length_m),
                     occurred_at=payload.occurred_at,
                 )
+            elif is_transfer:
+                add_unit_to_transfer(db, new_unit, donor_warehouse_id, dest.to_warehouse_id, user.id, payload.occurred_at)
             length_result_id = new_unit.id
 
     width_result_ids: list[tuple[int, bool]] = []
@@ -738,6 +762,7 @@ def execute_cutting_recipe(
         for w, spec, new_unit_event in zip(payload.width_cuts, outcome.new_units, outcome.new_unit_events):
             dest = w.destination
             is_issue = dest.kind == "issue"
+            is_transfer = dest.kind == "transfer"
             line = width_lines.get(dest.production_task_line_id) if dest.production_task_line_id else None
             actual_length_m = w.actual_length_m if (is_issue and w.actual_length_m is not None) else expected_length_m
             new_unit = MaterialUnit(
@@ -751,7 +776,7 @@ def execute_cutting_recipe(
                 status=UnitStatus.VYDAN_UCHASTKU if is_issue else UnitStatus.NA_KHRANENII,
                 area=(line.task.area if line is not None else dest.area) if is_issue else None,
                 production_task_line_id=dest.production_task_line_id if is_issue else None,
-                location_code=None if is_issue else dest.location_code,
+                location_code=None if (is_issue or is_transfer) else dest.location_code,
             )
             db.add(new_unit)
             db.flush()
@@ -762,7 +787,7 @@ def execute_cutting_recipe(
                 user_id=user.id,
                 quantity_delta_m=new_unit_event.quantity_delta_m,
                 to_length=expected_length_m if is_issue else new_unit_event.to_length,
-                to_cell=None if is_issue else new_unit_event.to_cell,
+                to_cell=None if (is_issue or is_transfer) else new_unit_event.to_cell,
                 occurred_at=payload.occurred_at,
             )
             discrepancy_flagged = False
@@ -778,6 +803,8 @@ def execute_cutting_recipe(
                     expected_length_m=expected_length_m,
                     occurred_at=payload.occurred_at,
                 )
+            elif is_transfer:
+                add_unit_to_transfer(db, new_unit, donor_warehouse_id, dest.to_warehouse_id, user.id, payload.occurred_at)
             width_result_ids.append((new_unit.id, discrepancy_flagged))
 
     settings = db.get(CalcSettings, 1)
