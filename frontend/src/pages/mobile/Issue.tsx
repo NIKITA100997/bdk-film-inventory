@@ -14,6 +14,7 @@ import {
   Select,
   Space,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from "antd";
@@ -1010,7 +1011,10 @@ export default function Issue() {
                       ⚡ Точного штрипса нет — есть донор №{result.donor.unit_id}
                     </div>
                     <div style={{ fontSize: 12.5, marginTop: 4 }}>
-                      {result.donor.width_mm} мм, класс {result.donor.width_class}
+                      {result.donor.width_mm} мм, класс{" "}
+                      <Tooltip title="ABC по расходу: A — самые ходовые ширины (80% расхода), B — следующие до 95%, C — редкие, донор режут в первую очередь именно из C/B">
+                        <span style={{ textDecoration: "underline dotted" }}>{result.donor.width_class}</span>
+                      </Tooltip>
                       {result.donor.days_in_storage !== undefined && result.donor.days_in_storage > 0 && (
                         <Tag color="volcano" style={{ marginLeft: 6 }}>лежалый {result.donor.days_in_storage} дн.</Tag>
                       )}
@@ -1081,7 +1085,7 @@ export default function Issue() {
                                     Выдать целиком
                                   </Button>
                                 ) : (
-                                  <Tag color="warning">уже{selectedStripWidth} мм больше</Tag>
+                                  <Tag color="warning">уже {selectedStripWidth} мм больше</Tag>
                                 ),
                             },
                           ]}
@@ -1263,7 +1267,10 @@ export default function Issue() {
                                 ⚡ Точного совпадения нет — есть донор №{manualDonor.unit_id}
                               </div>
                               <div style={{ fontSize: 12.5, marginTop: 4 }}>
-                                {manualDonor.width_mm} мм, класс {manualDonor.width_class}
+                                {manualDonor.width_mm} мм, класс{" "}
+                                <Tooltip title="ABC по расходу: A — самые ходовые ширины (80% расхода), B — следующие до 95%, C — редкие, донор режут в первую очередь именно из C/B">
+                                  <span style={{ textDecoration: "underline dotted" }}>{manualDonor.width_class}</span>
+                                </Tooltip>
                                 {manualDonor.days_in_storage !== undefined && manualDonor.days_in_storage > 0 && (
                                   <Tag color="volcano" style={{ marginLeft: 6 }}>лежалый {manualDonor.days_in_storage} дн.</Tag>
                                 )}

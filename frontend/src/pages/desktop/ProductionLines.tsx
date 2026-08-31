@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card, Tag, Button, Modal, Form, Input, Select, Space, Typography, DatePicker, Empty, Checkbox, message } from "antd";
 import dayjs from "dayjs";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProductionLines,
@@ -25,6 +26,7 @@ import { listAreas } from "../../api/areas";
  * как и "План на день" в ProductionTasks.tsx. */
 export default function ProductionLines() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingLine, setEditingLine] = useState<ProductionLine | null>(null);
   const [loadingLine, setLoadingLine] = useState<ProductionLine | null>(null);
@@ -80,6 +82,10 @@ export default function ProductionLines() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+        Линии цеха — здесь. Рядом: <a onClick={() => navigate("/product-models")}>Модели продукции (BOM)</a> ·{" "}
+        <a onClick={() => navigate("/parts")}>Справочник деталей</a>
+      </Typography.Paragraph>
       <Card
         title="Производственные линии"
         extra={

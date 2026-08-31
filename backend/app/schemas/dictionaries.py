@@ -6,6 +6,7 @@ class MaterialOut(BaseModel):
     id: int
     name: str
     is_active: bool
+    in_use: bool = False
 
 
 class ColorOut(BaseModel):
@@ -13,6 +14,7 @@ class ColorOut(BaseModel):
     id: int
     name: str
     is_active: bool
+    in_use: bool = False
 
 
 class ThicknessOut(BaseModel):
@@ -20,6 +22,7 @@ class ThicknessOut(BaseModel):
     id: int
     value_mm: float
     is_active: bool
+    in_use: bool = False
 
 
 class ManufacturerOut(BaseModel):
@@ -27,6 +30,7 @@ class ManufacturerOut(BaseModel):
     id: int
     name: str
     is_active: bool
+    in_use: bool = False
 
 
 class EmployeeOut(BaseModel):

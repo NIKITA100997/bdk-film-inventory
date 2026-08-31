@@ -103,8 +103,11 @@ def list_materials(db: Session = Depends(get_db), user=Depends(get_current_user)
 
 
 @router.get("/materials/all", response_model=list[MaterialOut])
-def list_all_materials(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[Material]:
-    return db.query(Material).order_by(Material.name).all()
+def list_all_materials(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[MaterialOut]:
+    return [
+        MaterialOut(id=m.id, name=m.name, is_active=m.is_active, in_use=material_in_use(db, m.id))
+        for m in db.query(Material).order_by(Material.name).all()
+    ]
 
 
 @router.get("/materials/duplicates", response_model=list[DuplicateCandidateOut])
@@ -146,8 +149,11 @@ def list_colors(db: Session = Depends(get_db), user=Depends(get_current_user)) -
 
 
 @router.get("/colors/all", response_model=list[ColorOut])
-def list_all_colors(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[Color]:
-    return db.query(Color).order_by(Color.name).all()
+def list_all_colors(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[ColorOut]:
+    return [
+        ColorOut(id=c.id, name=c.name, is_active=c.is_active, in_use=color_in_use(db, c.id))
+        for c in db.query(Color).order_by(Color.name).all()
+    ]
 
 
 @router.get("/colors/duplicates", response_model=list[DuplicateCandidateOut])
@@ -185,8 +191,11 @@ def list_thicknesses(db: Session = Depends(get_db), user=Depends(get_current_use
 
 
 @router.get("/thicknesses/all", response_model=list[ThicknessOut])
-def list_all_thicknesses(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[Thickness]:
-    return db.query(Thickness).order_by(Thickness.value_mm).all()
+def list_all_thicknesses(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[ThicknessOut]:
+    return [
+        ThicknessOut(id=t.id, value_mm=t.value_mm, is_active=t.is_active, in_use=thickness_in_use(db, t.id))
+        for t in db.query(Thickness).order_by(Thickness.value_mm).all()
+    ]
 
 
 @router.post("/thicknesses", response_model=ThicknessOut, status_code=status.HTTP_201_CREATED)
@@ -240,8 +249,11 @@ def list_manufacturers(db: Session = Depends(get_db), user=Depends(get_current_u
 
 
 @router.get("/manufacturers/all", response_model=list[ManufacturerOut])
-def list_all_manufacturers(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[Manufacturer]:
-    return db.query(Manufacturer).order_by(Manufacturer.name).all()
+def list_all_manufacturers(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[ManufacturerOut]:
+    return [
+        ManufacturerOut(id=m.id, name=m.name, is_active=m.is_active, in_use=manufacturer_in_use(db, m.id))
+        for m in db.query(Manufacturer).order_by(Manufacturer.name).all()
+    ]
 
 
 @router.get("/manufacturers/duplicates", response_model=list[DuplicateCandidateOut])

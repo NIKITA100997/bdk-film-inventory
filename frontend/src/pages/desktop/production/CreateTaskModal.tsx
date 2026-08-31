@@ -134,6 +134,13 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   // переиспользования того же поля.
   const [blankPlanBlocks, setBlankPlanBlocks] = useState<BlankPlanBlock[]>([]);
   const [selectedBlockIndex, setSelectedBlockIndex] = useState<number>();
+  // Сколько строк добавила последняя массовая загрузка (BOM/наряд-заказ/
+  // план заготовок) — для кнопки "Убрать последнюю загрузку" ниже: без
+  // этого при ошибочной загрузке не того файла приходилось убирать
+  // строки по одной. Сбрасывается в 0 при ручном добавлении/удалении
+  // строки — после точечной правки понятие "последняя загрузка" уже не
+  // однозначно, лучше не удалить лишнее.
+  const [lastImportCount, setLastImportCount] = useState(0);
 
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
@@ -158,6 +165,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
     bomForm.resetFields();
     setSelectedSkuId(undefined);
     setManualLines([]);
+    setLastImportCount(0);
     setBlankPlanBlocks([]);
     setSelectedBlockIndex(undefined);
     onClose();
@@ -203,6 +211,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
           part_name: p.part_name ?? undefined,
         }));
         setManualLines((lines) => [...lines, ...loaded]);
+        setLastImportCount(loaded.length);
         manualForm.setFieldsValue({
           name: manualForm.getFieldValue("name") || `${model.name} — ${quantity} шт`,
           area: model.area,
@@ -234,6 +243,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
         part_name: l.part_name,
       }));
       setManualLines((lines) => [...lines, ...loaded]);
+      setLastImportCount(loaded.length);
       manualForm.setFieldsValue({
         name: manualForm.getFieldValue("name") || result.suggested_name,
         external_order_ref: manualForm.getFieldValue("external_order_ref") ?? result.order_number ?? undefined,
@@ -274,6 +284,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
       part_name: l.part_name,
     }));
     setManualLines((lines) => [...lines, ...loaded]);
+    setLastImportCount(loaded.length);
     manualForm.setFieldsValue({ name: manualForm.getFieldValue("name") || block.suggested_name });
     message.success(`Из блока «${block.suggested_name}» добавлено строк: ${loaded.length}`);
   };
@@ -281,6 +292,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   const addManualLine = (v: ManualRowFormValues) => {
     const { sku_id: _skuId, ...rest } = v;
     setManualLines((lines) => [...lines, rest]);
+    setLastImportCount(0);
     const defaultSkuId = selectedSkuId;
     manualRowForm.resetFields();
     if (defaultSkuId) {
@@ -288,7 +300,14 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
       applySkuFields(manualRowForm, skusQuery.data?.find((s) => s.id === defaultSkuId));
     }
   };
-  const removeManualLine = (index: number) => setManualLines((lines) => lines.filter((_, i) => i !== index));
+  const removeManualLine = (index: number) => {
+    setManualLines((lines) => lines.filter((_, i) => i !== index));
+    setLastImportCount(0);
+  };
+  const undoLastImport = () => {
+    setManualLines((lines) => lines.slice(0, lines.length - lastImportCount));
+    setLastImportCount(0);
+  };
 
   // Правка строки — модалка поверх таблицы (не форма на другой вкладке,
   // как было раньше): строка остаётся на месте, пока правку не сохранят
@@ -303,6 +322,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
     const { sku_id: _skuId, ...rest } = v;
     setManualLines((lines) => lines.map((l, i) => (i === editingIndex ? rest : l)));
     setEditingIndex(null);
+    setLastImportCount(0);
   };
 
   return (
@@ -321,6 +341,19 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
         то, и другое по очереди. Линия не выбирается здесь — задание ставится на участок, а по линиям/дням/сотрудникам
         его распределяет начальник участка отдельно (кнопка «Распределить» у уже созданного задания).
       </Typography.Paragraph>
+
+      <Typography.Title level={5}>Название и участок задания</Typography.Title>
+      <Form layout="vertical" form={manualForm}>
+        <Form.Item name="name" label="Название задания" rules={[{ required: true }]}>
+          <Input placeholder="Партия 500 дверей" />
+        </Form.Item>
+        <Form.Item name="external_order_ref" label="№ заказа">
+          <InputNumber style={{ width: "100%" }} placeholder="Заполняется автоматически из наряда, можно поправить" />
+        </Form.Item>
+        <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
+          <Select options={areaOptions} />
+        </Form.Item>
+      </Form>
 
       <Tabs
         items={[
@@ -437,23 +470,15 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
         ]}
       />
 
-      <Typography.Title level={5} style={{ marginTop: 24 }}>
-        Название и участок задания
-      </Typography.Title>
-      <Form layout="vertical" form={manualForm}>
-        <Form.Item name="name" label="Название задания" rules={[{ required: true }]}>
-          <Input placeholder="Партия 500 дверей" />
-        </Form.Item>
-        <Form.Item name="external_order_ref" label="№ заказа">
-          <InputNumber style={{ width: "100%" }} placeholder="Заполняется автоматически из наряда, можно поправить" />
-        </Form.Item>
-        <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
-          <Select options={areaOptions} />
-        </Form.Item>
-      </Form>
-
       {manualLines.length > 0 && (
         <>
+          {lastImportCount > 0 && (
+            <Space style={{ marginBottom: 8 }}>
+              <Button size="small" danger onClick={undoLastImport}>
+                Убрать последнюю загрузку ({lastImportCount})
+              </Button>
+            </Space>
+          )}
           {/* component={false} — Form здесь только даёт контекст полям
               редактируемой строки (editingIndex), сама не рендерит
               обёрточный <form>, который бы иначе оказался внутри <table>

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Card, Tag, Button, Modal, Form, InputNumber, Input, Select, Space, Checkbox, message } from "antd";
+import { Card, Tag, Button, Modal, Form, InputNumber, Input, Select, Space, Checkbox, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import {
   listProductModels,
@@ -26,6 +27,7 @@ import PartSelect from "../../components/PartSelect";
  * экран — там плоские списки значений, тут вложенная таблица деталей. */
 export default function ProductModels() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ProductModel | null>(null);
   const [partModalOpen, setPartModalOpen] = useState(false);
@@ -115,6 +117,10 @@ export default function ProductModels() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+        Состав моделей (BOM) — здесь. Рядом: <a onClick={() => navigate("/parts")}>Справочник деталей</a> ·{" "}
+        <a onClick={() => navigate("/production-lines")}>Линии цеха</a>
+      </Typography.Paragraph>
       <Card
         title="Модели продукции"
         extra={

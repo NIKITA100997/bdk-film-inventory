@@ -138,8 +138,13 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
           {
             title: "Статус",
             dataIndex: "is_active",
-            width: 140,
-            render: (active: boolean) => (active ? <Tag color="green">Активно</Tag> : <Tag>В архиве</Tag>),
+            width: 200,
+            render: (active: boolean, entry) => (
+              <Space size={4}>
+                {active ? <Tag color="green">Активно</Tag> : <Tag>В архиве</Tag>}
+                {entry.in_use && <Tag color="gold">используется</Tag>}
+              </Space>
+            ),
           },
           {
             title: "",
@@ -159,17 +164,22 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
                 >
                   {entry.is_active ? "В архив" : "Восстановить"}
                 </Button>
-                {canDelete && (
-                  <Popconfirm
-                    title={`Удалить «${entry.name}»?`}
-                    description="Насовсем — не в архив. Если значение где-то используется, удаление не пройдёт."
-                    onConfirm={() => deleteMutation.mutate(entry.id)}
-                  >
-                    <Button size="small" danger loading={deleteMutation.isPending}>
+                {canDelete &&
+                  (entry.in_use ? (
+                    <Button size="small" danger disabled title="Используется в позициях/правилах/заданиях/заявках — сначала уберите оттуда, или используйте «В архив»">
                       Удалить
                     </Button>
-                  </Popconfirm>
-                )}
+                  ) : (
+                    <Popconfirm
+                      title={`Удалить «${entry.name}»?`}
+                      description="Насовсем — не в архив."
+                      onConfirm={() => deleteMutation.mutate(entry.id)}
+                    >
+                      <Button size="small" danger loading={deleteMutation.isPending}>
+                        Удалить
+                      </Button>
+                    </Popconfirm>
+                  ))}
               </Space>
             ),
           },
@@ -298,8 +308,13 @@ function ThicknessTab() {
         {
           title: "Статус",
           dataIndex: "is_active",
-          width: 140,
-          render: (active: boolean) => (active ? <Tag color="green">Активно</Tag> : <Tag>В архиве</Tag>),
+          width: 200,
+          render: (active: boolean, entry) => (
+            <Space size={4}>
+              {active ? <Tag color="green">Активно</Tag> : <Tag>В архиве</Tag>}
+              {entry.in_use && <Tag color="gold">используется</Tag>}
+            </Space>
+          ),
         },
         {
           title: "",
@@ -319,15 +334,21 @@ function ThicknessTab() {
               >
                 {entry.is_active ? "В архив" : "Восстановить"}
               </Button>
-              <Popconfirm
-                title={`Удалить «${entry.value_mm} мм»?`}
-                description="Насовсем — не в архив. Если значение где-то используется, удаление не пройдёт."
-                onConfirm={() => deleteMutation.mutate(entry.id)}
-              >
-                <Button size="small" danger loading={deleteMutation.isPending}>
+              {entry.in_use ? (
+                <Button size="small" danger disabled title="Используется в позициях/правилах/заданиях/заявках — сначала уберите оттуда, или используйте «В архив»">
                   Удалить
                 </Button>
-              </Popconfirm>
+              ) : (
+                <Popconfirm
+                  title={`Удалить «${entry.value_mm} мм»?`}
+                  description="Насовсем — не в архив."
+                  onConfirm={() => deleteMutation.mutate(entry.id)}
+                >
+                  <Button size="small" danger loading={deleteMutation.isPending}>
+                    Удалить
+                  </Button>
+                </Popconfirm>
+              )}
             </Space>
           ),
         },

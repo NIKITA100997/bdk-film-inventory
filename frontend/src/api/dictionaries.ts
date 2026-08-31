@@ -6,12 +6,14 @@ export interface DictEntry {
   id: number;
   name: string;
   is_active: boolean;
+  in_use?: boolean;
 }
 
 export interface ThicknessEntry {
   id: number;
   value_mm: number;
   is_active: boolean;
+  in_use?: boolean;
 }
 
 // Справочник деталей (раздел про выбор детали в задание) — физическая

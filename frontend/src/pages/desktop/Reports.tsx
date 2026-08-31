@@ -12,10 +12,12 @@ import {
   getStaleUnits,
   getCuttingDiscrepancies,
 } from "../../api/reports";
+import { getStockOverview, type StockOverviewLine } from "../../api/purchasing";
 import ReportTable, { type ReportColumn } from "../../components/ReportTable";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { listAreas } from "../../api/areas";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
+import { useAuth } from "../../auth/AuthContext";
 
 function StockSummaryTab() {
   const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
@@ -333,7 +335,46 @@ function CuttingDiscrepancyTab() {
   );
 }
 
+function ReorderTab() {
+  const query = useQuery({ queryKey: ["report-reorder", "reorder"], queryFn: getStockOverview });
+  const rows = (query.data ?? []).filter((r) => r.reorder_suggested);
+  const columns: ReportColumn<StockOverviewLine>[] = [
+    { key: "material", header: "Материал", render: (r) => `${r.material}, ${r.color}, ${r.thickness} мм`, printValue: (r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
+    { key: "total_area_m2", header: "Остаток, м²", render: (r) => r.total_area_m2, printValue: (r) => r.total_area_m2, sorter: (a, b) => a.total_area_m2 - b.total_area_m2 },
+    { key: "reserved_area_m2", header: "Резерв, м²", render: (r) => r.reserved_area_m2, printValue: (r) => r.reserved_area_m2 },
+    { key: "open_requested_area_m2", header: "В открытых заявках, м²", render: (r) => r.open_requested_area_m2, printValue: (r) => r.open_requested_area_m2 },
+    {
+      key: "days_of_stock_remaining",
+      header: "Хватит дней",
+      render: (r) => (r.days_of_stock_remaining === null ? "—" : <Tag color="orange">{r.days_of_stock_remaining}</Tag>),
+      printValue: (r) => r.days_of_stock_remaining ?? "",
+      sorter: (a, b) => (a.days_of_stock_remaining ?? Infinity) - (b.days_of_stock_remaining ?? Infinity),
+      defaultSortOrder: "ascend",
+    },
+    { key: "usual_supplier", header: "Обычный поставщик", render: (r) => r.usual_supplier ?? "—", printValue: (r) => r.usual_supplier ?? "" },
+  ];
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <span style={{ color: "rgba(0,0,0,0.45)" }}>
+        Позиции, по которым расход обгоняет остаток и открытые заявки поставщику — тот же сигнал, что карточка «Пора
+        заказывать» на «Обзоре».
+      </span>
+      <ReportTable
+        title="Пора заказывать"
+        filename="pora-zakazyvat.csv"
+        rowKey={(r) => `${r.material}-${r.color}-${r.thickness}`}
+        columns={columns}
+        data={rows}
+        loading={query.isLoading}
+      />
+    </Space>
+  );
+}
+
 export default function Reports() {
+  const { user } = useAuth();
+  const showReorder = !!user?.is_superuser || !!user?.permissions.includes("purchasing.manage");
   return (
     <Card title="Отчёты">
       <Tabs
@@ -345,6 +386,7 @@ export default function Reports() {
           { key: "donor", label: <>Точность донор-рекомендаций <Tag color="blue">2.9</Tag></>, children: <DonorAccuracyTab /> },
           { key: "stale", label: "Давно не двигались", children: <StaleUnitsTab /> },
           { key: "cutting-discrepancy", label: "Отклонения при резке", children: <CuttingDiscrepancyTab /> },
+          ...(showReorder ? [{ key: "reorder", label: "Пора заказывать", children: <ReorderTab /> }] : []),
         ]}
       />
     </Card>
