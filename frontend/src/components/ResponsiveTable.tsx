@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Table, Card, Space, Empty } from "antd";
+import { useEffect, useState } from "react";
+import { Table, Card, Space, Empty, Pagination } from "antd";
 import type { TableProps } from "antd";
 import { Grid } from "antd";
 import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "./ColumnSettings";
@@ -96,6 +96,32 @@ export default function ResponsiveTable<T extends object>({
 
   const rows = dataSource ?? [];
 
+  // Раздел про пагинацию в карточном режиме — раньше здесь рендерились
+  // сразу все строки без постраничного разбиения (пропущено при первой
+  // версии компонента), из-за чего на планшете кнопки "следующая
+  // страница"/размер страницы из pagination просто не появлялись, хотя
+  // на широком экране (обычный Table ниже) работали как обычно.
+  const paginationProp = rest.pagination;
+  const paginationEnabled = paginationProp !== false;
+  const paginationConfig = typeof paginationProp === "object" && paginationProp ? paginationProp : {};
+  const isControlledPage = paginationConfig.current !== undefined;
+  const [localPage, setLocalPage] = useState(1);
+  useEffect(() => {
+    setLocalPage(1);
+  }, [dataSource]);
+  const pageSize = paginationConfig.pageSize ?? 10;
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const currentPage = Math.min(isControlledPage ? paginationConfig.current! : localPage, totalPages);
+  const pagedRows = paginationEnabled ? rows.slice((currentPage - 1) * pageSize, currentPage * pageSize) : rows;
+
+  const handlePageChange = (page: number, size: number) => {
+    if (isControlledPage) {
+      paginationConfig.onChange?.(page, size);
+    } else {
+      setLocalPage(page);
+    }
+  };
+
   const getKey = (record: T, index: number): string => {
     if (typeof rowKey === "function") return String(rowKey(record, index));
     if (typeof rowKey === "string") return String((record as Record<string, unknown>)[rowKey]);
@@ -129,20 +155,36 @@ export default function ResponsiveTable<T extends object>({
     <div>
       {settingsBar}
       <Space direction="vertical" size={8} style={{ width: "100%" }}>
-        {rows.map((record, index) => (
-          <PlanCard
-            key={getKey(record, index)}
-            record={record}
-            index={index}
-            visibleLabelable={visibleLabelable}
-            hiddenLabelable={hiddenLabelable}
-            unlabelable={unlabelable}
-            cellValue={cellValue}
-            loading={typeof loading === "boolean" ? loading : undefined}
-            rowProps={onRow?.(record, index)}
-          />
-        ))}
+        {pagedRows.map((record, localIndex) => {
+          const index = paginationEnabled ? (currentPage - 1) * pageSize + localIndex : localIndex;
+          return (
+            <PlanCard
+              key={getKey(record, index)}
+              record={record}
+              index={index}
+              visibleLabelable={visibleLabelable}
+              hiddenLabelable={hiddenLabelable}
+              unlabelable={unlabelable}
+              cellValue={cellValue}
+              loading={typeof loading === "boolean" ? loading : undefined}
+              rowProps={onRow?.(record, index)}
+            />
+          );
+        })}
       </Space>
+      {paginationEnabled && rows.length > pageSize && (
+        <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
+          <Pagination
+            size="small"
+            current={currentPage}
+            pageSize={pageSize}
+            total={rows.length}
+            showSizeChanger={paginationConfig.showSizeChanger}
+            pageSizeOptions={paginationConfig.pageSizeOptions}
+            onChange={handlePageChange}
+          />
+        </div>
+      )}
     </div>
   );
 }
