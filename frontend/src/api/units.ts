@@ -145,6 +145,9 @@ export interface IssueResult {
   outcome: "issued" | "donor_suggested" | "not_found";
   unit: MaterialUnit | null;
   donor: DonorSuggestion | null;
+  // Раздел про выдачу мимо хаба — на своём складе площадки ничего не
+  // нашлось, но остаток есть на другом складе.
+  elsewhere_warehouse_name?: string | null;
 }
 
 export async function issueUnit(payload: IssueRequest): Promise<IssueResult> {

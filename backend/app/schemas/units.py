@@ -127,6 +127,10 @@ class IssueResult(BaseModel):
     outcome: str  # "issued" | "donor_suggested" | "not_found"
     unit: MaterialUnitOut | None = None
     donor: DonorSuggestion | None = None
+    # Раздел про выдачу мимо хаба — на своём (домашнем) складе площадки
+    # ничего не нашлось, но на другом складе подходящий остаток есть:
+    # подсказать переместить через хаб, а не сразу заявку на закупку.
+    elsewhere_warehouse_name: str | None = None
 
 
 class CuttingPlanRequest(BaseModel):

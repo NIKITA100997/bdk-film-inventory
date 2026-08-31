@@ -1,7 +1,10 @@
+from fastapi import HTTPException, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import false
 
+from app.models.areas import Area
+from app.models.sites import Site
 from app.models.storage import Rack, Warehouse
 
 
@@ -55,3 +58,35 @@ def resolve_warehouse_id(db: Session, location_code: str | None) -> int | None:
         if location_code.startswith(f"{code}-"):
             return warehouse_id
     return None
+
+
+def area_home_warehouse_id(db: Session, area_code: str | None) -> int | None:
+    """Домашний склад площадки участка (Северный/Фабрика) — раздел про
+    выдачу мимо хаба: у участка без площадки (Area.site_id пуст)
+    домашнего склада нет, ограничений на выдачу тоже нет, как и раньше."""
+    if not area_code:
+        return None
+    area = db.query(Area).filter(Area.code == area_code).first()
+    if not area or not area.site_id:
+        return None
+    site = db.get(Site, area.site_id)
+    return site.warehouse_id if site else None
+
+
+def assert_area_home_warehouse(db: Session, area_code: str | None, unit_warehouse_id: int | None) -> None:
+    """Жёсткий блок (раздел про выдачу мимо хаба) — единица должна
+    физически лежать на домашнем складе площадки участка, иначе выдача
+    запрещена: сначала переместить через «Перемещения между складами».
+    Раньше это было только мягким предупреждением на фронте
+    (confirmIfWrongWarehouse), которое обходилось в один клик — теперь
+    источник истины здесь, на бэкенде, независимо от экрана/сценария
+    выдачи."""
+    home_id = area_home_warehouse_id(db, area_code)
+    if home_id is None or unit_warehouse_id is None or unit_warehouse_id == home_id:
+        return
+    home = db.get(Warehouse, home_id)
+    raise HTTPException(
+        status.HTTP_409_CONFLICT,
+        f"Единица физически на другом складе, а для этого участка домашний склад — «{home.name if home else '?'}». "
+        "Сначала переместите через «Перемещения между складами».",
+    )

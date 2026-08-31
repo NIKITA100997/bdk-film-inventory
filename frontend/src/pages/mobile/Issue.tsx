@@ -21,7 +21,7 @@ import {
 } from "antd";
 import Statistic from "../../components/Statistic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import dayjs, { type Dayjs } from "dayjs";
 import { toOccurredAtIso } from "../../utils/occurredAt";
@@ -254,6 +254,7 @@ interface IssuedResult {
 
 export default function Issue() {
   const location = useLocation();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
   const canReturn = !!user?.is_superuser || !!user?.permissions.includes("units.return");
@@ -288,6 +289,11 @@ export default function Issue() {
   // очереди выше, просто своё состояние — эта карточка донора относится к
   // ручному подбору, не к выбранной строке задания).
   const [manualDonor, setManualDonor] = useState<DonorSuggestion | null>(null);
+  // Раздел про выдачу мимо хаба — на своём складе ничего не нашлось, но
+  // на другом складе материал есть (backend/api/units.py::issue_to_area
+  // отдаёт elsewhere_warehouse_name) — подсказать подготовить и отправить
+  // через хаб, а не сразу вести к заявке на закупку.
+  const [manualElsewhere, setManualElsewhere] = useState<string | null>(null);
   const [shortageModalOpen, setShortageModalOpen] = useState(false);
   const [shortageForm] = Form.useForm<PurchaseRequestShopFloorCreate>();
   // Раздел про дату операции задним числом — одно поле на весь экран
@@ -322,10 +328,15 @@ export default function Issue() {
     return warehouse ? { id: warehouse.id, name: warehouse.name } : null;
   };
 
-  // Раздел про площадки — "предупредить, но разрешить": если у участка есть
-  // домашний склад и выбранная единица физически лежит на другом, спросить
-  // подтверждение (тот же приём Modal.confirm, что уже в UnitCard.tsx для
-  // расхождения длины при возврате), иначе выполнить действие сразу.
+  // Раздел про выдачу мимо хаба — раньше здесь было "предупредить, но
+  // разрешить" (Modal.confirm с кнопкой-обходом). Теперь это настоящий
+  // жёсткий блок на бэкенде (assert_area_home_warehouse) — фронт только
+  // объясняет причину заранее и не даёт кнопки "всё равно выдать", чтобы
+  // не вести оператора к заведомо провальному запросу. Поиск в очереди
+  // тоже теперь ограничен своим складом (backend/api/units.py::issue_to_area),
+  // так что это предупреждение — подстраховка на редких путях (прямая
+  // выдача конкретной единицы из карточки/списка), где единица уже
+  // выбрана руками, а не найдена поиском.
   const confirmIfWrongWarehouse = (
     unitWarehouseName: string | null | undefined,
     areaCode: string | null | undefined,
@@ -336,12 +347,10 @@ export default function Issue() {
       onConfirmed();
       return;
     }
-    Modal.confirm({
-      title: "Плёнка с другого склада",
-      content: `Единица физически лежит на складе «${unitWarehouseName}», а для этого участка домашний склад — «${home.name}». Всё равно выдать?`,
-      okText: "Всё равно выдать",
-      cancelText: "Отмена",
-      onOk: onConfirmed,
+    Modal.error({
+      title: "Плёнка с другого склада — выдать нельзя",
+      content: `Единица физически лежит на складе «${unitWarehouseName}», а для этого участка домашний склад — «${home.name}». Сначала переместите её через «Перемещения между складами», затем выдайте уже с домашнего склада.`,
+      okText: "Понятно",
     });
   };
 
@@ -658,12 +667,17 @@ export default function Issue() {
       if (res.outcome === "issued" && res.unit) {
         setLastIssued({ unit: res.unit, remainder: null, remainderPlaced: false });
         setManualDonor(null);
+        setManualElsewhere(null);
         qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
       } else if (res.outcome === "not_found") {
         setManualDonor(null);
-        message.warning("Точного совпадения по ширине нет — донора тоже нет, режьте новый рулон");
+        setManualElsewhere(res.elsewhere_warehouse_name ?? null);
+        if (!res.elsewhere_warehouse_name) {
+          message.warning("Точного совпадения по ширине нет — донора тоже нет, режьте новый рулон");
+        }
       } else if (res.outcome === "donor_suggested" && res.donor) {
         setManualDonor(res.donor);
+        setManualElsewhere(null);
       }
     },
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось оформить выдачу")),
@@ -990,8 +1004,20 @@ export default function Issue() {
 
                 {result?.outcome === "not_found" && (
                   <div style={{ background: "#FBEAE7", border: "1px solid #E3B5AC", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700, color: "#B8483C" }}>Точного штрипса и донора нет</div>
-                    <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>Режьте новый рулон вручную через карточку единицы.</div>
+                    <div style={{ fontWeight: 700, color: "#B8483C" }}>Точного штрипса и донора нет на своём складе</div>
+                    {result.elsewhere_warehouse_name ? (
+                      <>
+                        <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>
+                          Материал есть на складе «{result.elsewhere_warehouse_name}» — подготовьте (нарежьте) там и отправьте
+                          через «Перемещения между складами», затем выдайте уже с домашнего склада.
+                        </div>
+                        <Button size="small" style={{ marginTop: 8 }} onClick={() => navigate("/warehouse-transfers")}>
+                          Перейти к перемещениям
+                        </Button>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>Режьте новый рулон вручную через карточку единицы.</div>
+                    )}
                   </div>
                 )}
 
@@ -1274,6 +1300,18 @@ export default function Issue() {
                               Найти и выдать
                             </Button>
                           </Form>
+                          {manualElsewhere && (
+                            <div style={{ background: "#FBEAE7", border: "1px solid #E3B5AC", borderRadius: 10, padding: 12 }}>
+                              <div style={{ fontWeight: 700, color: "#B8483C" }}>Материал есть на другом складе</div>
+                              <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>
+                                Есть на складе «{manualElsewhere}» — подготовьте (нарежьте) там и отправьте через «Перемещения
+                                между складами», затем выдайте уже с домашнего склада.
+                              </div>
+                              <Button size="small" style={{ marginTop: 8 }} onClick={() => navigate("/warehouse-transfers")}>
+                                Перейти к перемещениям
+                              </Button>
+                            </div>
+                          )}
                           {manualDonor && (
                             <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12 }}>
                               <div style={{ fontWeight: 700, color: "#A8631E" }}>

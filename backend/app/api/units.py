@@ -49,7 +49,14 @@ from app.services.splitting import (
     split_lengthwise_multi,
 )
 from app.services.warehouse_transfers import add_unit_to_transfer
-from app.services.warehouses import filter_by_warehouse, rack_warehouse_names, resolve_warehouse_id, resolve_warehouse_name
+from app.services.warehouses import (
+    area_home_warehouse_id,
+    assert_area_home_warehouse,
+    filter_by_warehouse,
+    rack_warehouse_names,
+    resolve_warehouse_id,
+    resolve_warehouse_name,
+)
 
 router = APIRouter(prefix="/units", tags=["units"])
 
@@ -331,6 +338,7 @@ def issue_unit_direct(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Выдать можно только единицу на хранении")
     if payload.production_task_line_id is not None:
         _validate_matches_task_line(db, payload.production_task_line_id, unit.material_sku, float(unit.width_mm))
+    assert_area_home_warehouse(db, payload.area, resolve_warehouse_id(db, unit.location_code))
     from_cell = unit.location_code
     unit.status = UnitStatus.VYDAN_UCHASTKU
     unit.area = payload.area
@@ -369,13 +377,23 @@ def issue_to_area(
     if payload.production_task_line_id is not None:
         _validate_matches_task_line(db, payload.production_task_line_id, sku, payload.width_mm)
 
+    # Раздел про выдачу мимо хаба — площадка с домашним складом (Северный/
+    # Фабрика) ищет остаток только на своём складе, иначе очередь находила
+    # бы "совпадение", физически лежащее на другом складе, а сама выдача
+    # всё равно упёрлась бы в assert_area_home_warehouse ниже.
+    home_id = area_home_warehouse_id(db, payload.area)
+
     exact = (
-        db.query(MaterialUnit)
-        .filter(
-            MaterialUnit.status == UnitStatus.NA_KHRANENII,
-            MaterialUnit.material_sku_id == sku.id,
-            MaterialUnit.width_mm == payload.width_mm,
-            MaterialUnit.length_m >= payload.length_m,
+        filter_by_warehouse(
+            db.query(MaterialUnit).filter(
+                MaterialUnit.status == UnitStatus.NA_KHRANENII,
+                MaterialUnit.material_sku_id == sku.id,
+                MaterialUnit.width_mm == payload.width_mm,
+                MaterialUnit.length_m >= payload.length_m,
+            ),
+            MaterialUnit.location_code,
+            db,
+            home_id,
         )
         # Сначала самый старый остаток (дата прихода/нарезки — created_at,
         # 9 раздел бэклога доработок), среди равных по возрасту — короче
@@ -419,12 +437,16 @@ def issue_to_area(
     donor_unit = None
     if eligible_widths:
         donor_unit = (
-            db.query(MaterialUnit)
-            .filter(
-                MaterialUnit.status == UnitStatus.NA_KHRANENII,
-                MaterialUnit.material_sku_id == sku.id,
-                MaterialUnit.width_mm.in_(eligible_widths),
-                MaterialUnit.length_m >= payload.length_m,
+            filter_by_warehouse(
+                db.query(MaterialUnit).filter(
+                    MaterialUnit.status == UnitStatus.NA_KHRANENII,
+                    MaterialUnit.material_sku_id == sku.id,
+                    MaterialUnit.width_mm.in_(eligible_widths),
+                    MaterialUnit.length_m >= payload.length_m,
+                ),
+                MaterialUnit.location_code,
+                db,
+                home_id,
             )
             # Тот же приоритет возраста, что и у точного совпадения выше —
             # донор-рекомендация в первую очередь выбирает самый старый
@@ -474,7 +496,28 @@ def issue_to_area(
             ),
         )
 
-    return IssueResult(outcome="not_found")
+    # Раздел про выдачу мимо хаба — на своём складе ничего не нашлось; если
+    # площадка вообще ограничена складом (home_id задан), проверяем налегке,
+    # не лежит ли подходящий остаток/донор на другом складе, чтобы не
+    # отправлять оператора сразу в "заявку на закупку" материала, который
+    # физически уже есть, просто не там.
+    elsewhere_warehouse_name = None
+    if home_id is not None:
+        elsewhere_unit = (
+            db.query(MaterialUnit)
+            .filter(
+                MaterialUnit.status == UnitStatus.NA_KHRANENII,
+                MaterialUnit.material_sku_id == sku.id,
+                MaterialUnit.length_m >= payload.length_m,
+                (MaterialUnit.width_mm == payload.width_mm) | (MaterialUnit.width_mm.in_(eligible_widths)),
+            )
+            .order_by(MaterialUnit.created_at.asc())
+            .first()
+        )
+        if elsewhere_unit is not None:
+            elsewhere_warehouse_name = resolve_warehouse_name(rack_warehouse_names(db), elsewhere_unit.location_code)
+
+    return IssueResult(outcome="not_found", elsewhere_warehouse_name=elsewhere_warehouse_name)
 
 
 @router.post("/cutting-plan", response_model=CuttingPlanOut)
@@ -693,6 +736,9 @@ def execute_cutting_recipe(
             spec = outcome.new_unit
             is_issue = dest.kind == "issue"
             is_transfer = dest.kind == "transfer"
+            issue_area = (length_line.task.area if length_line is not None else dest.area) if is_issue else None
+            if is_issue:
+                assert_area_home_warehouse(db, issue_area, resolve_warehouse_id(db, donor.location_code))
             new_unit = MaterialUnit(
                 parent_id=spec.parent_id,
                 upd_number=spec.upd_number,
@@ -702,7 +748,7 @@ def execute_cutting_recipe(
                 length_m=spec.length_m,
                 is_strip=donor.is_strip,
                 status=UnitStatus.VYDAN_UCHASTKU if is_issue else UnitStatus.NA_KHRANENII,
-                area=(length_line.task.area if length_line is not None else dest.area) if is_issue else None,
+                area=issue_area,
                 production_task_line_id=dest.production_task_line_id if is_issue else None,
                 location_code=None if (is_issue or is_transfer) else dest.location_code,
             )
@@ -765,6 +811,9 @@ def execute_cutting_recipe(
             is_transfer = dest.kind == "transfer"
             line = width_lines.get(dest.production_task_line_id) if dest.production_task_line_id else None
             actual_length_m = w.actual_length_m if (is_issue and w.actual_length_m is not None) else expected_length_m
+            issue_area = (line.task.area if line is not None else dest.area) if is_issue else None
+            if is_issue:
+                assert_area_home_warehouse(db, issue_area, resolve_warehouse_id(db, donor.location_code))
             new_unit = MaterialUnit(
                 parent_id=spec.parent_id,
                 upd_number=spec.upd_number,
@@ -774,7 +823,7 @@ def execute_cutting_recipe(
                 length_m=actual_length_m if is_issue else spec.length_m,
                 is_strip=True,
                 status=UnitStatus.VYDAN_UCHASTKU if is_issue else UnitStatus.NA_KHRANENII,
-                area=(line.task.area if line is not None else dest.area) if is_issue else None,
+                area=issue_area,
                 production_task_line_id=dest.production_task_line_id if is_issue else None,
                 location_code=None if (is_issue or is_transfer) else dest.location_code,
             )
