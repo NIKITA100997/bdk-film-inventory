@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormInstance } from "antd";
-import { Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, message } from "antd";
+import { Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, Tag, message } from "antd";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,6 +10,7 @@ import {
   parseBlankPlan,
   type BlankPlanBlock,
   type ProductionTaskLineManualCreate,
+  type SkuCandidate,
 } from "../../../api/production";
 import { listMaterialSkus } from "../../../api/dictionaries";
 import { skuLabel, type AreaValue, type MaterialSku } from "../../../api/units";
@@ -22,6 +23,11 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 }
 
 type ManualRowFormValues = ProductionTaskLineManualCreate & { sku_id?: number };
+// Раздел про импорт плана заготовок — sku_candidates существует только
+// пока строка не сохранена в задание (подсказка для правки на
+// фронтенде), в схему ProductionTaskLineManualCreate не входит и на
+// бэкенд не уходит (см. manualCreateMutation.mutate ниже — обрезается).
+type ManualLine = ProductionTaskLineManualCreate & { _skuCandidates?: SkuCandidate[] };
 
 /** Поля одной строки задания — общие для "Добавить вручную" (вкладка) и
  * "Изменить строку" (модалка поверх таблицы, см. editingIndex ниже):
@@ -92,6 +98,15 @@ function ManualLineFields({
       <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
         <InputNumber min={1} style={{ width: "100%" }} />
       </Form.Item>
+      {/* Раздел обратной связи — ширина штрипса из выбора детали
+          (PartSelect.onSelect выше) раньше не сохранялась вообще: antd
+          Form.validateFields() отдаёт только ЗАРЕГИСТРИРОВАННЫЕ поля
+          (те, у которых есть свой Form.Item), а для strip_width_mm его не
+          было — setFieldsValue тихо записывала значение в стор формы, но
+          onFinish его никогда не видел. */}
+      <Form.Item name="strip_width_mm" hidden>
+        <InputNumber />
+      </Form.Item>
       <Button htmlType="submit" block>
         {submitLabel}
       </Button>
@@ -108,7 +123,7 @@ function ManualLineFields({
  * приложения, лишних запросов не добавляет). */
 export default function CreateTaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
-  const [manualLines, setManualLines] = useState<ProductionTaskLineManualCreate[]>([]);
+  const [manualLines, setManualLines] = useState<ManualLine[]>([]);
   const [manualForm] = Form.useForm<{ name: string; area: AreaValue; external_order_ref?: number }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
   // Отдельная форма и стейт для правки уже добавленной строки (см.
@@ -273,7 +288,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
     if (selectedBlockIndex === undefined) return;
     const block = blankPlanBlocks[selectedBlockIndex];
     if (!block) return;
-    const loaded: ProductionTaskLineManualCreate[] = block.lines.map((l) => ({
+    const loaded: ManualLine[] = block.lines.map((l) => ({
       material: l.material ?? "",
       color: l.color_raw,
       thickness: l.thickness ?? 0,
@@ -282,6 +297,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
       length_m: l.length_m ?? 0,
       strip_width_mm: l.strip_width_mm ?? undefined,
       part_name: l.part_name,
+      _skuCandidates: l.sku_candidates.length > 0 ? l.sku_candidates : undefined,
     }));
     setManualLines((lines) => [...lines, ...loaded]);
     setLastImportCount(loaded.length);
@@ -314,7 +330,22 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   // — отмена ничего не теряет, в отличие от прежнего поведения, где
   // строка убиралась из списка сразу по клику "Изменить".
   const editManualLine = (index: number) => {
-    editRowForm.setFieldsValue(manualLines[index]);
+    // Раздел обратной связи — раньше setFieldsValue без предварительного
+    // resetFields МЕРЖИЛА новые значения поверх старых: поля, которых нет
+    // в manualLines[index] (в частности sku_id — он вообще не хранится в
+    // строке, только material/color/thickness как обычные строки/числа),
+    // оставались от прошлой правки другой строки. Выглядело так, будто
+    // открылась строка с чужим, "старым" цветом.
+    editRowForm.resetFields();
+    const line = manualLines[index];
+    // Best-effort — найти позицию номенклатуры, уже точно соответствующую
+    // текущим material/color/thickness строки, чтобы Select не пустовал
+    // зря для уже сопоставленных строк (для несопоставленных — останется
+    // пустым, как и должно быть, ничего не найдётся).
+    const matchingSku = skusQuery.data?.find(
+      (s) => s.material.name === line.material && s.color.name === line.color && s.thickness.value_mm === line.thickness,
+    );
+    editRowForm.setFieldsValue({ ...line, sku_id: matchingSku?.id });
     setEditingIndex(index);
   };
   const saveEditedLine = (v: ManualRowFormValues) => {
@@ -502,6 +533,11 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                   render: (_, l, index) =>
                     index === editingIndex ? (
                       <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                        {!(l.width_mm > 0 && l.length_m > 0) && l.part_name && (
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            Из файла: «{l.part_name}»
+                          </Typography.Text>
+                        )}
                         <PartSelect
                           area={taskArea}
                           onSelect={(part) =>
@@ -516,6 +552,13 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                         <Form.Item name="part_name" noStyle>
                           <Input placeholder="Название детали" />
                         </Form.Item>
+                        {/* Раздел обратной связи — без своего Form.Item
+                            значение от PartSelect.onSelect тихо терялось
+                            при сохранении строки (см. ManualLineFields выше,
+                            та же причина). */}
+                        <Form.Item name="strip_width_mm" hidden>
+                          <InputNumber />
+                        </Form.Item>
                       </Space>
                     ) : l.width_mm > 0 && l.length_m > 0 ? (
                       l.part_name ?? "—"
@@ -525,10 +568,15 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                 },
                 {
                   title: "Материал",
-                  width: 260,
+                  width: 280,
                   render: (_, l, index) =>
                     index === editingIndex ? (
-                      <>
+                      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                        {!l.material && (
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            Цвет из файла: «{l.color || "—"}»
+                          </Typography.Text>
+                        )}
                         <Form.Item name="sku_id" noStyle>
                           <Select
                             showSearch
@@ -542,6 +590,27 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                             }}
                           />
                         </Form.Item>
+                        {(l._skuCandidates?.length ?? 0) > 0 && (
+                          <Space wrap size={4}>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              Похоже на:
+                            </Typography.Text>
+                            {l._skuCandidates!.map((c) => (
+                              <Tag
+                                key={c.sku_id}
+                                color="blue"
+                                style={{ cursor: "pointer" }}
+                                onClick={() => {
+                                  const sku = skusQuery.data?.find((s) => s.id === c.sku_id);
+                                  editRowForm.setFieldsValue({ sku_id: c.sku_id });
+                                  if (sku) applySkuFields(editRowForm, sku);
+                                }}
+                              >
+                                {c.label}
+                              </Tag>
+                            ))}
+                          </Space>
+                        )}
                         <Form.Item name="material" hidden>
                           <Input />
                         </Form.Item>
@@ -551,7 +620,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                         <Form.Item name="thickness" hidden>
                           <InputNumber />
                         </Form.Item>
-                      </>
+                      </Space>
                     ) : l.material && l.color ? (
                       `${l.material}, ${l.color}, ${l.thickness} мм`
                     ) : (
@@ -647,7 +716,10 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                 ...v,
                 product_model_id: bomProductModelId || undefined,
                 quantity: bomForm.getFieldValue("quantity") || undefined,
-                lines: manualLines,
+                // _skuCandidates — только подсказка для правки на фронтенде
+                // (см. тип ManualLine выше), в ProductionTaskLineManualCreate
+                // такого поля нет.
+                lines: manualLines.map(({ _skuCandidates, ...rest }) => rest),
               }),
             )
             .catch(() => {});

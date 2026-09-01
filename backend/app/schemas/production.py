@@ -103,6 +103,11 @@ class NaryadParseResultOut(BaseModel):
     order_number: int | None = None
 
 
+class SkuCandidateOut(BaseModel):
+    sku_id: int
+    label: str
+
+
 class BlankPlanParsedLineOut(BaseModel):
     """Раздел про импорт плана заготовок (Excel) — в отличие от
     NaryadParsedLineOut, здесь цвет свой у каждой строки (не общий на всё
@@ -110,7 +115,10 @@ class BlankPlanParsedLineOut(BaseModel):
     сервере (services.blank_plan_import.enrich_blank_plan_blocks) — если
     получилось однозначно, поля уже заполнены подсказкой, которую можно
     поправить на фронтенде; если нет — пустые, и фронтенд не даст создать
-    задание, пока оператор не заполнит их вручную."""
+    задание, пока оператор не заполнит их вручную. sku_candidates — раздел
+    обратной связи: несколько похожих по сочетанию материал+цвет позиций,
+    когда однозначно подобрать не вышло, чтобы оператор выбрал одним
+    кликом, а не искал заново с нуля."""
 
     part_name: str
     suggested_part_id: int | None = None
@@ -122,6 +130,7 @@ class BlankPlanParsedLineOut(BaseModel):
     material: str | None = None
     thickness: float | None = None
     quantity_pieces: float
+    sku_candidates: list[SkuCandidateOut] = []
 
 
 class BlankPlanBlockOut(BaseModel):

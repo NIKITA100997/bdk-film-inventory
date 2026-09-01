@@ -236,6 +236,11 @@ export const parseNaryadFile = async (file: File): Promise<NaryadParseResult> =>
 // получилось однозначно (у цвета ровно одна активная позиция) — поля
 // уже заполнены подсказкой, иначе пустые, и фронтенд не даст создать
 // задание, пока оператор не заполнит их сам.
+export interface SkuCandidate {
+  sku_id: number;
+  label: string;
+}
+
 export interface BlankPlanParsedLine {
   part_name: string;
   suggested_part_id: number | null;
@@ -247,6 +252,11 @@ export interface BlankPlanParsedLine {
   material: string | null;
   thickness: number | null;
   quantity_pieces: number;
+  // Раздел про обратную связь — несколько похожих по сочетанию
+  // материал+цвет позиций, когда сервер не смог подобрать однозначно
+  // (services.blank_plan_import.enrich_blank_plan_blocks) — показать на
+  // выбор вместо того, чтобы искать заново руками с нуля.
+  sku_candidates: SkuCandidate[];
 }
 
 export interface BlankPlanBlock {

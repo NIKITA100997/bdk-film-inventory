@@ -83,6 +83,11 @@ class EnrichedBlankPlanLine:
     material: str | None
     thickness: float | None
     quantity_pieces: float
+    # Раздел про обратную связь — когда однозначно подобрать не удалось
+    # (см. enrich_blank_plan_blocks), несколько похожих по сочетанию
+    # материал+цвет позиций номенклатуры, чтобы оператор выбрал из них на
+    # фронтенде вместо того, чтобы искать заново руками с нуля.
+    sku_candidates: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -227,14 +232,29 @@ def parse_blank_plan_xlsx_bytes(data: bytes) -> list[BlankPlanBlock]:
     return blocks
 
 
+_SKU_MATCH_CUTOFF = 0.45
+_SKU_CANDIDATES_MAX = 5
+
+
+def _sku_label(sku: MaterialSku) -> str:
+    return f"{sku.material.name}, {sku.color.name}, {float(sku.thickness.value_mm)} мм"
+
+
 def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[EnrichedBlankPlanBlock]:
     """Подбор детали/материала — единственное место во всём модуле, где
     нужна БД. Деталь — нечёткое совпадение (difflib, стандартная
-    библиотека) по нормализованному имени; материал/толщина — только
-    если у распознанного цвета ровно одна активная позиция номенклатуры
-    (иначе неоднозначно, какой производитель/толщина имелись в виду —
-    оставляем пустым для ручного выбора, как договорились с
-    пользователем)."""
+    библиотека) по нормализованному имени.
+
+    Материал — сначала точное совпадение цвета (как раньше, для файлов,
+    где в колонке "Цвет" — только название цвета), и только если под него
+    ровно одна активная позиция номенклатуры. Если так не получилось (то
+    и другое встречается на практике — раздел обратной связи: в тексте
+    бывает написано "ПЭТ Белый", то есть материал+цвет вместе, а не
+    отдельно цвет) — нечёткий поиск по сочетанию материал+цвет среди ВСЕХ
+    активных позиций: одно уверенное совпадение проставляется тем же
+    способом, что и раньше; несколько похожих — не гадаем, какое из них,
+    а отдаём списком (sku_candidates) во фронтенд, чтобы оператор выбрал
+    сам одним кликом вместо поиска с нуля."""
     parts = db.query(Part).filter(Part.is_active).all()
     part_by_normalized: dict[str, Part] = {p.name.strip().lower(): p for p in parts}
     normalized_names = list(part_by_normalized)
@@ -251,13 +271,17 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
     skus = (
         db.query(MaterialSku)
         .join(Thickness, MaterialSku.thickness_id == Thickness.id)
-        .options(joinedload(MaterialSku.material), joinedload(MaterialSku.thickness))
+        .options(joinedload(MaterialSku.material), joinedload(MaterialSku.color), joinedload(MaterialSku.thickness))
         .filter(MaterialSku.is_active, Thickness.value_mm > 0)
         .all()
     )
     skus_by_color_id: dict[int, list[MaterialSku]] = {}
+    combined_label_to_sku: dict[str, MaterialSku] = {}
     for s in skus:
         skus_by_color_id.setdefault(s.color_id, []).append(s)
+        combined = re.sub(r"\s+", " ", f"{s.material.name} {s.color.name}".strip().lower())
+        combined_label_to_sku[combined] = s
+    combined_labels = list(combined_label_to_sku)
 
     result: list[EnrichedBlankPlanBlock] = []
     for block in blocks:
@@ -269,8 +293,32 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
 
             color_key = re.sub(r"\s+", " ", line.color_raw.strip().lower())
             color = color_by_normalized.get(color_key)
-            candidates = skus_by_color_id.get(color.id) if color else None
-            sku = candidates[0] if candidates and len(candidates) == 1 else None
+            exact_candidates = skus_by_color_id.get(color.id) if color else None
+            sku = exact_candidates[0] if exact_candidates and len(exact_candidates) == 1 else None
+
+            sku_candidates: list[dict] = []
+            if sku is None:
+                fuzzy_labels = difflib.get_close_matches(
+                    color_key, combined_labels, n=_SKU_CANDIDATES_MAX, cutoff=_SKU_MATCH_CUTOFF
+                )
+                fuzzy_skus = [combined_label_to_sku[label] for label in fuzzy_labels]
+                if len(fuzzy_skus) == 1:
+                    sku = fuzzy_skus[0]
+                elif len(fuzzy_skus) > 1:
+                    # get_close_matches уже отдаёт по убыванию похожести —
+                    # если лучший результат заметно впереди второго (не
+                    # просто "тоже похоже, но не факт какой из двух"),
+                    # берём его не гадая: комбинация материал+цвет обычно
+                    # даёт именно такой явный отрыв, в отличие от случая
+                    # "два реальных близких варианта" (напр. одно и то же
+                    # название цвета у ПЭТ 2Д и ПЭТ 3Д) — там разница
+                    # ratio() между лучшим и вторым мала, это и остаётся
+                    # списком на выбор.
+                    ratios = [difflib.SequenceMatcher(None, color_key, label).ratio() for label in fuzzy_labels]
+                    if ratios[0] >= 0.92 or ratios[0] - ratios[1] >= 0.08:
+                        sku = fuzzy_skus[0]
+                    else:
+                        sku_candidates = [{"sku_id": s.id, "label": _sku_label(s)} for s in fuzzy_skus]
 
             enriched_lines.append(
                 EnrichedBlankPlanLine(
@@ -284,6 +332,7 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
                     material=sku.material.name if sku else None,
                     thickness=float(sku.thickness.value_mm) if sku else None,
                     quantity_pieces=line.quantity_pieces,
+                    sku_candidates=sku_candidates,
                 )
             )
         result.append(
