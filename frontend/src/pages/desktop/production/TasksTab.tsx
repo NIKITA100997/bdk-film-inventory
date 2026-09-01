@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message } from "antd";
+import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid } from "antd";
 // Раздел про широкую таблицу строк задания — ResponsiveTable только для
 // внутренней таблицы строк (плоский список, без expandable). Внешняя
 // таблица заданий использует expandable (клик-разворот строки задания)
@@ -37,6 +37,17 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 export default function TasksTab() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  // Раздел про карточный режим внутри expandable-строки — scroll={{x:
+  // "max-content"}} на этой (внешней) таблице задаёт ей инлайновый
+  // width:max-content + table-layout:fixed по сумме ширин колонок; строка
+  // разворота (expandedRowRender) наследует эту же раздутую ширину
+  // независимо от реального экрана, из-за чего внутренний ResponsiveTable
+  // в карточном режиме на планшете отрисовывал значения карточек за
+  // пределами видимой области (в DOM были, физически невидимы). Тот же
+  // breakpoint, что уже в ResponsiveTable.tsx (по умолчанию "md") — scroll.x
+  // нужен только на широком экране, где сама эта таблица и раздута.
+  const screens = Grid.useBreakpoint();
+  const wideScreen = screens.md ?? true;
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const canReport = canManage || !!user?.permissions.includes("production_tasks.report");
   const [taskModalOpen, setTaskModalOpen] = useState(false);
@@ -102,7 +113,7 @@ export default function TasksTab() {
             loading={tasksQuery.isLoading}
             dataSource={tasks}
             pagination={{ pageSize: 20 }}
-            scroll={{ x: "max-content" }}
+            scroll={wideScreen ? { x: "max-content" } : undefined}
             expandable={{
               expandedRowRender: (task) => {
                 // Раздел про общий погонаж на задание — итог по плёнке
@@ -118,7 +129,14 @@ export default function TasksTab() {
                   bySku.set(key, entry);
                 }
                 return (
-                  <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                  // width:0 + minWidth:"100%" (раздел про карточный режим внутри
+                  // expandable-строки) — у внешней таблицы задан scroll={{x:
+                  // "max-content"}}, из-за чего обычные "100%" здесь считались
+                  // от раздутой max-content-ширины самой таблицы, а не от
+                  // видимой ширины экрана: на планшете значения карточек
+                  // ResponsiveTable уезжали за пределы экрана невидимыми (сам
+                  // текст был в DOM, но физически за пределами viewport).
+                  <Space direction="vertical" size={8} style={{ width: 0, minWidth: "100%" }}>
                     <Space wrap size={[16, 4]}>
                       {[...bySku.values()].map((e) => (
                         <Typography.Text key={e.label}>
@@ -195,51 +213,62 @@ export default function TasksTab() {
                 );
               },
             }}
-            columns={[
-              { title: "Модель", width: 320, ellipsis: true, render: (_, t) => t.product_model_name ?? t.name ?? "—" },
-              { title: "Участок", width: 140, dataIndex: "area", render: (v: string) => areaLabel(v) },
-              { title: "Количество", width: 110, render: (_, t) => t.quantity ?? "—" },
-              {
-                // Раздел про план/факт по расходу плёнки — план не мутируется
-                // (кол-во деталей × длина на деталь по всем строкам), факт —
-                // уже выдано/отрезано складом (issued_length_m), не зависит
-                // от бумажной самоотчётности цеха о производстве.
-                title: "План/факт, м",
-                width: 150,
-                render: (_, t) => (
-                  <Tag color={t.planned_length_m > 0 && t.issued_length_m >= t.planned_length_m ? "green" : "orange"}>
-                    {t.issued_length_m} / {t.planned_length_m}
-                  </Tag>
-                ),
-              },
-              { title: "Автор", width: 160, ellipsis: true, dataIndex: "created_by", render: (id: number) => userName(id) },
-              { title: "Создано", width: 170, dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
-              {
-                title: "Статус",
-                width: 110,
-                dataIndex: "is_active",
-                render: (v: boolean) => (v ? <Tag color="green">Активно</Tag> : <Tag>В архиве</Tag>),
-              },
-              {
-                title: "Действия",
-                width: 240,
-                render: (_, t) =>
-                  canManage && (
-                    <Space onClick={(e) => e.stopPropagation()}>
-                      <Button
-                        size="small"
-                        onClick={() => archiveTaskMutation.mutate({ id: t.id, isActive: !t.is_active })}
-                        loading={archiveTaskMutation.isPending}
-                      >
-                        {t.is_active ? "В архив" : "Восстановить"}
-                      </Button>
-                      <Button size="small" danger onClick={() => deleteTaskMutation.mutate(t.id)} loading={deleteTaskMutation.isPending}>
-                        {user?.is_superuser ? "🗑️ Удалить задание" : "Запросить удаление"}
-                      </Button>
-                    </Space>
+            // На узком экране без scroll.x/фиксированных ширин колонок (см.
+            // wideScreen выше) заголовки всех 8 колонок вмиг не помещаются и
+            // переносятся по одной букве — тот же класс бага, что уже чинили
+            // на "Стеллажах". Показываем только самое нужное для беглого
+            // просмотра списка (остальное всё равно видно после разворота
+            // строки), не пытаясь втиснуть все колонки на узкий экран.
+            columns={(
+              [
+                { key: "model", title: "Модель", width: wideScreen ? 320 : undefined, ellipsis: true, render: (_, t) => t.product_model_name ?? t.name ?? "—" },
+                { key: "area", title: "Участок", width: wideScreen ? 140 : undefined, dataIndex: "area", render: (v: string) => areaLabel(v) },
+                { key: "quantity", title: "Количество", width: wideScreen ? 110 : undefined, render: (_, t) => t.quantity ?? "—" },
+                {
+                  // Раздел про план/факт по расходу плёнки — план не мутируется
+                  // (кол-во деталей × длина на деталь по всем строкам), факт —
+                  // уже выдано/отрезано складом (issued_length_m), не зависит
+                  // от бумажной самоотчётности цеха о производстве.
+                  key: "planfact",
+                  title: "План/факт, м",
+                  width: wideScreen ? 150 : undefined,
+                  render: (_, t) => (
+                    <Tag color={t.planned_length_m > 0 && t.issued_length_m >= t.planned_length_m ? "green" : "orange"}>
+                      {t.issued_length_m} / {t.planned_length_m}
+                    </Tag>
                   ),
-              },
-            ]}
+                },
+                { key: "author", title: "Автор", width: wideScreen ? 160 : undefined, ellipsis: true, dataIndex: "created_by", render: (id: number) => userName(id) },
+                { key: "created", title: "Создано", width: wideScreen ? 170 : undefined, dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
+                {
+                  key: "status",
+                  title: "Статус",
+                  width: wideScreen ? 110 : undefined,
+                  dataIndex: "is_active",
+                  render: (v: boolean) => (v ? <Tag color="green">Активно</Tag> : <Tag>В архиве</Tag>),
+                },
+                {
+                  key: "actions",
+                  title: "Действия",
+                  width: wideScreen ? 240 : undefined,
+                  render: (_, t) =>
+                    canManage && (
+                      <Space onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          size="small"
+                          onClick={() => archiveTaskMutation.mutate({ id: t.id, isActive: !t.is_active })}
+                          loading={archiveTaskMutation.isPending}
+                        >
+                          {t.is_active ? "В архив" : "Восстановить"}
+                        </Button>
+                        <Button size="small" danger onClick={() => deleteTaskMutation.mutate(t.id)} loading={deleteTaskMutation.isPending}>
+                          {user?.is_superuser ? "🗑️ Удалить задание" : "Запросить удаление"}
+                        </Button>
+                      </Space>
+                    ),
+                },
+              ] as Array<{ key: string } & NonNullable<React.ComponentProps<typeof Table<ProductionTask>>["columns"]>[number]>
+            ).filter((c) => wideScreen || ["model", "area", "status", "actions"].includes(c.key))}
           />
         )}
       </Card>
