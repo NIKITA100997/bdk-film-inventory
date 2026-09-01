@@ -1,7 +1,8 @@
-import { Card, Space, Tag, Typography } from "antd";
+import { Card, Space, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { getBlanksDemand, type BlankDemandLine } from "../../api/production";
 import ReportTable, { type ReportColumn } from "../../components/ReportTable";
+import CuttingHistory from "./CuttingHistory";
 
 function DeficitTag({ value }: { value: number }) {
   if (value <= 0) return <Tag color="green">запас {Math.abs(value)} м</Tag>;
@@ -15,7 +16,7 @@ function DeficitTag({ value }: { value: number }) {
  * назначенным (production_task_line_id IS NULL — структурно и есть
  * заготовка). Резать по-прежнему через карточку единицы («Разделить») —
  * этот экран только показывает, где резать в первую очередь. */
-export default function Blanks() {
+function BlanksDemandTab() {
   const query = useQuery({ queryKey: ["blanks-demand"], queryFn: getBlanksDemand });
   const rows = query.data ?? [];
 
@@ -58,23 +59,39 @@ export default function Blanks() {
   ];
 
   return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+        Потребность считается по всем активным заданиям цеха целиком — включая ещё не распределённые по дням и
+        линиям, то есть до того, как участок формально «пришёл» за плёнкой. Строки сверху (самый большой дефицит) —
+        резать в первую очередь, чтобы производство не ждало. Сама нарезка — как обычно, через карточку единицы
+        («Разделить»); этот экран только показывает, где резать выгоднее всего.
+      </Typography.Paragraph>
+      <ReportTable
+        title="Заготовки"
+        filename="zagotovki.csv"
+        rowKey={(r) => `${r.material}-${r.color}-${r.thickness}-${r.width_mm}`}
+        columns={columns}
+        data={rows}
+        loading={query.isLoading}
+      />
+    </Space>
+  );
+}
+
+/** Заготовки (раздел про склад, который должен резать заранее) — вкладка
+ * «Потребность» (сколько нужно по заданиям vs сколько уже нарезано про
+ * запас) и вкладка «История резки» (раздел про отмену резки) — журнал
+ * каждой резки с возможностью отменить, распечатать этикетки, разрезать
+ * донора ещё раз. */
+export default function Blanks() {
+  return (
     <Card title="Заготовки">
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          Потребность считается по всем активным заданиям цеха целиком — включая ещё не распределённые по дням и
-          линиям, то есть до того, как участок формально «пришёл» за плёнкой. Строки сверху (самый большой дефицит) —
-          резать в первую очередь, чтобы производство не ждало. Сама нарезка — как обычно, через карточку единицы
-          («Разделить»); этот экран только показывает, где резать выгоднее всего.
-        </Typography.Paragraph>
-        <ReportTable
-          title="Заготовки"
-          filename="zagotovki.csv"
-          rowKey={(r) => `${r.material}-${r.color}-${r.thickness}-${r.width_mm}`}
-          columns={columns}
-          data={rows}
-          loading={query.isLoading}
-        />
-      </Space>
+      <Tabs
+        items={[
+          { key: "demand", label: "Потребность", children: <BlanksDemandTab /> },
+          { key: "history", label: "История резки", children: <CuttingHistory /> },
+        ]}
+      />
     </Card>
   );
 }

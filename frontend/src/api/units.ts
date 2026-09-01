@@ -263,6 +263,62 @@ export async function executeCuttingRecipe(payload: CuttingRecipeRequest): Promi
   return data;
 }
 
+// Журнал резок (раздел про отмену резки и историю в «Заготовках») —
+// CuttingHistory.tsx на вкладке «История резки».
+export interface CuttingOperationPiece {
+  id: number;
+  width_mm: number;
+  length_m: number;
+  status: string;
+  area: string | null;
+  location_code: string | null;
+  destination_kind: "keep" | "issue" | "transfer";
+}
+
+export interface CuttingOperation {
+  id: number;
+  donor_unit_id: number;
+  donor_material_sku: MaterialSku;
+  donor_width_before_mm: number;
+  donor_length_before_m: number;
+  donor_status_before: string;
+  donor_width_after_mm: number;
+  donor_length_after_m: number;
+  donor_status_after: string;
+  donor_auto_written_off: boolean;
+  length_precut_m: number | null;
+  occurred_at: string;
+  created_at: string;
+  user_id: number;
+  user_name: string;
+  undone_at: string | null;
+  undone_by: number | null;
+  undone_by_name: string | null;
+  resulting_pieces: CuttingOperationPiece[];
+  can_undo: boolean;
+  cannot_undo_reason: string | null;
+}
+
+export interface CuttingOperationsParams {
+  date_from?: string;
+  date_to?: string;
+  donor_unit_id?: number;
+  material_sku_id?: number;
+  include_undone?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export async function getCuttingOperations(params: CuttingOperationsParams): Promise<CuttingOperation[]> {
+  const { data } = await apiClient.get<CuttingOperation[]>("/units/cutting-operations", { params });
+  return data;
+}
+
+export async function undoCuttingOperation(operationId: number): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/cutting-operations/${operationId}/undo`);
+  return data;
+}
+
 export interface ReturnRequest {
   actual_length_m: number;
   occurred_at?: string;

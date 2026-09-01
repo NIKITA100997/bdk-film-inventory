@@ -1,12 +1,15 @@
+import datetime as dt
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import Query as FastAPIQuery
 from sqlalchemy import func
 from sqlalchemy.orm import Query, Session, joinedload
 
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
+from app.models.cutting_operations import CuttingOperation
 from app.models.dictionaries import MaterialSku
 from app.models.events import EventType, MaterialEvent
 from app.models.production import ProductionTaskLine, ProductionTaskLineReport
@@ -16,6 +19,8 @@ from app.models.write_off_reasons import WriteOffReasonEntry
 from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.units import (
     CutRequest,
+    CuttingOperationOut,
+    CuttingOperationPieceOut,
     CuttingPlanDonorOut,
     CuttingPlanOut,
     CuttingPlanRequest,
@@ -36,6 +41,7 @@ from app.schemas.units import (
     WriteOffRequest,
 )
 from app.services.cutting_plan import DonorCandidate, build_cutting_plan
+from app.services.cutting_undo import check_undo_eligibility, has_undo_permission, undo_cutting_operation
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_sku, find_sku
 from app.services.events import record_event
@@ -162,6 +168,101 @@ def receive(
     db.commit()
     ids = [u.id for u in created]
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id.in_(ids)).all()
+
+
+def _cutting_operation_out(db: Session, op: CuttingOperation, user: User) -> CuttingOperationOut:
+    sku = db.get(MaterialSku, op.donor_material_sku_id)
+    pieces = (
+        db.query(MaterialUnit).filter(MaterialUnit.created_by_cutting_operation_id == op.id).all()
+    )
+    if not has_undo_permission(op, user):
+        can_undo, reason = False, "Недостаточно прав для отмены этой резки"
+    else:
+        can_undo, reason = check_undo_eligibility(db, op)
+    performer = db.get(User, op.user_id)
+    undone_performer = db.get(User, op.undone_by) if op.undone_by is not None else None
+    return CuttingOperationOut(
+        id=op.id,
+        donor_unit_id=op.donor_unit_id,
+        donor_material_sku=sku,
+        donor_width_before_mm=op.donor_width_before_mm,
+        donor_length_before_m=op.donor_length_before_m,
+        donor_status_before=op.donor_status_before,
+        donor_width_after_mm=op.donor_width_after_mm,
+        donor_length_after_m=op.donor_length_after_m,
+        donor_status_after=op.donor_status_after,
+        donor_auto_written_off=op.donor_auto_written_off,
+        length_precut_m=op.length_precut_m,
+        occurred_at=op.occurred_at,
+        created_at=op.created_at,
+        user_id=op.user_id,
+        user_name=performer.full_name if performer else f"№{op.user_id}",
+        undone_at=op.undone_at,
+        undone_by=op.undone_by,
+        undone_by_name=undone_performer.full_name if undone_performer else None,
+        resulting_pieces=[CuttingOperationPieceOut.model_validate(p) for p in pieces],
+        can_undo=can_undo,
+        cannot_undo_reason=reason,
+    )
+
+
+# ВАЖНО: этот и следующий роут — ДО @router.get("/{unit_id}") ниже. FastAPI
+# сопоставляет путь чисто по количеству сегментов и порядку регистрации, а
+# не по типу параметра ({unit_id} — обычная строка на уровне Starlette-роута,
+# int только на уровне валидации ПОСЛЕ выбора роута) — значит однoсегментный
+# GET "/cutting-operations" обязан идти раньше однoсегментного GET
+# "/{unit_id}", иначе тот перехватывает запрос первым и падает 422
+# ("cutting-operations" не парсится как int), до этого роута очередь вообще
+# не доходит. Найдено живой Playwright-проверкой, не только чтением кода.
+@router.get("/cutting-operations", response_model=list[CuttingOperationOut])
+def list_cutting_operations(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.issue")),
+    date_from: dt.date | None = FastAPIQuery(default=None),
+    date_to: dt.date | None = FastAPIQuery(default=None),
+    donor_unit_id: int | None = FastAPIQuery(default=None),
+    material_sku_id: int | None = FastAPIQuery(default=None),
+    include_undone: bool = FastAPIQuery(default=False),
+    limit: int = FastAPIQuery(default=50, le=200),
+    offset: int = FastAPIQuery(default=0),
+) -> list[CuttingOperationOut]:
+    """Журнал резок — вкладка «История резки» в «Заготовках» (раздел про
+    отмену резки). По умолчанию последние 7 дней и только ещё не отменённые
+    — этот экран для оперативной работы склада, не для архивного отчёта."""
+    query = db.query(CuttingOperation)
+    if date_from is None and date_to is None:
+        date_from = (datetime.now(timezone.utc) - dt.timedelta(days=7)).date()
+    if date_from is not None:
+        query = query.filter(func.date(CuttingOperation.created_at) >= date_from)
+    if date_to is not None:
+        query = query.filter(func.date(CuttingOperation.created_at) <= date_to)
+    if donor_unit_id is not None:
+        query = query.filter(CuttingOperation.donor_unit_id == donor_unit_id)
+    if material_sku_id is not None:
+        query = query.filter(CuttingOperation.donor_material_sku_id == material_sku_id)
+    if not include_undone:
+        query = query.filter(CuttingOperation.undone_at.is_(None))
+    ops = query.order_by(CuttingOperation.created_at.desc()).offset(offset).limit(limit).all()
+    return [_cutting_operation_out(db, op, user) for op in ops]
+
+
+@router.post("/cutting-operations/{operation_id}/undo", response_model=MaterialUnitOut)
+def undo_cutting_operation_endpoint(
+    operation_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> MaterialUnitOut:
+    op = db.get(CuttingOperation, operation_id)
+    if op is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Операция резки не найдена")
+    if not has_undo_permission(op, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Недостаточно прав для отмены этой резки")
+    can_undo, reason = check_undo_eligibility(db, op)
+    if not can_undo:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+    donor = undo_cutting_operation(db, op, user)
+    db.commit()
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == donor.id).first()
 
 
 @router.get("/{unit_id}", response_model=MaterialUnitOut)
@@ -662,6 +763,28 @@ def execute_cutting_recipe(
             detail="Раскрой по длине доступен только на складе или у участка, которому единица выдана",
         )
 
+    # Раздел про отмену резки — заголовок операции создаём здесь, до любых
+    # мутаций донора, чтобы снимок "до" был честным; id нужен уже для
+    # первого record_event ниже, поэтому flush сразу.
+    occurred_at_value = payload.occurred_at or datetime.now(timezone.utc)
+    cutting_op = CuttingOperation(
+        donor_unit_id=donor.id,
+        donor_material_sku_id=donor.material_sku_id,
+        donor_width_before_mm=donor.width_mm,
+        donor_length_before_m=donor.length_m,
+        donor_status_before=donor.status.value,
+        donor_location_code_before=donor.location_code,
+        donor_width_after_mm=donor.width_mm,
+        donor_length_after_m=donor.length_m,
+        donor_status_after=donor.status.value,
+        length_precut_m=payload.length_precut_m,
+        required_permissions=",".join(sorted(required)),
+        occurred_at=occurred_at_value,
+        user_id=user.id,
+    )
+    db.add(cutting_op)
+    db.flush()
+
     # Провалидировать все строки заданий заранее, до любых мутаций доноров
     # (тот же порядок, что уже в execute_cutting_plan/issue_donor_atomic).
     length_line: ProductionTaskLine | None = None
@@ -716,6 +839,7 @@ def execute_cutting_recipe(
                 to_length=outcome.parent_event.to_length,
                 to_cell=outcome.parent_event.to_cell,
                 occurred_at=payload.occurred_at,
+                cutting_operation_id=cutting_op.id,
             )
         else:
             try:
@@ -732,6 +856,7 @@ def execute_cutting_recipe(
                 from_length=outcome.parent_event.from_length,
                 to_length=outcome.parent_event.to_length,
                 occurred_at=payload.occurred_at,
+                cutting_operation_id=cutting_op.id,
             )
             spec = outcome.new_unit
             is_issue = dest.kind == "issue"
@@ -751,6 +876,7 @@ def execute_cutting_recipe(
                 area=issue_area,
                 production_task_line_id=dest.production_task_line_id if is_issue else None,
                 location_code=None if (is_issue or is_transfer) else dest.location_code,
+                created_by_cutting_operation_id=cutting_op.id,
             )
             db.add(new_unit)
             db.flush()
@@ -763,6 +889,7 @@ def execute_cutting_recipe(
                 to_length=outcome.new_unit_event.to_length,
                 to_cell=None if (is_issue or is_transfer) else outcome.new_unit_event.to_cell,
                 occurred_at=payload.occurred_at,
+                cutting_operation_id=cutting_op.id,
             )
             if is_issue:
                 record_event(
@@ -772,9 +899,13 @@ def execute_cutting_recipe(
                     user_id=user.id,
                     quantity_delta_m=-float(new_unit.length_m),
                     occurred_at=payload.occurred_at,
+                    cutting_operation_id=cutting_op.id,
                 )
             elif is_transfer:
-                add_unit_to_transfer(db, new_unit, donor_warehouse_id, dest.to_warehouse_id, user.id, payload.occurred_at)
+                add_unit_to_transfer(
+                    db, new_unit, donor_warehouse_id, dest.to_warehouse_id, user.id, payload.occurred_at,
+                    cutting_operation_id=cutting_op.id,
+                )
             length_result_id = new_unit.id
 
     width_result_ids: list[tuple[int, bool]] = []
@@ -800,6 +931,7 @@ def execute_cutting_recipe(
             from_length=outcome.parent_event.from_length,
             to_length=outcome.parent_event.to_length,
             occurred_at=payload.occurred_at,
+            cutting_operation_id=cutting_op.id,
         )
 
         expected_length_m = float(donor.length_m)
@@ -826,6 +958,7 @@ def execute_cutting_recipe(
                 area=issue_area,
                 production_task_line_id=dest.production_task_line_id if is_issue else None,
                 location_code=None if (is_issue or is_transfer) else dest.location_code,
+                created_by_cutting_operation_id=cutting_op.id,
             )
             db.add(new_unit)
             db.flush()
@@ -838,6 +971,7 @@ def execute_cutting_recipe(
                 to_length=expected_length_m if is_issue else new_unit_event.to_length,
                 to_cell=None if (is_issue or is_transfer) else new_unit_event.to_cell,
                 occurred_at=payload.occurred_at,
+                cutting_operation_id=cutting_op.id,
             )
             discrepancy_flagged = False
             if is_issue:
@@ -851,9 +985,13 @@ def execute_cutting_recipe(
                     to_length=actual_length_m,
                     expected_length_m=expected_length_m,
                     occurred_at=payload.occurred_at,
+                    cutting_operation_id=cutting_op.id,
                 )
             elif is_transfer:
-                add_unit_to_transfer(db, new_unit, donor_warehouse_id, dest.to_warehouse_id, user.id, payload.occurred_at)
+                add_unit_to_transfer(
+                    db, new_unit, donor_warehouse_id, dest.to_warehouse_id, user.id, payload.occurred_at,
+                    cutting_operation_id=cutting_op.id,
+                )
             width_result_ids.append((new_unit.id, discrepancy_flagged))
 
     settings = db.get(CalcSettings, 1)
@@ -872,7 +1010,13 @@ def execute_cutting_recipe(
             to_length=0,
             write_off_reason="cutting_waste",
             occurred_at=payload.occurred_at,
+            cutting_operation_id=cutting_op.id,
         )
+        cutting_op.donor_auto_written_off = True
+
+    cutting_op.donor_width_after_mm = donor.width_mm
+    cutting_op.donor_length_after_m = donor.length_m
+    cutting_op.donor_status_after = donor.status.value
 
     db.commit()
 

@@ -8,6 +8,7 @@ from app.models.inventory import InventorySession, InventorySessionParticipant, 
 from app.models.abc import WidthAbcClass, WidthClass, CalcSettings
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.events import MaterialEvent, EventType
+from app.models.cutting_operations import CuttingOperation
 from app.models.write_off_reasons import WriteOffReasonEntry
 from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.warehouse_transfers import WarehouseTransfer, WarehouseTransferLine
@@ -50,6 +51,7 @@ __all__ = [
     "UnitStatus",
     "MaterialEvent",
     "EventType",
+    "CuttingOperation",
     "WriteOffReasonEntry",
     "PurchaseRequest",
     "Supplier",

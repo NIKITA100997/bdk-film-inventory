@@ -220,6 +220,60 @@ class CuttingRecipeResponse(BaseModel):
     donor_remainder: MaterialUnitOut
 
 
+class CuttingOperationPieceOut(BaseModel):
+    """Один кусок, рождённый резкой (раздел про историю резок) —
+    destination_kind не хранится отдельно, выводится из текущего
+    статуса/наличия ячейки: удобно для отображения в журнале, не для логики
+    отмены (там своя, более строгая проверка — services/cutting_undo.py)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    width_mm: float
+    length_m: float
+    status: UnitStatus
+    area: str | None
+    location_code: str | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def destination_kind(self) -> str:
+        if self.status == UnitStatus.V_PEREMESHCHENII:
+            return "transfer"
+        if self.status == UnitStatus.VYDAN_UCHASTKU:
+            return "issue"
+        return "keep"
+
+
+class CuttingOperationOut(BaseModel):
+    """Строка журнала «История резки» (раздел про отмену резки и историю в
+    «Заготовках») — can_undo/cannot_undo_reason предпосчитаны сервером через
+    services/cutting_undo.check_undo_eligibility, той же функцией, что
+    вызывает и сам эндпоинт отмены — фронту не нужно гадать самому."""
+
+    id: int
+    donor_unit_id: int
+    donor_material_sku: MaterialSkuOut
+    donor_width_before_mm: float
+    donor_length_before_m: float
+    donor_status_before: str
+    donor_width_after_mm: float
+    donor_length_after_m: float
+    donor_status_after: str
+    donor_auto_written_off: bool
+    length_precut_m: float | None
+    occurred_at: datetime
+    created_at: datetime
+    user_id: int
+    user_name: str
+    undone_at: datetime | None
+    undone_by: int | None
+    undone_by_name: str | None
+    resulting_pieces: list[CuttingOperationPieceOut]
+    can_undo: bool
+    cannot_undo_reason: str | None
+
+
 class ReturnRequest(BaseModel):
     actual_length_m: float = Field(ge=0)
     occurred_at: OccurredAt = None

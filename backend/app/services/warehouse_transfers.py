@@ -25,6 +25,7 @@ def add_unit_to_transfer(
     to_warehouse_id: int,
     user_id: int,
     occurred_at: datetime | None = None,
+    cutting_operation_id: int | None = None,
 ) -> WarehouseTransferLine:
     """Находит открытую (SOBIRAETSYA) партию с тем же складом отправления
     и назначения, либо создаёт новую; переводит единицу в
@@ -64,6 +65,7 @@ def add_unit_to_transfer(
         user_id=user_id,
         from_cell=from_cell,
         occurred_at=occurred_at,
+        cutting_operation_id=cutting_operation_id,
     )
     return line
 

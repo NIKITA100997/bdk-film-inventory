@@ -86,3 +86,11 @@ class MaterialEvent(Base):
     # станка (to_length). Только у VYDACHA_UCHASTKU-событий, рождённых
     # исполнением плана резки — остальные операции его не заполняют.
     expected_length_m: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
+
+    # Раздел про отмену резки — тег «это событие родилось внутри вот этой
+    # резки» (не владеющая связь, ondelete=SET NULL как у
+    # production_task_line_id: журнал переживает удаление заголовка). Сама
+    # отмена удаляет события с этим id явно, до удаления заголовка не доходит.
+    cutting_operation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cutting_operations.id", ondelete="SET NULL"), nullable=True, index=True
+    )

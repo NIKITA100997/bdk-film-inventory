@@ -76,6 +76,14 @@ class MaterialUnit(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    # Раздел про отмену резки — какой вызов /units/cutting-recipe породил
+    # именно эту единицу (тег, не владеющая связь, ondelete=SET NULL — сама
+    # единица переживает удаление заголовка операции). Отмена находит все
+    # единицы с этим id и удаляет их вместе с заголовком за одну транзакцию.
+    created_by_cutting_operation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cutting_operations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     parent: Mapped["MaterialUnit | None"] = relationship(remote_side=[id])
 
     @property

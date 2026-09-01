@@ -22,6 +22,7 @@ def record_event(
     write_off_note: str | None = None,
     expected_length_m: float | None = None,
     occurred_at: datetime | None = None,
+    cutting_operation_id: int | None = None,
 ) -> MaterialEvent:
     """Единая точка записи в журнал (2.6 ТЗ) — вызывается сервисным слоем при
     каждой операции над MaterialUnit, не роутерами напрямую.
@@ -45,6 +46,7 @@ def record_event(
         write_off_reason=write_off_reason,
         write_off_note=write_off_note,
         expected_length_m=expected_length_m,
+        cutting_operation_id=cutting_operation_id,
         **({"timestamp": occurred_at} if occurred_at is not None else {}),
     )
     db.add(event)
