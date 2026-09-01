@@ -49,6 +49,7 @@ from app.services.dictionaries import (
     find_or_create_sku,
     manufacturer_in_use,
     material_in_use,
+    sync_part_to_task_lines,
     thickness_in_use,
 )
 
@@ -381,6 +382,7 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
     obj = db.get(Part, part_id)
     if obj is None:
         raise HTTPException(404, "Деталь не найдена")
+    previous_name = obj.name
     if payload.name is not None:
         obj.name = payload.name
     if payload.width_mm is not None:
@@ -402,6 +404,13 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
         db.rollback()
         raise HTTPException(409, "Деталь с таким названием уже есть в справочнике")
     db.refresh(obj)
+    # Раздел про правку детали "на лету" — см. sync_part_to_task_lines:
+    # тянем новые размеры сразу в ещё нетронутые строки уже созданных
+    # активных заданий, не дожидаясь следующей загрузки/пересоздания.
+    synced = sync_part_to_task_lines(db, obj, previous_name)
+    if synced:
+        db.commit()
+    obj.synced_task_lines = len(synced)
     return obj
 
 

@@ -11,8 +11,13 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.abc import WidthAbcClass
-from app.models.dictionaries import Color, Employee, Manufacturer, Material, MaterialSku, Thickness
-from app.models.production import ProductionTaskLine
+from app.models.dictionaries import Color, Employee, Manufacturer, Material, MaterialSku, Part, Thickness
+from app.models.production import (
+    ProductionTask,
+    ProductionTaskLine,
+    ProductionTaskLineAssignment,
+    ProductionTaskLineReport,
+)
 from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.storage import MacroZoneRule
 from app.models.units import MaterialUnit, UnitStatus
@@ -101,6 +106,77 @@ def find_sku(db: Session, *, material: str, color: str, thickness: float, manufa
         )
         .first()
     )
+
+
+def _normalize_part_name(name: str) -> str:
+    return name.strip().lower().replace("ё", "е")
+
+
+def sync_part_to_task_lines(db: Session, part: Part, previous_name: str | None = None) -> list[ProductionTaskLine]:
+    """Правка детали в справочнике "на лету" (пока размеры ещё тестируются)
+    — width_mm/length_m/strip_width_mm копируются в строку задания один раз
+    при создании (blank_plan_import/ручной ввод) и дальше живут независимо
+    от справочника. Пока идёт тестирование значений, правка детали ПОСЛЕ
+    того, как задание уже создано, должна долетать до него сама, а не ждать
+    следующей загрузки — тянем изменение в подходящие строки уже активных
+    заданий тут же. Не трогаем строки, по которым уже была резка/отчёт о
+    выпуске/распределение по линии — менять исходный размер задним числом
+    после того, как по нему уже реально резали или отчитывались, опаснее,
+    чем оставить расхождение видимым."""
+    names = {part.name}
+    if previous_name and previous_name != part.name:
+        names.add(previous_name)
+    normalized_names = {_normalize_part_name(n) for n in names}
+
+    candidates = (
+        db.query(ProductionTaskLine)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(ProductionTask.is_active.is_(True))
+        .filter(ProductionTaskLine.part_name.isnot(None))
+        .all()
+    )
+    matching = [line for line in candidates if _normalize_part_name(line.part_name) in normalized_names]
+    if not matching:
+        return []
+
+    line_ids = [line.id for line in matching]
+    touched_ids: set[int] = set()
+    touched_ids.update(
+        row[0]
+        for row in db.query(MaterialUnit.production_task_line_id)
+        .filter(MaterialUnit.production_task_line_id.in_(line_ids))
+        .distinct()
+    )
+    touched_ids.update(
+        row[0]
+        for row in db.query(ProductionTaskLineReport.task_line_id)
+        .filter(ProductionTaskLineReport.task_line_id.in_(line_ids))
+        .distinct()
+    )
+    touched_ids.update(
+        row[0]
+        for row in db.query(ProductionTaskLineAssignment.task_line_id)
+        .filter(ProductionTaskLineAssignment.task_line_id.in_(line_ids))
+        .distinct()
+    )
+
+    updated: list[ProductionTaskLine] = []
+    for line in matching:
+        if line.id in touched_ids:
+            continue
+        changed = False
+        if part.width_mm is not None and line.width_mm != part.width_mm:
+            line.width_mm = part.width_mm
+            changed = True
+        if part.length_m is not None and line.length_m != part.length_m:
+            line.length_m = part.length_m
+            changed = True
+        if part.strip_width_mm is not None and line.strip_width_mm != part.strip_width_mm:
+            line.strip_width_mm = part.strip_width_mm
+            changed = True
+        if changed:
+            updated.append(line)
+    return updated
 
 
 def current_stock_m2(db: Session, *, material_id: int, color_id: int, thickness_id: int) -> float:

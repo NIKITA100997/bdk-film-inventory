@@ -237,6 +237,7 @@ export interface CuttingWidthSpec {
   width_mm: number;
   destination: CuttingDestination;
   actual_length_m?: number;
+  override_strip_width?: boolean;
 }
 
 export interface CuttingRecipeRequest {

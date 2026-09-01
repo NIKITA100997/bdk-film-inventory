@@ -73,6 +73,11 @@ class PartOut(BaseModel):
     strip_width_mm: float | None
     area: str | None
     is_active: bool
+    # Раздел про правку детали "на лету" — сколько строк ещё нетронутых
+    # (без резки/отчёта/распределения) активных заданий подтянули новые
+    # размеры прямо в момент этого сохранения (не сохраняется в БД, только
+    # для тоста на фронте — см. sync_part_to_task_lines).
+    synced_task_lines: int = 0
 
 
 class PartCreate(BaseModel):

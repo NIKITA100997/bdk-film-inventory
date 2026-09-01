@@ -67,11 +67,21 @@ from app.services.warehouses import (
 router = APIRouter(prefix="/units", tags=["units"])
 
 
-def _validate_matches_task_line(db: Session, task_line_id: int, sku: MaterialSku, width_mm: float) -> None:
+def _validate_matches_task_line(
+    db: Session, task_line_id: int, sku: MaterialSku, width_mm: float, *, allow_strip_width_override: bool = False
+) -> None:
     """Строгое соответствие плёнки строке задания (раздел про строгую
     выдачу) — склад не может выдать не ту номенклатуру/ширину, что
     требует конкретная строка задания, даже если оператор вручную поменял
-    поля после автоподстановки на фронте."""
+    поля после автоподстановки на фронте. Материал/цвет/толщина — жёсткое
+    ограничение всегда (это другая номенклатура, не опечатка в размере).
+    Ширина — пока идёт тестирование размеров штрипсов, разрешаем поправить
+    её прямо здесь (allow_strip_width_override, из override_strip_width на
+    строке резки + права production_tasks.manage у вызывающего) вместо
+    отказа: запоминаем введённую ширину в самой строке задания, чтобы
+    следующая резка по этой же строке не упёрлась в то же расхождение
+    снова — см. sync_part_to_task_lines для похожего сценария со стороны
+    справочника деталей."""
     line = db.get(ProductionTaskLine, task_line_id)
     if line is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
@@ -83,10 +93,12 @@ def _validate_matches_task_line(db: Session, task_line_id: int, sku: MaterialSku
         else calc_default_strip_width(line.part_name, float(line.width_mm))
     )
     if abs(width_mm - expected_w) > 0.01:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Ширина не соответствует строке задания: нужно {expected_w} мм, запрошено {width_mm} мм",
-        )
+        if not allow_strip_width_override:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Ширина не соответствует строке задания: нужно {expected_w} мм, запрошено {width_mm} мм",
+            )
+        line.strip_width_mm = width_mm
 
 
 def _validate_zone_rule(db: Session, location_code: str | None, sku: MaterialSku) -> None:
@@ -794,10 +806,17 @@ def execute_cutting_recipe(
         )
         length_line = db.get(ProductionTaskLine, payload.length_destination.production_task_line_id)
 
+    can_override_strip_width = user.is_superuser or "production_tasks.manage" in get_permission_codes(user)
     width_lines: dict[int, ProductionTaskLine] = {}
     for w in payload.width_cuts:
         if w.destination.production_task_line_id is not None:
-            _validate_matches_task_line(db, w.destination.production_task_line_id, donor.material_sku, w.width_mm)
+            _validate_matches_task_line(
+                db,
+                w.destination.production_task_line_id,
+                donor.material_sku,
+                w.width_mm,
+                allow_strip_width_override=w.override_strip_width and can_override_strip_width,
+            )
             width_lines[w.destination.production_task_line_id] = db.get(
                 ProductionTaskLine, w.destination.production_task_line_id
             )

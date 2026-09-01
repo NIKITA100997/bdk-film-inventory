@@ -43,12 +43,19 @@ export default function PartsAdmin() {
   const saveMutation = useMutation({
     mutationFn: (payload: PartCreate) =>
       (editingPart ? updatePart(editingPart.id, { ...payload, area: payload.area ?? null }) : createPart(payload)),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       invalidateCaches();
       setCreateOpen(false);
       setEditingPart(null);
       form.resetFields();
-      message.success(editingPart ? "Деталь обновлена" : "Деталь добавлена");
+      const synced = saved.synced_task_lines ?? 0;
+      message.success(
+        editingPart
+          ? synced > 0
+            ? `Деталь обновлена — размер подтянулся в ${synced} ${synced === 1 ? "строку" : "строк"} активных заданий`
+            : "Деталь обновлена"
+          : "Деталь добавлена",
+      );
     },
     onError: () => message.error("Не удалось сохранить — название уже занято?"),
   });

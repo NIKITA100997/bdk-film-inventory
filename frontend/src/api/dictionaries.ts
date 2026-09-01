@@ -29,6 +29,9 @@ export interface Part {
   strip_width_mm: number | null;
   area: string | null;
   is_active: boolean;
+  // Сколько строк активных заданий подтянули новый размер прямо сейчас
+  // (см. sync_part_to_task_lines на бэкенде) — только в ответе на save.
+  synced_task_lines?: number;
 }
 
 export interface PartCreate {

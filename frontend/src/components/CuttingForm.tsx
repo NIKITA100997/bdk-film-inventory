@@ -37,6 +37,10 @@ interface WidthRow {
   to_warehouse_id?: number;
   label?: string;
   locked?: boolean;
+  // Ширина, подставленная из строки задания при открытии формы — чтобы
+  // показать оператору, что он меняет значение относительно эталона, а
+  // не просто вводит число с нуля (см. override_strip_width в submit).
+  originalWidthMm?: number;
 }
 
 export interface CuttingFormInitialWidthCut {
@@ -106,7 +110,7 @@ export default function CuttingForm({
   const [lengthToWarehouseId, setLengthToWarehouseId] = useState<number>();
 
   const [widthRows, setWidthRows] = useState<WidthRow[]>(() =>
-    initialWidthCuts.map((w) => ({ id: nextRowId(), ...w, destination: "issue" as const })),
+    initialWidthCuts.map((w) => ({ id: nextRowId(), ...w, destination: "issue" as const, originalWidthMm: w.width_mm })),
   );
   const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
 
@@ -151,6 +155,12 @@ export default function CuttingForm({
               ? { kind: "transfer", to_warehouse_id: r.to_warehouse_id }
               : { kind: "keep", location_code: r.location_code },
         actual_length_m: r.destination === "issue" ? r.actual_length_m ?? remainingLength : undefined,
+        // Пока идёт тестирование размеров штрипсов — если оператор поменял
+        // ширину вручную (относительно того, что подставилось из строки
+        // задания), бэкенд примет её как исправление и запомнит в строке
+        // задания вместо отказа 409 (при наличии права production_tasks.
+        // manage — иначе несовпадение по-прежнему блокируется).
+        override_strip_width: r.destination === "issue" && r.production_task_line_id != null,
       }));
 
       return executeCuttingRecipe({
@@ -312,6 +322,11 @@ export default function CuttingForm({
                     value={r.width_mm || undefined}
                     onChange={(v) => updateWidthRow(r.id, { width_mm: v ?? 0 })}
                   />
+                  {r.production_task_line_id != null && r.originalWidthMm != null && r.width_mm !== r.originalWidthMm && (
+                    <Typography.Text type="warning" style={{ fontSize: 12 }}>
+                      Было {r.originalWidthMm} мм — при сохранении обновит эталон в задании
+                    </Typography.Text>
+                  )}
                   {!r.locked && (
                     <Radio.Group
                       value={r.destination}

@@ -191,6 +191,14 @@ class CuttingWidthSpec(BaseModel):
     width_mm: float = Field(gt=0)
     destination: CuttingDestination
     actual_length_m: float | None = None
+    # Раздел про правку штрипса прямо на выдаче (пока идёт тестирование
+    # размеров) — по умолчанию ширина куска должна СТРОГО совпадать с
+    # ожидаемой шириной строки задания (см. _validate_matches_task_line в
+    # api/units.py); этот флаг просит вместо отказа принять введённую
+    # ширину как исправление и запомнить её в строке задания — фактически
+    # применяется только если у пользователя есть право production_tasks.
+    # manage, иначе несовпадение по-прежнему блокируется.
+    override_strip_width: bool = False
 
 
 class CuttingRecipeRequest(BaseModel):
