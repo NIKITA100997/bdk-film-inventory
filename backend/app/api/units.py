@@ -68,25 +68,35 @@ router = APIRouter(prefix="/units", tags=["units"])
 
 
 def _validate_matches_task_line(
-    db: Session, task_line_id: int, sku: MaterialSku, width_mm: float, *, allow_strip_width_override: bool = False
+    db: Session,
+    task_line_id: int,
+    sku: MaterialSku,
+    width_mm: float,
+    *,
+    allow_strip_width_override: bool = False,
+    allow_material_override: bool = False,
 ) -> None:
     """Строгое соответствие плёнки строке задания (раздел про строгую
     выдачу) — склад не может выдать не ту номенклатуру/ширину, что
     требует конкретная строка задания, даже если оператор вручную поменял
-    поля после автоподстановки на фронте. Материал/цвет/толщина — жёсткое
-    ограничение всегда (это другая номенклатура, не опечатка в размере).
-    Ширина — пока идёт тестирование размеров штрипсов, разрешаем поправить
-    её прямо здесь (allow_strip_width_override, из override_strip_width на
-    строке резки + права production_tasks.manage у вызывающего) вместо
-    отказа: запоминаем введённую ширину в самой строке задания, чтобы
-    следующая резка по этой же строке не упёрлась в то же расхождение
-    снова — см. sync_part_to_task_lines для похожего сценария со стороны
+    поля после автоподстановки на фронте. И ширина, и материал — пока идёт
+    тестирование размеров и не хватает нужной номенклатуры на складе,
+    разрешаем поправить прямо здесь (allow_strip_width_override/
+    allow_material_override, из override_strip_width/override_material на
+    запросе + права production_tasks.manage у вызывающего) вместо отказа:
+    запоминаем исправление в самой строке задания, чтобы следующая
+    выдача/резка по этой же строке не упёрлась в то же расхождение снова —
+    см. sync_part_to_task_lines для похожего сценария со стороны
     справочника деталей."""
     line = db.get(ProductionTaskLine, task_line_id)
     if line is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
     if (sku.material_id, sku.color_id, sku.thickness_id) != (line.material_id, line.color_id, line.thickness_id):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Плёнка не соответствует материалу строки задания")
+        if not allow_material_override:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Плёнка не соответствует материалу строки задания")
+        line.material_id = sku.material_id
+        line.color_id = sku.color_id
+        line.thickness_id = sku.thickness_id
     expected_w = (
         float(line.strip_width_mm)
         if line.strip_width_mm is not None
@@ -450,7 +460,15 @@ def issue_unit_direct(
     if unit.status != UnitStatus.NA_KHRANENII:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Выдать можно только единицу на хранении")
     if payload.production_task_line_id is not None:
-        _validate_matches_task_line(db, payload.production_task_line_id, unit.material_sku, float(unit.width_mm))
+        can_override_task_line_spec = user.is_superuser or "production_tasks.manage" in get_permission_codes(user)
+        _validate_matches_task_line(
+            db,
+            payload.production_task_line_id,
+            unit.material_sku,
+            float(unit.width_mm),
+            allow_strip_width_override=payload.override_strip_width and can_override_task_line_spec,
+            allow_material_override=payload.override_material and can_override_task_line_spec,
+        )
     assert_area_home_warehouse(db, payload.area, resolve_warehouse_id(db, unit.location_code))
     from_cell = unit.location_code
     unit.status = UnitStatus.VYDAN_UCHASTKU
@@ -806,7 +824,7 @@ def execute_cutting_recipe(
         )
         length_line = db.get(ProductionTaskLine, payload.length_destination.production_task_line_id)
 
-    can_override_strip_width = user.is_superuser or "production_tasks.manage" in get_permission_codes(user)
+    can_override_task_line_spec = user.is_superuser or "production_tasks.manage" in get_permission_codes(user)
     width_lines: dict[int, ProductionTaskLine] = {}
     for w in payload.width_cuts:
         if w.destination.production_task_line_id is not None:
@@ -815,7 +833,8 @@ def execute_cutting_recipe(
                 w.destination.production_task_line_id,
                 donor.material_sku,
                 w.width_mm,
-                allow_strip_width_override=w.override_strip_width and can_override_strip_width,
+                allow_strip_width_override=w.override_strip_width and can_override_task_line_spec,
+                allow_material_override=w.override_material and can_override_task_line_spec,
             )
             width_lines[w.destination.production_task_line_id] = db.get(
                 ProductionTaskLine, w.destination.production_task_line_id

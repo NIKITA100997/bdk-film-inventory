@@ -165,11 +165,18 @@ export async function issueUnitDirect(
   area: AreaValue,
   productionTaskLineId?: number,
   occurredAt?: string,
+  // Раздел про замену плёнки на выдаче — donor (unit) может быть другой
+  // номенклатурой/шириной, чем указано в строке задания; сервер примет
+  // расхождение только при наличии права production_tasks.manage.
+  overrideMaterial = false,
+  overrideStripWidth = false,
 ): Promise<MaterialUnit> {
   const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/issue`, {
     area,
     production_task_line_id: productionTaskLineId,
     occurred_at: occurredAt,
+    override_material: overrideMaterial,
+    override_strip_width: overrideStripWidth,
   });
   return data;
 }
@@ -238,6 +245,7 @@ export interface CuttingWidthSpec {
   destination: CuttingDestination;
   actual_length_m?: number;
   override_strip_width?: boolean;
+  override_material?: boolean;
 }
 
 export interface CuttingRecipeRequest {

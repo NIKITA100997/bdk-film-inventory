@@ -103,6 +103,12 @@ class IssueDirectRequest(BaseModel):
     area: str
     production_task_line_id: int | None = None
     occurred_at: OccurredAt = None
+    # Раздел про замену плёнки/правку штрипса на выдаче — та же
+    # семантика, что у CuttingWidthSpec ниже: расхождение с ProductionTaskLine
+    # примется как исправление и запомнится в строке только при наличии
+    # права production_tasks.manage, иначе по-прежнему 409.
+    override_strip_width: bool = False
+    override_material: bool = False
 
 
 class DonorSuggestion(BaseModel):
@@ -199,6 +205,11 @@ class CuttingWidthSpec(BaseModel):
     # применяется только если у пользователя есть право production_tasks.
     # manage, иначе несовпадение по-прежнему блокируется.
     override_strip_width: bool = False
+    # Раздел про замену плёнки на выдаче — донор может быть другой
+    # номенклатурой, чем указано в строке задания (например, точной сейчас
+    # нет на складе); при наличии права production_tasks.manage расхождение
+    # примется и запомнится в строке вместо отказа.
+    override_material: bool = False
 
 
 class CuttingRecipeRequest(BaseModel):

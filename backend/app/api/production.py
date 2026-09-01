@@ -28,6 +28,7 @@ from app.schemas.production import (
     ProductionLineUpdate,
     ProductionTaskLineAssignmentCreate,
     ProductionTaskLineAssignmentOut,
+    ProductionTaskLineDimsUpdate,
     ProductionTaskLineIssuedUnitOut,
     ProductionTaskLineOut,
     ProductionTaskLineReportCreate,
@@ -42,7 +43,7 @@ from app.schemas.production import (
 )
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.deletion_requests import request_deletion
-from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness
+from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness, task_lines_with_progress
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
 from app.services.naryad_import import enrich_naryad_lines, parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
@@ -802,6 +803,38 @@ def get_production_task(task_id: int, db: Session = Depends(get_db), user: User 
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
     _require_task_access(user, task)
+    return _task_out(db, task)
+
+
+@router.patch("/production-tasks/{task_id}/lines/{line_id}/dims", response_model=ProductionTaskOut)
+def update_task_line_dims(
+    task_id: int,
+    line_id: int,
+    payload: ProductionTaskLineDimsUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(manage_production),
+) -> ProductionTaskOut:
+    """Правка размера детали/штрипса уже в созданном задании (пока размеры
+    ещё тестируются) — раньше единственный способ поправить их был через
+    справочник деталей (sync_part_to_task_lines) или через "исправление"
+    прямо на резке (override_strip_width в units.py); здесь то же самое,
+    но явно, из самого задания, без похода в другой экран."""
+    line = db.get(ProductionTaskLine, line_id)
+    if line is None or line.task_id != task_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
+    if line.id in task_lines_with_progress(db, [line.id]):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="По этой строке уже была резка, отчёт о выпуске или распределение по линии — менять размер задним числом небезопасно",
+        )
+    if payload.width_mm is not None:
+        line.width_mm = payload.width_mm
+    if payload.length_m is not None:
+        line.length_m = payload.length_m
+    if "strip_width_mm" in payload.model_fields_set:
+        line.strip_width_mm = payload.strip_width_mm
+    db.commit()
+    task = db.get(ProductionTask, task_id)
     return _task_out(db, task)
 
 

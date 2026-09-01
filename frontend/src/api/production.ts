@@ -332,6 +332,23 @@ export const deleteProductionTask = async (taskId: number): Promise<DeleteResult
 export const archiveProductionTask = async (taskId: number, isActive: boolean): Promise<ProductionTask> =>
   (await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/archive`, null, { params: { is_active: isActive } })).data;
 
+// Раздел про правку размера прямо в задании (пока размеры ещё
+// тестируются) — width_mm/length_m нельзя очистить, strip_width_mm можно
+// вернуть на null (обратно на "авто"); бэкенд отклонит правку 409, если по
+// строке уже была резка/отчёт/распределение.
+export interface ProductionTaskLineDimsUpdate {
+  width_mm?: number;
+  length_m?: number;
+  strip_width_mm?: number | null;
+}
+
+export const updateTaskLineDims = async (
+  taskId: number,
+  lineId: number,
+  payload: ProductionTaskLineDimsUpdate,
+): Promise<ProductionTask> =>
+  (await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/lines/${lineId}/dims`, payload)).data;
+
 export const deleteProductModel = async (modelId: number): Promise<void> => {
   await apiClient.delete(`/product-models/${modelId}`);
 };

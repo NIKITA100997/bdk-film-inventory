@@ -258,9 +258,18 @@ export default function Issue() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const canReturn = !!user?.is_superuser || !!user?.permissions.includes("units.return");
+  // Раздел про замену плёнки на выдаче — той же номенклатуры может не быть
+  // в наличии, точный аналог по цвету/толщине оператор решает подобрать
+  // сам вместо заявки на закупку; сервер запомнит расхождение в строке
+  // задания только при наличии этого права (units.py::_validate_matches_
+  // task_line), иначе как раньше — жёсткий отказ.
+  const canOverrideMaterial = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const prefill = (location.state as IssuePrefill | null) ?? undefined;
 
   const [selected, setSelected] = useState<QueueSelection | null>(null);
+  // Раздел про замену плёнки на выдаче — SKU, выбранный оператором вместо
+  // того, что требует строка задания.
+  const [substituteSkuId, setSubstituteSkuId] = useState<number | undefined>(undefined);
   const [areaFilter, setAreaFilter] = useState<AreaValue | undefined>(undefined);
   // Раздел про группировку очереди по детали — переключатель "по плёнке"
   // (как раньше, groupQueueRows) / "по детали" (groupQueueRowsByPart).
@@ -511,7 +520,25 @@ export default function Issue() {
     if (!selected || !selectedSku) return;
     setResult(null);
     setLastIssued(null);
+    setSubstituteSkuId(undefined);
   }, [selected?.line.id, selectedSku?.id]);
+
+  // Раздел про замену плёнки на выдаче — сток по SKU, выбранному оператором
+  // вместо номенклатуры строки задания (та же форма запроса, что и
+  // availableQuery ниже, только по другому SKU).
+  const substituteSku = skusQuery.data?.find((s) => s.id === substituteSkuId) ?? null;
+  const substituteAvailableQuery = useQuery({
+    queryKey: ["issue-substitute-available", substituteSkuId],
+    queryFn: () =>
+      searchUnits({
+        material: substituteSku!.material.name,
+        color: substituteSku!.color.name,
+        thickness: substituteSku!.thickness.value_mm,
+        manufacturer: substituteSku!.manufacturer.name,
+        status: "На_хранении",
+      }),
+    enabled: !!substituteSku,
+  });
 
   const availableQuery = useQuery({
     queryKey: ["issue-available-units", selectedSku?.id],
@@ -583,12 +610,13 @@ export default function Issue() {
   };
 
   const directMutation = useMutation({
-    mutationFn: (unitId: number) =>
-      issueUnitDirect(unitId, selected!.task.area, selected!.line.id, toOccurredAtIso(occurredAt)),
+    mutationFn: ({ unitId, override = false }: { unitId: number; override?: boolean }) =>
+      issueUnitDirect(unitId, selected!.task.area, selected!.line.id, toOccurredAtIso(occurredAt), override, override),
     onSuccess: (unit) => {
       setLastIssued({ unit, remainder: null, remainderPlaced: false });
       setResult(null);
       qc.invalidateQueries({ queryKey: ["issue-available-units"] });
+      qc.invalidateQueries({ queryKey: ["issue-substitute-available"] });
     },
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось выдать")),
   });
@@ -1018,7 +1046,7 @@ export default function Issue() {
                       loading={directMutation.isPending}
                       onClick={() =>
                         confirmIfWrongWarehouse(exactMatch.warehouse_name, selected?.task.area, () =>
-                          directMutation.mutate(exactMatch.id),
+                          directMutation.mutate({ unitId: exactMatch.id }),
                         )
                       }
                     >
@@ -1144,7 +1172,7 @@ export default function Issue() {
                                     size="small"
                                     type="primary"
                                     loading={directMutation.isPending}
-                                    onClick={() => confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () => directMutation.mutate(u.id))}
+                                    onClick={() => confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () => directMutation.mutate({ unitId: u.id }))}
                                   >
                                     Выдать целиком
                                   </Button>
@@ -1156,6 +1184,92 @@ export default function Issue() {
                         />
                       ),
                     },
+                    ...(canOverrideMaterial
+                      ? [
+                          {
+                            key: "substitute",
+                            label: "🔁 Выдать другим материалом (замена)",
+                            children: (
+                              <Space direction="vertical" style={{ width: "100%" }} size="small">
+                                <Typography.Text type="secondary">
+                                  Если нужной номенклатуры сейчас не хватает — выберите другой материал/цвет/толщину; сервер
+                                  запомнит замену прямо в строке задания.
+                                </Typography.Text>
+                                <Select
+                                  showSearch
+                                  allowClear
+                                  style={{ width: "100%" }}
+                                  placeholder="Материал, цвет, толщина"
+                                  value={substituteSkuId}
+                                  onChange={setSubstituteSkuId}
+                                  options={(skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
+                                  filterOption={(input, option) =>
+                                    (option?.label as string).toLowerCase().includes(input.toLowerCase())
+                                  }
+                                />
+                                {substituteSku && (
+                                  <ResponsiveTable<MaterialUnit>
+                                    size="small"
+                                    rowKey="id"
+                                    loading={substituteAvailableQuery.isLoading}
+                                    dataSource={substituteAvailableQuery.data ?? []}
+                                    pagination={false}
+                                    scroll={{ x: "max-content" }}
+                                    locale={{ emptyText: "Ничего нет на хранении по этой номенклатуре" }}
+                                    columns={[
+                                      { title: "№", dataIndex: "id" },
+                                      { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
+                                      { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
+                                      {
+                                        title: "",
+                                        render: (_, u) =>
+                                          u.width_mm > selectedStripWidth ? (
+                                            <Button
+                                              size="small"
+                                              onClick={() => {
+                                                if (!selected) return;
+                                                setCuttingSession({
+                                                  donor: u,
+                                                  widthCuts: [
+                                                    {
+                                                      width_mm: selectedStripWidth,
+                                                      area: selected.task.area,
+                                                      production_task_line_id: selected.line.id,
+                                                      label: selected.line.part_name ?? "Деталь",
+                                                      locked: true,
+                                                    },
+                                                  ],
+                                                  onDone: finishSingleCut,
+                                                });
+                                              }}
+                                            >
+                                              Разрезать на {selectedStripWidth} мм
+                                            </Button>
+                                          ) : u.width_mm === selectedStripWidth ? (
+                                            <Button
+                                              size="small"
+                                              type="primary"
+                                              loading={directMutation.isPending}
+                                              onClick={() =>
+                                                confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () =>
+                                                  directMutation.mutate({ unitId: u.id, override: true }),
+                                                )
+                                              }
+                                            >
+                                              Выдать целиком
+                                            </Button>
+                                          ) : (
+                                            <Tag color="warning">меньше нужной ширины ({selectedStripWidth} мм)</Tag>
+                                          ),
+                                      },
+                                    ]}
+                                  />
+                                )}
+                              </Space>
+                            ),
+                          },
+                        ]
+                      : []),
                   ]}
                 />
               </Card>

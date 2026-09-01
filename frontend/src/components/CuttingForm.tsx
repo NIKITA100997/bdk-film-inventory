@@ -7,6 +7,7 @@ import dayjs from "dayjs";
 import {
   executeCuttingRecipe,
   printLabelsBatch,
+  skuLabel,
   type CuttingDestination,
   type CuttingRecipeResponse,
   type CuttingWidthSpec,
@@ -90,6 +91,13 @@ export default function CuttingForm({
   const canCut = hasPermission("units.cut");
   const canIssue = hasPermission("units.issue");
   const canTransferPermission = hasPermission("warehouse_transfers.manage");
+  // Раздел про правку штрипса прямо на выдаче — строки, привязанные к
+  // строке задания (r.locked), обычно нельзя менять по ширине вообще
+  // (см. override_strip_width в units.py — бэкенд и так примет
+  // исправление, только если у пользователя есть это право, иначе всё
+  // равно 409); без права смысла показывать редактируемое поле нет — оно
+  // просто ошибётся при сохранении.
+  const canOverrideStripWidth = hasPermission("production_tasks.manage");
 
   const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
   const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
@@ -161,6 +169,11 @@ export default function CuttingForm({
         // задания вместо отказа 409 (при наличии права production_tasks.
         // manage — иначе несовпадение по-прежнему блокируется).
         override_strip_width: r.destination === "issue" && r.production_task_line_id != null,
+        // Раздел про замену плёнки на выдаче — донор может быть другой
+        // номенклатурой, чем указано в строке задания (например, точной
+        // сейчас нет на складе); тот же флаг для материала, тоже
+        // применяется только при наличии права production_tasks.manage.
+        override_material: r.destination === "issue" && r.production_task_line_id != null,
       }));
 
       return executeCuttingRecipe({
@@ -235,7 +248,7 @@ export default function CuttingForm({
   return (
     <Card size="small" style={{ marginTop: 16 }}>
       <Typography.Paragraph style={{ marginBottom: 8 }}>
-        Донор №{donor.id} — {donor.width_mm} мм × {donor.length_m} м
+        Донор №{donor.id} — {skuLabel(donor.material_sku)}, {donor.width_mm} мм × {donor.length_m} м
         {donor.warehouse_name ? ` · ${donor.warehouse_name}` : ""}
       </Typography.Paragraph>
 
@@ -318,7 +331,7 @@ export default function CuttingForm({
                     min={1}
                     addonAfter="мм"
                     placeholder="Ширина"
-                    disabled={r.locked}
+                    disabled={r.locked && !canOverrideStripWidth}
                     value={r.width_mm || undefined}
                     onChange={(v) => updateWidthRow(r.id, { width_mm: v ?? 0 })}
                   />

@@ -198,6 +198,18 @@ class ProductionTaskLineAssignmentOut(BaseModel):
     defect_pieces: float = 0.0
 
 
+class ProductionTaskLineDimsUpdate(BaseModel):
+    """Правка размеров уже созданной строки задания (пока идёт тестирование
+    размеров штрипсов) — width_mm/length_m нельзя очистить (не nullable на
+    модели), strip_width_mm можно вернуть в null — обратно на "авто" по
+    calc_default_strip_width, поэтому у него отдельная семантика "передано
+    ли поле вообще" через model_fields_set в самом эндпоинте."""
+
+    width_mm: float | None = Field(default=None, gt=0)
+    length_m: float | None = Field(default=None, gt=0)
+    strip_width_mm: float | None = Field(default=None, gt=0)
+
+
 class ProductionTaskLineIssuedUnitOut(BaseModel):
     """Единица (рулон/штрипс), сейчас выданная участку под эту строку
     задания (статус Выдан_участку) — раздел про единый процесс возврата:

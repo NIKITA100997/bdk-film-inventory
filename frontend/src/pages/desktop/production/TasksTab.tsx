@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid } from "antd";
+import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid, Modal, InputNumber, Form } from "antd";
 // Раздел про широкую таблицу строк задания — ResponsiveTable только для
 // внутренней таблицы строк (плоский список, без expandable). Внешняя
 // таблица заданий использует expandable (клик-разворот строки задания)
@@ -13,8 +13,10 @@ import {
   listProductionTasks,
   deleteProductionTask,
   archiveProductionTask,
+  updateTaskLineDims,
   type ProductionTask,
   type ProductionTaskLine,
+  type ProductionTaskLineDimsUpdate,
 } from "../../../api/production";
 import { listUsers } from "../../../api/users";
 import { listAreas } from "../../../api/areas";
@@ -54,6 +56,11 @@ export default function TasksTab() {
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  // Раздел про правку размера прямо в задании (пока размеры ещё
+  // тестируются) — то же самое, что и sync_part_to_task_lines/
+  // override_strip_width на резке, но явно, из самого списка заданий.
+  const [dimsTarget, setDimsTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
+  const [dimsForm] = Form.useForm<ProductionTaskLineDimsUpdate>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const usersQuery = useQuery({ queryKey: ["users-summary"], queryFn: listUsers });
@@ -80,6 +87,16 @@ export default function TasksTab() {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       message.success("Сохранено");
     },
+  });
+
+  const dimsMutation = useMutation({
+    mutationFn: (payload: ProductionTaskLineDimsUpdate) => updateTaskLineDims(dimsTarget!.taskId, dimsTarget!.line.id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      message.success("Размер строки обновлён");
+      setDimsTarget(null);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить размер")),
   });
 
   return (
@@ -159,6 +176,7 @@ export default function TasksTab() {
                         { title: "Линия", dataIndex: "line_name" },
                         { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
                         { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
+                        { title: "Штрипс (плёнка), мм", render: (_, l) => l.strip_width_mm ?? "авто" },
                         { title: "Нужно, шт", dataIndex: "quantity_pieces" },
                         {
                           // Раздел про общий погонаж на задание — раньше видно
@@ -196,14 +214,33 @@ export default function TasksTab() {
                         {
                           title: "Действия мастера",
                           render: (_, l) =>
-                            canReport && (
-                              <Space size={4}>
-                                <Button size="small" type="primary" ghost onClick={() => setAssignTarget({ task, line: l })}>
-                                  📅 Распределить по дням
-                                </Button>
-                                <Button size="small" onClick={() => setReportTarget({ taskId: task.id, line: l })}>
-                                  Отчитаться о производстве
-                                </Button>
+                            (canReport || canManage) && (
+                              <Space size={4} wrap>
+                                {canReport && (
+                                  <>
+                                    <Button size="small" type="primary" ghost onClick={() => setAssignTarget({ task, line: l })}>
+                                      📅 Распределить по дням
+                                    </Button>
+                                    <Button size="small" onClick={() => setReportTarget({ taskId: task.id, line: l })}>
+                                      Отчитаться о производстве
+                                    </Button>
+                                  </>
+                                )}
+                                {canManage && (
+                                  <Button
+                                    size="small"
+                                    onClick={() => {
+                                      setDimsTarget({ taskId: task.id, line: l });
+                                      dimsForm.setFieldsValue({
+                                        width_mm: l.width_mm,
+                                        length_m: l.length_m,
+                                        strip_width_mm: l.strip_width_mm ?? undefined,
+                                      });
+                                    }}
+                                  >
+                                    Изменить размер
+                                  </Button>
+                                )}
                               </Space>
                             ),
                         },
@@ -282,6 +319,31 @@ export default function TasksTab() {
       {assignTarget && (
         <AssignmentModal task={assignTarget.task} line={assignTarget.line} onClose={() => setAssignTarget(null)} />
       )}
+
+      <Modal
+        title={`Размер строки — ${dimsTarget?.line.part_name ?? ""}`}
+        open={!!dimsTarget}
+        onCancel={() => setDimsTarget(null)}
+        onOk={() => dimsForm.validateFields().then((values) => dimsMutation.mutate(values))}
+        confirmLoading={dimsMutation.isPending}
+        okText="Сохранить"
+      >
+        <Typography.Paragraph type="secondary">
+          Если по этой строке уже была резка, отчёт о выпуске или распределение по линии — изменить размер не получится, об
+          этом скажет ошибка при сохранении.
+        </Typography.Paragraph>
+        <Form form={dimsForm} layout="vertical">
+          <Form.Item name="width_mm" label="Ширина детали (заготовки), мм" rules={[{ required: true }]}>
+            <InputNumber min={0.01} step={0.01} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="length_m" label="Длина, м" rules={[{ required: true }]}>
+            <InputNumber min={0.01} step={0.001} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="strip_width_mm" label="Ширина плёнки на укутку (штрипс), мм" tooltip="Пусто — считается автоматически по названию детали">
+            <InputNumber min={0.01} step={0.01} style={{ width: "100%" }} placeholder="авто" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Space>
   );
 }

@@ -112,6 +112,36 @@ def _normalize_part_name(name: str) -> str:
     return name.strip().lower().replace("ё", "е")
 
 
+def task_lines_with_progress(db: Session, line_ids: list[int]) -> set[int]:
+    """Строки заданий, по которым уже была резка/отчёт о выпуске/
+    распределение по линии — общий guard там, где менять размер строки
+    задним числом небезопасно: правка детали "на лету" (sync_part_to_task_
+    lines ниже) и прямая правка размеров строки (update_task_line_dims в
+    api/production.py)."""
+    if not line_ids:
+        return set()
+    touched: set[int] = set()
+    touched.update(
+        row[0]
+        for row in db.query(MaterialUnit.production_task_line_id)
+        .filter(MaterialUnit.production_task_line_id.in_(line_ids))
+        .distinct()
+    )
+    touched.update(
+        row[0]
+        for row in db.query(ProductionTaskLineReport.task_line_id)
+        .filter(ProductionTaskLineReport.task_line_id.in_(line_ids))
+        .distinct()
+    )
+    touched.update(
+        row[0]
+        for row in db.query(ProductionTaskLineAssignment.task_line_id)
+        .filter(ProductionTaskLineAssignment.task_line_id.in_(line_ids))
+        .distinct()
+    )
+    return touched
+
+
 def sync_part_to_task_lines(db: Session, part: Part, previous_name: str | None = None) -> list[ProductionTaskLine]:
     """Правка детали в справочнике "на лету" (пока размеры ещё тестируются)
     — width_mm/length_m/strip_width_mm копируются в строку задания один раз
@@ -140,25 +170,7 @@ def sync_part_to_task_lines(db: Session, part: Part, previous_name: str | None =
         return []
 
     line_ids = [line.id for line in matching]
-    touched_ids: set[int] = set()
-    touched_ids.update(
-        row[0]
-        for row in db.query(MaterialUnit.production_task_line_id)
-        .filter(MaterialUnit.production_task_line_id.in_(line_ids))
-        .distinct()
-    )
-    touched_ids.update(
-        row[0]
-        for row in db.query(ProductionTaskLineReport.task_line_id)
-        .filter(ProductionTaskLineReport.task_line_id.in_(line_ids))
-        .distinct()
-    )
-    touched_ids.update(
-        row[0]
-        for row in db.query(ProductionTaskLineAssignment.task_line_id)
-        .filter(ProductionTaskLineAssignment.task_line_id.in_(line_ids))
-        .distinct()
-    )
+    touched_ids = task_lines_with_progress(db, line_ids)
 
     updated: list[ProductionTaskLine] = []
     for line in matching:
