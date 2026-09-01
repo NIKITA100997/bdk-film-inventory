@@ -67,7 +67,7 @@ export default function Overview() {
   const showPurchasing = has("purchasing.manage");
   const showInventory = has("inventory.manage");
   const showDonorAccuracy = has("reports.view");
-  const showStale = has("inventory.manage");
+  const showStale = has("reports.view");
   const showDefects = has("reports.view");
   const showBlanks = has("units.issue");
   const showSales = has("sales_calculator.view");
