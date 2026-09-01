@@ -89,23 +89,27 @@ function ManualLineFields({
       <Form.Item name="thickness" hidden rules={[{ required: true }]}>
         <InputNumber />
       </Form.Item>
-      <Form.Item name="width_mm" label="Ширина детали, мм" rules={[{ required: true }]}>
+      <Form.Item name="width_mm" label="Ширина детали (заготовки), мм" rules={[{ required: true }]}>
         <InputNumber min={1} style={{ width: "100%" }} />
       </Form.Item>
       <Form.Item name="length_m" label="Длина детали на списание, м" rules={[{ required: true }]}>
         <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
       </Form.Item>
+      {/* Раздел обратной связи — ширина ДЕТАЛИ (дерево/МДФ, поле выше) и
+          ширина ПЛЁНКИ на укутку (штрипс) — разные числа: у "Стоевая
+          36х108х2035 ПАЗ-11" деталь 108мм, а плёнки на неё нужно 290мм
+          (профиль паза требует нахлёста). Раньше это поле было скрытым —
+          подставлялось верно, но никак не отображалось, из-за чего
+          выглядело, будто ничего не подобралось. */}
+      <Form.Item
+        name="strip_width_mm"
+        label="Ширина плёнки на укутку (штрипс), мм"
+        tooltip="Подставляется из справочника деталей при выборе выше — если пусто, посчитается по общей формуле от ширины детали"
+      >
+        <InputNumber min={1} style={{ width: "100%" }} placeholder="автоматически" />
+      </Form.Item>
       <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
         <InputNumber min={1} style={{ width: "100%" }} />
-      </Form.Item>
-      {/* Раздел обратной связи — ширина штрипса из выбора детали
-          (PartSelect.onSelect выше) раньше не сохранялась вообще: antd
-          Form.validateFields() отдаёт только ЗАРЕГИСТРИРОВАННЫЕ поля
-          (те, у которых есть свой Form.Item), а для strip_width_mm его не
-          было — setFieldsValue тихо записывала значение в стор формы, но
-          onFinish его никогда не видел. */}
-      <Form.Item name="strip_width_mm" hidden>
-        <InputNumber />
       </Form.Item>
       <Button htmlType="submit" block>
         {submitLabel}
@@ -345,8 +349,16 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
     // текущим material/color/thickness строки, чтобы Select не пустовал
     // зря для уже сопоставленных строк (для несопоставленных — останется
     // пустым, как и должно быть, ничего не найдётся).
+    // Толщина приходит с бэкенда как float (Numeric в БД) — строгое ===
+    // иногда не совпадает из-за представления чисел с плавающей точкой
+    // (0.12 против 0.1200000000001), из-за чего Select оставался пустым
+    // даже для уже верно сопоставленной строки. Допуск 0.001мм — заведомо
+    // меньше разницы между любыми двумя реальными толщинами в справочнике.
     const matchingSku = skusQuery.data?.find(
-      (s) => s.material.name === line.material && s.color.name === line.color && s.thickness.value_mm === line.thickness,
+      (s) =>
+        s.material.name === line.material &&
+        s.color.name === line.color &&
+        Math.abs(s.thickness.value_mm - line.thickness) < 0.001,
     );
     editRowForm.setFieldsValue({ ...line, sku_id: matchingSku?.id });
     setEditingIndex(index);
@@ -555,13 +567,6 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                         <Form.Item name="part_name" noStyle>
                           <Input placeholder="Название детали" />
                         </Form.Item>
-                        {/* Раздел обратной связи — без своего Form.Item
-                            значение от PartSelect.onSelect тихо терялось
-                            при сохранении строки (см. ManualLineFields выше,
-                            та же причина). */}
-                        <Form.Item name="strip_width_mm" hidden>
-                          <InputNumber />
-                        </Form.Item>
                       </Space>
                     ) : l.width_mm > 0 && l.length_m > 0 ? (
                       l.part_name ?? "—"
@@ -631,7 +636,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                     ),
                 },
                 {
-                  title: "Ширина, мм",
+                  title: "Ширина детали, мм",
                   width: 110,
                   render: (_, l, index) =>
                     index === editingIndex ? (
@@ -640,6 +645,23 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                       </Form.Item>
                     ) : (
                       l.width_mm || "—"
+                    ),
+                },
+                {
+                  // Раздел обратной связи — раньше это поле было скрытым:
+                  // подставлялось из справочника верно (штрипс детали
+                  // "Стоевая 36х108х2035" — 290мм, а не её собственная
+                  // ширина 108мм), но нигде не отображалось, из-за чего
+                  // выглядело, будто ничего не подобралось.
+                  title: "Штрипс (плёнка), мм",
+                  width: 130,
+                  render: (_, l, index) =>
+                    index === editingIndex ? (
+                      <Form.Item name="strip_width_mm" noStyle>
+                        <InputNumber min={1} style={{ width: "100%" }} placeholder="авто" />
+                      </Form.Item>
+                    ) : (
+                      l.strip_width_mm ?? <Typography.Text type="secondary">авто</Typography.Text>
                     ),
                 },
                 {
