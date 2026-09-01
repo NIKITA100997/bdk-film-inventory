@@ -55,6 +55,20 @@ export default function ResponsiveTable<T extends object>({
   const screens = Grid.useBreakpoint();
   const wide = screens[cardBreakpoint] ?? true;
 
+  // Раздел про пагинацию в карточном режиме — эти хуки должны вызываться
+  // безусловно на каждом рендере (Rules of Hooks), поэтому объявлены здесь,
+  // до раннего return на широком экране, а не только внутри узкой ветки —
+  // иначе смена wide между рендерами меняет число вызванных хуков и роняет
+  // React ("Rendered more hooks than during the previous render").
+  const paginationProp = rest.pagination;
+  const paginationEnabled = paginationProp !== false;
+  const paginationConfig = typeof paginationProp === "object" && paginationProp ? paginationProp : {};
+  const isControlledPage = paginationConfig.current !== undefined;
+  const [localPage, setLocalPage] = useState(1);
+  useEffect(() => {
+    setLocalPage(1);
+  }, [dataSource]);
+
   const onRow = rest.onRow as TableProps<T>["onRow"];
 
   const cols = (columns ?? []) as Column<T>[];
@@ -96,19 +110,6 @@ export default function ResponsiveTable<T extends object>({
 
   const rows = dataSource ?? [];
 
-  // Раздел про пагинацию в карточном режиме — раньше здесь рендерились
-  // сразу все строки без постраничного разбиения (пропущено при первой
-  // версии компонента), из-за чего на планшете кнопки "следующая
-  // страница"/размер страницы из pagination просто не появлялись, хотя
-  // на широком экране (обычный Table ниже) работали как обычно.
-  const paginationProp = rest.pagination;
-  const paginationEnabled = paginationProp !== false;
-  const paginationConfig = typeof paginationProp === "object" && paginationProp ? paginationProp : {};
-  const isControlledPage = paginationConfig.current !== undefined;
-  const [localPage, setLocalPage] = useState(1);
-  useEffect(() => {
-    setLocalPage(1);
-  }, [dataSource]);
   const pageSize = paginationConfig.pageSize ?? 10;
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(isControlledPage ? paginationConfig.current! : localPage, totalPages);
