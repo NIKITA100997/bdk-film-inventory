@@ -297,7 +297,10 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
       length_m: l.length_m ?? 0,
       strip_width_mm: l.strip_width_mm ?? undefined,
       part_name: l.part_name,
-      _skuCandidates: l.sku_candidates.length > 0 ? l.sku_candidates : undefined,
+      // ?? [] — на случай, если бэкенд ещё не перезапущен с этим полем
+      // (uvicorn без --reload отдаёт старый код) или отвечает старая
+      // прод-версия: не должно валить весь экран из-за одного нового поля.
+      _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
     }));
     setManualLines((lines) => [...lines, ...loaded]);
     setLastImportCount(loaded.length);
