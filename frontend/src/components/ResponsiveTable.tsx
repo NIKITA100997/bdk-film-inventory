@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Table, Card, Space, Empty, Pagination } from "antd";
 import type { TableProps } from "antd";
 import { Grid } from "antd";
@@ -53,7 +53,32 @@ export default function ResponsiveTable<T extends object>({
   defaultHiddenColumns?: string[];
 }) {
   const screens = Grid.useBreakpoint();
-  const wide = screens[cardBreakpoint] ?? true;
+
+  // Раздел про обрезание таблицы в узкой боковой панели на планшете
+  // (Issue.tsx, правая колонка Col lg={9} — реальная ширина ~350-450px при
+  // viewport ~1024-1194px) — Grid.useBreakpoint() смотрит на ширину ВСЕГО
+  // viewport, а не контейнера, в который реально отрисован компонент, из-за
+  // чего широкий viewport с узкой колонкой всё равно выбирал wide=true.
+  // Меряем реальный контейнер через ResizeObserver; callback-ref (не
+  // useRef+пустой deps) — чтобы переподписываться, когда DOM-узел меняется
+  // при переключении между card/table ветками ниже. До первого измерения
+  // — как раньше, по viewport, чтобы не мигало на первом рендере.
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    setContainerEl(node);
+  }, []);
+  useEffect(() => {
+    if (!containerEl) return;
+    const observer = new ResizeObserver((entries) => {
+      setContainerWidth(entries[0].contentRect.width);
+    });
+    observer.observe(containerEl);
+    return () => observer.disconnect();
+  }, [containerEl]);
+
+  const BREAKPOINT_PX = { xs: 0, sm: 576, md: 768, lg: 992, xl: 1200, xxl: 1600 } as const;
+  const wide = containerWidth != null ? containerWidth >= BREAKPOINT_PX[cardBreakpoint] : (screens[cardBreakpoint] ?? true);
 
   // Раздел про пагинацию в карточном режиме — эти хуки должны вызываться
   // безусловно на каждом рендере (Rules of Hooks), поэтому объявлены здесь,
@@ -94,7 +119,7 @@ export default function ResponsiveTable<T extends object>({
 
   if (wide || !columns) {
     return (
-      <div>
+      <div ref={containerRef}>
         {settingsBar}
         <Table<T>
           columns={[...visibleLabelable, ...unlabelable]}
@@ -145,7 +170,7 @@ export default function ResponsiveTable<T extends object>({
 
   if (rows.length === 0) {
     return (
-      <div>
+      <div ref={containerRef}>
         {settingsBar}
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={(locale as { emptyText?: string })?.emptyText ?? "Нет данных"} />
       </div>
@@ -153,7 +178,7 @@ export default function ResponsiveTable<T extends object>({
   }
 
   return (
-    <div>
+    <div ref={containerRef}>
       {settingsBar}
       <Space direction="vertical" size={8} style={{ width: "100%" }}>
         {pagedRows.map((record, localIndex) => {

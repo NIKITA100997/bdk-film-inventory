@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -279,6 +279,27 @@ export default function Issue() {
     widthCuts: CuttingFormInitialWidthCut[];
     onDone: (res: CuttingRecipeResponse) => void;
   } | null>(null);
+
+  // Раздел про скролл на планшете — правая панель раньше молча "отдавала"
+  // прокрутку в левую очередь, дойдя до низа, без намёка на то, что там
+  // ещё есть контент. ResizeObserver на самой панели (не только onScroll)
+  // — чтобы подсказка пересчитывалась и когда высота содержимого меняется
+  // сама по себе (выбор задания, карточка "Выдано", разворот Collapse),
+  // без перечисления каждой такой зависимости вручную.
+  const [stickyPanelEl, setStickyPanelEl] = useState<HTMLDivElement | null>(null);
+  const [hasMoreBelow, setHasMoreBelow] = useState(false);
+  const stickyPanelRef = useCallback((node: HTMLDivElement | null) => setStickyPanelEl(node), []);
+  const recomputeHasMoreBelow = useCallback(() => {
+    if (!stickyPanelEl) return;
+    setHasMoreBelow(stickyPanelEl.scrollHeight - stickyPanelEl.scrollTop - stickyPanelEl.clientHeight > 4);
+  }, [stickyPanelEl]);
+  useEffect(() => {
+    if (!stickyPanelEl) return;
+    recomputeHasMoreBelow();
+    const observer = new ResizeObserver(recomputeHasMoreBelow);
+    observer.observe(stickyPanelEl);
+    return () => observer.disconnect();
+  }, [stickyPanelEl, recomputeHasMoreBelow]);
 
   const [manualSkuId, setManualSkuId] = useState<number | null>(null);
   const [manualArea, setManualArea] = useState<AreaValue | null>(null);
@@ -893,12 +914,16 @@ export default function Issue() {
               верху при скролле страницы, а если содержимого больше, чем
               видно, оно скроллится само внутри, независимо от левой
               колонки. */}
+          <div style={{ position: "relative" }}>
           <div
+            ref={stickyPanelRef}
+            onScroll={recomputeHasMoreBelow}
             style={{
               position: "sticky",
               top: 16,
               maxHeight: "calc(100vh - 140px)",
               overflowY: "auto",
+              overscrollBehavior: "contain",
               paddingRight: 4,
             }}
           >
@@ -1370,6 +1395,20 @@ export default function Issue() {
                 },
               ]}
             />
+          </div>
+          {hasMoreBelow && (
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 4,
+                bottom: 0,
+                height: 20,
+                pointerEvents: "none",
+                background: "linear-gradient(rgba(255,255,255,0), rgba(255,255,255,0.95))",
+              }}
+            />
+          )}
           </div>
         </Col>
       </Row>
