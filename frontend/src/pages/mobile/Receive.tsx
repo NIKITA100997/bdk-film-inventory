@@ -11,7 +11,6 @@ import ExistingSkuPicker from "../../components/ExistingSkuPicker";
 import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useDraftForm } from "../../hooks/useDraftForm";
-import { useAuth } from "../../auth/AuthContext";
 
 type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code" | "occurred_at" | "thickness"> & {
   thickness: string;
@@ -31,8 +30,6 @@ type HeaderValues = {
 const LAST_PALLET_STORAGE_KEY = "bdk:lastPalletNumber";
 
 export default function Receive() {
-  const { user } = useAuth();
-  const canSeePurchaseRequests = !!user?.is_superuser || !!user?.permissions.includes("purchasing.manage");
   const lastPalletNumber = localStorage.getItem(LAST_PALLET_STORAGE_KEY) ?? undefined;
   const [sessionStarted, setSessionStarted] = useState(false);
   const [upd, setUpd] = useState("");
@@ -54,15 +51,10 @@ export default function Receive() {
 
   // Открытые заявки на закупку (раздел про ускорение приёмки) — необязательная
   // привязка: если эта поставка закрывает конкретную заявку, выбрать её здесь,
-  // а не сопоставлять вручную потом на "Закупках". Список заявок требует
-  // purchasing.manage (снабженец) — у оператора склада (units.receive) его
-  // обычно нет, поэтому запрос гасим здесь же, а не только по 403 от сервера
-  // (иначе на каждой приёмке в консоли — лишняя ошибка).
-  const openRequestsQuery = useQuery({
-    queryKey: ["purchase-requests", "open"],
-    queryFn: () => listPurchaseRequests("open"),
-    enabled: canSeePurchaseRequests,
-  });
+  // а не сопоставлять вручную потом на "Закупках". Список заявок читает и
+  // склад (units.receive) — этот экран и так требует units.receive, значит
+  // право уже есть у всех, кто сюда попал (backend/api/purchasing.py).
+  const openRequestsQuery = useQuery({ queryKey: ["purchase-requests", "open"], queryFn: () => listPurchaseRequests("open") });
   const fulfillMutation = useMutation({
     mutationFn: ({ id, updNumber }: { id: number; updNumber: string }) => fulfillPurchaseRequest(id, updNumber),
     onSuccess: () => message.success("Заявка на закупку привязана и закрыта"),

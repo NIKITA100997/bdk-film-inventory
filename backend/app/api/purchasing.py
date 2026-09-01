@@ -217,9 +217,14 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
 def list_purchase_requests(
     status_filter: str | None = None,
     db: Session = Depends(get_db),
-    user: User = Depends(manage_purchasing),
+    user: User = Depends(require_permission("purchasing.manage", "units.receive")),
 ) -> list[PurchaseRequestOut]:
-    """История закупок (5.5 ТЗ) — открытые и закрытые заявки снабженцу."""
+    """История закупок (5.5 ТЗ) — открытые и закрытые заявки снабженцу.
+    Читать список (не менять/закрывать — остальные эндпоинты этого файла
+    по-прежнему только purchasing.manage) может и склад: при приёмке нужно
+    видеть открытые заявки, чтобы привязать поставку к нужной (раздел про
+    выдачу мимо хаба, обратная связь после переписи ролей — начальник
+    склада сам ведёт приёмку)."""
     query = db.query(PurchaseRequest)
     if status_filter is not None:
         query = query.filter(PurchaseRequest.status == status_filter)
