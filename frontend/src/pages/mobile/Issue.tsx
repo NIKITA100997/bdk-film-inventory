@@ -880,7 +880,7 @@ export default function Issue() {
         </Col>
         <Col xs={12} sm={12} md={6}>
           <Card size="small">
-            <Statistic title="Строк в заданиях недели" value={weekRows.length} />
+            <Statistic title="Строк не распределено на сегодня" value={weekRows.length} />
           </Card>
         </Col>
         <Col xs={12} sm={12} md={6}>
@@ -951,7 +951,7 @@ export default function Issue() {
           )}
 
           <div style={{ margin: "20px 0 8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Typography.Title level={5} style={{ margin: 0 }}>📋 Задания участка — на неделю</Typography.Title>
+            <Typography.Title level={5} style={{ margin: 0 }}>📋 Не распределено на сегодня</Typography.Title>
             <Tag>{filteredWeekRows.length}</Tag>
           </div>
           {filteredWeekRows.length === 0 ? (

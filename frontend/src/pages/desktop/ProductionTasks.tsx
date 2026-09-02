@@ -19,7 +19,7 @@ export default function ProductionTasks() {
       <Tabs
         items={[
           { key: "daily-plan", label: "📅 План на день (Мастер)", children: <DailyPlanTab /> },
-          { key: "tasks", label: "📋 Все задания (Неделя)", children: <TasksTab /> },
+          { key: "tasks", label: "📋 Все задания", children: <TasksTab /> },
         ]}
       />
     </Card>
