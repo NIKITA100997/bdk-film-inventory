@@ -271,6 +271,11 @@ export default function Issue() {
   // того, что требует строка задания.
   const [substituteSkuId, setSubstituteSkuId] = useState<number | undefined>(undefined);
   const [areaFilter, setAreaFilter] = useState<AreaValue | undefined>(undefined);
+  // Раздел про фильтр по заданию — очередь по умолчанию показывает сразу
+  // все активные задания вперемешку (только по участку/тексту можно было
+  // сузить); выбор конкретного задания даёт тот же список, только на одно
+  // задание, вместо поиска его строк среди остальных вручную.
+  const [taskFilter, setTaskFilter] = useState<number | undefined>(undefined);
   // Раздел про группировку очереди по детали — переключатель "по плёнке"
   // (как раньше, groupQueueRows) / "по детали" (groupQueueRowsByPart).
   const [groupBy, setGroupBy] = useState<"film" | "part">("film");
@@ -342,6 +347,9 @@ export default function Issue() {
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
+  const taskOptions = (tasksQuery.data ?? [])
+    .filter((t) => t.is_active)
+    .map((t) => ({ value: t.id, label: t.product_model_name ?? t.name ?? `Задание №${t.id}` }));
 
   // Раздел про площадки — домашний склад участка (Северный/Фабрика), чтобы
   // подбор донора в первую очередь искал "на своём" складе и предупреждал,
@@ -462,6 +470,7 @@ export default function Issue() {
 
   const matchesFilter = (task: ProductionTask, line: ProductionTaskLine) => {
     if (areaFilter && task.area !== areaFilter) return false;
+    if (taskFilter && task.id !== taskFilter) return false;
     if (search.trim()) {
       const haystack = `${line.part_name ?? ""} ${task.product_model_name ?? task.name ?? ""} ${line.material} ${line.color}`.toLowerCase();
       if (!haystack.includes(search.trim().toLowerCase())) return false;
@@ -893,6 +902,16 @@ export default function Issue() {
           options={areaOptions}
           value={areaFilter}
           onChange={setAreaFilter}
+        />
+        <Select
+          allowClear
+          showSearch
+          placeholder="Все задания"
+          style={{ width: 260, maxWidth: "100%" }}
+          options={taskOptions}
+          optionFilterProp="label"
+          value={taskFilter}
+          onChange={setTaskFilter}
         />
         <Input.Search
           placeholder="Поиск по детали, заданию, плёнке…"
