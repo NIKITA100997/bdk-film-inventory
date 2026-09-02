@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
+from app.models.areas import Area
 from app.models.dictionaries import Color, Material, MaterialSku, Thickness
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.production import (
@@ -683,13 +684,20 @@ def create_task_line_report(
     накопительный журнал, остаток считается на лету при сборке
     ProductionTaskOut (см. _line_report_aggregates) — так остаток
     "видит" сумму по нескольким отчётам (например, за разные смены).
-    Обязательно привязан к конкретной записи распределения (раздел про
-    брак по дням) — мастер отчитывается за конкретный день/линию, не за
-    строку задания в целом."""
-    _get_task_line(db, task_id, line_id)
-    assignment = db.get(ProductionTaskLineAssignment, payload.assignment_id)
-    if assignment is None or assignment.task_line_id != line_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Распределение не найдено для этой строки задания")
+    Обычно привязан к конкретной записи распределения (раздел про брак по
+    дням) — мастер отчитывается за конкретный день/линию, не за строку
+    задания в целом. Исключение — участок с Area.requires_daily_plan=False
+    (раздел про отключение распределения по дням): там распределений и не
+    предполагается, отчёт принимается без assignment_id."""
+    line = _get_task_line(db, task_id, line_id)
+    area = db.get(Area, line.task.area)
+    requires_daily_plan = area is None or area.requires_daily_plan
+    if payload.assignment_id is not None:
+        assignment = db.get(ProductionTaskLineAssignment, payload.assignment_id)
+        if assignment is None or assignment.task_line_id != line_id:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Распределение не найдено для этой строки задания")
+    elif requires_daily_plan:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к распределению по дням")
     report = ProductionTaskLineReport(
         task_line_id=line_id,
         assignment_id=payload.assignment_id,

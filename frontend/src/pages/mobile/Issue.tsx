@@ -346,6 +346,10 @@ export default function Issue() {
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  // Раздел про отключение распределения по дням — для такого участка
+  // строка в очереди "week" не помечается как "не распределено" (это её
+  // нормальное постоянное состояние, а не сигнал забытой распределения).
+  const areaRequiresDailyPlan = (code: string) => areasQuery.data?.find((a) => a.code === code)?.requires_daily_plan ?? true;
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
   const taskOptions = (tasksQuery.data ?? [])
     .filter((t) => t.is_active)
@@ -781,8 +785,10 @@ export default function Issue() {
           <Tag color={r.overdue ? "error" : "orange"} style={{ margin: 0, flexShrink: 0 }}>
             {r.overdue ? `просрочено · ${dayjs(r.assignment!.date).format("DD.MM")}` : "сегодня"}
           </Tag>
-        ) : (
+        ) : areaRequiresDailyPlan(r.task.area) ? (
           <Tag style={{ margin: 0, flexShrink: 0 }}>не распределено на сегодня</Tag>
+        ) : (
+          <Tag color="blue" style={{ margin: 0, flexShrink: 0 }}>план по участку</Tag>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700 }}>{r.line.part_name ?? "Деталь без названия"}</div>

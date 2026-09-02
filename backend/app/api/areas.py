@@ -37,7 +37,13 @@ def create_area(payload: AreaCreate, db: Session = Depends(get_db), user=Depends
     if db.query(Area).filter(Area.name == payload.name).first():
         raise HTTPException(status.HTTP_409_CONFLICT, "Участок с таким названием уже есть")
     _validate_site_id(db, payload.site_id)
-    area = Area(code=unique_area_code(db, payload.name), name=payload.name, is_active=True, site_id=payload.site_id)
+    area = Area(
+        code=unique_area_code(db, payload.name),
+        name=payload.name,
+        is_active=True,
+        site_id=payload.site_id,
+        requires_daily_plan=payload.requires_daily_plan,
+    )
     db.add(area)
     db.commit()
     db.refresh(area)
@@ -58,6 +64,8 @@ def update_area(code: str, payload: AreaUpdate, db: Session = Depends(get_db), u
     if payload.site_id is not None:
         _validate_site_id(db, payload.site_id)
         area.site_id = payload.site_id
+    if payload.requires_daily_plan is not None:
+        area.requires_daily_plan = payload.requires_daily_plan
     db.commit()
     db.refresh(area)
     return area

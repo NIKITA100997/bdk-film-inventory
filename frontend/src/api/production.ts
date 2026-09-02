@@ -145,7 +145,9 @@ export interface ProductionTaskLineReport {
 }
 
 export interface ProductionTaskLineReportCreate {
-  assignment_id: number;
+  // Раздел про отключение распределения по дням — null для участка с
+  // requires_daily_plan=false (backend это допускает только для него).
+  assignment_id: number | null;
   good_pieces: number;
   defect_pieces: number;
   defect_reason?: string;

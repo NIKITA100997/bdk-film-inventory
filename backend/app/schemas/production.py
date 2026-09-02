@@ -162,9 +162,13 @@ class ProductionTaskManualCreate(BaseModel):
 
 
 class ProductionTaskLineReportCreate(BaseModel):
-    # Раздел про брак по дням — отчёт всегда за конкретную запись
+    # Раздел про брак по дням — отчёт обычно за конкретную запись
     # распределения (день/линия/сотрудники), не за строку задания целиком.
-    assignment_id: int
+    # Раздел про отключение распределения по дням — для участка с
+    # Area.requires_daily_plan=False допускается None (эндпоинт это
+    # проверяет сам, см. create_task_line_report); для обычного участка
+    # по-прежнему обязателен.
+    assignment_id: int | None = None
     good_pieces: float = Field(ge=0)
     defect_pieces: float = Field(ge=0)
     defect_reason: str | None = None

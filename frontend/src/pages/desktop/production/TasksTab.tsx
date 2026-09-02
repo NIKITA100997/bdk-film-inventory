@@ -55,7 +55,7 @@ export default function TasksTab() {
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const canReport = canManage || !!user?.permissions.includes("production_tasks.report");
   const [taskModalOpen, setTaskModalOpen] = useState(false);
-  const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine; area: string } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   // Раздел про правку размера/материала прямо в задании (пока размеры ещё
@@ -72,6 +72,11 @@ export default function TasksTab() {
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  // Раздел про отключение распределения по дням — участок с
+  // requires_daily_plan=false планируется просто "на участок", мастеру не
+  // предлагаем "Распределить по дням" для его заданий (см. Issue.tsx —
+  // там же для таких участков убрана метка "не распределено").
+  const areaRequiresDailyPlan = (code: string) => areasQuery.data?.find((a) => a.code === code)?.requires_daily_plan ?? true;
 
   const tasks = (tasksQuery.data ?? [])
     .filter((t) => !user?.area || t.area === user.area)
@@ -223,10 +228,12 @@ export default function TasksTab() {
                               <Space size={4} wrap>
                                 {canReport && (
                                   <>
-                                    <Button size="small" type="primary" ghost onClick={() => setAssignTarget({ task, line: l })}>
-                                      📅 Распределить по дням
-                                    </Button>
-                                    <Button size="small" onClick={() => setReportTarget({ taskId: task.id, line: l })}>
+                                    {areaRequiresDailyPlan(task.area) && (
+                                      <Button size="small" type="primary" ghost onClick={() => setAssignTarget({ task, line: l })}>
+                                        📅 Распределить по дням
+                                      </Button>
+                                    )}
+                                    <Button size="small" onClick={() => setReportTarget({ taskId: task.id, line: l, area: task.area })}>
                                       Отчитаться о производстве
                                     </Button>
                                   </>
@@ -325,7 +332,12 @@ export default function TasksTab() {
       <CreateTaskModal open={taskModalOpen} onClose={() => setTaskModalOpen(false)} />
 
       {reportTarget && (
-        <ReportModal taskId={reportTarget.taskId} line={reportTarget.line} onClose={() => setReportTarget(null)} />
+        <ReportModal
+          taskId={reportTarget.taskId}
+          line={reportTarget.line}
+          requiresDailyPlan={areaRequiresDailyPlan(reportTarget.area)}
+          onClose={() => setReportTarget(null)}
+        />
       )}
 
       {assignTarget && (

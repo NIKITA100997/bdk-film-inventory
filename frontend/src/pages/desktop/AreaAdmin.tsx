@@ -27,9 +27,9 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 export default function AreaAdmin() {
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
-  const [createForm] = Form.useForm<{ name: string; site_id?: number }>();
+  const [createForm] = Form.useForm<{ name: string; site_id?: number; requires_daily_plan?: boolean }>();
   const [editing, setEditing] = useState<Area | null>(null);
-  const [editForm] = Form.useForm<{ name: string; site_id?: number }>();
+  const [editForm] = Form.useForm<{ name: string; site_id?: number; requires_daily_plan?: boolean }>();
   const [showArchived, setShowArchived] = useState(false);
 
   const [siteCreateOpen, setSiteCreateOpen] = useState(false);
@@ -45,7 +45,8 @@ export default function AreaAdmin() {
   const warehouseLabel = (warehouseId: number) => (warehousesQuery.data ?? []).find((w) => w.id === warehouseId)?.name ?? "—";
 
   const createMutation = useMutation({
-    mutationFn: (v: { name: string; site_id?: number }) => createArea(v.name, v.site_id),
+    mutationFn: (v: { name: string; site_id?: number; requires_daily_plan?: boolean }) =>
+      createArea(v.name, v.site_id, v.requires_daily_plan),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["areas"] });
       setCreateOpen(false);
@@ -64,8 +65,8 @@ export default function AreaAdmin() {
   });
 
   const editMutation = useMutation({
-    mutationFn: (v: { name: string; site_id?: number }) =>
-      updateArea(editing!.code, { name: v.name, site_id: v.site_id ?? null }),
+    mutationFn: (v: { name: string; site_id?: number; requires_daily_plan?: boolean }) =>
+      updateArea(editing!.code, { name: v.name, site_id: v.site_id ?? null, requires_daily_plan: v.requires_daily_plan }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["areas"] });
       setEditing(null);
@@ -182,6 +183,11 @@ export default function AreaAdmin() {
             { title: "Код", dataIndex: "code", render: (v: string) => <Typography.Text type="secondary">{v}</Typography.Text> },
             { title: "Площадка", render: (_, a) => siteLabel(a.site_id) },
             {
+              title: "Планирование",
+              dataIndex: "requires_daily_plan",
+              render: (v: boolean) => (v ? <Tag color="blue">По дням</Tag> : <Tag>Просто на участок</Tag>),
+            },
+            {
               title: "Статус",
               dataIndex: "is_active",
               render: (v: boolean) => (v ? <Tag color="green">Активен</Tag> : <Tag>В архиве</Tag>),
@@ -194,7 +200,11 @@ export default function AreaAdmin() {
                     size="small"
                     onClick={() => {
                       setEditing(a);
-                      editForm.setFieldsValue({ name: a.name, site_id: a.site_id ?? undefined });
+                      editForm.setFieldsValue({
+                        name: a.name,
+                        site_id: a.site_id ?? undefined,
+                        requires_daily_plan: a.requires_daily_plan,
+                      });
                     }}
                   >
                     Изменить
@@ -210,7 +220,12 @@ export default function AreaAdmin() {
       </Card>
 
       <Modal title="Новый участок" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
-        <Form form={createForm} layout="vertical" onFinish={(v) => createMutation.mutate(v)}>
+        <Form
+          form={createForm}
+          layout="vertical"
+          initialValues={{ requires_daily_plan: true }}
+          onFinish={(v) => createMutation.mutate(v)}
+        >
           <Form.Item name="name" label="Название" rules={[{ required: true }]}>
             <Input autoFocus placeholder="Раскрой ПВХ" />
           </Form.Item>
@@ -221,6 +236,13 @@ export default function AreaAdmin() {
               options={(sitesQuery.data ?? []).map((s) => ({ value: s.id, label: s.name }))}
             />
           </Form.Item>
+          <Form.Item name="requires_daily_plan" valuePropName="checked">
+            <Checkbox>Разбивка по дням/бригадам (мастер распределяет через «План на день»)</Checkbox>
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+            Если выключить — задания участка планируются просто на участок, без «Распределить»/«План на день»,
+            и на выдаче не помечаются как «не распределено».
+          </Typography.Paragraph>
           <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
             Создать
           </Button>
@@ -239,6 +261,13 @@ export default function AreaAdmin() {
               options={(sitesQuery.data ?? []).map((s) => ({ value: s.id, label: s.name }))}
             />
           </Form.Item>
+          <Form.Item name="requires_daily_plan" valuePropName="checked">
+            <Checkbox>Разбивка по дням/бригадам (мастер распределяет через «План на день»)</Checkbox>
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+            Если выключить — задания участка планируются просто на участок, без «Распределить»/«План на день»,
+            и на выдаче не помечаются как «не распределено».
+          </Typography.Paragraph>
           <Button type="primary" htmlType="submit" block loading={editMutation.isPending}>
             Сохранить
           </Button>

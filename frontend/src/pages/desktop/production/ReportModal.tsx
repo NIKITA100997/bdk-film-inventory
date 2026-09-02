@@ -5,25 +5,32 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTaskLineReport, type ProductionTaskLine } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 
-/** Отчёт о производстве/браке (раздел про брак по дням) — отчёт всегда
+/** Отчёт о производстве/браке (раздел про брак по дням) — отчёт обычно
  * привязан к конкретной записи распределения (день/линия/сотрудники), не
  * к строке задания целиком, поэтому используется и из общего списка
  * заданий (мастер сам выбирает распределение из списка строки), и из
- * «Плана на день» (распределение уже известно — presetAssignmentId). */
+ * «Плана на день» (распределение уже известно — presetAssignmentId).
+ * Раздел про отключение распределения по дням — участок с
+ * Area.requires_daily_plan=false (requiresDailyPlan=false здесь) вообще
+ * не создаёт распределений, так что выбор становится необязательным и
+ * отчёт уходит с assignment_id=null (бэкенд это для таких участков
+ * разрешает, см. create_task_line_report). */
 export default function ReportModal({
   taskId,
   line,
   presetAssignmentId,
+  requiresDailyPlan = true,
   onClose,
 }: {
   taskId: number;
   line: ProductionTaskLine;
   presetAssignmentId?: number;
+  requiresDailyPlan?: boolean;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
   const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string }[]>([]);
-  const [reportForm] = Form.useForm<{ assignment_id: number; good_pieces: number }>();
+  const [reportForm] = Form.useForm<{ assignment_id: number | null; good_pieces: number }>();
   const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "production"],
@@ -43,7 +50,7 @@ export default function ReportModal({
     // несколько строк вместо одной (хорошие детали отдельной строкой,
     // затем по одной строке на каждую причину брака), агрегаты суммируют
     // их на бэкенде так же, как если бы это были отчёты за разные смены.
-    mutationFn: async (v: { assignment_id: number; good_pieces: number }) => {
+    mutationFn: async (v: { assignment_id: number | null; good_pieces: number }) => {
       const calls: Promise<unknown>[] = [];
       if (v.good_pieces > 0) {
         calls.push(
@@ -80,18 +87,25 @@ export default function ReportModal({
       <Typography.Paragraph type="secondary">
         Нужно: {line.quantity_pieces} шт, уже произведено: {line.produced_good_pieces} шт, остаток: {line.remaining_pieces} шт.
       </Typography.Paragraph>
-      <Form layout="vertical" form={reportForm} initialValues={{ assignment_id: presetAssignmentId, good_pieces: 0 }}>
-        <Form.Item name="assignment_id" label="Распределение (день/линия)" rules={[{ required: true }]}>
+      <Form layout="vertical" form={reportForm} initialValues={{ assignment_id: presetAssignmentId ?? null, good_pieces: 0 }}>
+        <Form.Item
+          name="assignment_id"
+          label={requiresDailyPlan ? "Распределение (день/линия)" : "Распределение (день/линия) — необязательно"}
+          rules={requiresDailyPlan ? [{ required: true }] : []}
+        >
           <Select
+            allowClear={!requiresDailyPlan}
             disabled={!!presetAssignmentId}
-            placeholder="Выберите день/линию распределения"
+            placeholder={requiresDailyPlan ? "Выберите день/линию распределения" : "Без привязки — участок без разбивки по дням"}
             options={line.assignments.map((a) => ({
               value: a.id,
               label: `${dayjs(a.date).format("DD.MM.YYYY")} — ${a.line_name} (${a.employee_names}), план ${a.quantity_pieces} шт`,
             }))}
             notFoundContent={
               <Typography.Text type="secondary">
-                Сначала распределите строку по дням — кнопка «Распределить по дням»
+                {requiresDailyPlan
+                  ? "Сначала распределите строку по дням — кнопка «Распределить по дням»"
+                  : "Участок без разбивки по дням — можно сохранить отчёт без распределения"}
               </Typography.Text>
             }
           />
