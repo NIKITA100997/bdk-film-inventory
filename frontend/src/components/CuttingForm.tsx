@@ -185,14 +185,26 @@ export default function CuttingForm({
       });
     },
     onSuccess: (res) => {
-      const ids = [res.length_result?.unit.id, ...res.width_results.map((w) => w.unit.id)].filter(
-        (id): id is number => id != null,
-      );
+      const pieces = [
+        ...(res.length_result ? [res.length_result] : []),
+        ...res.width_results,
+      ];
+      // Раздел про выдачу мимо хаба — кусок с назначением "issue" мог сам
+      // уйти в хаб на перемещение вместо выдачи (units.py::
+      // auto_transfer_if_wrong_warehouse), если участок физически на
+      // другом складе — такой кусок не "выдан", этикетка выдачи ему не
+      // нужна, и в сообщении об этом стоит сказать отдельно.
+      const issuedIds = pieces.filter((p) => p.unit.status === "Выдан_участку").map((p) => p.unit.id);
+      const transferredIds = pieces.filter((p) => p.unit.status === "В_перемещении").map((p) => p.unit.id);
       const flagged = res.width_results.filter((w) => w.discrepancy_flagged);
-      if (ids.length > 0) printLabelsBatch(ids, { kind: "cutting_issue" });
+      if (issuedIds.length > 0) printLabelsBatch(issuedIds, { kind: "cutting_issue" });
+      const allIds = [...issuedIds, ...transferredIds];
       message.success(
         <>
-          Разрезано {ids.length > 0 ? `— ${ids.map((id) => `№${id}`).join(", ")}` : ""}
+          Разрезано {allIds.length > 0 ? `— ${allIds.map((id) => `№${id}`).join(", ")}` : ""}
+          {transferredIds.length > 0 && (
+            <> · участок физически на другом складе — {transferredIds.map((id) => `№${id}`).join(", ")} отправлен(ы) в хаб на перемещение</>
+          )}
           {res.donor_remainder.status === "Списан" && <> · остаток донора списан автоматически (отход)</>}
           {flagged.length > 0 && <> · ⚠️ заметное отклонение по: {flagged.map((w) => `№${w.unit.id}`).join(", ")}</>}
         </>,

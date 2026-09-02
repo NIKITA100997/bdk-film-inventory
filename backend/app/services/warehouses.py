@@ -1,4 +1,3 @@
-from fastapi import HTTPException, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import false
@@ -73,20 +72,3 @@ def area_home_warehouse_id(db: Session, area_code: str | None) -> int | None:
     return site.warehouse_id if site else None
 
 
-def assert_area_home_warehouse(db: Session, area_code: str | None, unit_warehouse_id: int | None) -> None:
-    """Жёсткий блок (раздел про выдачу мимо хаба) — единица должна
-    физически лежать на домашнем складе площадки участка, иначе выдача
-    запрещена: сначала переместить через «Перемещения между складами».
-    Раньше это было только мягким предупреждением на фронте
-    (confirmIfWrongWarehouse), которое обходилось в один клик — теперь
-    источник истины здесь, на бэкенде, независимо от экрана/сценария
-    выдачи."""
-    home_id = area_home_warehouse_id(db, area_code)
-    if home_id is None or unit_warehouse_id is None or unit_warehouse_id == home_id:
-        return
-    home = db.get(Warehouse, home_id)
-    raise HTTPException(
-        status.HTTP_409_CONFLICT,
-        f"Единица физически на другом складе, а для этого участка домашний склад — «{home.name if home else '?'}». "
-        "Сначала переместите через «Перемещения между складами».",
-    )

@@ -613,6 +613,16 @@ export default function Issue() {
     mutationFn: ({ unitId, override = false }: { unitId: number; override?: boolean }) =>
       issueUnitDirect(unitId, selected!.task.area, selected!.line.id, toOccurredAtIso(occurredAt), override, override),
     onSuccess: (unit) => {
+      // Раздел про выдачу мимо хаба — участок физически на другом складе
+      // (units.py::auto_transfer_if_wrong_warehouse): сервер сам отправил
+      // единицу в хаб на перемещение вместо выдачи, "Выдано" здесь было бы
+      // неправдой — единица ещё не у участка, только в пути.
+      if (unit.status === "В_перемещении") {
+        message.success("Материал физически на другом складе — автоматически отправлен в хаб на перемещение");
+        qc.invalidateQueries({ queryKey: ["issue-available-units"] });
+        qc.invalidateQueries({ queryKey: ["issue-substitute-available"] });
+        return;
+      }
       setLastIssued({ unit, remainder: null, remainderPlaced: false });
       setResult(null);
       qc.invalidateQueries({ queryKey: ["issue-available-units"] });

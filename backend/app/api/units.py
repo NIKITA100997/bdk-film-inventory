@@ -54,10 +54,9 @@ from app.services.splitting import (
     split_by_length,
     split_lengthwise_multi,
 )
-from app.services.warehouse_transfers import add_unit_to_transfer
+from app.services.warehouse_transfers import add_unit_to_transfer, auto_transfer_if_wrong_warehouse
 from app.services.warehouses import (
     area_home_warehouse_id,
-    assert_area_home_warehouse,
     filter_by_warehouse,
     rack_warehouse_names,
     resolve_warehouse_id,
@@ -469,12 +468,18 @@ def issue_unit_direct(
             allow_strip_width_override=payload.override_strip_width and can_override_task_line_spec,
             allow_material_override=payload.override_material and can_override_task_line_spec,
         )
-    assert_area_home_warehouse(db, payload.area, resolve_warehouse_id(db, unit.location_code))
+    unit_warehouse_id = resolve_warehouse_id(db, unit.location_code)
+    # Сохраняем привязку к строке задания даже при перенаправлении в хаб
+    # (ниже) — чтобы после приёмки на другом складе было видно, для какого
+    # задания эта единица предназначена, не только "куда-то на перемещение".
+    unit.production_task_line_id = payload.production_task_line_id
+    if auto_transfer_if_wrong_warehouse(db, payload.area, unit, unit_warehouse_id, user.id, payload.occurred_at):
+        db.commit()
+        return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
     from_cell = unit.location_code
     unit.status = UnitStatus.VYDAN_UCHASTKU
     unit.area = payload.area
     unit.location_code = None
-    unit.production_task_line_id = payload.production_task_line_id
     record_event(
         db,
         unit=unit,
@@ -900,8 +905,13 @@ def execute_cutting_recipe(
             is_issue = dest.kind == "issue"
             is_transfer = dest.kind == "transfer"
             issue_area = (length_line.task.area if length_line is not None else dest.area) if is_issue else None
-            if is_issue:
-                assert_area_home_warehouse(db, issue_area, resolve_warehouse_id(db, donor.location_code))
+            # Раздел про выдачу мимо хаба — если участок физически на
+            # другом складе, чем донор, выдачу этого куска перенаправляем в
+            # хаб (auto_transfer_if_wrong_warehouse ниже) вместо отказа.
+            redirect_home_id = area_home_warehouse_id(db, issue_area) if is_issue else None
+            donor_wh_for_issue = resolve_warehouse_id(db, donor.location_code) if is_issue else None
+            if redirect_home_id is not None and (donor_wh_for_issue is None or donor_wh_for_issue == redirect_home_id):
+                redirect_home_id = None
             new_unit = MaterialUnit(
                 parent_id=spec.parent_id,
                 upd_number=spec.upd_number,
@@ -929,7 +939,12 @@ def execute_cutting_recipe(
                 occurred_at=payload.occurred_at,
                 cutting_operation_id=cutting_op.id,
             )
-            if is_issue:
+            if redirect_home_id is not None:
+                add_unit_to_transfer(
+                    db, new_unit, donor_wh_for_issue, redirect_home_id, user.id, payload.occurred_at,
+                    cutting_operation_id=cutting_op.id,
+                )
+            elif is_issue:
                 record_event(
                     db,
                     unit=new_unit,
@@ -982,8 +997,12 @@ def execute_cutting_recipe(
             line = width_lines.get(dest.production_task_line_id) if dest.production_task_line_id else None
             actual_length_m = w.actual_length_m if (is_issue and w.actual_length_m is not None) else expected_length_m
             issue_area = (line.task.area if line is not None else dest.area) if is_issue else None
-            if is_issue:
-                assert_area_home_warehouse(db, issue_area, resolve_warehouse_id(db, donor.location_code))
+            # Раздел про выдачу мимо хаба — см. аналогичный комментарий у
+            # отреза по длине выше.
+            redirect_home_id = area_home_warehouse_id(db, issue_area) if is_issue else None
+            donor_wh_for_issue = resolve_warehouse_id(db, donor.location_code) if is_issue else None
+            if redirect_home_id is not None and (donor_wh_for_issue is None or donor_wh_for_issue == redirect_home_id):
+                redirect_home_id = None
             new_unit = MaterialUnit(
                 parent_id=spec.parent_id,
                 upd_number=spec.upd_number,
@@ -1012,7 +1031,12 @@ def execute_cutting_recipe(
                 cutting_operation_id=cutting_op.id,
             )
             discrepancy_flagged = False
-            if is_issue:
+            if redirect_home_id is not None:
+                add_unit_to_transfer(
+                    db, new_unit, donor_wh_for_issue, redirect_home_id, user.id, payload.occurred_at,
+                    cutting_operation_id=cutting_op.id,
+                )
+            elif is_issue:
                 discrepancy_flagged = abs(actual_length_m - expected_length_m) > tolerance
                 record_event(
                     db,

@@ -16,6 +16,7 @@ from app.models.warehouse_transfers import (
     WarehouseTransferLine,
 )
 from app.services.events import record_event
+from app.services.warehouses import area_home_warehouse_id
 
 
 def add_unit_to_transfer(
@@ -68,6 +69,33 @@ def add_unit_to_transfer(
         cutting_operation_id=cutting_operation_id,
     )
     return line
+
+
+def auto_transfer_if_wrong_warehouse(
+    db: Session,
+    area_code: str | None,
+    unit: MaterialUnit,
+    unit_warehouse_id: int | None,
+    user_id: int,
+    occurred_at: datetime | None = None,
+    cutting_operation_id: int | None = None,
+) -> bool:
+    """Раздел про выдачу мимо хаба — раньше это был жёсткий отказ
+    (assert_area_home_warehouse, "сначала переместите через Перемещения
+    между складами"): оператор нередко выбирает участок, чей домашний
+    склад — Фабрика, физически имея материал на Северном, и был вынужден
+    отдельно идти в другой экран и повторять выдачу заново. Теперь вместо
+    отказа единица сама уходит в хаб на перемещение к домашнему складу
+    участка — то же самое действие, что и ручное "Отправить на другой
+    склад" с карточки единицы, просто без лишнего шага. Возвращает True,
+    если случился авто-перевод (вызывающий код должен остановиться на
+    этом — единица уже "В_перемещении", не "Выдан_участку", дальше её
+    резать/выдавать в этом же запросе нельзя)."""
+    home_id = area_home_warehouse_id(db, area_code)
+    if home_id is None or unit_warehouse_id is None or unit_warehouse_id == home_id:
+        return False
+    add_unit_to_transfer(db, unit, unit_warehouse_id, home_id, user_id, occurred_at, cutting_operation_id)
+    return True
 
 
 def receive_transfer_line(
