@@ -44,17 +44,23 @@ export interface ProductModel {
   name: string;
   area: AreaValue;
   is_active: boolean;
+  // Раздел про калькулятор заказа — погонаж (короб/наличник/добор/плинтус)
+  // заведён в этой же таблице, но это не дверное полотно, а сопутствующий
+  // комплект, добавляемый к дверной строке заказа (см. SalesCalculator.tsx).
+  is_trim: boolean;
   parts: ProductModelPart[];
 }
 
 export interface ProductModelCreate {
   name: string;
   area: AreaValue;
+  is_trim?: boolean;
 }
 
 export interface ProductModelUpdate {
   name?: string;
   is_active?: boolean;
+  is_trim?: boolean;
 }
 
 export interface ProductionTaskLineIssuedUnit {

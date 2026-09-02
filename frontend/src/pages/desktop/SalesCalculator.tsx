@@ -45,40 +45,81 @@ function partFilmAreaM2(part: ProductModelPart, orderQty: number): number {
   return (part.qty_per_unit * orderQty * stripWidthMm * part.length_m) / 1000;
 }
 
+interface TrimEntry {
+  key: string;
+  modelId?: number;
+  qty: number;
+}
+
 interface OrderLine {
   key: string;
   modelId?: number;
   qty: number;
   skuId?: number;
   showParts: boolean;
+  // Раздел про погонаж к двери — короб/наличник/добор и т.п., часто идущий
+  // в комплекте с дверью. Свой цвет не выбирается — считается тем же,
+  // что у самой двери (та же строка заказа, тот же реальный цвет плёнки),
+  // расход суммируется в общий расход строки и в тот же sku при агрегации.
+  trims: TrimEntry[];
 }
 
-function lineFilmTotalM2(model: ProductModel | undefined, qty: number): number {
+function modelAreaM2(model: ProductModel | undefined, qty: number): number {
   if (!model) return 0;
-  return Math.round(model.parts.reduce((sum, p) => sum + partFilmAreaM2(p, qty), 0) * 100) / 100;
+  return model.parts.reduce((sum, p) => sum + partFilmAreaM2(p, qty), 0);
+}
+
+function lineFilmTotalM2(model: ProductModel | undefined, qty: number, trims: TrimEntry[], modelsById: Map<number, ProductModel>): number {
+  let total = modelAreaM2(model, qty);
+  for (const t of trims) {
+    total += modelAreaM2(t.modelId !== undefined ? modelsById.get(t.modelId) : undefined, t.qty);
+  }
+  return Math.round(total * 100) / 100;
 }
 
 let nextLineKey = 1;
+let nextTrimKey = 1;
 
 export default function SalesCalculator() {
   const [skuId, setSkuId] = useState<number | undefined>();
   const [neededM2, setNeededM2] = useState<number | undefined>();
-  const [orderLines, setOrderLines] = useState<OrderLine[]>([{ key: "0", qty: 1, showParts: false }]);
+  const [orderLines, setOrderLines] = useState<OrderLine[]>([{ key: "0", qty: 1, showParts: false, trims: [] }]);
 
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
 
   const modelsById = new Map((modelsQuery.data ?? []).map((m) => [m.id, m]));
   const skusById = new Map((skusQuery.data ?? []).map((s) => [s.id, s]));
+  const doorModelOptions = (modelsQuery.data ?? [])
+    .filter((m) => m.is_active && !m.is_trim)
+    .map((m) => ({ value: m.id, label: m.name }));
+  const trimModelOptions = (modelsQuery.data ?? [])
+    .filter((m) => m.is_active && m.is_trim)
+    .map((m) => ({ value: m.id, label: m.name }));
 
-  const addLine = () => setOrderLines((ls) => [...ls, { key: String(nextLineKey++), qty: 1, showParts: false }]);
+  const addLine = () => setOrderLines((ls) => [...ls, { key: String(nextLineKey++), qty: 1, showParts: false, trims: [] }]);
   const removeLine = (key: string) => setOrderLines((ls) => ls.filter((l) => l.key !== key));
   const updateLine = (key: string, patch: Partial<OrderLine>) =>
     setOrderLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
+  const addTrim = (lineKey: string) =>
+    setOrderLines((ls) =>
+      ls.map((l) => (l.key === lineKey ? { ...l, trims: [...l.trims, { key: String(nextTrimKey++), qty: 1 }] } : l)),
+    );
+  const removeTrim = (lineKey: string, trimKey: string) =>
+    setOrderLines((ls) =>
+      ls.map((l) => (l.key === lineKey ? { ...l, trims: l.trims.filter((t) => t.key !== trimKey) } : l)),
+    );
+  const updateTrim = (lineKey: string, trimKey: string, patch: Partial<TrimEntry>) =>
+    setOrderLines((ls) =>
+      ls.map((l) =>
+        l.key === lineKey ? { ...l, trims: l.trims.map((t) => (t.key === trimKey ? { ...t, ...patch } : t)) } : l,
+      ),
+    );
+
   const linesComputed = orderLines.map((l) => {
     const model = l.modelId !== undefined ? modelsById.get(l.modelId) : undefined;
-    return { ...l, model, totalM2: lineFilmTotalM2(model, l.qty) };
+    return { ...l, model, totalM2: lineFilmTotalM2(model, l.qty, l.trims, modelsById) };
   });
 
   // Раздел про заказ из нескольких дверей/цветов — одна и та же плёнка
@@ -142,9 +183,7 @@ export default function SalesCalculator() {
                 loading={modelsQuery.isLoading}
                 value={l.modelId}
                 onChange={(v) => updateLine(l.key, { modelId: v })}
-                options={(modelsQuery.data ?? [])
-                  .filter((m) => m.is_active)
-                  .map((m) => ({ value: m.id, label: m.name }))}
+                options={doorModelOptions}
               />
               <InputNumber
                 placeholder="Кол-во, шт"
@@ -174,19 +213,70 @@ export default function SalesCalculator() {
               )}
             </Space>
 
-            {l.showParts && l.model && (
-              <ResponsiveTable<ProductModelPart & { area_m2: number }>
+            <div style={{ marginTop: 10, paddingLeft: 4 }}>
+              {l.trims.map((t) => {
+                const trimModel = t.modelId !== undefined ? modelsById.get(t.modelId) : undefined;
+                return (
+                  <Space key={t.key} wrap size="middle" align="center" style={{ marginBottom: 6 }}>
+                    <Typography.Text type="secondary" style={{ width: 20, textAlign: "center" }}>
+                      ↳
+                    </Typography.Text>
+                    <Select
+                      placeholder="Погонаж (короб/наличник/добор…)"
+                      style={{ width: 280 }}
+                      showSearch
+                      optionFilterProp="label"
+                      value={t.modelId}
+                      onChange={(v) => updateTrim(l.key, t.key, { modelId: v })}
+                      options={trimModelOptions}
+                    />
+                    <InputNumber
+                      placeholder="Кол-во, шт"
+                      min={1}
+                      style={{ width: 110 }}
+                      value={t.qty}
+                      onChange={(v) => updateTrim(l.key, t.key, { qty: v ?? 1 })}
+                    />
+                    <Typography.Text type="secondary">= {modelAreaM2(trimModel, t.qty).toFixed(2)} м²</Typography.Text>
+                    <Button icon={<DeleteOutlined />} danger type="text" onClick={() => removeTrim(l.key, t.key)} />
+                  </Space>
+                );
+              })}
+              <Button size="small" type="dashed" icon={<PlusOutlined />} onClick={() => addTrim(l.key)}>
+                Добавить погонаж
+              </Button>
+            </div>
+
+            {l.showParts && (l.model || l.trims.length > 0) && (
+              <ResponsiveTable<ProductModelPart & { area_m2: number; source: string }>
                 tableKey="sales-film-estimate-parts"
                 lockedColumns={["Деталь"]}
-                rowKey="id"
+                rowKey={(r) => `${r.source}-${r.id}`}
                 pagination={false}
                 style={{ marginTop: 12 }}
-                dataSource={l.model.parts.map((p) => ({ ...p, area_m2: partFilmAreaM2(p, l.qty) }))}
+                dataSource={[
+                  ...(l.model?.parts ?? []).map((p) => ({ ...p, area_m2: partFilmAreaM2(p, l.qty), source: "door" })),
+                  ...l.trims.flatMap((t) => {
+                    const trimModel = t.modelId !== undefined ? modelsById.get(t.modelId) : undefined;
+                    return (trimModel?.parts ?? []).map((p) => ({
+                      ...p,
+                      area_m2: partFilmAreaM2(p, t.qty),
+                      source: `trim-${t.key}`,
+                    }));
+                  }),
+                ]}
                 scroll={{ x: "max-content" }}
                 columns={[
-                  { title: "Деталь", dataIndex: "part_name", render: (v: string | null) => v ?? "Без названия" },
+                  {
+                    title: "Деталь",
+                    dataIndex: "part_name",
+                    render: (v: string | null, r) => `${r.source.startsWith("trim") ? "Погонаж: " : ""}${v ?? "Без названия"}`,
+                  },
                   { title: "Шт. на 1 изделие", dataIndex: "qty_per_unit" },
-                  { title: "Шт. всего", render: (_, r) => r.qty_per_unit * l.qty },
+                  {
+                    title: "Шт. всего",
+                    render: (_, r) => r.qty_per_unit * (r.source === "door" ? l.qty : l.trims.find((t) => `trim-${t.key}` === r.source)?.qty ?? 1),
+                  },
                   { title: "Штрипс, мм", render: (_, r) => r.strip_width_mm ?? r.width_mm },
                   { title: "Длина, м", dataIndex: "length_m" },
                   { title: "Площадь, м²", render: (_, r) => r.area_m2.toFixed(2) },

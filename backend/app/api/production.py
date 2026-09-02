@@ -130,6 +130,7 @@ def _model_out(db: Session, model: ProductModel) -> ProductModelOut:
         name=model.name,
         area=model.area,
         is_active=model.is_active,
+        is_trim=model.is_trim,
         parts=[_part_out(db, p) for p in model.parts],
     )
 
@@ -366,7 +367,7 @@ def create_product_model(
 ) -> ProductModelOut:
     if db.query(ProductModel).filter(ProductModel.name == payload.name).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Модель с таким названием уже есть")
-    model = ProductModel(name=payload.name, area=payload.area)
+    model = ProductModel(name=payload.name, area=payload.area, is_trim=payload.is_trim)
     db.add(model)
     db.commit()
     db.refresh(model)
@@ -386,6 +387,8 @@ def update_product_model(
         model.name = payload.name
     if payload.is_active is not None:
         model.is_active = payload.is_active
+    if payload.is_trim is not None:
+        model.is_trim = payload.is_trim
     db.commit()
     db.refresh(model)
     return _model_out(db, model)

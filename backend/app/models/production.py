@@ -8,7 +8,7 @@ ProductionTaskLine; распределение по конкретным лин�
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -31,6 +31,14 @@ class ProductModel(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True)  # "Дверь царговая, Прованс"
     area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
     is_active: Mapped[bool] = mapped_column(default=True)
+    # Раздел про калькулятор заказа — погонаж (короб/наличник/добор/плинтус
+    # и т.п.) заведён в этой же таблице как обычная "модель" с одной
+    # BOM-строкой, но это не дверное полотно, а сопутствующий комплект,
+    # который можно добавить к дверной строке заказа. Число BOM-строк не
+    # годится как признак (у щитовых дверей тоже всего одна строка), нужен
+    # явный флаг; по умолчанию False, чтобы не переклассифицировать заодно
+    # и щитовые двери.
+    is_trim: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     parts: Mapped[list["ProductModelPart"]] = relationship(back_populates="product_model", cascade="all, delete-orphan")
 

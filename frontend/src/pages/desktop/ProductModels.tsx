@@ -32,7 +32,7 @@ export default function ProductModels() {
   const [selectedModel, setSelectedModel] = useState<ProductModel | null>(null);
   const [partModalOpen, setPartModalOpen] = useState(false);
   const [editingPart, setEditingPart] = useState<ProductModelPart | null>(null);
-  const [form] = Form.useForm<{ name: string; area: string }>();
+  const [form] = Form.useForm<{ name: string; area: string; is_trim?: boolean }>();
   const [partForm] = Form.useForm<ProductModelPartCreate>();
   const [showArchived, setShowArchived] = useState(false);
 
@@ -62,6 +62,14 @@ export default function ProductModels() {
 
   const archiveMutation = useMutation({
     mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) => updateProductModel(id, { is_active }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["product-models"] }),
+  });
+
+  // Раздел про калькулятор заказа — погонаж (короб/наличник/добор/плинтус)
+  // отмечается флагом, чтобы калькулятор мог предложить его отдельно от
+  // дверных моделей (см. is_trim в api/production.ts).
+  const trimMutation = useMutation({
+    mutationFn: ({ id, is_trim }: { id: number; is_trim: boolean }) => updateProductModel(id, { is_trim }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["product-models"] }),
   });
 
@@ -154,6 +162,11 @@ export default function ProductModels() {
               ),
             },
             { title: "Участок", dataIndex: "area", render: (v: string) => areaLabel(v) },
+            {
+              title: "Тип",
+              dataIndex: "is_trim",
+              render: (v: boolean) => (v ? <Tag color="purple">Погонаж</Tag> : <Tag>Дверь</Tag>),
+            },
             { title: "Деталей в BOM", render: (_, m) => m.parts.length },
             {
               title: "Состав BOM",
@@ -171,9 +184,12 @@ export default function ProductModels() {
             {
               title: "Действия",
               render: (_, m) => (
-                <Space>
+                <Space wrap>
                   <Button size="small" onClick={() => archiveMutation.mutate({ id: m.id, is_active: !m.is_active })}>
                     {m.is_active ? "В архив" : "Восстановить"}
+                  </Button>
+                  <Button size="small" onClick={() => trimMutation.mutate({ id: m.id, is_trim: !m.is_trim })}>
+                    {m.is_trim ? "Пометить как дверь" : "Пометить как погонаж"}
                   </Button>
                   <Button size="small" danger onClick={() => deleteModelMutation.mutate(m.id)}>
                     🗑️ Удалить
@@ -240,12 +256,20 @@ export default function ProductModels() {
       </Modal>
 
       <Modal title="Новая модель продукции" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
-        <Form layout="vertical" form={form} onFinish={(v) => createMutation.mutate(v as { name: string; area: AreaValue })}>
+        <Form
+          layout="vertical"
+          form={form}
+          initialValues={{ is_trim: false }}
+          onFinish={(v) => createMutation.mutate(v as { name: string; area: AreaValue; is_trim?: boolean })}
+        >
           <Form.Item name="name" label="Название" rules={[{ required: true }]}>
             <Input placeholder="Дверь царговая, Прованс" />
           </Form.Item>
           <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
             <Select options={areaOptions} />
+          </Form.Item>
+          <Form.Item name="is_trim" valuePropName="checked">
+            <Checkbox>Это погонаж (короб/наличник/добор/плинтус), не дверное полотно</Checkbox>
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
             Создать

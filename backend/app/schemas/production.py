@@ -25,11 +25,13 @@ class ProductionLineOut(BaseModel):
 class ProductModelCreate(BaseModel):
     name: str
     area: str
+    is_trim: bool = False
 
 
 class ProductModelUpdate(BaseModel):
     name: str | None = None
     is_active: bool | None = None
+    is_trim: bool | None = None
 
 
 class ProductModelPartCreate(BaseModel):
@@ -56,6 +58,7 @@ class ProductModelOut(BaseModel):
     name: str
     area: str
     is_active: bool
+    is_trim: bool
     parts: list[ProductModelPartOut] = []
 
 
