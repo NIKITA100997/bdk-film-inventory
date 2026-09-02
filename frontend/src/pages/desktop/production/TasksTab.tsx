@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid, Modal, InputNumber, Form } from "antd";
+import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid, Modal, InputNumber, Form, Select } from "antd";
 // Раздел про широкую таблицу строк задания — ResponsiveTable только для
 // внутренней таблицы строк (плоский список, без expandable). Внешняя
 // таблица заданий использует expandable (клик-разворот строки задания)
@@ -13,11 +13,13 @@ import {
   listProductionTasks,
   deleteProductionTask,
   archiveProductionTask,
-  updateTaskLineDims,
+  updateTaskLineSpec,
   type ProductionTask,
   type ProductionTaskLine,
-  type ProductionTaskLineDimsUpdate,
+  type ProductionTaskLineSpecUpdate,
 } from "../../../api/production";
+import { listMaterialSkus } from "../../../api/dictionaries";
+import { skuLabel } from "../../../api/units";
 import { listUsers } from "../../../api/users";
 import { listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
@@ -56,14 +58,17 @@ export default function TasksTab() {
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  // Раздел про правку размера прямо в задании (пока размеры ещё
-  // тестируются) — то же самое, что и sync_part_to_task_lines/
-  // override_strip_width на резке, но явно, из самого списка заданий.
+  // Раздел про правку размера/материала прямо в задании (пока размеры ещё
+  // тестируются и не всегда хватает нужной номенклатуры) — то же самое,
+  // что и sync_part_to_task_lines/override_strip_width/override_material
+  // на резке, но явно, из самого списка заданий.
   const [dimsTarget, setDimsTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
-  const [dimsForm] = Form.useForm<ProductionTaskLineDimsUpdate>();
+  const [dimsForm] = Form.useForm<ProductionTaskLineSpecUpdate>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const usersQuery = useQuery({ queryKey: ["users-summary"], queryFn: listUsers });
+  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
+  const skuOptions = (skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }));
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
@@ -90,13 +95,13 @@ export default function TasksTab() {
   });
 
   const dimsMutation = useMutation({
-    mutationFn: (payload: ProductionTaskLineDimsUpdate) => updateTaskLineDims(dimsTarget!.taskId, dimsTarget!.line.id, payload),
+    mutationFn: (payload: ProductionTaskLineSpecUpdate) => updateTaskLineSpec(dimsTarget!.taskId, dimsTarget!.line.id, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
-      message.success("Размер строки обновлён");
+      message.success("Строка задания обновлена");
       setDimsTarget(null);
     },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить размер")),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить строку")),
   });
 
   return (
@@ -231,14 +236,21 @@ export default function TasksTab() {
                                     size="small"
                                     onClick={() => {
                                       setDimsTarget({ taskId: task.id, line: l });
+                                      const currentSku = skusQuery.data?.find(
+                                        (s) =>
+                                          s.material.name === l.material &&
+                                          s.color.name === l.color &&
+                                          Math.abs(s.thickness.value_mm - l.thickness) < 0.001,
+                                      );
                                       dimsForm.setFieldsValue({
                                         width_mm: l.width_mm,
                                         length_m: l.length_m,
                                         strip_width_mm: l.strip_width_mm ?? undefined,
+                                        sku_id: currentSku?.id,
                                       });
                                     }}
                                   >
-                                    Изменить размер
+                                    Изменить размер/материал
                                   </Button>
                                 )}
                               </Space>
@@ -321,7 +333,7 @@ export default function TasksTab() {
       )}
 
       <Modal
-        title={`Размер строки — ${dimsTarget?.line.part_name ?? ""}`}
+        title={`Размер/материал строки — ${dimsTarget?.line.part_name ?? ""}`}
         open={!!dimsTarget}
         onCancel={() => setDimsTarget(null)}
         onOk={() => dimsForm.validateFields().then((values) => dimsMutation.mutate(values))}
@@ -329,10 +341,13 @@ export default function TasksTab() {
         okText="Сохранить"
       >
         <Typography.Paragraph type="secondary">
-          Если по этой строке уже была резка, отчёт о выпуске или распределение по линии — изменить размер не получится, об
-          этом скажет ошибка при сохранении.
+          Если по этой строке уже была резка, отчёт о выпуске или распределение по линии — изменить размер/материал не
+          получится, об этом скажет ошибка при сохранении.
         </Typography.Paragraph>
         <Form form={dimsForm} layout="vertical">
+          <Form.Item name="sku_id" label="Материал (номенклатура)">
+            <Select showSearch placeholder="Оставить как есть" allowClear options={skuOptions} optionFilterProp="label" />
+          </Form.Item>
           <Form.Item name="width_mm" label="Ширина детали (заготовки), мм" rules={[{ required: true }]}>
             <InputNumber min={0.01} step={0.01} style={{ width: "100%" }} />
           </Form.Item>

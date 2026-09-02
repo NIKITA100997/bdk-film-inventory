@@ -342,22 +342,25 @@ export const deleteProductionTask = async (taskId: number): Promise<DeleteResult
 export const archiveProductionTask = async (taskId: number, isActive: boolean): Promise<ProductionTask> =>
   (await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/archive`, null, { params: { is_active: isActive } })).data;
 
-// Раздел про правку размера прямо в задании (пока размеры ещё
-// тестируются) — width_mm/length_m нельзя очистить, strip_width_mm можно
-// вернуть на null (обратно на "авто"); бэкенд отклонит правку 409, если по
-// строке уже была резка/отчёт/распределение.
-export interface ProductionTaskLineDimsUpdate {
+// Раздел про правку размера/материала прямо в задании (пока размеры ещё
+// тестируются и не всегда хватает нужной номенклатуры) — width_mm/length_m
+// нельзя очистить, strip_width_mm можно вернуть на null (обратно на
+// "авто"); sku_id — сменить материал/цвет/толщину разом на существующую
+// позицию номенклатуры. Бэкенд отклонит правку 409, если по строке уже
+// была резка/отчёт/распределение.
+export interface ProductionTaskLineSpecUpdate {
   width_mm?: number;
   length_m?: number;
   strip_width_mm?: number | null;
+  sku_id?: number;
 }
 
-export const updateTaskLineDims = async (
+export const updateTaskLineSpec = async (
   taskId: number,
   lineId: number,
-  payload: ProductionTaskLineDimsUpdate,
+  payload: ProductionTaskLineSpecUpdate,
 ): Promise<ProductionTask> =>
-  (await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/lines/${lineId}/dims`, payload)).data;
+  (await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/lines/${lineId}`, payload)).data;
 
 export const deleteProductModel = async (modelId: number): Promise<void> => {
   await apiClient.delete(`/product-models/${modelId}`);

@@ -28,8 +28,8 @@ from app.schemas.production import (
     ProductionLineUpdate,
     ProductionTaskLineAssignmentCreate,
     ProductionTaskLineAssignmentOut,
-    ProductionTaskLineDimsUpdate,
     ProductionTaskLineIssuedUnitOut,
+    ProductionTaskLineSpecUpdate,
     ProductionTaskLineOut,
     ProductionTaskLineReportCreate,
     ProductionTaskLineReportOut,
@@ -806,26 +806,27 @@ def get_production_task(task_id: int, db: Session = Depends(get_db), user: User 
     return _task_out(db, task)
 
 
-@router.patch("/production-tasks/{task_id}/lines/{line_id}/dims", response_model=ProductionTaskOut)
-def update_task_line_dims(
+@router.patch("/production-tasks/{task_id}/lines/{line_id}", response_model=ProductionTaskOut)
+def update_task_line_spec(
     task_id: int,
     line_id: int,
-    payload: ProductionTaskLineDimsUpdate,
+    payload: ProductionTaskLineSpecUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(manage_production),
 ) -> ProductionTaskOut:
-    """Правка размера детали/штрипса уже в созданном задании (пока размеры
-    ещё тестируются) — раньше единственный способ поправить их был через
-    справочник деталей (sync_part_to_task_lines) или через "исправление"
-    прямо на резке (override_strip_width в units.py); здесь то же самое,
-    но явно, из самого задания, без похода в другой экран."""
+    """Правка размера/штрипса/материала уже в созданном задании (пока
+    размеры ещё тестируются и не всегда хватает нужной номенклатуры) —
+    раньше единственный способ поправить их был через справочник деталей
+    (sync_part_to_task_lines) или через "исправление" прямо на резке
+    (override_strip_width/override_material в units.py); здесь то же
+    самое, но явно, из самого задания, без похода в другой экран."""
     line = db.get(ProductionTaskLine, line_id)
     if line is None or line.task_id != task_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
     if line.id in task_lines_with_progress(db, [line.id]):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="По этой строке уже была резка, отчёт о выпуске или распределение по линии — менять размер задним числом небезопасно",
+            detail="По этой строке уже была резка, отчёт о выпуске или распределение по линии — менять размер/материал задним числом небезопасно",
         )
     if payload.width_mm is not None:
         line.width_mm = payload.width_mm
@@ -833,6 +834,13 @@ def update_task_line_dims(
         line.length_m = payload.length_m
     if "strip_width_mm" in payload.model_fields_set:
         line.strip_width_mm = payload.strip_width_mm
+    if payload.sku_id is not None:
+        sku = db.get(MaterialSku, payload.sku_id)
+        if sku is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Позиция номенклатуры не найдена")
+        line.material_id = sku.material_id
+        line.color_id = sku.color_id
+        line.thickness_id = sku.thickness_id
     db.commit()
     task = db.get(ProductionTask, task_id)
     return _task_out(db, task)

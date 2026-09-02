@@ -207,16 +207,23 @@ class ProductionTaskLineAssignmentOut(BaseModel):
     defect_pieces: float = 0.0
 
 
-class ProductionTaskLineDimsUpdate(BaseModel):
-    """Правка размеров уже созданной строки задания (пока идёт тестирование
-    размеров штрипсов) — width_mm/length_m нельзя очистить (не nullable на
-    модели), strip_width_mm можно вернуть в null — обратно на "авто" по
+class ProductionTaskLineSpecUpdate(BaseModel):
+    """Правка размера/материала уже созданной строки задания (пока идёт
+    тестирование размеров и не всегда хватает нужной номенклатуры) —
+    width_mm/length_m нельзя очистить (не nullable на модели),
+    strip_width_mm можно вернуть в null — обратно на "авто" по
     calc_default_strip_width, поэтому у него отдельная семантика "передано
-    ли поле вообще" через model_fields_set в самом эндпоинте."""
+    ли поле вообще" через model_fields_set в самом эндпоинте. sku_id —
+    смена материала/цвета/толщины разом на существующую позицию
+    номенклатуры (эндпоинт сам берёт material_id/color_id/thickness_id из
+    неё) — та же идея, что override_material на резке/выдаче
+    (units.py::_validate_matches_task_line), только явно, из самого
+    задания, без похода в другой экран."""
 
     width_mm: float | None = Field(default=None, gt=0)
     length_m: float | None = Field(default=None, gt=0)
     strip_width_mm: float | None = Field(default=None, gt=0)
+    sku_id: int | None = None
 
 
 class ProductionTaskLineIssuedUnitOut(BaseModel):
