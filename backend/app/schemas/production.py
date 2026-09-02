@@ -71,6 +71,11 @@ class ProductionTaskLineManualCreate(BaseModel):
     part_name: str | None = None
 
 
+class SkuCandidateOut(BaseModel):
+    sku_id: int
+    label: str
+
+
 class NaryadParsedLineOut(BaseModel):
     part_name: str
     width_mm: float
@@ -87,6 +92,15 @@ class NaryadParsedLineOut(BaseModel):
     # — id найденной в справочнике детали при уверенном совпадении по
     # категории+размерам; None, если совпадения не нашлось.
     suggested_part_id: int | None = None
+    # Раздел про доборный погонаж со своим цветом на строку — та же
+    # построчная подсказка материала, что и у плана заготовок
+    # (BlankPlanParsedLineOut ниже), только источник цвета другой (скобки
+    # в названии, а не отдельная колонка); None у РАСКЛАДКИ.
+    color_raw: str | None = None
+    suggested_sku_id: int | None = None
+    material: str | None = None
+    thickness: float | None = None
+    sku_candidates: list[SkuCandidateOut] = []
 
 
 class NaryadParseResultOut(BaseModel):
@@ -101,11 +115,6 @@ class NaryadParseResultOut(BaseModel):
     # полем, чтобы форма создания задания могла предзаполнить структурное
     # поле, а не только текстовый ярлык.
     order_number: int | None = None
-
-
-class SkuCandidateOut(BaseModel):
-    sku_id: int
-    label: str
 
 
 class BlankPlanParsedLineOut(BaseModel):

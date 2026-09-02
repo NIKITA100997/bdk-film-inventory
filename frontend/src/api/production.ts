@@ -213,6 +213,16 @@ export interface NaryadParsedLine {
   // на фронтенде отдельно (виден эффект через уже заполненный
   // strip_width_mm выше), то же поле, что и у плана заготовок.
   suggested_part_id: number | null;
+  // Раздел про доборный погонаж со своим цветом на строку — последняя
+  // скобочная группа из названия ("Полипропилен Аляска" у "Добор
+  // телескоп 10х100х2070 (Полипропилен Аляска)"); null у РАСКЛАДКИ
+  // (дверное полотно — там плёнка общая на всё задание, выбирается
+  // отдельным полем) и у погонажных строк без скобок с цветом.
+  color_raw: string | null;
+  suggested_sku_id: number | null;
+  material: string | null;
+  thickness: number | null;
+  sku_candidates: SkuCandidate[];
 }
 
 export interface NaryadParseResult {

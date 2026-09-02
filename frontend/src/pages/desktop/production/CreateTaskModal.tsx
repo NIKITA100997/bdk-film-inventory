@@ -242,25 +242,36 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
   };
 
   // Раздел про загрузку наряд-заказа — печатная форма («Перечень деталей
-  // столярных изделий») даёт только форму деталей, без плёнки: тот же
-  // sku_id, что выбран здесь, подставляется в material/color/thickness
-  // каждой распознанной строки, ровно как loadLinesFromBom подставляет
-  // его для строк из состава модели.
+  // столярных изделий») бывает двух видов: РАСКЛАДКА (дверное полотно) —
+  // плёнка одна на всё задание, общим полем выше; и доборный погонаж —
+  // материал/цвет свои у каждой строки, зашиты в скобках названия
+  // ("Добор ... (Полипропилен Аляска)") и уже подобраны на сервере
+  // (services.naryad_import.enrich_naryad_lines, suggested_sku_id/
+  // sku_candidates — тот же приём, что и у плана заготовок). Строка со
+  // своим подобранным sku_id берёт материал/цвет/толщину из НЕГО (не из
+  // сырого текста в скобках — там может быть "ПЭТ Белый", то есть
+  // материал+цвет вместе, а не канонiчное имя цвета из справочника),
+  // общее поле выше — только запасной вариант для строк без своего цвета
+  // (РАСКЛАДКА) или там, где подбор не удался.
   const parseNaryadMutation = useMutation({
     mutationFn: parseNaryadFile,
     onSuccess: (result) => {
-      const sku = skusQuery.data?.find((s) => s.id === selectedSkuId);
-      if (!sku) return;
-      const loaded: ProductionTaskLineManualCreate[] = result.lines.map((l) => ({
-        material: sku.material.name,
-        color: sku.color.name,
-        thickness: sku.thickness.value_mm,
-        quantity_pieces: l.quantity_pieces,
-        width_mm: l.width_mm,
-        length_m: l.length_m,
-        strip_width_mm: l.strip_width_mm ?? undefined,
-        part_name: l.part_name,
-      }));
+      const fallbackSku = skusQuery.data?.find((s) => s.id === selectedSkuId);
+      const loaded: ManualLine[] = result.lines.map((l) => {
+        const matchedSku = l.suggested_sku_id != null ? skusQuery.data?.find((s) => s.id === l.suggested_sku_id) : undefined;
+        const sku = matchedSku ?? fallbackSku;
+        return {
+          material: sku?.material.name ?? "",
+          color: sku?.color.name ?? l.color_raw ?? "",
+          thickness: sku?.thickness.value_mm ?? 0,
+          quantity_pieces: l.quantity_pieces,
+          width_mm: l.width_mm,
+          length_m: l.length_m,
+          strip_width_mm: l.strip_width_mm ?? undefined,
+          part_name: l.part_name,
+          _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
+        };
+      });
       setManualLines((lines) => [...lines, ...loaded]);
       setLastImportCount(loaded.length);
       manualForm.setFieldsValue({
@@ -444,18 +455,19 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                   Загрузить наряд-заказ
                 </Typography.Title>
                 <Typography.Paragraph type="secondary">
-                  Файл содержит только форму деталей (название/ширина/длина/кол-во) — материал выбирается общим полем выше.
+                  Раскладка дверного полотна — только форма деталей, материал выбирается общим полем выше. Доборный
+                  погонаж — материал/цвет свои у каждой строки (из скобок в названии), подбираются автоматически;
+                  общее поле выше используется только как запасной вариант для строк, где подбор не удался.
                 </Typography.Paragraph>
                 <Upload
                   accept=".xls"
                   showUploadList={false}
-                  disabled={!selectedSkuId}
                   beforeUpload={(file) => {
                     parseNaryadMutation.mutate(file);
                     return false;
                   }}
                 >
-                  <Button block disabled={!selectedSkuId} loading={parseNaryadMutation.isPending}>
+                  <Button block loading={parseNaryadMutation.isPending}>
                     Загрузить файл наряд-заказа (.xls)
                   </Button>
                 </Upload>

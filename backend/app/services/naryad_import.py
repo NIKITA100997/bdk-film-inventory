@@ -32,6 +32,7 @@ import xlrd
 from sqlalchemy.orm import Session
 
 from app.models.dictionaries import Part
+from app.services.sku_matching import build_sku_match_index, match_sku_by_color_text
 
 RASKLADKA_MARKER = "раскладка"
 STOP_MARKERS = ("ведомость", "#оттискктокогда#")
@@ -74,6 +75,23 @@ class ParsedNaryadLine:
     # ширина штрипса досчитается позже calc_default_strip_width как и
     # раньше.
     suggested_part_id: int | None = None
+    # Раздел про доборный погонаж со своим цветом на строку — в отличие от
+    # РАСКЛАДКИ (дверное полотно), где плёнка одна на всё задание, текст
+    # погонажной строки часто несёт материал/цвет прямо в названии
+    # ("Добор телескоп 10х100х2070 (Полипропилен Аляска)") — эта
+    # последняя скобочная группа верхнего уровня (см. _last_top_level_
+    # paren_group), None у РАСКЛАДКИ и у погонажных строк без такой
+    # группы (там плёнка по-прежнему выбирается общим полем на фронтенде).
+    color_raw: str | None = None
+    # Дальше — то же самое, что уже даёт план заготовок построчно (см.
+    # EnrichedBlankPlanLine/services.sku_matching): подобранная позиция
+    # номенклатуры по color_raw, если нашлась однозначно, иначе список
+    # похожих на выбор (sku_candidates) — заполняется в enrich_naryad_lines,
+    # только когда color_raw не пуст.
+    suggested_sku_id: int | None = None
+    material: str | None = None
+    thickness: float | None = None
+    sku_candidates: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -185,6 +203,29 @@ def _korob_strip_width_mm(name: str, depth_mm: float, width_mm: float) -> float 
     return KOROB_WRAP_WIDTHS_MM.get((int(width_mm), int(depth_mm)))
 
 
+def _last_top_level_paren_group(text: str) -> str | None:
+    """Последняя СБАЛАНСИРОВАННАЯ скобочная группа верхнего уровня —
+    "(ПЭТ Светло-серый (gray silk))" целиком, а не только внутреннюю
+    "(gray silk)": реальный образец несёт вложенные скобки (английское имя
+    цвета внутри русского), простой regex без учёта вложенности (как в
+    blank_plan_import.PAREN_GROUP_RE) на такой строке нашёл бы только
+    внутреннюю пару и потерял бы материал/цвет снаружи неё."""
+    last: str | None = None
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if ch == "(":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == ")":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start != -1:
+                    last = text[start + 1 : i]
+    return last
+
+
 def _extract_pogonazh_dims(name: str) -> tuple[float, float, float] | None:
     """(глубина/профильное_число, ширина_мм, длина_мм) из текста названия —
     второе число всегда ширина заготовки, третье — длина; первое ("10" у
@@ -249,6 +290,7 @@ def parse_pogonazh_grid(rows: list[list]) -> NaryadParseResult:
                 length_m=round(length_mm / 1000, 4),
                 quantity_pieces=float(qty),
                 strip_width_mm=_korob_strip_width_mm(name, depth_mm, width_mm),
+                color_raw=_last_top_level_paren_group(name),
             )
         )
 
@@ -364,11 +406,26 @@ def enrich_naryad_lines(db: Session, result: NaryadParseResult) -> NaryadParseRe
         if category:
             parts_by_category.setdefault(category, []).append(p)
 
+    # Раздел про доборный погонаж со своим цветом на строку — индекс
+    # номенклатуры строится один раз на весь файл (не на строку), тот же
+    # приём, что и в enrich_blank_plan_blocks.
+    sku_index = build_sku_match_index(db) if any(line.color_raw for line in result.lines) else None
+
     enriched_lines = []
     for line in result.lines:
         part = _match_catalog_part(parts_by_category, line.part_name, line.width_mm, line.length_m)
-        if part is not None and part.strip_width_mm is not None:
-            enriched_lines.append(replace(line, strip_width_mm=float(part.strip_width_mm), suggested_part_id=part.id))
-        else:
-            enriched_lines.append(line)
+        line = (
+            replace(line, strip_width_mm=float(part.strip_width_mm), suggested_part_id=part.id)
+            if part is not None and part.strip_width_mm is not None
+            else line
+        )
+        if line.color_raw and sku_index is not None:
+            sku, candidates = match_sku_by_color_text(sku_index, line.color_raw)
+            if sku is not None:
+                line = replace(
+                    line, suggested_sku_id=sku.id, material=sku.material.name, thickness=float(sku.thickness.value_mm)
+                )
+            elif candidates:
+                line = replace(line, sku_candidates=candidates)
+        enriched_lines.append(line)
     return replace(result, lines=enriched_lines)
