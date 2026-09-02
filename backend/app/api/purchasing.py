@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.models.abc import CalcSettings
 from app.models.dictionaries import Color, Material, Thickness
 from app.models.events import EventType, MaterialEvent
-from app.models.production import ProductionTaskLine, ProductionTaskLineReport
+from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.purchasing import PurchaseRequest, Supplier
 from app.models.units import MaterialSku, MaterialUnit, UnitStatus
 from app.models.users import User
@@ -83,7 +83,15 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
     )
     stock_by_group = {(m, c, t): round(float(area or 0), 3) for m, c, t, area in stock_rows}
 
-    lines = db.query(ProductionTaskLine).all()
+    # Раздел про обратную связь — резерв должен считаться только по
+    # активным заданиям цеха ("текущие незавершённые"): без этого фильтра
+    # архивное задание с недоотчитанными деталями (никто их уже не
+    # производит) навсегда оставалось бы "резервом", раздувая цифру и
+    # занижая видимое "доступно" на ровно столько же (реальный случай —
+    # архивное "Окутка МК заказ 24.08" держало в резерве 863 детали).
+    lines = db.query(ProductionTaskLine).join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id).filter(
+        ProductionTask.is_active
+    ).all()
     line_ids = [line.id for line in lines]
     good_by_line: dict[int, float] = {}
     if line_ids:

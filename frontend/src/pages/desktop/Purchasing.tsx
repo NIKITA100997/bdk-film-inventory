@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, Tag, Button, Modal, Form, InputNumber, Input, DatePicker, Space, Typography, Empty, Tabs, Checkbox, Collapse, message } from "antd";
 import dayjs from "dayjs";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 import ResponsiveTable from "../../components/ResponsiveTable";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -18,12 +19,10 @@ import {
   deleteSupplierOrder,
   listSupplierOrders,
   createSupplierOrder,
-  getStockOverview,
   type PurchaseRequest,
   type PurchaseRequestCreate,
   type PurchaseRequestUpdate,
   type SupplierOrder,
-  type StockOverviewLine,
 } from "../../api/purchasing";
 import { getSupplierStats, type SupplierStats } from "../../api/suppliers";
 import DictAutoComplete from "../../components/DictAutoComplete";
@@ -36,15 +35,19 @@ interface EditingPriceTarget {
   price_per_m2?: number | null;
 }
 
-/** Экран снабженца (раздел про объединение заявок в заказ поставщику +
- * остатки с резервом) — четыре вкладки вместо прежних двух:
- * "Заявки поставщику" (как раньше, плюс чекбоксы и объединение в заказ),
- * "Заказы поставщикам" (новое — результат объединения), "Остатки и
- * резерв" (новое — проактивный заказ по остаткам, с учётом того, что уже
- * нужно текущим заданиям цеха) и "Поставщики" (как раньше). */
+/** Экран снабженца — три вкладки: "Заявки поставщику" (чекбоксы и
+ * объединение в заказ), "Заказы поставщикам" (результат объединения) и
+ * "Поставщики" (история цен/сроков). "Остатки и резерв" отсюда убраны —
+ * дублировали таблицу "Остатки" (MaterialsExplorer.tsx) без её фильтров;
+ * резерв/заявки/дозаказ/"Заказать" теперь там же, кнопка "Заказать"
+ * приводит сюда уже с открытой формой (см. useEffect на location.state
+ * ниже), "Остатки по его плёнкам →" с "Поставщиков" — туда же, с
+ * фильтром по обычному поставщику. */
 export default function Purchasing() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("requests");
   const [createOpen, setCreateOpen] = useState(false);
   const [prefill, setPrefill] = useState<Partial<PurchaseRequestCreate> | null>(null);
@@ -54,7 +57,6 @@ export default function Purchasing() {
   const [onlyUngrouped, setOnlyUngrouped] = useState(false);
   const [showClosedRequests, setShowClosedRequests] = useState(false);
   const [showClosedOrders, setShowClosedOrders] = useState(false);
-  const [stockSupplierFilter, setStockSupplierFilter] = useState<string | null>(null);
   const [form] = Form.useForm<PurchaseRequestCreate>();
   const [editForm] = Form.useForm<PurchaseRequestUpdate>();
   const [orderForm] = Form.useForm<{ supplier: string; note?: string }>();
@@ -62,7 +64,19 @@ export default function Purchasing() {
   const requestsQuery = useQuery({ queryKey: ["purchase-requests"], queryFn: () => listPurchaseRequests() });
   const supplierStatsQuery = useQuery({ queryKey: ["supplier-stats"], queryFn: getSupplierStats });
   const ordersQuery = useQuery({ queryKey: ["supplier-orders"], queryFn: listSupplierOrders });
-  const stockOverviewQuery = useQuery({ queryKey: ["purchasing-stock-overview"], queryFn: getStockOverview, enabled: activeTab === "stock" });
+
+  // Раздел про объединение "Остатков и резерва" с основной таблицей
+  // остатков ("Остатки" — MaterialsExplorer.tsx, кнопка "Заказать") —
+  // раньше отдельная вкладка здесь дублировала ту же таблицу без
+  // фильтров; теперь сюда только приходят с готовой позицией.
+  useEffect(() => {
+    const s = location.state as Partial<PurchaseRequestCreate> | null;
+    if (s?.material) {
+      setPrefill(s);
+      setCreateOpen(true);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   const createMutation = useMutation({
     mutationFn: createPurchaseRequest,
@@ -166,13 +180,8 @@ export default function Purchasing() {
   })();
 
   const openStockForSupplier = (supplierName: string) => {
-    setStockSupplierFilter(supplierName);
-    setActiveTab("stock");
+    navigate("/stock", { state: { usualSupplierFilter: supplierName } });
   };
-
-  const stockRows = (stockOverviewQuery.data ?? []).filter(
-    (r) => !stockSupplierFilter || r.usual_supplier === stockSupplierFilter,
-  );
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -427,74 +436,6 @@ export default function Purchasing() {
             ),
           },
           {
-            key: "stock",
-            label: "Остатки и резерв",
-            children: (
-              <Card>
-                <Typography.Paragraph type="secondary">
-                  Резерв — сколько из остатка уже нужно текущим (незавершённым) заданиям цеха, но ещё не заказано
-                  отдельно. Доступно = остаток минус резерв.
-                </Typography.Paragraph>
-                {stockSupplierFilter && (
-                  <Space style={{ marginBottom: 12 }}>
-                    <Tag color="purple">Только «{stockSupplierFilter}»</Tag>
-                    <Button size="small" onClick={() => setStockSupplierFilter(null)}>
-                      Сбросить фильтр
-                    </Button>
-                  </Space>
-                )}
-                <ResponsiveTable<StockOverviewLine>
-                  tableKey="purchasing-stock-overview"
-                  lockedColumns={["Позиция"]}
-                  rowKey={(r) => `${r.material}-${r.color}-${r.thickness}`}
-                  loading={stockOverviewQuery.isLoading}
-                  dataSource={stockRows}
-                  pagination={{ pageSize: 20 }}
-                  scroll={{ x: "max-content" }}
-                  columns={[
-                    { title: "Позиция", render: (_, r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
-                    { title: "Остаток, м²", dataIndex: "total_area_m2" },
-                    { title: "Резерв на задания, м²", dataIndex: "reserved_area_m2" },
-                    {
-                      title: "Доступно, м²",
-                      render: (_, r) => {
-                        const available = round1(r.total_area_m2 - r.reserved_area_m2);
-                        return <Tag color={available < 0 ? "red" : available < r.reserved_area_m2 * 0.2 ? "gold" : "green"}>{available}</Tag>;
-                      },
-                    },
-                    {
-                      title: "В заявках",
-                      dataIndex: "open_requested_area_m2",
-                      render: (v: number) => (v > 0 ? <Tag color="purple">{v} м²</Tag> : "—"),
-                    },
-                    { title: "Обычно берут у", dataIndex: "usual_supplier", render: (v: string | null) => v ?? "—" },
-                    {
-                      title: "Хватит на, дн.",
-                      dataIndex: "days_of_stock_remaining",
-                      render: (v: number | null, r) =>
-                        v == null ? "—" : <Tag color={r.reorder_suggested ? "orange" : undefined}>{v}</Tag>,
-                      sorter: (a, b) => (a.days_of_stock_remaining ?? Infinity) - (b.days_of_stock_remaining ?? Infinity),
-                    },
-                    {
-                      title: "",
-                      render: (_, r) => (
-                        <Button
-                          size="small"
-                          onClick={() => {
-                            setPrefill({ material: r.material, color: r.color, thickness: r.thickness });
-                            setCreateOpen(true);
-                          }}
-                        >
-                          Заказать
-                        </Button>
-                      ),
-                    },
-                  ]}
-                />
-              </Card>
-            ),
-          },
-          {
             key: "suppliers",
             label: "Поставщики",
             children: (
@@ -669,8 +610,4 @@ export default function Purchasing() {
       </Modal>
     </Space>
   );
-}
-
-function round1(v: number): number {
-  return Math.round(v * 10) / 10;
 }

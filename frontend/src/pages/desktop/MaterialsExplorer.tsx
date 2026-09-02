@@ -43,6 +43,7 @@ import {
 } from "../../api/units";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { getStockSummaryGrouped, type StockSummaryGroupedLine } from "../../api/reports";
+import { getStockOverview, type StockOverviewLine } from "../../api/purchasing";
 import { listAbcClasses, recomputeAbc } from "../../api/abc";
 import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionaries";
 import { listRacks, suggestLocation } from "../../api/storage";
@@ -96,6 +97,12 @@ export default function MaterialsExplorer() {
   // с реальной проверкой на бэкенде (dictionaries.py:378, units.py:116).
   const canReceive = !!user?.is_superuser || !!user?.permissions.includes("units.receive");
   const canCreatePosition = canReceive || canEditSku;
+  // Раздел про объединение "Остатков" с "Остатками и резервом" снабженца
+  // (раньше отдельная вкладка на "Закупках", дублировавшая эту же таблицу
+  // без фильтров) — резерв/заявки/дозаказ подмешиваются сюда только тем,
+  // у кого есть право видеть эти данные, чтобы не звать привилегированный
+  // эндпоинт от лица кладовщика без этого права (получил бы 403).
+  const canViewPurchasing = !!user?.is_superuser || !!user?.permissions.includes("purchasing.manage");
   const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
 
   const [viewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
@@ -118,6 +125,15 @@ export default function MaterialsExplorer() {
   useEffect(() => {
     const stateQuery = (location.state as { globalQuery?: string } | null)?.globalQuery;
     if (stateQuery) setGlobalQuery(stateQuery);
+  }, [location.state]);
+
+  // Раздел про объединение с "Остатками и резервом" — переход с вкладки
+  // "Поставщики" ("Остатки по его плёнкам →") раньше переключал локальную
+  // вкладку на "Закупках", теперь ведёт сюда с этим же фильтром.
+  const [supplierFilter, setSupplierFilter] = useState<string | null>(null);
+  useEffect(() => {
+    const stateSupplier = (location.state as { usualSupplierFilter?: string } | null)?.usualSupplierFilter;
+    if (stateSupplier) setSupplierFilter(stateSupplier);
   }, [location.state]);
 
   const [selectedUnitIds, setSelectedUnitIds] = useState<number[]>([]);
@@ -152,6 +168,20 @@ export default function MaterialsExplorer() {
     queryFn: () => getStockSummaryGrouped(warehouseId, showArchived),
     enabled: viewMode === "positions",
   });
+  // Раздел про объединение с "Остатками и резервом" — тот же эндпоинт,
+  // что раньше отдельной вкладкой на "Закупках", теперь подмешивается сюда
+  // по ключу материал+цвет+толщина; запрашивается только если это право
+  // вообще есть, иначе кладовщик получил бы 403 от чужого эндпоинта.
+  const stockOverviewQuery = useQuery({
+    queryKey: ["purchasing-stock-overview"],
+    queryFn: getStockOverview,
+    enabled: viewMode === "positions" && canViewPurchasing,
+  });
+  const overviewByGroup = useMemo(() => {
+    const map = new Map<string, StockOverviewLine>();
+    for (const o of stockOverviewQuery.data ?? []) map.set(`${o.material}|${o.color}|${o.thickness}`, o);
+    return map;
+  }, [stockOverviewQuery.data]);
   const unitsQuery = useQuery({
     queryKey: ["materials-explorer", "units", filters, warehouseId],
     queryFn: () => searchUnits({ ...filters, warehouse_id: warehouseId }),
@@ -273,6 +303,9 @@ export default function MaterialsExplorer() {
     // теперь применяется здесь (не параметром запроса): оставляем группу,
     // только если у неё есть подходящий производитель внутри.
     if (filters.manufacturer && !p.manufacturers.some((m) => m.manufacturer === filters.manufacturer)) return false;
+    if (supplierFilter && overviewByGroup.get(`${p.material}|${p.color}|${p.thickness}`)?.usual_supplier !== supplierFilter) {
+      return false;
+    }
     if (textQuery) {
       const matchesGroup = `${p.material} ${p.color}`.toLowerCase().includes(textQuery);
       const matchesManufacturer = p.manufacturers.some((m) => m.manufacturer.toLowerCase().includes(textQuery));
@@ -405,6 +438,14 @@ export default function MaterialsExplorer() {
             </Button>
           }
         >
+          {supplierFilter && (
+            <Space style={{ marginBottom: 12 }}>
+              <Tag color="purple">Только «{supplierFilter}»</Tag>
+              <Button size="small" onClick={() => setSupplierFilter(null)}>
+                Сбросить фильтр
+              </Button>
+            </Space>
+          )}
           <Table<StockSummaryGroupedLine>
             rowKey={(r) => `${r.material}-${r.color}-${r.thickness}`}
             loading={positionsQuery.isLoading}
@@ -456,6 +497,65 @@ export default function MaterialsExplorer() {
               },
               { title: "Остаток, м²", dataIndex: "total_area_m2", sorter: (a, b) => a.total_area_m2 - b.total_area_m2 },
               { title: "Единиц", dataIndex: "unit_count", sorter: (a, b) => a.unit_count - b.unit_count },
+              ...(canViewPurchasing
+                ? [
+                    {
+                      title: "Резерв на задания, м²",
+                      render: (_: unknown, r: StockSummaryGroupedLine) =>
+                        overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`)?.reserved_area_m2 ?? 0,
+                    },
+                    {
+                      title: "Доступно, м²",
+                      render: (_: unknown, r: StockSummaryGroupedLine) => {
+                        const o = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
+                        const reserved = o?.reserved_area_m2 ?? 0;
+                        const available = Math.round((r.total_area_m2 - reserved) * 10) / 10;
+                        return (
+                          <Tag color={available < 0 ? "red" : reserved > 0 && available < reserved * 0.2 ? "gold" : "green"}>
+                            {available}
+                          </Tag>
+                        );
+                      },
+                    },
+                    {
+                      title: "В заявках",
+                      render: (_: unknown, r: StockSummaryGroupedLine) => {
+                        const v = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`)?.open_requested_area_m2 ?? 0;
+                        return v > 0 ? <Tag color="purple">{v} м²</Tag> : "—";
+                      },
+                    },
+                    {
+                      title: "Обычно берут у",
+                      render: (_: unknown, r: StockSummaryGroupedLine) =>
+                        overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`)?.usual_supplier ?? "—",
+                    },
+                    {
+                      title: "Хватит на, дн.",
+                      render: (_: unknown, r: StockSummaryGroupedLine) => {
+                        const o = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
+                        return o?.days_of_stock_remaining == null ? (
+                          "—"
+                        ) : (
+                          <Tag color={o.reorder_suggested ? "orange" : undefined}>{o.days_of_stock_remaining}</Tag>
+                        );
+                      },
+                    },
+                    {
+                      title: "",
+                      render: (_: unknown, r: StockSummaryGroupedLine) => (
+                        <Button
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate("/purchasing", { state: { material: r.material, color: r.color, thickness: r.thickness } });
+                          }}
+                        >
+                          Заказать
+                        </Button>
+                      ),
+                    },
+                  ]
+                : []),
             ]}
           />
         </Card>
