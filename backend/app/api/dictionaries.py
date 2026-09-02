@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.config import settings
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
+from app.models.cutting_operations import CuttingOperation
 from app.models.dictionaries import Color, Employee, Manufacturer, Material, MaterialSku, Part, SkuAnalog, Thickness
 from app.models.events import MaterialEvent
 from app.models.units import MaterialUnit, UnitStatus
@@ -22,6 +23,8 @@ from app.schemas.dictionaries import (
     ManufacturerOut,
     MaterialOut,
     MaterialSkuCreate,
+    MaterialSkuMergeRequest,
+    MaterialSkuMergeResult,
     MaterialSkuOut,
     MaterialSkuUpdate,
     NameCreate,
@@ -514,6 +517,64 @@ def delete_material_sku(sku_id: int, db: Session = Depends(get_db), user=Depends
     delete_material_sku_impl(db, sku)
     db.commit()
     return DeleteResultOut(deleted=True, requested=False)
+
+
+@router.post("/material-skus/{sku_id}/merge", response_model=MaterialSkuMergeResult)
+def merge_material_sku(
+    sku_id: int, payload: MaterialSkuMergeRequest, db: Session = Depends(get_db), user=Depends(manage_dicts)
+) -> MaterialSkuMergeResult:
+    """Объединение двух позиций номенклатуры, оказавшихся дублями одной и
+    той же плёнки (см. MaterialSkuMergeRequest) — та же ручная процедура,
+    что в этой сессии делалась точечными SQL-скриптами, теперь как функция
+    приложения. Переносим остатки (MaterialUnit), журнал движений
+    (MaterialEvent) и ссылки на донора в истории резки (CuttingOperation) с
+    объединяемой позиции на оставшуюся; связи "аналог" (SkuAnalog) —
+    аккуратно: если после переноса пара стала самоссылкой или дублирует уже
+    существующую связь оставшейся позиции — просто убираем такую лишнюю
+    запись, а не пытаемся создать невозможную/повторную. Объединяемая
+    позиция уходит в архив (is_active=False), не удаляется — как и везде в
+    проекте, где есть история (см. delete_material_sku_impl рядом)."""
+    if payload.into_sku_id == sku_id:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Нельзя объединить позицию саму с собой")
+    loser = _get_sku_or_404(db, sku_id)
+    survivor = _get_sku_or_404(db, payload.into_sku_id)
+
+    moved_units = db.query(MaterialUnit).filter(MaterialUnit.material_sku_id == loser.id).update(
+        {"material_sku_id": survivor.id}
+    )
+    moved_events = db.query(MaterialEvent).filter(MaterialEvent.material_sku_id == loser.id).update(
+        {"material_sku_id": survivor.id}
+    )
+    db.query(CuttingOperation).filter(CuttingOperation.donor_material_sku_id == loser.id).update(
+        {"donor_material_sku_id": survivor.id}
+    )
+
+    for link in db.query(SkuAnalog).filter((SkuAnalog.sku_id == loser.id) | (SkuAnalog.analog_sku_id == loser.id)).all():
+        new_sku_id = survivor.id if link.sku_id == loser.id else link.sku_id
+        new_analog_id = survivor.id if link.analog_sku_id == loser.id else link.analog_sku_id
+        if new_sku_id == new_analog_id:
+            db.delete(link)
+            continue
+        duplicate = (
+            db.query(SkuAnalog.id)
+            .filter(SkuAnalog.sku_id == new_sku_id, SkuAnalog.analog_sku_id == new_analog_id, SkuAnalog.id != link.id)
+            .first()
+        )
+        if duplicate:
+            db.delete(link)
+        else:
+            link.sku_id = new_sku_id
+            link.analog_sku_id = new_analog_id
+    db.flush()
+
+    loser.is_active = False
+    db.commit()
+    db.refresh(survivor)
+    return MaterialSkuMergeResult(
+        survivor=_skus_query(db).filter(MaterialSku.id == survivor.id).first(),
+        moved_units=moved_units,
+        moved_events=moved_events,
+    )
 
 
 def _get_sku_or_404(db: Session, sku_id: int) -> MaterialSku:

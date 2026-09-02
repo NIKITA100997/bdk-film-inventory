@@ -18,6 +18,7 @@ import {
   uploadSkuPhoto,
   deleteSkuPhoto,
   skuPhotoUrl,
+  mergeMaterialSku,
   type MaterialSkuUpdate,
   type AnalogEntry,
 } from "../../api/dictionaries";
@@ -209,6 +210,77 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
   );
 }
 
+/** Объединение двух позиций номенклатуры, оказавшихся одним и тем же
+ * материалом под разными названиями (реальные случаи этой сессии — "Орех"/
+ * "Грецкий Орех", "Бьянко"/"Бьянко TF53") — раньше делалось точечными
+ * SQL-скриптами вручную. survivor выбирает, какая из двух остаётся
+ * действующей — остатки/история другой переносятся на неё, сама она
+ * уходит в архив (не удаляется). */
+function MergeSkuModal({ sku, allSkus, onClose }: { sku: MaterialSku; allSkus: MaterialSku[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [otherSkuId, setOtherSkuId] = useState<number | undefined>();
+  const [survivor, setSurvivor] = useState<"current" | "other">("current");
+
+  const candidateSkus = allSkus.filter((s) => s.id !== sku.id);
+  const other = candidateSkus.find((s) => s.id === otherSkuId);
+
+  const mergeMutation = useMutation({
+    mutationFn: () => {
+      const loserId = survivor === "current" ? other!.id : sku.id;
+      const survivorId = survivor === "current" ? sku.id : other!.id;
+      return mergeMaterialSku(loserId, survivorId);
+    },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["material-skus"] });
+      message.success(`Объединено — перенесено единиц: ${result.moved_units}, событий журнала: ${result.moved_events}`);
+      onClose();
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось объединить")),
+  });
+
+  return (
+    <Modal title={`Объединить позицию: ${skuLabel(sku)}`} open onCancel={onClose} footer={null} width={520} destroyOnHidden>
+      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Typography.Paragraph type="secondary">
+          Для двух позиций, оказавшихся одним и тем же материалом под разными названиями (дубль/опечатка в
+          справочнике) — весь остаток, история движений и связи объединяемой позиции переносятся на оставшуюся,
+          сама она уходит в архив. Отменить это действие нельзя.
+        </Typography.Paragraph>
+        <Select
+          placeholder="С какой позицией объединить"
+          style={{ width: "100%" }}
+          value={otherSkuId}
+          onChange={setOtherSkuId}
+          showSearch
+          optionFilterProp="label"
+          options={candidateSkus.map((s) => ({ value: s.id, label: skuLabel(s) }))}
+        />
+        {other && (
+          <>
+            <Radio.Group value={survivor} onChange={(e) => setSurvivor(e.target.value)}>
+              <Space direction="vertical">
+                <Radio value="current">Останется: {skuLabel(sku)} (эта карточка)</Radio>
+                <Radio value="other">Останется: {skuLabel(other)}</Radio>
+              </Space>
+            </Radio.Group>
+            <Popconfirm
+              title="Объединить позиции?"
+              description="Остатки и история объединяемой позиции переносятся на оставшуюся, отменить нельзя."
+              onConfirm={() => mergeMutation.mutate()}
+              okText="Да, объединить"
+              cancelText="Отмена"
+            >
+              <Button type="primary" danger loading={mergeMutation.isPending}>
+                Объединить
+              </Button>
+            </Popconfirm>
+          </>
+        )}
+      </Space>
+    </Modal>
+  );
+}
+
 export default function MaterialCard() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -224,6 +296,7 @@ export default function MaterialCard() {
   const [skuId, setSkuId] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [analogsOpen, setAnalogsOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const [addUnitOpen, setAddUnitOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<MaterialUnit | null>(null);
   const [editing, setEditing] = useState<MaterialSkuUpdate>({});
@@ -445,6 +518,11 @@ export default function MaterialCard() {
               <Button size="small" onClick={() => setAnalogsOpen(true)}>
                 Аналоги/фото
               </Button>
+              {canEdit && (
+                <Button size="small" onClick={() => setMergeOpen(true)}>
+                  Объединить с другой позицией
+                </Button>
+              )}
               {canAddUnit && (
                 <Button size="small" type="primary" onClick={() => setAddUnitOpen(true)}>
                   + Добавить единицу
@@ -599,6 +677,9 @@ export default function MaterialCard() {
 
       {reassignTarget && <ReassignSkuModal unit={reassignTarget} onClose={() => setReassignTarget(null)} />}
       {addUnitOpen && selectedSku && <AddUnitModal sku={selectedSku} onClose={() => setAddUnitOpen(false)} />}
+      {mergeOpen && selectedSku && (
+        <MergeSkuModal sku={selectedSku} allSkus={skusQuery.data ?? []} onClose={() => setMergeOpen(false)} />
+      )}
     </Space>
   );
 }

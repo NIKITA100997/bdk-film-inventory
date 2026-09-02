@@ -133,6 +133,22 @@ class MaterialSkuUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class MaterialSkuMergeRequest(BaseModel):
+    """Раздел про объединение дублей номенклатуры (реальные случаи этой
+    сессии — "Орех"/"Грецкий Орех", "Бьянко"/"Бьянко TF53": одна и та же
+    плёнка заведена дважды под разными названиями). into_sku_id — какая из
+    двух остаётся действующей; объединяемая (id из пути запроса) уходит в
+    архив после переноса остатков/истории на неё."""
+
+    into_sku_id: int
+
+
+class MaterialSkuMergeResult(BaseModel):
+    survivor: MaterialSkuOut
+    moved_units: int
+    moved_events: int
+
+
 class DictEntryUpdate(BaseModel):
     name: str | None = None
     is_active: bool | None = None

@@ -91,6 +91,18 @@ export const updateMaterialSku = async (id: number, payload: MaterialSkuUpdate):
 export const deleteMaterialSku = async (id: number): Promise<DeleteResult> =>
   (await apiClient.delete<DeleteResult>(`/material-skus/${id}`)).data;
 
+// Раздел про объединение дублей номенклатуры — sku_id уходит в архив,
+// into_sku_id остаётся действующей и получает весь перенесённый остаток/
+// историю.
+export interface MaterialSkuMergeResult {
+  survivor: MaterialSku;
+  moved_units: number;
+  moved_events: number;
+}
+
+export const mergeMaterialSku = async (skuId: number, intoSkuId: number): Promise<MaterialSkuMergeResult> =>
+  (await apiClient.post<MaterialSkuMergeResult>(`/material-skus/${skuId}/merge`, { into_sku_id: intoSkuId })).data;
+
 export const listMaterials = async (): Promise<DictEntry[]> => (await apiClient.get<DictEntry[]>("/materials")).data;
 export const listColors = async (): Promise<DictEntry[]> => (await apiClient.get<DictEntry[]>("/colors")).data;
 export const listManufacturers = async (): Promise<DictEntry[]> =>
