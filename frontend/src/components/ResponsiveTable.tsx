@@ -90,6 +90,15 @@ export default function ResponsiveTable<T extends object>({
   const paginationConfig = typeof paginationProp === "object" && paginationProp ? paginationProp : {};
   const isControlledPage = paginationConfig.current !== undefined;
   const [localPage, setLocalPage] = useState(1);
+  // Раздел про переключатель размера страницы (20/40/60/100) в карточном
+  // режиме — раньше менялась только страница (localPage), а сам размер
+  // всегда читался напрямую из paginationConfig.pageSize (статичный проп,
+  // одно и то же число на каждый рендер), поэтому выбор другого размера
+  // визуально менял значение в выпадающем списке (это внутреннее состояние
+  // antd Pagination), но не число показанных карточек. localPageSize здесь
+  // не сбрасывается при смене dataSource (в отличие от localPage) —
+  // выбранный размер страницы должен пережить обновление данных.
+  const [localPageSize, setLocalPageSize] = useState<number | null>(null);
   useEffect(() => {
     setLocalPage(1);
   }, [dataSource]);
@@ -135,7 +144,7 @@ export default function ResponsiveTable<T extends object>({
 
   const rows = dataSource ?? [];
 
-  const pageSize = paginationConfig.pageSize ?? 10;
+  const pageSize = isControlledPage ? (paginationConfig.pageSize ?? 10) : (localPageSize ?? paginationConfig.pageSize ?? 10);
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(isControlledPage ? paginationConfig.current! : localPage, totalPages);
   const pagedRows = paginationEnabled ? rows.slice((currentPage - 1) * pageSize, currentPage * pageSize) : rows;
@@ -145,6 +154,7 @@ export default function ResponsiveTable<T extends object>({
       paginationConfig.onChange?.(page, size);
     } else {
       setLocalPage(page);
+      setLocalPageSize(size);
     }
   };
 
