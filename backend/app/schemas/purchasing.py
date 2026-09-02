@@ -117,3 +117,22 @@ class StockOverviewLine(BaseModel):
     # этого поставщика (не гадаем на пустом месте).
     days_of_stock_remaining: float | None
     reorder_suggested: bool
+
+
+class StockForSkusRequest(BaseModel):
+    sku_ids: list[int]
+
+
+class StockForSkuOut(BaseModel):
+    """Остаток и резерв по одной позиции номенклатуры — раздел про
+    калькулятор заказа продажника (`/sales-calculator`): нужно только
+    остаток/резерв/доступно на конкретный цвет, без снабженческих полей
+    (заявки/поставщик/точка дозаказа) из `StockOverviewLine`."""
+
+    sku_id: int
+    material: str
+    color: str
+    thickness: float
+    total_area_m2: float
+    reserved_area_m2: float
+    available_area_m2: float

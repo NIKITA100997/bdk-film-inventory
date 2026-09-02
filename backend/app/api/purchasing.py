@@ -20,6 +20,8 @@ from app.schemas.purchasing import (
     PurchaseRequestOut,
     PurchaseRequestShopFloorCreate,
     PurchaseRequestUpdate,
+    StockForSkuOut,
+    StockForSkusRequest,
     StockOverviewLine,
 )
 from app.services.deletion_requests import request_deletion
@@ -31,6 +33,10 @@ from app.services.suppliers import ClosedRequestRecord, compute_supplier_stats
 router = APIRouter(prefix="/purchase-requests", tags=["purchasing"])
 
 manage_purchasing = require_permission("purchasing.manage")
+# Раздел про калькулятор заказа продажника — остаток/резерв по конкретной
+# позиции нужен и снабженцу, и продажнику, но не более широкие права друг
+# друга (продажник не получает purchasing.manage, снабженец как раньше).
+view_stock_for_sales = require_permission("purchasing.manage", "sales_calculator.view")
 # С "Выдачи участку" (units.issue) — сигнал нехватки прямо в моменте
 # выдачи; с "Приёмки" (units.receive) — привязка заявки к конкретной
 # поставке по УПД. Ни то ни другое не требует прав снабженца.
@@ -61,14 +67,14 @@ def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:
     )
 
 
-@router.get("/stock-overview", response_model=list[StockOverviewLine])
-def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_purchasing)) -> list[StockOverviewLine]:
-    """«Остатки и резерв» (раздел про экран снабженца) — остаток на складе,
-    резерв на текущие незавершённые задания цеха и сколько уже в открытых
-    заявках, по группе материал+цвет+толщина. Отдаётся тут, а не в
-    reports.py, потому что снабженцу не выдаются права на задания цеха
-    (production_tasks.*) — расчёт резерва идёт под её же правом
-    purchasing.manage, без обращения к производственным эндпоинтам."""
+def _stock_and_reserve_by_group(
+    db: Session,
+) -> tuple[dict[tuple[int, int, int], float], dict[tuple[int, int, int], float]]:
+    """Остаток на складе и резерв на текущие незавершённые задания цеха, по
+    группе материал+цвет+толщина — общий расчёт для «Остатки и резерв»
+    снабженца (`stock_overview`) и для видимости остатков в калькуляторе
+    заказа продажника (`stock_for_skus`), чтобы не дублировать нетривиальный
+    запрос резерва в двух местах."""
     stock_rows = (
         db.query(
             MaterialSku.material_id,
@@ -119,6 +125,18 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
         for line in lines
     ]
     reserved_by_group = reserved_area_m2_by_group(reserve_input)
+    return stock_by_group, reserved_by_group
+
+
+@router.get("/stock-overview", response_model=list[StockOverviewLine])
+def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_purchasing)) -> list[StockOverviewLine]:
+    """«Остатки и резерв» (раздел про экран снабженца) — остаток на складе,
+    резерв на текущие незавершённые задания цеха и сколько уже в открытых
+    заявках, по группе материал+цвет+толщина. Отдаётся тут, а не в
+    reports.py, потому что снабженцу не выдаются права на задания цеха
+    (production_tasks.*) — расчёт резерва идёт под её же правом
+    purchasing.manage, без обращения к производственным эндпоинтам."""
+    stock_by_group, reserved_by_group = _stock_and_reserve_by_group(db)
 
     open_requested_rows = (
         db.query(
@@ -218,6 +236,40 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
             )
         )
     result.sort(key=lambda r: (r.material, r.color, r.thickness))
+    return result
+
+
+@router.post("/stock-for-skus", response_model=list[StockForSkuOut])
+def stock_for_skus(
+    payload: StockForSkusRequest, db: Session = Depends(get_db), user: User = Depends(view_stock_for_sales)
+) -> list[StockForSkuOut]:
+    """Остаток/резерв/доступно для конкретных позиций номенклатуры —
+    раздел про калькулятор заказа: продажник собирает заказ из нескольких
+    дверей разных цветов, для каждого использованного цвета показываем,
+    хватит ли текущего остатка с учётом того, что уже зарезервировано под
+    текущие задания цеха. Дедуплицируем по группе материал+цвет+толщина —
+    остаток считается на неё, не на конкретный sku_id (разные производители
+    той же группы делят один пул стока, см. current_stock_m2)."""
+    skus = db.query(MaterialSku).filter(MaterialSku.id.in_(payload.sku_ids)).all()
+    if len(skus) != len(set(payload.sku_ids)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Одна или несколько позиций номенклатуры не найдены")
+    stock_by_group, reserved_by_group = _stock_and_reserve_by_group(db)
+    result: list[StockForSkuOut] = []
+    for sku in skus:
+        group = (sku.material_id, sku.color_id, sku.thickness_id)
+        total = stock_by_group.get(group, 0.0)
+        reserved = reserved_by_group.get(group, 0.0)
+        result.append(
+            StockForSkuOut(
+                sku_id=sku.id,
+                material=db.get(Material, sku.material_id).name,
+                color=db.get(Color, sku.color_id).name,
+                thickness=float(db.get(Thickness, sku.thickness_id).value_mm),
+                total_area_m2=total,
+                reserved_area_m2=reserved,
+                available_area_m2=round(total - reserved, 3),
+            )
+        )
     return result
 
 

@@ -137,6 +137,26 @@ export async function getStockOverview(): Promise<StockOverviewLine[]> {
   return data;
 }
 
+export interface StockForSkuOut {
+  sku_id: number;
+  material: string;
+  color: string;
+  thickness: number;
+  total_area_m2: number;
+  reserved_area_m2: number;
+  available_area_m2: number;
+}
+
+// Раздел про калькулятор заказа продажника — остаток/резерв по нескольким
+// позициям сразу (заказ из нескольких цветов), без прав purchasing.manage.
+export async function getStockForSkus(skuIds: number[]): Promise<StockForSkuOut[]> {
+  if (skuIds.length === 0) return [];
+  const { data } = await apiClient.post<StockForSkuOut[]>("/purchase-requests/stock-for-skus", {
+    sku_ids: skuIds,
+  });
+  return data;
+}
+
 export async function listSupplierOrders(): Promise<SupplierOrder[]> {
   const { data } = await apiClient.get<SupplierOrder[]>("/supplier-orders");
   return data;

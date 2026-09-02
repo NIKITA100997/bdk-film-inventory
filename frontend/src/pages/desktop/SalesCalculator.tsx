@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { Card, Select, InputNumber, Space, Typography, Tag, Image, Empty, Row, Col } from "antd";
+import { Card, Select, InputNumber, Space, Typography, Tag, Image, Empty, Row, Col, Button } from "antd";
+import { PlusOutlined, DeleteOutlined, PictureOutlined } from "@ant-design/icons";
 import Statistic from "../../components/Statistic";
 import ResponsiveTable from "../../components/ResponsiveTable";
-import { PictureOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { listMaterialSkus, getSkuAnalogs, skuPhotoUrl, type AnalogEntry } from "../../api/dictionaries";
 import { skuLabel, type MaterialSku } from "../../api/units";
-import { listProductModels, type ProductModelPart } from "../../api/production";
+import { listProductModels, type ProductModel, type ProductModelPart } from "../../api/production";
+import { getStockForSkus } from "../../api/purchasing";
 
 function Photo({ sku, size = 48 }: { sku: MaterialSku; size?: number }) {
   const url = skuPhotoUrl(sku.photo_path);
@@ -44,18 +45,65 @@ function partFilmAreaM2(part: ProductModelPart, orderQty: number): number {
   return (part.qty_per_unit * orderQty * stripWidthMm * part.length_m) / 1000;
 }
 
+interface OrderLine {
+  key: string;
+  modelId?: number;
+  qty: number;
+  skuId?: number;
+  showParts: boolean;
+}
+
+function lineFilmTotalM2(model: ProductModel | undefined, qty: number): number {
+  if (!model) return 0;
+  return Math.round(model.parts.reduce((sum, p) => sum + partFilmAreaM2(p, qty), 0) * 100) / 100;
+}
+
+let nextLineKey = 1;
+
 export default function SalesCalculator() {
   const [skuId, setSkuId] = useState<number | undefined>();
   const [neededM2, setNeededM2] = useState<number | undefined>();
-  const [modelId, setModelId] = useState<number | undefined>();
-  const [orderQty, setOrderQty] = useState<number>(1);
+  const [orderLines, setOrderLines] = useState<OrderLine[]>([{ key: "0", qty: 1, showParts: false }]);
 
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
-  const model = (modelsQuery.data ?? []).find((m) => m.id === modelId);
-  const filmRows = (model?.parts ?? []).map((p) => ({ ...p, area_m2: partFilmAreaM2(p, orderQty) }));
-  const filmTotalM2 = Math.round(filmRows.reduce((sum, r) => sum + r.area_m2, 0) * 100) / 100;
-
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
+
+  const modelsById = new Map((modelsQuery.data ?? []).map((m) => [m.id, m]));
+  const skusById = new Map((skusQuery.data ?? []).map((s) => [s.id, s]));
+
+  const addLine = () => setOrderLines((ls) => [...ls, { key: String(nextLineKey++), qty: 1, showParts: false }]);
+  const removeLine = (key: string) => setOrderLines((ls) => ls.filter((l) => l.key !== key));
+  const updateLine = (key: string, patch: Partial<OrderLine>) =>
+    setOrderLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+
+  const linesComputed = orderLines.map((l) => {
+    const model = l.modelId !== undefined ? modelsById.get(l.modelId) : undefined;
+    return { ...l, model, totalM2: lineFilmTotalM2(model, l.qty) };
+  });
+
+  // Раздел про заказ из нескольких дверей/цветов — одна и та же плёнка
+  // расходуется на все строки заказа этого цвета сразу, поэтому остаток/
+  // резерв смотрим не по строке, а по позиции номенклатуры (skuId),
+  // просуммировав расход всех строк этого цвета.
+  const neededBySku = new Map<number, number>();
+  for (const l of linesComputed) {
+    if (l.skuId === undefined) continue;
+    neededBySku.set(l.skuId, Math.round(((neededBySku.get(l.skuId) ?? 0) + l.totalM2) * 100) / 100);
+  }
+  const orderSkuIds = [...neededBySku.keys()];
+  const stockForSkusQuery = useQuery({
+    queryKey: ["stock-for-skus", orderSkuIds],
+    queryFn: () => getStockForSkus(orderSkuIds),
+    enabled: orderSkuIds.length > 0,
+  });
+  const stockBySku = new Map((stockForSkusQuery.data ?? []).map((s) => [s.sku_id, s]));
+  const summaryRows = orderSkuIds.map((id) => {
+    const needed = neededBySku.get(id) ?? 0;
+    const stock = stockBySku.get(id);
+    const available = stock?.available_area_m2 ?? 0;
+    const shortage = Math.max(0, Math.round((needed - available) * 100) / 100);
+    return { skuId: id, sku: skusById.get(id), needed, stock, shortage };
+  });
   const analogsQuery = useQuery({
     queryKey: ["sku-analogs", skuId],
     queryFn: () => getSkuAnalogs(skuId!),
@@ -77,54 +125,108 @@ export default function SalesCalculator() {
         Расход плёнки на заказ
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginTop: 4 }}>
-        Выберите модель двери (с нужным размером) и количество — покажем, сколько плёнки понадобится по деталям
-        (штрипс на деталь × длина × количество на изделие × количество изделий), с итогом по всем деталям.
-        Цвет/материал плёнки здесь не выбирается — это делается позже, при создании производственного задания.
+        Заказ может быть из нескольких дверей разных моделей и цветов — добавьте по строке на каждую комбинацию
+        модель+цвет. Внизу — итог по каждому использованному цвету: сколько нужно на этот заказ, сколько сейчас на
+        складе, сколько уже зарезервировано под текущие задания цеха и сколько реально свободно.
       </Typography.Paragraph>
 
-      <Card size="small">
-        <Space wrap size="middle">
-          <Select
-            placeholder="Модель двери"
-            style={{ width: 320 }}
-            showSearch
-            optionFilterProp="label"
-            loading={modelsQuery.isLoading}
-            value={modelId}
-            onChange={setModelId}
-            options={(modelsQuery.data ?? [])
-              .filter((m) => m.is_active)
-              .map((m) => ({ value: m.id, label: m.name }))}
-          />
-          <InputNumber
-            placeholder="Количество, шт"
-            min={1}
-            style={{ width: 160 }}
-            value={orderQty}
-            onChange={(v) => setOrderQty(v ?? 1)}
-          />
-        </Space>
-      </Card>
+      <Space direction="vertical" style={{ width: "100%" }} size="small">
+        {linesComputed.map((l) => (
+          <Card key={l.key} size="small">
+            <Space wrap size="middle" align="start">
+              <Select
+                placeholder="Модель двери"
+                style={{ width: 260 }}
+                showSearch
+                optionFilterProp="label"
+                loading={modelsQuery.isLoading}
+                value={l.modelId}
+                onChange={(v) => updateLine(l.key, { modelId: v })}
+                options={(modelsQuery.data ?? [])
+                  .filter((m) => m.is_active)
+                  .map((m) => ({ value: m.id, label: m.name }))}
+              />
+              <InputNumber
+                placeholder="Кол-во, шт"
+                min={1}
+                style={{ width: 120 }}
+                value={l.qty}
+                onChange={(v) => updateLine(l.key, { qty: v ?? 1 })}
+              />
+              <Select
+                placeholder="Цвет плёнки"
+                style={{ width: 300 }}
+                showSearch
+                optionFilterProp="label"
+                loading={skusQuery.isLoading}
+                value={l.skuId}
+                onChange={(v) => updateLine(l.key, { skuId: v })}
+                options={(skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
+              />
+              <Statistic title="Расход по строке, м²" value={l.totalM2} />
+              {!!l.model && (
+                <Button type="link" onClick={() => updateLine(l.key, { showParts: !l.showParts })}>
+                  {l.showParts ? "Скрыть по деталям" : "Показать по деталям"}
+                </Button>
+              )}
+              {orderLines.length > 1 && (
+                <Button icon={<DeleteOutlined />} danger type="text" onClick={() => removeLine(l.key)} />
+              )}
+            </Space>
 
-      {model && (
-        <Card
-          title={`${model.name} × ${orderQty} шт`}
-          extra={<Statistic title="Итого расход плёнки, м²" value={filmTotalM2} valueStyle={{ color: "#C97A2B" }} />}
-        >
-          <ResponsiveTable<(typeof filmRows)[number]>
-            tableKey="sales-film-estimate"
-            lockedColumns={["Деталь"]}
-            rowKey="id"
+            {l.showParts && l.model && (
+              <ResponsiveTable<ProductModelPart & { area_m2: number }>
+                tableKey="sales-film-estimate-parts"
+                lockedColumns={["Деталь"]}
+                rowKey="id"
+                pagination={false}
+                style={{ marginTop: 12 }}
+                dataSource={l.model.parts.map((p) => ({ ...p, area_m2: partFilmAreaM2(p, l.qty) }))}
+                scroll={{ x: "max-content" }}
+                columns={[
+                  { title: "Деталь", dataIndex: "part_name", render: (v: string | null) => v ?? "Без названия" },
+                  { title: "Шт. на 1 изделие", dataIndex: "qty_per_unit" },
+                  { title: "Шт. всего", render: (_, r) => r.qty_per_unit * l.qty },
+                  { title: "Штрипс, мм", render: (_, r) => r.strip_width_mm ?? r.width_mm },
+                  { title: "Длина, м", dataIndex: "length_m" },
+                  { title: "Площадь, м²", render: (_, r) => r.area_m2.toFixed(2) },
+                ]}
+              />
+            )}
+          </Card>
+        ))}
+        <Button icon={<PlusOutlined />} onClick={addLine} block>
+          Добавить дверь
+        </Button>
+      </Space>
+
+      {summaryRows.length > 0 && (
+        <Card title="Итог по цветам — остаток и резерв" loading={stockForSkusQuery.isLoading}>
+          <ResponsiveTable<(typeof summaryRows)[number]>
+            tableKey="sales-film-summary"
+            lockedColumns={["Позиция"]}
+            rowKey="skuId"
             pagination={false}
-            dataSource={filmRows}
+            dataSource={summaryRows}
             scroll={{ x: "max-content" }}
             columns={[
-              { title: "Деталь", dataIndex: "part_name", render: (v: string | null) => v ?? "Без названия" },
-              { title: "Шт. на 1 изделие", dataIndex: "qty_per_unit" },
-              { title: "Шт. всего", render: (_, r) => r.qty_per_unit * orderQty },
-              { title: "Штрипс, мм", render: (_, r) => r.strip_width_mm ?? r.width_mm },
-              { title: "Длина, м", dataIndex: "length_m" },
-              { title: "Площадь, м²", render: (_, r) => r.area_m2.toFixed(2) },
+              { title: "Позиция", render: (_, r) => (r.sku ? skuLabel(r.sku) : "—") },
+              { title: "Нужно на заказ, м²", render: (_, r) => r.needed.toFixed(2) },
+              { title: "На складе, м²", render: (_, r) => (r.stock ? r.stock.total_area_m2.toFixed(2) : "—") },
+              {
+                title: "Резерв на текущие задания, м²",
+                render: (_, r) => (r.stock ? r.stock.reserved_area_m2.toFixed(2) : "—"),
+              },
+              { title: "Доступно, м²", render: (_, r) => (r.stock ? r.stock.available_area_m2.toFixed(2) : "—") },
+              {
+                title: "Хватит?",
+                render: (_, r) =>
+                  r.shortage > 0 ? (
+                    <Tag color="orange">Не хватает {r.shortage.toFixed(2)} м²</Tag>
+                  ) : (
+                    <Tag color="green">Хватает</Tag>
+                  ),
+              },
             ]}
           />
         </Card>
