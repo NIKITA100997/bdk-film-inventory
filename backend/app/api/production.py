@@ -76,6 +76,13 @@ report_production = require_permission("production_tasks.manage", "production_ta
 # доступа к manage/report, поэтому для него дополнительно скопируем
 # видимость до user.area прямо в запросе (см. _require_task_access ниже).
 view_production = require_permission("production_tasks.manage", "production_tasks.report", "production_tasks.view")
+# Модели продукции (BOM) — геометрия деталей без цвета/цены, ничего не
+# раскрывает про реальные заказы/задания, поэтому продажнику (раздел про
+# калькулятор заказа — расход плёнки на заказ по BOM модели) можно читать
+# наравне с производством, в отличие от view_production выше.
+view_product_models = require_permission(
+    "production_tasks.manage", "production_tasks.report", "production_tasks.view", "sales_calculator.view"
+)
 # Список заданий отдельно ещё и от units.issue — склад читает те же задания
 # на "Выдаче участку" (Issue.tsx), чтобы знать, что кроить/выдавать; складская
 # роль по своей сути не привязана к одному участку производства (в отличие
@@ -340,13 +347,13 @@ def update_production_line(
 
 
 @router.get("/product-models", response_model=list[ProductModelOut])
-def list_product_models(db: Session = Depends(get_db), user: User = Depends(view_production)) -> list[ProductModelOut]:
+def list_product_models(db: Session = Depends(get_db), user: User = Depends(view_product_models)) -> list[ProductModelOut]:
     models = db.query(ProductModel).options(joinedload(ProductModel.parts)).order_by(ProductModel.name).all()
     return [_model_out(db, m) for m in models]
 
 
 @router.get("/product-models/{model_id}", response_model=ProductModelOut)
-def get_product_model(model_id: int, db: Session = Depends(get_db), user: User = Depends(view_production)) -> ProductModelOut:
+def get_product_model(model_id: int, db: Session = Depends(get_db), user: User = Depends(view_product_models)) -> ProductModelOut:
     model = db.get(ProductModel, model_id)
     if model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Модель не найдена")
