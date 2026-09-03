@@ -35,9 +35,7 @@ from app.schemas.reports import (
     RollsVsStripsLine,
     StaleUnitLine,
     StockByWidthLine,
-    StockSummaryGroupedLine,
     StockSummaryLine,
-    StockSummaryManufacturerLine,
     TopDefectGroupLine,
     TopWriteOffMaterialLine,
     TrendPoint,
@@ -95,76 +93,23 @@ def stock_summary(
     ]
 
 
-@router.get("/stock-summary-grouped", response_model=list[StockSummaryGroupedLine])
-def stock_summary_grouped(
-    warehouse_id: int | None = None,
-    show_archived: bool = False,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> list[StockSummaryGroupedLine]:
-    """Остатки по материалу/цвету/толщине с разбивкой по производителю
-    (раздел про два производителя одной плёнки — например "ПЭТ 2Д Белый"
-    от разных поставщиков) — только для экрана "Остатки"
-    (MaterialsExplorer.tsx). stock_summary выше специально группирует БЕЗ
-    производителя (та же агрегация нужна отчётам и заявке на плёнку) —
-    здесь наоборот, производителя нужно видеть и явно выбирать, иначе
-    второй производитель молча схлопывается в один агрегат с первым и
-    не участвует в поиске по имени производителя."""
-    query = (
-        db.query(
-            Material.name,
-            Color.name,
-            Thickness.value_mm,
-            Manufacturer.name,
-            Manufacturer.id,
-            func.sum(MaterialUnit.width_mm * MaterialUnit.length_m / 1000).label("area"),
-            func.count(MaterialUnit.id).label("unit_count"),
-        )
-        .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
-        .join(Material, MaterialSku.material_id == Material.id)
-        .join(Color, MaterialSku.color_id == Color.id)
-        .join(Thickness, MaterialSku.thickness_id == Thickness.id)
-        .join(Manufacturer, MaterialSku.manufacturer_id == Manufacturer.id)
-        .filter(MaterialUnit.status != UnitStatus.SPISAN)
-    )
-    if not show_archived:
-        query = query.filter(MaterialSku.is_active)
-    query = _filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
-    rows = (
-        query.group_by(Material.name, Color.name, Thickness.value_mm, Manufacturer.name, Manufacturer.id)
-        .order_by(Material.name, Color.name, Thickness.value_mm, Manufacturer.name)
-        .all()
-    )
-
-    grouped: dict[tuple[str, str, float], StockSummaryGroupedLine] = {}
-    order: list[tuple[str, str, float]] = []
-    for mat, col, th, man_name, man_id, area, cnt in rows:
-        key = (mat, col, float(th))
-        line = grouped.get(key)
-        if line is None:
-            line = StockSummaryGroupedLine(material=mat, color=col, thickness=float(th), total_area_m2=0, unit_count=0, manufacturers=[])
-            grouped[key] = line
-            order.append(key)
-        area_m2 = round(float(area or 0), 3)
-        line.total_area_m2 = round(line.total_area_m2 + area_m2, 3)
-        line.unit_count += cnt
-        line.manufacturers.append(
-            StockSummaryManufacturerLine(manufacturer=man_name, manufacturer_id=man_id, total_area_m2=area_m2, unit_count=cnt)
-        )
-    return [grouped[k] for k in order]
-
-
 @router.get("/stock-by-width", response_model=list[StockByWidthLine])
 def stock_by_width(
-    warehouse_id: int | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    warehouse_id: int | None = None,
+    manufacturer: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[StockByWidthLine]:
-    """Остатки по конкретной ширине, метры (5.4 ТЗ)."""
+    """Остатки по конкретной ширине, метры (5.4 ТЗ) — группировка без
+    учёта производителя (раздел про производителя внутри карточки
+    материала, не отдельным измерением в остатках), тот же принцип, что
+    у stock_summary: manufacturer — необязательный фильтр исходных
+    единиц, не меняет группировку."""
     query = (
         db.query(
             Material.name,
             Color.name,
             Thickness.value_mm,
-            Manufacturer.name,
             MaterialUnit.width_mm,
             func.sum(MaterialUnit.length_m).label("total_length_m"),
             func.count(MaterialUnit.id).label("unit_count"),
@@ -173,12 +118,13 @@ def stock_by_width(
         .join(Material, MaterialSku.material_id == Material.id)
         .join(Color, MaterialSku.color_id == Color.id)
         .join(Thickness, MaterialSku.thickness_id == Thickness.id)
-        .join(Manufacturer, MaterialSku.manufacturer_id == Manufacturer.id)
         .filter(MaterialUnit.status != UnitStatus.SPISAN)
     )
+    if manufacturer:
+        query = query.join(Manufacturer, MaterialSku.manufacturer_id == Manufacturer.id).filter(Manufacturer.name == manufacturer)
     query = _filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
     rows = (
-        query.group_by(Material.name, Color.name, Thickness.value_mm, Manufacturer.name, MaterialUnit.width_mm)
+        query.group_by(Material.name, Color.name, Thickness.value_mm, MaterialUnit.width_mm)
         .order_by(Material.name, Color.name, Thickness.value_mm, MaterialUnit.width_mm.desc())
         .all()
     )
@@ -187,22 +133,25 @@ def stock_by_width(
             material=m,
             color=c,
             thickness=float(t),
-            manufacturer=mf,
             width_mm=float(w),
             total_length_m=round(float(length or 0), 3),
             unit_count=cnt,
         )
-        for m, c, t, mf, w, length, cnt in rows
+        for m, c, t, w, length, cnt in rows
     ]
 
 
 @router.get("/rolls-vs-strips", response_model=list[RollsVsStripsLine])
 def rolls_vs_strips(
-    warehouse_id: int | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    warehouse_id: int | None = None,
+    manufacturer: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[RollsVsStripsLine]:
     """Сколько рулонов и сколько штрипсов физически есть по каждой позиции
     (раздел про недостающий отчёт рулоны/штрипсы) — MaterialUnit.is_strip
-    уже хранится на единице, здесь просто агрегация по группе."""
+    уже хранится на единице, здесь просто агрегация по группе. Группировка
+    без производителя, тот же принцип, что у stock_summary/stock_by_width."""
     is_roll_length = case((MaterialUnit.is_strip.is_(False), MaterialUnit.length_m), else_=0)
     is_strip_length = case((MaterialUnit.is_strip.is_(True), MaterialUnit.length_m), else_=0)
     is_roll_count = case((MaterialUnit.is_strip.is_(False), 1), else_=0)
@@ -212,7 +161,6 @@ def rolls_vs_strips(
             Material.name,
             Color.name,
             Thickness.value_mm,
-            Manufacturer.name,
             func.sum(is_roll_count).label("roll_count"),
             func.sum(is_roll_length).label("roll_length_m"),
             func.sum(is_strip_count).label("strip_count"),
@@ -222,12 +170,13 @@ def rolls_vs_strips(
         .join(Material, MaterialSku.material_id == Material.id)
         .join(Color, MaterialSku.color_id == Color.id)
         .join(Thickness, MaterialSku.thickness_id == Thickness.id)
-        .join(Manufacturer, MaterialSku.manufacturer_id == Manufacturer.id)
         .filter(MaterialUnit.status != UnitStatus.SPISAN)
     )
+    if manufacturer:
+        query = query.join(Manufacturer, MaterialSku.manufacturer_id == Manufacturer.id).filter(Manufacturer.name == manufacturer)
     query = _filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
     rows = (
-        query.group_by(Material.name, Color.name, Thickness.value_mm, Manufacturer.name)
+        query.group_by(Material.name, Color.name, Thickness.value_mm)
         .order_by(Material.name, Color.name, Thickness.value_mm)
         .all()
     )
@@ -236,13 +185,12 @@ def rolls_vs_strips(
             material=m,
             color=c,
             thickness=float(t),
-            manufacturer=mf,
             roll_count=int(rc or 0),
             roll_length_m=round(float(rl or 0), 3),
             strip_count=int(sc or 0),
             strip_length_m=round(float(sl or 0), 3),
         )
-        for m, c, t, mf, rc, rl, sc, sl in rows
+        for m, c, t, rc, rl, sc, sl in rows
     ]
 
 

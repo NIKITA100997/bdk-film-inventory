@@ -12,7 +12,6 @@ export interface StockByWidthLine {
   material: string;
   color: string;
   thickness: number;
-  manufacturer: string;
   width_mm: number;
   total_length_m: number;
   unit_count: number;
@@ -22,7 +21,6 @@ export interface RollsVsStripsLine {
   material: string;
   color: string;
   thickness: number;
-  manufacturer: string;
   roll_count: number;
   roll_length_m: number;
   strip_count: number;
@@ -75,40 +73,19 @@ export const getStockSummary = async (
     })
   ).data;
 
-export interface StockSummaryManufacturerLine {
-  manufacturer: string;
-  manufacturer_id: number;
-  total_area_m2: number;
-  unit_count: number;
-}
-
-// Раздел про два производителя одной плёнки (экран "Остатки") — та же
-// группировка, что у StockSummaryLine, но с разбивкой по производителю
-// внутри, чтобы второй производитель не терялся молча в общем агрегате.
-export interface StockSummaryGroupedLine {
-  material: string;
-  color: string;
-  thickness: number;
-  total_area_m2: number;
-  unit_count: number;
-  manufacturers: StockSummaryManufacturerLine[];
-}
-
-export const getStockSummaryGrouped = async (
-  warehouseId?: number,
-  showArchived?: boolean,
-): Promise<StockSummaryGroupedLine[]> =>
+export const getStockByWidth = async (warehouseId?: number, manufacturer?: string): Promise<StockByWidthLine[]> =>
   (
-    await apiClient.get<StockSummaryGroupedLine[]>("/reports/stock-summary-grouped", {
-      params: { warehouse_id: warehouseId, show_archived: showArchived },
+    await apiClient.get<StockByWidthLine[]>("/reports/stock-by-width", {
+      params: { warehouse_id: warehouseId, manufacturer },
     })
   ).data;
 
-export const getStockByWidth = async (warehouseId?: number): Promise<StockByWidthLine[]> =>
-  (await apiClient.get<StockByWidthLine[]>("/reports/stock-by-width", { params: { warehouse_id: warehouseId } })).data;
-
-export const getRollsVsStrips = async (warehouseId?: number): Promise<RollsVsStripsLine[]> =>
-  (await apiClient.get<RollsVsStripsLine[]>("/reports/rolls-vs-strips", { params: { warehouse_id: warehouseId } })).data;
+export const getRollsVsStrips = async (warehouseId?: number, manufacturer?: string): Promise<RollsVsStripsLine[]> =>
+  (
+    await apiClient.get<RollsVsStripsLine[]>("/reports/rolls-vs-strips", {
+      params: { warehouse_id: warehouseId, manufacturer },
+    })
+  ).data;
 
 export const getMovement = async (
   dateFrom: string,

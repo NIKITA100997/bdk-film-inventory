@@ -66,28 +66,26 @@ function StockSummaryTab() {
 
 function StockByWidthTab() {
   const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
+  const [manufacturer, setManufacturer] = useState<string>();
   const query = useQuery({
-    queryKey: ["report-stock-by-width", warehouseId],
-    queryFn: () => getStockByWidth(warehouseId),
+    queryKey: ["report-stock-by-width", warehouseId, manufacturer],
+    queryFn: () => getStockByWidth(warehouseId, manufacturer),
   });
   const [material, setMaterial] = useState<string>();
   const [color, setColor] = useState<string>();
   const [thickness, setThickness] = useState<number>();
-  const [manufacturer, setManufacturer] = useState<string>();
 
   const rows = (query.data ?? []).filter(
     (r) =>
       (!material || r.material === material) &&
       (!color || r.color === color) &&
-      (thickness === undefined || r.thickness === thickness) &&
-      (!manufacturer || r.manufacturer === manufacturer),
+      (thickness === undefined || r.thickness === thickness),
   );
 
   const columns: ReportColumn<(typeof rows)[number]>[] = [
     { key: "material", header: "Материал", render: (r) => r.material, printValue: (r) => r.material },
     { key: "color", header: "Цвет", render: (r) => r.color, printValue: (r) => r.color },
     { key: "thickness", header: "Толщина, мм", render: (r) => r.thickness, printValue: (r) => r.thickness },
-    { key: "manufacturer", header: "Производитель", render: (r) => r.manufacturer, printValue: (r) => r.manufacturer },
     { key: "width_mm", header: "Ширина, мм", render: (r) => r.width_mm, printValue: (r) => r.width_mm, sorter: (a, b) => a.width_mm - b.width_mm },
     { key: "total_length_m", header: "Метры", render: (r) => r.total_length_m, printValue: (r) => r.total_length_m, sorter: (a, b) => a.total_length_m - b.total_length_m },
     { key: "unit_count", header: "Единиц", render: (r) => r.unit_count, printValue: (r) => r.unit_count, sorter: (a, b) => a.unit_count - b.unit_count },
@@ -105,7 +103,7 @@ function StockByWidthTab() {
       <ReportTable
         title="Остатки по ширине"
         filename="ostatki-po-shirine.csv"
-        rowKey={(r) => `${r.material}-${r.color}-${r.thickness}-${r.manufacturer}-${r.width_mm}`}
+        rowKey={(r) => `${r.material}-${r.color}-${r.thickness}-${r.width_mm}`}
         columns={columns}
         data={rows}
         loading={query.isLoading}
@@ -116,28 +114,26 @@ function StockByWidthTab() {
 
 function RollsVsStripsTab() {
   const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
+  const [manufacturer, setManufacturer] = useState<string>();
   const query = useQuery({
-    queryKey: ["report-rolls-vs-strips", warehouseId],
-    queryFn: () => getRollsVsStrips(warehouseId),
+    queryKey: ["report-rolls-vs-strips", warehouseId, manufacturer],
+    queryFn: () => getRollsVsStrips(warehouseId, manufacturer),
   });
   const [material, setMaterial] = useState<string>();
   const [color, setColor] = useState<string>();
   const [thickness, setThickness] = useState<number>();
-  const [manufacturer, setManufacturer] = useState<string>();
 
   const rows = (query.data ?? []).filter(
     (r) =>
       (!material || r.material === material) &&
       (!color || r.color === color) &&
-      (thickness === undefined || r.thickness === thickness) &&
-      (!manufacturer || r.manufacturer === manufacturer),
+      (thickness === undefined || r.thickness === thickness),
   );
 
   const columns: ReportColumn<(typeof rows)[number]>[] = [
     { key: "material", header: "Материал", render: (r) => r.material, printValue: (r) => r.material },
     { key: "color", header: "Цвет", render: (r) => r.color, printValue: (r) => r.color },
     { key: "thickness", header: "Толщина, мм", render: (r) => r.thickness, printValue: (r) => r.thickness },
-    { key: "manufacturer", header: "Производитель", render: (r) => r.manufacturer, printValue: (r) => r.manufacturer },
     { key: "roll_count", header: "Рулонов, шт", render: (r) => r.roll_count, printValue: (r) => r.roll_count, sorter: (a, b) => a.roll_count - b.roll_count },
     { key: "roll_length_m", header: "Рулонов, м", render: (r) => r.roll_length_m, printValue: (r) => r.roll_length_m, sorter: (a, b) => a.roll_length_m - b.roll_length_m },
     { key: "strip_count", header: "Штрипсов, шт", render: (r) => r.strip_count, printValue: (r) => r.strip_count, sorter: (a, b) => a.strip_count - b.strip_count },
@@ -156,7 +152,7 @@ function RollsVsStripsTab() {
       <ReportTable
         title="Рулоны и штрипсы"
         filename="rulony-i-shtripsy.csv"
-        rowKey={(r) => `${r.material}-${r.color}-${r.thickness}-${r.manufacturer}`}
+        rowKey={(r) => `${r.material}-${r.color}-${r.thickness}`}
         columns={columns}
         data={rows}
         loading={query.isLoading}
