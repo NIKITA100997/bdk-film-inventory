@@ -3,12 +3,14 @@ import { Card, Space, Typography, Select, Table, InputNumber, Button, message, E
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listProductionTasks, createTaskLineReport, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
+import { listPartUnits } from "../../../api/partUnits";
 
 interface ReportRow {
   key: string;
   taskId: number;
   line: ProductionTaskLine;
   materialUnitId: number | null;
+  partUnitId: number | null;
   goodPieces: number;
   defectPieces: number;
   defectReason: string | null;
@@ -29,6 +31,23 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons", "production"], queryFn: () => listWriteOffReasons("production") });
+  // Раздел про физический учёт деталей — причина брака та же, что
+  // списывает и партию п/ф, пикер объединяет обе категории причин.
+  const partsReasonsQuery = useQuery({
+    queryKey: ["write-off-reasons", "parts"],
+    queryFn: () => listWriteOffReasons("parts"),
+    enabled: requiresRoll,
+  });
+  const reasonOptions = [...(writeOffReasonsQuery.data ?? []), ...(partsReasonsQuery.data ?? [])].filter(
+    (r, i, arr) => arr.findIndex((x) => x.code === r.code) === i,
+  );
+  const partUnitsQuery = useQuery({
+    queryKey: ["part-units", "area", area],
+    queryFn: () => listPartUnits({ area, status_: "Выдан_участку" }),
+    enabled: requiresRoll,
+  });
+  const partUnitOptionsForLine = (lineId: number) =>
+    (partUnitsQuery.data ?? []).filter((u) => u.production_task_line_id === lineId);
 
   const tasks = (tasksQuery.data ?? []).filter((t: ProductionTask) => t.area === area && t.is_active);
   const addedLineIds = new Set(rows.map((r) => r.line.id));
@@ -47,6 +66,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
     const line = task?.lines.find((l) => l.id === Number(lineIdStr));
     if (!task || !line) return;
     rowCounter.current += 1;
+    const availableParts = partUnitOptionsForLine(line.id);
     setRows((prev) => [
       ...prev,
       {
@@ -54,6 +74,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         taskId: task.id,
         line,
         materialUnitId: line.issued_units.length === 1 ? line.issued_units[0].id : null,
+        partUnitId: availableParts.length === 1 ? availableParts[0].id : null,
         goodPieces: 0,
         defectPieces: 0,
         defectReason: null,
@@ -74,6 +95,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
             createTaskLineReport(r.taskId, r.line.id, {
               assignment_id: null,
               material_unit_id: r.materialUnitId,
+              part_unit_id: r.partUnitId,
               good_pieces: r.goodPieces,
               defect_pieces: 0,
             }),
@@ -84,6 +106,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
             createTaskLineReport(r.taskId, r.line.id, {
               assignment_id: null,
               material_unit_id: r.materialUnitId,
+              part_unit_id: r.partUnitId,
               good_pieces: 0,
               defect_pieces: r.defectPieces,
               defect_reason: r.defectReason ?? undefined,
@@ -181,6 +204,24 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                         />
                       ),
                     },
+                    {
+                      title: "Партия п/ф (опционально)",
+                      render: (_: unknown, r: ReportRow) => (
+                        <Select
+                          allowClear
+                          size="small"
+                          style={{ width: 200 }}
+                          placeholder="Без партии"
+                          value={r.partUnitId ?? undefined}
+                          onChange={(v) => updateRow(r.key, { partUnitId: v ?? null })}
+                          options={partUnitOptionsForLine(r.line.id).map((u) => ({
+                            value: u.id,
+                            label: `№${u.id} — ${u.quantity_pieces} шт, «${u.stage_name}»`,
+                          }))}
+                          notFoundContent={<Typography.Text type="secondary">Партия не выдана — «Учёт п/ф»</Typography.Text>}
+                        />
+                      ),
+                    },
                   ]
                 : []),
               {
@@ -203,10 +244,10 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                       size="small"
                       style={{ width: 170 }}
                       placeholder="Причина"
-                      loading={writeOffReasonsQuery.isLoading}
+                      loading={writeOffReasonsQuery.isLoading || partsReasonsQuery.isLoading}
                       value={r.defectReason ?? undefined}
                       onChange={(v) => updateRow(r.key, { defectReason: v })}
-                      options={(writeOffReasonsQuery.data ?? []).map((wr) => ({ value: wr.code, label: wr.name }))}
+                      options={reasonOptions.map((wr) => ({ value: wr.code, label: wr.name }))}
                     />
                   ),
               },

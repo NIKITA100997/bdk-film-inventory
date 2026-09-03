@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-ReasonCategory = Literal["warehouse", "production", "general"]
+ReasonCategory = Literal["warehouse", "production", "general", "parts"]
 
 
 class WriteOffReasonOut(BaseModel):

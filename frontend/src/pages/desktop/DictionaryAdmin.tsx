@@ -37,6 +37,7 @@ const CATEGORY_LABEL: Record<ReasonCategory, string> = {
   warehouse: "Склад",
   production: "Производство",
   general: "Общая",
+  parts: "Детали (п/ф)",
 };
 
 function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {

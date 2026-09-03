@@ -55,7 +55,7 @@ export const navTree: NavBlock[] = [
       { key: "receive", path: "/m/receive", label: "Приёмка плёнки", permissions: ["units.receive"] },
       { key: "initial-stock", path: "/m/initial-stock", label: "Начальные остатки", permissions: ["units.receive"] },
       { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue", "units.return"] },
-      { key: "blanks", path: "/blanks", label: "Заготовки", permissions: ["units.issue"] },
+      { key: "blanks", path: "/blanks", label: "Свободный остаток", permissions: ["units.issue"] },
       { key: "storage", path: "/storage", label: "Стеллажи и полки" },
       {
         key: "warehouse-transfers",
@@ -81,6 +81,10 @@ export const navTree: NavBlock[] = [
       // (раздел про адаптацию под планшет — линии трогаются не каждый
       // день, но это всё ещё производство, не администрирование).
       { key: "production-lines", path: "/production-lines", label: "Линии цеха", permissions: ["production_tasks.manage"] },
+      // Раздел про физический учёт деталей (пилот: окутка царговых) —
+      // регистрация партий п/ф начальником цеха, отдельно от заданий
+      // конкретного участка (резка дерева сегодня нигде не участок).
+      { key: "part-units", path: "/part-units", label: "Учёт п/ф", permissions: ["part_units.manage", "part_units.view"] },
       { key: "purchasing", path: "/purchasing", label: "Закупки плёнки", permissions: ["purchasing.manage"] },
     ],
   },

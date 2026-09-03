@@ -2,7 +2,7 @@ from app.models.users import User, UserRole
 from app.models.areas import Area
 from app.models.sites import Site
 from app.models.roles import Role, Permission
-from app.models.dictionaries import Material, Color, Thickness, Manufacturer, MaterialSku, SkuAnalog
+from app.models.dictionaries import Material, Color, Thickness, Manufacturer, MaterialSku, SkuAnalog, Part, PartStage
 from app.models.storage import Rack, MacroZoneRule, RackType, Warehouse
 from app.models.inventory import InventorySession, InventorySessionParticipant, InventoryScopeType, InventoryStatus
 from app.models.abc import WidthAbcClass, WidthClass, CalcSettings
@@ -22,6 +22,7 @@ from app.models.production import (
     ProductionTaskLineAssignment,
     ProductionTaskLineReport,
 )
+from app.models.part_units import PartUnit, PartUnitStatus, PartUnitEvent, PartEventType
 
 __all__ = [
     "User",
@@ -36,6 +37,8 @@ __all__ = [
     "Manufacturer",
     "MaterialSku",
     "SkuAnalog",
+    "Part",
+    "PartStage",
     "Rack",
     "MacroZoneRule",
     "RackType",
@@ -65,4 +68,8 @@ __all__ = [
     "ProductionTaskLine",
     "ProductionTaskLineAssignment",
     "ProductionTaskLineReport",
+    "PartUnit",
+    "PartUnitStatus",
+    "PartUnitEvent",
+    "PartEventType",
 ]

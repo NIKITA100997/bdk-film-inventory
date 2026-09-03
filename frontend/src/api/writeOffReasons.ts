@@ -1,6 +1,6 @@
 import { apiClient } from "./client";
 
-export type ReasonCategory = "warehouse" | "production" | "general";
+export type ReasonCategory = "warehouse" | "production" | "general" | "parts";
 
 export interface WriteOffReasonEntry {
   code: string;

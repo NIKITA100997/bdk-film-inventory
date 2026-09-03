@@ -7,6 +7,7 @@ from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import Color, Material, MaterialSku, Thickness
 from app.models.units import MaterialUnit, UnitStatus
+from app.models.part_units import PartUnit, PartUnitStatus
 from app.models.production import (
     ProductionLine,
     ProductionTask,
@@ -48,6 +49,7 @@ from app.services.dictionaries import find_or_create_employees, find_or_create_m
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
 from app.services.naryad_import import enrich_naryad_lines, parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
+from app.services.part_units import advance_part_unit, write_off_part_unit
 from app.services.production import (
     BlankDemandInputLine,
     BlankSupplyInputLine,
@@ -747,10 +749,27 @@ def create_task_line_report(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Рулон не найден среди выданных на эту строку")
     elif line.task.area == AREA_REQUIRES_ROLL_ON_REPORT:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к рулону")
+    # Раздел про физический учёт деталей (пилот: окутка царговых) —
+    # необязательно (в отличие от рулона выше): не у каждой детали ещё
+    # настроены этапы, участок продолжает работать без партии, пока цех не
+    # донастроит справочник. Если партия указана — она обязана быть именно
+    # той, что выдана этой строке задания (тот же принцип, что рулон).
+    part_unit = None
+    if payload.part_unit_id is not None:
+        part_unit = db.get(PartUnit, payload.part_unit_id)
+        if (
+            part_unit is None
+            or part_unit.production_task_line_id != line_id
+            or part_unit.status != PartUnitStatus.VYDAN_UCHASTKU
+        ):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Партия п/ф не найдена среди выданных на эту строку")
+        if payload.defect_pieces > 0 and not payload.defect_reason:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Укажите причину брака, чтобы списать партию п/ф")
     report = ProductionTaskLineReport(
         task_line_id=line_id,
         assignment_id=payload.assignment_id,
         material_unit_id=payload.material_unit_id,
+        part_unit_id=payload.part_unit_id,
         good_pieces=payload.good_pieces,
         defect_pieces=payload.defect_pieces,
         defect_reason=payload.defect_reason,
@@ -758,6 +777,21 @@ def create_task_line_report(
         reported_by=user.id,
     )
     db.add(report)
+    if part_unit is not None:
+        try:
+            if payload.good_pieces > 0:
+                advance_part_unit(db, unit=part_unit, quantity_pieces=payload.good_pieces, user_id=user.id)
+            if payload.defect_pieces > 0:
+                write_off_part_unit(
+                    db,
+                    unit=part_unit,
+                    quantity_pieces=payload.defect_pieces,
+                    reason=payload.defect_reason,
+                    user_id=user.id,
+                    note=payload.note,
+                )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
     db.commit()
     db.refresh(report)
     return report

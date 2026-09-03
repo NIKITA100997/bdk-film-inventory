@@ -176,6 +176,10 @@ class ProductionTaskLineReportCreate(BaseModel):
     # из какого рулона резали; эндпоинт требует его для участков, где
     # включён этот учёт, для остальных остаётся необязательным.
     material_unit_id: int | None = None
+    # Раздел про физический учёт деталей (пилот: окутка царговых) — какая
+    # партия п/ф укутывалась; необязательно даже для этого участка (не у
+    # каждой детали ещё настроены этапы, см. create_task_line_report).
+    part_unit_id: int | None = None
     good_pieces: float = Field(ge=0)
     defect_pieces: float = Field(ge=0)
     defect_reason: str | None = None
@@ -187,6 +191,7 @@ class ProductionTaskLineReportOut(BaseModel):
     id: int
     assignment_id: int | None
     material_unit_id: int | None
+    part_unit_id: int | None
     good_pieces: float
     defect_pieces: float
     defect_reason: str | None

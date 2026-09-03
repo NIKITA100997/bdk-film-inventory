@@ -8,6 +8,7 @@ import {
   listPartDuplicates,
   createPart,
   updatePart,
+  updatePartStages,
   type Part,
   type PartCreate,
   type DuplicateCandidate,
@@ -28,6 +29,11 @@ export default function PartsAdmin() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editingPart, setEditingPart] = useState<Part | null>(null);
   const [form] = Form.useForm<PartCreate>();
+  // Раздел про физический учёт деталей (пилот: окутка царговых) — свой
+  // упорядоченный список этапов у каждой детали отдельно (не общий enum),
+  // редактируется здесь же, в справочнике "Деталь".
+  const [stagesTarget, setStagesTarget] = useState<Part | null>(null);
+  const [stageRows, setStageRows] = useState<{ code: string; name: string }[]>([]);
 
   const partsQuery = useQuery({ queryKey: ["parts", "all"], queryFn: listAllParts });
   const duplicatesQuery = useQuery({ queryKey: ["parts", "duplicates"], queryFn: listPartDuplicates });
@@ -64,6 +70,34 @@ export default function PartsAdmin() {
     mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) => updatePart(id, { is_active }),
     onSuccess: () => invalidateCaches(),
   });
+
+  const stagesMutation = useMutation({
+    mutationFn: () => updatePartStages(stagesTarget!.id, stageRows),
+    onSuccess: () => {
+      invalidateCaches();
+      message.success("Этапы сохранены");
+      setStagesTarget(null);
+    },
+    onError: () => message.error("Не удалось сохранить этапы"),
+  });
+
+  const openStages = (part: Part) => {
+    setStagesTarget(part);
+    setStageRows(part.stages.map((s) => ({ code: s.code, name: s.name })));
+  };
+  const moveStage = (index: number, delta: number) => {
+    setStageRows((rows) => {
+      const next = [...rows];
+      const target = index + delta;
+      if (target < 0 || target >= next.length) return rows;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+  const removeStage = (index: number) => setStageRows((rows) => rows.filter((_, i) => i !== index));
+  const addStage = () => setStageRows((rows) => [...rows, { code: "", name: "" }]);
+  const updateStageName = (index: number, name: string) =>
+    setStageRows((rows) => rows.map((r, i) => (i === index ? { code: name.trim(), name } : r)));
 
   const openCreate = () => {
     setEditingPart(null);
@@ -130,11 +164,30 @@ export default function PartsAdmin() {
               render: (active: boolean) => (active ? <Tag color="green">Активна</Tag> : <Tag>В архиве</Tag>),
             },
             {
+              // Раздел про физический учёт деталей (пилот: окутка царговых)
+              // — пусто = партию п/ф для этой детали завести нельзя, пока
+              // не настроены этапы.
+              title: "Этапы (учёт п/ф)",
+              render: (_, p) =>
+                p.stages.length === 0 ? (
+                  <Typography.Text type="secondary">не настроены</Typography.Text>
+                ) : (
+                  <Space size={4} wrap>
+                    {p.stages.map((s) => (
+                      <Tag key={s.id}>{s.name}</Tag>
+                    ))}
+                  </Space>
+                ),
+            },
+            {
               title: "",
               render: (_, p) => (
                 <Space>
                   <Button size="small" onClick={() => openEdit(p)}>
                     Редактировать
+                  </Button>
+                  <Button size="small" onClick={() => openStages(p)}>
+                    Настроить этапы
                   </Button>
                   <Button size="small" onClick={() => archiveMutation.mutate({ id: p.id, is_active: !p.is_active })}>
                     {p.is_active ? "В архив" : "Восстановить"}
@@ -209,6 +262,60 @@ export default function PartsAdmin() {
             {editingPart ? "Сохранить изменения" : "Добавить деталь"}
           </Button>
         </Form>
+      </Modal>
+
+      <Modal
+        title={`Этапы детали «${stagesTarget?.name ?? ""}»`}
+        open={!!stagesTarget}
+        onCancel={() => setStagesTarget(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary">
+          Порядок сверху вниз — путь, который проходит партия этой детали (например, «П/ф» → «Заготовка»). Пусто —
+          физический учёт для этой детали ещё не включён.
+        </Typography.Paragraph>
+        <Space direction="vertical" style={{ width: "100%" }}>
+          {stageRows.map((row, i) => (
+            <Space key={i} style={{ width: "100%" }}>
+              <Typography.Text type="secondary" style={{ width: 20 }}>
+                {i + 1}.
+              </Typography.Text>
+              <Input
+                style={{ width: 220 }}
+                placeholder="Например, «П/ф»"
+                value={row.name}
+                onChange={(e) => updateStageName(i, e.target.value)}
+              />
+              <Button size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
+                ↑
+              </Button>
+              <Button size="small" disabled={i === stageRows.length - 1} onClick={() => moveStage(i, 1)}>
+                ↓
+              </Button>
+              <Button size="small" danger onClick={() => removeStage(i)}>
+                Убрать
+              </Button>
+            </Space>
+          ))}
+          <Button block onClick={addStage}>
+            + Добавить этап
+          </Button>
+          <Button
+            type="primary"
+            block
+            loading={stagesMutation.isPending}
+            onClick={() => {
+              if (stageRows.some((r) => !r.name.trim())) {
+                message.warning("Название этапа не может быть пустым");
+                return;
+              }
+              stagesMutation.mutate();
+            }}
+          >
+            Сохранить этапы
+          </Button>
+        </Space>
       </Modal>
     </Space>
   );

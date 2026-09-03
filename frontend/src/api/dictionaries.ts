@@ -32,6 +32,17 @@ export interface Part {
   // Сколько строк активных заданий подтянули новый размер прямо сейчас
   // (см. sync_part_to_task_lines на бэкенде) — только в ответе на save.
   synced_task_lines?: number;
+  // Раздел про физический учёт деталей (пилот: окутка царговых) — свой
+  // упорядоченный список этапов у этой детали, пусто = физический учёт
+  // для неё ещё не настроен (партию п/ф завести нельзя).
+  stages: PartStage[];
+}
+
+export interface PartStage {
+  id: number;
+  sequence_order: number;
+  code: string;
+  name: string;
 }
 
 export interface PartCreate {
@@ -58,6 +69,11 @@ export const listPartDuplicates = async (): Promise<DuplicateCandidate[]> =>
 export const createPart = async (payload: PartCreate): Promise<Part> => (await apiClient.post<Part>("/parts", payload)).data;
 export const updatePart = async (id: number, payload: PartUpdate): Promise<Part> =>
   (await apiClient.patch<Part>(`/parts/${id}`, payload)).data;
+
+// Заменяет весь список этапов детали целиком (раздел про физический учёт
+// деталей) — порядок в массиве становится sequence_order.
+export const updatePartStages = async (id: number, stages: { code: string; name: string }[]): Promise<Part> =>
+  (await apiClient.put<Part>(`/parts/${id}/stages`, stages)).data;
 
 // in_stock_only (раздел про нулевые позиции при выдаче) — сужает до
 // позиций, у которых реально есть остаток "На хранении" прямо сейчас.

@@ -10,7 +10,17 @@ from app.core.config import settings
 from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.cutting_operations import CuttingOperation
-from app.models.dictionaries import Color, Employee, Manufacturer, Material, MaterialSku, Part, SkuAnalog, Thickness
+from app.models.dictionaries import (
+    Color,
+    Employee,
+    Manufacturer,
+    Material,
+    MaterialSku,
+    Part,
+    PartStage,
+    SkuAnalog,
+    Thickness,
+)
 from app.models.events import MaterialEvent
 from app.models.units import MaterialUnit, UnitStatus
 from app.schemas.deletion_requests import DeleteResultOut
@@ -30,6 +40,7 @@ from app.schemas.dictionaries import (
     NameCreate,
     PartCreate,
     PartOut,
+    PartStageCreate,
     PartUpdate,
     SkuAnalogCreate,
     SkuWithAnalogsOut,
@@ -414,6 +425,29 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
     if synced:
         db.commit()
     obj.synced_task_lines = len(synced)
+    return obj
+
+
+@router.put("/parts/{part_id}/stages", response_model=PartOut)
+def update_part_stages(
+    part_id: int, payload: list[PartStageCreate], db: Session = Depends(get_db), user=Depends(manage_parts)
+) -> Part:
+    """Заменить весь список этапов детали целиком (раздел про физический
+    учёт деталей, пилот: окутка царговых) — проще, чем точечный CRUD по
+    одной строке; порядок в списке = sequence_order. Не трогает уже
+    существующие PartUnit — они продолжают ссылаться на свой stage_id, даже
+    если этот этап пропал из нового списка (партия просто "застревает" на
+    несуществующем больше этапе — advance_part_unit такую не найдёт, это
+    осознанный компромисс: переиндексация чужих партий задним числом —
+    больший риск, чем эта редкая ручная ошибка настройки)."""
+    obj = db.get(Part, part_id)
+    if obj is None:
+        raise HTTPException(404, "Деталь не найдена")
+    db.query(PartStage).filter(PartStage.part_id == part_id).delete()
+    for i, stage in enumerate(payload, start=1):
+        db.add(PartStage(part_id=part_id, sequence_order=i, code=stage.code, name=stage.name))
+    db.commit()
+    db.refresh(obj)
     return obj
 
 

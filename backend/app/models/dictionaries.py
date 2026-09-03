@@ -81,6 +81,30 @@ class Part(Base):
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    stages: Mapped[list["PartStage"]] = relationship(
+        back_populates="part", order_by="PartStage.sequence_order", cascade="all, delete-orphan"
+    )
+
+
+class PartStage(Base):
+    """Этапы обработки детали (раздел про физический учёт п/ф → заготовка)
+    — свой упорядоченный список у КАЖДОЙ детали отдельно (не общий enum на
+    все детали разом), потому что путь у разных деталей может отличаться:
+    у одной "П/ф" → "Заготовка", у другой позже может появиться третий шаг
+    ("Просверлено" и т.п.) — добавить его этой конкретной детали — одна
+    новая строка, без миграции схемы. PartUnit.stage_id ссылается сюда."""
+
+    __tablename__ = "part_stages"
+    __table_args__ = (UniqueConstraint("part_id", "sequence_order", name="uq_part_stage_order"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id", ondelete="CASCADE"), index=True)
+    sequence_order: Mapped[int] = mapped_column()
+    code: Mapped[str] = mapped_column(String(50))
+    name: Mapped[str] = mapped_column(String(255))
+
+    part: Mapped[Part] = relationship(back_populates="stages")
+
 
 class MaterialSku(Base):
     """Позиция материала (5.6 ТЗ) — конкретная комбинация материал+цвет+

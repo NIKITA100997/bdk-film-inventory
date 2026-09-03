@@ -149,6 +149,7 @@ export interface ProductionTaskLineReport {
   id: number;
   assignment_id: number | null;
   material_unit_id: number | null;
+  part_unit_id: number | null;
   good_pieces: number;
   defect_pieces: number;
   defect_reason: string | null;
@@ -164,6 +165,9 @@ export interface ProductionTaskLineReportCreate {
   // Раздел про цифровой аналог "Ежедневки" (пилот: окутка царговых) —
   // backend требует его для участков, где включён этот учёт.
   material_unit_id?: number | null;
+  // Раздел про физический учёт деталей (пилот: окутка царговых) — какая
+  // партия п/ф укутывалась; необязательно даже для этого участка.
+  part_unit_id?: number | null;
   good_pieces: number;
   defect_pieces: number;
   defect_reason?: string;

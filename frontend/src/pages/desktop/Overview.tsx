@@ -30,7 +30,7 @@ const TILE_OPTIONS: ColumnOption[] = [
   { key: "donor-accuracy", label: "Точность донор-рекомендаций" },
   { key: "defects", label: "Реальный брак/повреждения" },
   { key: "stale", label: "Остатков давно не двигалось" },
-  { key: "blanks", label: "Заготовок не хватает по ширинам" },
+  { key: "blanks", label: "Остатка не хватает по ширинам" },
   { key: "skus", label: "Позиций в номенклатуре" },
   { key: "rolls-strips", label: "Рулоны и штрипсы" },
   { key: "total-stock", label: "Общий остаток, м²" },
@@ -285,7 +285,7 @@ export default function Overview() {
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={blanksQuery.isLoading} {...clickableProps("/blanks")}>
               <Statistic
-                title="Заготовок не хватает по ширинам"
+                title="Остатка не хватает по ширинам"
                 value={blanksDeficitCount}
                 valueStyle={{ color: blanksDeficitCount > 0 ? "#C97A2B" : undefined }}
               />

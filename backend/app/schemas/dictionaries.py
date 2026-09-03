@@ -64,6 +64,23 @@ class EmployeeOut(BaseModel):
     is_active: bool
 
 
+class PartStageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    sequence_order: int
+    code: str
+    name: str
+
+
+class PartStageCreate(BaseModel):
+    """Одна строка этапа при замене всего списка целиком (раздел про
+    физический учёт деталей) — id не передаётся, сервер пересобирает
+    список с нуля, sequence_order берётся из порядка в списке."""
+
+    code: str
+    name: str
+
+
 class PartOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -78,6 +95,10 @@ class PartOut(BaseModel):
     # размеры прямо в момент этого сохранения (не сохраняется в БД, только
     # для тоста на фронте — см. sync_part_to_task_lines).
     synced_task_lines: int = 0
+    # Раздел про физический учёт деталей (пилот: окутка царговых) — свой
+    # список этапов у этой детали, пусто = физический учёт для неё ещё не
+    # настроен (PartUnit для неё завести нельзя, см. mint_part_unit).
+    stages: list[PartStageOut] = []
 
 
 class PartCreate(BaseModel):

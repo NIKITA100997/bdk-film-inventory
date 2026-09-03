@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTaskLineReport, type ProductionTaskLine } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
+import { listPartUnits } from "../../../api/partUnits";
 
 /** Отчёт о производстве/браке (раздел про брак по дням) — отчёт обычно
  * привязан к конкретной записи распределения (день/линия/сотрудники), не
@@ -32,13 +33,43 @@ export default function ReportModal({
 }) {
   const qc = useQueryClient();
   const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string }[]>([]);
-  const [reportForm] = Form.useForm<{ assignment_id: number | null; material_unit_id: number | null; good_pieces: number }>();
+  const [reportForm] = Form.useForm<{
+    assignment_id: number | null;
+    material_unit_id: number | null;
+    part_unit_id: number | null;
+    good_pieces: number;
+  }>();
   const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "production"],
     queryFn: () => listWriteOffReasons("production"),
   });
-  const reasonName = (code: string) => writeOffReasonsQuery.data?.find((r) => r.code === code)?.name ?? code;
+  // Раздел про физический учёт деталей — причина брака этого отчёта та же,
+  // что списывает и партию п/ф (одна проблема — один код), поэтому пикер
+  // объединяет обычные причины брака производства с причинами деталей.
+  const partsReasonsQuery = useQuery({
+    queryKey: ["write-off-reasons", "parts"],
+    queryFn: () => listWriteOffReasons("parts"),
+    enabled: requiresRoll,
+  });
+  const reasonOptions = [...(writeOffReasonsQuery.data ?? []), ...(partsReasonsQuery.data ?? [])].filter(
+    (r, i, arr) => arr.findIndex((x) => x.code === r.code) === i,
+  );
+  const reasonName = (code: string) => reasonOptions.find((r) => r.code === code)?.name ?? code;
+
+  const partUnitsQuery = useQuery({
+    queryKey: ["part-units", "line", line.id],
+    queryFn: () => listPartUnits({ production_task_line_id: line.id, status_: "Выдан_участку" }),
+    enabled: requiresRoll,
+  });
+  // Автовыбор партии при единственном варианте — приходит асинхронно
+  // (в отличие от line.issued_units, уже готовых в пропе), initialValues
+  // формы этого не подхватит сам по себе.
+  useEffect(() => {
+    if (partUnitsQuery.data?.length === 1 && reportForm.getFieldValue("part_unit_id") == null) {
+      reportForm.setFieldValue("part_unit_id", partUnitsQuery.data[0].id);
+    }
+  }, [partUnitsQuery.data, reportForm]);
 
   const addDefectRow = (v: { reason: string; qty: number; note?: string }) => {
     setDefectRows((rows) => [...rows, v]);
@@ -52,13 +83,19 @@ export default function ReportModal({
     // несколько строк вместо одной (хорошие детали отдельной строкой,
     // затем по одной строке на каждую причину брака), агрегаты суммируют
     // их на бэкенде так же, как если бы это были отчёты за разные смены.
-    mutationFn: async (v: { assignment_id: number | null; material_unit_id: number | null; good_pieces: number }) => {
+    mutationFn: async (v: {
+      assignment_id: number | null;
+      material_unit_id: number | null;
+      part_unit_id: number | null;
+      good_pieces: number;
+    }) => {
       const calls: Promise<unknown>[] = [];
       if (v.good_pieces > 0) {
         calls.push(
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
             material_unit_id: v.material_unit_id,
+            part_unit_id: v.part_unit_id,
             good_pieces: v.good_pieces,
             defect_pieces: 0,
           }),
@@ -69,6 +106,7 @@ export default function ReportModal({
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
             material_unit_id: v.material_unit_id,
+            part_unit_id: v.part_unit_id,
             good_pieces: 0,
             defect_pieces: row.qty,
             defect_reason: row.reason,
@@ -97,6 +135,7 @@ export default function ReportModal({
         initialValues={{
           assignment_id: presetAssignmentId ?? null,
           material_unit_id: line.issued_units.length === 1 ? line.issued_units[0].id : null,
+          part_unit_id: null,
           good_pieces: 0,
         }}
       >
@@ -140,6 +179,24 @@ export default function ReportModal({
             />
           </Form.Item>
         )}
+        {requiresRoll && (
+          <Form.Item name="part_unit_id" label="Партия п/ф (опционально)">
+            <Select
+              allowClear
+              loading={partUnitsQuery.isLoading}
+              placeholder="Выберите партию — хорошие детали перейдут на следующий этап"
+              options={(partUnitsQuery.data ?? []).map((u) => ({
+                value: u.id,
+                label: `№${u.id} — ${u.quantity_pieces} шт, этап «${u.stage_name}»`,
+              }))}
+              notFoundContent={
+                <Typography.Text type="secondary">
+                  Партия не выдана этой строке (или у детали не настроены этапы) — «Учёт п/ф»
+                </Typography.Text>
+              }
+            />
+          </Form.Item>
+        )}
         <Form.Item name="good_pieces" label="Хороших деталей, шт" rules={[{ required: true }]}>
           <InputNumber min={0} style={{ width: "100%" }} />
         </Form.Item>
@@ -177,8 +234,8 @@ export default function ReportModal({
       <Form form={defectRowForm} layout="vertical" onFinish={addDefectRow}>
         <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
           <Select
-            loading={writeOffReasonsQuery.isLoading}
-            options={(writeOffReasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))}
+            loading={writeOffReasonsQuery.isLoading || partsReasonsQuery.isLoading}
+            options={reasonOptions.map((r) => ({ value: r.code, label: r.name }))}
           />
         </Form.Item>
         <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>

@@ -179,6 +179,15 @@ class ProductionTaskLineReport(Base):
     material_unit_id: Mapped[int | None] = mapped_column(
         ForeignKey("material_units.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Какая партия п/ф укутывалась (раздел про физический учёт деталей,
+    # пилот: окутка царговых) — good_pieces из этого отчёта переводит
+    # ровно столько же штук партии на следующий этап (services/
+    # part_units.py::advance_part_unit), defect_pieces — списывает их же
+    # (write_off_part_unit). Nullable — как material_unit_id выше, участок
+    # без настроенных этапов у детали продолжает работать без партии.
+    part_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("part_units.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     good_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
     defect_pieces: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
