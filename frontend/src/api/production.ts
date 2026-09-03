@@ -70,6 +70,12 @@ export interface ProductionTaskLineIssuedUnit {
   material_sku_id: number;
   parent_id: number | null;
   is_strip: boolean;
+  // Раздел про цифровой аналог "Ежедневки" без распределения по дням —
+  // сколько метров этого рулона совокупно осталось (по всем отчётам, что
+  // уже на него ссылались); length_m выше — неизменное выданное значение.
+  // Опционально — тот же тип переиспользует AcceptReturnButton (Issue.tsx)
+  // для единиц вне контекста строки задания, где этого поля не бывает.
+  remaining_length_m?: number;
 }
 
 export interface ProductionTaskLine {

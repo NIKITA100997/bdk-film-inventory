@@ -222,6 +222,27 @@ export default function TasksTab() {
                           render: (_, l) => `${l.assigned_pieces} из ${l.quantity_pieces} шт`,
                         },
                         {
+                          // Раздел про цифровой аналог "Ежедневки" без
+                          // распределения по дням (пилот: окутка царговых) —
+                          // остаток по каждому выданному строке рулону, чтобы
+                          // видеть его прямо в общем задании, а не только в
+                          // "Плане на день" (тот привязан к распределениям,
+                          // которых у такого участка больше не будет).
+                          title: "Рулоны (остаток)",
+                          render: (_, l) =>
+                            l.issued_units.length === 0 ? (
+                              "—"
+                            ) : (
+                              <Space direction="vertical" size={0}>
+                                {l.issued_units.map((u) => (
+                                  <Typography.Text key={u.id}>
+                                    №{u.id}: {u.remaining_length_m ?? u.length_m} из {u.length_m} м
+                                  </Typography.Text>
+                                ))}
+                              </Space>
+                            ),
+                        },
+                        {
                           title: "Действия мастера",
                           render: (_, l) =>
                             (canReport || canManage) && (

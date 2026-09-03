@@ -258,6 +258,11 @@ class ProductionTaskLineIssuedUnitOut(BaseModel):
     material_sku_id: int
     parent_id: int | None
     is_strip: bool
+    # Раздел про цифровой аналог "Ежедневки" без распределения по дням —
+    # сколько метров этого конкретного рулона совокупно осталось (length_m
+    # выше — это выданное, неизменное с момента выдачи количество; здесь —
+    # за вычетом всех отчётов, что уже ссылались на этот рулон).
+    remaining_length_m: float
 
 
 class ProductionTaskLineOut(BaseModel):

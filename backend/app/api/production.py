@@ -194,6 +194,7 @@ def _task_line_out(
                 material_sku_id=u.material_sku_id,
                 parent_id=u.parent_id,
                 is_strip=u.is_strip,
+                remaining_length_m=round(max(0.0, float(u.length_m) - _unit_consumed_length_m(db, u.id)), 2),
             )
             for u in (issued_units or [])
         ],
