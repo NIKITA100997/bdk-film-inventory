@@ -20,17 +20,19 @@ export default function ReportModal({
   line,
   presetAssignmentId,
   requiresDailyPlan = true,
+  requiresRoll = false,
   onClose,
 }: {
   taskId: number;
   line: ProductionTaskLine;
   presetAssignmentId?: number;
   requiresDailyPlan?: boolean;
+  requiresRoll?: boolean;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
   const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string }[]>([]);
-  const [reportForm] = Form.useForm<{ assignment_id: number | null; good_pieces: number }>();
+  const [reportForm] = Form.useForm<{ assignment_id: number | null; material_unit_id: number | null; good_pieces: number }>();
   const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "production"],
@@ -50,12 +52,13 @@ export default function ReportModal({
     // несколько строк вместо одной (хорошие детали отдельной строкой,
     // затем по одной строке на каждую причину брака), агрегаты суммируют
     // их на бэкенде так же, как если бы это были отчёты за разные смены.
-    mutationFn: async (v: { assignment_id: number | null; good_pieces: number }) => {
+    mutationFn: async (v: { assignment_id: number | null; material_unit_id: number | null; good_pieces: number }) => {
       const calls: Promise<unknown>[] = [];
       if (v.good_pieces > 0) {
         calls.push(
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
+            material_unit_id: v.material_unit_id,
             good_pieces: v.good_pieces,
             defect_pieces: 0,
           }),
@@ -65,6 +68,7 @@ export default function ReportModal({
         calls.push(
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
+            material_unit_id: v.material_unit_id,
             good_pieces: 0,
             defect_pieces: row.qty,
             defect_reason: row.reason,
@@ -87,7 +91,15 @@ export default function ReportModal({
       <Typography.Paragraph type="secondary">
         Нужно: {line.quantity_pieces} шт, уже произведено: {line.produced_good_pieces} шт, остаток: {line.remaining_pieces} шт.
       </Typography.Paragraph>
-      <Form layout="vertical" form={reportForm} initialValues={{ assignment_id: presetAssignmentId ?? null, good_pieces: 0 }}>
+      <Form
+        layout="vertical"
+        form={reportForm}
+        initialValues={{
+          assignment_id: presetAssignmentId ?? null,
+          material_unit_id: line.issued_units.length === 1 ? line.issued_units[0].id : null,
+          good_pieces: 0,
+        }}
+      >
         <Form.Item
           name="assignment_id"
           label={requiresDailyPlan ? "Распределение (день/линия)" : "Распределение (день/линия) — необязательно"}
@@ -110,6 +122,24 @@ export default function ReportModal({
             }
           />
         </Form.Item>
+        {requiresRoll && (
+          <Form.Item
+            name="material_unit_id"
+            label="Рулон (№ штрипса)"
+            rules={[{ required: true, message: "Выберите рулон, из которого резали" }]}
+          >
+            <Select
+              placeholder="Выберите рулон"
+              options={line.issued_units.map((u) => ({
+                value: u.id,
+                label: `№${u.id} — ${u.width_mm}×${u.length_m} м`,
+              }))}
+              notFoundContent={
+                <Typography.Text type="secondary">Сначала выдайте рулон этой строке на «Выдаче участку»</Typography.Text>
+              }
+            />
+          </Form.Item>
+        )}
         <Form.Item name="good_pieces" label="Хороших деталей, шт" rules={[{ required: true }]}>
           <InputNumber min={0} style={{ width: "100%" }} />
         </Form.Item>

@@ -142,6 +142,7 @@ export interface ProductionTaskManualCreate {
 export interface ProductionTaskLineReport {
   id: number;
   assignment_id: number | null;
+  material_unit_id: number | null;
   good_pieces: number;
   defect_pieces: number;
   defect_reason: string | null;
@@ -154,6 +155,9 @@ export interface ProductionTaskLineReportCreate {
   // Раздел про отключение распределения по дням — null для участка с
   // requires_daily_plan=false (backend это допускает только для него).
   assignment_id: number | null;
+  // Раздел про цифровой аналог "Ежедневки" (пилот: окутка царговых) —
+  // backend требует его для участков, где включён этот учёт.
+  material_unit_id?: number | null;
   good_pieces: number;
   defect_pieces: number;
   defect_reason?: string;
@@ -317,6 +321,13 @@ export interface ProductionTaskLineAssignment {
   created_at: string;
   produced_good_pieces: number;
   defect_pieces: number;
+  // Раздел про цифровой аналог "Ежедневки" — рулон, из которого резали
+  // по этой записи (день/линия), и его метраж. null, если ещё не
+  // отчитались с указанием рулона (участок вне пилота либо отчёта ещё
+  // не было).
+  material_unit_id: number | null;
+  issued_length_m: number | null;
+  remaining_length_m: number | null;
 }
 
 export interface ProductionTaskLineAssignmentCreate {

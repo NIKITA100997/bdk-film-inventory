@@ -170,6 +170,15 @@ class ProductionTaskLineReport(Base):
     assignment_id: Mapped[int | None] = mapped_column(
         ForeignKey("production_task_line_assignments.id", ondelete="SET NULL"), nullable=True
     )
+    # Из какого конкретного рулона резали (раздел про цифровой аналог
+    # бумажной "Ежедневки" — «№ штрипса») — nullable, обязательность по
+    # участку проверяется в api/production.py (пилот: только окутка
+    # царговых), а не на уровне модели. ondelete=SET NULL — тот же приём,
+    # что assignment_id выше: списание/возврат рулона не должно уносить
+    # за собой уже поданный отчёт.
+    material_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("material_units.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     good_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
     defect_pieces: Mapped[float] = mapped_column(Numeric(12, 2), default=0)

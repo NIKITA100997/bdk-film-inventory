@@ -56,6 +56,7 @@ from app.services.production import (
     compute_remaining_length_m,
     compute_remaining_pieces,
     compute_shortfall_length_m,
+    compute_unit_consumed_length_m,
 )
 
 router = APIRouter(tags=["production"])
@@ -88,6 +89,13 @@ view_product_models = require_permission(
 # роль по своей сути не привязана к одному участку производства (в отличие
 # от production_tasks.report/.view), поэтому не сужается по user.area.
 view_tasks = require_permission("production_tasks.manage", "production_tasks.report", "production_tasks.view", "units.issue")
+
+# Раздел про цифровой аналог бумажной "Ежедневки" — пилот только на этом
+# участке (пользователь ограничил первую версию именно им); остальные
+# участки принимают отчёт без рулона, как и раньше. Хардкод конкретного
+# кода участка, а не отдельный флаг на Area — единственный участок в
+# скоупе, расширять на другие сознательно отложено (см. план).
+AREA_REQUIRES_ROLL_ON_REPORT = "okutka_tsargovykh"
 
 
 def _can_see_all_areas(user: User) -> bool:
@@ -174,7 +182,7 @@ def _task_line_out(
         assigned_pieces=assigned,
         unassigned_pieces=compute_remaining_pieces(float(line.quantity_pieces), assigned),
         assignments=[
-            _assignment_out(db, a, *assignment_report_aggs.get(a.id, (0.0, 0.0))) for a in line.assignments
+            _assignment_out(db, a, *assignment_report_aggs.get(a.id, (0.0, 0.0, None))) for a in line.assignments
         ],
         planned_length_m=round(float(line.quantity_pieces) * float(line.length_m), 2),
         issued_length_m=issued_length_m,
@@ -228,11 +236,17 @@ def _line_assignment_aggregates(db: Session, line_ids: list[int]) -> dict[int, f
     return {row[0]: float(row[1]) for row in rows}
 
 
-def _assignment_report_aggregates(db: Session, assignment_ids: list[int]) -> dict[int, tuple[float, float]]:
+def _assignment_report_aggregates(
+    db: Session, assignment_ids: list[int]
+) -> dict[int, tuple[float, float, int | None]]:
     """Σ good_pieces/defect_pieces по конкретной записи распределения
     (раздел про брак по дням) — тот же батч-приём, что
     _line_report_aggregates, только группировка по assignment_id, не
-    task_line_id, чтобы видеть факт/брак за конкретный день/линию."""
+    task_line_id, чтобы видеть факт/брак за конкретный день/линию.
+    material_unit_id — раздел про цифровой аналог "Ежедневки": все отчёты
+    одной подачи формы ссылаются на один и тот же рулон, поэтому
+    max(...) здесь просто выбирает единственное непустое значение, а не
+    агрегирует по смыслу."""
     if not assignment_ids:
         return {}
     rows = (
@@ -240,12 +254,30 @@ def _assignment_report_aggregates(db: Session, assignment_ids: list[int]) -> dic
             ProductionTaskLineReport.assignment_id,
             func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
             func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
+            func.max(ProductionTaskLineReport.material_unit_id),
         )
         .filter(ProductionTaskLineReport.assignment_id.in_(assignment_ids))
         .group_by(ProductionTaskLineReport.assignment_id)
         .all()
     )
-    return {row[0]: (float(row[1]), float(row[2])) for row in rows}
+    return {row[0]: (float(row[1]), float(row[2]), row[3]) for row in rows}
+
+
+def _unit_consumed_length_m(db: Session, unit_id: int) -> float:
+    """Раздел про цифровой аналог "Ежедневки" — сколько метров этого
+    рулона уже израсходовано, совокупно по всем отчётам, где бы и когда
+    бы они ни были поданы (не только за один день/строку задания)."""
+    rows = (
+        db.query(
+            ProductionTaskLineReport.good_pieces,
+            ProductionTaskLineReport.defect_pieces,
+            ProductionTaskLine.length_m,
+        )
+        .join(ProductionTaskLine, ProductionTaskLineReport.task_line_id == ProductionTaskLine.id)
+        .filter(ProductionTaskLineReport.material_unit_id == unit_id)
+        .all()
+    )
+    return compute_unit_consumed_length_m([(float(g), float(d), float(l)) for g, d, l in rows])
 
 
 def _line_issued_units_map(db: Session, line_ids: list[int]) -> dict[int, list[MaterialUnit]]:
@@ -708,9 +740,16 @@ def create_task_line_report(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Распределение не найдено для этой строки задания")
     elif requires_daily_plan:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к распределению по дням")
+    if payload.material_unit_id is not None:
+        unit = db.get(MaterialUnit, payload.material_unit_id)
+        if unit is None or unit.production_task_line_id != line_id or unit.status != UnitStatus.VYDAN_UCHASTKU:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Рулон не найден среди выданных на эту строку")
+    elif line.task.area == AREA_REQUIRES_ROLL_ON_REPORT:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к рулону")
     report = ProductionTaskLineReport(
         task_line_id=line_id,
         assignment_id=payload.assignment_id,
+        material_unit_id=payload.material_unit_id,
         good_pieces=payload.good_pieces,
         defect_pieces=payload.defect_pieces,
         defect_reason=payload.defect_reason,
@@ -727,9 +766,22 @@ def create_task_line_report(
 
 
 def _assignment_out(
-    db: Session, a: ProductionTaskLineAssignment, produced_good_pieces: float = 0.0, defect_pieces: float = 0.0
+    db: Session,
+    a: ProductionTaskLineAssignment,
+    produced_good_pieces: float = 0.0,
+    defect_pieces: float = 0.0,
+    material_unit_id: int | None = None,
 ) -> ProductionTaskLineAssignmentOut:
     line = db.get(ProductionLine, a.line_id)
+    issued_length_m = None
+    remaining_length_m = None
+    if material_unit_id is not None:
+        unit = db.get(MaterialUnit, material_unit_id)
+        if unit is not None:
+            issued_length_m = float(unit.length_m)
+            remaining_length_m = round(
+                max(0.0, issued_length_m - _unit_consumed_length_m(db, unit.id)), 2
+            )
     return ProductionTaskLineAssignmentOut(
         id=a.id,
         line_id=a.line_id,
@@ -741,6 +793,9 @@ def _assignment_out(
         created_at=a.created_at,
         produced_good_pieces=produced_good_pieces,
         defect_pieces=defect_pieces,
+        material_unit_id=material_unit_id,
+        issued_length_m=issued_length_m,
+        remaining_length_m=remaining_length_m,
     )
 
 
@@ -759,7 +814,7 @@ def list_task_line_assignments(
         .all()
     )
     report_aggs = _assignment_report_aggregates(db, [a.id for a in assignments])
-    return [_assignment_out(db, a, *report_aggs.get(a.id, (0.0, 0.0))) for a in assignments]
+    return [_assignment_out(db, a, *report_aggs.get(a.id, (0.0, 0.0, None))) for a in assignments]
 
 
 @router.post(

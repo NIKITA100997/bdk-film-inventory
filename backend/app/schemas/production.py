@@ -172,6 +172,10 @@ class ProductionTaskLineReportCreate(BaseModel):
     # проверяет сам, см. create_task_line_report); для обычного участка
     # по-прежнему обязателен.
     assignment_id: int | None = None
+    # Раздел про цифровой аналог "Ежедневки" (пилот: окутка царговых) —
+    # из какого рулона резали; эндпоинт требует его для участков, где
+    # включён этот учёт, для остальных остаётся необязательным.
+    material_unit_id: int | None = None
     good_pieces: float = Field(ge=0)
     defect_pieces: float = Field(ge=0)
     defect_reason: str | None = None
@@ -182,6 +186,7 @@ class ProductionTaskLineReportOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     assignment_id: int | None
+    material_unit_id: int | None
     good_pieces: float
     defect_pieces: float
     defect_reason: str | None
@@ -212,6 +217,14 @@ class ProductionTaskLineAssignmentOut(BaseModel):
     # строку задания.
     produced_good_pieces: float = 0.0
     defect_pieces: float = 0.0
+    # Раздел про цифровой аналог "Ежедневки" — рулон, из которого резали
+    # в рамках этой записи распределения (день/линия), и его метраж на
+    # момент выдачи/сейчас. None — если по этой записи ещё не отчитались
+    # ни разу с указанием рулона (участок либо не пилотирует эту фичу,
+    # либо отчёт ещё не подан).
+    material_unit_id: int | None = None
+    issued_length_m: float | None = None
+    remaining_length_m: float | None = None
 
 
 class ProductionTaskLineSpecUpdate(BaseModel):

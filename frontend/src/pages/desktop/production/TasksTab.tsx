@@ -336,6 +336,7 @@ export default function TasksTab() {
           taskId={reportTarget.taskId}
           line={reportTarget.line}
           requiresDailyPlan={areaRequiresDailyPlan(reportTarget.area)}
+          requiresRoll={reportTarget.area === "okutka_tsargovykh"}
           onClose={() => setReportTarget(null)}
         />
       )}

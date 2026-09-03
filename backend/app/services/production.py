@@ -111,6 +111,19 @@ def reserved_area_m2_by_group(lines: list[TaskLineForReserve]) -> dict[tuple[int
     return {key: round(value, 3) for key, value in totals.items()}
 
 
+def compute_unit_consumed_length_m(reports: list[tuple[float, float, float]]) -> float:
+    """Сколько метров конкретного рулона (MaterialUnit) уже израсходовано
+    (раздел про цифровой аналог "Ежедневки") — суммарно по ВСЕМ отчётам,
+    когда-либо ссылавшимся на этот рулон, а не только за один день:
+    рулон может пережить несколько смен/строк задания, "Остаток метров"
+    должен быть совокупным. Каждый элемент — (good_pieces, defect_pieces,
+    length_m_per_piece) отдельного отчёта; length_m_per_piece свой у
+    каждого, т.к. один рулон технически может быть довыдан на другую
+    деталь/строку задания. Брак расходует плёнку так же, как и хорошая
+    деталь — тот же принцип, что compute_expected_return_length_m выше."""
+    return sum(length_m_per_piece * (good_pieces + defect_pieces) for good_pieces, defect_pieces, length_m_per_piece in reports)
+
+
 def compute_expected_return_length_m(
     issued_length_m: float, length_m_per_piece: float, good_pieces: float, defect_pieces: float
 ) -> float:

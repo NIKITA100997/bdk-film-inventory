@@ -16,9 +16,9 @@ export default function DailyPlanTab() {
     !!user?.permissions.includes("production_tasks.manage") ||
     !!user?.permissions.includes("production_tasks.report");
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
-  const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine; assignmentId: number } | null>(
-    null,
-  );
+  const [reportTarget, setReportTarget] = useState<
+    { taskId: number; line: ProductionTaskLine; assignmentId: number; area: string } | null
+  >(null);
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const tasks = (tasksQuery.data ?? []).filter((t) => (!user?.area || t.area === user.area) && t.is_active);
@@ -79,13 +79,34 @@ export default function DailyPlanTab() {
                   </Space>
                 ),
               },
+              // Раздел про цифровой аналог "Ежедневки" (пилот: окутка
+              // царговых) — колонки бумажного бланка, отсутствуют ("—")
+              // для остальных участков, где рулон при отчёте не выбирают.
+              { title: "№ рулона", render: (_, r) => r.assignment.material_unit_id ?? "—" },
+              {
+                title: "Получено метров",
+                render: (_, r) => (r.assignment.issued_length_m != null ? `${r.assignment.issued_length_m} м` : "—"),
+              },
+              {
+                title: "Расход плёнки за день",
+                render: (_, r) =>
+                  r.assignment.material_unit_id != null
+                    ? `${((r.assignment.produced_good_pieces + r.assignment.defect_pieces) * r.line.length_m).toFixed(2)} м`
+                    : "—",
+              },
+              {
+                title: "Остаток метров",
+                render: (_, r) => (r.assignment.remaining_length_m != null ? `${r.assignment.remaining_length_m} м` : "—"),
+              },
               {
                 title: "Действия",
                 render: (_, r) =>
                   canReport && (
                     <Button
                       size="small"
-                      onClick={() => setReportTarget({ taskId: r.task.id, line: r.line, assignmentId: r.assignment.id })}
+                      onClick={() =>
+                        setReportTarget({ taskId: r.task.id, line: r.line, assignmentId: r.assignment.id, area: r.task.area })
+                      }
                     >
                       Отчитаться
                     </Button>
@@ -101,6 +122,7 @@ export default function DailyPlanTab() {
           taskId={reportTarget.taskId}
           line={reportTarget.line}
           presetAssignmentId={reportTarget.assignmentId}
+          requiresRoll={reportTarget.area === "okutka_tsargovykh"}
           onClose={() => setReportTarget(null)}
         />
       )}
