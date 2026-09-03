@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi import Query as FastAPIQuery
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 
 from app.core.security import get_current_user, get_permission_codes, require_permission
@@ -1157,7 +1157,16 @@ def return_preview(
             func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
             func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
         )
-        .filter(ProductionTaskLineReport.task_line_id == unit.production_task_line_id)
+        .filter(
+            ProductionTaskLineReport.task_line_id == unit.production_task_line_id,
+            # Раздел про цифровой аналог "Ежедневки" — на строке может
+            # смениться несколько рулонов (пилот: окутка царговых), у
+            # каждого свои отчёты (material_unit_id). Берём отчёты именно
+            # этого рулона плюс старые без привязки к рулону вообще (там,
+            # где выбор рулона не включён — весь расход всё ещё общий на
+            # строку, как раньше).
+            or_(ProductionTaskLineReport.material_unit_id == unit_id, ProductionTaskLineReport.material_unit_id.is_(None)),
+        )
         .one()
     )
     good, defect = float(good), float(defect)
