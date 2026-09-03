@@ -28,3 +28,20 @@ class MaterialCardOut(BaseModel):
     total_area_m2: float
     units: list[MaterialUnitOut]
     events: list[MaterialEventOut]
+
+
+class MaterialCardGroupOut(BaseModel):
+    """Карточка материала по группе материал+цвет+толщина (раздел про
+    производителя внутри карточки материала, не отдельным измерением) —
+    объединяет остатки/историю всех производителей этой группы; skus —
+    список всех найденных MaterialSku, каждый со своими код-у-поставщика/
+    родная-ширина/фото/аналоги (это реальные атрибуты конкретного
+    производителя, не общие на группу)."""
+
+    material: str
+    color: str
+    thickness: float
+    skus: list[MaterialSkuOut]
+    total_area_m2: float
+    units: list[MaterialUnitOut]
+    events: list[MaterialEventOut]

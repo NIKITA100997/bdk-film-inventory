@@ -22,7 +22,7 @@ import {
   type MaterialSkuUpdate,
   type AnalogEntry,
 } from "../../api/dictionaries";
-import { getMaterialCard } from "../../api/materialCards";
+import { getMaterialCardByGroup } from "../../api/materialCards";
 import { listWarehouses } from "../../api/storage";
 import { reassignUnitSku, receiveAndAutoPlace, printLabel, skuLabel, type MaterialSku, type MaterialUnit } from "../../api/units";
 import DictAutoComplete from "../../components/DictAutoComplete";
@@ -293,13 +293,16 @@ export default function MaterialCard() {
   // есть доступ к "Приёмке") не видел её на карточке материала вообще.
   const canAddUnit = !!user?.is_superuser || !!user?.permissions.includes("units.receive");
 
-  const [skuId, setSkuId] = useState<number | null>(null);
+  const [groupKey, setGroupKey] = useState<{ material: string; color: string; thickness: number } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [analogsOpen, setAnalogsOpen] = useState(false);
-  const [mergeOpen, setMergeOpen] = useState(false);
+  const [analogsTarget, setAnalogsTarget] = useState<MaterialSku | null>(null);
+  const [mergeTarget, setMergeTarget] = useState<MaterialSku | null>(null);
   const [addUnitOpen, setAddUnitOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<MaterialUnit | null>(null);
-  const [editing, setEditing] = useState<MaterialSkuUpdate>({});
+  // Раздел про производителя внутри карточки материала (не отдельным
+  // измерением) — черновик правки теперь на строку таблицы производителей
+  // (sku.id), не один на всю карточку, как раньше.
+  const [editingBySku, setEditingBySku] = useState<Record<number, MaterialSkuUpdate>>({});
   // Раздел про поиск нужного размера на карточке материала — раньше
   // список единиц можно было только пролистать целиком, без фильтра.
   const [minWidthFilter, setMinWidthFilter] = useState<number | undefined>();
@@ -316,51 +319,55 @@ export default function MaterialCard() {
 
   useEffect(() => {
     const prefill = location.state as MaterialCardPrefill | null;
-    if (!prefill || !skusQuery.data || skuId !== null) return;
-    const match = skusQuery.data.find(
+    if (!prefill?.material || !prefill.color || prefill.thickness === undefined || groupKey !== null) return;
+    // Приходим сюда по клику из агрегатной строки "Материалы"/"Стеллажи"/
+    // карточки единицы — материал/цвет/толщина уже однозначно задают
+    // группу, ждать загрузки skusQuery не нужно (производитель в prefill,
+    // если он есть от старых вызывающих, больше не участвует в выборе —
+    // карточка теперь на всю группу сразу, не на одного производителя).
+    setGroupKey({ material: prefill.material, color: prefill.color, thickness: prefill.thickness });
+  }, [location.state, groupKey]);
+
+  const skusInGroup = useMemo(() => {
+    if (!groupKey) return [];
+    return (skusQuery.data ?? []).filter(
       (s) =>
-        s.material.name === prefill.material &&
-        s.color.name === prefill.color &&
-        s.thickness.value_mm === prefill.thickness &&
-        (!prefill.manufacturer || s.manufacturer.name === prefill.manufacturer),
+        s.material.name === groupKey.material &&
+        s.color.name === groupKey.color &&
+        s.thickness.value_mm === groupKey.thickness &&
+        (showArchived || s.is_active),
     );
-    if (match) setSkuId(match.id);
-    // Приходим сюда по клику из агрегатной строки "Материалы" (2.2 раздел
-    // бэклога доработок) — предвыбираем подходящую позицию по
-    // материалу/цвету/толщине, и по производителю, если он передан
-    // (экран "Остатки" передаёт его после разбивки по производителю).
-  }, [location.state, skusQuery.data, skuId]);
-
-  const selectedSku = (skusQuery.data ?? []).find((s) => s.id === skuId) ?? null;
-
-  useEffect(() => {
-    setEditing({});
-  }, [skuId]);
+  }, [skusQuery.data, groupKey, showArchived]);
 
   const updateMutation = useMutation({
-    mutationFn: (payload: MaterialSkuUpdate) => updateMaterialSku(skuId!, payload),
-    onSuccess: () => {
+    mutationFn: ({ id, payload }: { id: number; payload: MaterialSkuUpdate }) => updateMaterialSku(id, payload),
+    onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ["material-skus"] });
-      setEditing({});
+      qc.invalidateQueries({ queryKey: ["material-card-group"] });
+      setEditingBySku((v) => {
+        const next = { ...v };
+        delete next[id];
+        return next;
+      });
       message.success("Сохранено");
     },
     onError: () => message.error("Не удалось сохранить"),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => deleteMaterialSku(skuId!),
+    mutationFn: (id: number) => deleteMaterialSku(id),
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["material-skus"] });
-      if (result.deleted) setSkuId(null);
+      qc.invalidateQueries({ queryKey: ["material-card-group"] });
       message.success(result.requested ? "Заявка на удаление отправлена администратору" : "Позиция удалена");
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить — есть история (единицы, аналоги, журнал движений)?")),
   });
 
   const cardQuery = useQuery({
-    queryKey: ["material-card", skuId],
-    queryFn: () => getMaterialCard(skuId!),
-    enabled: !!skuId,
+    queryKey: ["material-card-group", groupKey],
+    queryFn: () => getMaterialCardByGroup(groupKey!.material, groupKey!.color, groupKey!.thickness),
+    enabled: !!groupKey,
   });
 
   // Раздел про выбор конкретного склада на карточке материала — units уже
@@ -441,6 +448,34 @@ export default function MaterialCard() {
     return result;
   }, [scopedUnits]);
 
+  // Раздел про производителя внутри карточки материала (не отдельным
+  // измерением) — верхний выбор теперь по ГРУППЕ материал+цвет+толщина,
+  // не по отдельной позиции; несколько производителей одной группы
+  // схлопываются в одну опцию (та же дедупликация, что уже делают
+  // stock_summary/MaterialsExplorer.tsx на бэкенде/фронте остатков).
+  const groupOptions = useMemo(() => {
+    const groups = new Map<string, { material: string; color: string; thickness: number; anyActive: boolean }>();
+    for (const s of skusQuery.data ?? []) {
+      if (!showArchived && !s.is_active) continue;
+      const key = `${s.material.name}|${s.color.name}|${s.thickness.value_mm}`;
+      const g = groups.get(key) ?? { material: s.material.name, color: s.color.name, thickness: s.thickness.value_mm, anyActive: false };
+      g.anyActive = g.anyActive || s.is_active;
+      groups.set(key, g);
+    }
+    return [...groups.entries()]
+      .map(([key, g]) => ({
+        value: key,
+        label: g.anyActive ? `${g.material}, ${g.color}, ${g.thickness} мм` : `${g.material}, ${g.color}, ${g.thickness} мм (в архиве)`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [skusQuery.data, showArchived]);
+
+  const groupValue = groupKey ? `${groupKey.material}|${groupKey.color}|${groupKey.thickness}` : undefined;
+  const selectGroup = (key: string) => {
+    const [material, color, thicknessStr] = key.split("|");
+    setGroupKey({ material, color, thickness: Number(thicknessStr) });
+  };
+
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card title="Карточка материала">
@@ -452,83 +487,100 @@ export default function MaterialCard() {
         <br />
         <Select
           style={{ width: 420 }}
-          placeholder="Выберите позицию материала"
+          placeholder="Выберите материал"
           loading={skusQuery.isLoading}
           showSearch
           optionFilterProp="label"
-          options={(skusQuery.data ?? [])
-            .filter((s) => showArchived || s.is_active)
-            .map((s) => ({
-              value: s.id,
-              label: s.is_active ? skuLabel(s) : `${skuLabel(s)} (в архиве)`,
-            }))}
-          value={skuId ?? undefined}
-          onChange={setSkuId}
+          options={groupOptions}
+          value={groupValue}
+          onChange={selectGroup}
         />
-        {warehousePicker && selectedSku && <span style={{ marginLeft: 12 }}>{warehousePicker}</span>}
+        {warehousePicker && groupKey && <span style={{ marginLeft: 12 }}>{warehousePicker}</span>}
 
-        {selectedSku && (
-          <Space direction="vertical" size="small" style={{ marginTop: 16, width: "100%" }}>
-            <Space wrap align="end">
-              <div>
-                <Typography.Text type="secondary" style={{ display: "block", fontSize: 12 }}>
-                  Код у поставщика
-                </Typography.Text>
-                <Input
-                  disabled={!canEdit}
-                  size="small"
-                  style={{ width: 160 }}
-                  value={editing.supplier_code ?? selectedSku.supplier_code ?? ""}
-                  onChange={(e) => setEditing((v) => ({ ...v, supplier_code: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Typography.Text type="secondary" style={{ display: "block", fontSize: 12 }}>
-                  Родная ширина, мм
-                </Typography.Text>
-                <InputNumber
-                  disabled={!canEdit}
-                  size="small"
-                  min={1}
-                  value={editing.native_width_mm ?? selectedSku.native_width_mm ?? undefined}
-                  onChange={(v) => setEditing((s) => ({ ...s, native_width_mm: v ?? undefined }))}
-                />
-              </div>
-              {canEdit && (
-                <Button
-                  size="small"
-                  disabled={!Object.keys(editing).length}
-                  loading={updateMutation.isPending}
-                  onClick={() => updateMutation.mutate(editing)}
-                >
-                  Сохранить
-                </Button>
-              )}
-              <Tag color={selectedSku.is_active ? "green" : "default"}>{selectedSku.is_active ? "Активна" : "В архиве"}</Tag>
-              {canEdit && (
-                <Button size="small" onClick={() => updateMutation.mutate({ is_active: !selectedSku.is_active })}>
-                  {selectedSku.is_active ? "В архив" : "Восстановить"}
-                </Button>
-              )}
-              {canEdit && (
-                <Button size="small" danger loading={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>
-                  {user?.is_superuser ? "Удалить" : "Запросить удаление"}
-                </Button>
-              )}
-              <Button size="small" onClick={() => setAnalogsOpen(true)}>
-                Аналоги/фото
+        {groupKey && (
+          <Space direction="vertical" size="middle" style={{ marginTop: 16, width: "100%" }}>
+            <ResponsiveTable<MaterialSku>
+              tableKey="material-card-skus"
+              lockedColumns={["Производитель"]}
+              rowKey="id"
+              size="small"
+              pagination={false}
+              dataSource={skusInGroup}
+              scroll={{ x: "max-content" }}
+              columns={[
+                { title: "Производитель", render: (_, s) => s.manufacturer.name },
+                {
+                  title: "Код у поставщика",
+                  render: (_, s) => (
+                    <Input
+                      disabled={!canEdit}
+                      size="small"
+                      style={{ width: 140 }}
+                      value={editingBySku[s.id]?.supplier_code ?? s.supplier_code ?? ""}
+                      onChange={(e) => setEditingBySku((v) => ({ ...v, [s.id]: { ...v[s.id], supplier_code: e.target.value } }))}
+                    />
+                  ),
+                },
+                {
+                  title: "Родная ширина, мм",
+                  render: (_, s) => (
+                    <InputNumber
+                      disabled={!canEdit}
+                      size="small"
+                      min={1}
+                      value={editingBySku[s.id]?.native_width_mm ?? s.native_width_mm ?? undefined}
+                      onChange={(v) => setEditingBySku((prev) => ({ ...prev, [s.id]: { ...prev[s.id], native_width_mm: v ?? undefined } }))}
+                    />
+                  ),
+                },
+                {
+                  title: "Статус",
+                  render: (_, s) => <Tag color={s.is_active ? "green" : "default"}>{s.is_active ? "Активна" : "В архиве"}</Tag>,
+                },
+                {
+                  title: "",
+                  render: (_, s) =>
+                    canEdit && (
+                      <Space size={4} wrap>
+                        <Button
+                          size="small"
+                          disabled={!Object.keys(editingBySku[s.id] ?? {}).length}
+                          loading={updateMutation.isPending}
+                          onClick={() => updateMutation.mutate({ id: s.id, payload: editingBySku[s.id] ?? {} })}
+                        >
+                          Сохранить
+                        </Button>
+                        <Button size="small" onClick={() => updateMutation.mutate({ id: s.id, payload: { is_active: !s.is_active } })}>
+                          {s.is_active ? "В архив" : "Восстановить"}
+                        </Button>
+                        <Button size="small" danger loading={deleteMutation.isPending} onClick={() => deleteMutation.mutate(s.id)}>
+                          {user?.is_superuser ? "Удалить" : "Запросить удаление"}
+                        </Button>
+                        <Button size="small" onClick={() => setAnalogsTarget(s)}>
+                          Аналоги/фото
+                        </Button>
+                        <Button size="small" onClick={() => setMergeTarget(s)}>
+                          Объединить
+                        </Button>
+                      </Space>
+                    ),
+                },
+              ]}
+            />
+            {!canEdit && (
+              <Space wrap>
+                {skusInGroup.map((s) => (
+                  <Button key={s.id} size="small" onClick={() => setAnalogsTarget(s)}>
+                    Аналоги/фото — {s.manufacturer.name}
+                  </Button>
+                ))}
+              </Space>
+            )}
+            {canAddUnit && (
+              <Button type="primary" onClick={() => setAddUnitOpen(true)}>
+                + Добавить единицу
               </Button>
-              {canEdit && (
-                <Button size="small" onClick={() => setMergeOpen(true)}>
-                  Объединить с другой позицией
-                </Button>
-              )}
-              {canAddUnit && (
-                <Button size="small" type="primary" onClick={() => setAddUnitOpen(true)}>
-                  + Добавить единицу
-                </Button>
-              )}
-            </Space>
+            )}
           </Space>
         )}
       </Card>
@@ -625,6 +677,11 @@ export default function MaterialCard() {
               })}
               columns={[
                 { title: "ID", dataIndex: "id" },
+                // Раздел про производителя внутри карточки материала (не
+                // отдельным измерением) — единицы разных производителей
+                // теперь вперемешку в одном списке, эта колонка — единственное
+                // место, где видно, чья это конкретно единица.
+                { title: "Производитель", render: (_, u) => u.material_sku.manufacturer.name },
                 { title: "Ширина×длина", render: (_, u) => `${u.width_mm}×${u.length_m}` },
                 { title: "Статус", dataIndex: "status" },
                 { title: "Склад", render: (_, u) => u.warehouse_name ?? "—" },
@@ -671,27 +728,40 @@ export default function MaterialCard() {
         </>
       )}
 
-      {analogsOpen && selectedSku && (
-        <SkuAnalogsModal sku={selectedSku} allSkus={skusQuery.data ?? []} onClose={() => setAnalogsOpen(false)} canEdit={canEdit} />
+      {analogsTarget && (
+        <SkuAnalogsModal sku={analogsTarget} allSkus={skusQuery.data ?? []} onClose={() => setAnalogsTarget(null)} canEdit={canEdit} />
       )}
 
       {reassignTarget && <ReassignSkuModal unit={reassignTarget} onClose={() => setReassignTarget(null)} />}
-      {addUnitOpen && selectedSku && <AddUnitModal sku={selectedSku} onClose={() => setAddUnitOpen(false)} />}
-      {mergeOpen && selectedSku && (
-        <MergeSkuModal sku={selectedSku} allSkus={skusQuery.data ?? []} onClose={() => setMergeOpen(false)} />
+      {addUnitOpen && groupKey && <AddUnitModal group={groupKey} skusInGroup={skusInGroup} onClose={() => setAddUnitOpen(false)} />}
+      {mergeTarget && (
+        <MergeSkuModal sku={mergeTarget} allSkus={skusQuery.data ?? []} onClose={() => setMergeTarget(null)} />
       )}
     </Space>
   );
 }
 
 /** Добавить ещё одну физическую единицу этого материала прямо с карточки
- * (раздел про недостающую возможность) — материал/цвет/толщина/
- * производитель уже зафиксированы выбранной позицией, спрашиваем только
- * тип/размер. Тот же приём, что "Единица плёнки вне сессии приёмки" в
- * MaterialsExplorer.tsx — receiveAndAutoPlace, без нового бэкенд-эндпоинта. */
-function AddUnitModal({ sku, onClose }: { sku: MaterialSku; onClose: () => void }) {
+ * (раздел про недостающую возможность) — материал/цвет/толщина уже
+ * зафиксированы группой карточки, но производитель — больше не один на
+ * карточку (раздел про производителя внутри карточки материала), поэтому
+ * спрашиваем его явно: предвыбираем, если в группе всего один, иначе
+ * пусто (можно ввести и нового — find_or_create_sku на бэкенде сам
+ * заведёт под него позицию). Тот же приём, что "Единица плёнки вне сессии
+ * приёмки" в MaterialsExplorer.tsx — receiveAndAutoPlace, без нового
+ * бэкенд-эндпоинта. */
+function AddUnitModal({
+  group,
+  skusInGroup,
+  onClose,
+}: {
+  group: { material: string; color: string; thickness: number };
+  skusInGroup: MaterialSku[];
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const [form] = Form.useForm<{
+    manufacturer: string;
     is_strip: boolean;
     width_mm: number;
     length_m: number;
@@ -703,6 +773,7 @@ function AddUnitModal({ sku, onClose }: { sku: MaterialSku; onClose: () => void 
 
   const addMutation = useMutation({
     mutationFn: (v: {
+      manufacturer: string;
       is_strip: boolean;
       width_mm: number;
       length_m: number;
@@ -711,10 +782,10 @@ function AddUnitModal({ sku, onClose }: { sku: MaterialSku; onClose: () => void 
       occurred_at?: Dayjs | null;
     }) =>
       receiveAndAutoPlace({
-        material: sku.material.name,
-        color: sku.color.name,
-        thickness: sku.thickness.value_mm,
-        manufacturer: sku.manufacturer.name,
+        material: group.material,
+        color: group.color,
+        thickness: group.thickness,
+        manufacturer: v.manufacturer,
         is_strip: v.is_strip,
         width_mm: v.width_mm,
         length_m: v.length_m,
@@ -724,7 +795,8 @@ function AddUnitModal({ sku, onClose }: { sku: MaterialSku; onClose: () => void 
         occurred_at: toOccurredAtIso(v.occurred_at),
       }),
     onSuccess: (units) => {
-      qc.invalidateQueries({ queryKey: ["material-card", sku.id] });
+      qc.invalidateQueries({ queryKey: ["material-card-group"] });
+      qc.invalidateQueries({ queryKey: ["material-skus"] });
       setCreatedUnits(units);
       form.resetFields();
       message.success(`Единица №${units[0].id} зарегистрирована`);
@@ -733,8 +805,22 @@ function AddUnitModal({ sku, onClose }: { sku: MaterialSku; onClose: () => void 
   });
 
   return (
-    <Modal title={`Добавить единицу — ${skuLabel(sku)}`} open onCancel={onClose} footer={null} destroyOnHidden>
-      <Form form={form} layout="vertical" initialValues={{ is_strip: false }} onFinish={(v) => addMutation.mutate(v)}>
+    <Modal
+      title={`Добавить единицу — ${group.material}, ${group.color}, ${group.thickness} мм`}
+      open
+      onCancel={onClose}
+      footer={null}
+      destroyOnHidden
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ is_strip: false, manufacturer: skusInGroup.length === 1 ? skusInGroup[0].manufacturer.name : undefined }}
+        onFinish={(v) => addMutation.mutate(v)}
+      >
+        <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
+          <DictAutoComplete kind="manufacturers" />
+        </Form.Item>
         <Form.Item name="is_strip" label="Тип">
           <Radio.Group
             options={[
