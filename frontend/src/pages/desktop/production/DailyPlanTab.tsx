@@ -4,11 +4,18 @@ import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { listProductionTasks, type ProductionTaskLine } from "../../../api/production";
+import { listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import ReportModal from "./ReportModal";
+import MasterQuickReportPanel from "./MasterQuickReportPanel";
 
 /** План на день (мастер) — суточный срез уже распределённых по линиям
- * строк заданий, с отчётом о браке прямо из строки. */
+ * строк заданий, с отчётом о браке прямо из строки. Раздел про
+ * отключение распределения по дням (Area.requires_daily_plan=false,
+ * пилот: окутка царговых) — для такого участка распределений никогда
+ * не будет, эта таблица для него пуста и бессмысленна, поэтому вместо
+ * неё показываем MasterQuickReportPanel (набор нужных позиций через
+ * поиск + один общий отчёт вместо модалки на каждую строку). */
 export default function DailyPlanTab() {
   const { user } = useAuth();
   const canReport =
@@ -20,8 +27,15 @@ export default function DailyPlanTab() {
     { taskId: number; line: ProductionTaskLine; assignmentId: number; area: string } | null
   >(null);
 
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaRequiresDailyPlan = (code: string) => areasQuery.data?.find((a) => a.code === code)?.requires_daily_plan ?? true;
+
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const tasks = (tasksQuery.data ?? []).filter((t) => (!user?.area || t.area === user.area) && t.is_active);
+
+  if (user?.area && !areaRequiresDailyPlan(user.area)) {
+    return <MasterQuickReportPanel area={user.area} />;
+  }
 
   const dateStr = selectedDate.format("YYYY-MM-DD");
 
