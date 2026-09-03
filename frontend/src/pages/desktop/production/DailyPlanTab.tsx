@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Space, Typography, DatePicker, Tag, Button, Empty } from "antd";
+import { Card, Space, Typography, DatePicker, Tag, Button, Empty, Select } from "antd";
 import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
@@ -15,7 +15,12 @@ import MasterQuickReportPanel from "./MasterQuickReportPanel";
  * пилот: окутка царговых) — для такого участка распределений никогда
  * не будет, эта таблица для него пуста и бессмысленна, поэтому вместо
  * неё показываем MasterQuickReportPanel (набор нужных позиций через
- * поиск + один общий отчёт вместо модалки на каждую строку). */
+ * поиск + один общий отчёт вместо модалки на каждую строку).
+ * Раздел про просмотр от лица админа/без своего участка — у реального
+ * мастера участок закреплён на аккаунте (user.area), но администратор
+ * обычно логинится без привязки к участку и иначе никогда не увидит
+ * ни эту, ни новую панель — добавлен выбор участка (viewArea) именно
+ * для такого случая. */
 export default function DailyPlanTab() {
   const { user } = useAuth();
   const canReport =
@@ -23,18 +28,39 @@ export default function DailyPlanTab() {
     !!user?.permissions.includes("production_tasks.manage") ||
     !!user?.permissions.includes("production_tasks.report");
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
+  const [viewArea, setViewArea] = useState<string | null>(null);
   const [reportTarget, setReportTarget] = useState<
     { taskId: number; line: ProductionTaskLine; assignmentId: number; area: string } | null
   >(null);
 
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaRequiresDailyPlan = (code: string) => areasQuery.data?.find((a) => a.code === code)?.requires_daily_plan ?? true;
+  // Мастер с закреплённым участком всегда видит только свой; у
+  // администратора участок не закреплён — тогда используем то, что он
+  // выбрал вручную (по умолчанию "Все участки", как и раньше).
+  const effectiveArea = user?.area ?? viewArea;
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
-  const tasks = (tasksQuery.data ?? []).filter((t) => (!user?.area || t.area === user.area) && t.is_active);
+  const tasks = (tasksQuery.data ?? []).filter((t) => (!effectiveArea || t.area === effectiveArea) && t.is_active);
 
-  if (user?.area && !areaRequiresDailyPlan(user.area)) {
-    return <MasterQuickReportPanel area={user.area} />;
+  const areaPicker = !user?.area && (
+    <Select
+      allowClear
+      placeholder="Все участки"
+      style={{ width: 280 }}
+      value={viewArea ?? undefined}
+      onChange={(v) => setViewArea(v ?? null)}
+      options={(areasQuery.data ?? []).map((a) => ({ value: a.code, label: a.name }))}
+    />
+  );
+
+  if (effectiveArea && !areaRequiresDailyPlan(effectiveArea)) {
+    return (
+      <Space direction="vertical" size="large" style={{ width: "100%" }}>
+        {areaPicker}
+        <MasterQuickReportPanel area={effectiveArea} />
+      </Space>
+    );
   }
 
   const dateStr = selectedDate.format("YYYY-MM-DD");
@@ -53,6 +79,7 @@ export default function DailyPlanTab() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      {areaPicker}
       <Card
         title={`📅 Суточный план участка на ${selectedDate.format("DD.MM.YYYY")}`}
         extra={
