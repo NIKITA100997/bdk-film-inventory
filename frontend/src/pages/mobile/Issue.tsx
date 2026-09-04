@@ -25,6 +25,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import dayjs, { type Dayjs } from "dayjs";
 import { toOccurredAtIso } from "../../utils/occurredAt";
+import { printReport } from "../../utils/printReport";
 import {
   getCuttingPlan,
   getReturnPreview,
@@ -88,6 +89,19 @@ function makeDonorUnit(unitId: number, widthMm: number, lengthM: number, warehou
     area_m2: Math.round(((widthMm * lengthM) / 1000) * 1000) / 1000,
     warehouse_name: warehouseName,
   };
+}
+
+// Раздел про список на резку (печать для резчиков) — одна запись = один
+// уже подобранный донор из группового плана резки (/units/cutting-plan),
+// ещё НЕ разрезанный физически; pieces — какие ширины из него резать и
+// для какой детали/задания, то же самое, что уже строит CuttingForm как
+// widthCuts, просто не выполняется сразу, а копится для печати.
+interface CuttingBatchEntry {
+  donorUnitId: number;
+  donorWidthMm: number;
+  donorLengthM: number;
+  wasteMm: number;
+  pieces: { widthMm: number; label: string }[];
 }
 
 function findSku(skus: MaterialSku[] | undefined, material: string, color: string, thickness: number) {
@@ -194,10 +208,14 @@ function CuttingPlanGroupButton({
   sku,
   rows,
   onCut,
+  onAddToBatch,
+  batchedDonorIds,
 }: {
   sku: MaterialSku | undefined;
   rows: QueueRowData[];
   onCut: (donor: MaterialUnit, widthCuts: CuttingFormInitialWidthCut[]) => void;
+  onAddToBatch: (entry: CuttingBatchEntry) => void;
+  batchedDonorIds: Set<number>;
 }) {
   const widths = rows.map((r) => r.line.strip_width_mm || r.line.width_mm);
   const planQuery = useQuery({
@@ -233,6 +251,8 @@ function CuttingPlanGroupButton({
     locked: true,
   }));
 
+  const alreadyBatched = batchedDonorIds.has(donor.unit_id);
+
   return (
     <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
       ✂️ План резки: донор №{donor.unit_id} ({donor.width_mm} мм, {donor.length_m} м) → режем{" "}
@@ -242,6 +262,27 @@ function CuttingPlanGroupButton({
       <a onClick={() => onCut(makeDonorUnit(donor.unit_id, donor.width_mm, donor.length_m, null, sku), widthCuts)}>
         Резать
       </a>
+      {" · "}
+      {alreadyBatched ? (
+        <Typography.Text type="success">✓ В списке на резку</Typography.Text>
+      ) : (
+        <a
+          onClick={() =>
+            onAddToBatch({
+              donorUnitId: donor.unit_id,
+              donorWidthMm: donor.width_mm,
+              donorLengthM: donor.length_m,
+              wasteMm: waste_mm,
+              pieces: coveredRows.map((r) => ({
+                widthMm: r.line.strip_width_mm || r.line.width_mm,
+                label: r.line.part_name ?? "Деталь",
+              })),
+            })
+          }
+        >
+          + В список на резку
+        </a>
+      )}
     </Typography.Text>
   );
 }
@@ -293,6 +334,21 @@ export default function Issue() {
     widthCuts: CuttingFormInitialWidthCut[];
     onDone: (res: CuttingRecipeResponse) => void;
   } | null>(null);
+
+  // Раздел про список на резку (печать для резчиков) — план ЕЩЁ НЕ
+  // выполненный физически (резчики режут сами по бумаге), поэтому не
+  // бьёт в бэкенд вообще — просто накапливает уже посчитанные планы
+  // резки (CuttingPlanGroupButton — тот же /units/cutting-plan запрос,
+  // что и раньше, тут только откладывается печать вместо немедленной
+  // резки). Только групповые планы — одиночные резки по одной строке
+  // (без группы) сюда не попадают, остаются как были.
+  const [cuttingBatch, setCuttingBatch] = useState<CuttingBatchEntry[]>([]);
+  const [cuttingBatchOpen, setCuttingBatchOpen] = useState(false);
+  const addToCuttingBatch = (entry: CuttingBatchEntry) =>
+    setCuttingBatch((prev) => (prev.some((e) => e.donorUnitId === entry.donorUnitId) ? prev : [...prev, entry]));
+  const removeFromCuttingBatch = (donorUnitId: number) =>
+    setCuttingBatch((prev) => prev.filter((e) => e.donorUnitId !== donorUnitId));
+  const cuttingBatchDonorIds = useMemo(() => new Set(cuttingBatch.map((e) => e.donorUnitId)), [cuttingBatch]);
 
   // Раздел про скролл на планшете — правая панель раньше молча "отдавала"
   // прокрутку в левую очередь, дойдя до низа, без намёка на то, что там
@@ -846,6 +902,8 @@ export default function Issue() {
               },
             })
           }
+          onAddToBatch={addToCuttingBatch}
+          batchedDonorIds={cuttingBatchDonorIds}
         />
         {g.rows.map((r) => queueRow(r, variant))}
       </div>
@@ -871,7 +929,16 @@ export default function Issue() {
 
   return (
     <div>
-      <Typography.Title level={4}>Выдача участку</Typography.Title>
+      <Space align="center" style={{ marginBottom: 8 }} wrap>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Выдача участку
+        </Typography.Title>
+        {cuttingBatch.length > 0 && (
+          <Button size="small" onClick={() => setCuttingBatchOpen(true)}>
+            📋 Список на резку ({cuttingBatch.length})
+          </Button>
+        )}
+      </Space>
 
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={12} md={6}>
@@ -1704,6 +1771,83 @@ export default function Issue() {
           />
         </Modal>
       )}
+
+      <Modal
+        title="Список на резку"
+        open={cuttingBatchOpen}
+        onCancel={() => setCuttingBatchOpen(false)}
+        footer={null}
+        width={640}
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary">
+          Это ещё не выполненная резка — план по уже подобранным донорам,
+          распечатайте и отдайте резчикам, они режут сами. Саму резку (когда
+          физически выполнена) заводите в системе как обычно, через «Резать»
+          у нужной группы.
+        </Typography.Paragraph>
+        {cuttingBatch.length === 0 ? (
+          <Typography.Text type="secondary">Список пуст.</Typography.Text>
+        ) : (
+          <>
+            <ResponsiveTable
+              tableKey="cutting-batch"
+              rowKey={(r) => `${r.entry.donorUnitId}-${r.widthMm}-${r.label}`}
+              size="small"
+              pagination={false}
+              dataSource={cuttingBatch.flatMap((e) => e.pieces.map((p) => ({ ...p, entry: e })))}
+              scroll={{ x: "max-content" }}
+              columns={[
+                { title: "№ рулона/штрипса", render: (_, r) => r.entry.donorUnitId },
+                { title: "Ширина рулона, мм", render: (_, r) => r.entry.donorWidthMm },
+                { title: "Длина рулона, м", render: (_, r) => r.entry.donorLengthM },
+                { title: "Ширина реза, мм", render: (_, r) => r.widthMm },
+                { title: "Деталь/задание", render: (_, r) => r.label },
+                { title: "Отход, мм", render: (_, r) => r.entry.wasteMm },
+                {
+                  title: "",
+                  render: (_, r) => (
+                    <Button size="small" danger onClick={() => removeFromCuttingBatch(r.entry.donorUnitId)}>
+                      Убрать
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+            <Space style={{ marginTop: 12 }}>
+              <Button
+                type="primary"
+                onClick={() =>
+                  printReport(
+                    "Список на резку",
+                    [
+                      { key: "donor", header: "№ рулона/штрипса" },
+                      { key: "donorWidth", header: "Ширина рулона, мм" },
+                      { key: "donorLength", header: "Длина рулона, м" },
+                      { key: "width", header: "Ширина реза, мм" },
+                      { key: "label", header: "Деталь/задание" },
+                      { key: "waste", header: "Отход, мм" },
+                    ],
+                    cuttingBatch.flatMap((e) =>
+                      e.pieces.map((p) => ({
+                        donor: e.donorUnitId,
+                        donorWidth: e.donorWidthMm,
+                        donorLength: e.donorLengthM,
+                        width: p.widthMm,
+                        label: p.label,
+                        waste: e.wasteMm,
+                      })),
+                    ),
+                  )
+                }
+              >
+                Печать
+              </Button>
+              <Button onClick={() => setCuttingBatch([])}>Очистить список</Button>
+            </Space>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -7,7 +7,6 @@ import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, 
 // умеет expandable вообще, там осталась обычная antd Table, чтобы не
 // сломать разворот на планшете в портретной ориентации.
 import ResponsiveTable from "../../../components/ResponsiveTable";
-import ReportTable, { type ReportColumn } from "../../../components/ReportTable";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -31,47 +30,6 @@ import ReportModal from "./ReportModal";
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
   return fallback;
-}
-
-interface CuttingOrderRow {
-  key: string;
-  material: string;
-  color: string;
-  thickness: number;
-  widthMm: number;
-  totalM: number;
-  shortfallM: number;
-  parts: { name: string; qty: number }[];
-}
-
-/** Раздел про задание на резку — раньше начальник склада обрабатывала
- * резку под задание по одной строке (карточка единицы/очередь "Выдача
- * участку", там группировка вообще по всем активным заданиям сразу, не
- * по одному). Здесь — то же самое группирование, что уже есть в
- * expandedRowRender ниже (bySku), только ещё и по ширине штрипса (резчику
- * нужна именно ширина, не только материал) и с разбивкой по деталям —
- * готовый печатный список по ОДНОМУ заданию. */
-function buildCuttingOrderRows(task: ProductionTask): CuttingOrderRow[] {
-  const map = new Map<string, CuttingOrderRow>();
-  for (const l of task.lines) {
-    const widthMm = l.strip_width_mm ?? l.width_mm;
-    const key = `${l.material}|${l.color}|${l.thickness}|${widthMm}`;
-    const entry = map.get(key) ?? {
-      key,
-      material: l.material,
-      color: l.color,
-      thickness: l.thickness,
-      widthMm,
-      totalM: 0,
-      shortfallM: 0,
-      parts: [],
-    };
-    entry.totalM += l.quantity_pieces * l.length_m;
-    entry.shortfallM += l.shortfall_length_m;
-    entry.parts.push({ name: l.part_name ?? "—", qty: l.quantity_pieces });
-    map.set(key, entry);
-  }
-  return [...map.values()];
 }
 
 /** Все задания (список + создание/архив/удаление) — раздел про
@@ -106,8 +64,6 @@ export default function TasksTab() {
   // на резке, но явно, из самого списка заданий.
   const [dimsTarget, setDimsTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
   const [dimsForm] = Form.useForm<ProductionTaskLineSpecUpdate>();
-  const [cuttingOrderTask, setCuttingOrderTask] = useState<ProductionTask | null>(null);
-  const [showIssuedInCuttingOrder, setShowIssuedInCuttingOrder] = useState(false);
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const usersQuery = useQuery({ queryKey: ["users-summary"], queryFn: listUsers });
@@ -371,13 +327,10 @@ export default function TasksTab() {
                 {
                   key: "actions",
                   title: "Действия",
-                  width: wideScreen ? 320 : undefined,
+                  width: wideScreen ? 240 : undefined,
                   render: (_, t) =>
                     canManage && (
                       <Space onClick={(e) => e.stopPropagation()} wrap>
-                        <Button size="small" onClick={() => setCuttingOrderTask(t)}>
-                          🖨️ Задание на резку
-                        </Button>
                         <Button
                           size="small"
                           onClick={() => archiveTaskMutation.mutate({ id: t.id, isActive: !t.is_active })}
@@ -439,82 +392,6 @@ export default function TasksTab() {
             <InputNumber min={0.01} step={0.01} style={{ width: "100%" }} placeholder="авто" />
           </Form.Item>
         </Form>
-      </Modal>
-
-      <Modal
-        title={`Задание на резку — ${cuttingOrderTask?.product_model_name ?? cuttingOrderTask?.name ?? ""}`}
-        open={!!cuttingOrderTask}
-        onCancel={() => setCuttingOrderTask(null)}
-        footer={null}
-        width={900}
-        destroyOnHidden
-      >
-        {cuttingOrderTask &&
-          (() => {
-            const allRows = buildCuttingOrderRows(cuttingOrderTask);
-            const rows = allRows.filter((r) => showIssuedInCuttingOrder || r.shortfallM > 0);
-            const columns: ReportColumn<CuttingOrderRow>[] = [
-              {
-                key: "sku",
-                header: "Материал/цвет/толщина",
-                render: (r) => `${r.material}, ${r.color}, ${r.thickness} мм`,
-                printValue: (r) => `${r.material}, ${r.color}, ${r.thickness} мм`,
-              },
-              {
-                key: "width",
-                header: "Ширина, мм",
-                render: (r) => r.widthMm,
-                printValue: (r) => r.widthMm,
-                sorter: (a, b) => a.widthMm - b.widthMm,
-              },
-              {
-                key: "shortfall",
-                header: "Нужно нарезать, м",
-                render: (r) => (
-                  <Typography.Text strong type={r.shortfallM > 0 ? "warning" : "secondary"}>
-                    {r.shortfallM > 0 ? r.shortfallM.toFixed(2) : "выдано достаточно"}
-                  </Typography.Text>
-                ),
-                printValue: (r) => r.shortfallM.toFixed(2),
-                sorter: (a, b) => a.shortfallM - b.shortfallM,
-                defaultSortOrder: "descend",
-              },
-              {
-                key: "total",
-                header: "Всего на задание, м",
-                render: (r) => r.totalM.toFixed(2),
-                printValue: (r) => r.totalM.toFixed(2),
-              },
-              {
-                key: "parts",
-                header: "Детали",
-                render: (r) => r.parts.map((p) => `${p.name} ×${p.qty}`).join(", "),
-                printValue: (r) => r.parts.map((p) => `${p.name} ×${p.qty}`).join(", "),
-              },
-            ];
-            return (
-              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                <Checkbox checked={showIssuedInCuttingOrder} onChange={(e) => setShowIssuedInCuttingOrder(e.target.checked)}>
-                  Показать и то, что уже выдано полностью
-                </Checkbox>
-                {rows.length === 0 ? (
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="По этому заданию резать больше нечего — всё уже выдано"
-                  />
-                ) : (
-                  <ReportTable<CuttingOrderRow>
-                    title={`Задание на резку — ${cuttingOrderTask.product_model_name ?? cuttingOrderTask.name ?? `№${cuttingOrderTask.id}`}`}
-                    filename={`zadanie-na-rezku-${cuttingOrderTask.id}.csv`}
-                    tableKey="cutting-order"
-                    rowKey="key"
-                    columns={columns}
-                    data={rows}
-                  />
-                )}
-              </Space>
-            );
-          })()}
       </Modal>
     </Space>
   );
