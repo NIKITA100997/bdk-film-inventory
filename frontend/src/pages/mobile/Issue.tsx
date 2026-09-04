@@ -457,7 +457,6 @@ export default function Issue() {
     setCuttingBatch((prev) => (prev.some((e) => e.donorUnitId === entry.donorUnitId) ? prev : [...prev, entry]));
   const removeFromCuttingBatch = (donorUnitId: number) =>
     setCuttingBatch((prev) => prev.filter((e) => e.donorUnitId !== donorUnitId));
-  const cuttingBatchDonorIds = useMemo(() => new Set(cuttingBatch.map((e) => e.donorUnitId)), [cuttingBatch]);
 
   // Раздел про разбор задания единой таблицей — решения "выдать со
   // склада" (stock_matches из /units/cutting-plan), тот же принцип
@@ -491,13 +490,13 @@ export default function Issue() {
   // группу); теперь одна общая модалка на всю страницу, чтобы кнопка в
   // колонке "Действия" могла её открыть без разворота строки.
   const [manualPickerTarget, setManualPickerTarget] = useState<{ sku: MaterialSku; rows: QueueRowData[] } | null>(null);
-  // Раздел про плотную таблицу — какая строка сейчас развёрнута (одна за
-  // раз, тот же принцип, что раньше был у "selected"). Для строк-нужд без
-  // задания (одиночных) разворот по-прежнему приводит к setSelected —
-  // это то же самое состояние, что уже водит существующую панель
-  // (точное совпадение/донор/замена материала), просто теперь она
-  // рендерится не сбоку, а прямо под строкой.
-  const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
+  // Раздел про действия кнопками в строке — раскрывающийся список убран
+  // целиком (был лишним: печать/приёмка возврата уже кнопки в строке,
+  // Использовать/+ В резку/Свой донор — тоже). Осталось ровно одно, что
+  // не сводится к кнопке в узкой колонке — полный разбор строки (точное
+  // совпадение/донор/замена материала/донор+раскрой группы) — теперь
+  // модалка "Подробнее", а не разворот таблицы.
+  const [detailRow, setDetailRow] = useState<NeedTableRow | null>(null);
 
   // Раздел про разбор задания единой таблицей — решение принимается в
   // таблице заранее (склад/резка), выполнение — здесь и только по этой
@@ -1025,11 +1024,11 @@ export default function Issue() {
     if (!status) return null;
     switch (status.kind) {
       case "stock":
-        return <Tag color="green">✅ на складе №{status.match.unit_id}</Tag>;
+        return <Tag color="green">✅ №{status.match.unit_id}</Tag>;
       case "cut_planned":
-        return <Tag color="gold">✂️ план резки</Tag>;
+        return <Tag color="gold">✂️ резка</Tag>;
       case "no_donor":
-        return <Tag color="red">✖ нет донора</Tag>;
+        return <Tag color="red">✖ нет</Tag>;
       case "decided":
         return <Tag color="processing">🕒 решено</Tag>;
       default:
@@ -1560,58 +1559,18 @@ export default function Issue() {
   // это потеряла — привязала общую панель только к негрупповым строкам,
   // из-за чего "замена материала" и правка ширины пропали для всех
   // реальных (обычно групповых) строк. Починено: selected выставляется
-  // для ЛЮБОЙ ещё не выданной строки-нужды, группа она или нет.
-  const selectRowForExpand = (key: string | null) => {
-    setExpandedRowKey(key);
-    const row = key ? tableRows.find((r) => r.key === key) : undefined;
-    if (row?.kind === "need" && !issuedNoteForLine(row.line)) {
-      setSelected({ task: row.task, line: row.line, assignment: row.assignment });
-    } else {
-      setSelected(null);
-    }
+  // для ЛЮБОЙ ещё не выданной строки-нужды, группа она или нет — теперь
+  // через кнопку "Подробнее" (модалка), не разворот строки.
+  const openDetail = (row: NeedTableRow) => {
+    setSelected({ task: row.task, line: row.line, assignment: row.assignment });
+    setDetailRow(row);
+  };
+  const closeDetail = () => {
+    setDetailRow(null);
+    setSelected(null);
   };
 
-  const renderExpandedRow = (row: TableRow): ReactNode => {
-    if (row.kind === "manual") {
-      return (
-        <Space>
-          <a onClick={() => printLabel(row.unit.id, { kind: "cutting_issue" })}>печать</a>
-          {canReturn && (
-            <AcceptReturnButton
-              unit={{
-                id: row.unit.id,
-                width_mm: row.unit.width_mm,
-                length_m: row.unit.length_m,
-                material_sku_id: row.unit.material_sku.id,
-                parent_id: row.unit.parent_id,
-                is_strip: row.unit.is_strip,
-                status: row.unit.status,
-              }}
-            />
-          )}
-        </Space>
-      );
-    }
-    const issuedNote = issuedNoteForLine(row.line);
-    if (issuedNote) {
-      return (
-        <Space direction="vertical">
-          {row.line.issued_units.length > 0 && (
-            <a
-              onClick={() =>
-                printLabelsBatch(
-                  row.line.issued_units.map((u) => u.id),
-                  { kind: "cutting_issue" },
-                )
-              }
-            >
-              печать наклеек ({row.line.issued_units.length})
-            </a>
-          )}
-          {canReturn && row.line.issued_units.map((u) => <AcceptReturnButton key={u.id} unit={u} />)}
-        </Space>
-      );
-    }
+  const renderDetailModalBody = (row: NeedTableRow): ReactNode => {
     const groupRows = groupRowsByRowKey.get(row.key) ?? [];
     if (groupRows.length > 1) {
       // Раздел про разбор задания единой таблицей — групповой план (донор
@@ -1739,40 +1698,33 @@ export default function Issue() {
         pagination={{ pageSize: 30 }}
         scroll={{ x: "max-content" }}
         locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
-        expandable={{
-          expandedRowKeys: expandedRowKey ? [expandedRowKey] : [],
-          onExpandedRowsChange: (keys) => {
-            const key = (keys[keys.length - 1] as string) ?? null;
-            selectRowForExpand(key);
-          },
-          expandedRowRender: (row) => renderExpandedRow(row),
-        }}
-        onRow={(row) => ({ onClick: () => selectRowForExpand(expandedRowKey === row.key ? null : row.key) })}
         columns={[
           {
             title: "",
             key: "badge",
-            width: 74,
+            width: 46,
             render: (_, row) =>
               row.kind === "manual" ? (
-                <Tag>вручную</Tag>
+                <Tag style={{ margin: 0 }}>вручную</Tag>
               ) : row.variant === "today" ? (
-                <Tag color={row.overdue ? "error" : "orange"}>
-                  {row.overdue ? `просрочено · ${dayjs(row.assignment!.date).format("DD.MM")}` : "сегодня"}
+                <Tag color={row.overdue ? "error" : "orange"} style={{ margin: 0 }}>
+                  {row.overdue ? dayjs(row.assignment!.date).format("DD.MM") : "сег."}
                 </Tag>
               ) : areaRequiresDailyPlan(row.task.area) ? (
-                <Tag>не распр.</Tag>
+                <Tag style={{ margin: 0 }}>—</Tag>
               ) : (
-                <Tag color="blue">по участку</Tag>
+                <Tag color="blue" style={{ margin: 0 }}>
+                  уч.
+                </Tag>
               ),
           },
           {
             title: "Статус",
             key: "status",
-            width: 130,
+            width: 96,
             render: (_, row) =>
               row.kind === "manual" ? (
-                <Tag color="green">✅ выдано вручную</Tag>
+                <Tag color="green">✅ вручную</Tag>
               ) : (
                 renderStatusPill(
                   decidedLineIds.has(row.line.id) ? { kind: "decided" } : lineInfoMap.get(row.line.id)?.status,
@@ -1809,15 +1761,15 @@ export default function Issue() {
               row.kind === "manual" ? skuLabel(row.unit.material_sku) : `${row.line.material}, ${row.line.color}, ${row.line.thickness} мм`,
           },
           {
-            title: "Штрипс, мм",
+            title: "Штрипс",
             key: "width",
-            width: 90,
+            width: 62,
             render: (_, row) => (row.kind === "manual" ? row.unit.width_mm : row.line.strip_width_mm || row.line.width_mm),
           },
           {
             title: "Нужно",
             key: "need",
-            width: 130,
+            width: 100,
             render: (_, row) =>
               row.kind === "manual" ? (
                 `${row.unit.length_m} м`
@@ -1826,17 +1778,17 @@ export default function Issue() {
                   {row.assignment.quantity_pieces} шт ({neededLengthM(row).toFixed(2)} м)
                 </>
               ) : (
-                `довыдать ${row.line.shortfall_length_m} м`
+                `${row.line.shortfall_length_m} м`
               ),
           },
           {
             title: "Действия",
             key: "actions",
-            width: 190,
+            width: 118,
             render: (_, row) => {
               if (row.kind === "manual") {
                 return (
-                  <Space size={4}>
+                  <Space direction="vertical" size={2}>
                     <a onClick={() => printLabel(row.unit.id, { kind: "cutting_issue" })}>печать</a>
                     {canReturn && (
                       <AcceptReturnButton
@@ -1857,7 +1809,7 @@ export default function Issue() {
               const issuedNote = issuedNoteForLine(row.line);
               if (issuedNote) {
                 return row.line.issued_units.length > 0 ? (
-                  <Space size={4} wrap>
+                  <Space direction="vertical" size={2}>
                     <a
                       onClick={() =>
                         printLabelsBatch(
@@ -1872,32 +1824,31 @@ export default function Issue() {
                   </Space>
                 ) : null;
               }
-              if (decidedLineIds.has(row.line.id)) {
-                return <Typography.Text type="secondary">🕒 в решениях</Typography.Text>;
-              }
               const info = lineInfoMap.get(row.line.id);
               const groupRows = groupRowsByRowKey.get(row.key);
               const sku = findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness);
+              const decided = decidedLineIds.has(row.line.id);
               return (
-                <Space size={4} wrap>
-                  {info?.acceptStock && (
-                    <Button size="small" type="primary" onClick={info.acceptStock}>
-                      Использовать
+                <Space direction="vertical" size={2} style={{ width: "100%" }}>
+                  {decided && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      🕒 в решениях
+                    </Typography.Text>
+                  )}
+                  {!decided && info?.acceptStock && (
+                    <Button size="small" type="primary" block onClick={info.acceptStock}>
+                      Взять
                     </Button>
                   )}
-                  {info?.acceptCut &&
-                    (info.donorUnitId != null && cuttingBatchDonorIds.has(info.donorUnitId) ? (
-                      <Tag color="success">✓ в резке</Tag>
-                    ) : (
-                      <Button size="small" onClick={info.acceptCut}>
-                        + В резку
-                      </Button>
-                    ))}
-                  {groupRows && sku && (
-                    <Button size="small" onClick={() => setManualPickerTarget({ sku, rows: groupRows })}>
-                      🔧 Донор
+                  {!decided && info?.acceptCut && (
+                    <Button size="small" block onClick={info.acceptCut}>
+                      + В резку
                     </Button>
                   )}
+                  <Space size={4}>
+                    {groupRows && sku && <a onClick={() => setManualPickerTarget({ sku, rows: groupRows })}>донор</a>}
+                    <a onClick={() => openDetail(row)}>ещё…</a>
+                  </Space>
                 </Space>
               );
             },
@@ -1914,6 +1865,17 @@ export default function Issue() {
           onAddToBatch={addToCuttingBatch}
         />
       )}
+
+      <Modal
+        title={detailRow?.line.part_name ?? "Деталь"}
+        open={!!detailRow}
+        onCancel={closeDetail}
+        footer={null}
+        width={640}
+        destroyOnHidden
+      >
+        {detailRow && renderDetailModalBody(detailRow)}
+      </Modal>
 
       <Collapse
         ghost
