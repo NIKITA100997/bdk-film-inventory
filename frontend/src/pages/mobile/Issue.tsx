@@ -1696,13 +1696,14 @@ export default function Issue() {
         dataSource={tableRows}
         size="small"
         pagination={{ pageSize: 30 }}
-        scroll={{ x: "max-content" }}
+        scroll={{ x: 1180 }}
+        tableLayout="fixed"
         locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
         columns={[
           {
             title: "",
             key: "badge",
-            width: 46,
+            width: 44,
             render: (_, row) =>
               row.kind === "manual" ? (
                 <Tag style={{ margin: 0 }}>вручную</Tag>
@@ -1721,7 +1722,7 @@ export default function Issue() {
           {
             title: "Статус",
             key: "status",
-            width: 96,
+            width: 108,
             render: (_, row) =>
               row.kind === "manual" ? (
                 <Tag color="green">✅ вручную</Tag>
@@ -1735,11 +1736,13 @@ export default function Issue() {
           {
             title: "Деталь",
             key: "part",
+            width: 190,
             render: (_, row) => (row.kind === "manual" ? "—" : (row.line.part_name ?? "Деталь без названия")),
           },
           {
             title: "Задание / участок",
             key: "task",
+            width: 170,
             render: (_, row) =>
               row.kind === "manual" ? (
                 <>Без задания · {row.unit.area ? areaLabel(row.unit.area) : "—"}</>
@@ -1757,19 +1760,20 @@ export default function Issue() {
           {
             title: "Материал",
             key: "material",
+            width: 160,
             render: (_, row) =>
               row.kind === "manual" ? skuLabel(row.unit.material_sku) : `${row.line.material}, ${row.line.color}, ${row.line.thickness} мм`,
           },
           {
             title: "Штрипс",
             key: "width",
-            width: 62,
+            width: 72,
             render: (_, row) => (row.kind === "manual" ? row.unit.width_mm : row.line.strip_width_mm || row.line.width_mm),
           },
           {
             title: "Нужно",
             key: "need",
-            width: 100,
+            width: 110,
             render: (_, row) =>
               row.kind === "manual" ? (
                 `${row.unit.length_m} м`
@@ -1784,7 +1788,7 @@ export default function Issue() {
           {
             title: "Действия",
             key: "actions",
-            width: 118,
+            width: 150,
             render: (_, row) => {
               if (row.kind === "manual") {
                 return (
