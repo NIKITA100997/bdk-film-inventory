@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -11,9 +11,9 @@ import {
   InputNumber,
   Modal,
   Row,
-  Segmented,
   Select,
   Space,
+  Table,
   Tag,
   Tooltip,
   Typography,
@@ -142,6 +142,26 @@ type RowStatus =
   | { kind: "no_donor" }
   | { kind: "decided" };
 
+// Раздел про разбор задания единой таблицей — одна строка плотной
+// таблицы: либо нужда/выдача по строке задания ("need"), либо единица,
+// выданная без привязки к заданию ("manual", раньше отдельная таблица
+// "Выдано вручную" внизу экрана).
+interface NeedTableRow {
+  kind: "need";
+  key: string;
+  task: ProductionTask;
+  line: ProductionTaskLine;
+  assignment?: ProductionTaskLineAssignment;
+  overdue?: boolean;
+  variant: "today" | "week";
+}
+interface ManualTableRow {
+  kind: "manual";
+  key: string;
+  unit: MaterialUnit;
+}
+type TableRow = NeedTableRow | ManualTableRow;
+
 function findSku(skus: MaterialSku[] | undefined, material: string, color: string, thickness: number) {
   return skus?.find(
     (s) =>
@@ -206,29 +226,6 @@ function groupQueueRows(rows: QueueRowData[]) {
   return order.map((k) => groups.get(k)!);
 }
 
-/** Альтернативная группировка очереди — по детали, а не по плёнке
- * (раздел про удобство просмотра: мастеру иногда проще искать
- * "все двери с этой филёнкой", а не "все задания под эту плёнку").
- * Внутри каждой группы деталей строки всё равно повторно группируются
- * groupQueueRows (по плёнке) — деталь может понадобиться в разных
- * плёнках на разных заданиях, а план резки/CuttingPlanGroupButton
- * рассчитан ровно на одну плёнку за раз, эту гарантию нельзя терять. */
-function groupQueueRowsByPart(rows: QueueRowData[]) {
-  const order: string[] = [];
-  const groups = new Map<string, { key: string; partName: string; rows: QueueRowData[] }>();
-  for (const r of rows) {
-    const key = r.line.part_name ?? "Без названия детали";
-    let g = groups.get(key);
-    if (!g) {
-      g = { key, partName: key, rows: [] };
-      groups.set(key, g);
-      order.push(key);
-    }
-    g.rows.push(r);
-  }
-  return order.map((k) => groups.get(k)!);
-}
-
 /** Подсказка плана резки для группы разноширинных потребностей одной
  * плёнки (раздел про несколько разных ширин штрипса на один день) —
  * щелевая резка режет донора на несколько полос за проход, так что вместо
@@ -238,36 +235,18 @@ function groupQueueRowsByPart(rows: QueueRowData[]) {
  * CuttingPlanExecuteModal) — план и выдача больше не два независимых
  * потока: строки, которых план не покрыл (uncovered), по-прежнему идут
  * через обычный клик по строке (независимый одноширинный подбор). */
-/** Подсказка донора на группу строк одной плёнки (раздел про разбор
- * задания единой таблицей) — getCuttingPlan теперь сразу отсекает
- * потребности, уже закрытые точным совпадением на складе (stock_matches,
- * backend/app/api/units.py::get_cutting_plan), поэтому в подбор донора
- * попадают только настоящие нехватки. Решение (и "на складе", и "резать")
- * больше не выполняется сразу по клику — только копится (onAddStockDecision/
- * onAddToBatch), реальное выполнение теперь всегда через "Выполнить всё" в
- * Issue(). renderRow — чтобы каждая строка очереди получила свой статус,
- * посчитанный из ЭТОГО ЖЕ запроса (без него useQuery пришлось бы дублировать
- * на каждую строку по отдельности). */
-function CuttingPlanGroupButton({
-  sku,
-  rows,
-  onAddToBatch,
-  batchedDonorIds,
-  onAddStockDecision,
-  decidedLineIds,
-  renderRow,
-}: {
-  sku: MaterialSku | undefined;
-  rows: QueueRowData[];
-  onAddToBatch: (entry: CuttingBatchEntry) => void;
-  batchedDonorIds: Set<number>;
-  onAddStockDecision: (decision: StockDecision) => void;
-  decidedLineIds: Set<number>;
-  renderRow: (row: QueueRowData, status: RowStatus) => ReactNode;
-}) {
+/** Общий запрос плана резки на группу строк одной плёнки+участка (раздел
+ * про разбор задания единой таблицей) — один и тот же queryKey/queryFn у
+ * "невидимого" статус-репортёра (см. GroupStatusReporter) и у панели
+ * решения внутри разворота строки (см. GroupDecisionPanel), чтобы второй
+ * не делал повторный сетевой запрос — react-query отдаёт его из кэша
+ * первого. Вызывается единообразно для ЛЮБОГО размера группы, включая
+ * группы из одной строки (backend/app/api/units.py::get_cutting_plan сам
+ * применяет ABC-осторожность именно в этом случае). */
+function useGroupCuttingPlan(sku: MaterialSku | undefined, rows: QueueRowData[]) {
   const widths = rows.map((r) => r.line.strip_width_mm || r.line.width_mm);
   const lengths = rows.map((r) => neededLengthM(r));
-  const planQuery = useQuery({
+  return useQuery({
     queryKey: [
       "cutting-plan",
       sku?.material.name,
@@ -276,6 +255,7 @@ function CuttingPlanGroupButton({
       sku?.manufacturer.name,
       widths.join(","),
       lengths.join(","),
+      rows[0]?.task.area,
     ],
     queryFn: () =>
       getCuttingPlan({
@@ -285,29 +265,71 @@ function CuttingPlanGroupButton({
         manufacturer: sku!.manufacturer.name,
         needed_widths_mm: widths,
         needed_lengths_m: lengths,
+        area: rows[0]?.task.area,
       }),
     enabled: !!sku,
   });
+}
 
+/** "Невидимый" репортёр — один экземпляр на группу, смонтирован ВСЕГДА
+ * (не только когда строка развёрнута), чтобы колонка "Статус" в таблице
+ * знала актуальный статус каждой строки без необходимости её открывать.
+ * Сам ничего не рендерит — просто пишет результат в общий стейт
+ * lineStatusMap в Issue(). */
+function GroupStatusReporter({
+  sku,
+  rows,
+  onReport,
+}: {
+  sku: MaterialSku | undefined;
+  rows: QueueRowData[];
+  onReport: (statuses: Map<number, RowStatus>) => void;
+}) {
+  const planQuery = useGroupCuttingPlan(sku, rows);
+  useEffect(() => {
+    if (!planQuery.data) return;
+    const data = planQuery.data;
+    const statuses = new Map<number, RowStatus>();
+    rows.forEach((r, i) => {
+      const stockMatch = data.stock_matches.find((m) => m.index === i);
+      if (stockMatch) statuses.set(r.line.id, { kind: "stock", match: stockMatch });
+      else if (data.donor && data.covered_indices.includes(i)) statuses.set(r.line.id, { kind: "cut_planned" });
+      else statuses.set(r.line.id, { kind: "no_donor" });
+    });
+    onReport(statuses);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planQuery.data]);
+  return null;
+}
+
+/** Панель решения — рендерится ТОЛЬКО пока строка развёрнута (внутри
+ * expandedRowRender у любой строки этой группы: групповая резка не
+ * привязана к одной конкретной строке, разворот любой из них показывает
+ * решение на всю группу разом). Тот же запрос, что и у репортёра —
+ * cutting-plan уже в кэше, повторного похода на бэкенд нет. */
+function GroupDecisionPanel({
+  sku,
+  rows,
+  onAddToBatch,
+  batchedDonorIds,
+  onAddStockDecision,
+  decidedLineIds,
+}: {
+  sku: MaterialSku | undefined;
+  rows: QueueRowData[];
+  onAddToBatch: (entry: CuttingBatchEntry) => void;
+  batchedDonorIds: Set<number>;
+  onAddStockDecision: (decision: StockDecision) => void;
+  decidedLineIds: Set<number>;
+}) {
+  const planQuery = useGroupCuttingPlan(sku, rows);
   const [manualOpen, setManualOpen] = useState(false);
   const manualLink = <a onClick={() => setManualOpen(true)}>🔧 Свой донор и раскрой</a>;
   const manualModal = sku && (
     <ManualCuttingPlanModal open={manualOpen} onClose={() => setManualOpen(false)} sku={sku} rows={rows} onAddToBatch={onAddToBatch} />
   );
 
-  const rowStatus = (i: number): RowStatus => {
-    const lineId = rows[i].line.id;
-    if (decidedLineIds.has(lineId)) return { kind: "decided" };
-    const data = planQuery.data;
-    if (!data) return { kind: "no_donor" };
-    const stockMatch = data.stock_matches.find((m) => m.index === i);
-    if (stockMatch) return { kind: "stock", match: stockMatch };
-    if (data.donor && data.covered_indices.includes(i)) return { kind: "cut_planned" };
-    return { kind: "no_donor" };
-  };
-  const rowsRendered = rows.map((r, i) => renderRow(r, rowStatus(i)));
-
-  if (!sku || !planQuery.data) return <>{rowsRendered}</>;
+  if (!sku || !planQuery.data) return <Typography.Text type="secondary">Подбираем план резки…</Typography.Text>;
   const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm, covered_indices, stock_matches } = planQuery.data;
 
   const stockRows = stock_matches
@@ -315,7 +337,7 @@ function CuttingPlanGroupButton({
     .map((m) => {
       const row = rows[m.index];
       return (
-        <div key={m.index} style={{ fontSize: 12, marginBottom: 4 }}>
+        <div key={m.index} style={{ fontSize: 12.5, marginBottom: 4 }}>
           ✅ {row.line.part_name ?? "Деталь"} — есть на складе: штрипс №{m.unit_id} ({m.width_mm} мм, {m.length_m} м
           {m.location_code ? `, ячейка ${m.location_code}` : ""}) ·{" "}
           <a
@@ -337,16 +359,15 @@ function CuttingPlanGroupButton({
 
   if (!donor) {
     return (
-      <>
+      <div>
         {stockRows}
-        <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block" }}>
           {uncovered_widths_mm.length > 0 && "✂️ Подходящего донора для резки на оставшиеся ширины среди остатков нет — резать новый рулон."}
           {" · "}
           {manualLink}
-          {manualModal}
         </Typography.Text>
-        {rowsRendered}
-      </>
+        {manualModal}
+      </div>
     );
   }
 
@@ -371,9 +392,9 @@ function CuttingPlanGroupButton({
   };
 
   return (
-    <>
+    <div>
       {stockRows}
-      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+      <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block" }}>
         ✂️ План резки: донор №{donor.unit_id} ({donor.width_mm} мм, {donor.length_m} м) → режем{" "}
         {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
         {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
@@ -385,10 +406,9 @@ function CuttingPlanGroupButton({
         )}
         {" · "}
         {manualLink}
-        {manualModal}
       </Typography.Text>
-      {rowsRendered}
-    </>
+      {manualModal}
+    </div>
   );
 }
 
@@ -422,9 +442,6 @@ export default function Issue() {
   // сузить); выбор конкретного задания даёт тот же список, только на одно
   // задание, вместо поиска его строк среди остальных вручную.
   const [taskFilter, setTaskFilter] = useState<number | undefined>(undefined);
-  // Раздел про группировку очереди по детали — переключатель "по плёнке"
-  // (как раньше, groupQueueRows) / "по детали" (groupQueueRowsByPart).
-  const [groupBy, setGroupBy] = useState<"film" | "part">("film");
   const [search, setSearch] = useState("");
   const [result, setResult] = useState<IssueResult | null>(null);
   const [lastIssued, setLastIssued] = useState<IssuedResult | null>(null);
@@ -474,6 +491,25 @@ export default function Issue() {
     return ids;
   }, [stockDecisions, cuttingBatch]);
   const [executingAll, setExecutingAll] = useState(false);
+
+  // Раздел про разбор задания единой таблицей — статус каждой строки
+  // (по line.id), собранный из всех GroupStatusReporter на странице
+  // (один на группу материал+цвет+толщина+участок). Мержится вглубь —
+  // репортёр каждой группы пишет только свои строки, не трогая чужие.
+  const [lineStatusMap, setLineStatusMap] = useState<Map<number, RowStatus>>(new Map());
+  const reportGroupStatuses = (statuses: Map<number, RowStatus>) =>
+    setLineStatusMap((prev) => {
+      const next = new Map(prev);
+      statuses.forEach((v, k) => next.set(k, v));
+      return next;
+    });
+  // Раздел про плотную таблицу — какая строка сейчас развёрнута (одна за
+  // раз, тот же принцип, что раньше был у "selected"). Для строк-нужд без
+  // задания (одиночных) разворот по-прежнему приводит к setSelected —
+  // это то же самое состояние, что уже водит существующую панель
+  // (точное совпадение/донор/замена материала), просто теперь она
+  // рендерится не сбоку, а прямо под строкой.
+  const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
 
   // Раздел про разбор задания единой таблицей — решение принимается в
   // таблице заранее (склад/резка), выполнение — здесь и только по этой
@@ -533,27 +569,6 @@ export default function Issue() {
       });
     }
   };
-
-  // Раздел про скролл на планшете — правая панель раньше молча "отдавала"
-  // прокрутку в левую очередь, дойдя до низа, без намёка на то, что там
-  // ещё есть контент. ResizeObserver на самой панели (не только onScroll)
-  // — чтобы подсказка пересчитывалась и когда высота содержимого меняется
-  // сама по себе (выбор задания, карточка "Выдано", разворот Collapse),
-  // без перечисления каждой такой зависимости вручную.
-  const [stickyPanelEl, setStickyPanelEl] = useState<HTMLDivElement | null>(null);
-  const [hasMoreBelow, setHasMoreBelow] = useState(false);
-  const stickyPanelRef = useCallback((node: HTMLDivElement | null) => setStickyPanelEl(node), []);
-  const recomputeHasMoreBelow = useCallback(() => {
-    if (!stickyPanelEl) return;
-    setHasMoreBelow(stickyPanelEl.scrollHeight - stickyPanelEl.scrollTop - stickyPanelEl.clientHeight > 4);
-  }, [stickyPanelEl]);
-  useEffect(() => {
-    if (!stickyPanelEl) return;
-    recomputeHasMoreBelow();
-    const observer = new ResizeObserver(recomputeHasMoreBelow);
-    observer.observe(stickyPanelEl);
-    return () => observer.disconnect();
-  }, [stickyPanelEl, recomputeHasMoreBelow]);
 
   const [manualSkuId, setManualSkuId] = useState<number | null>(null);
   const [manualArea, setManualArea] = useState<AreaValue | null>(null);
@@ -674,11 +689,22 @@ export default function Issue() {
   // shortfall_length_m снято — такая строка остаётся в очереди со
   // статусом "выдано" (issuedNoteForLine в queueRow), не требуя листать
   // экран, чтобы понять, что по ней уже сделано.
+  // Раздел про разбор задания единой таблицей — второе расширение
+  // условия (после снятия shortfall_length_m > 0): строка с
+  // remaining_pieces <= 0 (производство полностью завершено), но
+  // issued_length_m > 0 (что-то по ней когда-то выдавалось), раньше жила
+  // ТОЛЬКО в отдельной таблице "Выдано по заданиям" внизу экрана —
+  // теперь остаётся прямо в очереди, той же строкой, статусом "выдано"
+  // (issuedNoteForLine), просто ничего по ней уже не нужно решать.
+  // Строка без остатка и без единой выдачи (пустая, ничего не было и
+  // не нужно) по-прежнему не показывается — реального смысла в ней нет.
   const activeLines = useMemo(
     () =>
       (tasksQuery.data ?? [])
         .filter((task) => task.is_active)
-        .flatMap((task) => task.lines.filter((line) => line.remaining_pieces > 0).map((line) => ({ task, line }))),
+        .flatMap((task) =>
+          task.lines.filter((line) => line.remaining_pieces > 0 || line.issued_length_m > 0).map((line) => ({ task, line })),
+        ),
     [tasksQuery.data],
   );
 
@@ -699,20 +725,6 @@ export default function Issue() {
   const weekRows = useMemo(
     () => activeLines.filter(({ line }) => !linesWithTodayAssignment.has(line.id)),
     [activeLines, linesWithTodayAssignment],
-  );
-
-  // "Выдано по заданиям" — по всем строкам, не только активным
-  // (remaining_pieces > 0): завершённая строка с уже выданной плёнкой
-  // остаётся в ленте расхода, это не список "что ещё нужно выдать". Но
-  // заархивированное задание (task.is_active) — уже нет, ленту расхода
-  // рабочего экрана "Выдача" оно засорять не должно (сама история
-  // событий никуда не девается, просто здесь не показывается).
-  const issuedLines = useMemo(
-    () =>
-      (tasksQuery.data ?? [])
-        .filter((task) => task.is_active)
-        .flatMap((task) => task.lines.filter((line) => line.issued_length_m > 0).map((line) => ({ task, line }))),
-    [tasksQuery.data],
   );
 
   const matchesFilter = (task: ProductionTask, line: ProductionTaskLine) => {
@@ -1037,68 +1049,40 @@ export default function Issue() {
     }
   };
 
-  const queueRow = (
-    r: { task: ProductionTask; line: ProductionTaskLine; assignment?: ProductionTaskLineAssignment; overdue?: boolean },
-    variant: "today" | "week",
-    status?: RowStatus,
-  ) => {
-    const isSelected = selected?.line.id === r.line.id && selected?.assignment?.id === r.assignment?.id;
-    const sw = r.line.strip_width_mm || r.line.width_mm;
-    const issuedNote = issuedNoteForLine(r.line);
-    return (
-      <div
-        key={`${r.line.id}-${r.assignment?.id ?? "week"}`}
-        onClick={() => setSelected({ task: r.task, line: r.line, assignment: r.assignment })}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "10px 14px",
-          marginBottom: 8,
-          borderRadius: 10,
-          borderTop: `1px solid ${isSelected ? "#C97A2B" : "#DEDEDA"}`,
-          borderRight: `1px solid ${isSelected ? "#C97A2B" : "#DEDEDA"}`,
-          borderBottom: `1px solid ${isSelected ? "#C97A2B" : "#DEDEDA"}`,
-          borderLeft: r.overdue ? "3px solid #B8483C" : `1px solid ${isSelected ? "#C97A2B" : "#DEDEDA"}`,
-          boxShadow: isSelected ? "0 0 0 2px #FBF0E3" : undefined,
-          cursor: "pointer",
-          background: "#fff",
-        }}
-      >
-        {variant === "today" ? (
-          <Tag color={r.overdue ? "error" : "orange"} style={{ margin: 0, flexShrink: 0 }}>
-            {r.overdue ? `просрочено · ${dayjs(r.assignment!.date).format("DD.MM")}` : "сегодня"}
-          </Tag>
-        ) : areaRequiresDailyPlan(r.task.area) ? (
-          <Tag style={{ margin: 0, flexShrink: 0 }}>не распределено на сегодня</Tag>
-        ) : (
-          <Tag color="blue" style={{ margin: 0, flexShrink: 0 }}>план по участку</Tag>
-        )}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700 }}>{r.line.part_name ?? "Деталь без названия"}</div>
-          <div style={{ fontSize: 12.5, color: "#8A8C99" }}>
-            {r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}`} · {areaLabel(r.task.area)}
-            {r.assignment ? ` · ${r.assignment.line_name} · ${r.assignment.employee_names}` : ""}
-          </div>
-          <Space size={4} wrap style={{ marginTop: 4 }}>
-            <Tag color="blue">штрипс {sw} мм</Tag>
-            <Tag>{r.line.material}, {r.line.color}, {r.line.thickness} мм</Tag>
-            {renderStatusPill(status, issuedNote)}
-          </Space>
-        </div>
-        <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ fontWeight: 700 }}>
-            {r.assignment
-              ? `${r.assignment.quantity_pieces} шт (${neededLengthM(r).toFixed(2)} м)`
-              : `довыдать ${r.line.shortfall_length_m} м`}
-          </div>
-          <div style={{ fontSize: 11.5, color: "#8A8C99" }}>
-            {r.assignment ? `${r.line.length_m} м на штрипс` : `остаток ${r.line.remaining_pieces} шт`}
-          </div>
-        </div>
-      </div>
-    );
-  };
+  // Раздел про разбор задания единой таблицей — единая плотная таблица
+  // вместо карточек: нужды по заданиям (assignmentRows/weekRows, включая
+  // уже выданные — см. activeLines) плюс единицы, выданные без привязки
+  // к заданию (manualIssuedUnits) — тем же способом, что раньше показывали
+  // две отдельные таблицы внизу экрана ("Выдано по заданиям"/"Выдано
+  // вручную"), теперь просто ещё строки этой же таблицы.
+  const needTableRows: NeedTableRow[] = [
+    ...filteredAssignmentRows.map((r) => ({
+      kind: "need" as const,
+      key: `need-${r.line.id}-${r.assignment.id}`,
+      ...r,
+      variant: "today" as const,
+    })),
+    ...filteredWeekRows.map((r) => ({
+      kind: "need" as const,
+      key: `need-${r.line.id}-week`,
+      ...r,
+      variant: "week" as const,
+    })),
+  ];
+  const manualTableRows: ManualTableRow[] = manualIssuedUnits.map((u) => ({ kind: "manual" as const, key: `manual-${u.id}`, unit: u }));
+  const tableRows: TableRow[] = [...needTableRows, ...manualTableRows];
+
+  // Группы для подбора донора — только строки с реальной нехваткой
+  // (shortfall_length_m > 0); уже выданные строки не должны попадать в
+  // подбор донора вообще (их "нужная" длина — 0, испортило бы точное
+  // совпадение фиктивным "нужно 0 м"). groupQueueRows группирует по
+  // участку+материалу+цвету+толщине, включая группы из одной строки —
+  // GroupStatusReporter/GroupDecisionPanel одинаково работают с любым
+  // размером группы (см. пояснение в get_cutting_plan на бэкенде).
+  const cuttingRows = needTableRows.filter((r) => r.line.shortfall_length_m > 0);
+  const cuttingGroups = groupQueueRows(cuttingRows);
+  const groupRowsByRowKey = new Map<string, QueueRowData[]>();
+  for (const g of cuttingGroups) for (const r of g.rows) groupRowsByRowKey.set(`need-${r.line.id}-${r.assignment?.id ?? "week"}`, g.rows);
 
   // Раздел про разбор задания единой таблицей — второй печатный документ,
   // отдельный от «Списка на резку» (тот едет резчикам, без привязки к
@@ -1167,51 +1151,490 @@ export default function Issue() {
     );
   };
 
-  const renderFilmGroup = (g: ReturnType<typeof groupQueueRows>[number], variant: "today" | "week") =>
-    g.rows.length > 1 ? (
-      <div
-        key={g.key}
-        style={{
-          marginBottom: 12,
-          padding: "10px 12px 2px",
-          borderRadius: 10,
-          background: "#FBF6EE",
-          border: "1px dashed #D8B98A",
-        }}
-      >
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: "#8A6A2F", marginBottom: 4 }}>
-          🧩 Одна плёнка на {g.rows.length} задания: {g.material}, {g.color}, {g.thickness} мм — итого{" "}
-          {g.rows.reduce((sum, r) => sum + neededLengthM(r), 0).toFixed(2)} м
-        </div>
-        <CuttingPlanGroupButton
-          sku={findSku(skusQuery.data, g.material, g.color, g.thickness)}
-          rows={g.rows}
+  // Раздел про разбор задания единой таблицей — прежняя правая панель
+  // (точное совпадение/донор-рекомендация/замена материала/карточка
+  // "Выдано") без изменений в логике, просто вызывается теперь из
+  // expandedRowRender одиночной (негрупповой) строки-нужды вместо
+  // отдельной колонки сбоку — разворот строки эквивалентен прежнему
+  // "выбрать строку" (см. selectRowForExpand).
+  const renderSelectedRowPanel = () => (
+    <>
+      {selected && !lastIssued && (
+        <Card>
+          <Typography.Title level={5}>{selected.line.part_name ?? "Деталь"}</Typography.Title>
+          <table style={{ width: "100%", fontSize: 13, marginBottom: 14 }}>
+            <tbody>
+              <tr>
+                <td style={{ color: "#8A8C99", paddingRight: 12 }}>Задание</td>
+                <td style={{ fontWeight: 600 }}>
+                  {selected.task.product_model_name ?? selected.task.name} · {areaLabel(selected.task.area)}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ color: "#8A8C99" }}>Плёнка</td>
+                <td style={{ fontWeight: 600 }}>
+                  {selected.line.material}, {selected.line.color}, {selected.line.thickness} мм
+                </td>
+              </tr>
+              <tr>
+                <td style={{ color: "#8A8C99" }}>Штрипс</td>
+                <td style={{ fontWeight: 700, color: "#2C4A73" }}>{selectedStripWidth} мм</td>
+              </tr>
+              <tr>
+                <td style={{ color: "#8A8C99" }}>Длина на штрипс</td>
+                <td style={{ fontWeight: 600 }}>{selected.line.length_m} м</td>
+              </tr>
+              {selected.assignment && (
+                <tr>
+                  <td style={{ color: "#8A8C99" }}>Смена</td>
+                  <td style={{ fontWeight: 600 }}>
+                    {dayjs(selected.assignment.date).format("DD.MM.YYYY")}, {selected.assignment.line_name}, {selected.assignment.employee_names}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+
+          {!selectedSku && (
+            <Typography.Text type="warning">
+              Такой номенклатуры материала нет в справочнике — выдача невозможна, обратитесь к начальнику склада.
+            </Typography.Text>
+          )}
+
+          {selectedSku && shortfallM2 > 0 && (
+            // message+action в один ряд (стандартный Alert) на узкой
+            // боковой панели планшета сжимал текст в колонку по
+            // одной букве — action всегда пытается влезть рядом с
+            // текстом. description+кнопка блоком друг под другом
+            // этого не делают ни при какой ширине.
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="Не хватает остатка на складе"
+              description={
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
+                  <span>
+                    Не хватает ~{shortfallM2} м² на весь остаток строки — на складе{" "}
+                    {Math.round(availableM2 * 100) / 100} м², нужно {Math.round(neededM2 * 100) / 100} м²
+                  </span>
+                  <Button size="small" type="primary" onClick={openShortageModal}>
+                    Подать заявку на закупку
+                  </Button>
+                </div>
+              }
+            />
+          )}
+
+          {(availableQuery.isLoading || findMutation.isPending) && (
+            <Typography.Text type="secondary">Подбираем штрипс…</Typography.Text>
+          )}
+
+          {exactMatch && (
+            <div style={{ background: "#E7F5EE", border: "1px solid #B7E0CD", borderRadius: 10, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: "#146B4E" }}>Есть точный штрипс №{exactMatch.id}</div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>
+                {exactMatch.width_mm} мм × {exactMatch.length_m} м
+                {exactMatch.location_code ? ` · ${exactMatch.location_code}` : ""}
+              </div>
+              <Button
+                type="primary"
+                block
+                style={{ marginTop: 10 }}
+                loading={directMutation.isPending}
+                onClick={() =>
+                  confirmIfWrongWarehouse(exactMatch.warehouse_name, selected?.task.area, () =>
+                    directMutation.mutate({ unitId: exactMatch.id }),
+                  )
+                }
+              >
+                Выдать
+              </Button>
+            </div>
+          )}
+
+          {result?.outcome === "not_found" && (
+            <div style={{ background: "#FBEAE7", border: "1px solid #E3B5AC", borderRadius: 10, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: "#B8483C" }}>Точного штрипса и донора нет на своём складе</div>
+              {result.elsewhere_warehouse_name ? (
+                <>
+                  <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>
+                    Материал есть на складе «{result.elsewhere_warehouse_name}» — подготовьте (нарежьте) там и отправьте
+                    через «Перемещения между складами», затем выдайте уже с домашнего склада.
+                  </div>
+                  <Button size="small" style={{ marginTop: 8 }} onClick={() => navigate("/warehouse-transfers")}>
+                    Перейти к перемещениям
+                  </Button>
+                </>
+              ) : (
+                <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>Режьте новый рулон вручную через карточку единицы.</div>
+              )}
+            </div>
+          )}
+
+          {result?.outcome === "donor_suggested" && result.donor && (
+            <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: "#A8631E" }}>
+                ⚡ Точного штрипса нет — есть донор №{result.donor.unit_id}
+              </div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>
+                {result.donor.width_mm} мм, класс{" "}
+                <Tooltip title="ABC по расходу: A — самые ходовые ширины (80% расхода), B — следующие до 95%, C — редкие, донор режут в первую очередь именно из C/B">
+                  <span style={{ textDecoration: "underline dotted" }}>{result.donor.width_class}</span>
+                </Tooltip>
+                {result.donor.days_in_storage !== undefined && result.donor.days_in_storage > 0 && (
+                  <Tag color="volcano" style={{ marginLeft: 6 }}>лежалый {result.donor.days_in_storage} дн.</Tag>
+                )}
+                <br />
+                Отрежем {result.donor.recommended_cut_mm} мм, отход {result.donor.waste_mm} мм.
+              </div>
+              <Button
+                type="primary"
+                block
+                style={{ marginTop: 10 }}
+                onClick={() => {
+                  if (!selectedSku || !selected) return;
+                  setCuttingSession({
+                    donor: makeDonorUnit(
+                      result.donor!.unit_id,
+                      result.donor!.width_mm,
+                      result.donor!.length_m,
+                      result.donor!.warehouse_name,
+                      selectedSku,
+                    ),
+                    widthCuts: [
+                      {
+                        width_mm: result.donor!.recommended_cut_mm,
+                        area: selected.task.area,
+                        production_task_line_id: selected.line.id,
+                        label: selected.line.part_name ?? "Деталь",
+                        locked: true,
+                      },
+                    ],
+                    onDone: finishSingleCut,
+                  });
+                }}
+              >
+                ⚡ Разрезать и выдать
+              </Button>
+            </div>
+          )}
+
+          <Collapse
+            ghost
+            size="small"
+            items={[
+              {
+                key: "stock",
+                label: `Показать остатки на складе по этой номенклатуре (${availableQuery.data?.length ?? 0})`,
+                children: (
+                  <ResponsiveTable<MaterialUnit>
+                    size="small"
+                    rowKey="id"
+                    loading={availableQuery.isLoading}
+                    dataSource={availableQuery.data ?? []}
+                    pagination={false}
+                    scroll={{ x: "max-content" }}
+                    locale={{ emptyText: "Ничего нет на хранении" }}
+                    columns={[
+                      { title: "№", dataIndex: "id" },
+                      { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
+                      { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
+                      {
+                        title: "",
+                        render: (_, u) =>
+                          u.width_mm > selectedStripWidth ? (
+                            <Button
+                              size="small"
+                              onClick={() => {
+                                if (!selected) return;
+                                setCuttingSession({
+                                  donor: u,
+                                  widthCuts: [
+                                    {
+                                      width_mm: selectedStripWidth,
+                                      area: selected.task.area,
+                                      production_task_line_id: selected.line.id,
+                                      label: selected.line.part_name ?? "Деталь",
+                                      locked: true,
+                                    },
+                                  ],
+                                  onDone: finishSingleCut,
+                                });
+                              }}
+                            >
+                              Разрезать на {selectedStripWidth} мм
+                            </Button>
+                          ) : u.width_mm === selectedStripWidth ? (
+                            <Button
+                              size="small"
+                              type="primary"
+                              loading={directMutation.isPending}
+                              onClick={() => confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () => directMutation.mutate({ unitId: u.id }))}
+                            >
+                              Выдать целиком
+                            </Button>
+                          ) : (
+                            <Tag color="warning">уже {selectedStripWidth} мм больше</Tag>
+                          ),
+                      },
+                    ]}
+                  />
+                ),
+              },
+              ...(canOverrideMaterial
+                ? [
+                    {
+                      key: "substitute",
+                      label: "🔁 Выдать другим материалом (замена)",
+                      children: (
+                        <Space direction="vertical" style={{ width: "100%" }} size="small">
+                          <Typography.Text type="secondary">
+                            Если нужной номенклатуры сейчас не хватает — выберите другой материал/цвет/толщину; сервер
+                            запомнит замену прямо в строке задания.
+                          </Typography.Text>
+                          <Select
+                            showSearch
+                            allowClear
+                            style={{ width: "100%" }}
+                            placeholder="Материал, цвет, толщина"
+                            value={substituteSkuId}
+                            onChange={setSubstituteSkuId}
+                            options={(skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
+                            filterOption={(input, option) =>
+                              (option?.label as string).toLowerCase().includes(input.toLowerCase())
+                            }
+                          />
+                          {substituteSku && (
+                            <ResponsiveTable<MaterialUnit>
+                              size="small"
+                              rowKey="id"
+                              loading={substituteAvailableQuery.isLoading}
+                              dataSource={substituteAvailableQuery.data ?? []}
+                              pagination={false}
+                              scroll={{ x: "max-content" }}
+                              locale={{ emptyText: "Ничего нет на хранении по этой номенклатуре" }}
+                              columns={[
+                                { title: "№", dataIndex: "id" },
+                                { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
+                                { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
+                                {
+                                  title: "",
+                                  render: (_, u) =>
+                                    u.width_mm > selectedStripWidth ? (
+                                      <Button
+                                        size="small"
+                                        onClick={() => {
+                                          if (!selected) return;
+                                          setCuttingSession({
+                                            donor: u,
+                                            widthCuts: [
+                                              {
+                                                width_mm: selectedStripWidth,
+                                                area: selected.task.area,
+                                                production_task_line_id: selected.line.id,
+                                                label: selected.line.part_name ?? "Деталь",
+                                                locked: true,
+                                              },
+                                            ],
+                                            onDone: finishSingleCut,
+                                          });
+                                        }}
+                                      >
+                                        Разрезать на {selectedStripWidth} мм
+                                      </Button>
+                                    ) : u.width_mm === selectedStripWidth ? (
+                                      <Button
+                                        size="small"
+                                        type="primary"
+                                        loading={directMutation.isPending}
+                                        onClick={() =>
+                                          confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () =>
+                                            directMutation.mutate({ unitId: u.id, override: true }),
+                                          )
+                                        }
+                                      >
+                                        Выдать целиком
+                                      </Button>
+                                    ) : (
+                                      <Tag color="warning">меньше нужной ширины ({selectedStripWidth} мм)</Tag>
+                                    ),
+                                },
+                              ]}
+                            />
+                          )}
+                        </Space>
+                      ),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        </Card>
+      )}
+
+      {lastIssued && (
+        <Card style={{ background: "#E7F5EE", borderColor: "#B7E0CD" }}>
+          <Space align="center" style={{ marginBottom: 4 }}>
+            <span
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                background: "#1D9E75",
+                color: "#fff",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              ✓
+            </span>
+            <Typography.Text strong style={{ color: "#146B4E", fontSize: 15 }}>
+              Выдано №{lastIssued.unit.id} — {lastIssued.unit.width_mm} мм × {lastIssued.unit.length_m} м
+            </Typography.Text>
+          </Space>
+          {lastIssued.remainder && (
+            <div style={{ marginLeft: 40, fontSize: 12.5, color: "#2E6B54", marginBottom: 14 }}>
+              Донор разрезан, остаток №{lastIssued.remainder.id} обновлён
+            </div>
+          )}
+
+          <Space direction="vertical" style={{ width: "100%", marginTop: 10 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                background: "#fff",
+                border: "1px solid #C7E5D6",
+                borderRadius: 9,
+                padding: "10px 12px",
+              }}
+            >
+              <span>🏷️ Бирка на выданный штрипс</span>
+              <Button size="small" onClick={() => printLabel(lastIssued.unit.id)}>Печать</Button>
+            </div>
+
+            {lastIssued.remainder && !lastIssued.remainderPlaced && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  background: "#fff",
+                  border: "1px solid #C7E5D6",
+                  borderRadius: 9,
+                  padding: "10px 12px",
+                }}
+              >
+                <span>
+                  📦 Остаток №{lastIssued.remainder.id}, {lastIssued.remainder.width_mm} мм
+                  {remainderSuggestion.data && (
+                    <>
+                      {" — рекомендуем "}
+                      <Tag color="orange">{remainderSuggestion.data}</Tag>
+                    </>
+                  )}
+                </span>
+                <Button
+                  size="small"
+                  type="primary"
+                  disabled={!remainderSuggestion.data}
+                  loading={placeRemainderMutation.isPending}
+                  onClick={() => placeRemainderMutation.mutate(remainderSuggestion.data!)}
+                >
+                  Разместить
+                </Button>
+              </div>
+            )}
+            {lastIssued.remainder && lastIssued.remainderPlaced && (
+              <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                Остаток размещён.
+              </Typography.Text>
+            )}
+          </Space>
+
+          <Button block style={{ marginTop: 14 }} onClick={finishAndReset}>
+            Готово — к следующей позиции
+          </Button>
+        </Card>
+      )}
+    </>
+  );
+
+  // Раздел про разбор задания единой таблицей — тап по строке эквивалентен
+  // старому "выбрать строку", но теперь также управляет разворотом
+  // ровно одной строки таблицы (expandedRowKey). Для групповых строк и
+  // строк с уже выданным материалом selected не используется вовсе —
+  // просто закрывается предыдущий выбор, чтобы не путать одну панель с
+  // другой при переключении между разными типами строк.
+  const selectRowForExpand = (key: string | null) => {
+    setExpandedRowKey(key);
+    const row = key ? tableRows.find((r) => r.key === key) : undefined;
+    if (row?.kind === "need" && !issuedNoteForLine(row.line) && (groupRowsByRowKey.get(row.key)?.length ?? 0) === 1) {
+      setSelected({ task: row.task, line: row.line, assignment: row.assignment });
+    } else {
+      setSelected(null);
+    }
+  };
+
+  const renderExpandedRow = (row: TableRow): ReactNode => {
+    if (row.kind === "manual") {
+      return (
+        <Space>
+          <a onClick={() => printLabel(row.unit.id, { kind: "cutting_issue" })}>печать</a>
+          {canReturn && (
+            <AcceptReturnButton
+              unit={{
+                id: row.unit.id,
+                width_mm: row.unit.width_mm,
+                length_m: row.unit.length_m,
+                material_sku_id: row.unit.material_sku.id,
+                parent_id: row.unit.parent_id,
+                is_strip: row.unit.is_strip,
+                status: row.unit.status,
+              }}
+            />
+          )}
+        </Space>
+      );
+    }
+    const issuedNote = issuedNoteForLine(row.line);
+    if (issuedNote) {
+      return (
+        <Space direction="vertical">
+          {row.line.issued_units.length > 0 && (
+            <a
+              onClick={() =>
+                printLabelsBatch(
+                  row.line.issued_units.map((u) => u.id),
+                  { kind: "cutting_issue" },
+                )
+              }
+            >
+              печать наклеек ({row.line.issued_units.length})
+            </a>
+          )}
+          {canReturn && row.line.issued_units.map((u) => <AcceptReturnButton key={u.id} unit={u} />)}
+        </Space>
+      );
+    }
+    const groupRows = groupRowsByRowKey.get(row.key) ?? [];
+    if (groupRows.length > 1) {
+      return (
+        <GroupDecisionPanel
+          sku={findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness)}
+          rows={groupRows}
           onAddToBatch={addToCuttingBatch}
           batchedDonorIds={cuttingBatchDonorIds}
           onAddStockDecision={addStockDecision}
           decidedLineIds={decidedLineIds}
-          renderRow={(r, status) => queueRow(r, variant, status)}
         />
-      </div>
-    ) : (
-      queueRow(g.rows[0], variant)
-    );
-
-  const renderByFilm = (rows: QueueRowData[], variant: "today" | "week") =>
-    groupQueueRows(rows).map((g) => renderFilmGroup(g, variant));
-
-  const renderByPart = (rows: QueueRowData[], variant: "today" | "week") =>
-    groupQueueRowsByPart(rows).map((pg) => (
-      <div key={`part-${pg.key}`} style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: "#5B6472", marginBottom: 6 }}>
-          🔧 {pg.partName} <Tag style={{ marginLeft: 4 }}>{pg.rows.length}</Tag>
-        </div>
-        {groupQueueRows(pg.rows).map((g) => renderFilmGroup(g, variant))}
-      </div>
-    ));
-
-  const renderQueueRows = (rows: QueueRowData[], variant: "today" | "week") =>
-    groupBy === "part" ? renderByPart(rows, variant) : renderByFilm(rows, variant);
+      );
+    }
+    return renderSelectedRowPanel();
+  };
 
   return (
     <div>
@@ -1290,724 +1713,267 @@ export default function Issue() {
           onChange={setOccurredAt}
           disabledDate={(d) => d.isAfter(dayjs(), "day")}
         />
-        <Segmented
-          value={groupBy}
-          onChange={(v) => setGroupBy(v as "film" | "part")}
-          options={[
-            { label: "По плёнке", value: "film" },
-            { label: "По детали", value: "part" },
-          ]}
-        />
       </Space>
 
-      <Row gutter={[20, 20]}>
-        <Col xs={24} lg={15}>
-          <div style={{ marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Typography.Title level={5} style={{ margin: 0 }}>🔥 Запрошено сегодня</Typography.Title>
-            <Tag>{filteredAssignmentRows.length}</Tag>
-          </div>
-          {filteredAssignmentRows.length === 0 ? (
-            <Typography.Text type="secondary">Ничего не распределено на сегодня по выбранному фильтру.</Typography.Text>
-          ) : (
-            renderQueueRows(filteredAssignmentRows, "today")
-          )}
+      {/* Раздел про разбор задания единой таблицей — "невидимые" репортёры
+          статуса, один на группу материал+цвет+толщина+участок (включая
+          группы из одной строки — backend сам применяет ABC-осторожность
+          именно тогда). Смонтированы всегда, не только для развёрнутой
+          строки, чтобы колонка "Статус" была верна для ВСЕХ строк сразу,
+          без необходимости открывать каждую по очереди. */}
+      {cuttingGroups.map((g) => (
+        <GroupStatusReporter
+          key={g.key}
+          sku={findSku(skusQuery.data, g.material, g.color, g.thickness)}
+          rows={g.rows}
+          onReport={reportGroupStatuses}
+        />
+      ))}
 
-          <div style={{ margin: "20px 0 8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Typography.Title level={5} style={{ margin: 0 }}>📋 Не распределено на сегодня</Typography.Title>
-            <Tag>{filteredWeekRows.length}</Tag>
-          </div>
-          {filteredWeekRows.length === 0 ? (
-            <Typography.Text type="secondary">Остатка по заданиям, не распределённым на сегодня, нет.</Typography.Text>
-          ) : (
-            renderQueueRows(filteredWeekRows, "week")
-          )}
-        </Col>
-
-        <Col xs={24} lg={9}>
-          {/* Раздел про скролл на планшете — правая колонка растягивается
-              по высоте левой (Row без align — дефолтный stretch), а
-              position:sticky без своего overflow застревал наверху: пока
-              не прокрутишь весь список слева, до конца содержимого
-              справа было не добраться. Даём этому блоку собственный
-              потолок высоты и прокрутку — sticky продолжает липнуть к
-              верху при скролле страницы, а если содержимого больше, чем
-              видно, оно скроллится само внутри, независимо от левой
-              колонки. */}
-          <div style={{ position: "relative" }}>
-          <div
-            ref={stickyPanelRef}
-            onScroll={recomputeHasMoreBelow}
-            style={{
-              position: "sticky",
-              top: 16,
-              maxHeight: "calc(100vh - 140px)",
-              overflowY: "auto",
-              overscrollBehavior: "contain",
-              paddingRight: 4,
-            }}
-          >
-            {!selected && !lastIssued && (
-              <Card style={{ textAlign: "center", padding: "24px 8px", color: "#8A8C99" }}>
-                Выберите потребность слева — материал, штрипс и участок подставятся автоматически.
-              </Card>
-            )}
-
-            {selected && !lastIssued && (
-              <Card>
-                <Typography.Title level={5}>{selected.line.part_name ?? "Деталь"}</Typography.Title>
-                <table style={{ width: "100%", fontSize: 13, marginBottom: 14 }}>
-                  <tbody>
-                    <tr>
-                      <td style={{ color: "#8A8C99", paddingRight: 12 }}>Задание</td>
-                      <td style={{ fontWeight: 600 }}>
-                        {selected.task.product_model_name ?? selected.task.name} · {areaLabel(selected.task.area)}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td style={{ color: "#8A8C99" }}>Плёнка</td>
-                      <td style={{ fontWeight: 600 }}>
-                        {selected.line.material}, {selected.line.color}, {selected.line.thickness} мм
-                      </td>
-                    </tr>
-                    <tr>
-                      <td style={{ color: "#8A8C99" }}>Штрипс</td>
-                      <td style={{ fontWeight: 700, color: "#2C4A73" }}>{selectedStripWidth} мм</td>
-                    </tr>
-                    <tr>
-                      <td style={{ color: "#8A8C99" }}>Длина на штрипс</td>
-                      <td style={{ fontWeight: 600 }}>{selected.line.length_m} м</td>
-                    </tr>
-                    {selected.assignment && (
-                      <tr>
-                        <td style={{ color: "#8A8C99" }}>Смена</td>
-                        <td style={{ fontWeight: 600 }}>
-                          {dayjs(selected.assignment.date).format("DD.MM.YYYY")}, {selected.assignment.line_name}, {selected.assignment.employee_names}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-
-                {!selectedSku && (
-                  <Typography.Text type="warning">
-                    Такой номенклатуры материала нет в справочнике — выдача невозможна, обратитесь к начальнику склада.
-                  </Typography.Text>
-                )}
-
-                {selectedSku && shortfallM2 > 0 && (
-                  // message+action в один ряд (стандартный Alert) на узкой
-                  // боковой панели планшета сжимал текст в колонку по
-                  // одной букве — action всегда пытается влезть рядом с
-                  // текстом. description+кнопка блоком друг под другом
-                  // этого не делают ни при какой ширине.
-                  <Alert
-                    type="warning"
-                    showIcon
-                    style={{ marginBottom: 12 }}
-                    message="Не хватает остатка на складе"
-                    description={
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
-                        <span>
-                          Не хватает ~{shortfallM2} м² на весь остаток строки — на складе{" "}
-                          {Math.round(availableM2 * 100) / 100} м², нужно {Math.round(neededM2 * 100) / 100} м²
-                        </span>
-                        <Button size="small" type="primary" onClick={openShortageModal}>
-                          Подать заявку на закупку
-                        </Button>
-                      </div>
-                    }
-                  />
-                )}
-
-                {(availableQuery.isLoading || findMutation.isPending) && (
-                  <Typography.Text type="secondary">Подбираем штрипс…</Typography.Text>
-                )}
-
-                {exactMatch && (
-                  <div style={{ background: "#E7F5EE", border: "1px solid #B7E0CD", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700, color: "#146B4E" }}>Есть точный штрипс №{exactMatch.id}</div>
-                    <div style={{ fontSize: 12.5, marginTop: 4 }}>
-                      {exactMatch.width_mm} мм × {exactMatch.length_m} м
-                      {exactMatch.location_code ? ` · ${exactMatch.location_code}` : ""}
+      <Table<TableRow>
+        rowKey="key"
+        dataSource={tableRows}
+        size="small"
+        pagination={{ pageSize: 30 }}
+        scroll={{ x: "max-content" }}
+        locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
+        expandable={{
+          expandedRowKeys: expandedRowKey ? [expandedRowKey] : [],
+          onExpandedRowsChange: (keys) => {
+            const key = (keys[keys.length - 1] as string) ?? null;
+            selectRowForExpand(key);
+          },
+          expandedRowRender: (row) => renderExpandedRow(row),
+        }}
+        onRow={(row) => ({ onClick: () => selectRowForExpand(expandedRowKey === row.key ? null : row.key) })}
+        columns={[
+          {
+            title: "",
+            key: "badge",
+            width: 90,
+            render: (_, row) =>
+              row.kind === "manual" ? (
+                <Tag>вручную</Tag>
+              ) : row.variant === "today" ? (
+                <Tag color={row.overdue ? "error" : "orange"}>
+                  {row.overdue ? `просрочено · ${dayjs(row.assignment!.date).format("DD.MM")}` : "сегодня"}
+                </Tag>
+              ) : areaRequiresDailyPlan(row.task.area) ? (
+                <Tag>не распр.</Tag>
+              ) : (
+                <Tag color="blue">по участку</Tag>
+              ),
+          },
+          {
+            title: "Статус",
+            key: "status",
+            render: (_, row) =>
+              row.kind === "manual" ? (
+                <Tag color="green">✅ выдано вручную</Tag>
+              ) : (
+                renderStatusPill(
+                  decidedLineIds.has(row.line.id) ? { kind: "decided" } : lineStatusMap.get(row.line.id),
+                  issuedNoteForLine(row.line),
+                )
+              ),
+          },
+          {
+            title: "Деталь",
+            key: "part",
+            render: (_, row) => (row.kind === "manual" ? "—" : (row.line.part_name ?? "Деталь без названия")),
+          },
+          {
+            title: "Задание / участок",
+            key: "task",
+            render: (_, row) =>
+              row.kind === "manual" ? (
+                <>Без задания · {row.unit.area ? areaLabel(row.unit.area) : "—"}</>
+              ) : (
+                <>
+                  {row.task.product_model_name ?? row.task.name ?? `Задание №${row.task.id}`} · {areaLabel(row.task.area)}
+                  {row.assignment && (
+                    <div style={{ fontSize: 11.5, color: "#8A8C99" }}>
+                      {row.assignment.line_name} · {row.assignment.employee_names}
                     </div>
-                    <Button
-                      type="primary"
-                      block
-                      style={{ marginTop: 10 }}
-                      loading={directMutation.isPending}
-                      onClick={() =>
-                        confirmIfWrongWarehouse(exactMatch.warehouse_name, selected?.task.area, () =>
-                          directMutation.mutate({ unitId: exactMatch.id }),
-                        )
-                      }
-                    >
-                      Выдать
-                    </Button>
-                  </div>
-                )}
+                  )}
+                </>
+              ),
+          },
+          {
+            title: "Материал",
+            key: "material",
+            render: (_, row) =>
+              row.kind === "manual" ? skuLabel(row.unit.material_sku) : `${row.line.material}, ${row.line.color}, ${row.line.thickness} мм`,
+          },
+          {
+            title: "Штрипс, мм",
+            key: "width",
+            render: (_, row) => (row.kind === "manual" ? row.unit.width_mm : row.line.strip_width_mm || row.line.width_mm),
+          },
+          {
+            title: "Нужно",
+            key: "need",
+            render: (_, row) =>
+              row.kind === "manual" ? (
+                `${row.unit.length_m} м`
+              ) : row.assignment ? (
+                <>
+                  {row.assignment.quantity_pieces} шт ({neededLengthM(row).toFixed(2)} м)
+                </>
+              ) : (
+                `довыдать ${row.line.shortfall_length_m} м`
+              ),
+          },
+        ]}
+      />
 
-                {result?.outcome === "not_found" && (
-                  <div style={{ background: "#FBEAE7", border: "1px solid #E3B5AC", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700, color: "#B8483C" }}>Точного штрипса и донора нет на своём складе</div>
-                    {result.elsewhere_warehouse_name ? (
-                      <>
+      <Collapse
+        ghost
+        style={{ marginTop: 16 }}
+        items={[
+          {
+            key: "manual",
+            label: "Без привязки к заданию (ручной подбор)",
+            children: (
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                  Для случаев, когда плёнка не относится ни к одному заданию — проба, списание и т.п. Строгая
+                  проверка соответствия здесь не действует.
+                </Typography.Text>
+                <Select
+                  showSearch
+                  style={{ width: "100%" }}
+                  placeholder="Позиция материала"
+                  loading={manualSkusQuery.isLoading}
+                  options={(manualSkusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
+                  filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+                  value={manualSkuId ?? undefined}
+                  onChange={(v) => {
+                    setManualSkuId(v);
+                    setManualDonor(null);
+                  }}
+                />
+                <Select
+                  style={{ width: "100%" }}
+                  placeholder="Участок выдачи"
+                  options={areaOptions}
+                  value={manualArea ?? undefined}
+                  onChange={(v) => setManualArea(v)}
+                />
+                {manualSku && (
+                  <>
+                    <ResponsiveTable<MaterialUnit>
+                      size="small"
+                      rowKey="id"
+                      loading={manualAvailableQuery.isLoading}
+                      dataSource={manualAvailableQuery.data ?? []}
+                      pagination={false}
+                      scroll={{ x: "max-content" }}
+                      locale={{ emptyText: "Ничего нет на хранении" }}
+                      columns={[
+                        { title: "№", dataIndex: "id" },
+                        { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
+                        { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
+                        {
+                          title: "",
+                          render: (_, u) => (
+                            <Button
+                              size="small"
+                              type="primary"
+                              disabled={!manualArea}
+                              loading={manualDirectMutation.isPending}
+                              onClick={() =>
+                                confirmIfWrongWarehouse(u.warehouse_name, manualArea, () => manualDirectMutation.mutate(u.id))
+                              }
+                            >
+                              Выдать целиком
+                            </Button>
+                          ),
+                        },
+                      ]}
+                    />
+                    <Form form={manualForm} layout="inline" onFinish={(v) => manualFindMutation.mutate(v)}>
+                      <Form.Item name="width_mm" rules={[{ required: true }]}>
+                        <InputNumber placeholder="Ширина, мм" min={1} style={{ width: 120 }} />
+                      </Form.Item>
+                      <Form.Item name="length_m" rules={[{ required: true }]}>
+                        <InputNumber placeholder="Длина, м" min={0.1} step={0.1} style={{ width: 120 }} />
+                      </Form.Item>
+                      <Button htmlType="submit" disabled={!manualArea} loading={manualFindMutation.isPending}>
+                        Найти и выдать
+                      </Button>
+                    </Form>
+                    {manualElsewhere && (
+                      <div style={{ background: "#FBEAE7", border: "1px solid #E3B5AC", borderRadius: 10, padding: 12 }}>
+                        <div style={{ fontWeight: 700, color: "#B8483C" }}>Материал есть на другом складе</div>
                         <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>
-                          Материал есть на складе «{result.elsewhere_warehouse_name}» — подготовьте (нарежьте) там и отправьте
-                          через «Перемещения между складами», затем выдайте уже с домашнего склада.
+                          Есть на складе «{manualElsewhere}» — подготовьте (нарежьте) там и отправьте через «Перемещения
+                          между складами», затем выдайте уже с домашнего склада.
                         </div>
                         <Button size="small" style={{ marginTop: 8 }} onClick={() => navigate("/warehouse-transfers")}>
                           Перейти к перемещениям
                         </Button>
-                      </>
-                    ) : (
-                      <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>Режьте новый рулон вручную через карточку единицы.</div>
+                      </div>
                     )}
-                  </div>
-                )}
-
-                {result?.outcome === "donor_suggested" && result.donor && (
-                  <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700, color: "#A8631E" }}>
-                      ⚡ Точного штрипса нет — есть донор №{result.donor.unit_id}
-                    </div>
-                    <div style={{ fontSize: 12.5, marginTop: 4 }}>
-                      {result.donor.width_mm} мм, класс{" "}
-                      <Tooltip title="ABC по расходу: A — самые ходовые ширины (80% расхода), B — следующие до 95%, C — редкие, донор режут в первую очередь именно из C/B">
-                        <span style={{ textDecoration: "underline dotted" }}>{result.donor.width_class}</span>
-                      </Tooltip>
-                      {result.donor.days_in_storage !== undefined && result.donor.days_in_storage > 0 && (
-                        <Tag color="volcano" style={{ marginLeft: 6 }}>лежалый {result.donor.days_in_storage} дн.</Tag>
-                      )}
-                      <br />
-                      Отрежем {result.donor.recommended_cut_mm} мм, отход {result.donor.waste_mm} мм.
-                    </div>
-                    <Button
-                      type="primary"
-                      block
-                      style={{ marginTop: 10 }}
-                      onClick={() => {
-                        if (!selectedSku || !selected) return;
-                        setCuttingSession({
-                          donor: makeDonorUnit(
-                            result.donor!.unit_id,
-                            result.donor!.width_mm,
-                            result.donor!.length_m,
-                            result.donor!.warehouse_name,
-                            selectedSku,
-                          ),
-                          widthCuts: [
-                            {
-                              width_mm: result.donor!.recommended_cut_mm,
-                              area: selected.task.area,
-                              production_task_line_id: selected.line.id,
-                              label: selected.line.part_name ?? "Деталь",
-                              locked: true,
-                            },
-                          ],
-                          onDone: finishSingleCut,
-                        });
-                      }}
-                    >
-                      ⚡ Разрезать и выдать
-                    </Button>
-                  </div>
-                )}
-
-                <Collapse
-                  ghost
-                  size="small"
-                  items={[
-                    {
-                      key: "stock",
-                      label: `Показать остатки на складе по этой номенклатуре (${availableQuery.data?.length ?? 0})`,
-                      children: (
-                        <ResponsiveTable<MaterialUnit>
-                          size="small"
-                          rowKey="id"
-                          loading={availableQuery.isLoading}
-                          dataSource={availableQuery.data ?? []}
-                          pagination={false}
-                          scroll={{ x: "max-content" }}
-                          locale={{ emptyText: "Ничего нет на хранении" }}
-                          columns={[
-                            { title: "№", dataIndex: "id" },
-                            { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
-                            { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
-                            {
-                              title: "",
-                              render: (_, u) =>
-                                u.width_mm > selectedStripWidth ? (
-                                  <Button
-                                    size="small"
-                                    onClick={() => {
-                                      if (!selected) return;
-                                      setCuttingSession({
-                                        donor: u,
-                                        widthCuts: [
-                                          {
-                                            width_mm: selectedStripWidth,
-                                            area: selected.task.area,
-                                            production_task_line_id: selected.line.id,
-                                            label: selected.line.part_name ?? "Деталь",
-                                            locked: true,
-                                          },
-                                        ],
-                                        onDone: finishSingleCut,
-                                      });
-                                    }}
-                                  >
-                                    Разрезать на {selectedStripWidth} мм
-                                  </Button>
-                                ) : u.width_mm === selectedStripWidth ? (
-                                  <Button
-                                    size="small"
-                                    type="primary"
-                                    loading={directMutation.isPending}
-                                    onClick={() => confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () => directMutation.mutate({ unitId: u.id }))}
-                                  >
-                                    Выдать целиком
-                                  </Button>
-                                ) : (
-                                  <Tag color="warning">уже {selectedStripWidth} мм больше</Tag>
-                                ),
-                            },
-                          ]}
-                        />
-                      ),
-                    },
-                    ...(canOverrideMaterial
-                      ? [
-                          {
-                            key: "substitute",
-                            label: "🔁 Выдать другим материалом (замена)",
-                            children: (
-                              <Space direction="vertical" style={{ width: "100%" }} size="small">
-                                <Typography.Text type="secondary">
-                                  Если нужной номенклатуры сейчас не хватает — выберите другой материал/цвет/толщину; сервер
-                                  запомнит замену прямо в строке задания.
-                                </Typography.Text>
-                                <Select
-                                  showSearch
-                                  allowClear
-                                  style={{ width: "100%" }}
-                                  placeholder="Материал, цвет, толщина"
-                                  value={substituteSkuId}
-                                  onChange={setSubstituteSkuId}
-                                  options={(skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
-                                  filterOption={(input, option) =>
-                                    (option?.label as string).toLowerCase().includes(input.toLowerCase())
-                                  }
-                                />
-                                {substituteSku && (
-                                  <ResponsiveTable<MaterialUnit>
-                                    size="small"
-                                    rowKey="id"
-                                    loading={substituteAvailableQuery.isLoading}
-                                    dataSource={substituteAvailableQuery.data ?? []}
-                                    pagination={false}
-                                    scroll={{ x: "max-content" }}
-                                    locale={{ emptyText: "Ничего нет на хранении по этой номенклатуре" }}
-                                    columns={[
-                                      { title: "№", dataIndex: "id" },
-                                      { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
-                                      { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
-                                      {
-                                        title: "",
-                                        render: (_, u) =>
-                                          u.width_mm > selectedStripWidth ? (
-                                            <Button
-                                              size="small"
-                                              onClick={() => {
-                                                if (!selected) return;
-                                                setCuttingSession({
-                                                  donor: u,
-                                                  widthCuts: [
-                                                    {
-                                                      width_mm: selectedStripWidth,
-                                                      area: selected.task.area,
-                                                      production_task_line_id: selected.line.id,
-                                                      label: selected.line.part_name ?? "Деталь",
-                                                      locked: true,
-                                                    },
-                                                  ],
-                                                  onDone: finishSingleCut,
-                                                });
-                                              }}
-                                            >
-                                              Разрезать на {selectedStripWidth} мм
-                                            </Button>
-                                          ) : u.width_mm === selectedStripWidth ? (
-                                            <Button
-                                              size="small"
-                                              type="primary"
-                                              loading={directMutation.isPending}
-                                              onClick={() =>
-                                                confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () =>
-                                                  directMutation.mutate({ unitId: u.id, override: true }),
-                                                )
-                                              }
-                                            >
-                                              Выдать целиком
-                                            </Button>
-                                          ) : (
-                                            <Tag color="warning">меньше нужной ширины ({selectedStripWidth} мм)</Tag>
-                                          ),
-                                      },
-                                    ]}
-                                  />
-                                )}
-                              </Space>
-                            ),
-                          },
-                        ]
-                      : []),
-                  ]}
-                />
-              </Card>
-            )}
-
-            {lastIssued && (
-              <Card style={{ background: "#E7F5EE", borderColor: "#B7E0CD" }}>
-                <Space align="center" style={{ marginBottom: 4 }}>
-                  <span
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: "50%",
-                      background: "#1D9E75",
-                      color: "#fff",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    ✓
-                  </span>
-                  <Typography.Text strong style={{ color: "#146B4E", fontSize: 15 }}>
-                    Выдано №{lastIssued.unit.id} — {lastIssued.unit.width_mm} мм × {lastIssued.unit.length_m} м
-                  </Typography.Text>
-                </Space>
-                {lastIssued.remainder && (
-                  <div style={{ marginLeft: 40, fontSize: 12.5, color: "#2E6B54", marginBottom: 14 }}>
-                    Донор разрезан, остаток №{lastIssued.remainder.id} обновлён
-                  </div>
-                )}
-
-                <Space direction="vertical" style={{ width: "100%", marginTop: 10 }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      background: "#fff",
-                      border: "1px solid #C7E5D6",
-                      borderRadius: 9,
-                      padding: "10px 12px",
-                    }}
-                  >
-                    <span>🏷️ Бирка на выданный штрипс</span>
-                    <Button size="small" onClick={() => printLabel(lastIssued.unit.id)}>Печать</Button>
-                  </div>
-
-                  {lastIssued.remainder && !lastIssued.remainderPlaced && (
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        background: "#fff",
-                        border: "1px solid #C7E5D6",
-                        borderRadius: 9,
-                        padding: "10px 12px",
-                      }}
-                    >
-                      <span>
-                        📦 Остаток №{lastIssued.remainder.id}, {lastIssued.remainder.width_mm} мм
-                        {remainderSuggestion.data && (
-                          <>
-                            {" — рекомендуем "}
-                            <Tag color="orange">{remainderSuggestion.data}</Tag>
-                          </>
-                        )}
-                      </span>
-                      <Button
-                        size="small"
-                        type="primary"
-                        disabled={!remainderSuggestion.data}
-                        loading={placeRemainderMutation.isPending}
-                        onClick={() => placeRemainderMutation.mutate(remainderSuggestion.data!)}
-                      >
-                        Разместить
-                      </Button>
-                    </div>
-                  )}
-                  {lastIssued.remainder && lastIssued.remainderPlaced && (
-                    <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
-                      Остаток размещён.
-                    </Typography.Text>
-                  )}
-                </Space>
-
-                <Button block style={{ marginTop: 14 }} onClick={finishAndReset}>
-                  Готово — к следующей позиции
-                </Button>
-              </Card>
-            )}
-
-            <Collapse
-              ghost
-              style={{ marginTop: 12 }}
-              items={[
-                {
-                  key: "manual",
-                  label: "Без привязки к заданию (ручной подбор)",
-                  children: (
-                    <Space direction="vertical" style={{ width: "100%" }}>
-                      <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
-                        Для случаев, когда плёнка не относится ни к одному заданию — проба, списание и т.п. Строгая
-                        проверка соответствия здесь не действует.
-                      </Typography.Text>
-                      <Select
-                        showSearch
-                        style={{ width: "100%" }}
-                        placeholder="Позиция материала"
-                        loading={manualSkusQuery.isLoading}
-                        options={(manualSkusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
-                        filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-                        value={manualSkuId ?? undefined}
-                        onChange={(v) => {
-                          setManualSkuId(v);
-                          setManualDonor(null);
-                        }}
-                      />
-                      <Select
-                        style={{ width: "100%" }}
-                        placeholder="Участок выдачи"
-                        options={areaOptions}
-                        value={manualArea ?? undefined}
-                        onChange={(v) => setManualArea(v)}
-                      />
-                      {manualSku && (
-                        <>
-                          <ResponsiveTable<MaterialUnit>
-                            size="small"
-                            rowKey="id"
-                            loading={manualAvailableQuery.isLoading}
-                            dataSource={manualAvailableQuery.data ?? []}
-                            pagination={false}
-                            scroll={{ x: "max-content" }}
-                            locale={{ emptyText: "Ничего нет на хранении" }}
-                            columns={[
-                              { title: "№", dataIndex: "id" },
-                              { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
-                              { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
-                              {
-                                title: "",
-                                render: (_, u) => (
-                                  <Button
-                                    size="small"
-                                    type="primary"
-                                    disabled={!manualArea}
-                                    loading={manualDirectMutation.isPending}
-                                    onClick={() =>
-                                      confirmIfWrongWarehouse(u.warehouse_name, manualArea, () => manualDirectMutation.mutate(u.id))
-                                    }
-                                  >
-                                    Выдать целиком
-                                  </Button>
-                                ),
+                    {manualDonor && (
+                      <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12 }}>
+                        <div style={{ fontWeight: 700, color: "#A8631E" }}>
+                          ⚡ Точного совпадения нет — есть донор №{manualDonor.unit_id}
+                        </div>
+                        <div style={{ fontSize: 12.5, marginTop: 4 }}>
+                          {manualDonor.width_mm} мм, класс{" "}
+                          <Tooltip title="ABC по расходу: A — самые ходовые ширины (80% расхода), B — следующие до 95%, C — редкие, донор режут в первую очередь именно из C/B">
+                            <span style={{ textDecoration: "underline dotted" }}>{manualDonor.width_class}</span>
+                          </Tooltip>
+                          {manualDonor.days_in_storage !== undefined && manualDonor.days_in_storage > 0 && (
+                            <Tag color="volcano" style={{ marginLeft: 6 }}>лежалый {manualDonor.days_in_storage} дн.</Tag>
+                          )}
+                          <br />
+                          Отрежем {manualDonor.recommended_cut_mm} мм, отход {manualDonor.waste_mm} мм.
+                        </div>
+                        <Button
+                          type="primary"
+                          block
+                          style={{ marginTop: 10 }}
+                          disabled={!manualArea}
+                          onClick={() => {
+                            if (!manualSku || !manualArea) return;
+                            setCuttingSession({
+                              donor: makeDonorUnit(
+                                manualDonor.unit_id,
+                                manualDonor.width_mm,
+                                manualDonor.length_m,
+                                manualDonor.warehouse_name,
+                                manualSku,
+                              ),
+                              widthCuts: [
+                                {
+                                  width_mm: manualDonor.recommended_cut_mm,
+                                  area: manualArea,
+                                  label: "Ручной подбор",
+                                  locked: false,
+                                },
+                              ],
+                              onDone: (res) => {
+                                finishSingleCut(res);
+                                setManualDonor(null);
+                                qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
                               },
-                            ]}
-                          />
-                          <Form form={manualForm} layout="inline" onFinish={(v) => manualFindMutation.mutate(v)}>
-                            <Form.Item name="width_mm" rules={[{ required: true }]}>
-                              <InputNumber placeholder="Ширина, мм" min={1} style={{ width: 120 }} />
-                            </Form.Item>
-                            <Form.Item name="length_m" rules={[{ required: true }]}>
-                              <InputNumber placeholder="Длина, м" min={0.1} step={0.1} style={{ width: 120 }} />
-                            </Form.Item>
-                            <Button htmlType="submit" disabled={!manualArea} loading={manualFindMutation.isPending}>
-                              Найти и выдать
-                            </Button>
-                          </Form>
-                          {manualElsewhere && (
-                            <div style={{ background: "#FBEAE7", border: "1px solid #E3B5AC", borderRadius: 10, padding: 12 }}>
-                              <div style={{ fontWeight: 700, color: "#B8483C" }}>Материал есть на другом складе</div>
-                              <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>
-                                Есть на складе «{manualElsewhere}» — подготовьте (нарежьте) там и отправьте через «Перемещения
-                                между складами», затем выдайте уже с домашнего склада.
-                              </div>
-                              <Button size="small" style={{ marginTop: 8 }} onClick={() => navigate("/warehouse-transfers")}>
-                                Перейти к перемещениям
-                              </Button>
-                            </div>
-                          )}
-                          {manualDonor && (
-                            <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12 }}>
-                              <div style={{ fontWeight: 700, color: "#A8631E" }}>
-                                ⚡ Точного совпадения нет — есть донор №{manualDonor.unit_id}
-                              </div>
-                              <div style={{ fontSize: 12.5, marginTop: 4 }}>
-                                {manualDonor.width_mm} мм, класс{" "}
-                                <Tooltip title="ABC по расходу: A — самые ходовые ширины (80% расхода), B — следующие до 95%, C — редкие, донор режут в первую очередь именно из C/B">
-                                  <span style={{ textDecoration: "underline dotted" }}>{manualDonor.width_class}</span>
-                                </Tooltip>
-                                {manualDonor.days_in_storage !== undefined && manualDonor.days_in_storage > 0 && (
-                                  <Tag color="volcano" style={{ marginLeft: 6 }}>лежалый {manualDonor.days_in_storage} дн.</Tag>
-                                )}
-                                <br />
-                                Отрежем {manualDonor.recommended_cut_mm} мм, отход {manualDonor.waste_mm} мм.
-                              </div>
-                              <Button
-                                type="primary"
-                                block
-                                style={{ marginTop: 10 }}
-                                disabled={!manualArea}
-                                onClick={() => {
-                                  if (!manualSku || !manualArea) return;
-                                  setCuttingSession({
-                                    donor: makeDonorUnit(
-                                      manualDonor.unit_id,
-                                      manualDonor.width_mm,
-                                      manualDonor.length_m,
-                                      manualDonor.warehouse_name,
-                                      manualSku,
-                                    ),
-                                    widthCuts: [
-                                      {
-                                        width_mm: manualDonor.recommended_cut_mm,
-                                        area: manualArea,
-                                        label: "Ручной подбор",
-                                        locked: false,
-                                      },
-                                    ],
-                                    onDone: (res) => {
-                                      finishSingleCut(res);
-                                      setManualDonor(null);
-                                      qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
-                                    },
-                                  });
-                                }}
-                              >
-                                ⚡ Разрезать и выдать
-                              </Button>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </Space>
-                  ),
-                },
-              ]}
-            />
-          </div>
-          {hasMoreBelow && (
-            <div
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 4,
-                bottom: 0,
-                height: 20,
-                pointerEvents: "none",
-                background: "linear-gradient(rgba(255,255,255,0), rgba(255,255,255,0.95))",
-              }}
-            />
-          )}
-          </div>
-        </Col>
-      </Row>
+                            });
+                          }}
+                        >
+                          ⚡ Разрезать и выдать
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </Space>
+            ),
+          },
+        ]}
+      />
 
-      {issuedLines.length > 0 && (
-        <Card style={{ marginTop: 20 }} title="📦 Выдано по заданиям — расход плёнки">
-          <ResponsiveTable
-            tableKey="issue-issued-lines"
-            lockedColumns={["Задание"]}
-            defaultHiddenColumns={["Деталь", "Плёнка", "Остаток задания, шт"]}
-            size="small"
-            rowKey={(r) => r.line.id}
-            dataSource={issuedLines}
-            pagination={{ pageSize: 10 }}
-            scroll={{ x: "max-content" }}
-            columns={[
-              { title: "Задание", render: (_, r) => r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}` },
-              { title: "Деталь", render: (_, r) => r.line.part_name ?? "—" },
-              { title: "Участок", render: (_, r) => areaLabel(r.task.area) },
-              { title: "Плёнка", render: (_, r) => `${r.line.material}, ${r.line.color}, ${r.line.thickness} мм` },
-              { title: "Выдано, м", render: (_, r) => r.line.issued_length_m.toFixed(1) },
-              { title: "Хороших, шт", render: (_, r) => <Tag color="green">{r.line.produced_good_pieces}</Tag> },
-              {
-                title: "Брак, шт",
-                render: (_, r) => (r.line.defect_pieces > 0 ? <Tag color="red">{r.line.defect_pieces}</Tag> : "—"),
-              },
-              { title: "Остаток задания, шт", render: (_, r) => r.line.remaining_pieces },
-              {
-                title: "Действия",
-                render: (_, r) =>
-                  r.line.issued_units.length > 0 && (
-                    <Space direction="vertical" size={4}>
-                      <a
-                        onClick={() =>
-                          printLabelsBatch(
-                            r.line.issued_units.map((u) => u.id),
-                            { kind: "cutting_issue" },
-                          )
-                        }
-                      >
-                        печать наклеек ({r.line.issued_units.length})
-                      </a>
-                      {canReturn && r.line.issued_units.map((u) => <AcceptReturnButton key={u.id} unit={u} />)}
-                    </Space>
-                  ),
-              },
-            ]}
-          />
-        </Card>
-      )}
-
-      {manualIssuedUnits.length > 0 && (
-        <Card style={{ marginTop: 20 }} title={`📦 Выдано вручную — ${manualIssuedUnits.length}`}>
-          <Typography.Paragraph type="secondary" style={{ marginTop: -8, marginBottom: 12 }}>
-            Единицы, выданные без привязки к заданию (ручной подбор) — сюда же попадает возврат,
-            без задания это не отслеживается в "Выдано по заданиям" выше.
-          </Typography.Paragraph>
-          <ResponsiveTable
-            tableKey="issue-manual-issued"
-            size="small"
-            rowKey="id"
-            loading={manualIssuedQuery.isLoading}
-            dataSource={manualIssuedUnits}
-            pagination={{ pageSize: 10 }}
-            scroll={{ x: "max-content" }}
-            columns={[
-              { title: "№", dataIndex: "id" },
-              { title: "Плёнка", render: (_, u) => skuLabel(u.material_sku) },
-              { title: "Участок", render: (_, u) => (u.area ? areaLabel(u.area) : "—") },
-              { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
-              {
-                title: "",
-                render: (_, u) =>
-                  canReturn && (
-                    <Space>
-                      <a onClick={() => printLabel(u.id, { kind: "cutting_issue" })}>печать</a>
-                      <AcceptReturnButton
-                        unit={{
-                          id: u.id,
-                          width_mm: u.width_mm,
-                          length_m: u.length_m,
-                          material_sku_id: u.material_sku.id,
-                          parent_id: u.parent_id,
-                          is_strip: u.is_strip,
-                          status: u.status,
-                        }}
-                      />
-                    </Space>
-                  ),
-              },
-            ]}
-          />
-        </Card>
-      )}
 
       <Modal
         title="Заявка на закупку — с цеха"

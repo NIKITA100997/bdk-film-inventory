@@ -193,6 +193,10 @@ export interface CuttingPlanRequest {
   // требующей резки, и не включал уже закрытые потребности в подбор
   // донора (см. stock_matches в CuttingPlan ниже).
   needed_lengths_m: number[];
+  // Раздел про площадки — участок группы (все строки группы всегда с
+  // одного участка), чтобы точное совпадение и подбор донора искали в
+  // первую очередь на его домашнем складе, как и /units/issue.
+  area?: AreaValue;
 }
 
 export interface CuttingPlanDonor {
