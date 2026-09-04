@@ -52,6 +52,38 @@ class MaterialUnitOut(BaseModel):
         return round(float(self.width_mm) * float(self.length_m) / 1000, 3)
 
 
+class ReceiptUnitOut(BaseModel):
+    """Одна строка приёмки (раздел про историю приёмок) — ширина/длина/
+    ячейка здесь СНИМОК события "Приход" на момент приёмки, а не живое
+    состояние единицы: донора могли успеть порезать позже, и его текущая
+    width_mm уже не совпадала бы с тем, что реально ввели при приёмке —
+    для проверки правильности внесения важно именно исходное значение.
+    current_status/current_width_mm — тут же, для контекста ("этот рулон
+    уже разрезан/выдан", не потерялся)."""
+
+    unit_id: int
+    material: str
+    color: str
+    thickness: float
+    manufacturer: str
+    width_mm: float
+    length_m: float
+    location_code: str | None
+    current_status: str
+    current_width_mm: float
+
+
+class ReceiptSessionOut(BaseModel):
+    upd_number: str
+    pallet_number: str
+    received_at: datetime
+    received_by: str
+    warehouse_name: str | None
+    unit_count: int
+    total_area_m2: float
+    units: list[ReceiptUnitOut]
+
+
 class WriteOffRequest(BaseModel):
     """reason — code причины из write_off_reasons (раздел про
     администрирование причин). Системные причины (is_system=True,

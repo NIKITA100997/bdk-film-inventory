@@ -35,6 +35,8 @@ from app.schemas.units import (
     MaterialUnitOut,
     PlaceRequest,
     ReassignSkuRequest,
+    ReceiptSessionOut,
+    ReceiptUnitOut,
     ReceiveRequest,
     ReturnPreviewOut,
     ReturnRequest,
@@ -286,6 +288,130 @@ def undo_cutting_operation_endpoint(
     donor = undo_cutting_operation(db, op, user)
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == donor.id).first()
+
+
+# ВАЖНО: тот же порядок, что и у /cutting-operations выше — однoсегментный
+# GET "/receipts" обязан идти раньше однoсегментного GET "/{unit_id}".
+@router.get("/receipts", response_model=list[ReceiptSessionOut])
+def list_receipts(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.receive")),
+    search: str | None = FastAPIQuery(default=None),
+    date_from: dt.date | None = FastAPIQuery(default=None),
+    date_to: dt.date | None = FastAPIQuery(default=None),
+    limit: int = FastAPIQuery(default=30, le=100),
+    offset: int = FastAPIQuery(default=0),
+) -> list[ReceiptSessionOut]:
+    """История приёмок (раздел про проверку правильности внесения) —
+    группировка по УПД+паллете (ровно то, что сессия "Приёмка партии"
+    считает одной приёмкой). Ширина/длина/ячейка — снимок события Приход
+    на момент приёмки, а не живое состояние единицы: донора могли успеть
+    порезать позже, и его текущая width_mm уже не совпадала бы с тем, что
+    реально ввели (см. ReceiptUnitOut). По умолчанию — последние 90 дней
+    (это рабочий экран проверки недавнего, не архивный отчёт); при
+    текстовом поиске по УПД/паллете дата не ограничивается — ищем по всей
+    истории, раз человек помнит номер конкретного документа."""
+    # parent_id IS NULL — только оригинальные рулоны из receive, не
+    # производные куски резки: те тоже несут upd_number/pallet_number
+    # родителя (see splitting.py — а /units/{id}/place сам пишет PRIHOD
+    # при любом размещении, включая размещение обрезка после резки), без
+    # фильтра история засорялась бы кусками, никогда не введёнными
+    # человеком напрямую — только унаследовавшими номер документа.
+    query = (
+        db.query(MaterialEvent, MaterialUnit)
+        .join(MaterialUnit, MaterialEvent.unit_id == MaterialUnit.id)
+        .filter(MaterialEvent.event_type == EventType.PRIHOD, MaterialUnit.parent_id.is_(None))
+    )
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(MaterialUnit.upd_number.ilike(like), MaterialUnit.pallet_number.ilike(like)))
+    else:
+        if date_from is None and date_to is None:
+            date_from = (datetime.now(timezone.utc) - dt.timedelta(days=90)).date()
+        if date_from is not None:
+            query = query.filter(func.date(MaterialEvent.timestamp) >= date_from)
+        if date_to is not None:
+            query = query.filter(func.date(MaterialEvent.timestamp) <= date_to)
+    rows = query.order_by(MaterialEvent.timestamp.asc()).all()
+
+    sku_ids = {e.material_sku_id for e, _ in rows}
+    skus = (
+        db.query(MaterialSku)
+        .options(
+            joinedload(MaterialSku.material),
+            joinedload(MaterialSku.color),
+            joinedload(MaterialSku.thickness),
+            joinedload(MaterialSku.manufacturer),
+        )
+        .filter(MaterialSku.id.in_(sku_ids))
+        .all()
+    )
+    sku_by_id = {s.id: s for s in skus}
+    users = {u.id: u for u in db.query(User).filter(User.id.in_({e.user_id for e, _ in rows})).all()}
+    warehouse_names = rack_warehouse_names(db)
+
+    # Раздел про историю приёмок — один рулон может нести ДВА события
+    # "Приход": сама приёмка (снимок реальной длины, to_length задан) и,
+    # если тогда же не разместили в ячейку, отдельное более позднее
+    # размещение (units.py::place_unit тоже пишет PRIHOD, но без
+    # to_length — только to_cell). Схлопываем по unit_id внутри сессии:
+    # длину/ширину берём из события с заполненным to_length (это и есть
+    # исходная приёмка), ячейку — из самого позднего события, где она
+    # задана (могла появиться уже отдельным размещением).
+    unit_events: dict[int, list] = {}
+    unit_keys: dict[int, tuple[str, str]] = {}
+    for event, unit in rows:
+        unit_events.setdefault(unit.id, []).append(event)
+        unit_keys[unit.id] = (unit.upd_number, unit.pallet_number)
+    units_by_id = {unit.id: unit for _, unit in rows}
+
+    sessions: dict[tuple[str, str], dict] = {}
+    for unit_id, events in unit_events.items():
+        key = unit_keys[unit_id]
+        unit = units_by_id[unit_id]
+        events_sorted = sorted(events, key=lambda e: e.timestamp)
+        receive_event = next((e for e in events_sorted if e.to_length is not None), events_sorted[0])
+        location_event = next((e for e in reversed(events_sorted) if e.to_cell is not None), None)
+
+        session = sessions.get(key)
+        if session is None:
+            session = {"received_at": events_sorted[0].timestamp, "user_id": events_sorted[0].user_id, "location_code": None, "units": []}
+            sessions[key] = session
+        session["received_at"] = min(session["received_at"], events_sorted[0].timestamp)
+        if session["location_code"] is None and location_event is not None:
+            session["location_code"] = location_event.to_cell
+
+        sku = sku_by_id.get(receive_event.material_sku_id)
+        session["units"].append(
+            ReceiptUnitOut(
+                unit_id=unit.id,
+                material=sku.material.name if sku else "?",
+                color=sku.color.name if sku else "?",
+                thickness=float(sku.thickness.value_mm) if sku else 0.0,
+                manufacturer=sku.manufacturer.name if sku else "?",
+                width_mm=float(receive_event.width_mm),
+                length_m=float(receive_event.to_length) if receive_event.to_length is not None else 0.0,
+                location_code=location_event.to_cell if location_event else None,
+                current_status=unit.status.value if hasattr(unit.status, "value") else str(unit.status),
+                current_width_mm=float(unit.width_mm),
+            )
+        )
+
+    result = [
+        ReceiptSessionOut(
+            upd_number=key[0],
+            pallet_number=key[1],
+            received_at=data["received_at"],
+            received_by=users[data["user_id"]].full_name if data["user_id"] in users else "?",
+            warehouse_name=resolve_warehouse_name(warehouse_names, data["location_code"]),
+            unit_count=len(data["units"]),
+            total_area_m2=round(sum(u.width_mm * u.length_m / 1000 for u in data["units"]), 3),
+            units=data["units"],
+        )
+        for key, data in sessions.items()
+    ]
+    result.sort(key=lambda s: s.received_at, reverse=True)
+    return result[offset : offset + limit]
 
 
 @router.get("/{unit_id}", response_model=MaterialUnitOut)
