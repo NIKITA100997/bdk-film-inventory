@@ -142,13 +142,33 @@ class IssueResult(BaseModel):
 class CuttingPlanRequest(BaseModel):
     """Раздел про план резки на несколько разных штрипсов одной плёнки —
     needed_widths_mm обычно приходит из группы "одна плёнка на N заданий"
-    на экране выдачи (каждая ширина — своя строка задания на сегодня)."""
+    на экране выдачи (каждая ширина — своя строка задания на сегодня).
+    needed_lengths_m — по индексу с needed_widths_mm (раздел про разбор
+    задания единой таблицей) — нужна, чтобы отличить точное совпадение
+    остатка на складе (хватает и по ширине, и по длине) от того, что
+    реально нужно резать; без длины эндпоинт не может понять, что
+    щирина уже "закрыта" остатком, которого физически не хватит."""
 
     material: str
     color: str
     thickness: float
     manufacturer: str
     needed_widths_mm: list[float] = Field(min_length=1)
+    needed_lengths_m: list[float] = Field(min_length=1)
+
+
+class CuttingPlanStockMatch(BaseModel):
+    """Раздел про разбор задания единой таблицей — потребность из
+    needed_widths_mm/needed_lengths_m, которую можно закрыть точным
+    совпадением со склада (та же проверка, что делает /units/issue),
+    без какой-либо резки; исключается из подбора донора ниже, чтобы
+    подсказка "резать" не включала то, что уже есть готовым штрипсом."""
+
+    index: int
+    unit_id: int
+    width_mm: float
+    length_m: float
+    location_code: str | None = None
 
 
 class CuttingPlanDonorOut(BaseModel):
@@ -167,8 +187,11 @@ class CuttingPlanOut(BaseModel):
     # исполнение плана) — при повторяющихся ширинах в запросе (два
     # задания просят одну и ту же ширину) значения covered_widths_mm
     # неоднозначны, индексы позволяют однозначно сопоставить обратно с
-    # исходными строками задания на фронте.
+    # исходными строками задания на фронте. Индексы всегда относятся к
+    # ИСХОДНОМУ needed_widths_mm, даже если часть потребностей ушла в
+    # stock_matches и не участвовала в подборе донора.
     covered_indices: list[int]
+    stock_matches: list[CuttingPlanStockMatch] = []
 
 
 class CutRequest(BaseModel):

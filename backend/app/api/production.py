@@ -196,6 +196,7 @@ def _task_line_out(
                 material_sku_id=u.material_sku_id,
                 parent_id=u.parent_id,
                 is_strip=u.is_strip,
+                status=u.status.value if hasattr(u.status, "value") else str(u.status),
                 remaining_length_m=round(max(0.0, float(u.length_m) - _unit_consumed_length_m(db, u.id)), 2),
             )
             for u in (issued_units or [])
@@ -284,14 +285,27 @@ def _unit_consumed_length_m(db: Session, unit_id: int) -> float:
 
 
 def _line_issued_units_map(db: Session, line_ids: list[int]) -> dict[int, list[MaterialUnit]]:
-    """Единицы, сейчас выданные участку (Выдан_участку) под каждую строку
-    задания (раздел про единый процесс возврата) — один запрос на все
-    строки, не N+1; группировка в Python, как в остальных агрегатах выше."""
+    """Единицы под каждую строку задания (раздел про единый процесс
+    возврата) — один запрос на все строки, не N+1; группировка в Python,
+    как в остальных агрегатах выше. Статус включает не только
+    Выдан_участку, но и В_перемещении (раздел про разбор задания единой
+    таблицей — кусок, автоматически ушедший в хаб на перемещение к
+    домашнему складу участка, не теряет production_task_line_id,
+    auto_transfer_if_wrong_warehouse его не трогает — раньше просто
+    отфильтровывался отсюда статусом и был не виден на этом экране до
+    самой приёмки). MaterialUnitOut/ProductionTaskLineIssuedUnitOut
+    несёт статус — фронт отличает "выдано" от "едет через хаб" от
+    "на складе Фабрики, ждёт довыдачи" (тот же кусок, статус вернулся к
+    На_хранении после приёмки на другом складе, но привязка к строке
+    осталась)."""
     if not line_ids:
         return {}
     units = (
         db.query(MaterialUnit)
-        .filter(MaterialUnit.production_task_line_id.in_(line_ids), MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU)
+        .filter(
+            MaterialUnit.production_task_line_id.in_(line_ids),
+            MaterialUnit.status.in_([UnitStatus.VYDAN_UCHASTKU, UnitStatus.V_PEREMESHCHENII, UnitStatus.NA_KHRANENII]),
+        )
         .all()
     )
     result: dict[int, list[MaterialUnit]] = {}

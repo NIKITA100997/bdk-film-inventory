@@ -24,6 +24,7 @@ from app.schemas.units import (
     CuttingPlanDonorOut,
     CuttingPlanOut,
     CuttingPlanRequest,
+    CuttingPlanStockMatch,
     CuttingRecipeRequest,
     CuttingRecipeResponse,
     CuttingRecipeResultPiece,
@@ -48,6 +49,7 @@ from app.services.events import record_event
 from app.services.placement import rule_matches, rules_for_location
 from app.services.production import calc_default_strip_width, compute_expected_return_length_m
 from app.services.purchasing import auto_close_on_receipt
+from app.services.units_matching import find_exact_stock_match
 from app.services.splitting import (
     cut_to_length,
     donor_remainder_write_off_m,
@@ -519,23 +521,18 @@ def issue_to_area(
     # всё равно упёрлась бы в assert_area_home_warehouse ниже.
     home_id = area_home_warehouse_id(db, payload.area)
 
-    exact = (
-        filter_by_warehouse(
-            db.query(MaterialUnit).filter(
-                MaterialUnit.status == UnitStatus.NA_KHRANENII,
-                MaterialUnit.material_sku_id == sku.id,
-                MaterialUnit.width_mm == payload.width_mm,
-                MaterialUnit.length_m >= payload.length_m,
-            ),
-            MaterialUnit.location_code,
-            db,
-            home_id,
-        )
-        # Сначала самый старый остаток (дата прихода/нарезки — created_at,
-        # 9 раздел бэклога доработок), среди равных по возрасту — короче
-        # достаточного, чтобы не залёживались длинные куски.
-        .order_by(MaterialUnit.created_at.asc(), MaterialUnit.length_m.asc())
-        .first()
+    # Сначала самый старый остаток (дата прихода/нарезки — created_at,
+    # 9 раздел бэклога доработок), среди равных по возрасту — короче
+    # достаточного, чтобы не залёживались длинные куски (find_exact_
+    # stock_match — общий хелпер, тем же способом пользуется и
+    # /units/cutting-plan).
+    exact = find_exact_stock_match(
+        db,
+        material_sku_id=sku.id,
+        width_mm=payload.width_mm,
+        length_m=payload.length_m,
+        home_warehouse_id=home_id,
+        exclude_unit_ids=set(),
     )
     if exact is not None:
         from_cell = exact.location_code
@@ -669,12 +666,56 @@ def get_cutting_plan(
     одиночной донор-рекомендации, здесь НЕ ограничиваемся классом B/C
     ABC-анализа — это осознанный batch-подбор под конкретный список
     потребностей, а не "предложить с осторожностью" для одной строки."""
+    if len(payload.needed_lengths_m) != len(payload.needed_widths_mm):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="needed_lengths_m должен быть той же длины, что и needed_widths_mm",
+        )
     sku = find_sku(
         db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
     )
     if sku is None:
         return CuttingPlanOut(
             donor=None, covered_widths_mm=[], uncovered_widths_mm=payload.needed_widths_mm, waste_mm=0.0, covered_indices=[]
+        )
+
+    # Раздел про разбор задания единой таблицей — потребности, уже
+    # закрытые точным совпадением на складе (тот же хелпер, что и
+    # /units/issue), не должны попадать в подбор донора наравне с
+    # настоящими нехватками: убираем их из списка ширин ДО
+    # build_cutting_plan, а индексы транслируем обратно на исходные
+    # позиции needed_widths_mm при формировании ответа.
+    stock_matches: list[CuttingPlanStockMatch] = []
+    claimed_unit_ids: set[int] = set()
+    remaining_widths: list[float] = []
+    remaining_to_original: list[int] = []
+    for i, (width_mm, length_m) in enumerate(zip(payload.needed_widths_mm, payload.needed_lengths_m)):
+        match = find_exact_stock_match(
+            db,
+            material_sku_id=sku.id,
+            width_mm=width_mm,
+            length_m=length_m,
+            home_warehouse_id=None,
+            exclude_unit_ids=claimed_unit_ids,
+        )
+        if match is not None:
+            claimed_unit_ids.add(match.id)
+            stock_matches.append(
+                CuttingPlanStockMatch(
+                    index=i,
+                    unit_id=match.id,
+                    width_mm=float(match.width_mm),
+                    length_m=float(match.length_m),
+                    location_code=match.location_code,
+                )
+            )
+        else:
+            remaining_widths.append(width_mm)
+            remaining_to_original.append(i)
+
+    if not remaining_widths:
+        return CuttingPlanOut(
+            donor=None, covered_widths_mm=[], uncovered_widths_mm=[], waste_mm=0.0, covered_indices=[], stock_matches=stock_matches
         )
 
     settings = db.get(CalcSettings, 1)
@@ -685,7 +726,7 @@ def get_cutting_plan(
         .filter(
             MaterialUnit.status == UnitStatus.NA_KHRANENII,
             MaterialUnit.material_sku_id == sku.id,
-            MaterialUnit.width_mm >= min(payload.needed_widths_mm),
+            MaterialUnit.width_mm >= min(remaining_widths),
         )
         .all()
     )
@@ -699,15 +740,21 @@ def get_cutting_plan(
         DonorCandidate(unit_id=u.id, width_mm=float(u.width_mm), length_m=float(u.length_m), days_in_storage=_days(u))
         for u in candidates
     ]
-    plan = build_cutting_plan(payload.needed_widths_mm, donors, min_useful_width)
+    plan = build_cutting_plan(remaining_widths, donors, min_useful_width)
 
     if plan.donor is None:
         return CuttingPlanOut(
-            donor=None, covered_widths_mm=[], uncovered_widths_mm=payload.needed_widths_mm, waste_mm=0.0, covered_indices=[]
+            donor=None,
+            covered_widths_mm=[],
+            uncovered_widths_mm=remaining_widths,
+            waste_mm=0.0,
+            covered_indices=[],
+            stock_matches=stock_matches,
         )
 
-    covered_widths = [payload.needed_widths_mm[i] for i in plan.covered_indices]
-    uncovered_widths = [w for i, w in enumerate(payload.needed_widths_mm) if i not in plan.covered_indices]
+    covered_widths = [remaining_widths[i] for i in plan.covered_indices]
+    uncovered_widths = [w for i, w in enumerate(remaining_widths) if i not in plan.covered_indices]
+    covered_indices_original = [remaining_to_original[i] for i in plan.covered_indices]
     return CuttingPlanOut(
         donor=CuttingPlanDonorOut(
             unit_id=plan.donor.unit_id,
@@ -718,7 +765,8 @@ def get_cutting_plan(
         covered_widths_mm=covered_widths,
         uncovered_widths_mm=uncovered_widths,
         waste_mm=plan.waste_mm,
-        covered_indices=list(plan.covered_indices),
+        stock_matches=stock_matches,
+        covered_indices=covered_indices_original,
     )
 
 
