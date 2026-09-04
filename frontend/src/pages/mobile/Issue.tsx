@@ -142,6 +142,17 @@ type RowStatus =
   | { kind: "no_donor" }
   | { kind: "decided" };
 
+// Раздел про кнопки действий прямо в строке (не только в развороте) —
+// статус для колонки "Статус" + готовые к вызову действия для колонки
+// "Действия", посчитанные один раз репортёром группы (GroupStatusReporter)
+// и переиспользуемые и таблицей, и панелью решения в развороте.
+interface RowInfo {
+  status: RowStatus;
+  donorUnitId?: number; // для проверки batchedDonorIds у кнопки "+ В резку"
+  acceptStock?: () => void;
+  acceptCut?: () => Promise<void>;
+}
+
 // Раздел про разбор задания единой таблицей — одна строка плотной
 // таблицы: либо нужда/выдача по строке задания ("need"), либо единица,
 // выданная без привязки к заданию ("manual", раньше отдельная таблица
@@ -272,143 +283,114 @@ function useGroupCuttingPlan(sku: MaterialSku | undefined, rows: QueueRowData[])
 }
 
 /** "Невидимый" репортёр — один экземпляр на группу, смонтирован ВСЕГДА
- * (не только когда строка развёрнута), чтобы колонка "Статус" в таблице
- * знала актуальный статус каждой строки без необходимости её открывать.
- * Сам ничего не рендерит — просто пишет результат в общий стейт
- * lineStatusMap в Issue(). */
+ * (не только когда строка развёрнута), чтобы и колонка "Статус", и
+ * колонка "Действия" в таблице знали актуальное состояние каждой строки
+ * без необходимости её открывать — кнопки "Использовать"/"+ В резку"
+ * нужны прямо в строке, не только в развороте. Сам ничего не рендерит —
+ * пишет результат (статус + готовые к вызову действия) в общий стейт
+ * lineInfoMap в Issue(). */
 function GroupStatusReporter({
   sku,
   rows,
+  onAddToBatch,
+  onAddStockDecision,
   onReport,
 }: {
   sku: MaterialSku | undefined;
   rows: QueueRowData[];
-  onReport: (statuses: Map<number, RowStatus>) => void;
+  onAddToBatch: (entry: CuttingBatchEntry) => void;
+  onAddStockDecision: (decision: StockDecision) => void;
+  onReport: (infos: Map<number, RowInfo>) => void;
 }) {
   const planQuery = useGroupCuttingPlan(sku, rows);
   useEffect(() => {
-    if (!planQuery.data) return;
+    if (!planQuery.data || !sku) return;
     const data = planQuery.data;
-    const statuses = new Map<number, RowStatus>();
+    const infos = new Map<number, RowInfo>();
+    const coveredRows = data.donor ? data.covered_indices.map((i) => rows[i]) : [];
+    const acceptCut = data.donor
+      ? async () => {
+          const donor = data.donor!;
+          const remainderLocationCode = (await suggestLocation({ material_sku_id: sku.id, is_strip: true })) ?? undefined;
+          onAddToBatch({
+            donorUnitId: donor.unit_id,
+            donorWidthMm: donor.width_mm,
+            donorLengthM: donor.length_m,
+            wasteMm: data.waste_mm,
+            remainderLocationCode,
+            pieces: coveredRows.map((r) => ({
+              widthMm: r.line.strip_width_mm || r.line.width_mm,
+              label: r.line.part_name ?? "Деталь",
+              area: r.task.area,
+              productionTaskLineId: r.line.id,
+            })),
+          });
+        }
+      : undefined;
     rows.forEach((r, i) => {
       const stockMatch = data.stock_matches.find((m) => m.index === i);
-      if (stockMatch) statuses.set(r.line.id, { kind: "stock", match: stockMatch });
-      else if (data.donor && data.covered_indices.includes(i)) statuses.set(r.line.id, { kind: "cut_planned" });
-      else statuses.set(r.line.id, { kind: "no_donor" });
+      if (stockMatch) {
+        infos.set(r.line.id, {
+          status: { kind: "stock", match: stockMatch },
+          acceptStock: () =>
+            onAddStockDecision({
+              lineId: r.line.id,
+              unitId: stockMatch.unit_id,
+              area: r.task.area,
+              label: r.line.part_name ?? "Деталь",
+              widthMm: stockMatch.width_mm,
+            }),
+        });
+      } else if (data.donor && data.covered_indices.includes(i)) {
+        infos.set(r.line.id, { status: { kind: "cut_planned" }, donorUnitId: data.donor.unit_id, acceptCut });
+      } else {
+        infos.set(r.line.id, { status: { kind: "no_donor" } });
+      }
     });
-    onReport(statuses);
+    onReport(infos);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planQuery.data]);
   return null;
 }
 
-/** Панель решения — рендерится ТОЛЬКО пока строка развёрнута (внутри
- * expandedRowRender у любой строки этой группы: групповая резка не
- * привязана к одной конкретной строке, разворот любой из них показывает
- * решение на всю группу разом). Тот же запрос, что и у репортёра —
- * cutting-plan уже в кэше, повторного похода на бэкенд нет. */
+/** Панель решения — доп. контекст в развороте строки (полный план: какой
+ * донор, что покрыто/не покрыто, отход) — сами кнопки действий теперь
+ * живут в колонке таблицы (переиспользуют тот же lineInfoMap), здесь
+ * только текст-сводка + ссылка на ручной подбор. Тот же запрос, что и у
+ * репортёра — cutting-plan уже в кэше, повторного похода на бэкенд нет. */
 function GroupDecisionPanel({
   sku,
   rows,
-  onAddToBatch,
-  batchedDonorIds,
-  onAddStockDecision,
-  decidedLineIds,
+  onOpenManualPicker,
 }: {
   sku: MaterialSku | undefined;
   rows: QueueRowData[];
-  onAddToBatch: (entry: CuttingBatchEntry) => void;
-  batchedDonorIds: Set<number>;
-  onAddStockDecision: (decision: StockDecision) => void;
-  decidedLineIds: Set<number>;
+  onOpenManualPicker: () => void;
 }) {
   const planQuery = useGroupCuttingPlan(sku, rows);
-  const [manualOpen, setManualOpen] = useState(false);
-  const manualLink = <a onClick={() => setManualOpen(true)}>🔧 Свой донор и раскрой</a>;
-  const manualModal = sku && (
-    <ManualCuttingPlanModal open={manualOpen} onClose={() => setManualOpen(false)} sku={sku} rows={rows} onAddToBatch={onAddToBatch} />
-  );
+  const manualLink = <a onClick={onOpenManualPicker}>🔧 Свой донор и раскрой</a>;
 
   if (!sku || !planQuery.data) return <Typography.Text type="secondary">Подбираем план резки…</Typography.Text>;
-  const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm, covered_indices, stock_matches } = planQuery.data;
-
-  const stockRows = stock_matches
-    .filter((m) => !decidedLineIds.has(rows[m.index].line.id))
-    .map((m) => {
-      const row = rows[m.index];
-      return (
-        <div key={m.index} style={{ fontSize: 12.5, marginBottom: 4 }}>
-          ✅ {row.line.part_name ?? "Деталь"} — есть на складе: штрипс №{m.unit_id} ({m.width_mm} мм, {m.length_m} м
-          {m.location_code ? `, ячейка ${m.location_code}` : ""}) ·{" "}
-          <a
-            onClick={() =>
-              onAddStockDecision({
-                lineId: row.line.id,
-                unitId: m.unit_id,
-                area: row.task.area,
-                label: row.line.part_name ?? "Деталь",
-                widthMm: m.width_mm,
-              })
-            }
-          >
-            Использовать
-          </a>
-        </div>
-      );
-    });
+  const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm } = planQuery.data;
 
   if (!donor) {
     return (
-      <div>
-        {stockRows}
-        <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block" }}>
-          {uncovered_widths_mm.length > 0 && "✂️ Подходящего донора для резки на оставшиеся ширины среди остатков нет — резать новый рулон."}
-          {" · "}
-          {manualLink}
-        </Typography.Text>
-        {manualModal}
-      </div>
-    );
-  }
-
-  const coveredRows = covered_indices.map((i) => rows[i]);
-  const alreadyBatched = batchedDonorIds.has(donor.unit_id);
-
-  const addPlanToBatch = async () => {
-    const remainderLocationCode = (await suggestLocation({ material_sku_id: sku.id, is_strip: true })) ?? undefined;
-    onAddToBatch({
-      donorUnitId: donor.unit_id,
-      donorWidthMm: donor.width_mm,
-      donorLengthM: donor.length_m,
-      wasteMm: waste_mm,
-      remainderLocationCode,
-      pieces: coveredRows.map((r) => ({
-        widthMm: r.line.strip_width_mm || r.line.width_mm,
-        label: r.line.part_name ?? "Деталь",
-        area: r.task.area,
-        productionTaskLineId: r.line.id,
-      })),
-    });
-  };
-
-  return (
-    <div>
-      {stockRows}
       <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block" }}>
-        ✂️ План резки: донор №{donor.unit_id} ({donor.width_mm} мм, {donor.length_m} м) → режем{" "}
-        {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
-        {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
-        {" · "}
-        {alreadyBatched ? (
-          <Typography.Text type="success">✓ В списке на резку</Typography.Text>
-        ) : (
-          <a onClick={addPlanToBatch}>+ В список на резку</a>
-        )}
+        {uncovered_widths_mm.length > 0 && "✂️ Подходящего донора для резки на оставшиеся ширины среди остатков нет — резать новый рулон."}
         {" · "}
         {manualLink}
       </Typography.Text>
-      {manualModal}
-    </div>
+    );
+  }
+
+  return (
+    <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block" }}>
+      ✂️ План резки: донор №{donor.unit_id} ({donor.width_mm} мм, {donor.length_m} м) → режем{" "}
+      {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
+      {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
+      {" · "}
+      {manualLink}
+    </Typography.Text>
   );
 }
 
@@ -492,17 +474,23 @@ export default function Issue() {
   }, [stockDecisions, cuttingBatch]);
   const [executingAll, setExecutingAll] = useState(false);
 
-  // Раздел про разбор задания единой таблицей — статус каждой строки
-  // (по line.id), собранный из всех GroupStatusReporter на странице
-  // (один на группу материал+цвет+толщина+участок). Мержится вглубь —
-  // репортёр каждой группы пишет только свои строки, не трогая чужие.
-  const [lineStatusMap, setLineStatusMap] = useState<Map<number, RowStatus>>(new Map());
-  const reportGroupStatuses = (statuses: Map<number, RowStatus>) =>
-    setLineStatusMap((prev) => {
+  // Раздел про кнопки действий прямо в строке — статус + готовые
+  // действия по каждой строке (по line.id), собранные из всех
+  // GroupStatusReporter на странице (один на группу материал+цвет+
+  // толщина+участок). Мержится вглубь — репортёр каждой группы пишет
+  // только свои строки, не трогая чужие.
+  const [lineInfoMap, setLineInfoMap] = useState<Map<number, RowInfo>>(new Map());
+  const reportGroupInfos = (infos: Map<number, RowInfo>) =>
+    setLineInfoMap((prev) => {
       const next = new Map(prev);
-      statuses.forEach((v, k) => next.set(k, v));
+      infos.forEach((v, k) => next.set(k, v));
       return next;
     });
+  // Раздел про кнопки действий прямо в строке — "Свой донор и раскрой"
+  // раньше открывался из панели решения в развороте (своя модалка на
+  // группу); теперь одна общая модалка на всю страницу, чтобы кнопка в
+  // колонке "Действия" могла её открыть без разворота строки.
+  const [manualPickerTarget, setManualPickerTarget] = useState<{ sku: MaterialSku; rows: QueueRowData[] } | null>(null);
   // Раздел про плотную таблицу — какая строка сейчас развёрнута (одна за
   // раз, тот же принцип, что раньше был у "selected"). Для строк-нужд без
   // задания (одиночных) разворот по-прежнему приводит к setSelected —
@@ -1636,10 +1624,10 @@ export default function Issue() {
           <GroupDecisionPanel
             sku={findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness)}
             rows={groupRows}
-            onAddToBatch={addToCuttingBatch}
-            batchedDonorIds={cuttingBatchDonorIds}
-            onAddStockDecision={addStockDecision}
-            decidedLineIds={decidedLineIds}
+            onOpenManualPicker={() => {
+              const sku = findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness);
+              if (sku) setManualPickerTarget({ sku, rows: groupRows });
+            }}
           />
           {renderSelectedRowPanel()}
         </Space>
@@ -1738,7 +1726,9 @@ export default function Issue() {
           key={g.key}
           sku={findSku(skusQuery.data, g.material, g.color, g.thickness)}
           rows={g.rows}
-          onReport={reportGroupStatuses}
+          onAddToBatch={addToCuttingBatch}
+          onAddStockDecision={addStockDecision}
+          onReport={reportGroupInfos}
         />
       ))}
 
@@ -1762,7 +1752,7 @@ export default function Issue() {
           {
             title: "",
             key: "badge",
-            width: 90,
+            width: 74,
             render: (_, row) =>
               row.kind === "manual" ? (
                 <Tag>вручную</Tag>
@@ -1779,12 +1769,13 @@ export default function Issue() {
           {
             title: "Статус",
             key: "status",
+            width: 130,
             render: (_, row) =>
               row.kind === "manual" ? (
                 <Tag color="green">✅ выдано вручную</Tag>
               ) : (
                 renderStatusPill(
-                  decidedLineIds.has(row.line.id) ? { kind: "decided" } : lineStatusMap.get(row.line.id),
+                  decidedLineIds.has(row.line.id) ? { kind: "decided" } : lineInfoMap.get(row.line.id)?.status,
                   issuedNoteForLine(row.line),
                 )
               ),
@@ -1820,11 +1811,13 @@ export default function Issue() {
           {
             title: "Штрипс, мм",
             key: "width",
+            width: 90,
             render: (_, row) => (row.kind === "manual" ? row.unit.width_mm : row.line.strip_width_mm || row.line.width_mm),
           },
           {
             title: "Нужно",
             key: "need",
+            width: 130,
             render: (_, row) =>
               row.kind === "manual" ? (
                 `${row.unit.length_m} м`
@@ -1836,8 +1829,91 @@ export default function Issue() {
                 `довыдать ${row.line.shortfall_length_m} м`
               ),
           },
+          {
+            title: "Действия",
+            key: "actions",
+            width: 190,
+            render: (_, row) => {
+              if (row.kind === "manual") {
+                return (
+                  <Space size={4}>
+                    <a onClick={() => printLabel(row.unit.id, { kind: "cutting_issue" })}>печать</a>
+                    {canReturn && (
+                      <AcceptReturnButton
+                        unit={{
+                          id: row.unit.id,
+                          width_mm: row.unit.width_mm,
+                          length_m: row.unit.length_m,
+                          material_sku_id: row.unit.material_sku.id,
+                          parent_id: row.unit.parent_id,
+                          is_strip: row.unit.is_strip,
+                          status: row.unit.status,
+                        }}
+                      />
+                    )}
+                  </Space>
+                );
+              }
+              const issuedNote = issuedNoteForLine(row.line);
+              if (issuedNote) {
+                return row.line.issued_units.length > 0 ? (
+                  <Space size={4} wrap>
+                    <a
+                      onClick={() =>
+                        printLabelsBatch(
+                          row.line.issued_units.map((u) => u.id),
+                          { kind: "cutting_issue" },
+                        )
+                      }
+                    >
+                      печать ({row.line.issued_units.length})
+                    </a>
+                    {canReturn && row.line.issued_units.map((u) => <AcceptReturnButton key={u.id} unit={u} />)}
+                  </Space>
+                ) : null;
+              }
+              if (decidedLineIds.has(row.line.id)) {
+                return <Typography.Text type="secondary">🕒 в решениях</Typography.Text>;
+              }
+              const info = lineInfoMap.get(row.line.id);
+              const groupRows = groupRowsByRowKey.get(row.key);
+              const sku = findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness);
+              return (
+                <Space size={4} wrap>
+                  {info?.acceptStock && (
+                    <Button size="small" type="primary" onClick={info.acceptStock}>
+                      Использовать
+                    </Button>
+                  )}
+                  {info?.acceptCut &&
+                    (info.donorUnitId != null && cuttingBatchDonorIds.has(info.donorUnitId) ? (
+                      <Tag color="success">✓ в резке</Tag>
+                    ) : (
+                      <Button size="small" onClick={info.acceptCut}>
+                        + В резку
+                      </Button>
+                    ))}
+                  {groupRows && sku && (
+                    <Button size="small" onClick={() => setManualPickerTarget({ sku, rows: groupRows })}>
+                      🔧 Донор
+                    </Button>
+                  )}
+                </Space>
+              );
+            },
+          },
         ]}
       />
+
+      {manualPickerTarget && (
+        <ManualCuttingPlanModal
+          open
+          onClose={() => setManualPickerTarget(null)}
+          sku={manualPickerTarget.sku}
+          rows={manualPickerTarget.rows}
+          onAddToBatch={addToCuttingBatch}
+        />
+      )}
 
       <Collapse
         ghost
