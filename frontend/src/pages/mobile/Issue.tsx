@@ -59,6 +59,7 @@ import {
 } from "../../api/production";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import CuttingForm, { type CuttingFormInitialWidthCut } from "../../components/CuttingForm";
+import ManualCuttingPlanModal from "../../components/ManualCuttingPlanModal";
 import { useAuth } from "../../auth/AuthContext";
 
 function issueErrorMessage(e: unknown, fallback: string): string {
@@ -231,6 +232,21 @@ function CuttingPlanGroupButton({
     enabled: !!sku,
   });
 
+  const [manualOpen, setManualOpen] = useState(false);
+  const manualLink = (
+    <a onClick={() => setManualOpen(true)}>🔧 Свой донор и раскрой</a>
+  );
+  const manualModal = sku && (
+    <ManualCuttingPlanModal
+      open={manualOpen}
+      onClose={() => setManualOpen(false)}
+      sku={sku}
+      rows={rows}
+      onCut={onCut}
+      onAddToBatch={onAddToBatch}
+    />
+  );
+
   if (!sku || !planQuery.data) return null;
   const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm, covered_indices } = planQuery.data;
 
@@ -238,6 +254,9 @@ function CuttingPlanGroupButton({
     return (
       <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
         ✂️ Подходящего донора для резки на все эти ширины среди остатков нет — резать новый рулон.
+        {" · "}
+        {manualLink}
+        {manualModal}
       </Typography.Text>
     );
   }
@@ -283,6 +302,9 @@ function CuttingPlanGroupButton({
           + В список на резку
         </a>
       )}
+      {" · "}
+      {manualLink}
+      {manualModal}
     </Typography.Text>
   );
 }
