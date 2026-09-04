@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi import Query as FastAPIQuery
-from sqlalchemy import func, or_
+from sqlalchemy import false, func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 
 from app.core.security import get_current_user, get_permission_codes, require_permission
@@ -662,10 +662,18 @@ def get_cutting_plan(
     щелевая резка режет рулон на несколько полос за один проход, поэтому
     если сегодня нужно несколько разных ширин одной и той же плёнки,
     выгоднее резать один донор сразу под несколько из них, а не по одной
-    независимо, как /units/issue для отдельной строки. В отличие от
-    одиночной донор-рекомендации, здесь НЕ ограничиваемся классом B/C
-    ABC-анализа — это осознанный batch-подбор под конкретный список
-    потребностей, а не "предложить с осторожностью" для одной строки."""
+    независимо, как /units/issue для отдельной строки.
+
+    Раздел про разбор задания единой таблицей — теперь вызывается
+    единообразно и для групп из ОДНОЙ потребности (раньше такие строки
+    вообще не проходили через этот эндпоинт, только через /units/issue).
+    Поэтому ABC-ограничение донора здесь применяется избирательно: при
+    ОДНОЙ оставшейся (после вычета stock_matches) потребности —
+    та же осторожность, что и в /units/issue (только класс B/C, шире
+    нужного) — не резать сразу самый ходовой размер под одну мелкую
+    нужду; при двух и более — как и раньше, осознанный batch-подбор без
+    ограничения класса (это уже не "нарезать A-класс ради мелочи", а
+    закрыть сразу несколько реальных потребностей одним резом)."""
     if len(payload.needed_lengths_m) != len(payload.needed_widths_mm):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -678,6 +686,11 @@ def get_cutting_plan(
         return CuttingPlanOut(
             donor=None, covered_widths_mm=[], uncovered_widths_mm=payload.needed_widths_mm, waste_mm=0.0, covered_indices=[]
         )
+
+    # Раздел про площадки — та же логика, что и в /units/issue: группа
+    # всегда с одного участка (groupQueueRows), точное совпадение и донор
+    # ищутся в первую очередь на его домашнем складе.
+    home_id = area_home_warehouse_id(db, payload.area) if payload.area else None
 
     # Раздел про разбор задания единой таблицей — потребности, уже
     # закрытые точным совпадением на складе (тот же хелпер, что и
@@ -695,7 +708,7 @@ def get_cutting_plan(
             material_sku_id=sku.id,
             width_mm=width_mm,
             length_m=length_m,
-            home_warehouse_id=None,
+            home_warehouse_id=home_id,
             exclude_unit_ids=claimed_unit_ids,
         )
         if match is not None:
@@ -721,15 +734,27 @@ def get_cutting_plan(
     settings = db.get(CalcSettings, 1)
     min_useful_width = float(settings.min_useful_width_mm) if settings else 30.0
 
-    candidates = (
-        db.query(MaterialUnit)
-        .filter(
-            MaterialUnit.status == UnitStatus.NA_KHRANENII,
-            MaterialUnit.material_sku_id == sku.id,
-            MaterialUnit.width_mm >= min(remaining_widths),
-        )
-        .all()
+    candidate_query = db.query(MaterialUnit).filter(
+        MaterialUnit.status == UnitStatus.NA_KHRANENII,
+        MaterialUnit.material_sku_id == sku.id,
+        MaterialUnit.width_mm >= min(remaining_widths),
     )
+    if len(remaining_widths) == 1:
+        eligible_widths = {
+            float(r.width_mm)
+            for r in db.query(WidthAbcClass.width_mm)
+            .filter(
+                WidthAbcClass.material_id == sku.material_id,
+                WidthAbcClass.color_id == sku.color_id,
+                WidthAbcClass.thickness_id == sku.thickness_id,
+                WidthAbcClass.width_class.in_([WidthClass.B, WidthClass.C]),
+                WidthAbcClass.width_mm > remaining_widths[0],
+            )
+            .all()
+        }
+        candidate_query = candidate_query.filter(MaterialUnit.width_mm.in_(eligible_widths)) if eligible_widths else candidate_query.filter(false())
+    candidate_query = filter_by_warehouse(candidate_query, MaterialUnit.location_code, db, home_id)
+    candidates = candidate_query.all()
     now = datetime.now(timezone.utc)
 
     def _days(u: MaterialUnit) -> int:

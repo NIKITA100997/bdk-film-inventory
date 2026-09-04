@@ -155,6 +155,13 @@ class CuttingPlanRequest(BaseModel):
     manufacturer: str
     needed_widths_mm: list[float] = Field(min_length=1)
     needed_lengths_m: list[float] = Field(min_length=1)
+    # Раздел про разбор задания единой таблицей — участок группы (все
+    # строки группы всегда с одного участка, groupQueueRows группирует по
+    # area|material|color|thickness), чтобы точное совпадение и подбор
+    # донора искали в первую очередь на домашнем складе участка, как и
+    # /units/issue, а не по всей системе. Опционально — старое поведение
+    # (без ограничения по складу) сохраняется, если не передан.
+    area: str | None = None
 
 
 class CuttingPlanStockMatch(BaseModel):
