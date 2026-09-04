@@ -154,6 +154,23 @@ interface RowInfo {
   acceptCut?: () => Promise<void>;
 }
 
+// Раздел про фильтр по статусу — та же категория, что уже показывает
+// пилюля в колонке "Статус" (renderStatusPill) и иконки в "Действиях",
+// просто с явным именем для выбора в Select. "manual"/"issued" — не из
+// RowStatus (там это разные независимые сигналы — issuedNoteForLine и
+// kind === "manual" у самой строки), а посчитаны заново в rowStatusKind
+// ниже, чтобы фильтр совпадал буквально с тем, что видно в таблице.
+type StatusFilterValue = "issued" | "stock" | "cut" | "no_donor" | "decided" | "manual";
+
+const statusFilterOptions: { value: StatusFilterValue; label: string }[] = [
+  { value: "no_donor", label: "✖ Нет донора" },
+  { value: "cut", label: "✂️ План резки" },
+  { value: "stock", label: "✅ Есть на складе" },
+  { value: "decided", label: "🕒 Решено" },
+  { value: "issued", label: "✅ Выдано" },
+  { value: "manual", label: "✅ Вручную" },
+];
+
 // Раздел про разбор задания единой таблицей — одна строка плотной
 // таблицы: либо нужда/выдача по строке задания ("need"), либо единица,
 // выданная без привязки к заданию ("manual", раньше отдельная таблица
@@ -425,6 +442,11 @@ export default function Issue() {
   // сузить); выбор конкретного задания даёт тот же список, только на одно
   // задание, вместо поиска его строк среди остальных вручную.
   const [taskFilter, setTaskFilter] = useState<number | undefined>(undefined);
+  // Раздел про фильтр по статусу — та же категория, что показывает пилюля
+  // в колонке «Статус»/иконка в «Действиях», просто вынесенная в
+  // отдельный выбор сверху, чтобы не листать все строки в поиске одного
+  // конкретного состояния (например, только «нет донора» на смену).
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue | undefined>(undefined);
   const [search, setSearch] = useState("");
   const [result, setResult] = useState<IssueResult | null>(null);
   const [lastIssued, setLastIssued] = useState<IssuedResult | null>(null);
@@ -1020,6 +1042,25 @@ export default function Issue() {
     return "✅ выдано";
   };
 
+  // Та же категоризация, что renderStatusPill превращает в пилюлю —
+  // нужна отдельно (без JSX), чтобы фильтр по статусу сверху совпадал
+  // буквально с тем, что видно в колонке "Статус".
+  const rowStatusKind = (row: TableRow): StatusFilterValue | undefined => {
+    if (row.kind === "manual") return "manual";
+    if (issuedNoteForLine(row.line)) return "issued";
+    if (decidedLineIds.has(row.line.id)) return "decided";
+    switch (lineInfoMap.get(row.line.id)?.status.kind) {
+      case "stock":
+        return "stock";
+      case "cut_planned":
+        return "cut";
+      case "no_donor":
+        return "no_donor";
+      default:
+        return undefined;
+    }
+  };
+
   const renderStatusPill = (status: RowStatus | undefined, issuedNote: string | null) => {
     if (issuedNote) return <Tag color="green">{issuedNote}</Tag>;
     if (!status) return null;
@@ -1059,6 +1100,10 @@ export default function Issue() {
   ];
   const manualTableRows: ManualTableRow[] = manualIssuedUnits.map((u) => ({ kind: "manual" as const, key: `manual-${u.id}`, unit: u }));
   const tableRows: TableRow[] = [...needTableRows, ...manualTableRows];
+  // Фильтр по статусу — только на отображение; cuttingRows ниже считается
+  // из needTableRows ДО этого фильтра, чтобы скрытие, скажем, уже решённых
+  // строк не меняло состав группы для подбора донора по остальным.
+  const filteredTableRows = statusFilter ? tableRows.filter((r) => rowStatusKind(r) === statusFilter) : tableRows;
 
   // Группы для подбора донора — только строки с реальной нехваткой
   // (shortfall_length_m > 0); уже выданные строки не должны попадать в
@@ -1658,6 +1703,14 @@ export default function Issue() {
           value={taskFilter}
           onChange={setTaskFilter}
         />
+        <Select
+          allowClear
+          placeholder="Все статусы"
+          style={{ width: 200, maxWidth: "100%" }}
+          options={statusFilterOptions}
+          value={statusFilter}
+          onChange={setStatusFilter}
+        />
         <Input.Search
           placeholder="Поиск по детали, заданию, плёнке…"
           style={{ width: 320, maxWidth: "100%" }}
@@ -1694,7 +1747,7 @@ export default function Issue() {
 
       <Table<TableRow>
         rowKey="key"
-        dataSource={tableRows}
+        dataSource={filteredTableRows}
         size="small"
         pagination={{ pageSize: 30 }}
         scroll={{ x: 1180 }}
