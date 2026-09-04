@@ -1564,15 +1564,19 @@ export default function Issue() {
   );
 
   // Раздел про разбор задания единой таблицей — тап по строке эквивалентен
-  // старому "выбрать строку", но теперь также управляет разворотом
-  // ровно одной строки таблицы (expandedRowKey). Для групповых строк и
-  // строк с уже выданным материалом selected не используется вовсе —
-  // просто закрывается предыдущий выбор, чтобы не путать одну панель с
-  // другой при переключении между разными типами строк.
+  // старому "выбрать строку". В прежнем (карточном) дизайне клик по ЛЮБОЙ
+  // строке — хоть одиночной, хоть внутри группы — всегда выставлял
+  // selected и поднимал общую панель (точное совпадение/донор/замена
+  // материала/правка ширины через CuttingForm) рядом с групповым
+  // баннером, они не были взаимоисключающими. Первая версия разворота
+  // это потеряла — привязала общую панель только к негрупповым строкам,
+  // из-за чего "замена материала" и правка ширины пропали для всех
+  // реальных (обычно групповых) строк. Починено: selected выставляется
+  // для ЛЮБОЙ ещё не выданной строки-нужды, группа она или нет.
   const selectRowForExpand = (key: string | null) => {
     setExpandedRowKey(key);
     const row = key ? tableRows.find((r) => r.key === key) : undefined;
-    if (row?.kind === "need" && !issuedNoteForLine(row.line) && (groupRowsByRowKey.get(row.key)?.length ?? 0) === 1) {
+    if (row?.kind === "need" && !issuedNoteForLine(row.line)) {
       setSelected({ task: row.task, line: row.line, assignment: row.assignment });
     } else {
       setSelected(null);
@@ -1622,15 +1626,23 @@ export default function Issue() {
     }
     const groupRows = groupRowsByRowKey.get(row.key) ?? [];
     if (groupRows.length > 1) {
+      // Раздел про разбор задания единой таблицей — групповой план (донор
+      // сразу на несколько строк) и общая панель по ЭТОЙ конкретной
+      // строке (точное совпадение/донор/замена материала/своя ширина
+      // через CuttingForm) показываются ВМЕСТЕ, не взаимоисключающе —
+      // так же, как раньше банер и карточка строки сосуществовали.
       return (
-        <GroupDecisionPanel
-          sku={findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness)}
-          rows={groupRows}
-          onAddToBatch={addToCuttingBatch}
-          batchedDonorIds={cuttingBatchDonorIds}
-          onAddStockDecision={addStockDecision}
-          decidedLineIds={decidedLineIds}
-        />
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <GroupDecisionPanel
+            sku={findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness)}
+            rows={groupRows}
+            onAddToBatch={addToCuttingBatch}
+            batchedDonorIds={cuttingBatchDonorIds}
+            onAddStockDecision={addStockDecision}
+            decidedLineIds={decidedLineIds}
+          />
+          {renderSelectedRowPanel()}
+        </Space>
       );
     }
     return renderSelectedRowPanel();
