@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -37,7 +37,9 @@ import {
   returnUnit,
   searchUnits,
   skuLabel,
+  executeCuttingRecipe,
   type AreaValue,
+  type CuttingPlanStockMatch,
   type CuttingRecipeResponse,
   type DonorSuggestion,
   type IssueResult,
@@ -92,18 +94,53 @@ function makeDonorUnit(unitId: number, widthMm: number, lengthM: number, warehou
   };
 }
 
-// Раздел про список на резку (печать для резчиков) — одна запись = один
-// уже подобранный донор из группового плана резки (/units/cutting-plan),
-// ещё НЕ разрезанный физически; pieces — какие ширины из него резать и
-// для какой детали/задания, то же самое, что уже строит CuttingForm как
-// widthCuts, просто не выполняется сразу, а копится для печати.
+// Раздел про разбор задания единой таблицей — одна запись = один уже
+// подобранный (авто или вручную) донор из группового плана резки
+// (/units/cutting-plan), ещё НЕ разрезанный физически; pieces — какие
+// ширины из него резать и для какой детали/задания/участка, то же самое,
+// что уже строит CuttingForm как widthCuts. Раньше это был только план
+// для печати ("Список на резку"), решение о самой резке принималось
+// отдельно кнопкой "Резать"; теперь запись в этом батче — это и есть
+// решение (по каждой строке принимается один раз здесь), а печать и
+// реальное выполнение ("Выполнить всё") оба читают из одного и того же
+// списка — pieces поэтому несут все данные, нужные execute_cutting_recipe
+// (area/productionTaskLineId/actualLengthM), не только для печати.
 interface CuttingBatchEntry {
   donorUnitId: number;
   donorWidthMm: number;
   donorLengthM: number;
   wasteMm: number;
-  pieces: { widthMm: number; label: string }[];
+  // Ячейка для окончательного остатка донора после всех резов — подобрана
+  // заранее (suggestLocation, чистое превью) в момент постановки в батч,
+  // чтобы печатный список мог её показать ещё до выполнения.
+  remainderLocationCode?: string;
+  pieces: { widthMm: number; label: string; area: AreaValue; productionTaskLineId?: number }[];
 }
+
+// Раздел про разбор задания единой таблицей — решение "выдать со склада"
+// по строке, у которой нашлось точное совпадение (stock_matches из
+// /units/cutting-plan) — накапливается так же, как cuttingBatch, до
+// нажатия "Выполнить всё" (issueUnitDirect по каждой записи).
+interface StockDecision {
+  lineId: number;
+  unitId: number;
+  area: AreaValue;
+  label: string;
+  widthMm: number;
+}
+
+// Статус одной строки очереди (раздел про разбор задания единой таблицей)
+// — вместо того, чтобы строка молча показывала только сырые цифры
+// нехватки, теперь видно сразу: уже выдано (и в каком состоянии — на
+// участке / едет через хаб / принято на другом складе, но не довыдано
+// локально), есть точное совпадение на складе, входит в план резки, нет
+// донора вообще, или по ней уже принято решение (ждёт "Выполнить всё").
+type RowStatus =
+  | { kind: "issued"; note: string }
+  | { kind: "stock"; match: CuttingPlanStockMatch }
+  | { kind: "cut_planned" }
+  | { kind: "no_donor" }
+  | { kind: "decided" };
 
 function findSku(skus: MaterialSku[] | undefined, material: string, color: string, thickness: number) {
   return skus?.find(
@@ -201,26 +238,45 @@ function groupQueueRowsByPart(rows: QueueRowData[]) {
  * CuttingPlanExecuteModal) — план и выдача больше не два независимых
  * потока: строки, которых план не покрыл (uncovered), по-прежнему идут
  * через обычный клик по строке (независимый одноширинный подбор). */
-/** Подсказка донора на группу строк одной плёнки (раздел про объединение
- * резки в одну форму) — только поиск (getCuttingPlan, не меняется), само
- * исполнение теперь всегда через общий CuttingForm (см. cuttingSession
- * ниже в Issue()), не свою модалку. */
+/** Подсказка донора на группу строк одной плёнки (раздел про разбор
+ * задания единой таблицей) — getCuttingPlan теперь сразу отсекает
+ * потребности, уже закрытые точным совпадением на складе (stock_matches,
+ * backend/app/api/units.py::get_cutting_plan), поэтому в подбор донора
+ * попадают только настоящие нехватки. Решение (и "на складе", и "резать")
+ * больше не выполняется сразу по клику — только копится (onAddStockDecision/
+ * onAddToBatch), реальное выполнение теперь всегда через "Выполнить всё" в
+ * Issue(). renderRow — чтобы каждая строка очереди получила свой статус,
+ * посчитанный из ЭТОГО ЖЕ запроса (без него useQuery пришлось бы дублировать
+ * на каждую строку по отдельности). */
 function CuttingPlanGroupButton({
   sku,
   rows,
-  onCut,
   onAddToBatch,
   batchedDonorIds,
+  onAddStockDecision,
+  decidedLineIds,
+  renderRow,
 }: {
   sku: MaterialSku | undefined;
   rows: QueueRowData[];
-  onCut: (donor: MaterialUnit, widthCuts: CuttingFormInitialWidthCut[]) => void;
   onAddToBatch: (entry: CuttingBatchEntry) => void;
   batchedDonorIds: Set<number>;
+  onAddStockDecision: (decision: StockDecision) => void;
+  decidedLineIds: Set<number>;
+  renderRow: (row: QueueRowData, status: RowStatus) => ReactNode;
 }) {
   const widths = rows.map((r) => r.line.strip_width_mm || r.line.width_mm);
+  const lengths = rows.map((r) => neededLengthM(r));
   const planQuery = useQuery({
-    queryKey: ["cutting-plan", sku?.material.name, sku?.color.name, sku?.thickness.value_mm, sku?.manufacturer.name, widths.join(",")],
+    queryKey: [
+      "cutting-plan",
+      sku?.material.name,
+      sku?.color.name,
+      sku?.thickness.value_mm,
+      sku?.manufacturer.name,
+      widths.join(","),
+      lengths.join(","),
+    ],
     queryFn: () =>
       getCuttingPlan({
         material: sku!.material.name,
@@ -228,84 +284,111 @@ function CuttingPlanGroupButton({
         thickness: sku!.thickness.value_mm,
         manufacturer: sku!.manufacturer.name,
         needed_widths_mm: widths,
+        needed_lengths_m: lengths,
       }),
     enabled: !!sku,
   });
 
   const [manualOpen, setManualOpen] = useState(false);
-  const manualLink = (
-    <a onClick={() => setManualOpen(true)}>🔧 Свой донор и раскрой</a>
-  );
+  const manualLink = <a onClick={() => setManualOpen(true)}>🔧 Свой донор и раскрой</a>;
   const manualModal = sku && (
-    <ManualCuttingPlanModal
-      open={manualOpen}
-      onClose={() => setManualOpen(false)}
-      sku={sku}
-      rows={rows}
-      onCut={onCut}
-      onAddToBatch={onAddToBatch}
-    />
+    <ManualCuttingPlanModal open={manualOpen} onClose={() => setManualOpen(false)} sku={sku} rows={rows} onAddToBatch={onAddToBatch} />
   );
 
-  if (!sku || !planQuery.data) return null;
-  const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm, covered_indices } = planQuery.data;
+  const rowStatus = (i: number): RowStatus => {
+    const lineId = rows[i].line.id;
+    if (decidedLineIds.has(lineId)) return { kind: "decided" };
+    const data = planQuery.data;
+    if (!data) return { kind: "no_donor" };
+    const stockMatch = data.stock_matches.find((m) => m.index === i);
+    if (stockMatch) return { kind: "stock", match: stockMatch };
+    if (data.donor && data.covered_indices.includes(i)) return { kind: "cut_planned" };
+    return { kind: "no_donor" };
+  };
+  const rowsRendered = rows.map((r, i) => renderRow(r, rowStatus(i)));
+
+  if (!sku || !planQuery.data) return <>{rowsRendered}</>;
+  const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm, covered_indices, stock_matches } = planQuery.data;
+
+  const stockRows = stock_matches
+    .filter((m) => !decidedLineIds.has(rows[m.index].line.id))
+    .map((m) => {
+      const row = rows[m.index];
+      return (
+        <div key={m.index} style={{ fontSize: 12, marginBottom: 4 }}>
+          ✅ {row.line.part_name ?? "Деталь"} — есть на складе: штрипс №{m.unit_id} ({m.width_mm} мм, {m.length_m} м
+          {m.location_code ? `, ячейка ${m.location_code}` : ""}) ·{" "}
+          <a
+            onClick={() =>
+              onAddStockDecision({
+                lineId: row.line.id,
+                unitId: m.unit_id,
+                area: row.task.area,
+                label: row.line.part_name ?? "Деталь",
+                widthMm: m.width_mm,
+              })
+            }
+          >
+            Использовать
+          </a>
+        </div>
+      );
+    });
 
   if (!donor) {
     return (
-      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-        ✂️ Подходящего донора для резки на все эти ширины среди остатков нет — резать новый рулон.
-        {" · "}
-        {manualLink}
-        {manualModal}
-      </Typography.Text>
+      <>
+        {stockRows}
+        <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+          {uncovered_widths_mm.length > 0 && "✂️ Подходящего донора для резки на оставшиеся ширины среди остатков нет — резать новый рулон."}
+          {" · "}
+          {manualLink}
+          {manualModal}
+        </Typography.Text>
+        {rowsRendered}
+      </>
     );
   }
 
   const coveredRows = covered_indices.map((i) => rows[i]);
-  const widthCuts: CuttingFormInitialWidthCut[] = coveredRows.map((r) => ({
-    width_mm: r.line.strip_width_mm || r.line.width_mm,
-    area: r.task.area,
-    production_task_line_id: r.line.id,
-    label: r.line.part_name ?? "Деталь",
-    locked: true,
-  }));
-
   const alreadyBatched = batchedDonorIds.has(donor.unit_id);
 
+  const addPlanToBatch = async () => {
+    const remainderLocationCode = (await suggestLocation({ material_sku_id: sku.id, is_strip: true })) ?? undefined;
+    onAddToBatch({
+      donorUnitId: donor.unit_id,
+      donorWidthMm: donor.width_mm,
+      donorLengthM: donor.length_m,
+      wasteMm: waste_mm,
+      remainderLocationCode,
+      pieces: coveredRows.map((r) => ({
+        widthMm: r.line.strip_width_mm || r.line.width_mm,
+        label: r.line.part_name ?? "Деталь",
+        area: r.task.area,
+        productionTaskLineId: r.line.id,
+      })),
+    });
+  };
+
   return (
-    <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-      ✂️ План резки: донор №{donor.unit_id} ({donor.width_mm} мм, {donor.length_m} м) → режем{" "}
-      {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
-      {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
-      {" · "}
-      <a onClick={() => onCut(makeDonorUnit(donor.unit_id, donor.width_mm, donor.length_m, null, sku), widthCuts)}>
-        Резать
-      </a>
-      {" · "}
-      {alreadyBatched ? (
-        <Typography.Text type="success">✓ В списке на резку</Typography.Text>
-      ) : (
-        <a
-          onClick={() =>
-            onAddToBatch({
-              donorUnitId: donor.unit_id,
-              donorWidthMm: donor.width_mm,
-              donorLengthM: donor.length_m,
-              wasteMm: waste_mm,
-              pieces: coveredRows.map((r) => ({
-                widthMm: r.line.strip_width_mm || r.line.width_mm,
-                label: r.line.part_name ?? "Деталь",
-              })),
-            })
-          }
-        >
-          + В список на резку
-        </a>
-      )}
-      {" · "}
-      {manualLink}
-      {manualModal}
-    </Typography.Text>
+    <>
+      {stockRows}
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+        ✂️ План резки: донор №{donor.unit_id} ({donor.width_mm} мм, {donor.length_m} м) → режем{" "}
+        {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
+        {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
+        {" · "}
+        {alreadyBatched ? (
+          <Typography.Text type="success">✓ В списке на резку</Typography.Text>
+        ) : (
+          <a onClick={addPlanToBatch}>+ В список на резку</a>
+        )}
+        {" · "}
+        {manualLink}
+        {manualModal}
+      </Typography.Text>
+      {rowsRendered}
+    </>
   );
 }
 
@@ -357,20 +440,99 @@ export default function Issue() {
     onDone: (res: CuttingRecipeResponse) => void;
   } | null>(null);
 
-  // Раздел про список на резку (печать для резчиков) — план ЕЩЁ НЕ
-  // выполненный физически (резчики режут сами по бумаге), поэтому не
-  // бьёт в бэкенд вообще — просто накапливает уже посчитанные планы
-  // резки (CuttingPlanGroupButton — тот же /units/cutting-plan запрос,
-  // что и раньше, тут только откладывается печать вместо немедленной
-  // резки). Только групповые планы — одиночные резки по одной строке
-  // (без группы) сюда не попадают, остаются как были.
+  // Раздел про разбор задания единой таблицей — план ЕЩЁ НЕ выполненный
+  // физически, поэтому сам по себе не бьёт в бэкенд — просто накапливает
+  // уже посчитанные планы резки (CuttingPlanGroupButton/ManualCuttingPlanModal
+  // — тот же /units/cutting-plan запрос, что и раньше). Только групповые
+  // планы — одиночные резки по одной строке (без группы) сюда не попадают,
+  // остаются как были (свой cuttingSession/CuttingForm). В отличие от
+  // прошлой версии, этот батч — не только печать: "Выполнить всё"
+  // (executeAllDecisions ниже) реально режет каждую запись.
   const [cuttingBatch, setCuttingBatch] = useState<CuttingBatchEntry[]>([]);
   const [cuttingBatchOpen, setCuttingBatchOpen] = useState(false);
+  // Раздел про разбор задания единой таблицей — сопроводительный лист,
+  // отдельный от «Списка на резку», по одному заданию за раз.
+  const [slipModalOpen, setSlipModalOpen] = useState(false);
+  const [slipTaskId, setSlipTaskId] = useState<number | undefined>(undefined);
   const addToCuttingBatch = (entry: CuttingBatchEntry) =>
     setCuttingBatch((prev) => (prev.some((e) => e.donorUnitId === entry.donorUnitId) ? prev : [...prev, entry]));
   const removeFromCuttingBatch = (donorUnitId: number) =>
     setCuttingBatch((prev) => prev.filter((e) => e.donorUnitId !== donorUnitId));
   const cuttingBatchDonorIds = useMemo(() => new Set(cuttingBatch.map((e) => e.donorUnitId)), [cuttingBatch]);
+
+  // Раздел про разбор задания единой таблицей — решения "выдать со
+  // склада" (stock_matches из /units/cutting-plan), тот же принцип
+  // отложенного выполнения, что и у cuttingBatch выше, только для готовых
+  // штрипсов, не требующих резки вообще.
+  const [stockDecisions, setStockDecisions] = useState<StockDecision[]>([]);
+  const addStockDecision = (d: StockDecision) =>
+    setStockDecisions((prev) => (prev.some((e) => e.lineId === d.lineId) ? prev : [...prev, d]));
+  const removeStockDecision = (lineId: number) => setStockDecisions((prev) => prev.filter((e) => e.lineId !== lineId));
+  const decidedLineIds = useMemo(() => {
+    const ids = new Set(stockDecisions.map((d) => d.lineId));
+    for (const entry of cuttingBatch) for (const p of entry.pieces) if (p.productionTaskLineId != null) ids.add(p.productionTaskLineId);
+    return ids;
+  }, [stockDecisions, cuttingBatch]);
+  const [executingAll, setExecutingAll] = useState(false);
+
+  // Раздел про разбор задания единой таблицей — решение принимается в
+  // таблице заранее (склад/резка), выполнение — здесь и только по этой
+  // кнопке, по очереди (не Promise.all — чтобы точно знать, какое именно
+  // решение упало и почему, а не только "что-то из N не получилось").
+  // Успешные решения убираются из стейта сразу; проваленные остаются —
+  // можно поправить и попробовать снова.
+  const executeAllDecisions = async () => {
+    if (executingAll) return;
+    setExecutingAll(true);
+    const failed: { label: string; error: string }[] = [];
+    let okCount = 0;
+    for (const d of stockDecisions) {
+      try {
+        await issueUnitDirect(d.unitId, d.area, d.lineId, toOccurredAtIso(occurredAt));
+        removeStockDecision(d.lineId);
+        okCount++;
+      } catch (e) {
+        failed.push({ label: `${d.label} — штрипс №${d.unitId}`, error: issueErrorMessage(e, "не удалось выдать") });
+      }
+    }
+    for (const entry of cuttingBatch) {
+      try {
+        await executeCuttingRecipe({
+          donor_unit_id: entry.donorUnitId,
+          width_cuts: entry.pieces.map((p) => ({
+            width_mm: p.widthMm,
+            destination: { kind: "issue", area: p.area, production_task_line_id: p.productionTaskLineId },
+            actual_length_m: entry.donorLengthM,
+          })),
+          occurred_at: toOccurredAtIso(occurredAt),
+        });
+        removeFromCuttingBatch(entry.donorUnitId);
+        okCount++;
+      } catch (e) {
+        failed.push({ label: `Донор №${entry.donorUnitId} (${entry.pieces.length} кус.)`, error: issueErrorMessage(e, "не удалось разрезать") });
+      }
+    }
+    setExecutingAll(false);
+    qc.invalidateQueries({ queryKey: ["production-tasks"] });
+    qc.invalidateQueries({ queryKey: ["issue-available-units"] });
+    qc.invalidateQueries({ queryKey: ["cutting-plan"] });
+    if (failed.length === 0) {
+      message.success(`Выполнено решений: ${okCount}`);
+    } else {
+      Modal.warning({
+        title: `Выполнено ${okCount} из ${okCount + failed.length} — есть ошибки`,
+        content: (
+          <ul style={{ paddingLeft: 18, margin: 0 }}>
+            {failed.map((f, i) => (
+              <li key={i}>
+                {f.label}: {f.error}
+              </li>
+            ))}
+          </ul>
+        ),
+      });
+    }
+  };
 
   // Раздел про скролл на планшете — правая панель раньше молча "отдавала"
   // прокрутку в левую очередь, дойдя до низа, без намёка на то, что там
@@ -505,15 +667,18 @@ export default function Issue() {
   // висеть в ленте расхода: экран "Выдача" раньше вообще не смотрел на
   // is_active, и заархивированное тестовое задание с ещё не выданными
   // строками продолжало значиться в очереди как реальная потребность.
+  // Раздел про разбор задания единой таблицей — раньше строка с
+  // remaining_pieces > 0, но уже выданной вплоть до shortfall_length_m
+  // <= 0, полностью пропадала из очереди (видна была только позже, в
+  // "Выдано по заданиям" далеко внизу экрана). Условие по
+  // shortfall_length_m снято — такая строка остаётся в очереди со
+  // статусом "выдано" (issuedNoteForLine в queueRow), не требуя листать
+  // экран, чтобы понять, что по ней уже сделано.
   const activeLines = useMemo(
     () =>
       (tasksQuery.data ?? [])
         .filter((task) => task.is_active)
-        .flatMap((task) =>
-          task.lines
-            .filter((line) => line.remaining_pieces > 0 && line.shortfall_length_m > 0)
-            .map((line) => ({ task, line })),
-        ),
+        .flatMap((task) => task.lines.filter((line) => line.remaining_pieces > 0).map((line) => ({ task, line }))),
     [tasksQuery.data],
   );
 
@@ -565,7 +730,14 @@ export default function Issue() {
 
   const overdueCount = assignmentRows.filter((r) => r.overdue).length;
   const todayCount = assignmentRows.length - overdueCount;
-  const areasWaiting = new Set([...assignmentRows, ...weekRows].map((r) => r.task.area)).size;
+  // Раздел про разбор задания единой таблицей — weekRows теперь включает
+  // и уже полностью выданные строки (видны в очереди статусом "выдано"
+  // вместо исчезновения), но счётчики ниже по-прежнему должны отражать
+  // реальную НЕХВАТКУ, не общее число строк в очереди.
+  const weekRowsNeedingMaterial = weekRows.filter((r) => r.line.shortfall_length_m > 0);
+  const areasWaiting = new Set(
+    [...assignmentRows, ...weekRowsNeedingMaterial].filter((r) => r.line.shortfall_length_m > 0).map((r) => r.task.area),
+  ).size;
 
   // --- Выбранная потребность: авто-подбор точного/донор-штрипса сразу
   // после выбора строки в очереди, без лишнего клика "искать".
@@ -833,12 +1005,46 @@ export default function Issue() {
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось оформить выдачу")),
   });
 
+  // Раздел про разбор задания единой таблицей — строка "выдано" не должна
+  // молча пропадать из очереди, как только shortfall_length_m обнулился
+  // (см. allTaskLines ниже, ослабленный фильтр); достаточно ли выдано, и
+  // в каком состоянии физически находится кусок — реальный статус
+  // единиц (status теперь приходит на ProductionTaskLineIssuedUnit)
+  // важнее любого производного статуса плана резки, раз материал уже
+  // решён по факту.
+  const issuedNoteForLine = (line: ProductionTaskLine): string | null => {
+    if (line.shortfall_length_m > 0) return null;
+    const units = line.issued_units ?? [];
+    if (units.some((u) => u.status === "В_перемещении")) return "🚚 едет через хаб";
+    if (units.some((u) => u.status === "На_хранении")) return "🏭 на складе, ждёт довыдачи";
+    return "✅ выдано";
+  };
+
+  const renderStatusPill = (status: RowStatus | undefined, issuedNote: string | null) => {
+    if (issuedNote) return <Tag color="green">{issuedNote}</Tag>;
+    if (!status) return null;
+    switch (status.kind) {
+      case "stock":
+        return <Tag color="green">✅ на складе №{status.match.unit_id}</Tag>;
+      case "cut_planned":
+        return <Tag color="gold">✂️ план резки</Tag>;
+      case "no_donor":
+        return <Tag color="red">✖ нет донора</Tag>;
+      case "decided":
+        return <Tag color="processing">🕒 решено</Tag>;
+      default:
+        return null;
+    }
+  };
+
   const queueRow = (
     r: { task: ProductionTask; line: ProductionTaskLine; assignment?: ProductionTaskLineAssignment; overdue?: boolean },
     variant: "today" | "week",
+    status?: RowStatus,
   ) => {
     const isSelected = selected?.line.id === r.line.id && selected?.assignment?.id === r.assignment?.id;
     const sw = r.line.strip_width_mm || r.line.width_mm;
+    const issuedNote = issuedNoteForLine(r.line);
     return (
       <div
         key={`${r.line.id}-${r.assignment?.id ?? "week"}`}
@@ -874,9 +1080,10 @@ export default function Issue() {
             {r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}`} · {areaLabel(r.task.area)}
             {r.assignment ? ` · ${r.assignment.line_name} · ${r.assignment.employee_names}` : ""}
           </div>
-          <Space size={4} style={{ marginTop: 4 }}>
+          <Space size={4} wrap style={{ marginTop: 4 }}>
             <Tag color="blue">штрипс {sw} мм</Tag>
             <Tag>{r.line.material}, {r.line.color}, {r.line.thickness} мм</Tag>
+            {renderStatusPill(status, issuedNote)}
           </Space>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -890,6 +1097,73 @@ export default function Issue() {
           </div>
         </div>
       </div>
+    );
+  };
+
+  // Раздел про разбор задания единой таблицей — второй печатный документ,
+  // отдельный от «Списка на резку» (тот едет резчикам, без привязки к
+  // заданию/участку): сопроводительный лист едет вместе с плёнкой на
+  // конкретный участок под конкретное задание — что именно выдано
+  // (деталь/кол-во/материал), явным номером рулона/штрипса на каждую
+  // деталь, а не общей фразой. По одному заданию за раз (выбор — Select
+  // рядом с кнопкой), не общий список сразу по всем.
+  const printFactorySlip = (task: ProductionTask) => {
+    const rows: Record<string, unknown>[] = [];
+    for (const line of task.lines) {
+      const issuedNote = issuedNoteForLine(line);
+      if (issuedNote) {
+        for (const u of line.issued_units) {
+          rows.push({
+            part: line.part_name ?? "Деталь",
+            qty: `${line.quantity_pieces} шт`,
+            material: `${line.material}, ${line.color}, ${line.thickness} мм`,
+            unit: u.id,
+            status:
+              u.status === "В_перемещении"
+                ? "🚚 едет через хаб"
+                : u.status === "На_хранении"
+                  ? "на складе, ждёт довыдачи"
+                  : "✅ выдано",
+          });
+        }
+        continue;
+      }
+      const stockDecision = stockDecisions.find((d) => d.lineId === line.id);
+      if (stockDecision) {
+        rows.push({
+          part: line.part_name ?? "Деталь",
+          qty: `${line.quantity_pieces} шт`,
+          material: `${line.material}, ${line.color}, ${line.thickness} мм`,
+          unit: `${stockDecision.unitId}`,
+          status: "решено, ещё не выдано",
+        });
+        continue;
+      }
+      const cutPiece = cuttingBatch.flatMap((e) => e.pieces.map((p) => ({ e, p }))).find(({ p }) => p.productionTaskLineId === line.id);
+      if (cutPiece) {
+        rows.push({
+          part: line.part_name ?? "Деталь",
+          qty: `${line.quantity_pieces} шт`,
+          material: `${line.material}, ${line.color}, ${line.thickness} мм`,
+          unit: `${cutPiece.e.donorUnitId} (донор)`,
+          status: "запланировано, ещё не разрезан",
+        });
+      }
+    }
+    if (rows.length === 0) {
+      message.warning("По этому заданию пока нет ни выданного, ни принятых решений");
+      return;
+    }
+    printReport(
+      `Сопроводительный лист — ${task.product_model_name ?? task.name ?? `Задание №${task.id}`}`,
+      [
+        { key: "part", header: "Деталь" },
+        { key: "qty", header: "Кол-во" },
+        { key: "material", header: "Материал" },
+        { key: "unit", header: "№ рулона/штрипса" },
+        { key: "status", header: "Статус" },
+      ],
+      rows,
     );
   };
 
@@ -912,22 +1186,12 @@ export default function Issue() {
         <CuttingPlanGroupButton
           sku={findSku(skusQuery.data, g.material, g.color, g.thickness)}
           rows={g.rows}
-          onCut={(donor, widthCuts) =>
-            setCuttingSession({
-              donor,
-              widthCuts,
-              onDone: () => {
-                setCuttingSession(null);
-                qc.invalidateQueries({ queryKey: ["production-tasks"] });
-                qc.invalidateQueries({ queryKey: ["issue-available-units"] });
-                qc.invalidateQueries({ queryKey: ["cutting-plan"] });
-              },
-            })
-          }
           onAddToBatch={addToCuttingBatch}
           batchedDonorIds={cuttingBatchDonorIds}
+          onAddStockDecision={addStockDecision}
+          decidedLineIds={decidedLineIds}
+          renderRow={(r, status) => queueRow(r, variant, status)}
         />
-        {g.rows.map((r) => queueRow(r, variant))}
       </div>
     ) : (
       queueRow(g.rows[0], variant)
@@ -955,11 +1219,14 @@ export default function Issue() {
         <Typography.Title level={4} style={{ margin: 0 }}>
           Выдача участку
         </Typography.Title>
-        {cuttingBatch.length > 0 && (
-          <Button size="small" onClick={() => setCuttingBatchOpen(true)}>
-            📋 Список на резку ({cuttingBatch.length})
+        {(cuttingBatch.length > 0 || stockDecisions.length > 0) && (
+          <Button size="small" type="primary" onClick={() => setCuttingBatchOpen(true)}>
+            🕒 Решения ({cuttingBatch.length + stockDecisions.length})
           </Button>
         )}
+        <Button size="small" onClick={() => setSlipModalOpen(true)}>
+          📋 Сопроводительный лист
+        </Button>
       </Space>
 
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
@@ -975,7 +1242,7 @@ export default function Issue() {
         </Col>
         <Col xs={12} sm={12} md={6}>
           <Card size="small">
-            <Statistic title="Строк не распределено на сегодня" value={weekRows.length} />
+            <Statistic title="Строк не распределено на сегодня" value={weekRowsNeedingMaterial.length} />
           </Card>
         </Col>
         <Col xs={12} sm={12} md={6}>
@@ -1731,6 +1998,7 @@ export default function Issue() {
                           material_sku_id: u.material_sku.id,
                           parent_id: u.parent_id,
                           is_strip: u.is_strip,
+                          status: u.status,
                         }}
                       />
                     </Space>
@@ -1795,23 +2063,55 @@ export default function Issue() {
       )}
 
       <Modal
-        title="Список на резку"
+        title="Решения по выдаче и резке"
         open={cuttingBatchOpen}
         onCancel={() => setCuttingBatchOpen(false)}
         footer={null}
-        width={640}
+        width={720}
         destroyOnHidden
       >
         <Typography.Paragraph type="secondary">
-          Это ещё не выполненная резка — план по уже подобранным донорам,
-          распечатайте и отдайте резчикам, они режут сами. Саму резку (когда
-          физически выполнена) заводите в системе как обычно, через «Резать»
-          у нужной группы.
+          Ничего из этого ещё не выполнено физически — решения только
+          накоплены. «Выполнить всё» разом выдаст со склада и разрежет
+          доноров; «Печать» — план для резчиков (сами доноры и раскрой уже
+          решены здесь, резчики только режут по листу).
         </Typography.Paragraph>
-        {cuttingBatch.length === 0 ? (
-          <Typography.Text type="secondary">Список пуст.</Typography.Text>
-        ) : (
+
+        {stockDecisions.length > 0 && (
           <>
+            <Typography.Title level={5} style={{ marginTop: 8 }}>
+              Выдать со склада
+            </Typography.Title>
+            <ResponsiveTable
+              tableKey="stock-decisions"
+              rowKey={(r) => r.lineId}
+              size="small"
+              pagination={false}
+              dataSource={stockDecisions}
+              scroll={{ x: "max-content" }}
+              columns={[
+                { title: "№ штрипса", render: (_, r) => r.unitId },
+                { title: "Ширина, мм", render: (_, r) => r.widthMm },
+                { title: "Деталь", render: (_, r) => r.label },
+                { title: "Участок", render: (_, r) => areaLabel(r.area) },
+                {
+                  title: "",
+                  render: (_, r) => (
+                    <Button size="small" danger onClick={() => removeStockDecision(r.lineId)}>
+                      Убрать
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+          </>
+        )}
+
+        {cuttingBatch.length > 0 && (
+          <>
+            <Typography.Title level={5} style={{ marginTop: 16 }}>
+              Резать
+            </Typography.Title>
             <ResponsiveTable
               tableKey="cutting-batch"
               rowKey={(r) => `${r.entry.donorUnitId}-${r.widthMm}-${r.label}`}
@@ -1825,6 +2125,8 @@ export default function Issue() {
                 { title: "Длина рулона, м", render: (_, r) => r.entry.donorLengthM },
                 { title: "Ширина реза, мм", render: (_, r) => r.widthMm },
                 { title: "Деталь/задание", render: (_, r) => r.label },
+                { title: "Участок", render: (_, r) => areaLabel(r.area) },
+                { title: "Место хран. остатка", render: (_, r) => r.entry.remainderLocationCode ?? "—" },
                 { title: "Отход, мм", render: (_, r) => r.entry.wasteMm },
                 {
                   title: "",
@@ -1836,9 +2138,18 @@ export default function Issue() {
                 },
               ]}
             />
-            <Space style={{ marginTop: 12 }}>
+          </>
+        )}
+
+        {stockDecisions.length === 0 && cuttingBatch.length === 0 ? (
+          <Typography.Text type="secondary">Список решений пуст.</Typography.Text>
+        ) : (
+          <Space style={{ marginTop: 16 }} wrap>
+            <Button type="primary" loading={executingAll} onClick={executeAllDecisions}>
+              ✅ Выполнить всё ({cuttingBatch.length + stockDecisions.length})
+            </Button>
+            {cuttingBatch.length > 0 && (
               <Button
-                type="primary"
                 onClick={() =>
                   printReport(
                     "Список на резку",
@@ -1848,6 +2159,8 @@ export default function Issue() {
                       { key: "donorLength", header: "Длина рулона, м" },
                       { key: "width", header: "Ширина реза, мм" },
                       { key: "label", header: "Деталь/задание" },
+                      { key: "area", header: "Участок" },
+                      { key: "remainder", header: "Место хран. остатка" },
                       { key: "waste", header: "Отход, мм" },
                     ],
                     cuttingBatch.flatMap((e) =>
@@ -1857,18 +2170,58 @@ export default function Issue() {
                         donorLength: e.donorLengthM,
                         width: p.widthMm,
                         label: p.label,
+                        area: areaLabel(p.area),
+                        remainder: e.remainderLocationCode ?? "—",
                         waste: e.wasteMm,
                       })),
                     ),
                   )
                 }
               >
-                Печать
+                🖨 Печать списка на резку
               </Button>
-              <Button onClick={() => setCuttingBatch([])}>Очистить список</Button>
-            </Space>
-          </>
+            )}
+            <Button
+              danger
+              onClick={() => {
+                setCuttingBatch([]);
+                setStockDecisions([]);
+              }}
+            >
+              Очистить всё
+            </Button>
+          </Space>
         )}
+      </Modal>
+
+      <Modal title="Сопроводительный лист" open={slipModalOpen} onCancel={() => setSlipModalOpen(false)} footer={null} destroyOnHidden>
+        <Typography.Paragraph type="secondary">
+          По одному заданию за раз — деталь/количество/материал и явный номер
+          рулона/штрипса против каждой (реальный, если уже выдано/разрезано;
+          номер донора с пометкой «план», если решение принято, но резка ещё
+          не выполнена).
+        </Typography.Paragraph>
+        <Space wrap>
+          <Select
+            style={{ width: 280 }}
+            placeholder="Выберите задание"
+            options={taskOptions}
+            optionFilterProp="label"
+            showSearch
+            value={slipTaskId}
+            onChange={setSlipTaskId}
+          />
+          <Button
+            type="primary"
+            disabled={!slipTaskId}
+            onClick={() => {
+              const task = tasksQuery.data?.find((t) => t.id === slipTaskId);
+              if (task) printFactorySlip(task);
+            }}
+          >
+            🖨 Печать
+          </Button>
+        </Space>
       </Modal>
     </div>
   );

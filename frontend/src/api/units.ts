@@ -187,6 +187,12 @@ export interface CuttingPlanRequest {
   thickness: number;
   manufacturer: string;
   needed_widths_mm: number[];
+  // По индексу с needed_widths_mm (раздел про разбор задания единой
+  // таблицей) — нужна, чтобы бэкенд отличил точное совпадение остатка на
+  // складе (хватает и по ширине, и по длине) от настоящей нехватки,
+  // требующей резки, и не включал уже закрытые потребности в подбор
+  // донора (см. stock_matches в CuttingPlan ниже).
+  needed_lengths_m: number[];
 }
 
 export interface CuttingPlanDonor {
@@ -196,12 +202,21 @@ export interface CuttingPlanDonor {
   days_in_storage: number;
 }
 
+export interface CuttingPlanStockMatch {
+  index: number; // позиция в исходном needed_widths_mm/needed_lengths_m
+  unit_id: number;
+  width_mm: number;
+  length_m: number;
+  location_code: string | null;
+}
+
 export interface CuttingPlan {
   donor: CuttingPlanDonor | null;
   covered_widths_mm: number[];
   uncovered_widths_mm: number[];
   waste_mm: number;
   covered_indices: number[];
+  stock_matches: CuttingPlanStockMatch[];
 }
 
 // План резки одного донора сразу на несколько разных ширин штрипса одной

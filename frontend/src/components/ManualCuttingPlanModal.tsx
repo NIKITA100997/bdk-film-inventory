@@ -3,6 +3,7 @@ import { Alert, Button, Checkbox, Input, InputNumber, Modal, Space, Typography }
 import { useQuery } from "@tanstack/react-query";
 import { searchUnits, type MaterialSku, type MaterialUnit } from "../api/units";
 import { getCalcSettings } from "../api/abc";
+import { suggestLocation } from "../api/storage";
 import ResponsiveTable from "./ResponsiveTable";
 import type { CuttingFormInitialWidthCut } from "./CuttingForm";
 
@@ -16,7 +17,8 @@ interface CuttingBatchEntryLike {
   donorWidthMm: number;
   donorLengthM: number;
   wasteMm: number;
-  pieces: { widthMm: number; label: string }[];
+  remainderLocationCode?: string;
+  pieces: { widthMm: number; label: string; area: string; productionTaskLineId?: number }[];
 }
 
 interface PieceRow {
@@ -39,10 +41,12 @@ const nextRowId = () => `manual-row-${++rowSeq}`;
  * начальник склада выбирает донора сам (тот же поиск, что и в разделе
  * "Без привязки к заданию", searchUnits) и сам решает, что из него
  * резать — включая/выключая предложенные строкой очереди куски, меняя их
- * ширину, добавляя свои. Дальше — либо сразу "Резать" (передаётся в тот
- * же CuttingForm через onCut, локи с production_task_line_id сняты —
- * оператор доредактирует участок/назначение там же), либо в печатный
- * "Список на резку" (onAddToBatch, тот же формат, что и у авто-плана). */
+ * ширину, добавляя свои. Решение только копится (onAddToBatch, тот же
+ * формат, что и у авто-плана) — реальное выполнение теперь всегда через
+ * "Выполнить всё" на экране (раздел про разбор задания единой таблицей),
+ * не отдельным "Резать" здесь; onCut остаётся опциональным пропом только
+ * для обратной совместимости — если не передан, кнопка немедленной резки
+ * не показывается. */
 export default function ManualCuttingPlanModal({
   open,
   onClose,
@@ -55,7 +59,7 @@ export default function ManualCuttingPlanModal({
   onClose: () => void;
   sku: MaterialSku;
   rows: QueueRowLike[];
-  onCut: (donor: MaterialUnit, widthCuts: CuttingFormInitialWidthCut[]) => void;
+  onCut?: (donor: MaterialUnit, widthCuts: CuttingFormInitialWidthCut[]) => void;
   onAddToBatch: (entry: CuttingBatchEntryLike) => void;
 }) {
   const [donor, setDonor] = useState<MaterialUnit | null>(null);
@@ -123,19 +127,26 @@ export default function ManualCuttingPlanModal({
     }));
 
   const handleCut = () => {
-    if (!donor || includedPieces.length === 0) return;
+    if (!donor || includedPieces.length === 0 || !onCut) return;
     onCut(donor, buildWidthCuts());
     close();
   };
 
-  const handleAddToBatch = () => {
+  const handleAddToBatch = async () => {
     if (!donor || includedPieces.length === 0) return;
+    const remainderLocationCode = (await suggestLocation({ material_sku_id: sku.id, is_strip: true })) ?? undefined;
     onAddToBatch({
       donorUnitId: donor.id,
       donorWidthMm: donor.width_mm,
       donorLengthM: donor.length_m,
       wasteMm: Math.max(remainingWidth, 0),
-      pieces: includedPieces.map((p) => ({ widthMm: p.width_mm, label: p.label })),
+      remainderLocationCode,
+      pieces: includedPieces.map((p) => ({
+        widthMm: p.width_mm,
+        label: p.label,
+        area: p.area ?? "",
+        productionTaskLineId: p.production_task_line_id,
+      })),
     });
     close();
   };
@@ -226,10 +237,12 @@ export default function ManualCuttingPlanModal({
               />
             )}
             <Space style={{ width: "100%" }} direction="vertical">
-              <Button type="primary" block disabled={includedPieces.length === 0 || overflow} onClick={handleCut}>
-                ✂️ Резать
-              </Button>
-              <Button block disabled={includedPieces.length === 0 || overflow} onClick={handleAddToBatch}>
+              {onCut && (
+                <Button type="primary" block disabled={includedPieces.length === 0 || overflow} onClick={handleCut}>
+                  ✂️ Резать
+                </Button>
+              )}
+              <Button type={onCut ? "default" : "primary"} block disabled={includedPieces.length === 0 || overflow} onClick={handleAddToBatch}>
                 + В список на резку
               </Button>
             </Space>
