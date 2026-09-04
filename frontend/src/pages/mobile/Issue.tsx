@@ -24,6 +24,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import dayjs, { type Dayjs } from "dayjs";
+import { palette } from "../../theme";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { printReport } from "../../utils/printReport";
 import {
@@ -1701,22 +1702,42 @@ export default function Issue() {
         locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
         columns={[
           {
-            title: "",
+            title: (
+              <Tooltip title="Когда актуально: 📅 распределено на сегодня · ⚠️ просрочено · ➖ ещё не распределено по дням · 🏭 весь участок, без деления по дням · ✋ выдано вручную">
+                Когда
+              </Tooltip>
+            ),
             key: "badge",
-            width: 44,
+            width: 56,
             render: (_, row) =>
               row.kind === "manual" ? (
-                <Tag style={{ margin: 0 }}>вручную</Tag>
+                <Tooltip title="Выдано вручную — без привязки к заданию">
+                  <Tag style={{ margin: 0 }}>✋</Tag>
+                </Tooltip>
               ) : row.variant === "today" ? (
-                <Tag color={row.overdue ? "error" : "orange"} style={{ margin: 0 }}>
-                  {row.overdue ? dayjs(row.assignment!.date).format("DD.MM") : "сег."}
-                </Tag>
+                row.overdue ? (
+                  <Tooltip title={`Просрочено — было распределено на ${dayjs(row.assignment!.date).format("DD.MM")}`}>
+                    <Tag color="error" style={{ margin: 0 }}>
+                      ⚠️
+                    </Tag>
+                  </Tooltip>
+                ) : (
+                  <Tooltip title="Распределено на сегодня">
+                    <Tag color="orange" style={{ margin: 0 }}>
+                      📅
+                    </Tag>
+                  </Tooltip>
+                )
               ) : areaRequiresDailyPlan(row.task.area) ? (
-                <Tag style={{ margin: 0 }}>—</Tag>
+                <Tooltip title="Ещё не распределено по дням">
+                  <Tag style={{ margin: 0 }}>➖</Tag>
+                </Tooltip>
               ) : (
-                <Tag color="blue" style={{ margin: 0 }}>
-                  уч.
-                </Tag>
+                <Tooltip title="Без деления по дням — весь участок">
+                  <Tag color="blue" style={{ margin: 0 }}>
+                    🏭
+                  </Tag>
+                </Tooltip>
               ),
           },
           {
@@ -1792,8 +1813,10 @@ export default function Issue() {
             render: (_, row) => {
               if (row.kind === "manual") {
                 return (
-                  <Space direction="vertical" size={2}>
-                    <a onClick={() => printLabel(row.unit.id, { kind: "cutting_issue" })}>печать</a>
+                  <Space size={4} wrap>
+                    <ActionIcon tip="Печать этикетки" onClick={() => printLabel(row.unit.id, { kind: "cutting_issue" })}>
+                      🖨
+                    </ActionIcon>
                     {canReturn && (
                       <AcceptReturnButton
                         unit={{
@@ -1813,8 +1836,9 @@ export default function Issue() {
               const issuedNote = issuedNoteForLine(row.line);
               if (issuedNote) {
                 return row.line.issued_units.length > 0 ? (
-                  <Space direction="vertical" size={2}>
-                    <a
+                  <Space size={4} wrap>
+                    <ActionIcon
+                      tip={`Печать этикеток (${row.line.issued_units.length})`}
                       onClick={() =>
                         printLabelsBatch(
                           row.line.issued_units.map((u) => u.id),
@@ -1822,8 +1846,8 @@ export default function Issue() {
                         )
                       }
                     >
-                      печать ({row.line.issued_units.length})
-                    </a>
+                      🖨
+                    </ActionIcon>
                     {canReturn && row.line.issued_units.map((u) => <AcceptReturnButton key={u.id} unit={u} />)}
                   </Space>
                 ) : null;
@@ -1832,27 +1856,44 @@ export default function Issue() {
               const groupRows = groupRowsByRowKey.get(row.key);
               const sku = findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness);
               const decided = decidedLineIds.has(row.line.id);
-              return (
-                <Space direction="vertical" size={2} style={{ width: "100%" }}>
-                  {decided && (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      🕒 в решениях
+              if (decided) {
+                return (
+                  <Tooltip title="Уже в решениях, ждёт выполнения">
+                    <Typography.Text type="secondary" style={{ fontSize: 15 }}>
+                      🕒
                     </Typography.Text>
+                  </Tooltip>
+                );
+              }
+              const stockMatch = info?.status.kind === "stock" ? info.status.match : null;
+              return (
+                <Space size={4} wrap>
+                  {info?.acceptStock && (
+                    <ActionIcon
+                      tone="filled"
+                      tip={stockMatch ? `Взять со склада — штрипс №${stockMatch.unit_id}` : "Взять со склада"}
+                      onClick={info.acceptStock}
+                    >
+                      ✓
+                    </ActionIcon>
                   )}
-                  {!decided && info?.acceptStock && (
-                    <Button size="small" type="primary" block onClick={info.acceptStock}>
-                      Взять
-                    </Button>
+                  {info?.acceptCut && (
+                    <ActionIcon
+                      tone="outline"
+                      tip={info.donorUnitId ? `В резку — донор №${info.donorUnitId}` : "Добавить в план резки"}
+                      onClick={info.acceptCut}
+                    >
+                      ✂️
+                    </ActionIcon>
                   )}
-                  {!decided && info?.acceptCut && (
-                    <Button size="small" block onClick={info.acceptCut}>
-                      + В резку
-                    </Button>
+                  {groupRows && sku && (
+                    <ActionIcon tip="Свой донор и раскрой" onClick={() => setManualPickerTarget({ sku, rows: groupRows })}>
+                      🔧
+                    </ActionIcon>
                   )}
-                  <Space size={4}>
-                    {groupRows && sku && <a onClick={() => setManualPickerTarget({ sku, rows: groupRows })}>донор</a>}
-                    <a onClick={() => openDetail(row)}>ещё…</a>
-                  </Space>
+                  <ActionIcon tip="Ещё — подробная карточка" onClick={() => openDetail(row)}>
+                    ⋯
+                  </ActionIcon>
                 </Space>
               );
             },
@@ -2254,6 +2295,46 @@ export default function Issue() {
  * Диалог сразу же предлагает место по правилу зонирования (если оно
  * есть) и позволяет указать полку вручную — приём и размещение одним
  * действием, а не отдельным походом на «Стеллажи → Без места». */
+/** Компактная кнопка-иконка для колонки «Действия» — подпись только во
+ * всплывающей подсказке, чтобы решения умещались в один ряд вместо
+ * вертикального стека. `onClick`, возвращающий Promise, включает
+ * стандартный авто-loading кнопки antd на время выполнения. */
+function ActionIcon({
+  tip,
+  onClick,
+  tone = "ghost",
+  danger,
+  children,
+}: {
+  tip: string;
+  onClick?: () => void | Promise<unknown>;
+  tone?: "filled" | "outline" | "ghost";
+  danger?: boolean;
+  children: ReactNode;
+}) {
+  const style =
+    tone === "outline"
+      ? { color: palette.orange, borderColor: palette.orange }
+      : tone === "ghost"
+        ? { color: palette.gray }
+        : undefined;
+  return (
+    <Tooltip title={tip}>
+      <Button
+        shape="circle"
+        size="small"
+        type={tone === "filled" ? "primary" : "default"}
+        danger={danger}
+        onClick={onClick}
+        style={style}
+        aria-label={tip}
+      >
+        {children}
+      </Button>
+    </Tooltip>
+  );
+}
+
 function AcceptReturnButton({ unit }: { unit: ProductionTaskLineIssuedUnit }) {
   const [open, setOpen] = useState(false);
   return (
