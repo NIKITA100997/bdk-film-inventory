@@ -673,7 +673,9 @@ def get_cutting_plan(
         db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
     )
     if sku is None:
-        return CuttingPlanOut(donor=None, covered_widths_mm=[], uncovered_widths_mm=payload.needed_widths_mm, waste_mm=0.0)
+        return CuttingPlanOut(
+            donor=None, covered_widths_mm=[], uncovered_widths_mm=payload.needed_widths_mm, waste_mm=0.0, covered_indices=[]
+        )
 
     settings = db.get(CalcSettings, 1)
     min_useful_width = float(settings.min_useful_width_mm) if settings else 30.0
