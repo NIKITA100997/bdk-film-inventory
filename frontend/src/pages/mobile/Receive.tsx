@@ -1,14 +1,23 @@
 import { useState } from "react";
-import { Alert, Button, Card, Form, Input, InputNumber, Select, Typography, List, Row, Col, message } from "antd";
-import type { Dayjs } from "dayjs";
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, List, Row, Col, message } from "antd";
+import dayjs, { type Dayjs } from "dayjs";
 import Statistic from "../../components/Statistic";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { receiveAndAutoPlace, printLabelsBatch, skuLabel, type MaterialUnit, type ReceiveRequest } from "../../api/units";
+import {
+  receiveAndAutoPlace,
+  printLabelsBatch,
+  skuLabel,
+  listReceipts,
+  type MaterialUnit,
+  type ReceiveRequest,
+  type ReceiptSession,
+} from "../../api/units";
 import { listWarehouses } from "../../api/storage";
 import { listPurchaseRequests, fulfillPurchaseRequest } from "../../api/purchasing";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import ExistingSkuPicker from "../../components/ExistingSkuPicker";
 import OccurredAtField from "../../components/OccurredAtField";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useDraftForm } from "../../hooks/useDraftForm";
 
@@ -39,6 +48,9 @@ export default function Receive() {
   const [finished, setFinished] = useState(false);
   const [warehouseId, setWarehouseId] = useState<number | undefined>(undefined);
   const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
+  // Раздел про историю приёмок (проверка правильности внесения) —
+  // доступна всегда, независимо от того, идёт ли сейчас сессия приёмки.
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [headerForm] = Form.useForm<HeaderValues>();
   const [lineForm] = Form.useForm<LineValues>();
   const headerDraft = useDraftForm("draft:receive-header", headerForm);
@@ -113,7 +125,15 @@ export default function Receive() {
 
   return (
     <Card>
-      <Typography.Title level={4}>Приёмка партии</Typography.Title>
+      <Space align="center" style={{ marginBottom: 8 }} wrap>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Приёмка партии
+        </Typography.Title>
+        <Button size="small" onClick={() => setHistoryOpen(true)}>
+          📜 История приёмок
+        </Button>
+      </Space>
+      <ReceiptsHistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} />
 
       {!sessionStarted && (
         <Form
@@ -277,5 +297,100 @@ export default function Receive() {
         </>
       )}
     </Card>
+  );
+}
+
+/** История приёмок (раздел про проверку правильности внесения) — одна
+ * запись = одна сессия "Приёмка партии" (УПД+паллета), поэтому доступна
+ * всегда, не только пока сессия идёт. Ширина/длина/ячейка в детальном
+ * списке — то, что реально ввели при приёмке (снимок события "Приход" на
+ * бэкенде), не текущее состояние рулона — если его успели порезать,
+ * current_status/current_width_mm покажут это отдельно, не подменяя
+ * исходную запись. */
+function ReceiptsHistoryModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [search, setSearch] = useState("");
+  const [detail, setDetail] = useState<ReceiptSession | null>(null);
+  const receiptsQuery = useQuery({
+    queryKey: ["receipts", search],
+    queryFn: () => listReceipts({ search: search.trim() || undefined, limit: 50 }),
+    enabled: open,
+  });
+
+  return (
+    <>
+      <Modal title="История приёмок" open={open} onCancel={onClose} footer={null} width={780} destroyOnHidden>
+        <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
+          Одна строка — одна приёмка (УПД + паллета). Откройте, чтобы свериться, что было реально введено.
+        </Typography.Paragraph>
+        <Input.Search
+          placeholder="Поиск по номеру УПД или паллеты…"
+          allowClear
+          style={{ marginBottom: 12 }}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <ResponsiveTable<ReceiptSession>
+          size="small"
+          rowKey={(s) => `${s.upd_number}-${s.pallet_number}`}
+          loading={receiptsQuery.isLoading}
+          dataSource={receiptsQuery.data ?? []}
+          pagination={{ pageSize: 15 }}
+          scroll={{ x: "max-content" }}
+          locale={{ emptyText: search ? "Ничего не найдено" : "Приёмок за последние 90 дней нет" }}
+          columns={[
+            { title: "Дата", render: (_, s) => dayjs(s.received_at).format("DD.MM.YYYY HH:mm") },
+            { title: "УПД", dataIndex: "upd_number" },
+            { title: "Паллета", dataIndex: "pallet_number" },
+            { title: "Кто принял", dataIndex: "received_by" },
+            { title: "Склад", render: (_, s) => s.warehouse_name ?? "—" },
+            { title: "Рулонов", dataIndex: "unit_count" },
+            { title: "Всего, м²", render: (_, s) => s.total_area_m2.toFixed(1) },
+            {
+              title: "",
+              render: (_, s) => (
+                <Button size="small" onClick={() => setDetail(s)}>
+                  Показать
+                </Button>
+              ),
+            },
+          ]}
+        />
+      </Modal>
+
+      <Modal
+        title={detail ? `Приёмка — УПД ${detail.upd_number}, паллета ${detail.pallet_number}` : ""}
+        open={!!detail}
+        onCancel={() => setDetail(null)}
+        footer={null}
+        width={720}
+        destroyOnHidden
+      >
+        {detail && (
+          <ResponsiveTable<(typeof detail.units)[number]>
+            size="small"
+            rowKey="unit_id"
+            dataSource={detail.units}
+            pagination={false}
+            scroll={{ x: "max-content" }}
+            columns={[
+              { title: "№", dataIndex: "unit_id" },
+              { title: "Материал", render: (_, u) => `${u.material}, ${u.color}, ${u.thickness} мм, ${u.manufacturer}` },
+              { title: "Ширина, мм", dataIndex: "width_mm" },
+              { title: "Длина, м", dataIndex: "length_m" },
+              { title: "Ячейка при приёмке", render: (_, u) => u.location_code ?? "—" },
+              {
+                title: "Сейчас",
+                render: (_, u) => (
+                  <Space size={4} wrap>
+                    <Tag>{u.current_status.replace(/_/g, " ")}</Tag>
+                    {u.current_width_mm !== u.width_mm && <Tag color="orange">уже {u.current_width_mm} мм — разрезан</Tag>}
+                  </Space>
+                ),
+              },
+            ]}
+          />
+        )}
+      </Modal>
+    </>
   );
 }

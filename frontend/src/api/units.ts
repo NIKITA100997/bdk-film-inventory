@@ -96,6 +96,45 @@ export async function receiveAndAutoPlace(
   return placed;
 }
 
+// Раздел про историю приёмок (проверка правильности внесения) — ширина/
+// длина/ячейка здесь снимок события "Приход" на момент приёмки, а не
+// живое состояние единицы: рулон могли успеть порезать позже, и его
+// текущая ширина уже не совпадала бы с тем, что реально ввели.
+export interface ReceiptUnit {
+  unit_id: number;
+  material: string;
+  color: string;
+  thickness: number;
+  manufacturer: string;
+  width_mm: number;
+  length_m: number;
+  location_code: string | null;
+  current_status: string;
+  current_width_mm: number;
+}
+
+export interface ReceiptSession {
+  upd_number: string;
+  pallet_number: string;
+  received_at: string;
+  received_by: string;
+  warehouse_name: string | null;
+  unit_count: number;
+  total_area_m2: number;
+  units: ReceiptUnit[];
+}
+
+export async function listReceipts(params?: {
+  search?: string;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ReceiptSession[]> {
+  const { data } = await apiClient.get<ReceiptSession[]>("/units/receipts", { params });
+  return data;
+}
+
 export async function getUnit(unitId: number): Promise<MaterialUnit> {
   const { data } = await apiClient.get<MaterialUnit>(`/units/${unitId}`);
   return data;
