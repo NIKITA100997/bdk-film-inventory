@@ -15,6 +15,9 @@ import {
 } from "../../api/dictionaries";
 import { listAreas } from "../../api/areas";
 
+type StageRow = { code: string; name: string; area: string | null };
+type AreaOption = { value: string; label: string };
+
 /** Справочник деталей (раздел про выбор детали в задание) — физическая
  * форма детали (ширина/длина/ширина штрипса плёнки), выбирается при
  * создании строки BOM (ProductModels.tsx) или задания (CreateTaskModal.tsx)
@@ -33,7 +36,13 @@ export default function PartsAdmin() {
   // упорядоченный список этапов у каждой детали отдельно (не общий enum),
   // редактируется здесь же, в справочнике "Деталь".
   const [stagesTarget, setStagesTarget] = useState<Part | null>(null);
-  const [stageRows, setStageRows] = useState<{ code: string; name: string; area: string | null }[]>([]);
+  const [stageRows, setStageRows] = useState<StageRow[]>([]);
+  // Раздел про массовую настройку этапов — отметить несколько деталей
+  // галочками и применить один и тот же маршрут сразу всем, вместо того
+  // чтобы открывать "Настроить этапы" по одной.
+  const [selectedPartIds, setSelectedPartIds] = useState<number[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkStageRows, setBulkStageRows] = useState<StageRow[]>([]);
 
   const partsQuery = useQuery({ queryKey: ["parts", "all"], queryFn: listAllParts });
   const duplicatesQuery = useQuery({ queryKey: ["parts", "duplicates"], queryFn: listPartDuplicates });
@@ -85,29 +94,45 @@ export default function PartsAdmin() {
     setStagesTarget(part);
     setStageRows(part.stages.map((s) => ({ code: s.code, name: s.name, area: s.area })));
   };
-  const moveStage = (index: number, delta: number) => {
-    setStageRows((rows) => {
-      const next = [...rows];
-      const target = index + delta;
-      if (target < 0 || target >= next.length) return rows;
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
-    });
+
+  // Раздел про массовую настройку этапов — маршрут применяется сразу
+  // ко всем отмеченным деталям, по одному запросу за раз (не Promise.all),
+  // чтобы точно знать, какая именно деталь не сохранилась, если что-то
+  // упало (например, у неё уже архивирован участок).
+  const selectedParts = (partsQuery.data ?? []).filter((p) => selectedPartIds.includes(p.id));
+  const openBulkStages = () => {
+    const template = selectedParts.find((p) => p.stages.length > 0);
+    setBulkStageRows(template ? template.stages.map((s) => ({ code: s.code, name: s.name, area: s.area })) : []);
+    setBulkOpen(true);
   };
-  const removeStage = (index: number) => setStageRows((rows) => rows.filter((_, i) => i !== index));
-  const addStage = () => setStageRows((rows) => [...rows, { code: "", name: "", area: null }]);
-  // Раздел про "этапы = участки производства" — этап это не своё название
-  // плюс отдельно привязанный участок, а буквально выбор участка: код и
-  // имя этапа всегда зеркалят код и имя выбранного участка, отдельного
-  // текстового названия у этапа больше нет.
-  const updateStageArea = (index: number, area: string | null) =>
-    setStageRows((rows) =>
-      rows.map((r, i) => {
-        if (i !== index) return r;
-        const picked = areasQuery.data?.find((a) => a.code === area);
-        return { code: picked?.code ?? "", name: picked?.name ?? "", area };
-      }),
-    );
+  const bulkStagesMutation = useMutation({
+    mutationFn: async () => {
+      const results: { part: Part; ok: boolean }[] = [];
+      for (const part of selectedParts) {
+        try {
+          await updatePartStages(part.id, bulkStageRows);
+          results.push({ part, ok: true });
+        } catch {
+          results.push({ part, ok: false });
+        }
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      invalidateCaches();
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length === 0) {
+        message.success(`Этапы применены к ${results.length} ${pluralParts(results.length)}`);
+        setBulkOpen(false);
+        setSelectedPartIds([]);
+      } else {
+        message.warning(
+          `Готово для ${results.length - failed.length} из ${results.length}. Не удалось: ${failed.map((r) => r.part.name).join(", ")}`,
+        );
+      }
+    },
+    onError: () => message.error("Не удалось сохранить этапы"),
+  });
 
   const openCreate = () => {
     setEditingPart(null);
@@ -150,6 +175,17 @@ export default function PartsAdmin() {
           Готовые размеры детали (ширина/длина/ширина штрипса плёнки для укутки) — подсказка при создании строки
           состава модели или производственного задания, чтобы не вводить одни и те же числа заново.
         </Typography.Paragraph>
+        {selectedPartIds.length > 0 && (
+          <Space style={{ marginBottom: 12 }}>
+            <Typography.Text>Выбрано: {selectedPartIds.length}</Typography.Text>
+            <Button type="primary" size="small" onClick={openBulkStages}>
+              Настроить этапы для выбранных
+            </Button>
+            <Button size="small" onClick={() => setSelectedPartIds([])}>
+              Снять выделение
+            </Button>
+          </Space>
+        )}
         <ResponsiveTable<Part>
           tableKey="parts-admin"
           lockedColumns={["Название"]}
@@ -158,6 +194,10 @@ export default function PartsAdmin() {
           dataSource={(partsQuery.data ?? []).filter((p) => showArchived || p.is_active)}
           pagination={{ pageSize: 20 }}
           scroll={{ x: "max-content" }}
+          rowSelection={{
+            selectedRowKeys: selectedPartIds,
+            onChange: (keys) => setSelectedPartIds(keys as number[]),
+          }}
           columns={[
             { title: "Название", dataIndex: "name" },
             { title: "Ширина, мм", dataIndex: "width_mm" },
@@ -286,51 +326,133 @@ export default function PartsAdmin() {
           физический учёт для этой детали ещё не включён. Этап — это участок: выдача партии на этом этапе выводится
           отсюда же, вручную выбирать участок отдельно больше не нужно.
         </Typography.Paragraph>
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
-          {stageRows.map((row, i) => (
-            <Space key={i} style={{ width: "100%" }}>
-              <Typography.Text type="secondary" style={{ width: 20 }}>
-                {i + 1}.
-              </Typography.Text>
-              <Select
-                showSearch
-                style={{ width: 260 }}
-                placeholder="Выберите участок"
-                options={areaOptions}
-                value={row.area ?? undefined}
-                onChange={(v) => updateStageArea(i, v)}
-                filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-              />
-              <Button size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
-                ↑
-              </Button>
-              <Button size="small" disabled={i === stageRows.length - 1} onClick={() => moveStage(i, 1)}>
-                ↓
-              </Button>
-              <Button size="small" danger onClick={() => removeStage(i)}>
-                Убрать
-              </Button>
-            </Space>
+        <StageRowsEditor rows={stageRows} setRows={setStageRows} areaOptions={areaOptions} />
+        <Button
+          type="primary"
+          block
+          style={{ marginTop: 12 }}
+          loading={stagesMutation.isPending}
+          onClick={() => {
+            if (stageRows.some((r) => !r.area)) {
+              message.warning("У каждого этапа должен быть выбран участок");
+              return;
+            }
+            stagesMutation.mutate();
+          }}
+        >
+          Сохранить этапы
+        </Button>
+      </Modal>
+
+      <Modal
+        title={`Настроить этапы для ${selectedParts.length} ${pluralParts(selectedParts.length)}`}
+        open={bulkOpen}
+        onCancel={() => setBulkOpen(false)}
+        footer={null}
+        destroyOnHidden
+        width={560}
+      >
+        <Typography.Paragraph type="secondary">
+          Применится ко всем отмеченным деталям разом, полностью заменив их текущие этапы (если были).
+        </Typography.Paragraph>
+        <Space size={[4, 4]} wrap style={{ marginBottom: 12 }}>
+          {selectedParts.map((p) => (
+            <Tag key={p.id}>{p.name}</Tag>
           ))}
-          <Button block onClick={addStage}>
-            + Добавить этап
+        </Space>
+        <StageRowsEditor rows={bulkStageRows} setRows={setBulkStageRows} areaOptions={areaOptions} />
+        <Button
+          type="primary"
+          block
+          style={{ marginTop: 12 }}
+          loading={bulkStagesMutation.isPending}
+          disabled={selectedParts.length === 0}
+          onClick={() => {
+            if (bulkStageRows.some((r) => !r.area)) {
+              message.warning("У каждого этапа должен быть выбран участок");
+              return;
+            }
+            bulkStagesMutation.mutate();
+          }}
+        >
+          Применить к {selectedParts.length} {pluralParts(selectedParts.length)}
+        </Button>
+      </Modal>
+    </Space>
+  );
+}
+
+function pluralParts(n: number): string {
+  return n === 1 ? "детали" : "деталям";
+}
+
+/** Раздел про массовую настройку этапов — редактор списка этапов
+ * (выбор участка на строку + порядок), общий для модалки одной детали и
+ * массовой модалки: маршрут — это просто список участков по порядку,
+ * редактируется одинаково в обоих случаях. */
+function StageRowsEditor({
+  rows,
+  setRows,
+  areaOptions,
+}: {
+  rows: StageRow[];
+  setRows: React.Dispatch<React.SetStateAction<StageRow[]>>;
+  areaOptions: AreaOption[];
+}) {
+  const moveStage = (index: number, delta: number) => {
+    setRows((rows) => {
+      const next = [...rows];
+      const target = index + delta;
+      if (target < 0 || target >= next.length) return rows;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+  const removeStage = (index: number) => setRows((rows) => rows.filter((_, i) => i !== index));
+  const addStage = () => setRows((rows) => [...rows, { code: "", name: "", area: null }]);
+  // Раздел про "этапы = участки производства" — этап это не своё название
+  // плюс отдельно привязанный участок, а буквально выбор участка: код и
+  // имя этапа всегда зеркалят код и имя выбранного участка, отдельного
+  // текстового названия у этапа больше нет.
+  const updateStageArea = (index: number, area: string | null) =>
+    setRows((rows) =>
+      rows.map((r, i) => {
+        if (i !== index) return r;
+        const picked = areaOptions.find((a) => a.value === area);
+        return { code: area ?? "", name: picked?.label ?? "", area };
+      }),
+    );
+
+  return (
+    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+      {rows.map((row, i) => (
+        <Space key={i} style={{ width: "100%" }}>
+          <Typography.Text type="secondary" style={{ width: 20 }}>
+            {i + 1}.
+          </Typography.Text>
+          <Select
+            showSearch
+            style={{ width: 260 }}
+            placeholder="Выберите участок"
+            options={areaOptions}
+            value={row.area ?? undefined}
+            onChange={(v) => updateStageArea(i, v)}
+            filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+          />
+          <Button size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
+            ↑
           </Button>
-          <Button
-            type="primary"
-            block
-            loading={stagesMutation.isPending}
-            onClick={() => {
-              if (stageRows.some((r) => !r.area)) {
-                message.warning("У каждого этапа должен быть выбран участок");
-                return;
-              }
-              stagesMutation.mutate();
-            }}
-          >
-            Сохранить этапы
+          <Button size="small" disabled={i === rows.length - 1} onClick={() => moveStage(i, 1)}>
+            ↓
+          </Button>
+          <Button size="small" danger onClick={() => removeStage(i)}>
+            Убрать
           </Button>
         </Space>
-      </Modal>
+      ))}
+      <Button block onClick={addStage}>
+        + Добавить этап
+      </Button>
     </Space>
   );
 }
