@@ -24,7 +24,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import dayjs, { type Dayjs } from "dayjs";
-import { palette } from "../../theme";
+import ActionIcon from "../../components/ActionIcon";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { printReport } from "../../utils/printReport";
 import {
@@ -2348,46 +2348,6 @@ export default function Issue() {
  * Диалог сразу же предлагает место по правилу зонирования (если оно
  * есть) и позволяет указать полку вручную — приём и размещение одним
  * действием, а не отдельным походом на «Стеллажи → Без места». */
-/** Компактная кнопка-иконка для колонки «Действия» — подпись только во
- * всплывающей подсказке, чтобы решения умещались в один ряд вместо
- * вертикального стека. `onClick`, возвращающий Promise, включает
- * стандартный авто-loading кнопки antd на время выполнения. */
-function ActionIcon({
-  tip,
-  onClick,
-  tone = "ghost",
-  danger,
-  children,
-}: {
-  tip: string;
-  onClick?: () => void | Promise<unknown>;
-  tone?: "filled" | "outline" | "ghost";
-  danger?: boolean;
-  children: ReactNode;
-}) {
-  const style =
-    tone === "outline"
-      ? { color: palette.orange, borderColor: palette.orange }
-      : tone === "ghost"
-        ? { color: palette.gray }
-        : undefined;
-  return (
-    <Tooltip title={tip}>
-      <Button
-        shape="circle"
-        size="small"
-        type={tone === "filled" ? "primary" : "default"}
-        danger={danger}
-        onClick={onClick}
-        style={style}
-        aria-label={tip}
-      >
-        {children}
-      </Button>
-    </Tooltip>
-  );
-}
-
 function AcceptReturnButton({ unit }: { unit: ProductionTaskLineIssuedUnit }) {
   const [open, setOpen] = useState(false);
   return (

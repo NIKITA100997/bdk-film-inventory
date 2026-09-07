@@ -1,26 +1,34 @@
 import { useState } from "react";
-import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal } from "antd";
+import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Table, Tag } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import ResponsiveTable from "../../../components/ResponsiveTable";
+import ActionIcon from "../../../components/ActionIcon";
 import PartSelect from "../../../components/PartSelect";
 import {
   listPartUnits,
   createPartUnit,
   issuePartUnit,
   writeOffPartUnit,
+  listPartUnitEvents,
   type PartUnit,
   type PartUnitStatus,
 } from "../../../api/partUnits";
 import { listProductionTasks } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
+import { listParts, type Part } from "../../../api/dictionaries";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
+import { listUsers } from "../../../api/users";
 import { useAuth } from "../../../auth/AuthContext";
-import type { Part } from "../../../api/dictionaries";
 
 const STATUS_LABEL: Record<PartUnitStatus, string> = {
   На_хранении: "На хранении",
   Выдан_участку: "Выдан участку",
   Списан: "Списан",
+};
+
+const STATUS_TAG_COLOR: Record<PartUnitStatus, string> = {
+  На_хранении: "blue",
+  Выдан_участку: "green",
+  Списан: "red",
 };
 
 interface MintFormValues {
@@ -39,7 +47,15 @@ interface MintFormValues {
  * дерева/МДФ сегодня нигде не участок, поэтому отдельный экран, а не
  * часть заданий/отчётов конкретного участка. Партия, выданная участку,
  * дальше переходит на следующий этап (или списывается) прямо из отчёта
- * мастера (см. ReportModal.tsx/MasterQuickReportPanel.tsx). */
+ * мастера (см. ReportModal.tsx/MasterQuickReportPanel.tsx).
+ *
+ * Раздел про плотную таблицу-очередь (дорожная карта развития —
+ * https://claude.ai/code/artifact/0b49ac59-3761-413e-8382-32cf72a07366,
+ * тот же чертёж, что уже довели в «Выдаче участку»): dense `Table`
+ * вместо ResponsiveTable, фильтры по статусу/этапу/участку, иконки-
+ * действия (`ActionIcon`, общий с Issue.tsx) вместо инлайн-Select на
+ * "Выдать участку". Клик по строке — «карточка партии» (журнал событий),
+ * тот же паттерн, что уже даёт клик по единице в «Истории приёмок». */
 export default function PartUnits() {
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_units.manage");
@@ -48,13 +64,38 @@ export default function PartUnits() {
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
   const [writeOffTarget, setWriteOffTarget] = useState<PartUnit | null>(null);
   const [writeOffForm] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string }>();
+  const [issueTarget, setIssueTarget] = useState<PartUnit | null>(null);
+  const [issueArea, setIssueArea] = useState<string | undefined>(undefined);
+  const [cardTarget, setCardTarget] = useState<PartUnit | null>(null);
+
+  const [partFilter, setPartFilter] = useState("");
+  const [areaFilter, setAreaFilter] = useState<string | undefined>(undefined);
+  const [statusFilter, setStatusFilter] = useState<PartUnitStatus | undefined>(undefined);
+  const [stageFilter, setStageFilter] = useState<string | undefined>(undefined);
 
   const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
-  const areaLabel = (code: string | null) => (code ? areasQuery.data?.find((a) => a.code === code)?.name ?? code : "—");
+  const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
+  const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
+  const areaLabel = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : "—");
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
   const reasonsQuery = useQuery({ queryKey: ["write-off-reasons", "parts"], queryFn: () => listWriteOffReasons("parts") });
+  const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
+
+  // Карта stage_id -> имя этапа, по всем деталям сразу (для карточки
+  // партии — там встречаются from/to этапы события, которые могут не
+  // совпадать с ТЕКУЩИМ этапом партии, только через полный список этапов
+  // по её детали можно назвать их по имени, не по голому id).
+  const stageNameById = new Map<number, string>();
+  for (const p of partsQuery.data ?? []) for (const s of p.stages) stageNameById.set(s.id, s.name);
+  const stageName = (id: number | null) => (id == null ? null : (stageNameById.get(id) ?? `#${id}`));
+
+  const eventsQuery = useQuery({
+    queryKey: ["part-unit-events", cardTarget?.id],
+    queryFn: () => listPartUnitEvents(cardTarget!.id),
+    enabled: !!cardTarget,
+  });
 
   const taskLineOptions = (tasksQuery.data ?? [])
     .filter((t) => t.is_active)
@@ -99,6 +140,8 @@ export default function PartUnits() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
       message.success("Партия выдана участку");
+      setIssueTarget(null);
+      setIssueArea(undefined);
     },
     onError: () => message.error("Не удалось выдать партию"),
   });
@@ -112,6 +155,16 @@ export default function PartUnits() {
       writeOffForm.resetFields();
     },
     onError: () => message.error("Не удалось списать партию"),
+  });
+
+  const allUnits = unitsQuery.data ?? [];
+  const stageOptions = [...new Set(allUnits.map((u) => u.stage_name))].map((s) => ({ value: s, label: s }));
+  const filteredUnits = allUnits.filter((u) => {
+    if (partFilter.trim() && !u.part_name.toLowerCase().includes(partFilter.trim().toLowerCase())) return false;
+    if (areaFilter && u.area !== areaFilter) return false;
+    if (statusFilter && u.status !== statusFilter) return false;
+    if (stageFilter && u.stage_name !== stageFilter) return false;
+    return true;
   });
 
   return (
@@ -168,46 +221,118 @@ export default function PartUnits() {
       )}
 
       <Card title="Остатки партий">
-        <ResponsiveTable<PartUnit>
-          tableKey="part-units"
-          lockedColumns={["Деталь"]}
+        <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
+          Кликните строку, чтобы открыть карточку партии (журнал событий).
+        </Typography.Paragraph>
+        <Space wrap size={[12, 12]} style={{ marginBottom: 16, width: "100%" }}>
+          <Input
+            allowClear
+            placeholder="Поиск по детали…"
+            style={{ width: 220, maxWidth: "100%" }}
+            value={partFilter}
+            onChange={(e) => setPartFilter(e.target.value)}
+          />
+          <Select
+            allowClear
+            placeholder="Все участки"
+            style={{ width: 200, maxWidth: "100%" }}
+            options={areaOptions}
+            value={areaFilter}
+            onChange={setAreaFilter}
+          />
+          <Select
+            allowClear
+            placeholder="Все статусы"
+            style={{ width: 180, maxWidth: "100%" }}
+            options={(Object.keys(STATUS_LABEL) as PartUnitStatus[]).map((s) => ({ value: s, label: STATUS_LABEL[s] }))}
+            value={statusFilter}
+            onChange={setStatusFilter}
+          />
+          <Select
+            allowClear
+            placeholder="Все этапы"
+            style={{ width: 200, maxWidth: "100%" }}
+            options={stageOptions}
+            value={stageFilter}
+            onChange={setStageFilter}
+          />
+        </Space>
+
+        <Table<PartUnit>
+          size="small"
+          tableLayout="fixed"
           rowKey="id"
           loading={unitsQuery.isLoading}
-          dataSource={unitsQuery.data ?? []}
+          dataSource={filteredUnits}
           pagination={{ pageSize: 20 }}
-          scroll={{ x: "max-content" }}
+          scroll={{ x: 900 }}
+          locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
+          onRow={(u) => ({ onClick: () => setCardTarget(u), style: { cursor: "pointer" } })}
           columns={[
-            { title: "Деталь", dataIndex: "part_name" },
-            { title: "Кол-во, шт", dataIndex: "quantity_pieces" },
-            { title: "Этап", dataIndex: "stage_name" },
-            { title: "Статус", render: (_, u) => STATUS_LABEL[u.status] },
-            { title: "Участок", render: (_, u) => areaLabel(u.area) },
-            { title: "Задание", render: (_, u) => taskLineLabel(u.production_task_line_id) },
+            { title: "Деталь", dataIndex: "part_name", width: 220 },
+            { title: "Кол-во, шт", dataIndex: "quantity_pieces", width: 90 },
+            { title: "Этап", dataIndex: "stage_name", width: 130, ellipsis: true },
+            {
+              title: "Статус",
+              width: 120,
+              render: (_, u) => <Tag color={STATUS_TAG_COLOR[u.status]}>{STATUS_LABEL[u.status]}</Tag>,
+            },
+            { title: "Участок", width: 130, ellipsis: true, render: (_, u) => areaLabel(u.area) },
+            { title: "Задание", width: 220, ellipsis: true, render: (_, u) => taskLineLabel(u.production_task_line_id) },
             {
               title: "Действия",
-              render: (_, u) =>
-                canManage && (
-                  <Space size={4} wrap>
-                    {u.status === "На_хранении" && (
-                      <Select
-                        size="small"
-                        style={{ width: 160 }}
-                        placeholder="Выдать участку"
-                        options={areaOptions}
-                        onChange={(area) => issueMutation.mutate({ id: u.id, area })}
-                      />
-                    )}
-                    {u.status !== "Списан" && (
-                      <Button size="small" danger onClick={() => setWriteOffTarget(u)}>
-                        Списать
-                      </Button>
-                    )}
-                  </Space>
-                ),
+              width: 90,
+              render: (_, u) => (
+                <Space size={4} onClick={(e) => e.stopPropagation()}>
+                  {canManage && u.status === "На_хранении" && (
+                    <ActionIcon tone="filled" tip="Выдать участку" onClick={() => setIssueTarget(u)}>
+                      📤
+                    </ActionIcon>
+                  )}
+                  {canManage && u.status !== "Списан" && (
+                    <ActionIcon tone="ghost" danger tip="Списать" onClick={() => setWriteOffTarget(u)}>
+                      ✖
+                    </ActionIcon>
+                  )}
+                </Space>
+              ),
             },
           ]}
         />
       </Card>
+
+      <Modal
+        title={`Выдать партию «${issueTarget?.part_name ?? ""}» участку`}
+        open={!!issueTarget}
+        onCancel={() => {
+          setIssueTarget(null);
+          setIssueArea(undefined);
+        }}
+        footer={null}
+        destroyOnHidden
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Typography.Text type="secondary">
+            {issueTarget?.quantity_pieces} шт, этап «{issueTarget?.stage_name}»
+          </Typography.Text>
+          <Select
+            style={{ width: "100%" }}
+            placeholder="Выберите участок"
+            options={areaOptions}
+            value={issueArea}
+            onChange={setIssueArea}
+          />
+          <Button
+            type="primary"
+            block
+            loading={issueMutation.isPending}
+            disabled={!issueArea}
+            onClick={() => issueMutation.mutate({ id: issueTarget!.id, area: issueArea! })}
+          >
+            Выдать
+          </Button>
+        </Space>
+      </Modal>
 
       <Modal
         title={`Списать партию «${writeOffTarget?.part_name ?? ""}»`}
@@ -222,11 +347,7 @@ export default function PartUnits() {
           initialValues={{ quantity_pieces: writeOffTarget?.quantity_pieces }}
           onFinish={(v) => writeOffMutation.mutate(v)}
         >
-          <Form.Item
-            name="quantity_pieces"
-            label="Количество, шт"
-            rules={[{ required: true }]}
-          >
+          <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
             <InputNumber min={0.01} max={writeOffTarget?.quantity_pieces} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
@@ -239,6 +360,120 @@ export default function PartUnits() {
             Списать
           </Button>
         </Form>
+      </Modal>
+
+      <Modal
+        title={cardTarget ? `Партия «${cardTarget.part_name}»` : ""}
+        open={!!cardTarget}
+        onCancel={() => setCardTarget(null)}
+        footer={null}
+        width={640}
+        destroyOnHidden
+      >
+        {cardTarget && (
+          <Space direction="vertical" style={{ width: "100%" }} size="middle">
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
+                background: "#F5F5F4",
+                borderRadius: 10,
+                padding: "12px 16px",
+                fontSize: 13,
+              }}
+            >
+              <div>
+                <Typography.Text type="secondary">Кол-во</Typography.Text>
+                <div>
+                  <b>{cardTarget.quantity_pieces} шт</b>
+                </div>
+              </div>
+              <div>
+                <Typography.Text type="secondary">Этап</Typography.Text>
+                <div>
+                  <b>{cardTarget.stage_name}</b>
+                </div>
+              </div>
+              <div>
+                <Typography.Text type="secondary">Статус</Typography.Text>
+                <div>
+                  <Tag color={STATUS_TAG_COLOR[cardTarget.status]} style={{ marginTop: 2 }}>
+                    {STATUS_LABEL[cardTarget.status]}
+                  </Tag>
+                </div>
+              </div>
+              <div>
+                <Typography.Text type="secondary">Участок</Typography.Text>
+                <div>
+                  <b>{areaLabel(cardTarget.area)}</b>
+                </div>
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <Typography.Text type="secondary">Задание</Typography.Text>
+                <div>
+                  <b>{taskLineLabel(cardTarget.production_task_line_id)}</b>
+                </div>
+              </div>
+              {cardTarget.note && (
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <Typography.Text type="secondary">Заметка</Typography.Text>
+                  <div>{cardTarget.note}</div>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                История
+              </Typography.Text>
+              <Space direction="vertical" size={0} style={{ width: "100%", marginTop: 6 }}>
+                {(eventsQuery.data ?? []).map((ev, i) => (
+                  <div
+                    key={ev.id}
+                    style={{
+                      display: "flex",
+                      gap: 10,
+                      padding: "10px 0",
+                      borderTop: i === 0 ? "none" : "1px solid #DEDEDA",
+                      fontSize: 13,
+                    }}
+                  >
+                    <Tag style={{ margin: 0, flexShrink: 0, height: "fit-content" }}>{ev.event_type.replace(/_/g, " ")}</Tag>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div>
+                        {ev.quantity_delta > 0 ? "+" : ""}
+                        {ev.quantity_delta} шт
+                        {ev.from_stage_id != null && ev.to_stage_id != null && (
+                          <>
+                            {" "}
+                            · {stageName(ev.from_stage_id)} → {stageName(ev.to_stage_id)}
+                          </>
+                        )}
+                        {ev.area && <> · {areaLabel(ev.area)}</>}
+                        {ev.write_off_reason && (
+                          <> · причина: {reasonsQuery.data?.find((r) => r.code === ev.write_off_reason)?.name ?? ev.write_off_reason}</>
+                        )}
+                      </div>
+                      {ev.note && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {ev.note}
+                        </Typography.Text>
+                      )}
+                      <div style={{ fontSize: 11.5, color: "#8A8C99" }}>
+                        {new Date(ev.occurred_at).toLocaleString("ru-RU")} — {userName(ev.user_id)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {eventsQuery.isLoading && <Typography.Text type="secondary">Загрузка…</Typography.Text>}
+                {!eventsQuery.isLoading && (eventsQuery.data ?? []).length === 0 && (
+                  <Typography.Text type="secondary">Событий пока нет</Typography.Text>
+                )}
+              </Space>
+            </div>
+          </Space>
+        )}
       </Modal>
     </Space>
   );
