@@ -89,7 +89,15 @@ export const navTree: NavBlock[] = [
     // с ежедневной работой цеха в одном пункте меню.
     key: "parts-domain",
     label: "Детали / П/Ф",
-    items: [{ key: "part-units", path: "/part-units", label: "Учёт п/ф", permissions: ["part_units.manage", "part_units.view"] }],
+    items: [
+      { key: "part-units", path: "/part-units", label: "Учёт п/ф", permissions: ["part_units.manage", "part_units.view"] },
+      {
+        key: "part-storage",
+        path: "/part-storage",
+        label: "Стеллажи п/ф",
+        permissions: ["part_units.manage", "part_units.view", "part_storage.manage"],
+      },
+    ],
   },
   {
     key: "production",

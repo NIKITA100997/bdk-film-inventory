@@ -15,6 +15,8 @@ def record_part_event(
     quantity_delta: float = 0,
     from_stage_id: int | None = None,
     to_stage_id: int | None = None,
+    from_cell: str | None = None,
+    to_cell: str | None = None,
     write_off_reason: str | None = None,
     write_off_note: str | None = None,
     occurred_at: datetime | None = None,
@@ -28,6 +30,8 @@ def record_part_event(
         quantity_delta=quantity_delta,
         from_stage_id=from_stage_id,
         to_stage_id=to_stage_id,
+        from_cell=from_cell,
+        to_cell=to_cell,
         area=unit.area,
         production_task_line_id=unit.production_task_line_id,
         write_off_reason=write_off_reason,
@@ -38,6 +42,26 @@ def record_part_event(
     )
     db.add(event)
     return event
+
+
+def place_part_unit(db: Session, *, unit: PartUnit, location_code: str, user_id: int) -> PartUnit:
+    """Разместить партию на полку стеллажа п/ф (раздел про адресное
+    хранение) — доступно, пока партия физически в цехе (На_хранении),
+    зеркалит `place_unit` у плёнки. Взаимоисключимо с `area`
+    (выдано участку), как у `MaterialUnit`."""
+    if unit.status != PartUnitStatus.NA_KHRANENII:
+        raise ValueError("Разместить на полку можно только партию, которая сейчас на хранении")
+    from_cell = unit.location_code
+    unit.location_code = location_code
+    record_part_event(
+        db,
+        unit=unit,
+        event_type=PartEventType.RAZMESHCHENIE,
+        user_id=user_id,
+        from_cell=from_cell,
+        to_cell=location_code,
+    )
+    return unit
 
 
 def mint_part_unit(

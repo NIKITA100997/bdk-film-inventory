@@ -16,6 +16,7 @@ import { listProductionTasks } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
 import { listParts, type Part } from "../../../api/dictionaries";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
+import { placePartUnit } from "../../../api/partStorage";
 import { listUsers } from "../../../api/users";
 import { useAuth } from "../../../auth/AuthContext";
 
@@ -66,6 +67,8 @@ export default function PartUnits() {
   const [writeOffForm] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string }>();
   const [issueTarget, setIssueTarget] = useState<PartUnit | null>(null);
   const [issueArea, setIssueArea] = useState<string | undefined>(undefined);
+  const [placeTarget, setPlaceTarget] = useState<PartUnit | null>(null);
+  const [placeLocationCode, setPlaceLocationCode] = useState("");
   const [cardTarget, setCardTarget] = useState<PartUnit | null>(null);
 
   const [partFilter, setPartFilter] = useState("");
@@ -144,6 +147,18 @@ export default function PartUnits() {
       setIssueArea(undefined);
     },
     onError: () => message.error("Не удалось выдать партию"),
+  });
+
+  const placeMutation = useMutation({
+    mutationFn: ({ id, locationCode }: { id: number; locationCode: string }) => placePartUnit(id, locationCode),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["part-units"] });
+      qc.invalidateQueries({ queryKey: ["part-rack-occupancy"] });
+      message.success("Партия размещена");
+      setPlaceTarget(null);
+      setPlaceLocationCode("");
+    },
+    onError: () => message.error("Не удалось разместить партию"),
   });
 
   const writeOffMutation = useMutation({
@@ -265,7 +280,7 @@ export default function PartUnits() {
           loading={unitsQuery.isLoading}
           dataSource={filteredUnits}
           pagination={{ pageSize: 20 }}
-          scroll={{ x: 900 }}
+          scroll={{ x: 1130 }}
           locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
           onRow={(u) => ({ onClick: () => setCardTarget(u), style: { cursor: "pointer" } })}
           columns={[
@@ -277,13 +292,26 @@ export default function PartUnits() {
               width: 120,
               render: (_, u) => <Tag color={STATUS_TAG_COLOR[u.status]}>{STATUS_LABEL[u.status]}</Tag>,
             },
+            { title: "Место", width: 100, ellipsis: true, render: (_, u) => u.location_code ?? "—" },
             { title: "Участок", width: 130, ellipsis: true, render: (_, u) => areaLabel(u.area) },
             { title: "Задание", width: 220, ellipsis: true, render: (_, u) => taskLineLabel(u.production_task_line_id) },
             {
               title: "Действия",
-              width: 90,
+              width: 120,
               render: (_, u) => (
                 <Space size={4} onClick={(e) => e.stopPropagation()}>
+                  {canManage && u.status === "На_хранении" && (
+                    <ActionIcon
+                      tone="outline"
+                      tip="Разместить на стеллаж"
+                      onClick={() => {
+                        setPlaceTarget(u);
+                        setPlaceLocationCode(u.location_code ?? "");
+                      }}
+                    >
+                      📦
+                    </ActionIcon>
+                  )}
                   {canManage && u.status === "На_хранении" && (
                     <ActionIcon tone="filled" tip="Выдать участку" onClick={() => setIssueTarget(u)}>
                       📤
@@ -330,6 +358,41 @@ export default function PartUnits() {
             onClick={() => issueMutation.mutate({ id: issueTarget!.id, area: issueArea! })}
           >
             Выдать
+          </Button>
+        </Space>
+      </Modal>
+
+      <Modal
+        title={`Разместить партию «${placeTarget?.part_name ?? ""}»`}
+        open={!!placeTarget}
+        onCancel={() => {
+          setPlaceTarget(null);
+          setPlaceLocationCode("");
+        }}
+        footer={null}
+        destroyOnHidden
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Typography.Text type="secondary">
+            {placeTarget?.quantity_pieces} шт, этап «{placeTarget?.stage_name}»
+            {placeTarget?.location_code && <> · сейчас на {placeTarget.location_code}</>}
+          </Typography.Text>
+          <Input
+            placeholder="Например, ЗГ-1-01"
+            value={placeLocationCode}
+            onChange={(e) => setPlaceLocationCode(e.target.value)}
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Схему стеллажей и свободные полки удобнее смотреть на «Стеллажи п/ф».
+          </Typography.Text>
+          <Button
+            type="primary"
+            block
+            loading={placeMutation.isPending}
+            disabled={!placeLocationCode.trim()}
+            onClick={() => placeMutation.mutate({ id: placeTarget!.id, locationCode: placeLocationCode.trim() })}
+          >
+            Разместить
           </Button>
         </Space>
       </Modal>
@@ -409,6 +472,12 @@ export default function PartUnits() {
                   <b>{areaLabel(cardTarget.area)}</b>
                 </div>
               </div>
+              <div>
+                <Typography.Text type="secondary">Место</Typography.Text>
+                <div>
+                  <b>{cardTarget.location_code ?? "—"}</b>
+                </div>
+              </div>
               <div style={{ gridColumn: "1 / -1" }}>
                 <Typography.Text type="secondary">Задание</Typography.Text>
                 <div>
@@ -448,6 +517,12 @@ export default function PartUnits() {
                           <>
                             {" "}
                             · {stageName(ev.from_stage_id)} → {stageName(ev.to_stage_id)}
+                          </>
+                        )}
+                        {ev.to_cell && (
+                          <>
+                            {" "}
+                            · {ev.from_cell ? `${ev.from_cell} → ${ev.to_cell}` : ev.to_cell}
                           </>
                         )}
                         {ev.area && <> · {areaLabel(ev.area)}</>}

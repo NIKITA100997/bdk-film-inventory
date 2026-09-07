@@ -36,6 +36,8 @@ export interface PartUnitEvent {
   quantity_delta: number;
   from_stage_id: number | null;
   to_stage_id: number | null;
+  from_cell: string | null;
+  to_cell: string | null;
   area: string | null;
   write_off_reason: string | null;
   write_off_note: string | null;

@@ -69,6 +69,7 @@ class PartUnit(Base):
 
 class PartEventType(str, enum.Enum):
     PROIZVODSTVO = "Производство"
+    RAZMESHCHENIE = "Размещение"
     VYDACHA_UCHASTKU = "Выдача_участку"
     PEREKHOD_ETAPA = "Переход_этапа"
     SPISANIE = "Списание"
@@ -89,6 +90,11 @@ class PartUnitEvent(Base):
 
     from_stage_id: Mapped[int | None] = mapped_column(ForeignKey("part_stages.id"), nullable=True)
     to_stage_id: Mapped[int | None] = mapped_column(ForeignKey("part_stages.id"), nullable=True)
+
+    # Раздел про адресное хранение п/ф — ячейка стеллажа п/ф до/после
+    # события "Размещение" (зеркалит MaterialEvent.from_cell/to_cell).
+    from_cell: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    to_cell: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     production_task_line_id: Mapped[int | None] = mapped_column(

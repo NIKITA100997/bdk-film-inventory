@@ -22,6 +22,10 @@ class PartUnitIssue(BaseModel):
     area: str
 
 
+class PartUnitPlace(BaseModel):
+    location_code: str
+
+
 class PartUnitWriteOff(BaseModel):
     quantity_pieces: float = Field(gt=0)
     reason: str
@@ -54,6 +58,8 @@ class PartUnitEventOut(BaseModel):
     quantity_delta: float
     from_stage_id: int | None
     to_stage_id: int | None
+    from_cell: str | None
+    to_cell: str | None
     area: str | None
     write_off_reason: str | None
     write_off_note: str | None

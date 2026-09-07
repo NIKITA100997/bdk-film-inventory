@@ -6,8 +6,8 @@ from app.db.session import get_db
 from app.models.dictionaries import Part
 from app.models.part_units import PartUnit, PartUnitEvent, PartUnitStatus
 from app.models.users import User
-from app.schemas.part_units import PartUnitCreate, PartUnitEventOut, PartUnitIssue, PartUnitOut, PartUnitWriteOff
-from app.services.part_units import issue_part_unit, mint_part_unit, write_off_part_unit
+from app.schemas.part_units import PartUnitCreate, PartUnitEventOut, PartUnitIssue, PartUnitOut, PartUnitPlace, PartUnitWriteOff
+from app.services.part_units import issue_part_unit, mint_part_unit, place_part_unit, write_off_part_unit
 
 router = APIRouter(prefix="/part-units", tags=["part-units"])
 
@@ -93,6 +93,22 @@ def issue_part_unit_to_area(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
     try:
         issue_part_unit(db, unit=unit, area=payload.area, user_id=user.id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    db.commit()
+    db.refresh(unit)
+    return _part_unit_out(unit)
+
+
+@router.patch("/{unit_id}/place", response_model=PartUnitOut)
+def place_part_unit_endpoint(
+    unit_id: int, payload: PartUnitPlace, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
+) -> PartUnitOut:
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    try:
+        place_part_unit(db, unit=unit, location_code=payload.location_code, user_id=user.id)
     except ValueError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
