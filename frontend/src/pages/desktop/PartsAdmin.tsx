@@ -96,10 +96,18 @@ export default function PartsAdmin() {
   };
   const removeStage = (index: number) => setStageRows((rows) => rows.filter((_, i) => i !== index));
   const addStage = () => setStageRows((rows) => [...rows, { code: "", name: "", area: null }]);
-  const updateStageName = (index: number, name: string) =>
-    setStageRows((rows) => rows.map((r, i) => (i === index ? { ...r, code: name.trim(), name } : r)));
+  // Раздел про "этапы = участки производства" — этап это не своё название
+  // плюс отдельно привязанный участок, а буквально выбор участка: код и
+  // имя этапа всегда зеркалят код и имя выбранного участка, отдельного
+  // текстового названия у этапа больше нет.
   const updateStageArea = (index: number, area: string | null) =>
-    setStageRows((rows) => rows.map((r, i) => (i === index ? { ...r, area } : r)));
+    setStageRows((rows) =>
+      rows.map((r, i) => {
+        if (i !== index) return r;
+        const picked = areasQuery.data?.find((a) => a.code === area);
+        return { code: picked?.code ?? "", name: picked?.name ?? "", area };
+      }),
+    );
 
   const openCreate = () => {
     setEditingPart(null);
@@ -274,48 +282,35 @@ export default function PartsAdmin() {
         destroyOnHidden
       >
         <Typography.Paragraph type="secondary">
-          Порядок сверху вниз — путь, который проходит партия этой детали (например, «П/ф» → «Заготовка»). Пусто —
-          физический учёт для этой детали ещё не включён. Участок — где этап физически выполняется: выдача участку
-          партии на этом этапе выводится отсюда, вручную выбирать участок больше не нужно.
+          Порядок сверху вниз — путь, который проходит партия этой детали по цеху (участок за участком). Пусто —
+          физический учёт для этой детали ещё не включён. Этап — это участок: выдача партии на этом этапе выводится
+          отсюда же, вручную выбирать участок отдельно больше не нужно.
         </Typography.Paragraph>
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           {stageRows.map((row, i) => (
-            <div key={i} style={{ border: "1px solid #DEDEDA", borderRadius: 8, padding: "8px 10px" }}>
-              <Space style={{ width: "100%" }}>
-                <Typography.Text type="secondary" style={{ width: 20 }}>
-                  {i + 1}.
-                </Typography.Text>
-                <Input
-                  style={{ width: 220 }}
-                  placeholder="Например, «П/ф»"
-                  value={row.name}
-                  onChange={(e) => updateStageName(i, e.target.value)}
-                />
-                <Button size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
-                  ↑
-                </Button>
-                <Button size="small" disabled={i === stageRows.length - 1} onClick={() => moveStage(i, 1)}>
-                  ↓
-                </Button>
-                <Button size="small" danger onClick={() => removeStage(i)}>
-                  Убрать
-                </Button>
-              </Space>
-              <Space style={{ marginTop: 6, marginLeft: 28 }}>
-                <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
-                  Участок:
-                </Typography.Text>
-                <Select
-                  allowClear
-                  size="small"
-                  style={{ width: 240 }}
-                  placeholder="Не задан"
-                  options={areaOptions}
-                  value={row.area ?? undefined}
-                  onChange={(v) => updateStageArea(i, v ?? null)}
-                />
-              </Space>
-            </div>
+            <Space key={i} style={{ width: "100%" }}>
+              <Typography.Text type="secondary" style={{ width: 20 }}>
+                {i + 1}.
+              </Typography.Text>
+              <Select
+                showSearch
+                style={{ width: 260 }}
+                placeholder="Выберите участок"
+                options={areaOptions}
+                value={row.area ?? undefined}
+                onChange={(v) => updateStageArea(i, v)}
+                filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+              />
+              <Button size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
+                ↑
+              </Button>
+              <Button size="small" disabled={i === stageRows.length - 1} onClick={() => moveStage(i, 1)}>
+                ↓
+              </Button>
+              <Button size="small" danger onClick={() => removeStage(i)}>
+                Убрать
+              </Button>
+            </Space>
           ))}
           <Button block onClick={addStage}>
             + Добавить этап
@@ -325,8 +320,8 @@ export default function PartsAdmin() {
             block
             loading={stagesMutation.isPending}
             onClick={() => {
-              if (stageRows.some((r) => !r.name.trim())) {
-                message.warning("Название этапа не может быть пустым");
+              if (stageRows.some((r) => !r.area)) {
+                message.warning("У каждого этапа должен быть выбран участок");
                 return;
               }
               stagesMutation.mutate();
