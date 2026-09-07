@@ -1,3 +1,5 @@
+import { isAxiosError } from "axios";
+
 // Общие помощники печати этикеток (раздел про макеты для стеллажей/полок
 // — вынесены из api/units.ts, где раньше жили только для этикеток
 // рулонов, чтобы не дублировать эту же логику печати ещё раз для
@@ -11,6 +13,15 @@
 // HTML-страница печатается штатным Print Service Framework Android без
 // этой проблемы.
 export const isMobileDevice = () => /Android|iPad|iPhone|Mobile/i.test(navigator.userAgent);
+
+// Раздел про печать в формате А4 — этикетки п/ф (партия/стеллаж/полка)
+// переиспользуют это же сообщение об ошибке (было приватным в api/units.ts,
+// только для рулонов плёнки).
+export function printErrorMessage(e: unknown): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  if (isAxiosError(e) && !e.response) return "Нет связи с сервером — проверьте подключение";
+  return "Не удалось подготовить этикетку для печати";
+}
 
 // Раздел про ориентацию печати — привязана к конкретному принтеру/месту
 // печати на этом устройстве (как некоторые сборки этикетки нужно клеить

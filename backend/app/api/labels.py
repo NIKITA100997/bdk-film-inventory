@@ -13,22 +13,38 @@ from app.schemas.labels import AvailableFieldOut, LabelBatchRequest, LabelTempla
 from app.services.labels import (
     DEFAULT_FIELDS,
     DEFAULT_FIELDS_CUTTING_ISSUE,
+    DEFAULT_FIELDS_PF_RACK,
+    DEFAULT_FIELDS_PF_SHELF,
+    DEFAULT_FIELDS_PF_UNIT,
     DEFAULT_FIELDS_RACK,
     DEFAULT_FIELDS_SHELF,
     DEFAULT_HEIGHT_MM,
+    DEFAULT_PF_RACK_HEIGHT_MM,
+    DEFAULT_PF_RACK_WIDTH_MM,
+    DEFAULT_PF_SHELF_HEIGHT_MM,
+    DEFAULT_PF_SHELF_WIDTH_MM,
+    DEFAULT_PF_UNIT_HEIGHT_MM,
+    DEFAULT_PF_UNIT_WIDTH_MM,
     DEFAULT_RACK_HEIGHT_MM,
     DEFAULT_RACK_WIDTH_MM,
     DEFAULT_SHELF_HEIGHT_MM,
     DEFAULT_SHELF_WIDTH_MM,
     DEFAULT_WIDTH_MM,
     FIELD_META,
+    FIELD_META_PF_RACK,
+    FIELD_META_PF_SHELF,
+    FIELD_META_PF_UNIT,
     FIELD_META_RACK,
     FIELD_META_SHELF,
     PREVIEW_DATA,
+    PREVIEW_DATA_PF_RACK,
+    PREVIEW_DATA_PF_SHELF,
+    PREVIEW_DATA_PF_UNIT,
     PREVIEW_DATA_RACK,
     PREVIEW_DATA_SHELF,
     PREVIEW_DATA_STRIP,
     RACK_TYPE_LABELS,
+    PageFormat,
     RackLabelData,
     ShelfLabelData,
     label_data_from_unit,
@@ -36,8 +52,12 @@ from app.services.labels import (
     render_label_pdf,
     render_labels_html_batch,
     render_labels_pdf_batch,
+    render_pf_rack_label_pdf,
+    render_pf_shelf_label_pdf,
+    render_pf_unit_label_pdf,
     render_rack_label_html,
     render_rack_label_pdf,
+    resolve_page_format_dims,
     render_shelf_label_pdf,
     render_shelf_labels_html_batch,
     render_shelf_labels_pdf_batch,
@@ -63,10 +83,18 @@ _KIND_DEFAULTS = {
     "rack_roll": (DEFAULT_RACK_WIDTH_MM, DEFAULT_RACK_HEIGHT_MM, DEFAULT_FIELDS_RACK),
     "rack_strip": (DEFAULT_RACK_WIDTH_MM, DEFAULT_RACK_HEIGHT_MM, DEFAULT_FIELDS_RACK),
     "shelf": (DEFAULT_SHELF_WIDTH_MM, DEFAULT_SHELF_HEIGHT_MM, DEFAULT_FIELDS_SHELF),
+    # Раздел про QR-этикетки п/ф — те же три вида (партия/стеллаж/полка),
+    # что у плёнки, только под PartUnit/PartRack.
+    "pf_unit": (DEFAULT_PF_UNIT_WIDTH_MM, DEFAULT_PF_UNIT_HEIGHT_MM, DEFAULT_FIELDS_PF_UNIT),
+    "pf_rack": (DEFAULT_PF_RACK_WIDTH_MM, DEFAULT_PF_RACK_HEIGHT_MM, DEFAULT_FIELDS_PF_RACK),
+    "pf_shelf": (DEFAULT_PF_SHELF_WIDTH_MM, DEFAULT_PF_SHELF_HEIGHT_MM, DEFAULT_FIELDS_PF_SHELF),
 }
 
 _UNIT_LABEL_KINDS = ("roll", "strip", "cutting_issue")
 _RACK_LABEL_KINDS = ("rack_roll", "rack_strip")
+_PF_UNIT_LABEL_KINDS = ("pf_unit",)
+_PF_RACK_LABEL_KINDS = ("pf_rack",)
+_PF_SHELF_LABEL_KINDS = ("pf_shelf",)
 
 
 def _unit_label_kind(unit: MaterialUnit) -> str:
@@ -113,6 +141,12 @@ def list_available_fields(kind: str = "roll", user=Depends(get_current_user)) ->
         meta = FIELD_META
     elif kind in _RACK_LABEL_KINDS:
         meta = FIELD_META_RACK
+    elif kind in _PF_UNIT_LABEL_KINDS:
+        meta = FIELD_META_PF_UNIT
+    elif kind in _PF_RACK_LABEL_KINDS:
+        meta = FIELD_META_PF_RACK
+    elif kind in _PF_SHELF_LABEL_KINDS:
+        meta = FIELD_META_PF_SHELF
     else:
         meta = FIELD_META_SHELF
     return [AvailableFieldOut(key=key, **m) for key, m in meta.items()]
@@ -132,7 +166,9 @@ def update_label_template(
 
 
 @router.post("/label-template/preview")
-def preview_label_template(payload: LabelTemplateUpdate, kind: str = "roll", user=Depends(manage_labels)) -> Response:
+def preview_label_template(
+    payload: LabelTemplateUpdate, kind: str = "roll", page_format: PageFormat = "sticker", user=Depends(manage_labels)
+) -> Response:
     """Превью макета на синтетических данных (4 раздел бэклога доработок) —
     не требует реальной единицы/стеллажа и не сохраняет изменения.
 
@@ -140,27 +176,41 @@ def preview_label_template(payload: LabelTemplateUpdate, kind: str = "roll", use
     печати на термопринтере Codex G500 — прямая печать HTML из браузера
     оказалась ненадёжной, тот же путь, что у "Сохранить как PDF", уже
     подтверждён рабочим). Превью показывает ровно то, что реально уйдёт на
-    печать, без расхождений между просмотром и печатью."""
+    печать, без расхождений между просмотром и печатью.
+
+    page_format — раздел про печать в формате А4: превью тоже можно
+    посмотреть на большом листе, не только на настроенном размере
+    наклейки (см. resolve_page_format_dims)."""
     fields = [f.model_dump() for f in payload.fields]
+    width_mm, height_mm = resolve_page_format_dims(payload.width_mm, payload.height_mm, page_format)
     if kind == "strip":
-        pdf_bytes = render_label_pdf(PREVIEW_DATA_STRIP, fields=fields, width_mm=payload.width_mm, height_mm=payload.height_mm)
+        pdf_bytes = render_label_pdf(PREVIEW_DATA_STRIP, fields=fields, width_mm=width_mm, height_mm=height_mm, page_format=page_format)
     elif kind in _UNIT_LABEL_KINDS:
-        pdf_bytes = render_label_pdf(PREVIEW_DATA, fields=fields, width_mm=payload.width_mm, height_mm=payload.height_mm)
+        pdf_bytes = render_label_pdf(PREVIEW_DATA, fields=fields, width_mm=width_mm, height_mm=height_mm, page_format=page_format)
     elif kind in _RACK_LABEL_KINDS:
-        pdf_bytes = render_rack_label_pdf(PREVIEW_DATA_RACK, fields=fields, width_mm=payload.width_mm, height_mm=payload.height_mm)
+        pdf_bytes = render_rack_label_pdf(PREVIEW_DATA_RACK, fields=fields, width_mm=width_mm, height_mm=height_mm, page_format=page_format)
+    elif kind in _PF_UNIT_LABEL_KINDS:
+        pdf_bytes = render_pf_unit_label_pdf(PREVIEW_DATA_PF_UNIT, fields=fields, width_mm=width_mm, height_mm=height_mm, page_format=page_format)
+    elif kind in _PF_RACK_LABEL_KINDS:
+        pdf_bytes = render_pf_rack_label_pdf(PREVIEW_DATA_PF_RACK, fields=fields, width_mm=width_mm, height_mm=height_mm, page_format=page_format)
+    elif kind in _PF_SHELF_LABEL_KINDS:
+        pdf_bytes = render_pf_shelf_label_pdf(PREVIEW_DATA_PF_SHELF, fields=fields, width_mm=width_mm, height_mm=height_mm, page_format=page_format)
     else:
-        pdf_bytes = render_shelf_label_pdf(PREVIEW_DATA_SHELF, fields=fields, width_mm=payload.width_mm, height_mm=payload.height_mm)
+        pdf_bytes = render_shelf_label_pdf(PREVIEW_DATA_SHELF, fields=fields, width_mm=width_mm, height_mm=height_mm, page_format=page_format)
     return Response(content=pdf_bytes, media_type="application/pdf")
 
 
 @router.get("/labels/{unit_id}", dependencies=[Depends(get_current_user)])
-def get_label(unit_id: int, vertical: bool = False, kind: str | None = None, db: Session = Depends(get_db)) -> Response:
+def get_label(
+    unit_id: int, vertical: bool = False, kind: str | None = None, page_format: PageFormat = "sticker", db: Session = Depends(get_db)
+) -> Response:
     unit = db.get(MaterialUnit, unit_id)
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     template = _get_template(db, kind or _unit_label_kind(unit))
+    width_mm, height_mm = resolve_page_format_dims(template.width_mm, template.height_mm, page_format)
     pdf_bytes = render_label_pdf(
-        label_data_from_unit(unit), fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm, vertical=vertical
+        label_data_from_unit(unit), fields=template.fields, width_mm=width_mm, height_mm=height_mm, vertical=vertical, page_format=page_format
     )
     return Response(
         content=pdf_bytes,
@@ -171,7 +221,7 @@ def get_label(unit_id: int, vertical: bool = False, kind: str | None = None, db:
 
 @router.get("/labels/{unit_id}/html", dependencies=[Depends(get_current_user)])
 def get_label_html(
-    unit_id: int, vertical: bool = False, kind: str | None = None, db: Session = Depends(get_db)
+    unit_id: int, vertical: bool = False, kind: str | None = None, page_format: PageFormat = "sticker", db: Session = Depends(get_db)
 ) -> Response:
     """HTML-версия той же этикетки (планшеты — печать PDF-blob через
     window.print() на части Android-браузеров не срабатывает, система
@@ -181,15 +231,17 @@ def get_label_html(
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     template = _get_template(db, kind or _unit_label_kind(unit))
+    width_mm, height_mm = resolve_page_format_dims(template.width_mm, template.height_mm, page_format)
     html = render_label_html(
-        label_data_from_unit(unit), fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm, vertical=vertical
+        label_data_from_unit(unit), fields=template.fields, width_mm=width_mm, height_mm=height_mm, vertical=vertical, page_format=page_format
     )
     return Response(content=html, media_type="text/html")
 
 
 @router.post("/labels/batch/html", dependencies=[Depends(get_current_user)])
 def get_labels_batch_html(
-    payload: LabelBatchRequest, vertical: bool = False, kind: str | None = None, db: Session = Depends(get_db)
+    payload: LabelBatchRequest, vertical: bool = False, kind: str | None = None, page_format: PageFormat = "sticker",
+    db: Session = Depends(get_db),
 ) -> Response:
     units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
     units_by_id = {u.id: u for u in units}
@@ -202,19 +254,22 @@ def get_labels_batch_html(
     # напечатать — на практике пачка почти всегда однородна (одна сессия
     # приёмки/пересчёта одного и того же материала).
     template = _get_template(db, kind or _unit_label_kind(ordered_units[0]))
+    width_mm, height_mm = resolve_page_format_dims(template.width_mm, template.height_mm, page_format)
     html = render_labels_html_batch(
         [label_data_from_unit(u) for u in ordered_units],
         fields=template.fields,
-        width_mm=template.width_mm,
-        height_mm=template.height_mm,
+        width_mm=width_mm,
+        height_mm=height_mm,
         vertical=vertical,
+        page_format=page_format,
     )
     return Response(content=html, media_type="text/html")
 
 
 @router.post("/labels/batch", dependencies=[Depends(get_current_user)])
 def get_labels_batch(
-    payload: LabelBatchRequest, vertical: bool = False, kind: str | None = None, db: Session = Depends(get_db)
+    payload: LabelBatchRequest, vertical: bool = False, kind: str | None = None, page_format: PageFormat = "sticker",
+    db: Session = Depends(get_db),
 ) -> Response:
     """Очередь печати (раздел про ускорение работы): один PDF на несколько
     единиц вместо открытия отдельной вкладки/запроса на каждую — актуально
@@ -225,12 +280,14 @@ def get_labels_batch(
     if not ordered_units:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
     template = _get_template(db, kind or _unit_label_kind(ordered_units[0]))
+    width_mm, height_mm = resolve_page_format_dims(template.width_mm, template.height_mm, page_format)
     pdf_bytes = render_labels_pdf_batch(
         [label_data_from_unit(u) for u in ordered_units],
         fields=template.fields,
-        width_mm=template.width_mm,
-        height_mm=template.height_mm,
+        width_mm=width_mm,
+        height_mm=height_mm,
         vertical=vertical,
+        page_format=page_format,
     )
     return Response(
         content=pdf_bytes,
@@ -289,7 +346,7 @@ def _rack_label_kind(rack: Rack) -> str:
 
 
 @router.post("/racks/{rack_id}/rack-label", dependencies=[Depends(get_current_user)])
-def get_rack_label(rack_id: int, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
+def get_rack_label(rack_id: int, vertical: bool = False, page_format: PageFormat = "sticker", db: Session = Depends(get_db)) -> Response:
     """Бирка на весь стеллаж целиком (не на отдельное место хранения —
     те см. /racks/{rack_id}/shelf-labels/batch)."""
     rack = db.get(Rack, rack_id)
@@ -297,6 +354,7 @@ def get_rack_label(rack_id: int, vertical: bool = False, db: Session = Depends(g
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, _rack_label_kind(rack))
+    width_mm, height_mm = resolve_page_format_dims(template.width_mm, template.height_mm, page_format)
     data = RackLabelData(
         rack_code=rack.code,
         warehouse_name=warehouse.name if warehouse else "—",
@@ -305,7 +363,7 @@ def get_rack_label(rack_id: int, vertical: bool = False, db: Session = Depends(g
         storage_rules_text=_rack_storage_rules_text(db, _rules_for_rack(db, rack.id)),
     )
     pdf_bytes = render_rack_label_pdf(
-        data, fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm, vertical=vertical
+        data, fields=template.fields, width_mm=width_mm, height_mm=height_mm, vertical=vertical, page_format=page_format
     )
     return Response(
         content=pdf_bytes,
@@ -315,12 +373,15 @@ def get_rack_label(rack_id: int, vertical: bool = False, db: Session = Depends(g
 
 
 @router.post("/racks/{rack_id}/rack-label/html", dependencies=[Depends(get_current_user)])
-def get_rack_label_html(rack_id: int, vertical: bool = False, db: Session = Depends(get_db)) -> Response:
+def get_rack_label_html(
+    rack_id: int, vertical: bool = False, page_format: PageFormat = "sticker", db: Session = Depends(get_db)
+) -> Response:
     rack = db.get(Rack, rack_id)
     if rack is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, _rack_label_kind(rack))
+    width_mm, height_mm = resolve_page_format_dims(template.width_mm, template.height_mm, page_format)
     data = RackLabelData(
         rack_code=rack.code,
         warehouse_name=warehouse.name if warehouse else "—",
@@ -329,14 +390,15 @@ def get_rack_label_html(rack_id: int, vertical: bool = False, db: Session = Depe
         storage_rules_text=_rack_storage_rules_text(db, _rules_for_rack(db, rack.id)),
     )
     html = render_rack_label_html(
-        data, fields=template.fields, width_mm=template.width_mm, height_mm=template.height_mm, vertical=vertical
+        data, fields=template.fields, width_mm=width_mm, height_mm=height_mm, vertical=vertical, page_format=page_format
     )
     return Response(content=html, media_type="text/html")
 
 
 @router.post("/racks/{rack_id}/shelf-labels/batch", dependencies=[Depends(get_current_user)])
 def get_shelf_labels_batch(
-    rack_id: int, payload: ShelfLabelBatchRequest, vertical: bool = False, db: Session = Depends(get_db)
+    rack_id: int, payload: ShelfLabelBatchRequest, vertical: bool = False, page_format: PageFormat = "sticker",
+    db: Session = Depends(get_db),
 ) -> Response:
     """Печать этикеток мест хранения (раздел про макеты для стеллажей/
     полок) — один PDF на все переданные ячейки/полки стеллажа, тот же
@@ -348,12 +410,14 @@ def get_shelf_labels_batch(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, "shelf")
+    width_mm, height_mm = resolve_page_format_dims(template.width_mm, template.height_mm, page_format)
     pdf_bytes = render_shelf_labels_pdf_batch(
         _shelf_label_data_for_cells(db, rack, warehouse.name if warehouse else "—", payload),
         fields=template.fields,
-        width_mm=template.width_mm,
-        height_mm=template.height_mm,
+        width_mm=width_mm,
+        height_mm=height_mm,
         vertical=vertical,
+        page_format=page_format,
     )
     return Response(
         content=pdf_bytes,
@@ -364,18 +428,21 @@ def get_shelf_labels_batch(
 
 @router.post("/racks/{rack_id}/shelf-labels/batch/html", dependencies=[Depends(get_current_user)])
 def get_shelf_labels_batch_html(
-    rack_id: int, payload: ShelfLabelBatchRequest, vertical: bool = False, db: Session = Depends(get_db)
+    rack_id: int, payload: ShelfLabelBatchRequest, vertical: bool = False, page_format: PageFormat = "sticker",
+    db: Session = Depends(get_db),
 ) -> Response:
     rack = db.get(Rack, rack_id)
     if rack is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     warehouse = db.get(Warehouse, rack.warehouse_id)
     template = _get_template(db, "shelf")
+    width_mm, height_mm = resolve_page_format_dims(template.width_mm, template.height_mm, page_format)
     html = render_shelf_labels_html_batch(
         _shelf_label_data_for_cells(db, rack, warehouse.name if warehouse else "—", payload),
         fields=template.fields,
-        width_mm=template.width_mm,
-        height_mm=template.height_mm,
+        width_mm=width_mm,
+        height_mm=height_mm,
         vertical=vertical,
+        page_format=page_format,
     )
     return Response(content=html, media_type="text/html")

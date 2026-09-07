@@ -1,11 +1,20 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.services.labels import FIELD_META, FIELD_META_RACK, FIELD_META_SHELF
+from app.services.labels import (
+    FIELD_META,
+    FIELD_META_PF_RACK,
+    FIELD_META_PF_SHELF,
+    FIELD_META_PF_UNIT,
+    FIELD_META_RACK,
+    FIELD_META_SHELF,
+)
 
-# Раздел про этикетки стеллажей/полок — один и тот же LabelFieldConfig
-# используется для всех трёх макетов (unit, rack, shelf), поэтому
+# Раздел про этикетки стеллажей/полок (плюс п/ф — партия/стеллаж/полка) —
+# один и тот же LabelFieldConfig используется для всех макетов, поэтому
 # проверяем key по объединению всех реестров полей, не только FIELD_META.
-_ALL_LABEL_FIELD_KEYS = set(FIELD_META) | set(FIELD_META_RACK) | set(FIELD_META_SHELF)
+_ALL_LABEL_FIELD_KEYS = (
+    set(FIELD_META) | set(FIELD_META_RACK) | set(FIELD_META_SHELF) | set(FIELD_META_PF_UNIT) | set(FIELD_META_PF_RACK) | set(FIELD_META_PF_SHELF)
+)
 
 
 class LabelFieldConfig(BaseModel):
@@ -56,6 +65,10 @@ class AvailableFieldOut(BaseModel):
 
 
 class LabelBatchRequest(BaseModel):
+    unit_ids: list[int] = Field(min_length=1)
+
+
+class PartLabelBatchRequest(BaseModel):
     unit_ids: list[int] = Field(min_length=1)
 
 

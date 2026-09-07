@@ -2,7 +2,7 @@ import { apiClient } from "./client";
 import { isMobileDevice, isVerticalPrint, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
 
 export type FieldSize = "sm" | "md" | "lg" | "huge";
-export type LabelKind = "roll" | "strip" | "cutting_issue" | "rack_roll" | "rack_strip" | "shelf";
+export type LabelKind = "roll" | "strip" | "cutting_issue" | "rack_roll" | "rack_strip" | "shelf" | "pf_unit" | "pf_rack" | "pf_shelf";
 
 export interface LabelFieldConfig {
   key: string;

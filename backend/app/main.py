@@ -19,6 +19,7 @@ from app.api.material_cards import router as material_cards_router
 from app.api.production import router as production_router
 from app.api.part_units import router as part_units_router
 from app.api.part_storage import router as part_storage_router
+from app.api.part_labels import router as part_labels_router
 from app.api.purchasing import router as purchasing_router
 from app.api.supplier_orders import router as supplier_orders_router
 from app.api.notifications import router as notifications_router
@@ -89,6 +90,7 @@ app.include_router(material_cards_router, prefix=API_PREFIX)
 app.include_router(production_router, prefix=API_PREFIX)
 app.include_router(part_units_router, prefix=API_PREFIX)
 app.include_router(part_storage_router, prefix=API_PREFIX)
+app.include_router(part_labels_router, prefix=API_PREFIX)
 app.include_router(abc_router, prefix=API_PREFIX)
 app.include_router(reports_router, prefix=API_PREFIX)
 app.include_router(notifications_router, prefix=API_PREFIX)

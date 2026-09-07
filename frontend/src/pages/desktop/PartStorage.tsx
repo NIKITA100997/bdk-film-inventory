@@ -1,8 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Card, Space, Typography, Button, Modal, Form, Input, InputNumber, Tag, message } from "antd";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { createPartRack, getPartRackOccupancy, listPartRacks, type PartRackOccupancyCell } from "../../api/partStorage";
+import { printPartRackLabel, printPartShelfLabelsBatch, printPartUnitLabelsBatch } from "../../api/partLabels";
+import PrintFormatButton from "../../components/PrintFormatButton";
 import { useAuth } from "../../auth/AuthContext";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -18,11 +21,27 @@ function apiErrorMessage(e: unknown, fallback: string): string {
  * схему стеллажей, чтобы найти свободное место или конкретную партию. */
 export default function PartStorage() {
   const { user } = useAuth();
+  const location = useLocation();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_storage.manage");
   const qc = useQueryClient();
   const [rackId, setRackId] = useState<number | null>(null);
+  const [highlightShelf, setHighlightShelf] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm<{ code: string; shelf_count: number }>();
+
+  // Раздел про сканирование "ЗГ-..." (unitSearch.ts) — предвыбор стеллажа
+  // и подсветка полки, тот же приём, что уже есть у StorageMap.tsx.
+  useEffect(() => {
+    const state = location.state as { rackId?: number; highlightShelf?: number } | null;
+    if (state?.rackId) {
+      setRackId(state.rackId);
+      if (state.highlightShelf) {
+        const shelf = state.highlightShelf;
+        setHighlightShelf(shelf);
+        setTimeout(() => setHighlightShelf((cur) => (cur === shelf ? null : cur)), 5000);
+      }
+    }
+  }, [location.state]);
 
   const racksQuery = useQuery({ queryKey: ["part-racks"], queryFn: () => listPartRacks() });
   const activeRacks = (racksQuery.data ?? []).filter((r) => r.is_active);
@@ -128,13 +147,33 @@ export default function PartStorage() {
 
         {selectedRack ? (
           <Card>
-            <Typography.Title level={5} style={{ marginBottom: 12 }}>
-              Стеллаж {selectedRack.code} — {selectedRack.shelf_count} полок
-            </Typography.Title>
+            <Space style={{ width: "100%", justifyContent: "space-between", marginBottom: 12 }} wrap>
+              <Typography.Title level={5} style={{ margin: 0 }}>
+                Стеллаж {selectedRack.code} — {selectedRack.shelf_count} полок
+              </Typography.Title>
+              <Space wrap>
+                <PrintFormatButton tip="Печать бирки стеллажа" onPrint={(fmt) => printPartRackLabel(selectedRack.id, { pageFormat: fmt })}>
+                  Печать бирки стеллажа
+                </PrintFormatButton>
+                <PrintFormatButton
+                  tip="Печать этикеток полок"
+                  onPrint={(fmt) =>
+                    printPartShelfLabelsBatch(
+                      selectedRack.id,
+                      byShelf.map(([shelf, cell]) => ({ shelf, location_code: cell.location_code })),
+                      { pageFormat: fmt },
+                    )
+                  }
+                >
+                  Печать этикеток полок
+                </PrintFormatButton>
+              </Space>
+            </Space>
             <div style={{ background: "#fff", border: "1px solid #DEDEDA", borderRadius: 10, padding: 14 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {byShelf.map(([shelf, cell]) => {
                   const occupied = cell.units.length > 0;
+                  const highlighted = shelf === highlightShelf;
                   return (
                     <div key={shelf} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <Typography.Text style={{ width: 56, fontSize: 12, textAlign: "right", flexShrink: 0 }} type="secondary">
@@ -145,7 +184,8 @@ export default function PartStorage() {
                           flex: "1 1 0%",
                           minWidth: 0,
                           borderRadius: 8,
-                          border: `1px solid ${occupied ? "#1D9E75" : "#d9d9d9"}`,
+                          border: `1px solid ${highlighted ? "#C97A2B" : occupied ? "#1D9E75" : "#d9d9d9"}`,
+                          boxShadow: highlighted ? "0 0 0 2px #FBF0E3" : undefined,
                           background: occupied ? "#e7f5ee" : "#fafafa",
                           padding: "7px 14px",
                           display: "flex",
@@ -167,6 +207,20 @@ export default function PartStorage() {
                           <Typography.Text type="secondary">{cell.location_code} — свободно</Typography.Text>
                         )}
                       </div>
+                      {occupied && (
+                        <PrintFormatButton
+                          variant="icon"
+                          tip="Печать этикеток партий"
+                          onPrint={(fmt) =>
+                            printPartUnitLabelsBatch(
+                              cell.units.map((u) => u.id),
+                              { pageFormat: fmt },
+                            )
+                          }
+                        >
+                          🖨
+                        </PrintFormatButton>
+                      )}
                     </div>
                   );
                 })}

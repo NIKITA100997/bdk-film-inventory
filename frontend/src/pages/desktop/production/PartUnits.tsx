@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Popconfirm, Table, Tag } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ActionIcon from "../../../components/ActionIcon";
+import PrintFormatButton from "../../../components/PrintFormatButton";
 import PartSelect from "../../../components/PartSelect";
+import { printPartUnitLabel } from "../../../api/partLabels";
 import {
   listPartUnits,
   createPartUnit,
@@ -58,6 +61,7 @@ interface MintFormValues {
  * тот же паттерн, что уже даёт клик по единице в «Истории приёмок». */
 export default function PartUnits() {
   const { user } = useAuth();
+  const location = useLocation();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_units.manage");
   const qc = useQueryClient();
   const [form] = Form.useForm<MintFormValues>();
@@ -74,6 +78,16 @@ export default function PartUnits() {
   const [stageFilter, setStageFilter] = useState<string | undefined>(undefined);
 
   const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
+
+  // Раздел про сканирование "ПФ<id>" (unitSearch.ts) — открыть карточку
+  // партии сразу после перехода, как только список партий загрузится
+  // (иначе искать не в чем).
+  useEffect(() => {
+    const state = location.state as { openUnitId?: number } | null;
+    if (!state?.openUnitId || !unitsQuery.data) return;
+    const found = unitsQuery.data.find((u) => u.id === state.openUnitId);
+    if (found) setCardTarget(found);
+  }, [location.state, unitsQuery.data]);
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
@@ -270,7 +284,7 @@ export default function PartUnits() {
           loading={unitsQuery.isLoading}
           dataSource={filteredUnits}
           pagination={{ pageSize: 20 }}
-          scroll={{ x: 1130 }}
+          scroll={{ x: 1160 }}
           locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
           onRow={(u) => ({ onClick: () => setCardTarget(u), style: { cursor: "pointer" } })}
           columns={[
@@ -287,9 +301,16 @@ export default function PartUnits() {
             { title: "Задание", width: 220, ellipsis: true, render: (_, u) => taskLineLabel(u.production_task_line_id) },
             {
               title: "Действия",
-              width: 120,
+              width: 150,
               render: (_, u) => (
                 <Space size={4} onClick={(e) => e.stopPropagation()}>
+                  <PrintFormatButton
+                    variant="icon"
+                    tip="Печать этикетки"
+                    onPrint={(pageFormat) => printPartUnitLabel(u.id, { pageFormat })}
+                  >
+                    🖨
+                  </PrintFormatButton>
                   {canManage && u.status === "На_хранении" && (
                     <ActionIcon
                       tone="outline"

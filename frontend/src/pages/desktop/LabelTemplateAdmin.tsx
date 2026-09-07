@@ -102,6 +102,9 @@ const KIND_DEFAULTS: Record<LabelKind, { width: number; height: number }> = {
   rack_roll: { width: 70, height: 40 },
   rack_strip: { width: 70, height: 40 },
   shelf: { width: 70, height: 40 },
+  pf_unit: { width: 100, height: 40 },
+  pf_rack: { width: 70, height: 40 },
+  pf_shelf: { width: 70, height: 40 },
 };
 
 function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
@@ -289,6 +292,9 @@ export default function LabelTemplateAdmin() {
           { key: "rack_roll", label: "Стеллаж рулонный", children: <LabelTemplateEditor kind="rack_roll" /> },
           { key: "rack_strip", label: "Стеллаж штрипсовый", children: <LabelTemplateEditor kind="rack_strip" /> },
           { key: "shelf", label: "Полка / ячейка", children: <LabelTemplateEditor kind="shelf" /> },
+          { key: "pf_unit", label: "П/ф — партия", children: <LabelTemplateEditor kind="pf_unit" /> },
+          { key: "pf_rack", label: "Стеллаж п/ф", children: <LabelTemplateEditor kind="pf_rack" /> },
+          { key: "pf_shelf", label: "Полка п/ф стеллажа", children: <LabelTemplateEditor kind="pf_shelf" /> },
         ]}
       />
     </Space>
