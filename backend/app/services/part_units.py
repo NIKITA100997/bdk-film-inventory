@@ -71,22 +71,29 @@ def mint_part_unit(
     quantity_pieces: float,
     user_id: int,
     production_task_line_id: int | None = None,
-    issue_to_area: str | None = None,
+    issue: bool = False,
     note: str | None = None,
 ) -> PartUnit:
     """Регистрация факта нарезки партии (начальник цеха) — всегда рождается
     на первом этапе детали (sequence_order=1). Деталь без настроенных
     этапов ещё не готова к физическому учёту — явная ошибка вместо тихого
-    создания партии без этапа."""
+    создания партии без этапа.
+
+    Раздел про связь этапов с участками — участок выдачи выводится из
+    `first_stage.area`, не выбирается вручную (см. PartStage.area):
+    начальник цеха выбирает ТОЛЬКО факт "сразу выдать участку", куда
+    именно — определяет сам этап."""
     if not part.stages:
         raise ValueError(f"У детали «{part.name}» не настроены этапы — добавьте их в справочнике «Деталь»")
     first_stage = part.stages[0]
+    if issue and not first_stage.area:
+        raise ValueError(f"У этапа «{first_stage.name}» не указан участок — настройте связь в справочнике «Деталь»")
     unit = PartUnit(
         part_id=part.id,
         quantity_pieces=quantity_pieces,
         stage_id=first_stage.id,
-        status=PartUnitStatus.VYDAN_UCHASTKU if issue_to_area else PartUnitStatus.NA_KHRANENII,
-        area=issue_to_area,
+        status=PartUnitStatus.VYDAN_UCHASTKU if issue else PartUnitStatus.NA_KHRANENII,
+        area=first_stage.area if issue else None,
         production_task_line_id=production_task_line_id,
         note=note,
         created_by=user_id,
@@ -102,16 +109,22 @@ def mint_part_unit(
         to_stage_id=first_stage.id,
         note=note,
     )
-    if issue_to_area:
+    if issue:
         record_part_event(db, unit=unit, event_type=PartEventType.VYDACHA_UCHASTKU, user_id=user_id)
     return unit
 
 
-def issue_part_unit(db: Session, *, unit: PartUnit, area: str, user_id: int) -> PartUnit:
+def issue_part_unit(db: Session, *, unit: PartUnit, user_id: int) -> PartUnit:
+    """Выдать участку — раздел про связь этапов с участками: участок
+    выводится из `unit.stage.area`, не выбирается вручную. Если у этапа
+    нет участка — явная ошибка конфигурации справочника, не место для
+    ручного выбора."""
     if unit.status != PartUnitStatus.NA_KHRANENII:
         raise ValueError("Выдать участку можно только партию, которая сейчас на хранении")
+    if not unit.stage.area:
+        raise ValueError(f"У этапа «{unit.stage.name}» не указан участок — настройте связь в справочнике «Деталь»")
     unit.status = PartUnitStatus.VYDAN_UCHASTKU
-    unit.area = area
+    unit.area = unit.stage.area
     record_part_event(db, unit=unit, event_type=PartEventType.VYDACHA_UCHASTKU, user_id=user_id)
     return unit
 
@@ -147,7 +160,20 @@ def _split_or_reuse(db: Session, unit: PartUnit, quantity_pieces: float) -> Part
 def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, user_id: int) -> PartUnit:
     """Перевод N штук партии на следующий этап её детали (раздел про
     цифровой аналог "Ежедневки" — вызывается из create_task_line_report
-    при good_pieces > 0, участок сам этап не выбирает)."""
+    при good_pieces > 0, участок сам этап не выбирает).
+
+    Раздел про связь этапов с участками — партия физически переезжает на
+    участок СЛЕДУЮЩЕГО этапа (`next_stage.area`), не остаётся числиться
+    за прежним: иначе она не появилась бы в пикере "Партия п/ф" отчёта
+    нового участка. Статус остаётся Выдан_участку — это тот же самый
+    физический переезд, что раньше был отдельной ручной "выдачей".
+
+    Если следующего этапа нет — партия УЖЕ на последнем этапе своего
+    маршрута (обычно это финальная обработка вроде окутки) или её этап
+    пропал из справочника при перенастройке — в обоих случаях это конец
+    пути, не ошибка: место и этап партии не меняются, репорт просто
+    фиксируется отдельным событием "Завершение", участок может отчитаться
+    ещё раз по той же партии сколько угодно раз."""
     if unit.status != PartUnitStatus.VYDAN_UCHASTKU:
         raise ValueError("Перевести на следующий этап можно только партию, выданную участку")
     next_stage = (
@@ -156,10 +182,20 @@ def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, us
         .first()
     )
     if next_stage is None:
-        raise ValueError(f"У детали «{unit.part.name}» нет следующего этапа после «{unit.stage.name}»")
+        target = _split_or_reuse(db, unit, quantity_pieces)
+        record_part_event(
+            db,
+            unit=target,
+            event_type=PartEventType.ZAVERSHENIE,
+            user_id=user_id,
+            quantity_delta=quantity_pieces,
+            from_stage_id=target.stage_id,
+        )
+        return target
     from_stage_id = unit.stage_id
     target = _split_or_reuse(db, unit, quantity_pieces)
     target.stage_id = next_stage.id
+    target.area = next_stage.area
     record_part_event(
         db,
         unit=target,

@@ -92,7 +92,15 @@ class PartStage(Base):
     все детали разом), потому что путь у разных деталей может отличаться:
     у одной "П/ф" → "Заготовка", у другой позже может появиться третий шаг
     ("Просверлено" и т.п.) — добавить его этой конкретной детали — одна
-    новая строка, без миграции схемы. PartUnit.stage_id ссылается сюда."""
+    новая строка, без миграции схемы. PartUnit.stage_id ссылается сюда.
+
+    `area` — раздел про связь этапов с реальными участками: этап это не
+    просто текстовая строка, а конкретный участок цеха, где эта работа
+    физически выполняется (тот же справочник Area, что и у производственных
+    заданий). NULL — участок для этапа ещё не назначен (старые данные,
+    либо этап без физической выдачи, например «Готово»); выдача участку
+    (`issue_part_unit`/`advance_part_unit`) требует, чтобы он был задан —
+    участок для выдачи выводится ИЗ этапа, не выбирается вручную."""
 
     __tablename__ = "part_stages"
     __table_args__ = (UniqueConstraint("part_id", "sequence_order", name="uq_part_stage_order"),)
@@ -102,6 +110,7 @@ class PartStage(Base):
     sequence_order: Mapped[int] = mapped_column()
     code: Mapped[str] = mapped_column(String(50))
     name: Mapped[str] = mapped_column(String(255))
+    area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
 
     part: Mapped[Part] = relationship(back_populates="stages")
 

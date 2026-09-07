@@ -6,7 +6,7 @@ from app.db.session import get_db
 from app.models.dictionaries import Part
 from app.models.part_units import PartUnit, PartUnitEvent, PartUnitStatus
 from app.models.users import User
-from app.schemas.part_units import PartUnitCreate, PartUnitEventOut, PartUnitIssue, PartUnitOut, PartUnitPlace, PartUnitWriteOff
+from app.schemas.part_units import PartUnitCreate, PartUnitEventOut, PartUnitOut, PartUnitPlace, PartUnitWriteOff
 from app.services.part_units import issue_part_unit, mint_part_unit, place_part_unit, write_off_part_unit
 
 router = APIRouter(prefix="/part-units", tags=["part-units"])
@@ -74,7 +74,7 @@ def create_part_unit(
             quantity_pieces=payload.quantity_pieces,
             user_id=user.id,
             production_task_line_id=payload.production_task_line_id,
-            issue_to_area=payload.issue_to_area,
+            issue=payload.issue,
             note=payload.note,
         )
     except ValueError as e:
@@ -86,13 +86,16 @@ def create_part_unit(
 
 @router.post("/{unit_id}/issue", response_model=PartUnitOut)
 def issue_part_unit_to_area(
-    unit_id: int, payload: PartUnitIssue, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
+    unit_id: int, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
 ) -> PartUnitOut:
+    """Раздел про связь этапов с участками — без тела запроса: участок
+    выводится из текущего этапа партии (`unit.stage.area`), не выбирается
+    начальником цеха вручную."""
     unit = db.get(PartUnit, unit_id)
     if unit is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
     try:
-        issue_part_unit(db, unit=unit, area=payload.area, user_id=user.id)
+        issue_part_unit(db, unit=unit, user_id=user.id)
     except ValueError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()

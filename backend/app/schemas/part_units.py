@@ -7,19 +7,17 @@ from app.models.part_units import PartUnitStatus
 
 class PartUnitCreate(BaseModel):
     """Регистрация партии начальником цеха (раздел про физический учёт
-    деталей) — квант работы: один вызов = одна нарезанная партия. issue_to_area
-    — сразу выдать участку (обычно уже известно, для чего нарезали), иначе
-    партия остаётся "На_хранении" до отдельной выдачи."""
+    деталей) — квант работы: один вызов = одна нарезанная партия. `issue`
+    — сразу выдать участку (обычно уже известно, для чего нарезали),
+    иначе партия остаётся "На_хранении" до отдельной выдачи. Раздел про
+    связь этапов с участками — участок выдачи выводится из первого этапа
+    детали, не выбирается вручную (см. PartStage.area)."""
 
     part_id: int
     quantity_pieces: float = Field(gt=0)
     production_task_line_id: int | None = None
-    issue_to_area: str | None = None
+    issue: bool = False
     note: str | None = None
-
-
-class PartUnitIssue(BaseModel):
-    area: str
 
 
 class PartUnitPlace(BaseModel):

@@ -70,15 +70,20 @@ class PartStageOut(BaseModel):
     sequence_order: int
     code: str
     name: str
+    area: str | None
 
 
 class PartStageCreate(BaseModel):
     """Одна строка этапа при замене всего списка целиком (раздел про
     физический учёт деталей) — id не передаётся, сервер пересобирает
-    список с нуля, sequence_order берётся из порядка в списке."""
+    список с нуля, sequence_order берётся из порядка в списке. `area` —
+    раздел про связь этапов с участками: участок, где физически
+    выполняется этот этап (тот же справочник Area) — выдача участку при
+    работе с партией этого этапа выводится отсюда, не выбирается вручную."""
 
     code: str
     name: str
+    area: str | None = None
 
 
 class PartOut(BaseModel):

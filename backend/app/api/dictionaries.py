@@ -437,15 +437,17 @@ def update_part_stages(
     одной строке; порядок в списке = sequence_order. Не трогает уже
     существующие PartUnit — они продолжают ссылаться на свой stage_id, даже
     если этот этап пропал из нового списка (партия просто "застревает" на
-    несуществующем больше этапе — advance_part_unit такую не найдёт, это
-    осознанный компромисс: переиндексация чужих партий задним числом —
-    больший риск, чем эта редкая ручная ошибка настройки)."""
+    несуществующем больше этапе — advance_part_unit для неё просто не
+    найдёт следующего этапа и зафиксирует событие "Завершение", как для
+    партии, дошедшей до конца маршрута; это осознанный компромисс:
+    переиндексация чужих партий задним числом — больший риск, чем эта
+    редкая ручная ошибка настройки)."""
     obj = db.get(Part, part_id)
     if obj is None:
         raise HTTPException(404, "Деталь не найдена")
     db.query(PartStage).filter(PartStage.part_id == part_id).delete()
     for i, stage in enumerate(payload, start=1):
-        db.add(PartStage(part_id=part_id, sequence_order=i, code=stage.code, name=stage.name))
+        db.add(PartStage(part_id=part_id, sequence_order=i, code=stage.code, name=stage.name, area=stage.area))
     db.commit()
     db.refresh(obj)
     return obj

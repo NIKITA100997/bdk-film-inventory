@@ -766,17 +766,21 @@ def create_task_line_report(
     # Раздел про физический учёт деталей (пилот: окутка царговых) —
     # необязательно (в отличие от рулона выше): не у каждой детали ещё
     # настроены этапы, участок продолжает работать без партии, пока цех не
-    # донастроит справочник. Если партия указана — она обязана быть именно
-    # той, что выдана этой строке задания (тот же принцип, что рулон).
+    # донастроит справочник. Раздел про связь этапов с участками — партия
+    # переезжает между РАЗНЫМИ заданиями по мере продвижения по этапам (у
+    # каждого участка своё), её production_task_line_id так и остаётся
+    # указывать на задание, где она родилась; годной для отчёта партия
+    # считается по физическому месту — она должна быть выдана ИМЕННО этому
+    # участку (тому же, что и у строки задания), не обязательно этой строке.
     part_unit = None
     if payload.part_unit_id is not None:
         part_unit = db.get(PartUnit, payload.part_unit_id)
         if (
             part_unit is None
-            or part_unit.production_task_line_id != line_id
+            or part_unit.area != line.task.area
             or part_unit.status != PartUnitStatus.VYDAN_UCHASTKU
         ):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Партия п/ф не найдена среди выданных на эту строку")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Партия п/ф не найдена среди выданных этому участку")
         if payload.defect_pieces > 0 and not payload.defect_reason:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Укажите причину брака, чтобы списать партию п/ф")
     report = ProductionTaskLineReport(

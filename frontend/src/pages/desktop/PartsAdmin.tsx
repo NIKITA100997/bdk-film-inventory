@@ -33,7 +33,7 @@ export default function PartsAdmin() {
   // упорядоченный список этапов у каждой детали отдельно (не общий enum),
   // редактируется здесь же, в справочнике "Деталь".
   const [stagesTarget, setStagesTarget] = useState<Part | null>(null);
-  const [stageRows, setStageRows] = useState<{ code: string; name: string }[]>([]);
+  const [stageRows, setStageRows] = useState<{ code: string; name: string; area: string | null }[]>([]);
 
   const partsQuery = useQuery({ queryKey: ["parts", "all"], queryFn: listAllParts });
   const duplicatesQuery = useQuery({ queryKey: ["parts", "duplicates"], queryFn: listPartDuplicates });
@@ -83,7 +83,7 @@ export default function PartsAdmin() {
 
   const openStages = (part: Part) => {
     setStagesTarget(part);
-    setStageRows(part.stages.map((s) => ({ code: s.code, name: s.name })));
+    setStageRows(part.stages.map((s) => ({ code: s.code, name: s.name, area: s.area })));
   };
   const moveStage = (index: number, delta: number) => {
     setStageRows((rows) => {
@@ -95,9 +95,11 @@ export default function PartsAdmin() {
     });
   };
   const removeStage = (index: number) => setStageRows((rows) => rows.filter((_, i) => i !== index));
-  const addStage = () => setStageRows((rows) => [...rows, { code: "", name: "" }]);
+  const addStage = () => setStageRows((rows) => [...rows, { code: "", name: "", area: null }]);
   const updateStageName = (index: number, name: string) =>
-    setStageRows((rows) => rows.map((r, i) => (i === index ? { code: name.trim(), name } : r)));
+    setStageRows((rows) => rows.map((r, i) => (i === index ? { ...r, code: name.trim(), name } : r)));
+  const updateStageArea = (index: number, area: string | null) =>
+    setStageRows((rows) => rows.map((r, i) => (i === index ? { ...r, area } : r)));
 
   const openCreate = () => {
     setEditingPart(null);
@@ -273,30 +275,47 @@ export default function PartsAdmin() {
       >
         <Typography.Paragraph type="secondary">
           Порядок сверху вниз — путь, который проходит партия этой детали (например, «П/ф» → «Заготовка»). Пусто —
-          физический учёт для этой детали ещё не включён.
+          физический учёт для этой детали ещё не включён. Участок — где этап физически выполняется: выдача участку
+          партии на этом этапе выводится отсюда, вручную выбирать участок больше не нужно.
         </Typography.Paragraph>
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
           {stageRows.map((row, i) => (
-            <Space key={i} style={{ width: "100%" }}>
-              <Typography.Text type="secondary" style={{ width: 20 }}>
-                {i + 1}.
-              </Typography.Text>
-              <Input
-                style={{ width: 220 }}
-                placeholder="Например, «П/ф»"
-                value={row.name}
-                onChange={(e) => updateStageName(i, e.target.value)}
-              />
-              <Button size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
-                ↑
-              </Button>
-              <Button size="small" disabled={i === stageRows.length - 1} onClick={() => moveStage(i, 1)}>
-                ↓
-              </Button>
-              <Button size="small" danger onClick={() => removeStage(i)}>
-                Убрать
-              </Button>
-            </Space>
+            <div key={i} style={{ border: "1px solid #DEDEDA", borderRadius: 8, padding: "8px 10px" }}>
+              <Space style={{ width: "100%" }}>
+                <Typography.Text type="secondary" style={{ width: 20 }}>
+                  {i + 1}.
+                </Typography.Text>
+                <Input
+                  style={{ width: 220 }}
+                  placeholder="Например, «П/ф»"
+                  value={row.name}
+                  onChange={(e) => updateStageName(i, e.target.value)}
+                />
+                <Button size="small" disabled={i === 0} onClick={() => moveStage(i, -1)}>
+                  ↑
+                </Button>
+                <Button size="small" disabled={i === stageRows.length - 1} onClick={() => moveStage(i, 1)}>
+                  ↓
+                </Button>
+                <Button size="small" danger onClick={() => removeStage(i)}>
+                  Убрать
+                </Button>
+              </Space>
+              <Space style={{ marginTop: 6, marginLeft: 28 }}>
+                <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                  Участок:
+                </Typography.Text>
+                <Select
+                  allowClear
+                  size="small"
+                  style={{ width: 240 }}
+                  placeholder="Не задан"
+                  options={areaOptions}
+                  value={row.area ?? undefined}
+                  onChange={(v) => updateStageArea(i, v ?? null)}
+                />
+              </Space>
+            </div>
           ))}
           <Button block onClick={addStage}>
             + Добавить этап

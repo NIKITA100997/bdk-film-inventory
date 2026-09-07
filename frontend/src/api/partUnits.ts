@@ -26,7 +26,9 @@ export interface PartUnitCreate {
   part_id: number;
   quantity_pieces: number;
   production_task_line_id?: number | null;
-  issue_to_area?: string | null;
+  // Раздел про связь этапов с участками — участок выдачи выводится из
+  // первого этапа детали, здесь только факт "сразу выдать".
+  issue?: boolean;
   note?: string | null;
 }
 
@@ -60,8 +62,10 @@ export const listPartUnits = async (filters: PartUnitListFilters = {}): Promise<
 export const createPartUnit = async (payload: PartUnitCreate): Promise<PartUnit> =>
   (await apiClient.post<PartUnit>("/part-units", payload)).data;
 
-export const issuePartUnit = async (id: number, area: string): Promise<PartUnit> =>
-  (await apiClient.post<PartUnit>(`/part-units/${id}/issue`, { area })).data;
+// Раздел про связь этапов с участками — участок выводится из текущего
+// этапа партии на бэкенде, здесь нечего передавать.
+export const issuePartUnit = async (id: number): Promise<PartUnit> =>
+  (await apiClient.post<PartUnit>(`/part-units/${id}/issue`)).data;
 
 export const writeOffPartUnit = async (
   id: number,

@@ -73,6 +73,7 @@ class PartEventType(str, enum.Enum):
     VYDACHA_UCHASTKU = "Выдача_участку"
     PEREKHOD_ETAPA = "Переход_этапа"
     SPISANIE = "Списание"
+    ZAVERSHENIE = "Завершение"
 
 
 class PartUnitEvent(Base):

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Table, Tag } from "antd";
+import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Popconfirm, Table, Tag } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ActionIcon from "../../../components/ActionIcon";
 import PartSelect from "../../../components/PartSelect";
@@ -36,7 +36,6 @@ interface MintFormValues {
   quantity_pieces: number;
   task_line_key?: string;
   issue: boolean;
-  area?: string;
   note?: string;
 }
 
@@ -65,8 +64,6 @@ export default function PartUnits() {
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
   const [writeOffTarget, setWriteOffTarget] = useState<PartUnit | null>(null);
   const [writeOffForm] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string }>();
-  const [issueTarget, setIssueTarget] = useState<PartUnit | null>(null);
-  const [issueArea, setIssueArea] = useState<string | undefined>(undefined);
   const [placeTarget, setPlaceTarget] = useState<PartUnit | null>(null);
   const [placeLocationCode, setPlaceLocationCode] = useState("");
   const [cardTarget, setCardTarget] = useState<PartUnit | null>(null);
@@ -91,7 +88,11 @@ export default function PartUnits() {
   // совпадать с ТЕКУЩИМ этапом партии, только через полный список этапов
   // по её детали можно назвать их по имени, не по голому id).
   const stageNameById = new Map<number, string>();
-  for (const p of partsQuery.data ?? []) for (const s of p.stages) stageNameById.set(s.id, s.name);
+  const stageAreaById = new Map<number, string | null>();
+  for (const p of partsQuery.data ?? []) for (const s of p.stages) {
+    stageNameById.set(s.id, s.name);
+    stageAreaById.set(s.id, s.area);
+  }
   const stageName = (id: number | null) => (id == null ? null : (stageNameById.get(id) ?? `#${id}`));
 
   const eventsQuery = useQuery({
@@ -125,7 +126,7 @@ export default function PartUnits() {
         part_id: selectedPart!.id,
         quantity_pieces: v.quantity_pieces,
         production_task_line_id: lineIdStr ? Number(lineIdStr) : undefined,
-        issue_to_area: v.issue ? v.area : null,
+        issue: v.issue,
         note: v.note,
       });
     },
@@ -139,14 +140,12 @@ export default function PartUnits() {
   });
 
   const issueMutation = useMutation({
-    mutationFn: ({ id, area }: { id: number; area: string }) => issuePartUnit(id, area),
+    mutationFn: (id: number) => issuePartUnit(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
       message.success("Партия выдана участку");
-      setIssueTarget(null);
-      setIssueArea(undefined);
     },
-    onError: () => message.error("Не удалось выдать партию"),
+    onError: () => message.error("Не удалось выдать партию — у этапа не назначен участок?"),
   });
 
   const placeMutation = useMutation({
@@ -214,16 +213,7 @@ export default function PartUnits() {
               />
             </Form.Item>
             <Form.Item name="issue" valuePropName="checked" initialValue={false}>
-              <Checkbox>Сразу выдать участку</Checkbox>
-            </Form.Item>
-            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.issue !== cur.issue}>
-              {({ getFieldValue }) =>
-                getFieldValue("issue") && (
-                  <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
-                    <Select options={areaOptions} placeholder="Выберите участок" />
-                  </Form.Item>
-                )
-              }
+              <Checkbox>Сразу выдать участку (участок — из первого этапа детали)</Checkbox>
             </Form.Item>
             <Form.Item name="note" label="Заметка (опционально)">
               <Input />
@@ -313,9 +303,18 @@ export default function PartUnits() {
                     </ActionIcon>
                   )}
                   {canManage && u.status === "На_хранении" && (
-                    <ActionIcon tone="filled" tip="Выдать участку" onClick={() => setIssueTarget(u)}>
-                      📤
-                    </ActionIcon>
+                    <Popconfirm
+                      title={`Выдать партию участку «${areaLabel(stageAreaById.get(u.stage_id) ?? null)}»?`}
+                      okText="Выдать"
+                      cancelText="Отмена"
+                      onConfirm={() => issueMutation.mutate(u.id)}
+                    >
+                      <span>
+                        <ActionIcon tone="filled" tip="Выдать участку">
+                          📤
+                        </ActionIcon>
+                      </span>
+                    </Popconfirm>
                   )}
                   {canManage && u.status !== "Списан" && (
                     <ActionIcon tone="ghost" danger tip="Списать" onClick={() => setWriteOffTarget(u)}>
@@ -328,39 +327,6 @@ export default function PartUnits() {
           ]}
         />
       </Card>
-
-      <Modal
-        title={`Выдать партию «${issueTarget?.part_name ?? ""}» участку`}
-        open={!!issueTarget}
-        onCancel={() => {
-          setIssueTarget(null);
-          setIssueArea(undefined);
-        }}
-        footer={null}
-        destroyOnHidden
-      >
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
-          <Typography.Text type="secondary">
-            {issueTarget?.quantity_pieces} шт, этап «{issueTarget?.stage_name}»
-          </Typography.Text>
-          <Select
-            style={{ width: "100%" }}
-            placeholder="Выберите участок"
-            options={areaOptions}
-            value={issueArea}
-            onChange={setIssueArea}
-          />
-          <Button
-            type="primary"
-            block
-            loading={issueMutation.isPending}
-            disabled={!issueArea}
-            onClick={() => issueMutation.mutate({ id: issueTarget!.id, area: issueArea! })}
-          >
-            Выдать
-          </Button>
-        </Space>
-      </Modal>
 
       <Modal
         title={`Разместить партию «${placeTarget?.part_name ?? ""}»`}

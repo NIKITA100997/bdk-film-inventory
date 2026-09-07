@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listProductionTasks, createTaskLineReport, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { listPartUnits } from "../../../api/partUnits";
+import { listParts } from "../../../api/dictionaries";
 
 interface ReportRow {
   key: string;
@@ -26,6 +27,11 @@ interface ReportRow {
 export default function MasterQuickReportPanel({ area }: { area: string }) {
   const qc = useQueryClient();
   const requiresRoll = area === "okutka_tsargovykh";
+  // Раздел про связь этапов с участками — «Партия п/ф» показывается для
+  // ЛЮБОГО участка, у которого есть хоть один этап детали (не только у
+  // окутки царговых): «Рулон» — отдельная, чисто плёночная забота.
+  const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
+  const hasPartStages = (partsQuery.data ?? []).some((p) => p.stages.some((s) => s.area === area));
   const [rows, setRows] = useState<ReportRow[]>([]);
   const rowCounter = useRef(0);
 
@@ -36,7 +42,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const partsReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "parts"],
     queryFn: () => listWriteOffReasons("parts"),
-    enabled: requiresRoll,
+    enabled: hasPartStages,
   });
   const reasonOptions = [...(writeOffReasonsQuery.data ?? []), ...(partsReasonsQuery.data ?? [])].filter(
     (r, i, arr) => arr.findIndex((x) => x.code === r.code) === i,
@@ -44,10 +50,15 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const partUnitsQuery = useQuery({
     queryKey: ["part-units", "area", area],
     queryFn: () => listPartUnits({ area, status_: "Выдан_участку" }),
-    enabled: requiresRoll,
+    enabled: hasPartStages,
   });
-  const partUnitOptionsForLine = (lineId: number) =>
-    (partUnitsQuery.data ?? []).filter((u) => u.production_task_line_id === lineId);
+  // Раздел про связь этапов с участками — партия п/ф путешествует между
+  // РАЗНЫМИ заданиями (у каждого участка своё), поэтому её
+  // production_task_line_id остаётся указывать на задание, где она
+  // родилась, а не на текущее: подбор партии под конкретную строку — по
+  // совпадению названия детали, не по id строки.
+  const partUnitOptionsForLine = (line: ProductionTaskLine) =>
+    line.part_name ? (partUnitsQuery.data ?? []).filter((u) => u.part_name === line.part_name) : [];
 
   const tasks = (tasksQuery.data ?? []).filter((t: ProductionTask) => t.area === area && t.is_active);
   const addedLineIds = new Set(rows.map((r) => r.line.id));
@@ -66,7 +77,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
     const line = task?.lines.find((l) => l.id === Number(lineIdStr));
     if (!task || !line) return;
     rowCounter.current += 1;
-    const availableParts = partUnitOptionsForLine(line.id);
+    const availableParts = partUnitOptionsForLine(line);
     setRows((prev) => [
       ...prev,
       {
@@ -204,6 +215,10 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                         />
                       ),
                     },
+                  ]
+                : []),
+              ...(hasPartStages
+                ? [
                     {
                       title: "Партия п/ф (опционально)",
                       render: (_: unknown, r: ReportRow) => (
@@ -214,7 +229,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                           placeholder="Без партии"
                           value={r.partUnitId ?? undefined}
                           onChange={(v) => updateRow(r.key, { partUnitId: v ?? null })}
-                          options={partUnitOptionsForLine(r.line.id).map((u) => ({
+                          options={partUnitOptionsForLine(r.line).map((u) => ({
                             value: u.id,
                             label: `№${u.id} — ${u.quantity_pieces} шт, «${u.stage_name}»`,
                           }))}

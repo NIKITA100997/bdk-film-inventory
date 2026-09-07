@@ -43,6 +43,11 @@ export interface PartStage {
   sequence_order: number;
   code: string;
   name: string;
+  // Раздел про связь этапов с участками — этап физически выполняется на
+  // конкретном участке цеха (тот же справочник, что у заданий); выдача
+  // участку при работе с партией на этом этапе выводится отсюда, не
+  // выбирается вручную. null — участок для этапа ещё не назначен.
+  area: string | null;
 }
 
 export interface PartCreate {
@@ -72,7 +77,7 @@ export const updatePart = async (id: number, payload: PartUpdate): Promise<Part>
 
 // Заменяет весь список этапов детали целиком (раздел про физический учёт
 // деталей) — порядок в массиве становится sequence_order.
-export const updatePartStages = async (id: number, stages: { code: string; name: string }[]): Promise<Part> =>
+export const updatePartStages = async (id: number, stages: { code: string; name: string; area: string | null }[]): Promise<Part> =>
   (await apiClient.put<Part>(`/parts/${id}/stages`, stages)).data;
 
 // in_stock_only (раздел про нулевые позиции при выдаче) — сужает до
