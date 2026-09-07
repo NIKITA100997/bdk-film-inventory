@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, List, Row, Col, message } from "antd";
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, List, Row, Col, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
+import { useNavigate } from "react-router-dom";
 import Statistic from "../../components/Statistic";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -17,7 +18,6 @@ import { listPurchaseRequests, fulfillPurchaseRequest } from "../../api/purchasi
 import DictAutoComplete from "../../components/DictAutoComplete";
 import ExistingSkuPicker from "../../components/ExistingSkuPicker";
 import OccurredAtField from "../../components/OccurredAtField";
-import ResponsiveTable from "../../components/ResponsiveTable";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useDraftForm } from "../../hooks/useDraftForm";
 
@@ -308,6 +308,7 @@ export default function Receive() {
  * current_status/current_width_mm покажут это отдельно, не подменяя
  * исходную запись. */
 function ReceiptsHistoryModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState<ReceiptSession | null>(null);
   const receiptsQuery = useQuery({
@@ -318,9 +319,9 @@ function ReceiptsHistoryModal({ open, onClose }: { open: boolean; onClose: () =>
 
   return (
     <>
-      <Modal title="История приёмок" open={open} onCancel={onClose} footer={null} width={780} destroyOnHidden>
+      <Modal title="История приёмок" open={open} onCancel={onClose} footer={null} width={820} destroyOnHidden>
         <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-          Одна строка — одна приёмка (УПД + паллета). Откройте, чтобы свериться, что было реально введено.
+          Одна строка — одна приёмка (УПД + паллета). Кликните строку, чтобы свериться, что было реально введено.
         </Typography.Paragraph>
         <Input.Search
           placeholder="Поиск по номеру УПД или паллеты…"
@@ -329,30 +330,24 @@ function ReceiptsHistoryModal({ open, onClose }: { open: boolean; onClose: () =>
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <ResponsiveTable<ReceiptSession>
+        <Table<ReceiptSession>
           size="small"
+          tableLayout="fixed"
           rowKey={(s) => `${s.upd_number}-${s.pallet_number}`}
           loading={receiptsQuery.isLoading}
           dataSource={receiptsQuery.data ?? []}
           pagination={{ pageSize: 15 }}
-          scroll={{ x: "max-content" }}
+          scroll={{ x: 700 }}
           locale={{ emptyText: search ? "Ничего не найдено" : "Приёмок за последние 90 дней нет" }}
+          onRow={(s) => ({ onClick: () => setDetail(s), style: { cursor: "pointer" } })}
           columns={[
-            { title: "Дата", render: (_, s) => dayjs(s.received_at).format("DD.MM.YYYY HH:mm") },
-            { title: "УПД", dataIndex: "upd_number" },
-            { title: "Паллета", dataIndex: "pallet_number" },
-            { title: "Кто принял", dataIndex: "received_by" },
-            { title: "Склад", render: (_, s) => s.warehouse_name ?? "—" },
-            { title: "Рулонов", dataIndex: "unit_count" },
-            { title: "Всего, м²", render: (_, s) => s.total_area_m2.toFixed(1) },
-            {
-              title: "",
-              render: (_, s) => (
-                <Button size="small" onClick={() => setDetail(s)}>
-                  Показать
-                </Button>
-              ),
-            },
+            { title: "Дата", width: 130, render: (_, s) => dayjs(s.received_at).format("DD.MM.YYYY HH:mm") },
+            { title: "УПД", dataIndex: "upd_number", width: 120, ellipsis: true },
+            { title: "Паллета", dataIndex: "pallet_number", width: 110, ellipsis: true },
+            { title: "Кто принял", dataIndex: "received_by", width: 130, ellipsis: true },
+            { title: "Склад", width: 110, ellipsis: true, render: (_, s) => s.warehouse_name ?? "—" },
+            { title: "Рулонов", dataIndex: "unit_count", width: 80 },
+            { title: "Всего, м²", width: 90, render: (_, s) => s.total_area_m2.toFixed(1) },
           ]}
         />
       </Modal>
@@ -362,33 +357,47 @@ function ReceiptsHistoryModal({ open, onClose }: { open: boolean; onClose: () =>
         open={!!detail}
         onCancel={() => setDetail(null)}
         footer={null}
-        width={720}
+        width={760}
         destroyOnHidden
       >
         {detail && (
-          <ResponsiveTable<(typeof detail.units)[number]>
-            size="small"
-            rowKey="unit_id"
-            dataSource={detail.units}
-            pagination={false}
-            scroll={{ x: "max-content" }}
-            columns={[
-              { title: "№", dataIndex: "unit_id" },
-              { title: "Материал", render: (_, u) => `${u.material}, ${u.color}, ${u.thickness} мм, ${u.manufacturer}` },
-              { title: "Ширина, мм", dataIndex: "width_mm" },
-              { title: "Длина, м", dataIndex: "length_m" },
-              { title: "Ячейка при приёмке", render: (_, u) => u.location_code ?? "—" },
-              {
-                title: "Сейчас",
-                render: (_, u) => (
-                  <Space size={4} wrap>
-                    <Tag>{u.current_status.replace(/_/g, " ")}</Tag>
-                    {u.current_width_mm !== u.width_mm && <Tag color="orange">уже {u.current_width_mm} мм — разрезан</Tag>}
-                  </Space>
-                ),
-              },
-            ]}
-          />
+          <>
+            <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+              Кликните строку, чтобы открыть карточку физической единицы.
+            </Typography.Paragraph>
+            <Table<(typeof detail.units)[number]>
+              size="small"
+              tableLayout="fixed"
+              rowKey="unit_id"
+              dataSource={detail.units}
+              pagination={false}
+              scroll={{ x: 660 }}
+              onRow={(u) => ({
+                onClick: () => navigate("/m/unit-card", { state: { unitId: u.unit_id } }),
+                style: { cursor: "pointer" },
+              })}
+              columns={[
+                { title: "№", dataIndex: "unit_id", width: 70 },
+                {
+                  title: "Материал",
+                  render: (_, u) => `${u.material}, ${u.color}, ${u.thickness} мм, ${u.manufacturer}`,
+                },
+                { title: "Ширина, мм", dataIndex: "width_mm", width: 100 },
+                { title: "Длина, м", dataIndex: "length_m", width: 90 },
+                { title: "Ячейка при приёмке", width: 140, render: (_, u) => u.location_code ?? "—" },
+                {
+                  title: "Сейчас",
+                  width: 190,
+                  render: (_, u) => (
+                    <Space size={4} wrap>
+                      <Tag>{u.current_status.replace(/_/g, " ")}</Tag>
+                      {u.current_width_mm !== u.width_mm && <Tag color="orange">уже {u.current_width_mm} мм — разрезан</Tag>}
+                    </Space>
+                  ),
+                },
+              ]}
+            />
+          </>
         )}
       </Modal>
     </>
