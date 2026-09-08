@@ -71,25 +71,34 @@ export default function QrScanModal({
     const html5Qrcode = new Html5Qrcode(qrRegionId);
     scannerRef.current = html5Qrcode;
 
-    // Зона сканирования — доля от реального размера видеокадра, а не
-    // фиксированные 250px: на широком планшетном экране 250px — маленькое
-    // пятно посреди кадра, из-за чего код на этикетке рулона приходится
-    // ловить почти впритык к камере. width/height ideal — просим более
-    // высокое разрешение видео явно, а не полагаемся на выбор браузера по
-    // умолчанию (обычно занижен ради экономии трафика/CPU, мелкий QR на
-    // этикетке от этого не распознаётся).
-    const config = {
+    // Раздел про "у одних работает, у других — белый экран" — адаптивная
+    // зона сканирования (функция от реального размера видео) и запрошенное
+    // разрешение помогали с распознаванием мелкого кода, но, похоже, не на
+    // всех камерах/прошивках одинаково безопасны (qrbox-функция — более
+    // новая часть API библиотеки; на слабой камере запрошенное разрешение
+    // тоже может повести себя иначе). Поэтому — с откатом: сперва пробуем
+    // "богатую" настройку, и только если она не завелась (на любом из двух
+    // направлений камеры) — откатываемся на ИСХОДНУЮ, заведомо рабочую
+    // конфигурацию (фиксированная зона 250×250, без запроса разрешения),
+    // а не гадаем дальше. Так новым камерам достаётся улучшение, а старым/
+    // капризным — гарантированно то же, что работало раньше.
+    const richConfig = {
       fps: 10,
       qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-        const size = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.75);
-        return { width: size, height: size };
+        // Защита от вырожденного кадра (0 или почти 0, пока видео ещё не
+        // отдало реальные размеры) — 250 как безопасный минимум вместо
+        // qrbox 0×0, которого библиотека не ждёт.
+        const basis = Math.min(viewfinderWidth || 0, viewfinderHeight || 0);
+        if (!basis || basis < 100) return { width: 250, height: 250 };
+        return { width: Math.floor(basis * 0.75), height: Math.floor(basis * 0.75) };
       },
     };
-    const videoConstraintsFor = (facingMode: "environment" | "user"): MediaTrackConstraints => ({
+    const richVideoConstraintsFor = (facingMode: "environment" | "user"): MediaTrackConstraints => ({
       facingMode,
       width: { ideal: 1920 },
       height: { ideal: 1080 },
     });
+    const safeConfig = { fps: 10, qrbox: { width: 250, height: 250 } };
 
     const handleDecoded = (decodedText: string) => {
       playBeep();
@@ -110,18 +119,32 @@ export default function QrScanModal({
       }
     };
 
-    html5Qrcode
-      .start(videoConstraintsFor("environment"), config, handleDecoded, () => {})
-      .then(afterStart)
-      .catch((err) => {
-        console.warn("Camera start environment failed, trying default camera...", err);
-        html5Qrcode
-          .start(videoConstraintsFor("user"), config, handleDecoded, () => {})
-          .then(afterStart)
-          .catch(() => {
-            setErrorMessage("Не удалось получить доступ к камере. Проверьте разрешения в браузере.");
-          });
-      });
+    // async/try-catch, а не цепочка .then/.catch — на некоторых камерах/
+    // прошивках html5Qrcode.start() может бросить исключение СИНХРОННО
+    // (например, при валидации qrbox), а не только отклонить промис; голая
+    // цепочка .catch() такое не ловит (исключение вылетает наружу ДО того,
+    // как .then/.catch успевают подписаться), из-за чего сканер оставался
+    // "белым экраном" без сообщения об ошибке вместо отката на безопасную
+    // конфигурацию.
+    const attempts: [string, () => Promise<null>][] = [
+      ["rich environment", () => html5Qrcode.start(richVideoConstraintsFor("environment"), richConfig, handleDecoded, () => {})],
+      ["rich user", () => html5Qrcode.start(richVideoConstraintsFor("user"), richConfig, handleDecoded, () => {})],
+      ["safe environment", () => html5Qrcode.start({ facingMode: "environment" }, safeConfig, handleDecoded, () => {})],
+      ["safe user", () => html5Qrcode.start({ facingMode: "user" }, safeConfig, handleDecoded, () => {})],
+    ];
+
+    void (async () => {
+      for (const [label, attempt] of attempts) {
+        try {
+          await attempt();
+          afterStart();
+          return;
+        } catch (err) {
+          console.warn(`Camera start (${label}) failed, trying next option...`, err);
+        }
+      }
+      setErrorMessage("Не удалось получить доступ к камере. Проверьте разрешения в браузере.");
+    })();
   };
 
   const toggleTorch = () => {
