@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Table, Tag, Space, Button, Modal, Form, InputNumber, Input, Select, Checkbox, Typography, message, Empty } from "antd";
+import { Table, Tag, Space, Button, Modal, Form, InputNumber, Input, Select, Checkbox, Typography, message, Empty, List } from "antd";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -8,7 +8,9 @@ import {
   setLegacyTaskNote,
   returnUnit,
   writeOffUnit,
+  getUnitEvents,
   type ReconciliationRow,
+  type UnitEvent,
 } from "../../../api/units";
 import { listProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
@@ -159,6 +161,9 @@ export default function RollReconciliationTab() {
         dataSource={shownRows}
         pagination={{ pageSize: 20 }}
         locale={{ emptyText: <Empty description="Нет рулонов, подходящих под фильтр" /> }}
+        expandable={{
+          expandedRowRender: (r) => <UnitHistoryPanel unitId={r.unit_id} reasons={writeOffReasonsQuery.data ?? []} />,
+        }}
         columns={[
           {
             title: "Рулон",
@@ -176,6 +181,16 @@ export default function RollReconciliationTab() {
             title: "Ширина / остаток",
             key: "size",
             render: (_, r) => `${r.width_mm} × ${r.length_m} м`,
+          },
+          {
+            title: "Расход",
+            key: "spend",
+            render: (_, r) =>
+              r.status === "Списан" ? (
+                <Tag color="red">Списано</Tag>
+              ) : (
+                <Tag color="default">Не списано</Tag>
+              ),
           },
           {
             title: "Где сейчас",
@@ -495,5 +510,49 @@ function WriteOffModal({
         </Form.Item>
       </Form>
     </Modal>
+  );
+}
+
+// --- История расхода (раскрыть строку) --------------------------------------
+
+function eventLengthChange(ev: UnitEvent): string {
+  if (ev.from_length != null && ev.to_length != null) {
+    return `${ev.from_length} м → ${ev.to_length} м`;
+  }
+  const sign = ev.quantity_delta_m > 0 ? "+" : "";
+  return `${sign}${ev.quantity_delta_m} м`;
+}
+
+function UnitHistoryPanel({ unitId, reasons }: { unitId: number; reasons: { code: string; name: string }[] }) {
+  const eventsQuery = useQuery({ queryKey: ["unit-events", unitId], queryFn: () => getUnitEvents(unitId) });
+  const reasonName = (code: string) => reasons.find((r) => r.code === code)?.name ?? code;
+  return (
+    <List
+      size="small"
+      loading={eventsQuery.isLoading}
+      dataSource={eventsQuery.data ?? []}
+      locale={{ emptyText: "Событий пока нет" }}
+      renderItem={(ev) => (
+        <List.Item>
+          <Space direction="vertical" size={0}>
+            <span>
+              <Tag color={ev.event_type === "Списание" ? "red" : undefined}>{ev.event_type.replace(/_/g, " ")}</Tag>
+              {new Date(ev.timestamp).toLocaleString("ru-RU")} — <Typography.Text strong>{eventLengthChange(ev)}</Typography.Text>
+            </span>
+            {(ev.from_cell || ev.to_cell) && (
+              <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                {ev.from_cell ?? "—"} → {ev.to_cell ?? "—"}
+              </Typography.Text>
+            )}
+            {ev.write_off_reason && (
+              <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                Причина: {reasonName(ev.write_off_reason)}
+                {ev.write_off_note ? ` — ${ev.write_off_note}` : ""}
+              </Typography.Text>
+            )}
+          </Space>
+        </List.Item>
+      )}
+    />
   );
 }
