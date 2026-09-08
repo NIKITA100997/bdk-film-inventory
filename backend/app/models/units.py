@@ -71,6 +71,13 @@ class MaterialUnit(Base):
     # неотличимы на глаз).
     production_task_line: Mapped["ProductionTaskLine | None"] = relationship()
 
+    # Раздел про сверку рулонов на окутке — рулон выдан/возвращён по
+    # реальному, бумажному заданию, которого нет (и не будет) в системе:
+    # проставляется вручную из панели сверки вместо привязки к
+    # production_task_line_id, чтобы не заводить фиктивные строки заданий
+    # ради одной пометки "это старое".
+    legacy_task_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

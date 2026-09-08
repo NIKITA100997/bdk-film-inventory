@@ -90,6 +90,7 @@ function makeDonorUnit(unitId: number, widthMm: number, lengthM: number, warehou
     area: null,
     location_code: null,
     production_task_line_id: null,
+    legacy_task_note: null,
     area_m2: Math.round(((widthMm * lengthM) / 1000) * 1000) / 1000,
     warehouse_name: warehouseName,
   };

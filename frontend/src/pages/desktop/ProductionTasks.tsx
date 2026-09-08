@@ -1,6 +1,7 @@
 import { Card, Tabs, Typography } from "antd";
 import DailyPlanTab from "./production/DailyPlanTab";
 import TasksTab from "./production/TasksTab";
+import RollReconciliationTab from "./production/RollReconciliationTab";
 
 /** Задания — разбор «N штук модели X» на строки по производственным
  * линиям (пилот: окутка царговых). Начальник участка (есть свой user.area)
@@ -20,6 +21,7 @@ export default function ProductionTasks() {
         items={[
           { key: "daily-plan", label: "📅 План на день (Мастер)", children: <DailyPlanTab /> },
           { key: "tasks", label: "📋 Все задания", children: <TasksTab /> },
+          { key: "reconciliation", label: "🧵 Сверка рулонов", children: <RollReconciliationTab /> },
         ]}
       />
     </Card>

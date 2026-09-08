@@ -39,6 +39,7 @@ class MaterialUnitOut(BaseModel):
     area: str | None
     location_code: str | None
     production_task_line_id: int | None
+    legacy_task_note: str | None = None
     created_at: datetime
     updated_at: datetime
     # Раздел про остатки по конкретному складу — не прямое поле в БД (см.
@@ -141,6 +142,49 @@ class IssueDirectRequest(BaseModel):
     # права production_tasks.manage, иначе по-прежнему 409.
     override_strip_width: bool = False
     override_material: bool = False
+
+
+class LinkTaskLineRequest(BaseModel):
+    """Привязать УЖЕ выданную/возвращённую единицу к строке задания задним
+    числом (раздел про сверку рулонов на окутке) — в отличие от
+    IssueDirectRequest, статус единицы не меняется, только тег для
+    прослеживаемости."""
+
+    production_task_line_id: int
+    override_strip_width: bool = False
+    override_material: bool = False
+
+
+class LegacyTaskNoteRequest(BaseModel):
+    """Пометить единицу как относящуюся к старому бумажному заданию,
+    которого нет в системе (раздел про сверку рулонов на окутке).
+    Пустая строка/None — снять пометку."""
+
+    note: str | None = None
+
+
+class ReconciliationRowOut(BaseModel):
+    """Одна строка панели сверки рулонов (раздел про сверку рулонов на
+    окутке) — единица плюс, если есть, привязанная строка задания и итоги
+    отчётов по ней. Один плоский снимок вместо трёх походов по вкладкам."""
+
+    unit_id: int
+    width_mm: float
+    length_m: float
+    status: UnitStatus
+    area: str | None
+    location_code: str | None
+    legacy_task_note: str | None
+
+    task_line_id: int | None = None
+    task_area: str | None = None
+    task_label: str | None = None  # "Заказ №8842 — Стоевая, Дуб коньячный"
+    task_quantity_pieces: float | None = None
+    task_length_m: float | None = None
+
+    reports_count: int = 0
+    good_pieces_sum: float = 0.0
+    defect_pieces_sum: float = 0.0
 
 
 class DonorSuggestion(BaseModel):
@@ -358,6 +402,12 @@ class CuttingOperationOut(BaseModel):
 class ReturnRequest(BaseModel):
     actual_length_m: float = Field(ge=0)
     occurred_at: OccurredAt = None
+    # Раздел про сверку рулонов на окутке — "вернуть и сразу списать остаток"
+    # одним действием вместо два похода в карточку единицы (возврат, потом
+    # отдельно списание). Оба поля вместе или ни одного — валидируется в
+    # api/units.py::return_unit, как и системность причины у write_off_unit.
+    write_off_reason: str | None = None
+    write_off_note: str | None = None
 
 
 class ReturnPreviewOut(BaseModel):

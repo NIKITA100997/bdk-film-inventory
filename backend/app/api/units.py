@@ -6,13 +6,15 @@ from fastapi import Query as FastAPIQuery
 from sqlalchemy import false, func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 
+from app.api.production import view_tasks
+from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.cutting_operations import CuttingOperation
-from app.models.dictionaries import MaterialSku
+from app.models.dictionaries import Color, Material, MaterialSku, Thickness
 from app.models.events import EventType, MaterialEvent
-from app.models.production import ProductionTaskLine, ProductionTaskLineReport
+from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
 from app.models.write_off_reasons import WriteOffReasonEntry
@@ -32,12 +34,15 @@ from app.schemas.units import (
     IssueDirectRequest,
     IssueRequest,
     IssueResult,
+    LegacyTaskNoteRequest,
+    LinkTaskLineRequest,
     MaterialUnitOut,
     PlaceRequest,
     ReassignSkuRequest,
     ReceiptSessionOut,
     ReceiptUnitOut,
     ReceiveRequest,
+    ReconciliationRowOut,
     ReturnPreviewOut,
     ReturnRequest,
     UnitEventOut,
@@ -229,6 +234,88 @@ def _cutting_operation_out(db: Session, op: CuttingOperation, user: User) -> Cut
         can_undo=can_undo,
         cannot_undo_reason=reason,
     )
+
+
+@router.get("/reconciliation", response_model=list[ReconciliationRowOut])
+def reconciliation_rows(
+    area: str | None = None,
+    only_attention: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(view_tasks),
+) -> list[ReconciliationRowOut]:
+    """Панель сверки рулонов — один список вместо трёх вкладок: единица,
+    привязанная (если есть) строка задания и итоги отчётов по ней.
+
+    area фильтрует и по текущему unit.area (ещё выдан участку), и по area
+    строки задания через task (уже возвращён — unit.area возврат уже
+    очистил, см. return_unit) — иначе история возвращённых рулонов
+    выпадала бы из фильтра сразу после возврата.
+
+    Однoсегментный GET, поэтому обязан идти ДО @router.get("/{unit_id}")
+    ниже — тот же порядок регистрации важен, что и у cutting-operations,
+    см. комментарий над следующим роутом."""
+    query = (
+        db.query(MaterialUnit)
+        .outerjoin(ProductionTaskLine, MaterialUnit.production_task_line_id == ProductionTaskLine.id)
+        .outerjoin(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+        .filter(MaterialUnit.status.in_([UnitStatus.VYDAN_UCHASTKU, UnitStatus.NA_KHRANENII]))
+    )
+    if area is not None:
+        query = query.filter(or_(MaterialUnit.area == area, ProductionTask.area == area))
+    units = query.order_by(MaterialUnit.updated_at.desc()).limit(500).all()
+
+    report_aggs: dict[int, tuple[int, float, float]] = {}
+    unit_ids = [u.id for u in units]
+    if unit_ids:
+        agg_rows = (
+            db.query(
+                ProductionTaskLineReport.material_unit_id,
+                func.count(ProductionTaskLineReport.id),
+                func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
+                func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
+            )
+            .filter(ProductionTaskLineReport.material_unit_id.in_(unit_ids))
+            .group_by(ProductionTaskLineReport.material_unit_id)
+            .all()
+        )
+        report_aggs = {uid: (cnt, float(good), float(defect)) for uid, cnt, good, defect in agg_rows}
+
+    out: list[ReconciliationRowOut] = []
+    for u in units:
+        line = u.production_task_line
+        task_label = None
+        if line is not None:
+            color = db.get(Color, line.color_id)
+            order_ref = (
+                f"№{line.task.external_order_ref}" if line.task.external_order_ref
+                else (line.task.name or f"#{line.task.id}")
+            )
+            task_label = f"{order_ref} — {line.part_name or ''} {color.name if color else ''}".strip()
+        cnt, good, defect = report_aggs.get(u.id, (0, 0.0, 0.0))
+        if only_attention:
+            needs_attention = (line is None and not u.legacy_task_note) or (line is not None and cnt == 0)
+            if not needs_attention:
+                continue
+        out.append(
+            ReconciliationRowOut(
+                unit_id=u.id,
+                width_mm=float(u.width_mm),
+                length_m=float(u.length_m),
+                status=u.status,
+                area=u.area,
+                location_code=u.location_code,
+                legacy_task_note=u.legacy_task_note,
+                task_line_id=line.id if line else None,
+                task_area=line.task.area if line else None,
+                task_label=task_label,
+                task_quantity_pieces=float(line.quantity_pieces) if line else None,
+                task_length_m=float(line.length_m) if line else None,
+                reports_count=cnt,
+                good_pieces_sum=good,
+                defect_pieces_sum=defect,
+            )
+        )
+    return out
 
 
 # ВАЖНО: этот и следующий роут — ДО @router.get("/{unit_id}") ниже. FastAPI
@@ -445,6 +532,42 @@ def unit_events(
     )
 
 
+def _apply_write_off(
+    db: Session,
+    unit: MaterialUnit,
+    *,
+    reason_code: str,
+    note: str | None,
+    user_id: int,
+    occurred_at,
+) -> None:
+    """Общий код списания (раздел про сверку рулонов на окутке) — вынесен
+    из write_off_unit, чтобы возврат-с-сразу-списанием (return_unit) не
+    дублировал проверку причины и запись события."""
+    reason = db.get(WriteOffReasonEntry, reason_code)
+    if reason is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Причина списания не найдена")
+    if reason.is_system:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Причина 'Отход при раскрое' выставляется автоматически, не вручную",
+        )
+    old_length = float(unit.length_m)
+    unit.status = UnitStatus.SPISAN
+    record_event(
+        db,
+        unit=unit,
+        event_type=EventType.SPISANIE,
+        user_id=user_id,
+        quantity_delta_m=-old_length,
+        from_length=old_length,
+        to_length=0,
+        write_off_reason=reason_code,
+        write_off_note=note,
+        occurred_at=occurred_at,
+    )
+
+
 @router.post("/{unit_id}/write-off", response_model=MaterialUnitOut)
 def write_off_unit(
     unit_id: int,
@@ -459,28 +582,7 @@ def write_off_unit(
     unit = _get_storable_unit(db, unit_id)
     if unit.status != UnitStatus.NA_KHRANENII:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Списать можно только единицу на хранении")
-    reason = db.get(WriteOffReasonEntry, payload.reason)
-    if reason is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Причина списания не найдена")
-    if reason.is_system:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Причина 'Отход при раскрое' выставляется автоматически, не вручную",
-        )
-    old_length = float(unit.length_m)
-    unit.status = UnitStatus.SPISAN
-    record_event(
-        db,
-        unit=unit,
-        event_type=EventType.SPISANIE,
-        user_id=user.id,
-        quantity_delta_m=-old_length,
-        from_length=old_length,
-        to_length=0,
-        write_off_reason=payload.reason,
-        write_off_note=payload.note,
-        occurred_at=payload.occurred_at,
-    )
+    _apply_write_off(db, unit, reason_code=payload.reason, note=payload.note, user_id=user.id, occurred_at=payload.occurred_at)
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
@@ -1387,10 +1489,28 @@ def return_unit(
     """Возврат остатка (2.4/6.5 ТЗ) — единый процесс для всех трёх участков,
     момент решает регламент участка. Статус → На хранении, зона С, area
     очищается; окончательное место на стеллаже задаётся позже через
-    /units/{id}/place."""
+    /units/{id}/place.
+
+    Раздел про сверку рулонов на окутке — для AREA_REQUIRES_ROLL_ON_REPORT
+    материал не должен "тихо" уйти с участка без единого отчёта о
+    производстве (так на живых данных накопились рулоны, которые вернули,
+    но выпуск по ним так и не завели): возврат требует хотя бы одной строки
+    в production_task_line_reports с этим material_unit_id. Проверяем ДО
+    очистки unit.area ниже — иначе сравнивать будет не с чем."""
     unit = _get_storable_unit(db, unit_id)
     if unit.status != UnitStatus.VYDAN_UCHASTKU:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Вернуть можно только единицу, выданную участку")
+    if unit.area == AREA_REQUIRES_ROLL_ON_REPORT:
+        has_report = (
+            db.query(ProductionTaskLineReport.id)
+            .filter(ProductionTaskLineReport.material_unit_id == unit_id)
+            .first()
+        )
+        if has_report is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Нельзя вернуть рулон с этого участка без отчёта о производстве — сначала подайте отчёт",
+            )
 
     old_length = float(unit.length_m)
     unit.length_m = payload.actual_length_m
@@ -1407,6 +1527,14 @@ def return_unit(
         to_length=payload.actual_length_m,
         occurred_at=payload.occurred_at,
     )
+    if payload.write_off_reason is not None:
+        # Раздел про сверку рулонов на окутке — "вернуть и сразу списать
+        # остаток" одним действием: unit.length_m уже стоит на
+        # actual_length_m, _apply_write_off списывает ровно эту величину.
+        _apply_write_off(
+            db, unit, reason_code=payload.write_off_reason, note=payload.write_off_note,
+            user_id=user.id, occurred_at=payload.occurred_at,
+        )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
@@ -1480,3 +1608,55 @@ def search_units(
         MaterialUnitOut.model_validate(u).model_copy(update={"warehouse_name": resolve_warehouse_name(names, u.location_code)})
         for u in units
     ]
+
+
+# --- Сверка рулонов на окутке ---------------------------------------------
+# Раздел про сверку рулонов на окутке — пилот "Ежедневки" по конкретным
+# рулонам вскрыл разрыв между тремя вкладками (Выдача участку, карточка
+# единицы, отчёт по заданию): десятки уже выданных/возвращённых рулонов без
+# привязки к заданию или без единого отчёта о производстве. Один список,
+# который их связывает, и две точечные операции, чтобы дозаполнить связи
+# задним числом, не переделывая обычный процесс выдачи/отчёта/возврата.
+
+
+@router.patch("/{unit_id}/task-line", response_model=MaterialUnitOut)
+def link_task_line(
+    unit_id: int,
+    payload: LinkTaskLineRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.issue")),
+) -> MaterialUnit:
+    """Привязать уже выданную/возвращённую единицу к строке задания задним
+    числом — в отличие от issue_unit_direct статус не трогаем, единица уже
+    где-то в процессе (Выдан_участку) или уже вернулась (На_хранении)."""
+    unit = _get_storable_unit(db, unit_id)
+    can_override = user.is_superuser or "production_tasks.manage" in get_permission_codes(user)
+    _validate_matches_task_line(
+        db,
+        payload.production_task_line_id,
+        unit.material_sku,
+        float(unit.width_mm),
+        allow_strip_width_override=payload.override_strip_width and can_override,
+        allow_material_override=payload.override_material and can_override,
+    )
+    unit.production_task_line_id = payload.production_task_line_id
+    db.commit()
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+
+
+@router.patch("/{unit_id}/legacy-task-note", response_model=MaterialUnitOut)
+def set_legacy_task_note(
+    unit_id: int,
+    payload: LegacyTaskNoteRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("production_tasks.manage")),
+) -> MaterialUnit:
+    """Пометить (или снять пометку, если note пусто) единицу как относящуюся
+    к старому бумажному заданию, которого нет в системе — альтернатива
+    привязке к строке задания там, где строки просто не существует."""
+    unit = _get_storable_unit(db, unit_id)
+    unit.legacy_task_note = payload.note or None
+    db.commit()
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+
+

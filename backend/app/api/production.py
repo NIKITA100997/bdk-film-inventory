@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.areas import Area
@@ -91,14 +92,6 @@ view_product_models = require_permission(
 # роль по своей сути не привязана к одному участку производства (в отличие
 # от production_tasks.report/.view), поэтому не сужается по user.area.
 view_tasks = require_permission("production_tasks.manage", "production_tasks.report", "production_tasks.view", "units.issue")
-
-# Раздел про цифровой аналог бумажной "Ежедневки" — пилот только на этом
-# участке (пользователь ограничил первую версию именно им); остальные
-# участки принимают отчёт без рулона, как и раньше. Хардкод конкретного
-# кода участка, а не отдельный флаг на Area — единственный участок в
-# скоупе, расширять на другие сознательно отложено (см. план).
-AREA_REQUIRES_ROLL_ON_REPORT = "okutka_tsargovykh"
-
 
 def _can_see_all_areas(user: User) -> bool:
     if user.is_superuser:

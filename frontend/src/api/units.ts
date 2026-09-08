@@ -30,6 +30,7 @@ export interface MaterialUnit {
   area: string | null;
   location_code: string | null;
   production_task_line_id: number | null;
+  legacy_task_note: string | null;
   area_m2: number;
   // Раздел про остатки по конкретному складу — не прямое поле в БД,
   // заполняется бэкендом только в /units/search/available.
@@ -389,6 +390,10 @@ export async function undoCuttingOperation(operationId: number): Promise<Materia
 export interface ReturnRequest {
   actual_length_m: number;
   occurred_at?: string;
+  // Раздел про сверку рулонов на окутке — "вернуть и сразу списать
+  // остаток" одним действием вместо двух походов в карточку единицы.
+  write_off_reason?: string;
+  write_off_note?: string;
 }
 
 export async function returnUnit(unitId: number, payload: ReturnRequest): Promise<MaterialUnit> {
@@ -502,6 +507,51 @@ export function printLabel(unitId: number, options?: PrintLabelOptions): void {
   request
     .then(() => message.success({ content: "Отправлено на печать", key: PRINT_MESSAGE_KEY }))
     .catch((e) => message.error({ content: printErrorMessage(e), key: PRINT_MESSAGE_KEY }));
+}
+
+// --- Сверка рулонов на окутке ---------------------------------------------
+
+export interface ReconciliationRow {
+  unit_id: number;
+  width_mm: number;
+  length_m: number;
+  status: UnitStatusValue;
+  area: string | null;
+  location_code: string | null;
+  legacy_task_note: string | null;
+  task_line_id: number | null;
+  task_area: string | null;
+  task_label: string | null;
+  task_quantity_pieces: number | null;
+  task_length_m: number | null;
+  reports_count: number;
+  good_pieces_sum: number;
+  defect_pieces_sum: number;
+}
+
+export async function getReconciliation(area?: string, onlyAttention?: boolean): Promise<ReconciliationRow[]> {
+  const { data } = await apiClient.get<ReconciliationRow[]>("/units/reconciliation", {
+    params: { area, only_attention: onlyAttention },
+  });
+  return data;
+}
+
+export async function linkTaskLine(
+  unitId: number,
+  productionTaskLineId: number,
+  options?: { overrideStripWidth?: boolean; overrideMaterial?: boolean },
+): Promise<MaterialUnit> {
+  const { data } = await apiClient.patch<MaterialUnit>(`/units/${unitId}/task-line`, {
+    production_task_line_id: productionTaskLineId,
+    override_strip_width: options?.overrideStripWidth ?? false,
+    override_material: options?.overrideMaterial ?? false,
+  });
+  return data;
+}
+
+export async function setLegacyTaskNote(unitId: number, note: string | null): Promise<MaterialUnit> {
+  const { data } = await apiClient.patch<MaterialUnit>(`/units/${unitId}/legacy-task-note`, { note });
+  return data;
 }
 
 // Очередь печати (раздел про ускорение работы) — один документ на
