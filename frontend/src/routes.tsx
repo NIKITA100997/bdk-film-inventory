@@ -7,6 +7,7 @@ import { RequireAuth, RequirePermission } from "./auth/RoleGuard";
 import Receive from "./pages/mobile/Receive";
 import Issue from "./pages/mobile/Issue";
 import UnitCard from "./pages/mobile/UnitCard";
+import PartUnitCard from "./pages/mobile/PartUnitCard";
 import InitialStock from "./pages/mobile/InitialStock";
 
 import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
@@ -58,6 +59,14 @@ export default function AppRoutes() {
               permissions={["units.place", "units.writeoff", "units.split", "units.issue", "units.cut", "units.return"]}
             >
               <UnitCard />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/m/part-unit-card"
+          element={
+            <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
+              <PartUnitCard />
             </RequirePermission>
           }
         />

@@ -6,8 +6,15 @@ from app.db.session import get_db
 from app.models.dictionaries import Part
 from app.models.part_units import PartUnit, PartUnitEvent, PartUnitStatus
 from app.models.users import User
-from app.schemas.part_units import PartUnitCreate, PartUnitEventOut, PartUnitOut, PartUnitPlace, PartUnitWriteOff
-from app.services.part_units import issue_part_unit, mint_part_unit, place_part_unit, write_off_part_unit
+from app.schemas.part_units import (
+    PartUnitAdvance,
+    PartUnitCreate,
+    PartUnitEventOut,
+    PartUnitOut,
+    PartUnitPlace,
+    PartUnitWriteOff,
+)
+from app.services.part_units import advance_part_unit, issue_part_unit, mint_part_unit, place_part_unit, write_off_part_unit
 
 router = APIRouter(prefix="/part-units", tags=["part-units"])
 
@@ -84,6 +91,19 @@ def create_part_unit(
     return _part_unit_out(unit)
 
 
+@router.get("/{unit_id}", response_model=PartUnitOut)
+def get_part_unit(
+    unit_id: int, db: Session = Depends(get_db), user: User = Depends(view_part_units)
+) -> PartUnitOut:
+    """Одна партия по ID (раздел про мобильный скан-сценарий по этапам) —
+    зеркалит GET /units/{unit_id} у плёнки: карточка партии открывается
+    сканом QR-этикетки, искать в целом списке ради одной партии незачем."""
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    return _part_unit_out(unit)
+
+
 @router.post("/{unit_id}/issue", response_model=PartUnitOut)
 def issue_part_unit_to_area(
     unit_id: int, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
@@ -117,6 +137,28 @@ def place_part_unit_endpoint(
     db.commit()
     db.refresh(unit)
     return _part_unit_out(unit)
+
+
+@router.post("/{unit_id}/advance", response_model=PartUnitOut)
+def advance_part_unit_endpoint(
+    unit_id: int, payload: PartUnitAdvance, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
+) -> PartUnitOut:
+    """Перевести партию на следующий этап напрямую (раздел про мобильный
+    скан-сценарий по этапам) — не через отчёт мастера о производстве:
+    для этапов вроде склейки/фрезеровки, где расхода плёнки нет и
+    производственное задание заводить незачем. Тот же advance_part_unit,
+    что уже вызывает create_task_line_report при good_pieces > 0 —
+    здесь просто прямой доступ к нему."""
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    try:
+        target = advance_part_unit(db, unit=unit, quantity_pieces=payload.quantity_pieces, user_id=user.id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    db.commit()
+    db.refresh(target)
+    return _part_unit_out(target)
 
 
 @router.post("/{unit_id}/write-off", response_model=PartUnitOut)

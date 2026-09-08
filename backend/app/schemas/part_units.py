@@ -30,6 +30,16 @@ class PartUnitWriteOff(BaseModel):
     note: str | None = None
 
 
+class PartUnitAdvance(BaseModel):
+    """Перевод партии на следующий этап напрямую (раздел про мобильный
+    скан-сценарий по этапам) — в отличие от отчёта мастера
+    (create_task_line_report), не привязан к производственному заданию:
+    для внутренних технологических переходов (склейка/фрезеровка), где
+    расхода плёнки нет и заводить задание незачем."""
+
+    quantity_pieces: float = Field(gt=0)
+
+
 class PartUnitOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

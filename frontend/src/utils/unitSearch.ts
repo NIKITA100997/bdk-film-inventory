@@ -39,7 +39,7 @@ export async function runUnitOrMaterialSearch(query: string, navigate: NavigateF
   // для плёночных стеллажей в этом же сканере).
   const pfUnitMatch = trimmed.match(/^ПФ(\d+)$/i);
   if (pfUnitMatch) {
-    navigate("/part-units", { state: { openUnitId: Number(pfUnitMatch[1]) } });
+    navigate("/m/part-unit-card", { state: { unitId: Number(pfUnitMatch[1]) } });
     return;
   }
   if (/^ЗГ-/i.test(trimmed)) {

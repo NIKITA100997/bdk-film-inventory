@@ -11,6 +11,7 @@ import {
   createPartUnit,
   issuePartUnit,
   writeOffPartUnit,
+  advancePartUnit,
   listPartUnitEvents,
   type PartUnit,
   type PartUnitStatus,
@@ -68,6 +69,8 @@ export default function PartUnits() {
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
   const [writeOffTarget, setWriteOffTarget] = useState<PartUnit | null>(null);
   const [writeOffForm] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string }>();
+  const [advanceTarget, setAdvanceTarget] = useState<PartUnit | null>(null);
+  const [advanceForm] = Form.useForm<{ quantity_pieces: number }>();
   const [placeTarget, setPlaceTarget] = useState<PartUnit | null>(null);
   const [placeLocationCode, setPlaceLocationCode] = useState("");
   const [cardTarget, setCardTarget] = useState<PartUnit | null>(null);
@@ -184,6 +187,29 @@ export default function PartUnits() {
     },
     onError: () => message.error("Не удалось списать партию"),
   });
+
+  // Раздел про мобильный скан-сценарий по этапам — тот же прямой перевод,
+  // что теперь доступен и со сканера на телефоне (PartUnitCard.tsx), для
+  // симметрии здесь тоже, не только на мобильном.
+  const advanceMutation = useMutation({
+    mutationFn: (v: { quantity_pieces: number }) => advancePartUnit(advanceTarget!.id, v.quantity_pieces),
+    onSuccess: (u) => {
+      qc.invalidateQueries({ queryKey: ["part-units"] });
+      message.success(`Переведена на этап «${u.stage_name}»`);
+      setAdvanceTarget(null);
+      advanceForm.resetFields();
+    },
+    onError: () => message.error("Не удалось перевести на следующий этап"),
+  });
+
+  const nextStageName = (u: PartUnit): string | null => {
+    const part = partsQuery.data?.find((p) => p.id === u.part_id);
+    if (!part) return null;
+    const stages = [...part.stages].sort((a, b) => a.sequence_order - b.sequence_order);
+    const idx = stages.findIndex((s) => s.id === u.stage_id);
+    if (idx === -1 || idx + 1 >= stages.length) return null;
+    return stages[idx + 1].name;
+  };
 
   const allUnits = unitsQuery.data ?? [];
   const stageOptions = [...new Set(allUnits.map((u) => u.stage_name))].map((s) => ({ value: s, label: s }));
@@ -337,6 +363,18 @@ export default function PartUnits() {
                       </span>
                     </Popconfirm>
                   )}
+                  {canManage && u.status === "Выдан_участку" && (
+                    <ActionIcon
+                      tone="outline"
+                      tip="Перевести на следующий этап"
+                      onClick={() => {
+                        setAdvanceTarget(u);
+                        advanceForm.setFieldsValue({ quantity_pieces: u.quantity_pieces });
+                      }}
+                    >
+                      ➡️
+                    </ActionIcon>
+                  )}
                   {canManage && u.status !== "Списан" && (
                     <ActionIcon tone="ghost" danger tip="Списать" onClick={() => setWriteOffTarget(u)}>
                       ✖
@@ -408,6 +446,38 @@ export default function PartUnits() {
           </Form.Item>
           <Button type="primary" danger htmlType="submit" block loading={writeOffMutation.isPending}>
             Списать
+          </Button>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`Перевести партию «${advanceTarget?.part_name ?? ""}» на следующий этап`}
+        open={!!advanceTarget}
+        onCancel={() => setAdvanceTarget(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        {advanceTarget &&
+          (nextStageName(advanceTarget) ? (
+            <Typography.Paragraph type="secondary">
+              Следующий этап: «{nextStageName(advanceTarget)}»
+            </Typography.Paragraph>
+          ) : (
+            <Typography.Paragraph type="secondary">
+              Это последний этап — партия будет отмечена как «Завершение».
+            </Typography.Paragraph>
+          ))}
+        <Form
+          layout="vertical"
+          form={advanceForm}
+          initialValues={{ quantity_pieces: advanceTarget?.quantity_pieces }}
+          onFinish={(v) => advanceMutation.mutate(v)}
+        >
+          <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
+            <InputNumber min={0.01} max={advanceTarget?.quantity_pieces} style={{ width: "100%" }} />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={advanceMutation.isPending}>
+            Перевести
           </Button>
         </Form>
       </Modal>

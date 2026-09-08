@@ -62,6 +62,10 @@ export const listPartUnits = async (filters: PartUnitListFilters = {}): Promise<
 export const createPartUnit = async (payload: PartUnitCreate): Promise<PartUnit> =>
   (await apiClient.post<PartUnit>("/part-units", payload)).data;
 
+// Раздел про мобильный скан-сценарий по этапам — одна партия по ID,
+// зеркалит getUnit у плёнки: карточка партии открывается сканом бирки.
+export const getPartUnit = async (id: number): Promise<PartUnit> => (await apiClient.get<PartUnit>(`/part-units/${id}`)).data;
+
 // Раздел про связь этапов с участками — участок выводится из текущего
 // этапа партии на бэкенде, здесь нечего передавать.
 export const issuePartUnit = async (id: number): Promise<PartUnit> =>
@@ -71,6 +75,12 @@ export const writeOffPartUnit = async (
   id: number,
   payload: { quantity_pieces: number; reason: string; note?: string },
 ): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${id}/write-off`, payload)).data;
+
+// Раздел про мобильный скан-сценарий по этапам — прямой перевод партии
+// на следующий этап, не через отчёт о производстве (для переходов без
+// расхода плёнки, где заводить задание незачем).
+export const advancePartUnit = async (id: number, quantityPieces: number): Promise<PartUnit> =>
+  (await apiClient.post<PartUnit>(`/part-units/${id}/advance`, { quantity_pieces: quantityPieces })).data;
 
 export const listPartUnitEvents = async (id: number): Promise<PartUnitEvent[]> =>
   (await apiClient.get<PartUnitEvent[]>(`/part-units/${id}/events`)).data;
