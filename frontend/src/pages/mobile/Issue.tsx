@@ -1082,6 +1082,29 @@ export default function Issue() {
     return "✅ выдано";
   };
 
+  // Раздел про рабочий экран участка — факт расхода и остаток "к сдаче"
+  // считаем на фронте из уже загруженных issued_units, без нового
+  // запроса: remaining_length_m каждой единицы уже приходит с бэкенда
+  // (_task_line_out → _unit_consumed_length_m, пересчитывается по ВСЕМ
+  // отчётам на эту единицу), поэтому расход конкретного куска — это его
+  // текущая length_m минус remaining_length_m, независимо от того,
+  // вернули кусок на склад или нет. "К сдаче" — то, что физически ещё не
+  // в остатке склада (статус ещё Выдан_участку/В_перемещении); "На
+  // складе" — то же самое, но возврат уже приняли (AcceptReturnButton).
+  const lineActuals = (line: ProductionTaskLine) => {
+    const units = line.issued_units ?? [];
+    let consumed = 0;
+    let stillOut = 0;
+    let backInStock = 0;
+    for (const u of units) {
+      const remaining = u.remaining_length_m ?? u.length_m;
+      consumed += u.length_m - remaining;
+      if (u.status === "На_хранении") backInStock += remaining;
+      else stillOut += remaining;
+    }
+    return { consumed: Math.max(0, Math.round(consumed * 100) / 100), stillOut: Math.round(stillOut * 100) / 100, backInStock: Math.round(backInStock * 100) / 100 };
+  };
+
   // Та же категоризация, что renderStatusPill превращает в пилюлю —
   // нужна отдельно (без JSX), чтобы фильтр по статусу сверху совпадал
   // буквально с тем, что видно в колонке "Статус".
@@ -1889,19 +1912,36 @@ export default function Issue() {
             render: (_, row) => (row.kind === "manual" ? row.unit.width_mm : row.line.strip_width_mm || row.line.width_mm),
           },
           {
-            title: "Нужно",
+            title: "Нужно / факт",
             key: "need",
-            width: 110,
-            render: (_, row) =>
-              row.kind === "manual" ? (
-                `${row.unit.length_m} м`
-              ) : row.assignment ? (
+            width: 130,
+            render: (_, row) => {
+              if (row.kind === "manual") return `${row.unit.length_m} м`;
+              const issuedNote = issuedNoteForLine(row.line);
+              if (issuedNote) {
+                // Раздел про рабочий экран участка — здесь показываем не
+                // "0 м нужно" (бесполезно, раз уже выдано целиком), а факт:
+                // сколько выдано / сколько реально израсходовано по отчётам
+                // / сколько ещё физически должно вернуться на склад.
+                const { consumed, stillOut, backInStock } = lineActuals(row.line);
+                return (
+                  <div style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+                    <div>Выдано: {row.line.issued_length_m} м</div>
+                    <div>Расход: {consumed} м</div>
+                    {stillOut > 0 && <div style={{ color: "#D46B08" }}>К сдаче: {stillOut} м</div>}
+                    {backInStock > 0 && <div style={{ color: "#389E0D" }}>Возврат принят: {backInStock} м</div>}
+                    {row.line.remaining_pieces <= 0 && <div style={{ color: "#8A8C99" }}>🏁 работа завершена</div>}
+                  </div>
+                );
+              }
+              return row.assignment ? (
                 <>
                   {row.assignment.quantity_pieces} шт ({neededLengthM(row).toFixed(2)} м)
                 </>
               ) : (
                 `${row.line.shortfall_length_m} м`
-              ),
+              );
+            },
           },
           {
             title: "Действия",
