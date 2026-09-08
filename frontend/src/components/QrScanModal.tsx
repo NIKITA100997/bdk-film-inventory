@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal, Alert, Button } from "antd";
+import { ThunderboltOutlined, ThunderboltFilled } from "@ant-design/icons";
 import { Html5Qrcode } from "html5-qrcode";
 
 interface QrScanModalProps {
@@ -40,6 +41,17 @@ export default function QrScanModal({
   const qrRegionId = "html5qr-code-full-region";
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Раздел про "камера открывается, но код не распознаётся" — по описанию
+  // пользователя доступ к камере в порядке, значит дело в самом
+  // распознавании: фиксированная зона 250×250 не подстраивалась под
+  // реальный размер видео (на планшете это могло быть далеко не то, что
+  // нужно для мелкого кода на этикетке рулона), а разрешение видео вообще
+  // не запрашивалось явно (браузер сам выбирал, часто заниженное). Фонарик
+  // — типичная реальная причина нераспознавания в тёмном углу склада;
+  // показываем кнопку только если камера физически умеет (torchFeature().
+  // isSupported()), а не гадаем по типу устройства.
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
 
   // Запускаем камеру не по факту open=true, а по afterOpenChange(true) —
   // AntD Modal монтирует содержимое (div#qrRegionId) через свою анимацию
@@ -51,13 +63,33 @@ export default function QrScanModal({
   // завершения анимации открытия, элемент к этому моменту точно в DOM.
   const startScanner = () => {
     setErrorMessage(null);
+    setTorchSupported(false);
+    setTorchOn(false);
     const el = document.getElementById(qrRegionId);
     if (!el) return;
 
     const html5Qrcode = new Html5Qrcode(qrRegionId);
     scannerRef.current = html5Qrcode;
 
-    const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+    // Зона сканирования — доля от реального размера видеокадра, а не
+    // фиксированные 250px: на широком планшетном экране 250px — маленькое
+    // пятно посреди кадра, из-за чего код на этикетке рулона приходится
+    // ловить почти впритык к камере. width/height ideal — просим более
+    // высокое разрешение видео явно, а не полагаемся на выбор браузера по
+    // умолчанию (обычно занижен ради экономии трафика/CPU, мелкий QR на
+    // этикетке от этого не распознаётся).
+    const config = {
+      fps: 10,
+      qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+        const size = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.75);
+        return { width: size, height: size };
+      },
+    };
+    const videoConstraintsFor = (facingMode: "environment" | "user"): MediaTrackConstraints => ({
+      facingMode,
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+    });
 
     const handleDecoded = (decodedText: string) => {
       playBeep();
@@ -69,14 +101,37 @@ export default function QrScanModal({
       onClose();
     };
 
-    html5Qrcode.start({ facingMode: "environment" }, config, handleDecoded, () => {}).catch((err) => {
-      console.warn("Camera start environment failed, trying default camera...", err);
-      html5Qrcode
-        .start({ facingMode: "user" }, config, handleDecoded, () => {})
-        .catch(() => {
-          setErrorMessage("Не удалось получить доступ к камере. Проверьте разрешения в браузере.");
-        });
-    });
+    const afterStart = () => {
+      try {
+        const supported = html5Qrcode.getRunningTrackCameraCapabilities().torchFeature().isSupported();
+        setTorchSupported(supported);
+      } catch {
+        setTorchSupported(false);
+      }
+    };
+
+    html5Qrcode
+      .start(videoConstraintsFor("environment"), config, handleDecoded, () => {})
+      .then(afterStart)
+      .catch((err) => {
+        console.warn("Camera start environment failed, trying default camera...", err);
+        html5Qrcode
+          .start(videoConstraintsFor("user"), config, handleDecoded, () => {})
+          .then(afterStart)
+          .catch(() => {
+            setErrorMessage("Не удалось получить доступ к камере. Проверьте разрешения в браузере.");
+          });
+      });
+  };
+
+  const toggleTorch = () => {
+    const next = !torchOn;
+    scannerRef.current
+      ?.getRunningTrackCameraCapabilities()
+      .torchFeature()
+      .apply(next)
+      .then(() => setTorchOn(next))
+      .catch(() => setErrorMessage("Не удалось переключить фонарик — устройство отклонило запрос."));
   };
 
   const stopScanner = () => {
@@ -102,6 +157,11 @@ export default function QrScanModal({
         else stopScanner();
       }}
       footer={[
+        torchSupported && (
+          <Button key="torch" icon={torchOn ? <ThunderboltFilled /> : <ThunderboltOutlined />} onClick={toggleTorch}>
+            {torchOn ? "Выключить фонарик" : "Включить фонарик"}
+          </Button>
+        ),
         <Button key="close" onClick={handleClose}>
           Отмена
         </Button>,
@@ -113,7 +173,8 @@ export default function QrScanModal({
         <Alert message={errorMessage} type="error" showIcon style={{ marginBottom: 16 }} />
       ) : (
         <Alert
-          message="Наведите камеру планшета/устройства на QR-код"
+          message="Наведите камеру на QR-код"
+          description="Если не распознаётся — поднесите ближе к этикетке и держите ровно (без наклона); в тёмном месте включите фонарик кнопкой снизу."
           type="info"
           showIcon
           style={{ marginBottom: 16 }}

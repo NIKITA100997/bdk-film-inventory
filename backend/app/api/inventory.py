@@ -15,6 +15,7 @@ from app.schemas.inventory import (
     InventorySessionCreate,
     InventorySessionOut,
     ResolveShortageRequest,
+    ScanLogEntryOut,
     ScanRequest,
     ScanResult,
     ShortageOut,
@@ -166,6 +167,49 @@ def start_session(
 @router.get("/{session_id}", response_model=InventorySessionOut)
 def get_session(session_id: int, db: Session = Depends(get_db), user: User = Depends(manage_inventory)) -> InventorySessionOut:
     return _to_out(db, _get_session(db, session_id))
+
+
+_SCAN_EVENT_OUTCOME = {
+    EventType.INVENTARIZATSIYA_PODTVERZHDENO: "confirmed",
+    EventType.INVENTARIZATSIYA_PEREMESHCHENO: "moved",
+    EventType.INVENTARIZATSIYA_IZLISHEK: "surplus",
+}
+
+
+@router.get("/{session_id}/scans", response_model=list[ScanLogEntryOut])
+def get_session_scans(
+    session_id: int, db: Session = Depends(get_db), user: User = Depends(manage_inventory)
+) -> list[ScanLogEntryOut]:
+    """История сканов сессии (раздел про сверку рулонов на окутке — тот же
+    урок: "последние сканы" раньше жили только в памяти вкладки браузера
+    (useState на фронте) и терялись при переходе на другую страницу или
+    просто на следующий день. Читаем из журнала событий — переживает
+    что угодно, доступно даже для уже закрытой сессии."""
+    _get_session(db, session_id)
+    rows = (
+        db.query(MaterialEvent, MaterialUnit)
+        .join(MaterialUnit, MaterialEvent.unit_id == MaterialUnit.id)
+        .filter(
+            MaterialEvent.inventory_session_id == session_id,
+            MaterialEvent.event_type.in_(list(_SCAN_EVENT_OUTCOME)),
+        )
+        .order_by(MaterialEvent.timestamp.desc())
+        .limit(500)
+        .all()
+    )
+    return [
+        ScanLogEntryOut(
+            event_id=e.event_id,
+            unit_id=e.unit_id,
+            outcome=_SCAN_EVENT_OUTCOME[e.event_type],
+            width_mm=float(u.width_mm),
+            length_m=float(u.length_m),
+            from_cell=e.from_cell,
+            to_cell=e.to_cell,
+            timestamp=e.timestamp,
+        )
+        for e, u in rows
+    ]
 
 
 @router.post("/{session_id}/scan", response_model=ScanResult)

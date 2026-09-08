@@ -35,6 +35,17 @@ export interface ScanResult {
   unit: MaterialUnit;
 }
 
+export interface ScanLogEntry {
+  event_id: number;
+  unit_id: number;
+  outcome: "confirmed" | "moved" | "surplus";
+  width_mm: number;
+  length_m: number;
+  from_cell: string | null;
+  to_cell: string | null;
+  timestamp: string;
+}
+
 export interface Shortage {
   id: number;
   material_sku_id: number;
@@ -72,6 +83,14 @@ export async function getSession(id: number): Promise<InventorySession> {
 
 export async function scanUnit(sessionId: number, payload: ScanRequest): Promise<ScanResult> {
   const { data } = await apiClient.post<ScanResult>(`/inventory-sessions/${sessionId}/scan`, payload);
+  return data;
+}
+
+// Раздел про сверку рулонов на окутке — та же история: "последние сканы"
+// читаются из журнала на сервере, а не из памяти вкладки, переживают
+// переход на другую страницу и возврат на следующий день.
+export async function getSessionScans(sessionId: number): Promise<ScanLogEntry[]> {
+  const { data } = await apiClient.get<ScanLogEntry[]>(`/inventory-sessions/${sessionId}/scans`);
   return data;
 }
 

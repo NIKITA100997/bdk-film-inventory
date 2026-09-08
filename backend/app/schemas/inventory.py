@@ -71,6 +71,23 @@ class ScanResult(BaseModel):
     unit: MaterialUnitOut
 
 
+class ScanLogEntryOut(BaseModel):
+    """Одна запись в истории сканов сессии (раздел про сверку рулонов —
+    та же логика прозрачности: "последние сканы" раньше жили только в
+    памяти вкладки браузера и терялись при переходе на другую страницу или
+    просто по возвращении на следующий день — теперь читаются из журнала,
+    переживают что угодно."""
+
+    event_id: int
+    unit_id: int
+    outcome: str  # confirmed / moved / surplus — то же значение, что ScanResult.outcome
+    width_mm: float
+    length_m: float
+    from_cell: str | None
+    to_cell: str | None
+    timestamp: datetime
+
+
 class ShortageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

@@ -30,6 +30,7 @@ import {
   closeSession,
   resolveShortage,
   getUnresolvedShortages,
+  getSessionScans,
   type InventoryScopeType,
   type InventorySession,
   type ScanResult,
@@ -37,7 +38,7 @@ import {
 } from "../../api/inventory";
 import { listRacks } from "../../api/storage";
 import { listMaterialSkus } from "../../api/dictionaries";
-import { skuLabel } from "../../api/units";
+import { skuLabel, type MaterialSku } from "../../api/units";
 import { listUsers } from "../../api/users";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import QrScanButton from "../../components/QrScanButton";
@@ -61,7 +62,6 @@ export default function InventoryDesktop() {
   const [createOpen, setCreateOpen] = useState(false);
   const [scopeType, setScopeType] = useState<InventoryScopeType>("rack");
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [scanLog, setScanLog] = useState<ScanResult[]>([]);
   const [closeResult, setCloseResult] = useState<CloseSessionResult | null>(null);
   const [unitIdKnown, setUnitIdKnown] = useState(true);
   const [scanForm] = Form.useForm();
@@ -103,7 +103,6 @@ export default function InventoryDesktop() {
       return;
     }
     setExpandedId(session.id);
-    setScanLog([]);
     setCloseResult(null);
     scanForm.resetFields();
     setUnitIdKnown(true);
@@ -115,7 +114,6 @@ export default function InventoryDesktop() {
       qc.invalidateQueries({ queryKey: ["inventory-sessions"] });
       setCreateOpen(false);
       setExpandedId(s.id);
-      setScanLog([]);
       setCloseResult(null);
       message.success("Сессия открыта — сканируйте прямо здесь");
     },
@@ -126,8 +124,8 @@ export default function InventoryDesktop() {
     mutationFn: (values: Record<string, unknown>) =>
       scanUnit(expandedId!, { ...values, occurred_at: toOccurredAtIso(occurredAt) } as never),
     onSuccess: (result) => {
-      setScanLog((log) => [result, ...log]);
       qc.invalidateQueries({ queryKey: ["inventory-sessions"] });
+      qc.invalidateQueries({ queryKey: ["inventory-scans", expandedId] });
       scanForm.resetFields(["unit_id", "material", "color", "thickness", "manufacturer", "width_mm", "length_m"]);
       message.success(
         result.outcome === "confirmed" ? "На месте" : result.outcome === "moved" ? "Адрес скорректирован" : "Излишек — создана новая единица",
@@ -205,7 +203,7 @@ export default function InventoryDesktop() {
                 scanForm={scanForm}
                 unitIdKnown={unitIdKnown}
                 setUnitIdKnown={setUnitIdKnown}
-                scanLog={scanLog}
+                skus={skusQuery.data ?? []}
                 scanMutation={scanMutation}
                 closeMutation={closeMutation}
                 closeResult={closeResult?.session.id === s.id ? closeResult : null}
@@ -293,7 +291,7 @@ function SessionPanel({
   scanForm,
   unitIdKnown,
   setUnitIdKnown,
-  scanLog,
+  skus,
   scanMutation,
   closeMutation,
   closeResult,
@@ -305,7 +303,7 @@ function SessionPanel({
   scanForm: FormInstance;
   unitIdKnown: boolean;
   setUnitIdKnown: (v: (prev: boolean) => boolean) => void;
-  scanLog: ScanResult[];
+  skus: MaterialSku[];
   scanMutation: ReturnType<typeof useMutation<ScanResult, unknown, Record<string, unknown>>>;
   closeMutation: ReturnType<typeof useMutation<CloseSessionResult, unknown, number>>;
   closeResult: CloseSessionResult | null;
@@ -320,6 +318,21 @@ function SessionPanel({
     queryFn: () => getUnresolvedShortages(session.id),
     enabled: session.status === "closed",
   });
+  // Раздел про сверку рулонов на окутке — тот же урок: "последние сканы"
+  // читаются с сервера (переживают переход на другую страницу/перезагрузку),
+  // не хранятся в памяти вкладки браузера.
+  const scansQuery = useQuery({
+    queryKey: ["inventory-scans", session.id],
+    queryFn: () => getSessionScans(session.id),
+    enabled: session.status === "in_progress",
+  });
+  // Раздел про быстрое добавление неучтённой единицы — вместо 4 отдельных
+  // полей (материал/цвет/толщина/производитель) для уже существующего в
+  // справочнике материала достаточно одного поиска по позиции (то же, что
+  // уже есть в выборе области сканирования "Позиция материала"). Поля
+  // ввода с нуля остаются — для реально нового материала, которого нет в
+  // списке ни одной существующей позиции.
+  const [useExistingSku, setUseExistingSku] = useState(true);
 
   return (
     <div style={{ maxWidth: 900 }}>
@@ -332,7 +345,21 @@ function SessionPanel({
               onFinish={(v) => {
                 const payload: Record<string, unknown> = { location_code: v.location_code };
                 if (unitIdKnown && v.unit_id) payload.unit_id = v.unit_id;
-                if (!unitIdKnown) {
+                if (!unitIdKnown && useExistingSku && v.sku_id) {
+                  const sku = skus.find((s) => s.id === v.sku_id);
+                  if (!sku) {
+                    message.error("Позиция не найдена — выберите из списка");
+                    return;
+                  }
+                  Object.assign(payload, {
+                    material: sku.material.name,
+                    color: sku.color.name,
+                    thickness: sku.thickness.value_mm,
+                    manufacturer: sku.manufacturer.name,
+                    width_mm: v.width_mm,
+                    length_m: v.length_m,
+                  });
+                } else if (!unitIdKnown) {
                   Object.assign(payload, {
                     material: v.material,
                     color: v.color,
@@ -347,9 +374,22 @@ function SessionPanel({
             >
               <Form.Item label="Физический адрес, где сканируете">
                 <Form.Item name="location_code" noStyle rules={[{ required: true }]}>
-                  <Input placeholder="Р-3-07" />
+                  <Input
+                    placeholder="Р-3-07"
+                    addonAfter={
+                      <QrScanButton
+                        size="small"
+                        type="text"
+                        tooltip="Сканировать QR полки"
+                        onScan={(code) => scanForm.setFieldsValue({ location_code: code })}
+                      />
+                    }
+                  />
                 </Form.Item>
               </Form.Item>
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginTop: -8, marginBottom: 12 }}>
+                Адрес остаётся между сканами — меняйте, только когда физически перешли на другую полку.
+              </Typography.Text>
 
               <Button type="dashed" block style={{ marginBottom: 12 }} onClick={() => setUnitIdKnown((v) => !v)}>
                 {unitIdKnown ? "ID не читается — создать как новую" : "Вернуться к вводу ID"}
@@ -370,18 +410,34 @@ function SessionPanel({
                 </Form.Item>
               ) : (
                 <>
-                  <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
-                    <DictAutoComplete kind="materials" />
-                  </Form.Item>
-                  <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
-                    <DictAutoComplete kind="colors" />
-                  </Form.Item>
-                  <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
-                    <DictAutoComplete kind="thicknesses" />
-                  </Form.Item>
-                  <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
-                    <DictAutoComplete kind="manufacturers" />
-                  </Form.Item>
+                  <Button type="link" size="small" style={{ padding: 0, marginBottom: 8 }} onClick={() => setUseExistingSku((v) => !v)}>
+                    {useExistingSku ? "Такого материала нет в списке → ввести с нуля" : "← Выбрать из уже существующих позиций"}
+                  </Button>
+                  {useExistingSku ? (
+                    <Form.Item name="sku_id" label="Позиция материала" rules={[{ required: true, message: "Выберите позицию" }]}>
+                      <Select
+                        showSearch
+                        placeholder="Начните вводить материал, цвет…"
+                        options={skus.map((s) => ({ value: s.id, label: skuLabel(s) }))}
+                        filterOption={(input, option) => (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())}
+                      />
+                    </Form.Item>
+                  ) : (
+                    <>
+                      <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
+                        <DictAutoComplete kind="materials" />
+                      </Form.Item>
+                      <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
+                        <DictAutoComplete kind="colors" />
+                      </Form.Item>
+                      <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
+                        <DictAutoComplete kind="thicknesses" />
+                      </Form.Item>
+                      <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
+                        <DictAutoComplete kind="manufacturers" />
+                      </Form.Item>
+                    </>
+                  )}
                   <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
                     <InputNumber min={1} style={{ width: "100%" }} />
                   </Form.Item>
@@ -436,15 +492,17 @@ function SessionPanel({
             </Typography.Text>
             <List
               size="small"
+              loading={scansQuery.isLoading}
               style={{ marginTop: 8, maxHeight: 320, overflowY: "auto" }}
-              dataSource={scanLog}
+              dataSource={scansQuery.data ?? []}
               locale={{ emptyText: "Пока ничего не отсканировано" }}
               renderItem={(item) => (
-                <List.Item>
+                <List.Item key={item.event_id}>
                   <Tag color={item.outcome === "confirmed" ? "green" : item.outcome === "moved" ? "orange" : "blue"}>
                     {item.outcome === "confirmed" ? "На месте" : item.outcome === "moved" ? "Перемещено" : "Излишек"}
                   </Tag>
-                  № {item.unit.id} — {item.unit.width_mm} мм × {item.unit.length_m} м
+                  № {item.unit_id} — {item.width_mm} мм × {item.length_m} м
+                  {item.to_cell && <span style={{ color: "#8c8c8c" }}> · {item.to_cell}</span>}
                 </List.Item>
               )}
             />
