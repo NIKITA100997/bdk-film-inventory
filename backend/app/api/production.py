@@ -169,6 +169,7 @@ def _task_line_out(
         length_m=float(line.length_m),
         strip_width_mm=sw,
         part_name=line.part_name,
+        is_closed=line.is_closed,
         produced_good_pieces=good,
         defect_pieces=defect,
         remaining_pieces=remaining_pieces,
@@ -1020,6 +1021,32 @@ def archive_production_task(
     task.is_active = is_active
     db.commit()
     db.refresh(task)
+    return _task_out(db, task)
+
+
+@router.patch("/production-tasks/{task_id}/lines/{line_id}/close", response_model=ProductionTaskOut)
+def close_task_line(
+    task_id: int,
+    line_id: int,
+    is_closed: bool,
+    db: Session = Depends(get_db),
+    user: User = Depends(manage_production),
+) -> ProductionTaskOut:
+    """Закрыть/переоткрыть ОДНУ строку задания по выдаче (раздел про
+    закрытие строки задания по выдаче) — та же механика, что
+    archive_production_task выше, но не для всего задания целиком: часто
+    в одном задании соседствуют строки, которые реально ещё идут, и
+    строки, по которым всё уже физически улажено (выдано, возвращено,
+    списано) заднем числом, пока отчёты только дозаводятся. Флаг не
+    трогает shortfall_length_m/remaining_pieces/отчёты — это ручное
+    решение поверх них, скрывающее строку из Issue.tsx (не из
+    TasksTab.tsx — там она остаётся видна с пометкой)."""
+    line = db.get(ProductionTaskLine, line_id)
+    if line is None or line.task_id != task_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
+    line.is_closed = is_closed
+    db.commit()
+    task = db.get(ProductionTask, task_id)
     return _task_out(db, task)
 
 

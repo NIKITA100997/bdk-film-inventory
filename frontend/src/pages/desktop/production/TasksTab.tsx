@@ -13,6 +13,7 @@ import {
   listProductionTasks,
   deleteProductionTask,
   archiveProductionTask,
+  closeTaskLine,
   updateTaskLineSpec,
   type ProductionTask,
   type ProductionTaskLine,
@@ -99,6 +100,16 @@ export default function TasksTab() {
     },
   });
 
+  const closeLineMutation = useMutation({
+    mutationFn: ({ taskId, lineId, isClosed }: { taskId: number; lineId: number; isClosed: boolean }) =>
+      closeTaskLine(taskId, lineId, isClosed),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      message.success("Сохранено");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить строку")),
+  });
+
   const dimsMutation = useMutation({
     mutationFn: (payload: ProductionTaskLineSpecUpdate) => updateTaskLineSpec(dimsTarget!.taskId, dimsTarget!.line.id, payload),
     onSuccess: () => {
@@ -182,7 +193,15 @@ export default function TasksTab() {
                       dataSource={task.lines}
                       scroll={{ x: "max-content" }}
                       columns={[
-                        { title: "Деталь", render: (_, l) => l.part_name ?? "—" },
+                        {
+                          title: "Деталь",
+                          render: (_, l) => (
+                            <Space size={4}>
+                              {l.part_name ?? "—"}
+                              {l.is_closed && <Tag>Закрыто</Tag>}
+                            </Space>
+                          ),
+                        },
                         { title: "Линия", dataIndex: "line_name" },
                         { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
                         { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
@@ -279,6 +298,15 @@ export default function TasksTab() {
                                     }}
                                   >
                                     Изменить размер/материал
+                                  </Button>
+                                )}
+                                {canManage && (
+                                  <Button
+                                    size="small"
+                                    loading={closeLineMutation.isPending}
+                                    onClick={() => closeLineMutation.mutate({ taskId: task.id, lineId: l.id, isClosed: !l.is_closed })}
+                                  >
+                                    {l.is_closed ? "Открыть заново" : "Закрыть по выдаче"}
                                   </Button>
                                 )}
                               </Space>

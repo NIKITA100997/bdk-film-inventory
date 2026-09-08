@@ -290,6 +290,9 @@ class ProductionTaskLineOut(BaseModel):
     length_m: float
     strip_width_mm: float | None = None
     part_name: str | None
+    # Раздел про закрытие строки задания по выдаче — ручной флаг "выдача
+    # закрыта", не производная величина (см. models/production.py).
+    is_closed: bool = False
     # Агрегаты по ProductionTaskLineReport (раздел про брак в
     # производстве) — quantity_pieces сама не мутируется, остаток считается
     # на лету из накопительного журнала отчётов.

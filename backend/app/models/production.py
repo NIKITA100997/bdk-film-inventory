@@ -136,6 +136,16 @@ class ProductionTaskLine(Base):
     # создании из BOM, необязательно при ручном вводе.
     part_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Раздел про закрытие строки задания по выдаче — та же механика, что
+    # ProductionTask.is_active выше, но на уровень строки: ручной флаг
+    # "по этой строке выдача закрыта, больше ничего не ожидается", а не
+    # производная от shortfall_length_m/remaining_pieces/отчётов (те
+    # реальные цифры не трогаем — оставляем как исторический факт, даже
+    # неполный/недостоверный). Скрывает строку из операционных списков
+    # (Issue.tsx), не из административных (TasksTab.tsx показывает её
+    # всегда, с пометкой).
+    is_closed: Mapped[bool] = mapped_column(default=False, server_default="false")
+
     task: Mapped[ProductionTask] = relationship(back_populates="lines")
     reports: Mapped[list["ProductionTaskLineReport"]] = relationship(
         back_populates="task_line", cascade="all, delete-orphan"

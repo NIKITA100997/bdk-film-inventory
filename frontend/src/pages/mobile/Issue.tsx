@@ -55,6 +55,7 @@ import { listSites } from "../../api/sites";
 import { listWarehouses } from "../../api/storage";
 import {
   listProductionTasks,
+  closeTaskLine,
   type ProductionTask,
   type ProductionTaskLine,
   type ProductionTaskLineAssignment,
@@ -431,6 +432,10 @@ export default function Issue() {
   // задания только при наличии этого права (units.py::_validate_matches_
   // task_line), иначе как раньше — жёсткий отказ.
   const canOverrideMaterial = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  // Раздел про закрытие строки задания по выдаче — то же право, что и
+  // override материала выше (управленческое решение, не рутинная выдача
+  // складом); отдельное имя здесь только для ясности у места вызова.
+  const canManage = canOverrideMaterial;
   const prefill = (location.state as IssuePrefill | null) ?? undefined;
 
   const [selected, setSelected] = useState<QueueSelection | null>(null);
@@ -714,7 +719,13 @@ export default function Issue() {
       (tasksQuery.data ?? [])
         .filter((task) => task.is_active)
         .flatMap((task) =>
-          task.lines.filter((line) => line.remaining_pieces > 0 || line.issued_length_m > 0).map((line) => ({ task, line })),
+          task.lines
+            // is_closed — раздел про закрытие строки задания по выдаче:
+            // ручной флаг поверх остатка/выданного, для строк, где всё уже
+            // физически улажено вне этого экрана, а отчёты дозаводятся
+            // только сейчас (issued_length_m сам по себе не уменьшается).
+            .filter((line) => !line.is_closed && (line.remaining_pieces > 0 || line.issued_length_m > 0))
+            .map((line) => ({ task, line })),
         ),
     [tasksQuery.data],
   );
@@ -1026,6 +1037,20 @@ export default function Issue() {
       }
     },
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось оформить выдачу")),
+  });
+
+  // Раздел про закрытие строки задания по выдаче — строка, по которой всё
+  // уже физически улажено (выдано/возвращено/списано) вне этого экрана,
+  // а отчёты дозаводятся только сейчас, иначе висела бы в "Выдано по
+  // заданиям" бессрочно (issued_length_m не уменьшается никогда).
+  const closeLineMutation = useMutation({
+    mutationFn: ({ taskId, lineId, isClosed }: { taskId: number; lineId: number; isClosed: boolean }) =>
+      closeTaskLine(taskId, lineId, isClosed),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      message.success("Строка закрыта по выдаче");
+    },
+    onError: (e) => message.error(issueErrorMessage(e, "Не удалось закрыть строку")),
   });
 
   // Раздел про разбор задания единой таблицей — строка "выдано" не должна
@@ -1889,22 +1914,35 @@ export default function Issue() {
               }
               const issuedNote = issuedNoteForLine(row.line);
               if (issuedNote) {
-                return row.line.issued_units.length > 0 ? (
+                return (
                   <Space size={4} wrap>
-                    <ActionIcon
-                      tip={`Печать этикеток (${row.line.issued_units.length})`}
-                      onClick={() =>
-                        printLabelsBatch(
-                          row.line.issued_units.map((u) => u.id),
-                          { kind: "cutting_issue" },
-                        )
-                      }
-                    >
-                      🖨
-                    </ActionIcon>
+                    {row.line.issued_units.length > 0 && (
+                      <ActionIcon
+                        tip={`Печать этикеток (${row.line.issued_units.length})`}
+                        onClick={() =>
+                          printLabelsBatch(
+                            row.line.issued_units.map((u) => u.id),
+                            { kind: "cutting_issue" },
+                          )
+                        }
+                      >
+                        🖨
+                      </ActionIcon>
+                    )}
                     {canReturn && row.line.issued_units.map((u) => <AcceptReturnButton key={u.id} unit={u} />)}
+                    {/* Раздел про закрытие строки задания по выдаче — видна
+                        именно здесь, где сейчас "🏭 на складе, ждёт довыдачи":
+                        для строк, где всё уже физически улажено вне этого
+                        экрана (issued_units пуст, но issued_length_m > 0
+                        не даёт строке пропасть), это единственный способ
+                        убрать её из списка. */}
+                    {canManage && (
+                      <Button size="small" loading={closeLineMutation.isPending} onClick={() => closeLineMutation.mutate({ taskId: row.task.id, lineId: row.line.id, isClosed: true })}>
+                        Закрыть по выдаче
+                      </Button>
+                    )}
                   </Space>
-                ) : null;
+                );
               }
               const info = lineInfoMap.get(row.line.id);
               const groupRows = groupRowsByRowKey.get(row.key);

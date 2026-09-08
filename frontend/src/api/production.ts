@@ -95,6 +95,9 @@ export interface ProductionTaskLine {
   length_m: number;
   strip_width_mm: number | null;
   part_name: string | null;
+  // Раздел про закрытие строки задания по выдаче — ручной флаг "выдача
+  // закрыта", отдельный от shortfall_length_m/remaining_pieces.
+  is_closed: boolean;
   produced_good_pieces: number;
   defect_pieces: number;
   remaining_pieces: number;
@@ -375,6 +378,18 @@ export const deleteProductionTask = async (taskId: number): Promise<DeleteResult
 
 export const archiveProductionTask = async (taskId: number, isActive: boolean): Promise<ProductionTask> =>
   (await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/archive`, null, { params: { is_active: isActive } })).data;
+
+// Раздел про закрытие строки задания по выдаче — та же механика, что
+// archiveProductionTask выше, но для ОДНОЙ строки, не всего задания:
+// строка, по которой всё уже физически улажено (выдано/возвращено/
+// списано), но отчёты дозаводятся только сейчас, перестаёт висеть в
+// "Выдача участку" как требующая внимания.
+export const closeTaskLine = async (taskId: number, lineId: number, isClosed: boolean): Promise<ProductionTask> =>
+  (
+    await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/lines/${lineId}/close`, null, {
+      params: { is_closed: isClosed },
+    })
+  ).data;
 
 // Раздел про правку размера/материала прямо в задании (пока размеры ещё
 // тестируются и не всегда хватает нужной номенклатуры) — width_mm/length_m

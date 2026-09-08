@@ -202,7 +202,10 @@ export default function RollReconciliationTab() {
             key: "task",
             render: (_, r) =>
               r.task_label ? (
-                <span>{r.task_label}</span>
+                <Space size={4}>
+                  <span>{r.task_label}</span>
+                  {r.task_line_id != null && findLine(r.task_line_id)?.line.is_closed && <Tag>Закрыто</Tag>}
+                </Space>
               ) : r.legacy_task_note ? (
                 <Space>
                   <Typography.Text italic type="secondary">
