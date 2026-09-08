@@ -752,7 +752,16 @@ def create_task_line_report(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к распределению по дням")
     if payload.material_unit_id is not None:
         unit = db.get(MaterialUnit, payload.material_unit_id)
-        if unit is None or unit.production_task_line_id != line_id or unit.status != UnitStatus.VYDAN_UCHASTKU:
+        # Раздел про сверку рулонов на окутке — допускаем ещё и На_хранении
+        # (не только Выдан_участку): пилот "Ежедневки" запущен позже, чем
+        # часть рулонов успели вернуть, поэтому отчёт по ним заводится
+        # задним числом уже после физического возврата (см. панель
+        # "Сверка рулонов"). Раньше это падало 422 "рулон не найден среди
+        # выданных" — рулон-то физически давно на складе, отчёт всё равно
+        # нужно занести.
+        if unit is None or unit.production_task_line_id != line_id or unit.status not in (
+            UnitStatus.VYDAN_UCHASTKU, UnitStatus.NA_KHRANENII,
+        ):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Рулон не найден среди выданных на эту строку")
     elif line.task.area == AREA_REQUIRES_ROLL_ON_REPORT:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к рулону")
