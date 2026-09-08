@@ -13,7 +13,6 @@ import {
   Row,
   Select,
   Space,
-  Table,
   Tag,
   Tooltip,
   Typography,
@@ -1096,14 +1095,37 @@ export default function Issue() {
     let consumed = 0;
     let stillOut = 0;
     let backInStock = 0;
+    // Раздел про номера штрипсов на рабочем экране — отдельно от сумм
+    // держим сами единицы по обеим группам, чтобы вывести кликабельный
+    // номер каждого рулона (провалиться в его карточку), не только итог.
+    const stillOutUnits: ProductionTaskLineIssuedUnit[] = [];
+    const backInStockUnits: ProductionTaskLineIssuedUnit[] = [];
     for (const u of units) {
       const remaining = u.remaining_length_m ?? u.length_m;
       consumed += u.length_m - remaining;
-      if (u.status === "На_хранении") backInStock += remaining;
-      else stillOut += remaining;
+      if (u.status === "На_хранении") {
+        backInStock += remaining;
+        backInStockUnits.push(u);
+      } else {
+        stillOut += remaining;
+        stillOutUnits.push(u);
+      }
     }
-    return { consumed: Math.max(0, Math.round(consumed * 100) / 100), stillOut: Math.round(stillOut * 100) / 100, backInStock: Math.round(backInStock * 100) / 100 };
+    return {
+      consumed: Math.max(0, Math.round(consumed * 100) / 100),
+      stillOut: Math.round(stillOut * 100) / 100,
+      backInStock: Math.round(backInStock * 100) / 100,
+      stillOutUnits,
+      backInStockUnits,
+    };
   };
+
+  // Номер рулона — кликабельный, ведёт в карточку единицы (тот же переход,
+  // что "Остатки"/"Карточка материала" уже используют — navigate с
+  // unitId в state, UnitCard.tsx сам подхватывает и грузит по id).
+  const UnitLink = ({ id }: { id: number }) => (
+    <a onClick={() => navigate("/m/unit-card", { state: { unitId: id } })}>№{id}</a>
+  );
 
   // Та же категоризация, что renderStatusPill превращает в пилюлю —
   // нужна отдельно (без JSX), чтобы фильтр по статусу сверху совпадал
@@ -1812,12 +1834,14 @@ export default function Issue() {
         />
       ))}
 
-      <Table<TableRow>
+      <ResponsiveTable<TableRow>
+        tableKey="issue-queue"
+        lockedColumns={["actions"]}
         rowKey="key"
         dataSource={filteredTableRows}
         size="small"
         pagination={{ pageSize: 30 }}
-        scroll={{ x: 1180 }}
+        scroll={{ x: 1220 }}
         tableLayout="fixed"
         locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
         columns={[
@@ -1914,7 +1938,7 @@ export default function Issue() {
           {
             title: "Нужно / факт",
             key: "need",
-            width: 130,
+            width: 170,
             render: (_, row) => {
               if (row.kind === "manual") return `${row.unit.length_m} м`;
               const issuedNote = issuedNoteForLine(row.line);
@@ -1923,13 +1947,33 @@ export default function Issue() {
                 // "0 м нужно" (бесполезно, раз уже выдано целиком), а факт:
                 // сколько выдано / сколько реально израсходовано по отчётам
                 // / сколько ещё физически должно вернуться на склад.
-                const { consumed, stillOut, backInStock } = lineActuals(row.line);
+                const { consumed, stillOut, backInStock, stillOutUnits, backInStockUnits } = lineActuals(row.line);
                 return (
                   <div style={{ fontSize: 11.5, lineHeight: 1.6 }}>
                     <div>Выдано: {row.line.issued_length_m} м</div>
                     <div>Расход: {consumed} м</div>
-                    {stillOut > 0 && <div style={{ color: "#D46B08" }}>К сдаче: {stillOut} м</div>}
-                    {backInStock > 0 && <div style={{ color: "#389E0D" }}>Возврат принят: {backInStock} м</div>}
+                    {stillOut > 0 && (
+                      <div style={{ color: "#D46B08" }}>
+                        К сдаче: {stillOut} м ·{" "}
+                        {stillOutUnits.map((u, i) => (
+                          <span key={u.id}>
+                            {i > 0 && ", "}
+                            <UnitLink id={u.id} />
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {backInStock > 0 && (
+                      <div style={{ color: "#389E0D" }}>
+                        Возврат принят: {backInStock} м ·{" "}
+                        {backInStockUnits.map((u, i) => (
+                          <span key={u.id}>
+                            {i > 0 && ", "}
+                            <UnitLink id={u.id} />
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     {row.line.remaining_pieces <= 0 && <div style={{ color: "#8A8C99" }}>🏁 работа завершена</div>}
                   </div>
                 );
