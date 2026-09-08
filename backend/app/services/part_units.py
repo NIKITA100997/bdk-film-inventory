@@ -73,27 +73,39 @@ def mint_part_unit(
     production_task_line_id: int | None = None,
     issue: bool = False,
     note: str | None = None,
+    stage_id: int | None = None,
 ) -> PartUnit:
-    """Регистрация факта нарезки партии (начальник цеха) — всегда рождается
-    на первом этапе детали (sequence_order=1). Деталь без настроенных
-    этапов ещё не готова к физическому учёту — явная ошибка вместо тихого
-    создания партии без этапа.
+    """Регистрация факта нарезки партии (начальник цеха) — по умолчанию
+    рождается на первом этапе детали (sequence_order=1). Деталь без
+    настроенных этапов ещё не готова к физическому учёту — явная ошибка
+    вместо тихого создания партии без этапа.
+
+    `stage_id` — раздел про регистрацию задним числом: партия физически
+    уже прошла часть маршрута (например, уже склеена и отфрезерована) и
+    заводится в систему только сейчас — стартовым этапом становится он,
+    а не обязательно первый. Явная ошибка, если этап не из списка этапов
+    ЭТОЙ детали (а не просто существует у какой-то другой).
 
     Раздел про связь этапов с участками — участок выдачи выводится из
-    `first_stage.area`, не выбирается вручную (см. PartStage.area):
+    `start_stage.area`, не выбирается вручную (см. PartStage.area):
     начальник цеха выбирает ТОЛЬКО факт "сразу выдать участку", куда
     именно — определяет сам этап."""
     if not part.stages:
         raise ValueError(f"У детали «{part.name}» не настроены этапы — добавьте их в справочнике «Деталь»")
-    first_stage = part.stages[0]
-    if issue and not first_stage.area:
-        raise ValueError(f"У этапа «{first_stage.name}» не указан участок — настройте связь в справочнике «Деталь»")
+    if stage_id is not None:
+        start_stage = next((s for s in part.stages if s.id == stage_id), None)
+        if start_stage is None:
+            raise ValueError(f"Этап не найден среди этапов детали «{part.name}»")
+    else:
+        start_stage = part.stages[0]
+    if issue and not start_stage.area:
+        raise ValueError(f"У этапа «{start_stage.name}» не указан участок — настройте связь в справочнике «Деталь»")
     unit = PartUnit(
         part_id=part.id,
         quantity_pieces=quantity_pieces,
-        stage_id=first_stage.id,
+        stage_id=start_stage.id,
         status=PartUnitStatus.VYDAN_UCHASTKU if issue else PartUnitStatus.NA_KHRANENII,
-        area=first_stage.area if issue else None,
+        area=start_stage.area if issue else None,
         production_task_line_id=production_task_line_id,
         note=note,
         created_by=user_id,
@@ -106,7 +118,7 @@ def mint_part_unit(
         event_type=PartEventType.PROIZVODSTVO,
         user_id=user_id,
         quantity_delta=quantity_pieces,
-        to_stage_id=first_stage.id,
+        to_stage_id=start_stage.id,
         note=note,
     )
     if issue:

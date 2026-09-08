@@ -41,6 +41,7 @@ interface MintFormValues {
   task_line_key?: string;
   issue: boolean;
   note?: string;
+  stage_id?: number;
 }
 
 /** Учёт производства деталей (раздел про физический учёт деталей, пилот:
@@ -145,6 +146,7 @@ export default function PartUnits() {
         production_task_line_id: lineIdStr ? Number(lineIdStr) : undefined,
         issue: v.issue,
         note: v.note,
+        stage_id: v.stage_id,
       });
     },
     onSuccess: () => {
@@ -237,9 +239,30 @@ export default function PartUnits() {
             }}
           >
             <Form.Item label="Деталь">
-              <PartSelect onSelect={setSelectedPart} placeholder="Найдите деталь в справочнике" />
+              <PartSelect
+                onSelect={(p) => {
+                  setSelectedPart(p);
+                  form.setFieldValue("stage_id", undefined);
+                }}
+                placeholder="Найдите деталь в справочнике"
+              />
               {selectedPart && <Typography.Text type="secondary">Выбрано: {selectedPart.name}</Typography.Text>}
             </Form.Item>
+            {selectedPart && selectedPart.stages.length > 1 && (
+              <Form.Item
+                name="stage_id"
+                label="Начальный этап"
+                extra="Партия уже прошла часть маршрута (например, уже склеена и отфрезерована) и заводится в систему только сейчас — по умолчанию первый этап."
+              >
+                <Select
+                  allowClear
+                  placeholder={selectedPart.stages[0].name}
+                  options={[...selectedPart.stages]
+                    .sort((a, b) => a.sequence_order - b.sequence_order)
+                    .map((s) => ({ value: s.id, label: s.name }))}
+                />
+              </Form.Item>
+            )}
             <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
@@ -253,7 +276,7 @@ export default function PartUnits() {
               />
             </Form.Item>
             <Form.Item name="issue" valuePropName="checked" initialValue={false}>
-              <Checkbox>Сразу выдать участку (участок — из первого этапа детали)</Checkbox>
+              <Checkbox>Сразу выдать участку (участок — из выбранного этапа)</Checkbox>
             </Form.Item>
             <Form.Item name="note" label="Заметка (опционально)">
               <Input />
