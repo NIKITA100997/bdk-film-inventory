@@ -65,6 +65,7 @@ import ResponsiveTable from "../../components/ResponsiveTable";
 import CuttingForm, { type CuttingFormInitialWidthCut } from "../../components/CuttingForm";
 import ManualCuttingPlanModal from "../../components/ManualCuttingPlanModal";
 import { useAuth } from "../../auth/AuthContext";
+import { listWidthAnalogGroups, isWidthMatch } from "../../api/widthAnalogs";
 
 function issueErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -608,6 +609,12 @@ export default function Issue() {
   const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
 
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
+  // Раздел про аналоги ширин при выдаче — редко меняются, грузим один раз
+  // на весь экран и используем во всех местах ручного подбора донора, для
+  // визуальной консистентности с бэкендом (тот уже принимает аналог как
+  // совпадение без override_strip_width, см. _validate_matches_task_line).
+  const widthAnalogsQuery = useQuery({ queryKey: ["width-analogs"], queryFn: listWidthAnalogGroups });
+  const widthAnalogGroups = widthAnalogsQuery.data ?? [];
   // Раздел про нулевые позиции при выдаче — отдельный запрос только для
   // списка в ручном подборе (skusQuery выше нужен целиком, включая
   // позиции без остатка: findSku по строке задания должен находить их
@@ -859,11 +866,18 @@ export default function Issue() {
   const exactMatch = useMemo(() => {
     if (!selected) return null;
     const candidates = (availableQuery.data ?? []).filter(
-      (u) => u.width_mm === selectedStripWidth && u.length_m >= selectedNeededLengthM,
+      (u) => isWidthMatch(widthAnalogGroups, u.width_mm, selectedStripWidth) && u.length_m >= selectedNeededLengthM,
     );
     if (candidates.length === 0) return null;
-    return [...candidates].sort((a, b) => a.length_m - b.length_m)[0];
-  }, [selected, availableQuery.data, selectedStripWidth, selectedNeededLengthM]);
+    // Точное совпадение раньше аналога — тот же приоритет, что и у
+    // бэкенда (find_exact_stock_match), потом уже по длине.
+    return [...candidates].sort((a, b) => {
+      const aExact = a.width_mm === selectedStripWidth ? 0 : 1;
+      const bExact = b.width_mm === selectedStripWidth ? 0 : 1;
+      if (aExact !== bExact) return aExact - bExact;
+      return a.length_m - b.length_m;
+    })[0];
+  }, [selected, availableQuery.data, selectedStripWidth, selectedNeededLengthM, widthAnalogGroups]);
 
   // findMutation вызывается только когда точного совпадения точно нет
   // (availableQuery уже загрузился и exactMatch пуст) — тогда find-эндпоинт
@@ -1402,7 +1416,20 @@ export default function Issue() {
                       {
                         title: "",
                         render: (_, u) =>
-                          u.width_mm > selectedStripWidth ? (
+                          // Аналог (см. "Аналоги ширин штрипса") считается совпадением
+                          // раньше, чем сравнение ">" — иначе донор аналоговой, но
+                          // числом большей ширины (290 вместо нужных 285) предлагался
+                          // бы резать, хотя по факту это тот же штрипс, выдаём целиком.
+                          isWidthMatch(widthAnalogGroups, u.width_mm, selectedStripWidth) ? (
+                            <Button
+                              size="small"
+                              type="primary"
+                              loading={directMutation.isPending}
+                              onClick={() => confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () => directMutation.mutate({ unitId: u.id }))}
+                            >
+                              Выдать целиком
+                            </Button>
+                          ) : u.width_mm > selectedStripWidth ? (
                             <Button
                               size="small"
                               onClick={() => {
@@ -1423,15 +1450,6 @@ export default function Issue() {
                               }}
                             >
                               Разрезать на {selectedStripWidth} мм
-                            </Button>
-                          ) : u.width_mm === selectedStripWidth ? (
-                            <Button
-                              size="small"
-                              type="primary"
-                              loading={directMutation.isPending}
-                              onClick={() => confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () => directMutation.mutate({ unitId: u.id }))}
-                            >
-                              Выдать целиком
                             </Button>
                           ) : (
                             <Tag color="warning">уже {selectedStripWidth} мм больше</Tag>
@@ -1480,7 +1498,20 @@ export default function Issue() {
                                 {
                                   title: "",
                                   render: (_, u) =>
-                                    u.width_mm > selectedStripWidth ? (
+                                    isWidthMatch(widthAnalogGroups, u.width_mm, selectedStripWidth) ? (
+                                      <Button
+                                        size="small"
+                                        type="primary"
+                                        loading={directMutation.isPending}
+                                        onClick={() =>
+                                          confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () =>
+                                            directMutation.mutate({ unitId: u.id, override: true }),
+                                          )
+                                        }
+                                      >
+                                        Выдать целиком
+                                      </Button>
+                                    ) : u.width_mm > selectedStripWidth ? (
                                       <Button
                                         size="small"
                                         onClick={() => {
@@ -1501,19 +1532,6 @@ export default function Issue() {
                                         }}
                                       >
                                         Разрезать на {selectedStripWidth} мм
-                                      </Button>
-                                    ) : u.width_mm === selectedStripWidth ? (
-                                      <Button
-                                        size="small"
-                                        type="primary"
-                                        loading={directMutation.isPending}
-                                        onClick={() =>
-                                          confirmIfWrongWarehouse(u.warehouse_name, selected?.task.area, () =>
-                                            directMutation.mutate({ unitId: u.id, override: true }),
-                                          )
-                                        }
-                                      >
-                                        Выдать целиком
                                       </Button>
                                     ) : (
                                       <Tag color="warning">меньше нужной ширины ({selectedStripWidth} мм)</Tag>

@@ -29,6 +29,7 @@ from app.api.storage import router as storage_router
 from app.api.suppliers import router as suppliers_router
 from app.api.units import router as units_router
 from app.api.users import router as users_router
+from app.api.width_analogs import router as width_analogs_router
 from app.api.write_off_reasons import router as write_off_reasons_router
 from app.core.config import settings
 
@@ -99,6 +100,7 @@ app.include_router(supplier_orders_router, prefix=API_PREFIX)
 app.include_router(suppliers_router, prefix=API_PREFIX)
 app.include_router(users_router, prefix=API_PREFIX)
 app.include_router(roles_router, prefix=API_PREFIX)
+app.include_router(width_analogs_router, prefix=API_PREFIX)
 app.include_router(write_off_reasons_router, prefix=API_PREFIX)
 
 

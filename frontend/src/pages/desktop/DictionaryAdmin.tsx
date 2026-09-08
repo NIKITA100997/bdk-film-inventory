@@ -30,6 +30,13 @@ import {
   type ReasonCategory,
   type WriteOffReasonEntry,
 } from "../../api/writeOffReasons";
+import {
+  listWidthAnalogGroups,
+  createWidthAnalogGroup,
+  updateWidthAnalogGroup,
+  deleteWidthAnalogGroup,
+  type WidthAnalogGroup,
+} from "../../api/widthAnalogs";
 
 // Раздел про модуль "Брак и списания" — общая подпись категории, чтобы
 // не разъезжалась между таблицей причин и формой создания.
@@ -361,6 +368,202 @@ function ThicknessTab() {
   );
 }
 
+/** Аналоги ширин штрипса (раздел про выдачу плёнки) — группы ширин,
+ * взаимозаменяемых друг с другом при подборе остатка на выдаче/раскрое
+ * (290/285/287мм и т.п.). Не привязано к материалу/детали — одна и та же
+ * группа ширин работает для любой позиции номенклатуры. В отличие от
+ * толщин/материалов группа не редактируется точечно — состав ширин
+ * заменяется целиком (проще и не даёт забыть снять старую при замене). */
+function parseWidths(raw: string): number[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => Number(s.replace(",", ".")))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+function WidthAnalogsTab() {
+  const qc = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm] = Form.useForm<{ widths: string; note?: string }>();
+  const [editing, setEditing] = useState<WidthAnalogGroup | null>(null);
+  const [editForm] = Form.useForm<{ widths: string; note?: string }>();
+
+  const groupsQuery = useQuery({ queryKey: ["width-analogs"], queryFn: listWidthAnalogGroups });
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["width-analogs"] });
+
+  const createMutation = useMutation({
+    mutationFn: ({ widths, note }: { widths: number[]; note?: string }) => createWidthAnalogGroup(widths, note),
+    onSuccess: () => {
+      invalidate();
+      setCreateOpen(false);
+      createForm.resetFields();
+      message.success("Группа создана");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось создать — нужно минимум 2 разные ширины")),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, widths, note }: { id: number; widths: number[]; note?: string }) =>
+      updateWidthAnalogGroup(id, widths, note),
+    onSuccess: () => {
+      invalidate();
+      setEditing(null);
+      message.success("Сохранено");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить")),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteWidthAnalogGroup(id),
+    onSuccess: () => {
+      invalidate();
+      message.success("Группа удалена");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить")),
+  });
+
+  const groups = groupsQuery.data ?? [];
+
+  return (
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Typography.Paragraph type="secondary">
+        Ширины внутри одной группы считаются взаимозаменяемыми при подборе рулона на выдаче и в плане раскроя —
+        например, штрипс 290мм подходит туда, где нужен 285 или 287. Заводите группу только когда ширины
+        действительно одна и та же деталь на практике — иначе система может подобрать физически другой рулон.
+      </Typography.Paragraph>
+      <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+        <Button type="primary" onClick={() => setCreateOpen(true)}>
+          + Новая группа
+        </Button>
+      </Space>
+      <Modal title="Новая группа аналогов" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
+        <Form
+          form={createForm}
+          layout="vertical"
+          onFinish={(v) => createMutation.mutate({ widths: parseWidths(v.widths), note: v.note })}
+        >
+          <Form.Item
+            name="widths"
+            label="Ширины, мм (через запятую)"
+            rules={[
+              {
+                validator: (_, value: string) =>
+                  parseWidths(value ?? "").length >= 2
+                    ? Promise.resolve()
+                    : Promise.reject("Укажите минимум 2 разные ширины через запятую"),
+              },
+            ]}
+          >
+            <Input autoFocus placeholder="290, 285, 287" />
+          </Form.Item>
+          <Form.Item name="note" label="Заметка (необязательно)">
+            <Input placeholder="Например: Стоевая" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
+            Создать
+          </Button>
+        </Form>
+      </Modal>
+      <Modal
+        title="Изменить состав группы"
+        open={editing !== null}
+        onCancel={() => setEditing(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          initialValues={{
+            widths: editing?.members.map((m) => m.width_mm).join(", "),
+            note: editing?.note ?? undefined,
+          }}
+          onFinish={(v) => editing && updateMutation.mutate({ id: editing.id, widths: parseWidths(v.widths), note: v.note })}
+        >
+          <Form.Item
+            name="widths"
+            label="Ширины, мм (через запятую)"
+            rules={[
+              {
+                validator: (_, value: string) =>
+                  parseWidths(value ?? "").length >= 2
+                    ? Promise.resolve()
+                    : Promise.reject("Укажите минимум 2 разные ширины через запятую"),
+              },
+            ]}
+          >
+            <Input autoFocus placeholder="290, 285, 287" />
+          </Form.Item>
+          <Form.Item name="note" label="Заметка (необязательно)">
+            <Input placeholder="Например: Стоевая" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={updateMutation.isPending}>
+            Сохранить
+          </Button>
+        </Form>
+      </Modal>
+      {groups.length === 0 && !groupsQuery.isLoading ? (
+        <Empty description="Пока нет ни одной группы аналогов" />
+      ) : (
+        <ResponsiveTable<WidthAnalogGroup>
+          rowKey="id"
+          loading={groupsQuery.isLoading}
+          dataSource={groups}
+          pagination={false}
+          scroll={{ x: "max-content" }}
+          columns={[
+            {
+              title: "Ширины, мм",
+              render: (_, group) => (
+                <Space wrap size={4}>
+                  {group.members.map((m) => (
+                    <Tag key={m.width_mm} color="blue">
+                      {m.width_mm}
+                    </Tag>
+                  ))}
+                </Space>
+              ),
+            },
+            { title: "Заметка", dataIndex: "note", render: (note: string | null) => note || <Typography.Text type="secondary">—</Typography.Text> },
+            {
+              title: "",
+              width: 220,
+              render: (_, group) => (
+                <Space wrap>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setEditing(group);
+                      editForm.setFieldsValue({
+                        widths: group.members.map((m) => m.width_mm).join(", "),
+                        note: group.note ?? undefined,
+                      });
+                    }}
+                  >
+                    Изменить
+                  </Button>
+                  <Popconfirm
+                    title="Удалить группу аналогов?"
+                    description="Ширины перестанут считаться взаимозаменяемыми."
+                    onConfirm={() => deleteMutation.mutate(group.id)}
+                  >
+                    <Button size="small" danger loading={deleteMutation.isPending}>
+                      Удалить
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              ),
+            },
+          ]}
+        />
+      )}
+    </Space>
+  );
+}
+
 /** Причины брака/списания (раздел про администрирование причин) — раньше
  * жёсткий enum, теперь создаваемая администратором сущность, тот же
  * паттерн, что «Участки» (AreaAdmin.tsx): название редактируется, code
@@ -568,6 +771,7 @@ export default function DictionaryAdmin() {
           { key: "manufacturers", label: "Производители", children: <NameDictTab kind="manufacturers" label="Производитель" /> },
           { key: "employees", label: "Сотрудники", children: <NameDictTab kind="employees" label="Сотрудник" /> },
           { key: "thicknesses", label: "Толщины", children: <ThicknessTab /> },
+          { key: "width-analogs", label: "Аналоги ширин штрипса", children: <WidthAnalogsTab /> },
           { key: "write-off-reasons", label: "Причины брака/списания", children: <WriteOffReasonsTab /> },
         ]}
       />

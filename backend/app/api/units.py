@@ -57,6 +57,7 @@ from app.services.placement import rule_matches, rules_for_location
 from app.services.production import calc_default_strip_width, compute_expected_return_length_m
 from app.services.purchasing import auto_close_on_receipt
 from app.services.units_matching import find_exact_stock_match
+from app.services.width_analogs import equivalent_widths
 from app.services.splitting import (
     cut_to_length,
     donor_remainder_write_off_m,
@@ -110,7 +111,13 @@ def _validate_matches_task_line(
         if line.strip_width_mm is not None
         else calc_default_strip_width(line.part_name, float(line.width_mm))
     )
-    if abs(width_mm - expected_w) > 0.01:
+    # Раздел про аналоги ширин при выдаче — ширина из той же вручную
+    # заведённой группы аналогов (290/285/287мм и т.п.) принимается как
+    # соответствие БЕЗ allow_strip_width_override и БЕЗ мутации
+    # line.strip_width_mm: в отличие от настоящего override (админ говорит
+    # "теперь у этой строки другая ширина навсегда"), аналог — разовая
+    # взаимозаменяемая замена, официальная ширина строки не меняется.
+    if abs(width_mm - expected_w) > 0.01 and width_mm not in equivalent_widths(db, expected_w):
         if not allow_strip_width_override:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
