@@ -1503,11 +1503,20 @@ def return_unit(
     производстве (так на живых данных накопились рулоны, которые вернули,
     но выпуск по ним так и не завели): возврат требует хотя бы одной строки
     в production_task_line_reports с этим material_unit_id. Проверяем ДО
-    очистки unit.area ниже — иначе сравнивать будет не с чем."""
+    очистки unit.area ниже — иначе сравнивать будет не с чем.
+
+    Раздел про рулон без задания (штрипс №2022, живая ошибка) — правило
+    касается только рулонов, привязанных к строке задания
+    (production_task_line_id не пусто): create_task_line_report
+    принимает material_unit_id только когда unit.production_task_line_id
+    == line_id, так что для рулона БЕЗ этой привязки (выдан вручную "без
+    задания", см. Issue.tsx "Без привязки к заданию") отчёт с его
+    material_unit_id физически невозможно завести — правило иначе
+    навсегда блокировало бы возврат такого рулона."""
     unit = _get_storable_unit(db, unit_id)
     if unit.status != UnitStatus.VYDAN_UCHASTKU:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Вернуть можно только единицу, выданную участку")
-    if unit.area == AREA_REQUIRES_ROLL_ON_REPORT:
+    if unit.area == AREA_REQUIRES_ROLL_ON_REPORT and unit.production_task_line_id is not None:
         has_report = (
             db.query(ProductionTaskLineReport.id)
             .filter(ProductionTaskLineReport.material_unit_id == unit_id)
