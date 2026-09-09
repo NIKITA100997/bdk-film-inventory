@@ -720,6 +720,19 @@ export default function Issue() {
   // (issuedNoteForLine), просто ничего по ней уже не нужно решать.
   // Строка без остатка и без единой выдачи (пустая, ничего не было и
   // не нужно) по-прежнему не показывается — реального смысла в ней нет.
+  //
+  // Раздел про автоматический уход строк из очереди — раньше держали
+  // строку в очереди, пока issued_length_m > 0 (а это поле, единожды
+  // заполнившись, никогда не уменьшается — так что полностью
+  // произведённая И полностью возвращённая строка висела бы в очереди
+  // вечно). Теперь смотрим, есть ли ФИЗИЧЕСКИ незавершённый рулон:
+  // "Выдан_участку"/"В_перемещении" — ещё у участка/едет; "На_хранении"
+  // с area всё ещё указанным — хаб принял, но участку ещё не довыдали
+  // локально (receive_transfer_line area не трогает); "На_хранении" с
+  // area=null — это уже настоящий возврат (return_unit area очищает) —
+  // такое реальным "незавершённым" не считаем. Условие живое: если
+  // quantity_pieces потом вырастет, remaining_pieces > 0 вернёт строку
+  // в очередь само, без вмешательства.
   const activeLines = useMemo(
     () =>
       (tasksQuery.data ?? [])
@@ -729,8 +742,12 @@ export default function Issue() {
             // is_closed — раздел про закрытие строки задания по выдаче:
             // ручной флаг поверх остатка/выданного, для строк, где всё уже
             // физически улажено вне этого экрана, а отчёты дозаводятся
-            // только сейчас (issued_length_m сам по себе не уменьшается).
-            .filter((line) => !line.is_closed && (line.remaining_pieces > 0 || line.issued_length_m > 0))
+            // только сейчас.
+            .filter((line) => {
+              if (line.is_closed) return false;
+              if (line.remaining_pieces > 0) return true;
+              return (line.issued_units ?? []).some((u) => u.status !== "На_хранении" || u.area != null);
+            })
             .map((line) => ({ task, line })),
         ),
     [tasksQuery.data],
@@ -2062,6 +2079,7 @@ export default function Issue() {
                           parent_id: row.unit.parent_id,
                           is_strip: row.unit.is_strip,
                           status: row.unit.status,
+                          area: row.unit.area,
                         }}
                       />
                     )}

@@ -81,6 +81,11 @@ export interface ProductionTaskLineIssuedUnit {
   // Опционально — тот же тип переиспользует AcceptReturnButton (Issue.tsx)
   // для единиц вне контекста строки задания, где этого поля не бывает.
   remaining_length_m?: number;
+  // Раздел про автоматический уход строки из очереди "Выдачи" —
+  // различает реальный возврат (return_unit явно очищает area, null) от
+  // "На_хранении, но ждёт довыдачи участку" после приёмки на хабе
+  // (area остаётся указан) — иначе оба неотличимы по одному status.
+  area: string | null;
 }
 
 export interface ProductionTaskLine {
@@ -98,6 +103,11 @@ export interface ProductionTaskLine {
   // Раздел про закрытие строки задания по выдаче — ручной флаг "выдача
   // закрыта", отдельный от shortfall_length_m/remaining_pieces.
   is_closed: boolean;
+  // Раздел про явное завершение работы по строке в ПРОИЗВОДСТВЕ —
+  // независимый от is_closed ручной флаг (та же механика, отдельная
+  // ось): не зависит от remaining_pieces, не переоткрывается сам, если
+  // quantity_pieces потом вырос.
+  production_closed: boolean;
   produced_good_pieces: number;
   defect_pieces: number;
   remaining_pieces: number;
@@ -393,6 +403,17 @@ export const closeTaskLine = async (taskId: number, lineId: number, isClosed: bo
   (
     await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/lines/${lineId}/close`, null, {
       params: { is_closed: isClosed },
+    })
+  ).data;
+
+// Раздел про явное завершение работы по строке в ПРОИЗВОДСТВЕ —
+// независимая ось от closeTaskLine выше (тот про выдачу/остаток
+// рулона): этот флаг про то, что строку больше не предлагают для новых
+// отчётов о производстве.
+export const closeProductionLine = async (taskId: number, lineId: number, productionClosed: boolean): Promise<ProductionTask> =>
+  (
+    await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/lines/${lineId}/close-production`, null, {
+      params: { production_closed: productionClosed },
     })
   ).data;
 

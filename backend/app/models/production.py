@@ -146,6 +146,15 @@ class ProductionTaskLine(Base):
     # всегда, с пометкой).
     is_closed: Mapped[bool] = mapped_column(default=False, server_default="false")
 
+    # Раздел про явное завершение работы по строке в ПРОИЗВОДСТВЕ —
+    # независимый от is_closed ручной флаг (та же механика, отдельная
+    # ось): is_closed — про выдачу/остаток рулона, этот — про то, что
+    # строку больше не предлагают для новых отчётов о производстве
+    # (TasksTab.tsx/MasterQuickReportPanel.tsx). Не зависит от
+    # remaining_pieces — рост quantity_pieces (план пересмотрели в
+    # бо́льшую сторону) НЕ переоткрывает автоматически, только вручную.
+    production_closed: Mapped[bool] = mapped_column(default=False, server_default="false")
+
     task: Mapped[ProductionTask] = relationship(back_populates="lines")
     reports: Mapped[list["ProductionTaskLineReport"]] = relationship(
         back_populates="task_line", cascade="all, delete-orphan"

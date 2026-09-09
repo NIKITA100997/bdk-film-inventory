@@ -95,14 +95,20 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const tasks = (tasksQuery.data ?? []).filter((t: ProductionTask) => t.area === area && t.is_active);
   const addedLineIds = new Set(rows.map((r) => r.line.id));
 
+  // production_closed — раздел про явное завершение работы по строке в
+  // производстве (независимо от is_closed/выдачи): закрытая строка
+  // больше не предлагается для новых отчётов, пока её явно не
+  // возобновят («Учёт заданий»).
   const positionOptions = tasks.flatMap((task) =>
-    task.lines.map((line) => ({
-      key: `${task.id}:${line.id}`,
-      taskId: task.id,
-      line,
-      label: `${task.product_model_name ?? task.name ?? `Задание №${task.id}`} — ${line.part_name ?? line.material} (${line.material}, ${line.color}, ${line.thickness} мм) — осталось ${line.remaining_pieces} шт`,
-      added: addedLineIds.has(line.id),
-    })),
+    task.lines
+      .filter((line) => !line.production_closed)
+      .map((line) => ({
+        key: `${task.id}:${line.id}`,
+        taskId: task.id,
+        line,
+        label: `${task.product_model_name ?? task.name ?? `Задание №${task.id}`} — ${line.part_name ?? line.material} (${line.material}, ${line.color}, ${line.thickness} мм) — осталось ${line.remaining_pieces} шт`,
+        added: addedLineIds.has(line.id),
+      })),
   );
   const filteredPositionOptions = pickerSearch.trim()
     ? positionOptions.filter((o) => o.label.toLowerCase().includes(pickerSearch.trim().toLowerCase()))

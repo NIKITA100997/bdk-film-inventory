@@ -170,6 +170,7 @@ def _task_line_out(
         strip_width_mm=sw,
         part_name=line.part_name,
         is_closed=line.is_closed,
+        production_closed=line.production_closed,
         produced_good_pieces=good,
         defect_pieces=defect,
         remaining_pieces=remaining_pieces,
@@ -192,6 +193,7 @@ def _task_line_out(
                 is_strip=u.is_strip,
                 status=u.status.value if hasattr(u.status, "value") else str(u.status),
                 remaining_length_m=round(max(0.0, float(u.length_m) - _unit_consumed_length_m(db, u.id)), 2),
+                area=u.area,
             )
             for u in (issued_units or [])
         ],
@@ -1141,6 +1143,35 @@ def close_task_line(
     if line is None or line.task_id != task_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
     line.is_closed = is_closed
+    db.commit()
+    task = db.get(ProductionTask, task_id)
+    return _task_out(db, task)
+
+
+@router.patch("/production-tasks/{task_id}/lines/{line_id}/close-production", response_model=ProductionTaskOut)
+def close_production_line(
+    task_id: int,
+    line_id: int,
+    production_closed: bool,
+    db: Session = Depends(get_db),
+    user: User = Depends(manage_production),
+) -> ProductionTaskOut:
+    """Явно завершить/возобновить работу по строке в ПРОИЗВОДСТВЕ
+    (раздел про автоматический уход строк из очереди «Выдачи» + явное
+    завершение) — независимая ось от close_task_line/is_closed выше
+    (тот про выдачу/остаток рулона): этот флаг про то, что строку
+    больше не предлагают для новых отчётов о производстве (TasksTab.tsx
+    "Отчитаться о производстве"/"Распределить по дням",
+    MasterQuickReportPanel.tsx). Отчёт о производстве обычно подаётся
+    по дням (сегодня 30 шт, завтра ещё) — значит, саму возможность
+    отчитаться нельзя блокировать автоматически по remaining_pieces
+    (план могут пересмотреть в бо́льшую сторону уже после того, как
+    изначальный был выполнен) — только этим ручным флагом, который
+    сам никогда не выставляется автоматически."""
+    line = db.get(ProductionTaskLine, line_id)
+    if line is None or line.task_id != task_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
+    line.production_closed = production_closed
     db.commit()
     task = db.get(ProductionTask, task_id)
     return _task_out(db, task)

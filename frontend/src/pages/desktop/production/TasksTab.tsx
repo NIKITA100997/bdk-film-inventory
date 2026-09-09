@@ -14,6 +14,7 @@ import {
   deleteProductionTask,
   archiveProductionTask,
   closeTaskLine,
+  closeProductionLine,
   updateTaskLineSpec,
   type ProductionTask,
   type ProductionTaskLine,
@@ -103,6 +104,18 @@ export default function TasksTab() {
   const closeLineMutation = useMutation({
     mutationFn: ({ taskId, lineId, isClosed }: { taskId: number; lineId: number; isClosed: boolean }) =>
       closeTaskLine(taskId, lineId, isClosed),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      message.success("Сохранено");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить строку")),
+  });
+
+  // Раздел про явное завершение работы по строке в ПРОИЗВОДСТВЕ —
+  // независимая ось от closeLineMutation выше (тот про выдачу).
+  const closeProductionMutation = useMutation({
+    mutationFn: ({ taskId, lineId, productionClosed }: { taskId: number; lineId: number; productionClosed: boolean }) =>
+      closeProductionLine(taskId, lineId, productionClosed),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       message.success("Сохранено");
@@ -216,6 +229,7 @@ export default function TasksTab() {
                             <Space size={4}>
                               {l.part_name ?? "—"}
                               {l.is_closed && <Tag>Закрыто</Tag>}
+                              {l.production_closed && <Tag color="blue">Производство завершено</Tag>}
                             </Space>
                           ),
                         },
@@ -283,7 +297,7 @@ export default function TasksTab() {
                           render: (_, l) =>
                             (canReport || canManage) && (
                               <Space size={4} wrap>
-                                {canReport && (
+                                {canReport && !l.production_closed && (
                                   <>
                                     {areaRequiresDailyPlan(task.area) && (
                                       <Button size="small" type="primary" ghost onClick={() => setAssignTarget({ task, line: l })}>
@@ -324,6 +338,17 @@ export default function TasksTab() {
                                     onClick={() => closeLineMutation.mutate({ taskId: task.id, lineId: l.id, isClosed: !l.is_closed })}
                                   >
                                     {l.is_closed ? "Открыть заново" : "Закрыть по выдаче"}
+                                  </Button>
+                                )}
+                                {canManage && (
+                                  <Button
+                                    size="small"
+                                    loading={closeProductionMutation.isPending}
+                                    onClick={() =>
+                                      closeProductionMutation.mutate({ taskId: task.id, lineId: l.id, productionClosed: !l.production_closed })
+                                    }
+                                  >
+                                    {l.production_closed ? "Возобновить производство" : "Завершить производство"}
                                   </Button>
                                 )}
                               </Space>
