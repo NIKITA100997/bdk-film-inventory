@@ -823,9 +823,26 @@ def create_task_line_report(
     # запись на каждую тронутую партию (обычно одна, несколько — если
     # одной не хватило на весь good_pieces); каждая становится своей
     # строкой ProductionTaskLineReport ниже.
+    #
+    # has_part_unit_stock — этапы у детали настроены в справочнике много
+    # где (массовая настройка на все детали разом), но реально партии
+    # п/ф через "Учёт п/ф" заводят не по каждой: если для этой детали на
+    # этом участке НЕТ вообще ни одной партии, это значит физический
+    # учёт п/ф тут ещё не ведётся (не "партии кончились") — считаем как
+    # деталь без этапов, отчёт обычный, без FIFO. Если хотя бы одна
+    # партия есть, но её не хватает на весь good_pieces — это уже
+    # настоящая нехватка, ошибка оправдана.
     part = db.query(Part).filter(Part.name == line.part_name).first() if line.part_name else None
+    has_part_unit_stock = (
+        part is not None
+        and part.stages
+        and db.query(PartUnit.id)
+        .filter(PartUnit.part_id == part.id, PartUnit.area == line.task.area, PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU)
+        .first()
+        is not None
+    )
     fifo_results: list[tuple[PartUnit, bool, float]] = []
-    if payload.good_pieces > 0 and part is not None and part.stages:
+    if payload.good_pieces > 0 and has_part_unit_stock:
         try:
             fifo_results = consume_part_units_fifo(
                 db, part_id=part.id, area=line.task.area, quantity_pieces=payload.good_pieces, user_id=user.id
