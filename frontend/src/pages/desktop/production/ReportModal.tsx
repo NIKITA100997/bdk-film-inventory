@@ -42,8 +42,14 @@ export default function ReportModal({
   // тратит НЕСКОЛЬКО разных рулонов на одну деталь (закончился на
   // стороне 1, начат новый на стороне 2) — оба нужно отметить
   // использованными в одном отчёте по строке, не только material_unit_id
-  // выше. Каждый id здесь — свой отдельный нулевой отчёт при сохранении.
-  const [extraRolls, setExtraRolls] = useState<number[]>([]);
+  // выше. qty — сколько ГОТОВЫХ деталей физически получилось именно из
+  // этого рулона (не из "основного"): расход конкретного рулона
+  // (_unit_consumed_length_m) считается по отчётам, ссылающимся именно
+  // на его material_unit_id, так что без разбивки весь расход задним
+  // числом приписался бы только "основному" рулону, а остальные
+  // выглядели бы нетронутыми при возврате. qty=0 — рулон тоже
+  // использован, просто отдельный "нулевой" отчёт.
+  const [extraRolls, setExtraRolls] = useState<{ materialUnitId: number; qty: number }[]>([]);
   const [reportForm] = Form.useForm<{
     assignment_id: number | null;
     material_unit_id: number | null;
@@ -141,16 +147,19 @@ export default function ReportModal({
       }
       // Раздел про второй рулон на ту же строку — независимо от того,
       // что происходит с "основным" рулоном/хорошими/браком выше, каждый
-      // дополнительный рулон отмечается использованным своим отдельным
-      // нулевым отчётом.
-      for (const extraId of extraRolls) {
+      // дополнительный рулон отправляет свой отдельный отчёт: с qty>0 —
+      // столько готовых деталей физически получилось именно из НЕГО
+      // (расход по этому рулону посчитается верно при возврате), с
+      // qty=0 — "нулевой" отчёт (рулон тоже использован, просто не
+      // добавил новых деталей сверх уже посчитанного).
+      for (const extra of extraRolls) {
         calls.push(
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
-            material_unit_id: extraId,
-            good_pieces: 0,
+            material_unit_id: extra.materialUnitId,
+            good_pieces: extra.qty,
             defect_pieces: 0,
-            note: "Рулон использован, деталь ещё не готова",
+            ...(extra.qty <= 0 ? { note: "Рулон использован" } : {}),
           }),
         );
       }
@@ -165,7 +174,8 @@ export default function ReportModal({
   });
 
   const primaryRollId = Form.useWatch("material_unit_id", reportForm) as number | null | undefined;
-  const extraRollOptions = line.issued_units.filter((u) => u.id !== primaryRollId && !extraRolls.includes(u.id));
+  const extraRollIds = new Set(extraRolls.map((e) => e.materialUnitId));
+  const extraRollOptions = line.issued_units.filter((u) => u.id !== primaryRollId && !extraRollIds.has(u.id));
 
   return (
     <Modal title={`Отчёт по линии «${line.part_name ?? line.line_name}»`} open onCancel={onClose} footer={null} destroyOnHidden>
@@ -232,11 +242,30 @@ export default function ReportModal({
         )}
         {requiresRoll && extraRolls.length > 0 && (
           <Form.Item label="Ещё рулоны, тоже использованы">
-            <Space wrap>
-              {extraRolls.map((id) => (
-                <Tag key={id} closable onClose={() => setExtraRolls((prev) => prev.filter((x) => x !== id))}>
-                  №{id}
-                </Tag>
+            <Space direction="vertical" size={4}>
+              {extraRolls.map((extra, i) => (
+                <Space key={extra.materialUnitId} size={4}>
+                  <Tag
+                    closable
+                    onClose={() => setExtraRolls((prev) => prev.filter((_, idx) => idx !== i))}
+                    style={{ marginRight: 0 }}
+                  >
+                    №{extra.materialUnitId}
+                  </Tag>
+                  <InputNumber
+                    size="small"
+                    min={0}
+                    style={{ width: 70 }}
+                    value={extra.qty}
+                    placeholder="0"
+                    onChange={(v) =>
+                      setExtraRolls((prev) => prev.map((e, idx) => (idx === i ? { ...e, qty: v ?? 0 } : e)))
+                    }
+                  />
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    шт отсюда
+                  </Typography.Text>
+                </Space>
               ))}
             </Space>
           </Form.Item>
@@ -244,12 +273,12 @@ export default function ReportModal({
         {requiresRoll && primaryRollId != null && extraRollOptions.length > 0 && (
           <Form.Item
             label="+ ещё рулон использован"
-            extra="Раздел про окутку в 2 захода — если на эту деталь ушло несколько разных рулонов, добавьте сюда все остальные."
+            extra="Раздел про окутку в 2 захода — если на эту деталь ушло несколько разных рулонов, добавьте сюда все остальные и укажите, сколько готовых деталей получилось именно из каждого."
           >
             <Select<number>
               placeholder="Выберите ещё один рулон"
               value={undefined}
-              onChange={(v) => setExtraRolls((prev) => [...prev, v])}
+              onChange={(v) => setExtraRolls((prev) => [...prev, { materialUnitId: v, qty: 0 }])}
               options={extraRollOptions.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
             />
           </Form.Item>

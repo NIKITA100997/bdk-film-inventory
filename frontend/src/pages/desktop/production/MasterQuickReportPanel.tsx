@@ -33,11 +33,18 @@ interface ReportRow {
   defects: DefectEntry[];
   // Раздел про второй (третий...) рулон на ту же строку — окутка в 2
   // захода часто использует НЕСКОЛЬКО разных рулонов на одну деталь
-  // (один закончился на стороне 1, другой начат на стороне 2), и оба
-  // нужно отметить использованными в одном отчёте по этой строке, не
-  // только materialUnitId выше. Каждый id здесь — свой отдельный
-  // "нулевой" отчёт (рулон использован, деталь не готова) при сохранении.
-  extraRolls: number[];
+  // (выдали с запасом: один расходуется полностью, второй остаётся с
+  // остатком) — оба нужно отметить использованными в одном отчёте по
+  // этой строке, не только materialUnitId выше. qty — сколько ГОТОВЫХ
+  // деталей физически получилось именно из этого рулона (не из
+  // "основного"): расход конкретного рулона (_unit_consumed_length_m)
+  // считается по отчётам, ссылающимся именно на его material_unit_id,
+  // так что без разбивки весь расход задним числом приписался бы
+  // только "основному" рулону, а остальные выглядели бы нетронутыми
+  // при возврате. qty=0 — рулон физически тоже использован (весь ушёл
+  // на уже учтённые где-то ещё детали), просто отдельный "нулевой"
+  // отчёт, чтобы его можно было вернуть/списать.
+  extraRolls: { materialUnitId: number; qty: number }[];
 }
 
 const totalDefect = (row: ReportRow) => row.defects.reduce((sum, d) => sum + d.qty, 0);
@@ -199,16 +206,19 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         }
         // Раздел про второй рулон на ту же строку — независимо от того,
         // что происходит с "основным" рулоном/хорошими/браком выше,
-        // каждый дополнительный рулон отмечается использованным своим
-        // отдельным нулевым отчётом.
-        for (const extraId of r.extraRolls) {
+        // каждый дополнительный рулон отправляет свой отдельный отчёт:
+        // с qty>0 — столько готовых деталей физически получилось именно
+        // из НЕГО (расход по этому рулону посчитается верно при
+        // возврате), с qty=0 — "нулевой" отчёт (рулон тоже использован,
+        // просто не добавил новых деталей сверх уже посчитанного).
+        for (const extra of r.extraRolls) {
           calls.push(
             createTaskLineReport(r.taskId, r.line.id, {
               assignment_id: null,
-              material_unit_id: extraId,
-              good_pieces: 0,
+              material_unit_id: extra.materialUnitId,
+              good_pieces: extra.qty,
               defect_pieces: 0,
-              note: "Рулон использован, деталь ещё не готова",
+              ...(extra.qty <= 0 ? { note: "Рулон использован" } : {}),
             }),
           );
         }
@@ -352,7 +362,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                         // новый на стороне 2) — оба нужно отметить
                         // использованными в этом же отчёте по строке, не
                         // только "основной" рулон выше.
-                        const usedIds = new Set<number>(r.extraRolls);
+                        const usedIds = new Set<number>(r.extraRolls.map((e) => e.materialUnitId));
                         if (r.materialUnitId != null) usedIds.add(r.materialUnitId);
                         const availableExtra = r.line.issued_units.filter((u) => !usedIds.has(u.id));
                         return (
@@ -366,15 +376,31 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                               options={r.line.issued_units.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
                               notFoundContent={<Typography.Text type="secondary">Рулон не выдан</Typography.Text>}
                             />
-                            {r.extraRolls.map((id) => (
-                              <Tag
-                                key={id}
-                                closable
-                                onClose={() => updateRow(r.key, { extraRolls: r.extraRolls.filter((x) => x !== id) })}
-                                style={{ marginRight: 0 }}
-                              >
-                                №{id} — тоже использован
-                              </Tag>
+                            {r.extraRolls.map((extra, i) => (
+                              <Space key={extra.materialUnitId} size={4}>
+                                <Tag
+                                  closable
+                                  onClose={() => updateRow(r.key, { extraRolls: r.extraRolls.filter((_, idx) => idx !== i) })}
+                                  style={{ marginRight: 0 }}
+                                >
+                                  №{extra.materialUnitId}
+                                </Tag>
+                                <InputNumber
+                                  size="small"
+                                  min={0}
+                                  style={{ width: 70 }}
+                                  value={extra.qty}
+                                  placeholder="0"
+                                  onChange={(v) =>
+                                    updateRow(r.key, {
+                                      extraRolls: r.extraRolls.map((e, idx) => (idx === i ? { ...e, qty: v ?? 0 } : e)),
+                                    })
+                                  }
+                                />
+                                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                  шт отсюда
+                                </Typography.Text>
+                              </Space>
                             ))}
                             {availableExtra.length > 0 && (
                               <Select<number>
@@ -382,7 +408,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                                 style={{ width: 190 }}
                                 placeholder="+ ещё рулон использован"
                                 value={undefined}
-                                onChange={(v) => updateRow(r.key, { extraRolls: [...r.extraRolls, v] })}
+                                onChange={(v) => updateRow(r.key, { extraRolls: [...r.extraRolls, { materialUnitId: v, qty: 0 }] })}
                                 options={availableExtra.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
                               />
                             )}

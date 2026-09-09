@@ -8,6 +8,7 @@ from app.services.production import (
     compute_remaining_length_m,
     compute_remaining_pieces,
     compute_shortfall_length_m,
+    compute_unit_consumed_length_m,
     reserved_area_m2_by_group,
 )
 
@@ -55,6 +56,45 @@ class TestComputeExpectedReturnLengthM:
 
     def test_does_not_go_negative_if_production_exceeds_issued_length(self):
         assert compute_expected_return_length_m(10, 2.4, 10, 0) == 0
+
+
+class TestComputeUnitConsumedLengthM:
+    """Раздел про несколько рулонов на одну строку отчёта (окутка в 2
+    захода) — api/production.py::_unit_consumed_length_m фильтрует отчёты
+    по material_unit_id ДО вызова этой функции, так что расход одного
+    рулона не зависит от того, сколько других рулонов участвовало в той
+    же строке задания — при условии, что каждый физически использованный
+    рулон получает СВОЙ отчёт со своим material_unit_id (см. extraRolls
+    в MasterQuickReportPanel.tsx/ReportModal.tsx)."""
+
+    def test_single_report_consumes_its_own_length(self):
+        assert compute_unit_consumed_length_m([(10, 0, 2.4)]) == 24
+
+    def test_defect_pieces_also_consume_length(self):
+        assert compute_unit_consumed_length_m([(10, 5, 2.4)]) == 36
+
+    def test_zero_report_consumes_nothing(self):
+        # Рулон отмечен использованным ("Рулон использован"), но без
+        # хороших деталей на СЕБЕ — считается нетронутым по расходу,
+        # хотя отчёт и существует (для целей "рулон можно вернуть").
+        assert compute_unit_consumed_length_m([(0, 0, 2.4)]) == 0
+
+    def test_two_rolls_on_same_line_attribute_independently(self):
+        # Выдали на строку 500м в задание на 400 деталей: основной рулон
+        # взял 300 деталей, второй — оставшиеся 100 (после того, как
+        # первый закончился). Расход каждого считается ТОЛЬКО по его
+        # собственным отчётам — старая схема (всегда 0 на "второстепенном"
+        # рулоне) заставила бы его выглядеть нетронутым при возврате.
+        primary_reports = [(300, 0, 1.0)]
+        secondary_reports = [(100, 0, 1.0)]
+        assert compute_unit_consumed_length_m(primary_reports) == 300
+        assert compute_unit_consumed_length_m(secondary_reports) == 100
+
+    def test_multiple_reports_over_time_accumulate_per_unit(self):
+        # Рулон переживает несколько смен/строк — расход накопительный,
+        # не только за последний отчёт.
+        reports = [(50, 2, 2.0), (30, 0, 2.0)]
+        assert compute_unit_consumed_length_m(reports) == 50 * 2 + 2 * 2 + 30 * 2
 
 
 class TestComputeShortfallLengthM:
