@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message } from "antd";
+import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message, Space, Tag } from "antd";
 import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTaskLineReport, type ProductionTaskLine } from "../../../api/production";
@@ -38,6 +38,12 @@ export default function ReportModal({
   // партии — выбор остаётся ручным, per-запись брака (part_unit_id
   // здесь, не на общей форме).
   const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string; part_unit_id: number | null }[]>([]);
+  // Раздел про второй рулон на ту же строку — окутка в 2 захода часто
+  // тратит НЕСКОЛЬКО разных рулонов на одну деталь (закончился на
+  // стороне 1, начат новый на стороне 2) — оба нужно отметить
+  // использованными в одном отчёте по строке, не только material_unit_id
+  // выше. Каждый id здесь — свой отдельный нулевой отчёт при сохранении.
+  const [extraRolls, setExtraRolls] = useState<number[]>([]);
   const [reportForm] = Form.useForm<{
     assignment_id: number | null;
     material_unit_id: number | null;
@@ -133,6 +139,21 @@ export default function ReportModal({
           }),
         );
       }
+      // Раздел про второй рулон на ту же строку — независимо от того,
+      // что происходит с "основным" рулоном/хорошими/браком выше, каждый
+      // дополнительный рулон отмечается использованным своим отдельным
+      // нулевым отчётом.
+      for (const extraId of extraRolls) {
+        calls.push(
+          createTaskLineReport(taskId, line.id, {
+            assignment_id: v.assignment_id,
+            material_unit_id: extraId,
+            good_pieces: 0,
+            defect_pieces: 0,
+            note: "Рулон использован, деталь ещё не готова",
+          }),
+        );
+      }
       await Promise.all(calls);
     },
     onSuccess: () => {
@@ -142,6 +163,9 @@ export default function ReportModal({
     },
     onError: () => message.error("Не удалось сохранить отчёт"),
   });
+
+  const primaryRollId = Form.useWatch("material_unit_id", reportForm) as number | null | undefined;
+  const extraRollOptions = line.issued_units.filter((u) => u.id !== primaryRollId && !extraRolls.includes(u.id));
 
   return (
     <Modal title={`Отчёт по линии «${line.part_name ?? line.line_name}»`} open onCancel={onClose} footer={null} destroyOnHidden>
@@ -153,6 +177,7 @@ export default function ReportModal({
             дате изготовления («Учёт п/ф»); партию нужно указать только при браке. Если деталь окутывается в
             несколько заходов и сегодня не готова целиком — можно сохранить отчёт с 0 хороших и 0 брака, просто
             выбрав рулон: это зафиксирует расход плёнки и позволит вернуть/списать рулон, не дожидаясь готовой детали.
+            Если на одну деталь ушло несколько разных рулонов — под полем «Рулон» появится «+ ещё рулон использован».
           </>
         )}
       </Typography.Paragraph>
@@ -202,6 +227,30 @@ export default function ReportModal({
               notFoundContent={
                 <Typography.Text type="secondary">Сначала выдайте рулон этой строке на «Выдаче участку»</Typography.Text>
               }
+            />
+          </Form.Item>
+        )}
+        {requiresRoll && extraRolls.length > 0 && (
+          <Form.Item label="Ещё рулоны, тоже использованы">
+            <Space wrap>
+              {extraRolls.map((id) => (
+                <Tag key={id} closable onClose={() => setExtraRolls((prev) => prev.filter((x) => x !== id))}>
+                  №{id}
+                </Tag>
+              ))}
+            </Space>
+          </Form.Item>
+        )}
+        {requiresRoll && primaryRollId != null && extraRollOptions.length > 0 && (
+          <Form.Item
+            label="+ ещё рулон использован"
+            extra="Раздел про окутку в 2 захода — если на эту деталь ушло несколько разных рулонов, добавьте сюда все остальные."
+          >
+            <Select<number>
+              placeholder="Выберите ещё один рулон"
+              value={undefined}
+              onChange={(v) => setExtraRolls((prev) => [...prev, v])}
+              options={extraRollOptions.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
             />
           </Form.Item>
         )}

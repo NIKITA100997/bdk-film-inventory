@@ -31,6 +31,13 @@ interface ReportRow {
   // плёнкой, царапина, скол и т.п.). Список записей вместо одной пары —
   // тот же приём, что уже есть в ReportModal.tsx (defectRows).
   defects: DefectEntry[];
+  // Раздел про второй (третий...) рулон на ту же строку — окутка в 2
+  // захода часто использует НЕСКОЛЬКО разных рулонов на одну деталь
+  // (один закончился на стороне 1, другой начат на стороне 2), и оба
+  // нужно отметить использованными в одном отчёте по этой строке, не
+  // только materialUnitId выше. Каждый id здесь — свой отдельный
+  // "нулевой" отчёт (рулон использован, деталь не готова) при сохранении.
+  extraRolls: number[];
 }
 
 const totalDefect = (row: ReportRow) => row.defects.reduce((sum, d) => sum + d.qty, 0);
@@ -127,6 +134,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         materialUnitId: line.issued_units.length === 1 ? line.issued_units[0].id : null,
         goodPieces: 0,
         defects: [],
+        extraRolls: [],
       },
     ]);
     setPickerOpen(false);
@@ -189,6 +197,21 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
             }),
           );
         }
+        // Раздел про второй рулон на ту же строку — независимо от того,
+        // что происходит с "основным" рулоном/хорошими/браком выше,
+        // каждый дополнительный рулон отмечается использованным своим
+        // отдельным нулевым отчётом.
+        for (const extraId of r.extraRolls) {
+          calls.push(
+            createTaskLineReport(r.taskId, r.line.id, {
+              assignment_id: null,
+              material_unit_id: extraId,
+              good_pieces: 0,
+              defect_pieces: 0,
+              note: "Рулон использован, деталь ещё не готова",
+            }),
+          );
+        }
       }
       await Promise.all(calls);
     },
@@ -241,7 +264,8 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
           <>
             {" "}Если деталь окутывается в несколько заходов и сегодня не готова целиком (например, сделана только
             одна сторона) — можно сохранить строку с 0 хороших и 0 брака, просто выбрав рулон: это зафиксирует
-            расход плёнки и позволит вернуть/списать рулон, не дожидаясь готовой детали.
+            расход плёнки и позволит вернуть/списать рулон, не дожидаясь готовой детали. Если на одну деталь ушло
+            НЕСКОЛЬКО разных рулонов — под полем «Рулон» появится «+ ещё рулон использован», добавьте туда все.
           </>
         )}
       </Typography.Paragraph>
@@ -321,17 +345,50 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                     {
                       title: "Рулон (№ штрипса)",
                       key: "roll",
-                      render: (_: unknown, r: ReportRow) => (
-                        <Select
-                          size="small"
-                          style={{ width: 190 }}
-                          placeholder="Выберите рулон"
-                          value={r.materialUnitId ?? undefined}
-                          onChange={(v) => updateRow(r.key, { materialUnitId: v })}
-                          options={r.line.issued_units.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
-                          notFoundContent={<Typography.Text type="secondary">Рулон не выдан</Typography.Text>}
-                        />
-                      ),
+                      render: (_: unknown, r: ReportRow) => {
+                        // Раздел про второй рулон на ту же строку — окутка в
+                        // 2 захода нередко тратит НЕСКОЛЬКО разных рулонов
+                        // на одну деталь (закончился на стороне 1, начат
+                        // новый на стороне 2) — оба нужно отметить
+                        // использованными в этом же отчёте по строке, не
+                        // только "основной" рулон выше.
+                        const usedIds = new Set<number>(r.extraRolls);
+                        if (r.materialUnitId != null) usedIds.add(r.materialUnitId);
+                        const availableExtra = r.line.issued_units.filter((u) => !usedIds.has(u.id));
+                        return (
+                          <Space direction="vertical" size={4}>
+                            <Select
+                              size="small"
+                              style={{ width: 190 }}
+                              placeholder="Выберите рулон"
+                              value={r.materialUnitId ?? undefined}
+                              onChange={(v) => updateRow(r.key, { materialUnitId: v })}
+                              options={r.line.issued_units.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
+                              notFoundContent={<Typography.Text type="secondary">Рулон не выдан</Typography.Text>}
+                            />
+                            {r.extraRolls.map((id) => (
+                              <Tag
+                                key={id}
+                                closable
+                                onClose={() => updateRow(r.key, { extraRolls: r.extraRolls.filter((x) => x !== id) })}
+                                style={{ marginRight: 0 }}
+                              >
+                                №{id} — тоже использован
+                              </Tag>
+                            ))}
+                            {availableExtra.length > 0 && (
+                              <Select<number>
+                                size="small"
+                                style={{ width: 190 }}
+                                placeholder="+ ещё рулон использован"
+                                value={undefined}
+                                onChange={(v) => updateRow(r.key, { extraRolls: [...r.extraRolls, v] })}
+                                options={availableExtra.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
+                              />
+                            )}
+                          </Space>
+                        );
+                      },
                     },
                   ]
                 : []),
