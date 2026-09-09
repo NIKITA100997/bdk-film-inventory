@@ -169,7 +169,7 @@ def _split_or_reuse(db: Session, unit: PartUnit, quantity_pieces: float) -> Part
     return child
 
 
-def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, user_id: int) -> PartUnit:
+def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, user_id: int) -> tuple[PartUnit, bool]:
     """Перевод N штук партии на следующий этап её детали (раздел про
     цифровой аналог "Ежедневки" — вызывается из create_task_line_report
     при good_pieces > 0, участок сам этап не выбирает).
@@ -185,7 +185,14 @@ def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, us
     пропал из справочника при перенастройке — в обоих случаях это конец
     пути, не ошибка: место и этап партии не меняются, репорт просто
     фиксируется отдельным событием "Завершение", участок может отчитаться
-    ещё раз по той же партии сколько угодно раз."""
+    ещё раз по той же партии сколько угодно раз.
+
+    Возвращает (партия, is_final) — раздел про окутку в 2 захода:
+    is_final=True только когда переход именно ЗАВЕРШАЮЩИЙ (следующего
+    этапа нет). Вызывающий код (create_task_line_report) использует это,
+    чтобы НЕ засчитывать промежуточный проход (деталь ещё не готова
+    физически) в остаток строки задания участка — см.
+    ProductionTaskLineReport.counts_toward_line."""
     if unit.status != PartUnitStatus.VYDAN_UCHASTKU:
         raise ValueError("Перевести на следующий этап можно только партию, выданную участку")
     next_stage = (
@@ -203,7 +210,7 @@ def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, us
             quantity_delta=quantity_pieces,
             from_stage_id=target.stage_id,
         )
-        return target
+        return target, True
     from_stage_id = unit.stage_id
     target = _split_or_reuse(db, unit, quantity_pieces)
     target.stage_id = next_stage.id
@@ -217,7 +224,7 @@ def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, us
         from_stage_id=from_stage_id,
         to_stage_id=next_stage.id,
     )
-    return target
+    return target, False
 
 
 def write_off_part_unit(

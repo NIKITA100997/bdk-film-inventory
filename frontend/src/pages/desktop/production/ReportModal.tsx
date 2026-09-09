@@ -114,6 +114,23 @@ export default function ReportModal({
           }),
         );
       }
+      // Раздел про расход плёнки без готовой детали (окутка в 2 захода) —
+      // ни хороших, ни брака ещё нет (деталь физически не готова), но
+      // рулон уже трогали — отдельный "нулевой" отчёт: не засчитывается в
+      // остаток задания, но фиксирует факт использования рулона, чтобы
+      // его потом можно было вернуть/списать (see has_report в return_unit).
+      if (requiresRoll && v.good_pieces <= 0 && defectRows.length === 0 && v.material_unit_id) {
+        calls.push(
+          createTaskLineReport(taskId, line.id, {
+            assignment_id: v.assignment_id,
+            material_unit_id: v.material_unit_id,
+            part_unit_id: v.part_unit_id,
+            good_pieces: 0,
+            defect_pieces: 0,
+            note: "Рулон использован, деталь ещё не готова",
+          }),
+        );
+      }
       await Promise.all(calls);
     },
     onSuccess: () => {
@@ -128,6 +145,13 @@ export default function ReportModal({
     <Modal title={`Отчёт по линии «${line.part_name ?? line.line_name}»`} open onCancel={onClose} footer={null} destroyOnHidden>
       <Typography.Paragraph type="secondary">
         Нужно: {line.quantity_pieces} шт, уже произведено: {line.produced_good_pieces} шт, остаток: {line.remaining_pieces} шт.
+        {requiresRoll && (
+          <>
+            {" "}Если деталь окутывается в несколько заходов и сегодня не готова целиком — можно сохранить отчёт с 0
+            хороших и 0 брака, просто выбрав рулон: это зафиксирует расход плёнки и позволит вернуть/списать рулон,
+            не дожидаясь готовой детали.
+          </>
+        )}
       </Typography.Paragraph>
       <Form
         layout="vertical"
@@ -258,7 +282,12 @@ export default function ReportModal({
           reportForm
             .validateFields()
             .then((v) => {
-              if ((v.good_pieces ?? 0) <= 0 && defectRows.length === 0) {
+              // Раздел про расход плёнки без готовой детали — 0/0
+              // допустимо ТОЛЬКО когда выбран рулон (участок с
+              // requiresRoll) — тогда это осознанный отчёт "рулон
+              // использован, деталь не готова", а не пустая строка.
+              const isMaterialOnlyReport = requiresRoll && (v.good_pieces ?? 0) <= 0 && defectRows.length === 0 && !!v.material_unit_id;
+              if ((v.good_pieces ?? 0) <= 0 && defectRows.length === 0 && !isMaterialOnlyReport) {
                 message.warning("Укажите хотя бы хорошие детали или причину брака");
                 return;
               }

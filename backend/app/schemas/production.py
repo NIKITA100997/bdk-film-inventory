@@ -198,6 +198,9 @@ class ProductionTaskLineReportOut(BaseModel):
     note: str | None
     reported_by: int
     reported_at: datetime
+    # Раздел про окутку в 2 захода — False означает "промежуточный этап,
+    # деталь физически ещё не готова" (см. модель ProductionTaskLineReport).
+    counts_toward_line: bool = True
 
 
 class ProductionTaskLineAssignmentCreate(BaseModel):

@@ -161,6 +161,24 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
             }),
           );
         }
+        // Раздел про расход плёнки без готовой детали (окутка в 2 захода) —
+        // ни одной хорошей детали, ни брака ещё нет (деталь физически не
+        // готова), но рулон уже трогали — отдельный "нулевой" отчёт: не
+        // засчитывается в остаток задания (good_pieces=0), но фиксирует
+        // сам факт использования рулона, чтобы его потом можно было
+        // вернуть/списать (see has_report в return_unit).
+        if (requiresRoll && r.goodPieces <= 0 && r.defects.length === 0 && r.materialUnitId) {
+          calls.push(
+            createTaskLineReport(r.taskId, r.line.id, {
+              assignment_id: null,
+              material_unit_id: r.materialUnitId,
+              part_unit_id: r.partUnitId,
+              good_pieces: 0,
+              defect_pieces: 0,
+              note: "Рулон использован, деталь ещё не готова",
+            }),
+          );
+        }
       }
       await Promise.all(calls);
     },
@@ -178,7 +196,13 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
       return;
     }
     for (const r of rows) {
-      if (r.goodPieces <= 0 && totalDefect(r) <= 0) {
+      // Раздел про расход плёнки без готовой детали — 0 хороших и 0 брака
+      // допустимо ТОЛЬКО на участке с выбором рулона (requiresRoll) и
+      // только если рулон реально выбран — тогда это осознанный отчёт
+      // "рулон использован, деталь не готова", а не пустая строка,
+      // которую забыли заполнить.
+      const isMaterialOnlyReport = requiresRoll && r.goodPieces <= 0 && totalDefect(r) <= 0 && !!r.materialUnitId;
+      if (r.goodPieces <= 0 && totalDefect(r) <= 0 && !isMaterialOnlyReport) {
         message.warning(`Укажите хорошие детали или брак по строке «${r.line.part_name ?? r.line.material}»`);
         return;
       }
@@ -197,6 +221,13 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
       <Typography.Paragraph type="secondary">
         Найдите нужные детали через поиск ниже — каждая добавится отдельной строкой в отчёт. Заполните количество и
         сохраните всё одним нажатием.
+        {requiresRoll && (
+          <>
+            {" "}Если деталь окутывается в несколько заходов и сегодня не готова целиком (например, сделана только
+            одна сторона) — можно сохранить строку с 0 хороших и 0 брака, просто выбрав рулон: это зафиксирует
+            расход плёнки и позволит вернуть/списать рулон, не дожидаясь готовой детали.
+          </>
+        )}
       </Typography.Paragraph>
       <Button block size="large" onClick={() => setPickerOpen(true)}>
         🔍 Добавить позицию…

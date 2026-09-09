@@ -200,7 +200,14 @@ def _task_line_out(
 
 def _line_report_aggregates(db: Session, line_ids: list[int]) -> dict[int, tuple[float, float]]:
     """Σ good_pieces/defect_pieces по строке задания (раздел про брак в
-    производстве) — один запрос на все строки задания, не N+1."""
+    производстве) — один запрос на все строки задания, не N+1.
+
+    Раздел про окутку в 2 захода — фильтр по counts_toward_line=True:
+    промежуточный переход партии п/ф (деталь физически ещё не готова,
+    см. create_task_line_report/advance_part_unit) не должен уменьшать
+    "нужно ещё" по заданию участка, хотя расход рулона по нему уже
+    учтён (compute_unit_consumed_length_m таких фильтров не знает —
+    расход плёнки фиксируется независимо от готовности детали)."""
     if not line_ids:
         return {}
     rows = (
@@ -209,7 +216,10 @@ def _line_report_aggregates(db: Session, line_ids: list[int]) -> dict[int, tuple
             func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
             func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
         )
-        .filter(ProductionTaskLineReport.task_line_id.in_(line_ids))
+        .filter(
+            ProductionTaskLineReport.task_line_id.in_(line_ids),
+            ProductionTaskLineReport.counts_toward_line.is_(True),
+        )
         .group_by(ProductionTaskLineReport.task_line_id)
         .all()
     )
@@ -244,7 +254,14 @@ def _assignment_report_aggregates(
     material_unit_id — раздел про цифровой аналог "Ежедневки": все отчёты
     одной подачи формы ссылаются на один и тот же рулон, поэтому
     max(...) здесь просто выбирает единственное непустое значение, а не
-    агрегирует по смыслу."""
+    агрегирует по смыслу.
+
+    counts_toward_line=True — тот же фильтр, что и в
+    _line_report_aggregates (раздел про окутку в 2 захода): сегодня
+    assignment_id и part_unit_id на практике не пересекаются (участки с
+    распределением по дням и участки с этапами п/ф — разные), но фильтр
+    здесь на будущее, чтобы промежуточный переход не задваивал факт и
+    для дневного распределения тоже."""
     if not assignment_ids:
         return {}
     rows = (
@@ -254,7 +271,10 @@ def _assignment_report_aggregates(
             func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
             func.max(ProductionTaskLineReport.material_unit_id),
         )
-        .filter(ProductionTaskLineReport.assignment_id.in_(assignment_ids))
+        .filter(
+            ProductionTaskLineReport.assignment_id.in_(assignment_ids),
+            ProductionTaskLineReport.counts_toward_line.is_(True),
+        )
         .group_by(ProductionTaskLineReport.assignment_id)
         .all()
     )
@@ -786,6 +806,34 @@ def create_task_line_report(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Партия п/ф не найдена среди выданных этому участку")
         if payload.defect_pieces > 0 and not payload.defect_reason:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Укажите причину брака, чтобы списать партию п/ф")
+    # Раздел про окутку в 2 захода — good_pieces с part_unit_id считается
+    # "готовым" для остатка СТРОКИ ЗАДАНИЯ (counts_toward_line) только
+    # если advance_part_unit довёл партию до последнего этапа (is_final).
+    # Промежуточный переход (деталь физически ещё не готова) двигает
+    # партию по этапам и по-прежнему учитывается в расходе рулона
+    # (compute_unit_consumed_length_m и has_report в return_unit не
+    # фильтруют по counts_toward_line), но не уменьшает "нужно ещё" по
+    # заданию участка. Без part_unit_id (большинство участков) —
+    # поведение не меняется, counts_toward_line остаётся True.
+    counts_toward_line = True
+    if part_unit is not None and payload.good_pieces > 0:
+        try:
+            _, is_final = advance_part_unit(db, unit=part_unit, quantity_pieces=payload.good_pieces, user_id=user.id)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+        counts_toward_line = is_final
+    if part_unit is not None and payload.defect_pieces > 0:
+        try:
+            write_off_part_unit(
+                db,
+                unit=part_unit,
+                quantity_pieces=payload.defect_pieces,
+                reason=payload.defect_reason,
+                user_id=user.id,
+                note=payload.note,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
     report = ProductionTaskLineReport(
         task_line_id=line_id,
         assignment_id=payload.assignment_id,
@@ -796,23 +844,9 @@ def create_task_line_report(
         defect_reason=payload.defect_reason,
         note=payload.note,
         reported_by=user.id,
+        counts_toward_line=counts_toward_line,
     )
     db.add(report)
-    if part_unit is not None:
-        try:
-            if payload.good_pieces > 0:
-                advance_part_unit(db, unit=part_unit, quantity_pieces=payload.good_pieces, user_id=user.id)
-            if payload.defect_pieces > 0:
-                write_off_part_unit(
-                    db,
-                    unit=part_unit,
-                    quantity_pieces=payload.defect_pieces,
-                    reason=payload.defect_reason,
-                    user_id=user.id,
-                    note=payload.note,
-                )
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
     db.commit()
     db.refresh(report)
     return report

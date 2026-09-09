@@ -203,6 +203,18 @@ class ProductionTaskLineReport(Base):
     defect_pieces: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     defect_reason: Mapped[str | None] = mapped_column(ForeignKey("write_off_reasons.code"), nullable=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Раздел про окутку в 2 захода — засчитывается ли good_pieces/
+    # defect_pieces этого отчёта в остаток СТРОКИ ЗАДАНИЯ участка
+    # (produced_good_pieces/remaining_pieces, api/production.py::
+    # _line_report_aggregates). False проставляется только когда
+    # part_unit_id указан, good_pieces > 0 и advance_part_unit довёл
+    # партию до ПРОМЕЖУТОЧНОГО этапа (деталь физически ещё не готова) —
+    # во всех остальных случаях (нет part_unit_id, брак, либо партия
+    # дошла до последнего этапа) остаётся True, как раньше. Расход
+    # рулона (_unit_consumed_length_m) и проверка "есть ли отчёт" при
+    # возврате (return_unit) на это поле не смотрят — расход плёнки
+    # фиксируется независимо от готовности детали.
+    counts_toward_line: Mapped[bool] = mapped_column(default=True, server_default="true")
 
     reported_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -154,7 +154,7 @@ def advance_part_unit_endpoint(
     if unit is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
     try:
-        target = advance_part_unit(db, unit=unit, quantity_pieces=payload.quantity_pieces, user_id=user.id)
+        target, _ = advance_part_unit(db, unit=unit, quantity_pieces=payload.quantity_pieces, user_id=user.id)
     except ValueError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
