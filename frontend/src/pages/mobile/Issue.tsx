@@ -779,6 +779,28 @@ export default function Issue() {
     [...assignmentRows, ...weekRowsNeedingMaterial].filter((r) => r.line.shortfall_length_m > 0).map((r) => r.task.area),
   ).size;
 
+  // Раздел про триггер "когда можно забирать" — раньше факт "производство
+  // по строке уже полностью готово, но рулон всё ещё числится за
+  // участком" был виден только внутри общей очереди (колонка "Нужно /
+  // факт", тег "🏁 работа завершена"), легко потеряться среди остальных
+  // строк. Отдельный banner наверху экрана — какие задания уже готовы
+  // целиком (remaining_pieces<=0 по всем строкам с остатком рулонов) и
+  // что именно ещё физически лежит у участка, нужно забрать обратно на
+  // склад — прямой ответ на "триггер" для кладовщика/логиста.
+  const pendingReturnByTask = useMemo(() => {
+    const map = new Map<number, { task: ProductionTask; units: ProductionTaskLineIssuedUnit[] }>();
+    for (const { task, line } of activeLines) {
+      if (line.remaining_pieces > 0) continue;
+      const outstanding = line.issued_units.filter((u) => u.status === "Выдан_участку");
+      if (outstanding.length === 0) continue;
+      const entry = map.get(task.id) ?? { task, units: [] };
+      const seen = new Set(entry.units.map((u) => u.id));
+      for (const u of outstanding) if (!seen.has(u.id)) entry.units.push(u);
+      map.set(task.id, entry);
+    }
+    return [...map.values()];
+  }, [activeLines]);
+
   // --- Выбранная потребность: авто-подбор точного/донор-штрипса сразу
   // после выбора строки в очереди, без лишнего клика "искать".
   const selectedSku = selected ? findSku(skusQuery.data, selected.line.material, selected.line.color, selected.line.thickness) : undefined;
@@ -1768,6 +1790,38 @@ export default function Issue() {
           </Card>
         </Col>
       </Row>
+
+      {pendingReturnByTask.length > 0 && (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`🏁 Готово к возврату — ${pendingReturnByTask.length} ${pendingReturnByTask.length === 1 ? "задание" : "задания"}`}
+          description={
+            <Space direction="vertical" size={10} style={{ width: "100%" }}>
+              {pendingReturnByTask.map(({ task, units }) => (
+                <div key={task.id}>
+                  <Typography.Text strong>
+                    {task.product_model_name ?? task.name ?? `Задание №${task.id}`} · {areaLabel(task.area)}
+                  </Typography.Text>
+                  <div>
+                    <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                      Производство завершено — заберите со участка: {units.map((u) => `№${u.id} (${u.width_mm}×${u.length_m} м)`).join(", ")}
+                    </Typography.Text>
+                  </div>
+                  {canReturn && (
+                    <Space size={4} wrap style={{ marginTop: 4 }}>
+                      {units.map((u) => (
+                        <AcceptReturnButton key={u.id} unit={u} />
+                      ))}
+                    </Space>
+                  )}
+                </div>
+              ))}
+            </Space>
+          }
+        />
+      )}
 
       {/* wrap + maxWidth:100% на каждом поле — раньше три поля с
           фиксированной шириной (220+320+200 = 740px) не помещались на
