@@ -1,7 +1,7 @@
 import enum
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -58,6 +58,14 @@ class PartUnit(Base):
 
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
+    # Раздел про учёт п/ф по FIFO — отдельно от created_at (момент записи
+    # в систему, часто позже реального изготовления, см. mint_part_unit
+    # "регистрация задним числом"): дата, по которой партии расходуются
+    # от самой старой. _split_or_reuse копирует её в дочернюю партию при
+    # дроблении — иначе FIFO-порядок ломался бы на первом же частичном
+    # расходе (дочерняя партия получила бы "сегодня").
+    manufactured_at: Mapped[date] = mapped_column(Date, server_default=func.current_date())
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

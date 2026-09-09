@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -24,6 +24,9 @@ class PartUnitCreate(BaseModel):
     issue: bool = False
     note: str | None = None
     stage_id: int | None = None
+    # Раздел про учёт п/ф по FIFO — тот же приём "задним числом", что и
+    # stage_id: None = сегодня.
+    manufactured_at: date | None = None
 
 
 class PartUnitPlace(BaseModel):
@@ -61,6 +64,7 @@ class PartUnitOut(BaseModel):
     production_task_line_id: int | None
     note: str | None
     created_by: int
+    manufactured_at: date
     created_at: datetime
     updated_at: datetime
 

@@ -346,6 +346,10 @@ class ProductionTaskOut(BaseModel):
     # заданию в целом, не только по каждой строке отдельно.
     planned_length_m: float = 0.0
     issued_length_m: float = 0.0
+    # Раздел про сводку по заданию (штрипсы + % брака) — сумма
+    # produced_good_pieces/defect_pieces по всем строкам задания.
+    produced_good_pieces: float = 0.0
+    defect_pieces: float = 0.0
 
 
 class BlankDemandLineOut(BaseModel):

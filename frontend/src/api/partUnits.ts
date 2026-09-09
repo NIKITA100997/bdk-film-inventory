@@ -18,6 +18,10 @@ export interface PartUnit {
   production_task_line_id: number | null;
   note: string | null;
   created_by: number;
+  // Раздел про учёт п/ф по FIFO — дата изготовления (не дата записи в
+  // систему), по ней партии теперь расходуются автоматически при
+  // отчёте о готовых деталях (ISO-дата, "YYYY-MM-DD").
+  manufactured_at: string;
   created_at: string;
   updated_at: string;
 }
@@ -34,6 +38,10 @@ export interface PartUnitCreate {
   // маршрута (например, уже склеена и отфрезерована), заводим её сразу
   // на этом этапе. Не задано — как раньше, первый этап детали.
   stage_id?: number | null;
+  // Раздел про учёт п/ф по FIFO — тот же приём "задним числом": партия
+  // физически изготовлена раньше, чем заводится в систему. Не задано —
+  // сегодня.
+  manufactured_at?: string | null;
 }
 
 export interface PartUnitEvent {

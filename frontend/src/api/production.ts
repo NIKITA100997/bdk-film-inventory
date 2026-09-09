@@ -130,6 +130,11 @@ export interface ProductionTask {
   // заданию в целом.
   planned_length_m: number;
   issued_length_m: number;
+  // Раздел про сводку по заданию (штрипсы + % брака) — та же сумма по
+  // строкам, что и planned/issued выше, только по факту произведённых/
+  // бракованных штук.
+  produced_good_pieces: number;
+  defect_pieces: number;
 }
 
 export interface ProductionTaskLineManualCreate {

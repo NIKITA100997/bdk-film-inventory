@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Popconfirm, Table, Tag } from "antd";
+import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Popconfirm, Table, Tag, DatePicker } from "antd";
+import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ActionIcon from "../../../components/ActionIcon";
 import PrintFormatButton from "../../../components/PrintFormatButton";
@@ -42,6 +43,9 @@ interface MintFormValues {
   issue: boolean;
   note?: string;
   stage_id?: number;
+  // Раздел про учёт п/ф по FIFO — не задано = сегодня (бэкенд сам
+  // подставит), задаётся только для регистрации задним числом.
+  manufactured_at?: Dayjs;
 }
 
 /** Учёт производства деталей (раздел про физический учёт деталей, пилот:
@@ -147,6 +151,7 @@ export default function PartUnits() {
         issue: v.issue,
         note: v.note,
         stage_id: v.stage_id,
+        manufactured_at: v.manufactured_at ? v.manufactured_at.format("YYYY-MM-DD") : undefined,
       });
     },
     onSuccess: () => {
@@ -266,6 +271,13 @@ export default function PartUnits() {
             <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
+            <Form.Item
+              name="manufactured_at"
+              label="Дата изготовления (опционально)"
+              extra="Раздел про учёт по FIFO — по этой дате партии расходуются от самой старой при отчёте о готовых деталях. Не указано — сегодня."
+            >
+              <DatePicker style={{ width: "100%" }} format="DD.MM.YYYY" placeholder="Сегодня" disabledDate={(d) => d.isAfter(Date.now(), "day")} />
+            </Form.Item>
             <Form.Item name="task_line_key" label="Строка задания (опционально)">
               <Select
                 showSearch
@@ -333,12 +345,20 @@ export default function PartUnits() {
           loading={unitsQuery.isLoading}
           dataSource={filteredUnits}
           pagination={{ pageSize: 20 }}
-          scroll={{ x: 1160 }}
+          scroll={{ x: 1270 }}
           locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
           onRow={(u) => ({ onClick: () => setCardTarget(u), style: { cursor: "pointer" } })}
           columns={[
             { title: "Деталь", dataIndex: "part_name", width: 220 },
             { title: "Кол-во, шт", dataIndex: "quantity_pieces", width: 90 },
+            {
+              // Раздел про учёт п/ф по FIFO — видимость даты, по которой
+              // партии теперь расходуются автоматически (не по номеру).
+              title: "Изготовлено",
+              dataIndex: "manufactured_at",
+              width: 110,
+              render: (v: string) => new Date(v).toLocaleDateString("ru-RU"),
+            },
             { title: "Этап", dataIndex: "stage_name", width: 130, ellipsis: true },
             {
               title: "Статус",

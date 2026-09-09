@@ -1,9 +1,11 @@
-from datetime import datetime
+from datetime import date, datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.dictionaries import Part, PartStage
 from app.models.part_units import PartEventType, PartUnit, PartUnitEvent, PartUnitStatus
+from app.models.production import ProductionTaskLineReport
 
 
 def record_part_event(
@@ -74,6 +76,7 @@ def mint_part_unit(
     issue: bool = False,
     note: str | None = None,
     stage_id: int | None = None,
+    manufactured_at: date | None = None,
 ) -> PartUnit:
     """Регистрация факта нарезки партии (начальник цеха) — по умолчанию
     рождается на первом этапе детали (sequence_order=1). Деталь без
@@ -85,6 +88,10 @@ def mint_part_unit(
     заводится в систему только сейчас — стартовым этапом становится он,
     а не обязательно первый. Явная ошибка, если этап не из списка этапов
     ЭТОЙ детали (а не просто существует у какой-то другой).
+
+    `manufactured_at` — раздел про учёт п/ф по FIFO: дата, по которой
+    партия расходуется (не дата записи в систему) — тот же приём
+    "задним числом", что и у stage_id; None — сегодня.
 
     Раздел про связь этапов с участками — участок выдачи выводится из
     `start_stage.area`, не выбирается вручную (см. PartStage.area):
@@ -104,6 +111,7 @@ def mint_part_unit(
         part_id=part.id,
         quantity_pieces=quantity_pieces,
         stage_id=start_stage.id,
+        manufactured_at=manufactured_at if manufactured_at is not None else date.today(),
         status=PartUnitStatus.VYDAN_UCHASTKU if issue else PartUnitStatus.NA_KHRANENII,
         area=start_stage.area if issue else None,
         production_task_line_id=production_task_line_id,
@@ -163,6 +171,10 @@ def _split_or_reuse(db: Session, unit: PartUnit, quantity_pieces: float) -> Part
         area=unit.area,
         production_task_line_id=unit.production_task_line_id,
         created_by=unit.created_by,
+        # Раздел про учёт п/ф по FIFO — дата изготовления переезжает с
+        # родителем, не сбрасывается на "сегодня": иначе после первого же
+        # частичного расхода партия теряла бы свою настоящую очередь.
+        manufactured_at=unit.manufactured_at,
     )
     db.add(child)
     db.flush()
@@ -225,6 +237,81 @@ def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, us
         to_stage_id=next_stage.id,
     )
     return target, False
+
+
+def consume_part_units_fifo(
+    db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int
+) -> list[tuple[PartUnit, bool, float]]:
+    """Оприходовать N готовых штук партий детали part_id, выданных этому
+    участку — от самой старой по manufactured_at (раздел про учёт п/ф по
+    FIFO: мастер больше не выбирает партию вручную для готовых деталей,
+    "какую именно" решает дата изготовления, не номер). Не привязано к
+    конкретному этапу партии — на одном участке могут одновременно лежать
+    партии на разных этапах (например, окутка в 2 захода: "сторона 1" и
+    "сторона 2" сразу) — цель FIFO именно "не давать залёживаться самому
+    старому", не "все партии на одном шаге"; advance_part_unit сам
+    переводит каждую партию на её СОБСТВЕННЫЙ следующий этап.
+
+    Возвращает список (партия, is_final, взято_шт) — одна запись на
+    каждую тронутую партию (обычно одна, несколько — если одной не
+    хватило). Вызывающий код (create_task_line_report) создаёт свою
+    строку ProductionTaskLineReport на каждую. ValueError, если по всем
+    партиям суммарно не хватает — ничего не изменяется (откат снаружи).
+
+    Раздел про "остаток" партии на последнем этапе — advance_part_unit,
+    когда переводимое количество равно ВСЕЙ текущей quantity_pieces
+    партии (частый случай: партию завели и в тот же день полностью
+    отчитались), не уменьшает quantity_pieces и не меняет статус (тот же
+    объект просто помечается событием "Завершение" — так и задумано,
+    "участок может отчитаться ещё раз по той же партии", см. advance_
+    part_unit) — то есть partия физически исчерпана, но выглядит как
+    доступная снова, если проверять только quantity_pieces. Здесь
+    остаток на партию считается за вычетом уже проведённых по НЕЙ ЖЕ
+    good_pieces-отчётов (_reported_good_pieces_by_unit) — тот же приём,
+    что и остаток рулона (compute_unit_consumed_length_m) — иначе
+    автоматический FIFO рано или поздно повторно "нашёл" бы уже
+    полностью отчитанную партию и задвоил бы её штуки."""
+    candidates = (
+        db.query(PartUnit)
+        .filter(PartUnit.part_id == part_id, PartUnit.area == area, PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU)
+        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+        .all()
+    )
+    reported_by_unit = _reported_good_pieces_by_unit(db, [c.id for c in candidates])
+    free_by_id = {c.id: float(c.quantity_pieces) - reported_by_unit.get(c.id, 0.0) for c in candidates}
+    available = sum(v for v in free_by_id.values() if v > 0)
+    if available < quantity_pieces:
+        part_name = candidates[0].part.name if candidates else db.get(Part, part_id).name
+        raise ValueError(
+            f"Недостаточно партий детали «{part_name}» на участке — доступно {available} шт, нужно {quantity_pieces} шт"
+        )
+    results: list[tuple[PartUnit, bool, float]] = []
+    remaining = quantity_pieces
+    for candidate in candidates:
+        if remaining <= 0:
+            break
+        free = free_by_id[candidate.id]
+        if free <= 0:
+            continue
+        take = min(remaining, free)
+        target, is_final = advance_part_unit(db, unit=candidate, quantity_pieces=take, user_id=user_id)
+        results.append((target, is_final, take))
+        remaining -= take
+    return results
+
+
+def _reported_good_pieces_by_unit(db: Session, unit_ids: list[int]) -> dict[int, float]:
+    """Σ good_pieces уже поданных отчётов по каждой партии — раздел про
+    учёт п/ф по FIFO, см. docstring consume_part_units_fifo."""
+    if not unit_ids:
+        return {}
+    rows = (
+        db.query(ProductionTaskLineReport.part_unit_id, func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
+        .filter(ProductionTaskLineReport.part_unit_id.in_(unit_ids))
+        .group_by(ProductionTaskLineReport.part_unit_id)
+        .all()
+    )
+    return {row[0]: float(row[1]) for row in rows}
 
 
 def write_off_part_unit(

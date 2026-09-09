@@ -32,14 +32,18 @@ export default function ReportModal({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string }[]>([]);
+  // Раздел про учёт п/ф по FIFO — партия для готовых деталей больше не
+  // выбирается (расходуется автоматически от самой старой по дате
+  // изготовления), но брак физически обнаруживается в конкретной
+  // партии — выбор остаётся ручным, per-запись брака (part_unit_id
+  // здесь, не на общей форме).
+  const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string; part_unit_id: number | null }[]>([]);
   const [reportForm] = Form.useForm<{
     assignment_id: number | null;
     material_unit_id: number | null;
-    part_unit_id: number | null;
     good_pieces: number;
   }>();
-  const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
+  const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string; part_unit_id?: number }>();
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "production"],
     queryFn: () => listWriteOffReasons("production"),
@@ -64,15 +68,16 @@ export default function ReportModal({
   });
   // Автовыбор партии при единственном варианте — приходит асинхронно
   // (в отличие от line.issued_units, уже готовых в пропе), initialValues
-  // формы этого не подхватит сам по себе.
+  // формы этого не подхватит сам по себе. Раздел про учёт п/ф по FIFO —
+  // теперь только для формы брака (defectRowForm), не общей формы.
   useEffect(() => {
-    if (partUnitsQuery.data?.length === 1 && reportForm.getFieldValue("part_unit_id") == null) {
-      reportForm.setFieldValue("part_unit_id", partUnitsQuery.data[0].id);
+    if (partUnitsQuery.data?.length === 1 && defectRowForm.getFieldValue("part_unit_id") == null) {
+      defectRowForm.setFieldValue("part_unit_id", partUnitsQuery.data[0].id);
     }
-  }, [partUnitsQuery.data, reportForm]);
+  }, [partUnitsQuery.data, defectRowForm]);
 
-  const addDefectRow = (v: { reason: string; qty: number; note?: string }) => {
-    setDefectRows((rows) => [...rows, v]);
+  const addDefectRow = (v: { reason: string; qty: number; note?: string; part_unit_id?: number }) => {
+    setDefectRows((rows) => [...rows, { ...v, part_unit_id: v.part_unit_id ?? null }]);
     defectRowForm.resetFields();
   };
   const removeDefectRow = (index: number) => setDefectRows((rows) => rows.filter((_, i) => i !== index));
@@ -86,7 +91,6 @@ export default function ReportModal({
     mutationFn: async (v: {
       assignment_id: number | null;
       material_unit_id: number | null;
-      part_unit_id: number | null;
       good_pieces: number;
     }) => {
       const calls: Promise<unknown>[] = [];
@@ -95,7 +99,6 @@ export default function ReportModal({
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
             material_unit_id: v.material_unit_id,
-            part_unit_id: v.part_unit_id,
             good_pieces: v.good_pieces,
             defect_pieces: 0,
           }),
@@ -106,7 +109,7 @@ export default function ReportModal({
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
             material_unit_id: v.material_unit_id,
-            part_unit_id: v.part_unit_id,
+            part_unit_id: row.part_unit_id,
             good_pieces: 0,
             defect_pieces: row.qty,
             defect_reason: row.reason,
@@ -124,7 +127,6 @@ export default function ReportModal({
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
             material_unit_id: v.material_unit_id,
-            part_unit_id: v.part_unit_id,
             good_pieces: 0,
             defect_pieces: 0,
             note: "Рулон использован, деталь ещё не готова",
@@ -147,9 +149,10 @@ export default function ReportModal({
         Нужно: {line.quantity_pieces} шт, уже произведено: {line.produced_good_pieces} шт, остаток: {line.remaining_pieces} шт.
         {requiresRoll && (
           <>
-            {" "}Если деталь окутывается в несколько заходов и сегодня не готова целиком — можно сохранить отчёт с 0
-            хороших и 0 брака, просто выбрав рулон: это зафиксирует расход плёнки и позволит вернуть/списать рулон,
-            не дожидаясь готовой детали.
+            {" "}Партия п/ф для готовых деталей теперь не выбирается — списывается автоматически от самой старой по
+            дате изготовления («Учёт п/ф»); партию нужно указать только при браке. Если деталь окутывается в
+            несколько заходов и сегодня не готова целиком — можно сохранить отчёт с 0 хороших и 0 брака, просто
+            выбрав рулон: это зафиксирует расход плёнки и позволит вернуть/списать рулон, не дожидаясь готовой детали.
           </>
         )}
       </Typography.Paragraph>
@@ -159,7 +162,6 @@ export default function ReportModal({
         initialValues={{
           assignment_id: presetAssignmentId ?? null,
           material_unit_id: line.issued_units.length === 1 ? line.issued_units[0].id : null,
-          part_unit_id: null,
           good_pieces: 0,
         }}
       >
@@ -203,24 +205,6 @@ export default function ReportModal({
             />
           </Form.Item>
         )}
-        {requiresRoll && (
-          <Form.Item name="part_unit_id" label="Партия п/ф (опционально)">
-            <Select
-              allowClear
-              loading={partUnitsQuery.isLoading}
-              placeholder="Выберите партию — хорошие детали перейдут на следующий этап"
-              options={(partUnitsQuery.data ?? []).map((u) => ({
-                value: u.id,
-                label: `№${u.id} — ${u.quantity_pieces} шт, этап «${u.stage_name}»`,
-              }))}
-              notFoundContent={
-                <Typography.Text type="secondary">
-                  Партия не выдана этой строке (или у детали не настроены этапы) — «Учёт п/ф»
-                </Typography.Text>
-              }
-            />
-          </Form.Item>
-        )}
         <Form.Item name="good_pieces" label="Хороших деталей, шт" rules={[{ required: true }]}>
           <InputNumber min={0} style={{ width: "100%" }} />
         </Form.Item>
@@ -237,6 +221,7 @@ export default function ReportModal({
           columns={[
             { title: "Причина брака", dataIndex: "reason", render: (v: string) => reasonName(v) },
             { title: "Кол-во, шт", dataIndex: "qty" },
+            { title: "Партия п/ф", render: (_, r) => (r.part_unit_id != null ? `№${r.part_unit_id}` : "—") },
             { title: "Заметка", render: (_, r) => r.note ?? "—" },
             {
               title: "",
@@ -265,6 +250,28 @@ export default function ReportModal({
         <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: "100%" }} />
         </Form.Item>
+        {requiresRoll && (
+          <Form.Item
+            name="part_unit_id"
+            label="Партия п/ф (опционально)"
+            extra="Раздел про учёт по FIFO — для готовых деталей партия не выбирается, но брак физически обнаруживается в конкретной партии."
+          >
+            <Select
+              allowClear
+              loading={partUnitsQuery.isLoading}
+              placeholder="Выберите партию"
+              options={(partUnitsQuery.data ?? []).map((u) => ({
+                value: u.id,
+                label: `№${u.id} — ${u.quantity_pieces} шт, этап «${u.stage_name}»`,
+              }))}
+              notFoundContent={
+                <Typography.Text type="secondary">
+                  Партия не выдана этой строке (или у детали не настроены этапы) — «Учёт п/ф»
+                </Typography.Text>
+              }
+            />
+          </Form.Item>
+        )}
         <Form.Item name="note" label="Заметка (опционально)">
           <Input placeholder="Например: мусор под плёнкой" />
         </Form.Item>

@@ -37,6 +37,7 @@ def _part_unit_out(unit: PartUnit) -> PartUnitOut:
         production_task_line_id=unit.production_task_line_id,
         note=unit.note,
         created_by=unit.created_by,
+        manufactured_at=unit.manufactured_at,
         created_at=unit.created_at,
         updated_at=unit.updated_at,
     )
@@ -84,6 +85,7 @@ def create_part_unit(
             issue=payload.issue,
             note=payload.note,
             stage_id=payload.stage_id,
+            manufactured_at=payload.manufactured_at,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e

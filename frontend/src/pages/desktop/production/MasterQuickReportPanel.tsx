@@ -11,6 +11,12 @@ interface DefectEntry {
   reason: string;
   qty: number;
   note?: string;
+  // Раздел про учёт п/ф по FIFO — для готовых деталей партия больше не
+  // выбирается (расходуется автоматически от самой старой), но брак
+  // физически обнаруживается в КОНКРЕТНОЙ партии, поэтому здесь выбор
+  // остаётся ручным, per-запись (у разных причин брака в одной строке
+  // может быть разная партия).
+  partUnitId: number | null;
 }
 
 interface ReportRow {
@@ -18,7 +24,6 @@ interface ReportRow {
   taskId: number;
   line: ProductionTaskLine;
   materialUnitId: number | null;
-  partUnitId: number | null;
   goodPieces: number;
   // Раздел про несколько причин брака в одном отчёте — раньше был один
   // defectPieces + одна defectReason на всю строку, хотя по факту разные
@@ -59,7 +64,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [defectRowKey, setDefectRowKey] = useState<string | null>(null);
-  const [defectForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
+  const [defectForm] = Form.useForm<{ reason: string; qty: number; note?: string; part_unit_id?: number }>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons", "production"], queryFn: () => listWriteOffReasons("production") });
@@ -107,7 +112,6 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     rowCounter.current += 1;
-    const availableParts = partUnitOptionsForLine(line);
     setRows((prev) => [
       ...prev,
       {
@@ -115,7 +119,6 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         taskId: task.id,
         line,
         materialUnitId: line.issued_units.length === 1 ? line.issued_units[0].id : null,
-        partUnitId: availableParts.length === 1 ? availableParts[0].id : null,
         goodPieces: 0,
         defects: [],
       },
@@ -138,11 +141,13 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
       const calls: Promise<unknown>[] = [];
       for (const r of rows) {
         if (r.goodPieces > 0) {
+          // Раздел про учёт п/ф по FIFO — партия для готовых деталей
+          // больше не передаётся: бэкенд сам расходует от самой старой
+          // (по дате изготовления), part_unit_id здесь не нужен.
           calls.push(
             createTaskLineReport(r.taskId, r.line.id, {
               assignment_id: null,
               material_unit_id: r.materialUnitId,
-              part_unit_id: r.partUnitId,
               good_pieces: r.goodPieces,
               defect_pieces: 0,
             }),
@@ -153,7 +158,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
             createTaskLineReport(r.taskId, r.line.id, {
               assignment_id: null,
               material_unit_id: r.materialUnitId,
-              part_unit_id: r.partUnitId,
+              part_unit_id: d.partUnitId,
               good_pieces: 0,
               defect_pieces: d.qty,
               defect_reason: d.reason,
@@ -172,7 +177,6 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
             createTaskLineReport(r.taskId, r.line.id, {
               assignment_id: null,
               material_unit_id: r.materialUnitId,
-              part_unit_id: r.partUnitId,
               good_pieces: 0,
               defect_pieces: 0,
               note: "Рулон использован, деталь ещё не готова",
@@ -221,6 +225,12 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
       <Typography.Paragraph type="secondary">
         Найдите нужные детали через поиск ниже — каждая добавится отдельной строкой в отчёт. Заполните количество и
         сохраните всё одним нажатием.
+        {hasPartStages && (
+          <>
+            {" "}Партия п/ф для готовых деталей теперь не выбирается — списывается автоматически от самой старой по
+            дате изготовления («Учёт п/ф»). Партию нужно указать только при браке.
+          </>
+        )}
         {requiresRoll && (
           <>
             {" "}Если деталь окутывается в несколько заходов и сегодня не готова целиком (например, сделана только
@@ -319,29 +329,6 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                     },
                   ]
                 : []),
-              ...(hasPartStages
-                ? [
-                    {
-                      title: "Партия п/ф (опционально)",
-                      key: "partUnit",
-                      render: (_: unknown, r: ReportRow) => (
-                        <Select
-                          allowClear
-                          size="small"
-                          style={{ width: 200 }}
-                          placeholder="Без партии"
-                          value={r.partUnitId ?? undefined}
-                          onChange={(v) => updateRow(r.key, { partUnitId: v ?? null })}
-                          options={partUnitOptionsForLine(r.line).map((u) => ({
-                            value: u.id,
-                            label: `№${u.id} — ${u.quantity_pieces} шт, «${u.stage_name}»`,
-                          }))}
-                          notFoundContent={<Typography.Text type="secondary">Партия не выдана — «Учёт п/ф»</Typography.Text>}
-                        />
-                      ),
-                    },
-                  ]
-                : []),
               {
                 title: "Хорошие, шт",
                 key: "good",
@@ -411,6 +398,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                   <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <span>
                       {reasonName(d.reason)}: <strong>{d.qty} шт</strong>
+                      {d.partUnitId != null && <Typography.Text type="secondary"> — партия №{d.partUnitId}</Typography.Text>}
                       {d.note && <Typography.Text type="secondary"> — {d.note}</Typography.Text>}
                     </span>
                     <Button size="small" danger onClick={() => removeDefectEntry(defectRow.key, i)}>
@@ -428,7 +416,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               form={defectForm}
               layout="vertical"
               onFinish={(v) => {
-                addDefectEntry(defectRow.key, v);
+                addDefectEntry(defectRow.key, { reason: v.reason, qty: v.qty, note: v.note, partUnitId: v.part_unit_id ?? null });
                 defectForm.resetFields();
               }}
             >
@@ -441,6 +429,23 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>
                 <InputNumber min={1} style={{ width: "100%" }} />
               </Form.Item>
+              {hasPartStages && (
+                <Form.Item
+                  name="part_unit_id"
+                  label="Партия п/ф (опционально)"
+                  extra="Брак физически обнаруживается в конкретной партии — в отличие от готовых деталей, здесь выбор остаётся ручным."
+                >
+                  <Select
+                    allowClear
+                    placeholder="Без партии"
+                    options={partUnitOptionsForLine(defectRow.line).map((u) => ({
+                      value: u.id,
+                      label: `№${u.id} — ${u.quantity_pieces} шт, «${u.stage_name}»`,
+                    }))}
+                    notFoundContent={<Typography.Text type="secondary">Партия не выдана — «Учёт п/ф»</Typography.Text>}
+                  />
+                </Form.Item>
+              )}
               <Form.Item name="note" label="Заметка (опционально)">
                 <Input placeholder="Например: мусор под плёнкой" />
               </Form.Item>

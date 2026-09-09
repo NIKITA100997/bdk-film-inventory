@@ -6,7 +6,7 @@ from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.areas import Area
-from app.models.dictionaries import Color, Material, MaterialSku, Thickness
+from app.models.dictionaries import Color, Material, MaterialSku, Part, Thickness
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.part_units import PartUnit, PartUnitStatus
 from app.models.production import (
@@ -50,7 +50,7 @@ from app.services.dictionaries import find_or_create_employees, find_or_create_m
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
 from app.services.naryad_import import enrich_naryad_lines, parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
-from app.services.part_units import advance_part_unit, write_off_part_unit
+from app.services.part_units import advance_part_unit, consume_part_units_fifo, write_off_part_unit
 from app.services.production import (
     BlankDemandInputLine,
     BlankSupplyInputLine,
@@ -363,6 +363,12 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
         lines=line_outs,
         planned_length_m=round(sum(l.planned_length_m for l in line_outs), 2),
         issued_length_m=round(sum(l.issued_length_m for l in line_outs), 2),
+        # Раздел про сводку по заданию (штрипсы + % брака) — та же сумма
+        # по строкам, что planned_length_m/issued_length_m выше, только
+        # по факту произведённых/бракованных штук (per-line уже считает
+        # produced_good_pieces/defect_pieces через _line_report_aggregates).
+        produced_good_pieces=round(sum(l.produced_good_pieces for l in line_outs), 2),
+        defect_pieces=round(sum(l.defect_pieces for l in line_outs), 2),
     )
 
 
@@ -806,22 +812,34 @@ def create_task_line_report(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Партия п/ф не найдена среди выданных этому участку")
         if payload.defect_pieces > 0 and not payload.defect_reason:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Укажите причину брака, чтобы списать партию п/ф")
-    # Раздел про окутку в 2 захода — good_pieces с part_unit_id считается
-    # "готовым" для остатка СТРОКИ ЗАДАНИЯ (counts_toward_line) только
-    # если advance_part_unit довёл партию до последнего этапа (is_final).
-    # Промежуточный переход (деталь физически ещё не готова) двигает
-    # партию по этапам и по-прежнему учитывается в расходе рулона
-    # (compute_unit_consumed_length_m и has_report в return_unit не
-    # фильтруют по counts_toward_line), но не уменьшает "нужно ещё" по
-    # заданию участка. Без part_unit_id (большинство участков) —
-    # поведение не меняется, counts_toward_line остаётся True.
-    counts_toward_line = True
-    if part_unit is not None and payload.good_pieces > 0:
+
+    # Раздел про учёт п/ф по FIFO — для готовых деталей партия больше не
+    # выбирается вручную: если у детали настроены этапы, расходуем от
+    # самой старой партии по дате изготовления (consume_part_units_fifo),
+    # part_unit_id клиента для good_pieces игнорируется. Брак — по-прежнему
+    # вручную (part_unit выше, уже проверенный). fifo_results — одна
+    # запись на каждую тронутую партию (обычно одна, несколько — если
+    # одной не хватило на весь good_pieces); каждая становится своей
+    # строкой ProductionTaskLineReport ниже.
+    part = db.query(Part).filter(Part.name == line.part_name).first() if line.part_name else None
+    fifo_results: list[tuple[PartUnit, bool, float]] = []
+    if payload.good_pieces > 0 and part is not None and part.stages:
+        try:
+            fifo_results = consume_part_units_fifo(
+                db, part_id=part.id, area=line.task.area, quantity_pieces=payload.good_pieces, user_id=user.id
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+    elif payload.good_pieces > 0 and part_unit is not None:
+        # Совместимость: явный part_unit_id для готовых деталей у детали
+        # без настроенных этапов (или прямой вызов API в обход текущего
+        # фронта) — раньше это был единственный путь, оставляем рабочим.
         try:
             _, is_final = advance_part_unit(db, unit=part_unit, quantity_pieces=payload.good_pieces, user_id=user.id)
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
-        counts_toward_line = is_final
+        fifo_results = [(part_unit, is_final, payload.good_pieces)]
+
     if part_unit is not None and payload.defect_pieces > 0:
         try:
             write_off_part_unit(
@@ -834,22 +852,66 @@ def create_task_line_report(
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
-    report = ProductionTaskLineReport(
-        task_line_id=line_id,
-        assignment_id=payload.assignment_id,
-        material_unit_id=payload.material_unit_id,
-        part_unit_id=payload.part_unit_id,
-        good_pieces=payload.good_pieces,
-        defect_pieces=payload.defect_pieces,
-        defect_reason=payload.defect_reason,
-        note=payload.note,
-        reported_by=user.id,
-        counts_toward_line=counts_toward_line,
-    )
-    db.add(report)
+
+    # Раздел про окутку в 2 захода — good_pieces с part_unit считается
+    # "готовым" для остатка СТРОКИ ЗАДАНИЯ (counts_toward_line) только
+    # если партия дошла до последнего этапа (is_final). Промежуточный
+    # переход (деталь физически ещё не готова) двигает партию по этапам
+    # и по-прежнему учитывается в расходе рулона (compute_unit_consumed_
+    # length_m и has_report в return_unit не фильтруют по
+    # counts_toward_line), но не уменьшает "нужно ещё" по заданию.
+    reports: list[ProductionTaskLineReport] = []
+    if fifo_results:
+        for pu, is_final, taken in fifo_results:
+            reports.append(
+                ProductionTaskLineReport(
+                    task_line_id=line_id,
+                    assignment_id=payload.assignment_id,
+                    material_unit_id=payload.material_unit_id,
+                    part_unit_id=pu.id,
+                    good_pieces=taken,
+                    defect_pieces=0,
+                    reported_by=user.id,
+                    counts_toward_line=is_final,
+                )
+            )
+        if payload.defect_pieces > 0:
+            reports.append(
+                ProductionTaskLineReport(
+                    task_line_id=line_id,
+                    assignment_id=payload.assignment_id,
+                    material_unit_id=payload.material_unit_id,
+                    part_unit_id=payload.part_unit_id,
+                    good_pieces=0,
+                    defect_pieces=payload.defect_pieces,
+                    defect_reason=payload.defect_reason,
+                    note=payload.note,
+                    reported_by=user.id,
+                    counts_toward_line=True,
+                )
+            )
+    else:
+        # Обычный путь (без п/ф-этапов, либо отчёт без good_pieces вовсе)
+        # — ровно как раньше, одна строка на весь payload.
+        reports.append(
+            ProductionTaskLineReport(
+                task_line_id=line_id,
+                assignment_id=payload.assignment_id,
+                material_unit_id=payload.material_unit_id,
+                part_unit_id=payload.part_unit_id,
+                good_pieces=payload.good_pieces,
+                defect_pieces=payload.defect_pieces,
+                defect_reason=payload.defect_reason,
+                note=payload.note,
+                reported_by=user.id,
+                counts_toward_line=True,
+            )
+        )
+    db.add_all(reports)
     db.commit()
-    db.refresh(report)
-    return report
+    for r in reports:
+        db.refresh(r)
+    return reports[-1]
 
 
 # --- Распределение по линиям ---------------------------------------------

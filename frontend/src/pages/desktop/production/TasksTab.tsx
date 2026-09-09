@@ -166,6 +166,13 @@ export default function TasksTab() {
                   entry.shortfallM += l.shortfall_length_m;
                   bySku.set(key, entry);
                 }
+                // Раздел про сводку по заданию (штрипсы + % брака) — все
+                // рулоны со всех строк задания сразу, не только по одной
+                // строке (см. "Рулоны (остаток)" в таблице ниже) —
+                // дедуплицировано по id (один и тот же рулон технически
+                // может числиться за несколькими строками).
+                const rollsById = new Map<number, ProductionTaskLine["issued_units"][number]>();
+                for (const l of task.lines) for (const u of l.issued_units) rollsById.set(u.id, u);
                 return (
                   // width:0 + minWidth:"100%" (раздел про карточный режим внутри
                   // expandable-строки) — у внешней таблицы задан scroll={{x:
@@ -183,6 +190,16 @@ export default function TasksTab() {
                         </Typography.Text>
                       ))}
                     </Space>
+                    {rollsById.size > 0 && (
+                      <Space wrap size={[6, 4]} align="center">
+                        <Typography.Text type="secondary">Штрипсы на задание:</Typography.Text>
+                        {[...rollsById.values()].map((u) => (
+                          <Tag key={u.id}>
+                            №{u.id}: {u.width_mm}×{u.length_m} м
+                          </Tag>
+                        ))}
+                      </Space>
+                    )}
                     <ResponsiveTable<ProductionTaskLine>
                       tableKey="production-task-lines"
                       lockedColumns={["Деталь"]}
@@ -342,6 +359,21 @@ export default function TasksTab() {
                       {t.issued_length_m} / {t.planned_length_m}
                     </Tag>
                   ),
+                },
+                {
+                  // Раздел про сводку по заданию (штрипсы + % брака) — та
+                  // же логика цвета, что RateTag в Defects.tsx (≥7% красный,
+                  // ≥5% оранжевый, иначе зелёный).
+                  key: "defectRate",
+                  title: "Брак, %",
+                  width: wideScreen ? 100 : undefined,
+                  render: (_, t) => {
+                    const total = t.produced_good_pieces + t.defect_pieces;
+                    if (total <= 0) return <Tag>—</Tag>;
+                    const pct = Math.round((t.defect_pieces / total) * 1000) / 10;
+                    const color = pct >= 7 ? "red" : pct >= 5 ? "orange" : "green";
+                    return <Tag color={color}>{pct}%</Tag>;
+                  },
                 },
                 { key: "author", title: "Автор", width: wideScreen ? 160 : undefined, ellipsis: true, dataIndex: "created_by", render: (id: number) => userName(id) },
                 { key: "created", title: "Создано", width: wideScreen ? 170 : undefined, dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
