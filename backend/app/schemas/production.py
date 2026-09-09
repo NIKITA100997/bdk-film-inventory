@@ -184,6 +184,17 @@ class ProductionTaskLineReportCreate(BaseModel):
     defect_pieces: float = Field(ge=0)
     defect_reason: str | None = None
     note: str | None = None
+    # Раздел про доп. рулон на ту же строку (двусторонние детали — один и
+    # тот же комплект деталей физически расходует НЕСКОЛЬКО рулонов
+    # одновременно, не разные штуки на каждый). У такого отчёта
+    # good_pieces — не реальный факт производства, а синтетическая
+    # величина, подобранная под указанный вручную остаток именно ЭТОГО
+    # рулона (см. MasterQuickReportPanel.tsx/ReportModal.tsx) — засчитывать
+    # её в план строки ЕЩЁ РАЗ было бы задвоением (основной отчёт уже
+    # засчитал эти же детали). По умолчанию True — как раньше для всех
+    # обычных отчётов; сервер игнорирует это поле на пути с part_unit/FIFO
+    # (там своя, автоматическая логика по этапам, см. create_task_line_report).
+    counts_toward_line: bool = True
 
 
 class ProductionTaskLineReportOut(BaseModel):

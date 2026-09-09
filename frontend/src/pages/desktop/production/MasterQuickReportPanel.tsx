@@ -31,20 +31,19 @@ interface ReportRow {
   // плёнкой, царапина, скол и т.п.). Список записей вместо одной пары —
   // тот же приём, что уже есть в ReportModal.tsx (defectRows).
   defects: DefectEntry[];
-  // Раздел про второй (третий...) рулон на ту же строку — окутка в 2
-  // захода часто использует НЕСКОЛЬКО разных рулонов на одну деталь
-  // (выдали с запасом: один расходуется полностью, второй остаётся с
-  // остатком) — оба нужно отметить использованными в одном отчёте по
-  // этой строке, не только materialUnitId выше. qty — сколько ГОТОВЫХ
-  // деталей физически получилось именно из этого рулона (не из
-  // "основного"): расход конкретного рулона (_unit_consumed_length_m)
-  // считается по отчётам, ссылающимся именно на его material_unit_id,
-  // так что без разбивки весь расход задним числом приписался бы
-  // только "основному" рулону, а остальные выглядели бы нетронутыми
-  // при возврате. qty=0 — рулон физически тоже использован (весь ушёл
-  // на уже учтённые где-то ещё детали), просто отдельный "нулевой"
-  // отчёт, чтобы его можно было вернуть/списать.
-  extraRolls: { materialUnitId: number; qty: number }[];
+  // Раздел про второй (третий...) рулон на ту же строку — двусторонние
+  // детали часто расходуют НЕСКОЛЬКО разных рулонов одновременно на ОДИН
+  // и тот же комплект деталей (не на разные штуки — деталь физически
+  // одна, просто по стороне на каждый рулон), поэтому нельзя посчитать
+  // "сколько деталей именно из него": это те же самые деталей, что и
+  // указаны в goodPieces выше. remainingM — известный остаток именно на
+  // ЭТОМ рулоне ПРЯМО СЕЙЧАС, м (то, что видно на самом рулоне) — при
+  // сохранении по нему подбирается такой good_pieces, чтобы расчётный
+  // остаток рулона (_unit_consumed_length_m) совпал с этим числом;
+  // отчёт отправляется с counts_toward_line=false, чтобы не задвоить
+  // план строки (эти же деталей уже засчитаны основным отчётом).
+  // remainingM=0 — рулон израсходован полностью.
+  extraRolls: { materialUnitId: number; remainingM: number }[];
 }
 
 const totalDefect = (row: ReportRow) => row.defects.reduce((sum, d) => sum + d.qty, 0);
@@ -204,21 +203,27 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
             }),
           );
         }
-        // Раздел про второй рулон на ту же строку — независимо от того,
-        // что происходит с "основным" рулоном/хорошими/браком выше,
-        // каждый дополнительный рулон отправляет свой отдельный отчёт:
-        // с qty>0 — столько готовых деталей физически получилось именно
-        // из НЕГО (расход по этому рулону посчитается верно при
-        // возврате), с qty=0 — "нулевой" отчёт (рулон тоже использован,
-        // просто не добавил новых деталей сверх уже посчитанного).
+        // Раздел про второй рулон на ту же строку (двусторонние детали) —
+        // это те же самые деталей, что и в goodPieces выше, просто ещё
+        // один рулон физически тоже участвовал (другая сторона), поэтому
+        // "сколько деталей именно из него" не считаем — вместо этого
+        // подбираем good_pieces под указанный вручную остаток ЭТОГО
+        // рулона и шлём отдельным отчётом с counts_toward_line=false,
+        // чтобы не задвоить план строки (эти деталей уже учтены основным
+        // отчётом выше).
         for (const extra of r.extraRolls) {
+          const unit = r.line.issued_units.find((u) => u.id === extra.materialUnitId);
+          const currentRemaining = unit?.remaining_length_m ?? unit?.length_m ?? 0;
+          const consumedNeeded = Math.max(0, currentRemaining - extra.remainingM);
+          const goodPiecesEquivalent = r.line.length_m > 0 ? consumedNeeded / r.line.length_m : 0;
           calls.push(
             createTaskLineReport(r.taskId, r.line.id, {
               assignment_id: null,
               material_unit_id: extra.materialUnitId,
-              good_pieces: extra.qty,
+              good_pieces: goodPiecesEquivalent,
               defect_pieces: 0,
-              ...(extra.qty <= 0 ? { note: "Рулон использован" } : {}),
+              counts_toward_line: false,
+              note: `Остаток указан вручную: ${extra.remainingM} м`,
             }),
           );
         }
@@ -274,8 +279,10 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
           <>
             {" "}Если деталь окутывается в несколько заходов и сегодня не готова целиком (например, сделана только
             одна сторона) — можно сохранить строку с 0 хороших и 0 брака, просто выбрав рулон: это зафиксирует
-            расход плёнки и позволит вернуть/списать рулон, не дожидаясь готовой детали. Если на одну деталь ушло
-            НЕСКОЛЬКО разных рулонов — под полем «Рулон» появится «+ ещё рулон использован», добавьте туда все.
+            расход плёнки и позволит вернуть/списать рулон, не дожидаясь готовой детали. Если деталь двусторонняя и
+            на неё одновременно расходуется НЕСКОЛЬКО рулонов (по одному на сторону — это те же самые детали, не
+            дополнительные) — под полем «Рулон» появится «+ ещё рулон использован»: добавьте туда остальные рулоны и
+            укажите для каждого фактический остаток в метрах прямо сейчас (0 — рулон израсходован полностью).
           </>
         )}
       </Typography.Paragraph>
@@ -356,12 +363,12 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                       title: "Рулон (№ штрипса)",
                       key: "roll",
                       render: (_: unknown, r: ReportRow) => {
-                        // Раздел про второй рулон на ту же строку — окутка в
-                        // 2 захода нередко тратит НЕСКОЛЬКО разных рулонов
-                        // на одну деталь (закончился на стороне 1, начат
-                        // новый на стороне 2) — оба нужно отметить
-                        // использованными в этом же отчёте по строке, не
-                        // только "основной" рулон выше.
+                        // Раздел про второй рулон на ту же строку — двусторонние
+                        // детали нередко расходуют одновременно НЕСКОЛЬКО
+                        // разных рулонов на ОДИН и тот же комплект деталей
+                        // (разные стороны), поэтому "сколько деталей именно
+                        // из него" не спрашиваем — только остаток в метрах,
+                        // видимый прямо на самом рулоне.
                         const usedIds = new Set<number>(r.extraRolls.map((e) => e.materialUnitId));
                         if (r.materialUnitId != null) usedIds.add(r.materialUnitId);
                         const availableExtra = r.line.issued_units.filter((u) => !usedIds.has(u.id));
@@ -388,17 +395,17 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                                 <InputNumber
                                   size="small"
                                   min={0}
-                                  style={{ width: 70 }}
-                                  value={extra.qty}
+                                  style={{ width: 80 }}
+                                  value={extra.remainingM}
                                   placeholder="0"
                                   onChange={(v) =>
                                     updateRow(r.key, {
-                                      extraRolls: r.extraRolls.map((e, idx) => (idx === i ? { ...e, qty: v ?? 0 } : e)),
+                                      extraRolls: r.extraRolls.map((e, idx) => (idx === i ? { ...e, remainingM: v ?? 0 } : e)),
                                     })
                                   }
                                 />
                                 <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                                  шт отсюда
+                                  м остаток
                                 </Typography.Text>
                               </Space>
                             ))}
@@ -408,7 +415,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                                 style={{ width: 190 }}
                                 placeholder="+ ещё рулон использован"
                                 value={undefined}
-                                onChange={(v) => updateRow(r.key, { extraRolls: [...r.extraRolls, { materialUnitId: v, qty: 0 }] })}
+                                onChange={(v) => updateRow(r.key, { extraRolls: [...r.extraRolls, { materialUnitId: v, remainingM: 0 }] })}
                                 options={availableExtra.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
                               />
                             )}

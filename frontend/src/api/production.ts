@@ -195,6 +195,13 @@ export interface ProductionTaskLineReportCreate {
   defect_pieces: number;
   defect_reason?: string;
   note?: string;
+  // Раздел про доп. рулон на ту же строку (двусторонние детали — один и
+  // тот же комплект деталей физически расходует несколько рулонов
+  // одновременно, не разные штуки на каждый) — good_pieces здесь не факт
+  // производства, а подобранная под указанный вручную остаток именно
+  // ЭТОГО рулона величина; False, чтобы не задвоить план строки (его уже
+  // засчитал основной отчёт). Не указано — как раньше, True на бэкенде.
+  counts_toward_line?: boolean;
 }
 
 export const listProductionLines = async (): Promise<ProductionLine[]> =>

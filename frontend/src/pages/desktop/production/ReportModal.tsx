@@ -38,18 +38,17 @@ export default function ReportModal({
   // партии — выбор остаётся ручным, per-запись брака (part_unit_id
   // здесь, не на общей форме).
   const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string; part_unit_id: number | null }[]>([]);
-  // Раздел про второй рулон на ту же строку — окутка в 2 захода часто
-  // тратит НЕСКОЛЬКО разных рулонов на одну деталь (закончился на
-  // стороне 1, начат новый на стороне 2) — оба нужно отметить
-  // использованными в одном отчёте по строке, не только material_unit_id
-  // выше. qty — сколько ГОТОВЫХ деталей физически получилось именно из
-  // этого рулона (не из "основного"): расход конкретного рулона
-  // (_unit_consumed_length_m) считается по отчётам, ссылающимся именно
-  // на его material_unit_id, так что без разбивки весь расход задним
-  // числом приписался бы только "основному" рулону, а остальные
-  // выглядели бы нетронутыми при возврате. qty=0 — рулон тоже
-  // использован, просто отдельный "нулевой" отчёт.
-  const [extraRolls, setExtraRolls] = useState<{ materialUnitId: number; qty: number }[]>([]);
+  // Раздел про второй рулон на ту же строку — двусторонние детали часто
+  // расходуют НЕСКОЛЬКО разных рулонов ОДНОВРЕМЕННО на ОДИН и тот же
+  // комплект деталей (по одному на сторону, это не разные штуки), поэтому
+  // "сколько деталей именно из него" не считаем — remainingM — известный
+  // остаток именно ЭТОГО рулона прямо сейчас, м (видно на самом рулоне).
+  // При сохранении по нему подбирается такой good_pieces, чтобы расчётный
+  // остаток рулона (_unit_consumed_length_m) совпал с этим числом; отчёт
+  // уходит с counts_toward_line=false, чтобы не задвоить план строки (эти
+  // же детали уже засчитаны основным отчётом). remainingM=0 — рулон
+  // израсходован полностью.
+  const [extraRolls, setExtraRolls] = useState<{ materialUnitId: number; remainingM: number }[]>([]);
   const [reportForm] = Form.useForm<{
     assignment_id: number | null;
     material_unit_id: number | null;
@@ -145,21 +144,26 @@ export default function ReportModal({
           }),
         );
       }
-      // Раздел про второй рулон на ту же строку — независимо от того,
-      // что происходит с "основным" рулоном/хорошими/браком выше, каждый
-      // дополнительный рулон отправляет свой отдельный отчёт: с qty>0 —
-      // столько готовых деталей физически получилось именно из НЕГО
-      // (расход по этому рулону посчитается верно при возврате), с
-      // qty=0 — "нулевой" отчёт (рулон тоже использован, просто не
-      // добавил новых деталей сверх уже посчитанного).
+      // Раздел про второй рулон на ту же строку (двусторонние детали) —
+      // это те же самые детали, что и good_pieces выше, просто ещё один
+      // рулон физически тоже участвовал (другая сторона) — "сколько
+      // деталей именно из него" не считаем, вместо этого подбираем
+      // good_pieces под указанный вручную остаток ЭТОГО рулона и шлём
+      // отдельным отчётом с counts_toward_line=false, чтобы не задвоить
+      // план строки (эти детали уже учтены основным отчётом выше).
       for (const extra of extraRolls) {
+        const unit = line.issued_units.find((u) => u.id === extra.materialUnitId);
+        const currentRemaining = unit?.remaining_length_m ?? unit?.length_m ?? 0;
+        const consumedNeeded = Math.max(0, currentRemaining - extra.remainingM);
+        const goodPiecesEquivalent = line.length_m > 0 ? consumedNeeded / line.length_m : 0;
         calls.push(
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
             material_unit_id: extra.materialUnitId,
-            good_pieces: extra.qty,
+            good_pieces: goodPiecesEquivalent,
             defect_pieces: 0,
-            ...(extra.qty <= 0 ? { note: "Рулон использован" } : {}),
+            counts_toward_line: false,
+            note: `Остаток указан вручную: ${extra.remainingM} м`,
           }),
         );
       }
@@ -187,7 +191,9 @@ export default function ReportModal({
             дате изготовления («Учёт п/ф»); партию нужно указать только при браке. Если деталь окутывается в
             несколько заходов и сегодня не готова целиком — можно сохранить отчёт с 0 хороших и 0 брака, просто
             выбрав рулон: это зафиксирует расход плёнки и позволит вернуть/списать рулон, не дожидаясь готовой детали.
-            Если на одну деталь ушло несколько разных рулонов — под полем «Рулон» появится «+ ещё рулон использован».
+            Если деталь двусторонняя и на неё одновременно расходуется ещё один рулон (по одному на сторону — это те
+            же самые детали, не дополнительные) — под полем «Рулон» появится «+ ещё рулон использован»: укажите для
+            него фактический остаток в метрах прямо сейчас (0 — израсходован полностью).
           </>
         )}
       </Typography.Paragraph>
@@ -255,15 +261,15 @@ export default function ReportModal({
                   <InputNumber
                     size="small"
                     min={0}
-                    style={{ width: 70 }}
-                    value={extra.qty}
+                    style={{ width: 80 }}
+                    value={extra.remainingM}
                     placeholder="0"
                     onChange={(v) =>
-                      setExtraRolls((prev) => prev.map((e, idx) => (idx === i ? { ...e, qty: v ?? 0 } : e)))
+                      setExtraRolls((prev) => prev.map((e, idx) => (idx === i ? { ...e, remainingM: v ?? 0 } : e)))
                     }
                   />
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    шт отсюда
+                    м остаток
                   </Typography.Text>
                 </Space>
               ))}
@@ -273,12 +279,12 @@ export default function ReportModal({
         {requiresRoll && primaryRollId != null && extraRollOptions.length > 0 && (
           <Form.Item
             label="+ ещё рулон использован"
-            extra="Раздел про окутку в 2 захода — если на эту деталь ушло несколько разных рулонов, добавьте сюда все остальные и укажите, сколько готовых деталей получилось именно из каждого."
+            extra="Раздел про двусторонние детали — если на эти же детали одновременно расходуется ещё один рулон (по одному на сторону), добавьте его сюда и укажите фактический остаток в метрах прямо сейчас (0 — рулон израсходован полностью)."
           >
             <Select<number>
               placeholder="Выберите ещё один рулон"
               value={undefined}
-              onChange={(v) => setExtraRolls((prev) => [...prev, { materialUnitId: v, qty: 0 }])}
+              onChange={(v) => setExtraRolls((prev) => [...prev, { materialUnitId: v, remainingM: 0 }])}
               options={extraRollOptions.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
             />
           </Form.Item>

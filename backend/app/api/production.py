@@ -911,7 +911,12 @@ def create_task_line_report(
             )
     else:
         # Обычный путь (без п/ф-этапов, либо отчёт без good_pieces вовсе)
-        # — ровно как раньше, одна строка на весь payload.
+        # — ровно как раньше, одна строка на весь payload. counts_toward_
+        # line берётся из payload (раздел про доп. рулон на ту же строку)
+        # — клиент явно шлёт False для синтетических отчётов "остаток
+        # такого-то рулона указан вручную", чтобы не задвоить план строки;
+        # для всех обычных отчётов поле как раньше остаётся True (значение
+        # по умолчанию в схеме).
         reports.append(
             ProductionTaskLineReport(
                 task_line_id=line_id,
@@ -923,7 +928,7 @@ def create_task_line_report(
                 defect_reason=payload.defect_reason,
                 note=payload.note,
                 reported_by=user.id,
-                counts_toward_line=True,
+                counts_toward_line=payload.counts_toward_line,
             )
         )
     db.add_all(reports)
