@@ -44,6 +44,12 @@ interface ReportRow {
   // план строки (эти же деталей уже засчитаны основным отчётом).
   // remainingM=0 — рулон израсходован полностью.
   extraRolls: { materialUnitId: number; remainingM: number }[];
+  // Раздел про то, что «нулевой отчёт» больше нельзя занести молча —
+  // когда по строке 0 хороших и 0 брака (деталь ещё не готова), но
+  // рулон уже трогали, мастер вводит фактический остаток ЭТОГО рулона,
+  // м. Пусто = не трогали (расход 0). При сохранении из этого числа
+  // считается расход основного рулона (counts_toward_line=false).
+  primaryRemainingM?: number;
 }
 
 const totalDefect = (row: ReportRow) => row.defects.reduce((sum, d) => sum + d.qty, 0);
@@ -188,18 +194,31 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         }
         // Раздел про расход плёнки без готовой детали (окутка в 2 захода) —
         // ни одной хорошей детали, ни брака ещё нет (деталь физически не
-        // готова), но рулон уже трогали — отдельный "нулевой" отчёт: не
-        // засчитывается в остаток задания (good_pieces=0), но фиксирует
-        // сам факт использования рулона, чтобы его потом можно было
-        // вернуть/списать (see has_report в return_unit).
+        // готова), но рулон уже трогали. Раньше слался "нулевой" отчёт
+        // (good=0/defect=0) — рулон навсегда выглядел нетронутым. Теперь
+        // мастер вводит фактический остаток этого рулона: расход
+        // считается из (было − остаток), отчёт с counts_toward_line=false
+        // (сам факт использования всё так же фиксируется — рулон можно
+        // вернуть/списать, see has_report в return_unit). Пустой остаток =
+        // не трогали → good_pieces 0, как раньше.
         if (requiresRoll && r.goodPieces <= 0 && r.defects.length === 0 && r.materialUnitId) {
+          const pu = r.line.issued_units.find((u) => u.id === r.materialUnitId) ??
+            (r.line.borrowable_units ?? []).find((u) => u.id === r.materialUnitId);
+          const puRemaining = pu?.remaining_length_m ?? pu?.length_m ?? 0;
+          const target = r.primaryRemainingM ?? puRemaining;
+          const consumedNeeded = Math.max(0, puRemaining - target);
+          const gp = r.line.length_m > 0 ? consumedNeeded / r.line.length_m : 0;
           calls.push(
             createTaskLineReport(r.taskId, r.line.id, {
               assignment_id: null,
               material_unit_id: r.materialUnitId,
-              good_pieces: 0,
+              good_pieces: gp,
               defect_pieces: 0,
-              note: "Рулон использован, деталь ещё не готова",
+              counts_toward_line: false,
+              note:
+                r.primaryRemainingM != null
+                  ? `Остаток указан вручную: ${r.primaryRemainingM} м`
+                  : "Рулон использован, деталь ещё не готова",
             }),
           );
         }
@@ -398,6 +417,21 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                               options={allOptions}
                               notFoundContent={<Typography.Text type="secondary">Рулон не выдан</Typography.Text>}
                             />
+                            {r.goodPieces <= 0 && r.defects.length === 0 && r.materialUnitId != null && (
+                              <Space size={4}>
+                                <InputNumber
+                                  size="small"
+                                  min={0}
+                                  style={{ width: 80 }}
+                                  value={r.primaryRemainingM}
+                                  placeholder="остаток"
+                                  onChange={(v) => updateRow(r.key, { primaryRemainingM: v ?? undefined })}
+                                />
+                                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                  м остаток (деталь не готова)
+                                </Typography.Text>
+                              </Space>
+                            )}
                             {r.extraRolls.map((extra, i) => (
                               <Space key={extra.materialUnitId} size={4}>
                                 <Tag

@@ -1543,6 +1543,41 @@ def return_unit(
         to_length=payload.actual_length_m,
         occurred_at=payload.occurred_at,
     )
+    # Раздел про несколько рулонов на одну строку (окутка царговых) — что
+    # не вернулось, то физически ушло в производство. Если расход ЭТОГО
+    # рулона по отчётам меньше, чем (было на рулоне − введённый факт.
+    # остаток) — досчитываем разницу отдельным отчётом
+    # (counts_toward_line=false: план строки уже закрыт основным отчётом,
+    # это только чтобы _unit_consumed_length_m/return-preview видели
+    # реальный расход). Иначе рулоны, отмеченные «нулевым отчётом» («рулон
+    # использован», 0 шт), навсегда висели бы как нетронутые, и их нельзя
+    # было бы сверить при возврате/списании.
+    if unit.production_task_line_id is not None:
+        recon_line = db.get(ProductionTaskLine, unit.production_task_line_id)
+        if recon_line is not None and float(recon_line.length_m) > 0:
+            g, d = (
+                db.query(
+                    func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
+                    func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
+                )
+                .filter(ProductionTaskLineReport.material_unit_id == unit_id)
+                .one()
+            )
+            current_consumed = (float(g) + float(d)) * float(recon_line.length_m)
+            gap_m = round((old_length - float(payload.actual_length_m)) - current_consumed, 2)
+            if gap_m > 0.01:
+                db.add(
+                    ProductionTaskLineReport(
+                        task_line_id=unit.production_task_line_id,
+                        assignment_id=None,
+                        material_unit_id=unit_id,
+                        good_pieces=gap_m / float(recon_line.length_m),
+                        defect_pieces=0,
+                        reported_by=user.id,
+                        counts_toward_line=False,
+                        note=f"Расход досчитан при возврате: остаток {payload.actual_length_m} м",
+                    )
+                )
     if payload.write_off_reason is not None:
         # Раздел про сверку рулонов на окутке — "вернуть и сразу списать
         # остаток" одним действием: unit.length_m уже стоит на

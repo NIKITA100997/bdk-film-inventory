@@ -2644,7 +2644,7 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
       )}
       <Typography.Text strong>Фактическая длина остатка, м</Typography.Text>
       <InputNumber
-        style={{ width: "100%", marginTop: 8, marginBottom: 16 }}
+        style={{ width: "100%", marginTop: 8 }}
         min={0}
         step={0.1}
         value={actualLength}
@@ -2653,6 +2653,9 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
           setActualLength(v);
         }}
       />
+      <Typography.Text type="secondary" style={{ display: "block", marginTop: 4, marginBottom: 16, fontSize: 12 }}>
+        0 — если рулон израсходован полностью. Всё, что не вернулось, система досчитает как расход по этому рулону.
+      </Typography.Text>
 
       {suggestionQuery.isLoading ? null : suggestionQuery.data ? (
         <Alert style={{ marginBottom: 8 }} type="success" showIcon message={`По правилу зонирования подходит: ${suggestionQuery.data}`} />

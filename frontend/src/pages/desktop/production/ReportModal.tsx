@@ -49,6 +49,10 @@ export default function ReportModal({
   // же детали уже засчитаны основным отчётом). remainingM=0 — рулон
   // израсходован полностью.
   const [extraRolls, setExtraRolls] = useState<{ materialUnitId: number; remainingM: number }[]>([]);
+  // Раздел про то, что «нулевой отчёт» больше нельзя занести молча —
+  // когда 0 хороших и 0 брака, но рулон трогали, мастер вводит его
+  // фактический остаток, м (пусто = не трогали, расход 0).
+  const [primaryRemainingM, setPrimaryRemainingM] = useState<number | undefined>(undefined);
   const [reportForm] = Form.useForm<{
     assignment_id: number | null;
     material_unit_id: number | null;
@@ -130,17 +134,31 @@ export default function ReportModal({
       }
       // Раздел про расход плёнки без готовой детали (окутка в 2 захода) —
       // ни хороших, ни брака ещё нет (деталь физически не готова), но
-      // рулон уже трогали — отдельный "нулевой" отчёт: не засчитывается в
-      // остаток задания, но фиксирует факт использования рулона, чтобы
-      // его потом можно было вернуть/списать (see has_report в return_unit).
+      // рулон уже трогали. Раньше слался "нулевой" отчёт (good=0/defect=0)
+      // — рулон навсегда выглядел нетронутым. Теперь мастер вводит
+      // фактический остаток этого рулона: расход считается из (было −
+      // остаток), отчёт с counts_toward_line=false (факт использования
+      // всё так же фиксируется — рулон можно вернуть/списать). Пустой
+      // остаток = не трогали → good_pieces 0, как раньше.
       if (requiresRoll && v.good_pieces <= 0 && defectRows.length === 0 && v.material_unit_id) {
+        const pu =
+          line.issued_units.find((u) => u.id === v.material_unit_id) ??
+          (line.borrowable_units ?? []).find((u) => u.id === v.material_unit_id);
+        const puRemaining = pu?.remaining_length_m ?? pu?.length_m ?? 0;
+        const target = primaryRemainingM ?? puRemaining;
+        const consumedNeeded = Math.max(0, puRemaining - target);
+        const gp = line.length_m > 0 ? consumedNeeded / line.length_m : 0;
         calls.push(
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
             material_unit_id: v.material_unit_id,
-            good_pieces: 0,
+            good_pieces: gp,
             defect_pieces: 0,
-            note: "Рулон использован, деталь ещё не готова",
+            counts_toward_line: false,
+            note:
+              primaryRemainingM != null
+                ? `Остаток указан вручную: ${primaryRemainingM} м`
+                : "Рулон использован, деталь ещё не готова",
           }),
         );
       }
@@ -268,6 +286,20 @@ export default function ReportModal({
               notFoundContent={
                 <Typography.Text type="secondary">Сначала выдайте рулон этой строке на «Выдаче участку»</Typography.Text>
               }
+            />
+          </Form.Item>
+        )}
+        {requiresRoll && primaryRollId != null && goodPiecesWatch <= 0 && defectRows.length === 0 && (
+          <Form.Item
+            label="Остаток на этом рулоне сейчас, м (деталь ещё не готова)"
+            extra="Оставьте пустым, если рулон ещё не трогали. 0 — израсходован полностью. Из этого числа считается расход рулона."
+          >
+            <InputNumber
+              min={0}
+              style={{ width: "100%" }}
+              value={primaryRemainingM}
+              placeholder="не трогали"
+              onChange={(v) => setPrimaryRemainingM(v ?? undefined)}
             />
           </Form.Item>
         )}

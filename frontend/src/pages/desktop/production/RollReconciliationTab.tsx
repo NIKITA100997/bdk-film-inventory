@@ -466,7 +466,12 @@ function ReturnModal({
           })
         }
       >
-        <Form.Item name="actual_length_m" label="Фактическая длина остатка, м" rules={[{ required: true }]}>
+        <Form.Item
+          name="actual_length_m"
+          label="Фактическая длина остатка, м"
+          rules={[{ required: true }]}
+          extra="0 — если рулон израсходован полностью. Всё, что не вернулось, система досчитает как расход по этому рулону."
+        >
           <InputNumber min={0} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item name="write_off" valuePropName="checked">
