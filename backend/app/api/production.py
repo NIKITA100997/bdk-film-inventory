@@ -24,6 +24,7 @@ from app.schemas.production import (
     BlankPlanBlockOut,
     BlankPlanParsedLineOut,
     BlankPlanParseResultOut,
+    BorrowableUnitOut,
     NaryadParsedLineOut,
     NaryadParseResultOut,
     ProductionLineCreate,
@@ -54,13 +55,16 @@ from app.services.part_units import advance_part_unit, consume_part_units_fifo, 
 from app.services.production import (
     BlankDemandInputLine,
     BlankSupplyInputLine,
+    GroupShortfallLine,
     aggregate_blank_demand,
     calc_default_strip_width,
     compute_remaining_length_m,
     compute_remaining_pieces,
     compute_shortfall_length_m,
     compute_unit_consumed_length_m,
+    distribute_group_shortfall,
 )
+from app.services.width_analogs import equivalent_widths
 
 router = APIRouter(tags=["production"])
 
@@ -138,6 +142,18 @@ def _model_out(db: Session, model: ProductModel) -> ProductModelOut:
     )
 
 
+def _issued_unit_remaining_m(db: Session, u: MaterialUnit) -> float:
+    return round(max(0.0, float(u.length_m) - _unit_consumed_length_m(db, u.id)), 2)
+
+
+def _line_effective_strip_width(line: ProductionTaskLine) -> float:
+    return (
+        float(line.strip_width_mm)
+        if line.strip_width_mm is not None
+        else calc_default_strip_width(line.part_name, float(line.width_mm))
+    )
+
+
 def _task_line_out(
     db: Session,
     line: ProductionTaskLine,
@@ -147,16 +163,20 @@ def _task_line_out(
     assignment_report_aggs: dict[int, tuple[float, float]] | None = None,
     issued_length_m: float = 0.0,
     issued_units: list[MaterialUnit] | None = None,
+    shortfall_length_m: float | None = None,
+    borrowable_units: list[tuple[MaterialUnit, ProductionTaskLine]] | None = None,
 ) -> ProductionTaskLineOut:
     assignment_report_aggs = assignment_report_aggs or {}
     prod_line = db.get(ProductionLine, line.line_id) if line.line_id else None
     remaining_pieces = compute_remaining_pieces(float(line.quantity_pieces), good)
-    shortfall_length_m = compute_shortfall_length_m(float(line.quantity_pieces), float(line.length_m), defect, issued_length_m)
-    sw = (
-        float(line.strip_width_mm)
-        if line.strip_width_mm is not None
-        else calc_default_strip_width(line.part_name, float(line.width_mm))
-    )
+    # shortfall считается по группе ширины на уровне задания (_task_out) —
+    # раздел про общий штрипс на детали одного задания; сюда приходит
+    # готовым. Fallback на построчный расчёт — на случай прямого вызова.
+    if shortfall_length_m is None:
+        shortfall_length_m = compute_shortfall_length_m(
+            float(line.quantity_pieces), float(line.length_m), defect, issued_length_m
+        )
+    sw = _line_effective_strip_width(line)
     return ProductionTaskLineOut(
         id=line.id,
         line_id=line.line_id,
@@ -192,10 +212,26 @@ def _task_line_out(
                 parent_id=u.parent_id,
                 is_strip=u.is_strip,
                 status=u.status.value if hasattr(u.status, "value") else str(u.status),
-                remaining_length_m=round(max(0.0, float(u.length_m) - _unit_consumed_length_m(db, u.id)), 2),
+                remaining_length_m=_issued_unit_remaining_m(db, u),
                 area=u.area,
             )
             for u in (issued_units or [])
+        ],
+        borrowable_units=[
+            BorrowableUnitOut(
+                id=u.id,
+                width_mm=float(u.width_mm),
+                length_m=float(u.length_m),
+                material_sku_id=u.material_sku_id,
+                parent_id=u.parent_id,
+                is_strip=u.is_strip,
+                status=u.status.value if hasattr(u.status, "value") else str(u.status),
+                remaining_length_m=_issued_unit_remaining_m(db, u),
+                area=u.area,
+                from_line_id=src_line.id,
+                from_part_name=src_line.part_name,
+            )
+            for u, src_line in (borrowable_units or [])
         ],
     )
 
@@ -330,6 +366,67 @@ def _line_issued_units_map(db: Session, line_ids: list[int]) -> dict[int, list[M
     return result
 
 
+def _task_borrowable_and_shortfall(
+    db: Session,
+    task: ProductionTask,
+    report_aggregates: dict[int, tuple[float, float]],
+    issued_length_by_line: dict[int, float],
+    issued_units_by_line: dict[int, list[MaterialUnit]],
+) -> tuple[dict[int, float], dict[int, list[tuple[MaterialUnit, ProductionTaskLine]]]]:
+    """Раздел про общий штрипс на детали одного задания — считает разом
+    для всех строк задания: (1) нехватку плёнки по ГРУППЕ ширины штрипса
+    (один рулон закрывает потребность всех строк той же ширины),
+    (2) какие рулоны соседних строк можно списать в отчёте по этой строке
+    (та же плёнка, взаимозаменяемая ширина, метраж ещё есть)."""
+    lines = list(task.lines)
+    equiv_cache: dict[float, list[float]] = {}
+
+    def equiv(sw: float) -> list[float]:
+        if sw not in equiv_cache:
+            equiv_cache[sw] = equivalent_widths(db, sw)
+        return equiv_cache[sw]
+
+    sw_by_line = {l.id: _line_effective_strip_width(l) for l in lines}
+
+    gs_lines: list[GroupShortfallLine] = []
+    for l in lines:
+        _good, defect = report_aggregates.get(l.id, (0.0, 0.0))
+        gs_lines.append(
+            GroupShortfallLine(
+                line_id=l.id,
+                width_key=min(equiv(sw_by_line[l.id])),
+                needed_length_m=(float(l.quantity_pieces) + defect) * float(l.length_m),
+                issued_length_m=issued_length_by_line.get(l.id, 0.0),
+                is_closed=l.is_closed,
+            )
+        )
+    group_shortfall_by_line = distribute_group_shortfall(gs_lines)
+
+    borrowable_by_line: dict[int, list[tuple[MaterialUnit, ProductionTaskLine]]] = {}
+    for l in lines:
+        want_widths = set(equiv(sw_by_line[l.id]))
+        spec = (l.material_id, l.color_id, l.thickness_id)
+        found: list[tuple[MaterialUnit, ProductionTaskLine]] = []
+        for src in lines:
+            if src.id == l.id or src.is_closed:
+                continue
+            if (src.material_id, src.color_id, src.thickness_id) != spec:
+                continue
+            for u in issued_units_by_line.get(src.id, []):
+                if float(u.width_mm) not in want_widths:
+                    continue
+                # физически доступен участку: выдан участку, либо уже на
+                # домашнем складе участка ждёт локальной довыдачи
+                physically_at_area = u.status == UnitStatus.VYDAN_UCHASTKU or (
+                    u.status == UnitStatus.NA_KHRANENII and u.area is not None
+                )
+                if physically_at_area and _issued_unit_remaining_m(db, u) > 0:
+                    found.append((u, src))
+        if found:
+            borrowable_by_line[l.id] = found
+    return group_shortfall_by_line, borrowable_by_line
+
+
 def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
     model = db.get(ProductModel, task.product_model_id) if task.product_model_id else None
     line_ids = [l.id for l in task.lines]
@@ -339,6 +436,9 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
     assignment_report_aggs = _assignment_report_aggregates(db, assignment_ids)
     issued_length_by_line = fetch_issued_length_by_task_line(db, line_ids)
     issued_units_by_line = _line_issued_units_map(db, line_ids)
+    group_shortfall_by_line, borrowable_by_line = _task_borrowable_and_shortfall(
+        db, task, report_aggregates, issued_length_by_line, issued_units_by_line
+    )
     line_outs = [
         _task_line_out(
             db,
@@ -348,6 +448,8 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
             assignment_report_aggs,
             issued_length_by_line.get(l.id, 0.0),
             issued_units_by_line.get(l.id, []),
+            group_shortfall_by_line.get(l.id, 0.0),
+            borrowable_by_line.get(l.id, []),
         )
         for l in task.lines
     ]
@@ -788,9 +890,26 @@ def create_task_line_report(
         # "Сверка рулонов"). Раньше это падало 422 "рулон не найден среди
         # выданных" — рулон-то физически давно на складе, отчёт всё равно
         # нужно занести.
-        if unit is None or unit.production_task_line_id != line_id or unit.status not in (
-            UnitStatus.VYDAN_UCHASTKU, UnitStatus.NA_KHRANENII,
-        ):
+        status_ok = unit is not None and unit.status in (UnitStatus.VYDAN_UCHASTKU, UnitStatus.NA_KHRANENII)
+        # Раздел про общий штрипс на детали одного задания — рулон, выданный
+        # ДРУГОЙ строке ТОГО ЖЕ задания, годится, если это та же плёнка и
+        # взаимозаменяемая ширина штрипса (equivalent_widths). Мастер решает,
+        # хватает ли метража. Признака "новый" у рулона нет — работает и с
+        # рулонами, выданными до этой доработки.
+        line_ok = False
+        if unit is not None and status_ok:
+            if unit.production_task_line_id == line_id:
+                line_ok = True
+            elif unit.production_task_line_id is not None:
+                src_line = db.get(ProductionTaskLine, unit.production_task_line_id)
+                line_ok = (
+                    src_line is not None
+                    and src_line.task_id == line.task_id
+                    and (src_line.material_id, src_line.color_id, src_line.thickness_id)
+                    == (line.material_id, line.color_id, line.thickness_id)
+                    and float(unit.width_mm) in set(equivalent_widths(db, _line_effective_strip_width(line)))
+                )
+        if not (status_ok and line_ok):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Рулон не найден среди выданных на эту строку")
     elif line.task.area == AREA_REQUIRES_ROLL_ON_REPORT:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к рулону")

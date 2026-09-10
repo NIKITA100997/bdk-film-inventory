@@ -212,7 +212,9 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         // чтобы не задвоить план строки (эти деталей уже учтены основным
         // отчётом выше).
         for (const extra of r.extraRolls) {
-          const unit = r.line.issued_units.find((u) => u.id === extra.materialUnitId);
+          const unit =
+            r.line.issued_units.find((u) => u.id === extra.materialUnitId) ??
+            (r.line.borrowable_units ?? []).find((u) => u.id === extra.materialUnitId);
           const currentRemaining = unit?.remaining_length_m ?? unit?.length_m ?? 0;
           const consumedNeeded = Math.max(0, currentRemaining - extra.remainingM);
           const goodPiecesEquivalent = r.line.length_m > 0 ? consumedNeeded / r.line.length_m : 0;
@@ -369,9 +371,22 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                         // (разные стороны), поэтому "сколько деталей именно
                         // из него" не спрашиваем — только остаток в метрах,
                         // видимый прямо на самом рулоне.
+                        // Раздел про общий штрипс на детали одного задания —
+                        // к своим выданным рулонам добавляем рулоны соседних
+                        // строк того же задания с такой же шириной штрипса
+                        // (borrowable_units), помечая, с какой детали.
+                        const ownOptions = r.line.issued_units.map((u) => ({
+                          value: u.id,
+                          label: `№${u.id} — ${u.width_mm}×${u.length_m} м`,
+                        }));
+                        const borrowOptions = (r.line.borrowable_units ?? []).map((u) => ({
+                          value: u.id,
+                          label: `№${u.id} — ${u.width_mm}мм, остаток ${u.remaining_length_m ?? u.length_m} м · с детали «${u.from_part_name ?? "?"}»`,
+                        }));
+                        const allOptions = [...ownOptions, ...borrowOptions];
                         const usedIds = new Set<number>(r.extraRolls.map((e) => e.materialUnitId));
                         if (r.materialUnitId != null) usedIds.add(r.materialUnitId);
-                        const availableExtra = r.line.issued_units.filter((u) => !usedIds.has(u.id));
+                        const availableExtra = allOptions.filter((o) => !usedIds.has(o.value));
                         return (
                           <Space direction="vertical" size={4}>
                             <Select
@@ -380,7 +395,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                               placeholder="Выберите рулон"
                               value={r.materialUnitId ?? undefined}
                               onChange={(v) => updateRow(r.key, { materialUnitId: v })}
-                              options={r.line.issued_units.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
+                              options={allOptions}
                               notFoundContent={<Typography.Text type="secondary">Рулон не выдан</Typography.Text>}
                             />
                             {r.extraRolls.map((extra, i) => (
@@ -416,7 +431,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                                 placeholder="+ ещё рулон использован"
                                 value={undefined}
                                 onChange={(v) => updateRow(r.key, { extraRolls: [...r.extraRolls, { materialUnitId: v, remainingM: 0 }] })}
-                                options={availableExtra.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
+                                options={availableExtra}
                               />
                             )}
                           </Space>
@@ -428,9 +443,30 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               {
                 title: "Хорошие, шт",
                 key: "good",
-                render: (_, r) => (
-                  <InputNumber size="small" min={0} style={{ width: 90 }} value={r.goodPieces} onChange={(v) => updateRow(r.key, { goodPieces: v ?? 0 })} />
-                ),
+                render: (_, r) => {
+                  // Раздел про общий штрипс на детали одного задания — если
+                  // выбран рулон (свой или заимствованный) и введённых
+                  // деталей на него не хватает по метражу, мягко
+                  // предупреждаем; сабмит не блокируем — мастер решает.
+                  const selUnit =
+                    r.materialUnitId == null
+                      ? undefined
+                      : r.line.issued_units.find((u) => u.id === r.materialUnitId) ??
+                        (r.line.borrowable_units ?? []).find((u) => u.id === r.materialUnitId);
+                  const remain = selUnit?.remaining_length_m ?? selUnit?.length_m;
+                  const needM = r.goodPieces * r.line.length_m;
+                  const short = remain != null && needM > remain;
+                  return (
+                    <Space direction="vertical" size={2}>
+                      <InputNumber size="small" min={0} style={{ width: 90 }} value={r.goodPieces} onChange={(v) => updateRow(r.key, { goodPieces: v ?? 0 })} />
+                      {short && (
+                        <Typography.Text type="warning" style={{ fontSize: 11 }}>
+                          нужно ~{needM.toFixed(1)} м, на рулоне {remain} м
+                        </Typography.Text>
+                      )}
+                    </Space>
+                  );
+                },
               },
               {
                 title: "Брак",

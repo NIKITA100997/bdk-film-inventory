@@ -1,6 +1,7 @@
 from app.services.production import (
     BlankDemandInputLine,
     BlankSupplyInputLine,
+    GroupShortfallLine,
     TaskLineForReserve,
     aggregate_blank_demand,
     calc_default_strip_width,
@@ -9,6 +10,7 @@ from app.services.production import (
     compute_remaining_pieces,
     compute_shortfall_length_m,
     compute_unit_consumed_length_m,
+    distribute_group_shortfall,
     reserved_area_m2_by_group,
 )
 
@@ -95,6 +97,54 @@ class TestComputeUnitConsumedLengthM:
         # не только за последний отчёт.
         reports = [(50, 2, 2.0), (30, 0, 2.0)]
         assert compute_unit_consumed_length_m(reports) == 50 * 2 + 2 * 2 + 30 * 2
+
+
+class TestDistributeGroupShortfall:
+    """Раздел про общий штрипс на детали одного задания — нехватка плёнки
+    считается по ГРУППЕ «одно задание + одна ширина штрипса»: один рулон,
+    выданный любой строке группы, закрывает потребность всех её строк."""
+
+    def _line(self, line_id, width_key, needed, issued, is_closed=False):
+        return GroupShortfallLine(line_id, width_key, needed, issued, is_closed)
+
+    def test_one_roll_covers_two_lines_same_width(self):
+        # 300 м выдано строке A, строке B ничего — но суммарно хватает на обе.
+        out = distribute_group_shortfall(
+            [self._line(1, 120.0, 100, 300), self._line(2, 120.0, 80, 0)]
+        )
+        assert out == {1: 0.0, 2: 0.0}
+
+    def test_partial_coverage_split_proportionally(self):
+        # группе нужно 100+80=180, выдано 150 → нехватка 30 делится
+        # пропорционально непокрытому: A сама покрыта (issued 150 >= 100),
+        # значит вся нехватка 30 падает на B.
+        out = distribute_group_shortfall(
+            [self._line(1, 120.0, 100, 150), self._line(2, 120.0, 80, 0)]
+        )
+        assert out == {1: 0.0, 2: 30.0}
+
+    def test_partial_coverage_both_uncovered(self):
+        # нужно 100+100=200, выдано 60+60=120 → нехватка 80, обе строки
+        # непокрыты поровну → по 40.
+        out = distribute_group_shortfall(
+            [self._line(1, 120.0, 100, 60), self._line(2, 120.0, 100, 60)]
+        )
+        assert out == {1: 40.0, 2: 40.0}
+
+    def test_closed_line_does_not_pull_group_demand(self):
+        # B закрыта по выдаче — её потребность из группы исключается,
+        # выданного A (100) хватает на собственный план A.
+        out = distribute_group_shortfall(
+            [self._line(1, 120.0, 100, 100), self._line(2, 120.0, 80, 0, is_closed=True)]
+        )
+        assert out == {1: 0.0, 2: 0.0}
+
+    def test_different_widths_do_not_mix(self):
+        # A (120мм) без выдачи, B (200мм) с запасом — излишек B не закрывает A.
+        out = distribute_group_shortfall(
+            [self._line(1, 120.0, 100, 0), self._line(2, 200.0, 50, 500)]
+        )
+        assert out == {1: 100.0, 2: 0.0}
 
 
 class TestComputeShortfallLengthM:

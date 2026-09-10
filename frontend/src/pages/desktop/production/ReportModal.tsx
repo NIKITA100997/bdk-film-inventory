@@ -152,7 +152,9 @@ export default function ReportModal({
       // отдельным отчётом с counts_toward_line=false, чтобы не задвоить
       // план строки (эти детали уже учтены основным отчётом выше).
       for (const extra of extraRolls) {
-        const unit = line.issued_units.find((u) => u.id === extra.materialUnitId);
+        const unit =
+          line.issued_units.find((u) => u.id === extra.materialUnitId) ??
+          (line.borrowable_units ?? []).find((u) => u.id === extra.materialUnitId);
         const currentRemaining = unit?.remaining_length_m ?? unit?.length_m ?? 0;
         const consumedNeeded = Math.max(0, currentRemaining - extra.remainingM);
         const goodPiecesEquivalent = line.length_m > 0 ? consumedNeeded / line.length_m : 0;
@@ -179,7 +181,33 @@ export default function ReportModal({
 
   const primaryRollId = Form.useWatch("material_unit_id", reportForm) as number | null | undefined;
   const extraRollIds = new Set(extraRolls.map((e) => e.materialUnitId));
-  const extraRollOptions = line.issued_units.filter((u) => u.id !== primaryRollId && !extraRollIds.has(u.id));
+  // Раздел про общий штрипс на детали одного задания — к своим выданным
+  // рулонам добавляем рулоны соседних строк того же задания с такой же
+  // шириной штрипса (borrowable_units), помечая, с какой детали.
+  const rollOptions = [
+    ...line.issued_units.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` })),
+    ...(line.borrowable_units ?? []).map((u) => ({
+      value: u.id,
+      label: `№${u.id} — ${u.width_mm}мм, остаток ${u.remaining_length_m ?? u.length_m} м · с детали «${u.from_part_name ?? "?"}»`,
+    })),
+  ];
+  const extraRollOptions = rollOptions.filter((o) => o.value !== primaryRollId && !extraRollIds.has(o.value));
+
+  // Раздел про общий штрипс на детали одного задания — мягкое
+  // предупреждение, если на введённые хорошие детали не хватает метража
+  // выбранного рулона (своего или заимствованного). Сабмит не блокируем.
+  const goodPiecesWatch = (Form.useWatch("good_pieces", reportForm) as number | undefined) ?? 0;
+  const selectedRoll =
+    primaryRollId == null
+      ? undefined
+      : line.issued_units.find((u) => u.id === primaryRollId) ??
+        (line.borrowable_units ?? []).find((u) => u.id === primaryRollId);
+  const selectedRemain = selectedRoll?.remaining_length_m ?? selectedRoll?.length_m;
+  const meterageNeed = goodPiecesWatch * line.length_m;
+  const meterageShort =
+    selectedRemain != null && meterageNeed > selectedRemain
+      ? { remain: selectedRemain, need: meterageNeed, good: goodPiecesWatch }
+      : null;
 
   return (
     <Modal title={`Отчёт по линии «${line.part_name ?? line.line_name}»`} open onCancel={onClose} footer={null} destroyOnHidden>
@@ -236,10 +264,7 @@ export default function ReportModal({
           >
             <Select
               placeholder="Выберите рулон"
-              options={line.issued_units.map((u) => ({
-                value: u.id,
-                label: `№${u.id} — ${u.width_mm}×${u.length_m} м`,
-              }))}
+              options={rollOptions}
               notFoundContent={
                 <Typography.Text type="secondary">Сначала выдайте рулон этой строке на «Выдаче участку»</Typography.Text>
               }
@@ -285,13 +310,19 @@ export default function ReportModal({
               placeholder="Выберите ещё один рулон"
               value={undefined}
               onChange={(v) => setExtraRolls((prev) => [...prev, { materialUnitId: v, remainingM: 0 }])}
-              options={extraRollOptions.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` }))}
+              options={extraRollOptions}
             />
           </Form.Item>
         )}
         <Form.Item name="good_pieces" label="Хороших деталей, шт" rules={[{ required: true }]}>
           <InputNumber min={0} style={{ width: "100%" }} />
         </Form.Item>
+        {meterageShort != null && (
+          <Typography.Paragraph type="warning" style={{ marginTop: -8 }}>
+            На выбранном рулоне остаток {meterageShort.remain} м, а на {meterageShort.good} деталей нужно ~
+            {meterageShort.need.toFixed(1)} м. Проверьте, хватает ли метража (сохранить всё равно можно).
+          </Typography.Paragraph>
+        )}
       </Form>
 
       {defectRows.length > 0 && (

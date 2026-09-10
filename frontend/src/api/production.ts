@@ -88,6 +88,16 @@ export interface ProductionTaskLineIssuedUnit {
   area: string | null;
 }
 
+// Раздел про общий штрипс на детали одного задания — рулон, выданный
+// ДРУГОЙ строке того же задания с такой же шириной штрипса и той же
+// плёнкой; мастер может списать его в отчёте по этой строке, если
+// метража хватает, не возвращая на склад. from_line_id/from_part_name —
+// чтобы подписать, с какой детали рулон.
+export interface BorrowableUnit extends ProductionTaskLineIssuedUnit {
+  from_line_id: number;
+  from_part_name: string | null;
+}
+
 export interface ProductionTaskLine {
   id: number;
   line_id: number | null;
@@ -122,6 +132,11 @@ export interface ProductionTaskLine {
   planned_length_m: number;
   issued_length_m: number;
   issued_units: ProductionTaskLineIssuedUnit[];
+  // Раздел про общий штрипс на детали одного задания — рулоны соседних
+  // строк того же задания с такой же шириной штрипса, которые мастер
+  // может списать в отчёте по этой строке. Пусто, если ширина уникальна
+  // в задании или соседям ничего не выдано.
+  borrowable_units: BorrowableUnit[];
 }
 
 export interface ProductionTask {

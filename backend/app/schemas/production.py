@@ -298,6 +298,19 @@ class ProductionTaskLineIssuedUnitOut(BaseModel):
     area: str | None
 
 
+class BorrowableUnitOut(ProductionTaskLineIssuedUnitOut):
+    """Раздел про общий штрипс на детали одного задания — рулон, выданный
+    ДРУГОЙ строке того же задания, но с такой же шириной штрипса и той же
+    плёнкой: мастер может списать его в отчёте по ЭТОЙ строке, если
+    метража хватает, не возвращая на склад и не перевыдавая. Считается на
+    лету из текущих MaterialUnit (миграции нет — работает и с рулонами,
+    выданными до этой доработки). from_line_id/from_part_name — чтобы
+    пикер подписал, с какой детали рулон."""
+
+    from_line_id: int
+    from_part_name: str | None
+
+
 class ProductionTaskLineOut(BaseModel):
     id: int
     line_id: int | None
@@ -350,6 +363,12 @@ class ProductionTaskLineOut(BaseModel):
     # выданы под эту строку и могут быть возвращены прямо отсюда (обычно
     # 0 или 1, но не мутируется в записи — участок мог получать довыдачи).
     issued_units: list[ProductionTaskLineIssuedUnitOut] = []
+    # Раздел про общий штрипс на детали одного задания — рулоны, выданные
+    # ДРУГИМ строкам того же задания с такой же шириной штрипса и той же
+    # плёнкой; мастер может списать их в отчёте по этой строке (если
+    # метража хватает), не возвращая на склад. Пусто, если ширина
+    # уникальна в задании или соседям ничего не выдано.
+    borrowable_units: list[BorrowableUnitOut] = []
 
 
 class ProductionTaskOut(BaseModel):

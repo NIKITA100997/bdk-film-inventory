@@ -36,6 +36,55 @@ def compute_shortfall_length_m(quantity_pieces: float, length_m: float, defect_p
     return max(0.0, round(total_needed_length_m - issued_length_m, 2))
 
 
+@dataclass
+class GroupShortfallLine:
+    """Строка задания для расчёта нехватки по группе ширины штрипса
+    (раздел про общий штрипс на детали одного задания)."""
+
+    line_id: int
+    width_key: float  # канонический ключ группы аналогов ширины (min(equivalent_widths))
+    needed_length_m: float  # (quantity_pieces + defect) * length_m
+    issued_length_m: float
+    is_closed: bool
+
+
+def distribute_group_shortfall(lines: list[GroupShortfallLine]) -> dict[int, float]:
+    """Нехватка плёнки НЕ построчно, а по группе «одно задание + одна
+    ширина штрипса» (раздел про общий штрипс на детали одного задания):
+    один рулон, выданный любой строке группы, закрывает потребность всех
+    её строк, если метража хватает — иначе соседние строки вечно висели
+    бы в очереди «Нужно выдать», хотя плёнка на них уже есть.
+
+    По каждой группе: group_needed = Σ needed по НЕ закрытым по выдаче
+    строкам, group_issued = Σ issued по ВСЕМ строкам группы (в т.ч.
+    is_closed — их выданное всё равно физически доступно соседям);
+    group_shortfall = max(0, group_needed - group_issued) делится между
+    строками пропорционально их собственной непокрытой части
+    max(0, needed_i - issued_i). Если суммарно выдано достаточно —
+    все строки группы получают 0. is_closed-строки всегда получают 0."""
+    by_key: dict[float, list[GroupShortfallLine]] = {}
+    for ln in lines:
+        by_key.setdefault(ln.width_key, []).append(ln)
+
+    result: dict[int, float] = {}
+    for group in by_key.values():
+        group_needed = sum(ln.needed_length_m for ln in group if not ln.is_closed)
+        group_issued = sum(ln.issued_length_m for ln in group)
+        group_shortfall = max(0.0, group_needed - group_issued)
+
+        own_uncovered = {
+            ln.line_id: (0.0 if ln.is_closed else max(0.0, ln.needed_length_m - ln.issued_length_m))
+            for ln in group
+        }
+        total_uncovered = sum(own_uncovered.values())
+        for ln in group:
+            if group_shortfall <= 0 or total_uncovered <= 0:
+                result[ln.line_id] = 0.0
+            else:
+                result[ln.line_id] = round(group_shortfall * own_uncovered[ln.line_id] / total_uncovered, 2)
+    return result
+
+
 # Раздел про загрузку наряд-заказа — width_mm строки задания хранит
 # СОБСТВЕННУЮ ширину детали (дерево/МДФ-заготовка), не ширину плёнки:
 # наряд-заказ даёт именно её, а не размер плёнки на укутку (пользователь
