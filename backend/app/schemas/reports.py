@@ -113,6 +113,53 @@ class PlanFactTaskLineOut(BaseModel):
 # ---------- Раздел про модуль "Брак и списания" ----------
 
 
+class UnitReconciliationLine(BaseModel):
+    """Раздел про ревизию путей плёнки — рулон/штрипс, у которого
+    выданное не сходится с (расход по отчётам + списано + осталось).
+    Тот самый класс расхождений, из-за которых в этой сессии чинили
+    штрипсы №2115/№2324/партии строки «Багет Б-2/М» — только теперь
+    находится сам, не по жалобе оператора."""
+
+    unit_id: int
+    material: str
+    color: str
+    thickness: float
+    width_mm: float
+    status: str
+    area: str | None
+    part_name: str | None
+    task_name: str | None
+    issued_total_m: float
+    consumed_calc_m: float
+    written_off_m: float
+    current_length_m: float | None
+    # None — рулон ещё выдан участку, физического "было измерено"
+    # факта пока нет, сравниваем только "не превысил ли расход
+    # выданное" (over_consumed_m); иначе — полный баланс.
+    variance_m: float | None
+    over_consumed_m: float
+    updated_at: datetime
+
+
+class PartUnitReconciliationLine(BaseModel):
+    """Раздел про ревизию путей п/ф — партия, у которой сумма good_pieces
+    уже отчитанных по ней (reported_good_pieces_by_unit) превышает её
+    же quantity_pieces. Расход по отчётам не может физически превышать
+    то, что когда-либо было в партии — если превышает, где-то задвоение
+    (тот же класс проблемы, что бага "доп. рулон второй раз списывал
+    партию п/ф", найденного и исправленного при этой же ревизии)."""
+
+    unit_id: int
+    part_name: str
+    stage_name: str
+    status: str
+    area: str | None
+    quantity_pieces: float
+    reported_good_pieces: float
+    over_reported: float
+    updated_at: datetime
+
+
 class WriteOffLine(BaseModel):
     event_id: int
     unit_id: int

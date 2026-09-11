@@ -19,6 +19,7 @@ from app.models.production import (
     ProductionTaskLineReport,
     ProductModel,
 )
+from app.models.part_units import PartUnit
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
 from app.models.write_off_reasons import WriteOffReasonEntry
@@ -29,6 +30,7 @@ from app.schemas.reports import (
     DefectsOverviewOut,
     DonorAccuracyOut,
     MovementEntry,
+    PartUnitReconciliationLine,
     PlanFactTaskLineOut,
     ProductionDefectLine,
     ReasonShareLine,
@@ -39,10 +41,12 @@ from app.schemas.reports import (
     TopDefectGroupLine,
     TopWriteOffMaterialLine,
     TrendPoint,
+    UnitReconciliationLine,
     WriteOffLine,
 )
 from app.services.defects_reports import PivotInputRow, build_defect_pivot, bucket_date_range, defect_rate_percent, delta_percent
-from app.services.plan_fact import fetch_issued_length_by_task_line
+from app.services.part_units import reported_good_pieces_by_unit
+from app.services.plan_fact import fetch_consumed_length_by_unit, fetch_event_totals_by_unit, fetch_issued_length_by_task_line
 from app.services.warehouses import filter_by_warehouse as _filter_by_warehouse
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -395,6 +399,123 @@ def cutting_discrepancies(
                 user_id=ev.user_id,
             )
         )
+    return result
+
+
+@router.get("/unit-reconciliation", response_model=list[UnitReconciliationLine])
+def unit_reconciliation(
+    db: Session = Depends(get_db), user: User = Depends(require_permission("reports.view"))
+) -> list[UnitReconciliationLine]:
+    """Сверка рулонов/штрипсов (раздел про ревизию путей плёнки) —
+    выданное должно сходиться с (расход по отчётам + списано + то, что
+    осталось на самом рулоне, если он уже не у участка). Тот самый
+    класс расхождений, из-за которых в этой сессии вручную чинили
+    штрипсы №2115/№2324/партии строки «Багет Б-2/М» — теперь находится
+    сам, не по жалобе оператора. Допуск тот же, что у
+    cutting_discrepancies выше (5%, не меньше 0.1 м).
+
+    Пока рулон ещё Выдан_участку, физического "было измерено" факта нет
+    — сравниваем только "не превысил ли расход выданное"
+    (over_consumed_m). Как только рулон вернулся/списан (есть
+    наблюдаемая current_length_m) — считаем полный баланс (variance_m)."""
+    units = db.query(MaterialUnit).filter(MaterialUnit.production_task_line_id.isnot(None)).all()
+    if not units:
+        return []
+    unit_ids = [u.id for u in units]
+    issued_by_unit = fetch_event_totals_by_unit(db, unit_ids, EventType.VYDACHA_UCHASTKU)
+    written_off_by_unit = fetch_event_totals_by_unit(db, unit_ids, EventType.SPISANIE)
+    consumed_by_unit = fetch_consumed_length_by_unit(db, unit_ids)
+
+    line_ids = {u.production_task_line_id for u in units}
+    lines = {l.id: l for l in db.query(ProductionTaskLine).filter(ProductionTaskLine.id.in_(line_ids)).all()}
+    task_ids = {l.task_id for l in lines.values()}
+    tasks = {t.id: t for t in db.query(ProductionTask).filter(ProductionTask.id.in_(task_ids)).all()}
+
+    result: list[UnitReconciliationLine] = []
+    for u in units:
+        issued = issued_by_unit.get(u.id, 0.0)
+        if issued <= 0:
+            continue  # привязан к заданию, но события выдачи по нему нет — сверять не с чем
+        consumed = consumed_by_unit.get(u.id, 0.0)
+        written_off = written_off_by_unit.get(u.id, 0.0)
+        tolerance = max(0.1, issued * 0.05)
+        over_consumed = max(0.0, consumed + written_off - issued)
+        flagged = over_consumed > tolerance
+        variance: float | None = None
+        current_length: float | None = None
+        if u.status != UnitStatus.VYDAN_UCHASTKU:
+            current_length = float(u.length_m)
+            variance = issued - consumed - written_off - current_length
+            flagged = flagged or abs(variance) > tolerance
+        if not flagged:
+            continue
+        line = lines.get(u.production_task_line_id)
+        task = tasks.get(line.task_id) if line else None
+        result.append(
+            UnitReconciliationLine(
+                unit_id=u.id,
+                material=u.material_sku.material.name,
+                color=u.material_sku.color.name,
+                thickness=float(u.material_sku.thickness.value_mm),
+                width_mm=float(u.width_mm),
+                status=u.status.value,
+                area=u.area,
+                part_name=line.part_name if line else None,
+                task_name=task.name if task else None,
+                issued_total_m=round(issued, 2),
+                consumed_calc_m=round(consumed, 2),
+                written_off_m=round(written_off, 2),
+                current_length_m=round(current_length, 2) if current_length is not None else None,
+                variance_m=round(variance, 2) if variance is not None else None,
+                over_consumed_m=round(over_consumed, 2),
+                updated_at=u.updated_at,
+            )
+        )
+    result.sort(key=lambda r: abs(r.variance_m) if r.variance_m is not None else r.over_consumed_m, reverse=True)
+    return result
+
+
+@router.get("/part-unit-reconciliation", response_model=list[PartUnitReconciliationLine])
+def part_unit_reconciliation(
+    db: Session = Depends(get_db), user: User = Depends(require_permission("reports.view"))
+) -> list[PartUnitReconciliationLine]:
+    """Сверка партий п/ф (раздел про ревизию путей п/ф) — сумма
+    good_pieces, уже отчитанных по партии (reported_good_pieces_by_unit,
+    services/part_units.py — та же поправка, что защищает FIFO-расход от
+    повторного взятия одной и той же партии), не может физически
+    превышать её же quantity_pieces. Если превышает — тот же класс
+    проблемы, что найденный и исправленный при этой ревизии баг "доп.
+    рулон второй раз списывал партию п/ф по FIFO".
+
+    Не проверяет полный баланс по цепочке parent_id/сплитов (партия при
+    частичном расходе дробится на новую строку — это отдельная, более
+    дорогая проверка); здесь — только самое дешёвое и самое красноречивое:
+    отчётов по КОНКРЕТНОЙ строке не может быть больше, чем в ней когда-
+    либо было."""
+    units = db.query(PartUnit).all()
+    if not units:
+        return []
+    reported = reported_good_pieces_by_unit(db, [u.id for u in units])
+    result: list[PartUnitReconciliationLine] = []
+    for u in units:
+        rep = reported.get(u.id, 0.0)
+        over = rep - float(u.quantity_pieces)
+        if over <= 0.01:
+            continue
+        result.append(
+            PartUnitReconciliationLine(
+                unit_id=u.id,
+                part_name=u.part.name,
+                stage_name=u.stage.name,
+                status=u.status.value,
+                area=u.area,
+                quantity_pieces=float(u.quantity_pieces),
+                reported_good_pieces=round(rep, 2),
+                over_reported=round(over, 2),
+                updated_at=u.updated_at,
+            )
+        )
+    result.sort(key=lambda r: r.over_reported, reverse=True)
     return result
 
 

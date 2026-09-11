@@ -137,6 +137,48 @@ export const getCuttingDiscrepancies = async (dateFrom: string, dateTo: string):
     })
   ).data;
 
+// Раздел про ревизию путей плёнки — рулон/штрипс, у которого выданное
+// не сходится с (расход по отчётам + списано + осталось). Без периода
+// — сканирует все текущие единицы, привязанные к заданию.
+export interface UnitReconciliationLine {
+  unit_id: number;
+  material: string;
+  color: string;
+  thickness: number;
+  width_mm: number;
+  status: string;
+  area: string | null;
+  part_name: string | null;
+  task_name: string | null;
+  issued_total_m: number;
+  consumed_calc_m: number;
+  written_off_m: number;
+  current_length_m: number | null;
+  variance_m: number | null;
+  over_consumed_m: number;
+  updated_at: string;
+}
+
+export const getUnitReconciliation = async (): Promise<UnitReconciliationLine[]> =>
+  (await apiClient.get<UnitReconciliationLine[]>("/reports/unit-reconciliation")).data;
+
+// Раздел про ревизию путей п/ф — партия, у которой отчитано (по FIFO)
+// больше, чем в ней когда-либо было.
+export interface PartUnitReconciliationLine {
+  unit_id: number;
+  part_name: string;
+  stage_name: string;
+  status: string;
+  area: string | null;
+  quantity_pieces: number;
+  reported_good_pieces: number;
+  over_reported: number;
+  updated_at: string;
+}
+
+export const getPartUnitReconciliation = async (): Promise<PartUnitReconciliationLine[]> =>
+  (await apiClient.get<PartUnitReconciliationLine[]>("/reports/part-unit-reconciliation")).data;
+
 // Раздел про план/факт по расходу плёнки на задание — план (кол-во
 // деталей × длина на деталь) против факта, который уже выдал/отрезал
 // склад (issued_length_m), независимо от бумажной самоотчётности цеха.

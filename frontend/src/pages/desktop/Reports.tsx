@@ -12,6 +12,8 @@ import {
   getStaleUnits,
   getCuttingDiscrepancies,
   getPlanFactTasks,
+  getUnitReconciliation,
+  getPartUnitReconciliation,
 } from "../../api/reports";
 import { getStockOverview, type StockOverviewLine } from "../../api/purchasing";
 import ReportTable, { type ReportColumn } from "../../components/ReportTable";
@@ -332,6 +334,106 @@ function CuttingDiscrepancyTab() {
   );
 }
 
+// Раздел про ревизию путей плёнки — рулон/штрипс, у которого выданное
+// не сходится с (расход по отчётам + списано + осталось). Находит сам
+// тот класс проблем, из-за которых в этой сессии вручную чинили
+// штрипсы №2115/№2324/партии строки «Багет Б-2/М».
+function UnitReconciliationTab() {
+  const query = useQuery({ queryKey: ["report-unit-reconciliation"], queryFn: getUnitReconciliation });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string | null) => (code ? areasQuery.data?.find((a) => a.code === code)?.name ?? code : "—");
+
+  const rows = query.data ?? [];
+  const columns: ReportColumn<(typeof rows)[number]>[] = [
+    { key: "unit_id", header: "Рулон", render: (r) => `№${r.unit_id}`, printValue: (r) => r.unit_id },
+    { key: "material", header: "Плёнка", render: (r) => `${r.material}, ${r.color}, ${r.thickness} мм`, printValue: (r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
+    { key: "part_name", header: "Деталь", render: (r) => r.part_name ?? "—", printValue: (r) => r.part_name ?? "" },
+    { key: "task_name", header: "Задание", render: (r) => r.task_name ?? "—", printValue: (r) => r.task_name ?? "" },
+    { key: "area", header: "Участок", render: (r) => areaLabel(r.area), printValue: (r) => areaLabel(r.area) },
+    { key: "status", header: "Статус", render: (r) => r.status, printValue: (r) => r.status },
+    { key: "issued_total_m", header: "Выдано всего, м", render: (r) => r.issued_total_m, printValue: (r) => r.issued_total_m },
+    { key: "consumed_calc_m", header: "Расход по отчётам, м", render: (r) => r.consumed_calc_m, printValue: (r) => r.consumed_calc_m },
+    { key: "written_off_m", header: "Списано, м", render: (r) => r.written_off_m, printValue: (r) => r.written_off_m },
+    { key: "current_length_m", header: "Осталось (факт), м", render: (r) => r.current_length_m ?? "—", printValue: (r) => r.current_length_m ?? "" },
+    {
+      key: "variance",
+      header: "Расхождение, м",
+      render: (r) =>
+        r.over_consumed_m > 0 ? (
+          <Tag color="red">перерасход +{r.over_consumed_m}</Tag>
+        ) : (
+          <Tag color="orange">{r.variance_m! > 0 ? "+" : ""}{r.variance_m}</Tag>
+        ),
+      printValue: (r) => r.over_consumed_m || r.variance_m || 0,
+      sorter: (a, b) => (a.over_consumed_m || Math.abs(a.variance_m ?? 0)) - (b.over_consumed_m || Math.abs(b.variance_m ?? 0)),
+      defaultSortOrder: "descend",
+    },
+  ];
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <span style={{ color: "rgba(0,0,0,0.45)" }}>
+        Сверка по всем рулонам/штрипсам, привязанным к заданию: выданное должно сходиться с расходом по отчётам,
+        списанием и фактическим остатком. Показаны только расхождения больше допуска (5%, не меньше 0.1 м).
+      </span>
+      <ReportTable
+        title="Сверка рулонов"
+        filename="sverka-rulonov.csv"
+        rowKey="unit_id"
+        columns={columns}
+        data={rows}
+        loading={query.isLoading}
+      />
+    </Space>
+  );
+}
+
+// Раздел про ревизию путей п/ф — партия, у которой отчитано по FIFO
+// больше, чем в ней когда-либо было (тот же класс проблемы, что баг
+// "доп. рулон второй раз списывал партию п/ф", найденный и исправленный
+// при этой же ревизии).
+function PartUnitReconciliationTab() {
+  const query = useQuery({ queryKey: ["report-part-unit-reconciliation"], queryFn: getPartUnitReconciliation });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string | null) => (code ? areasQuery.data?.find((a) => a.code === code)?.name ?? code : "—");
+
+  const rows = query.data ?? [];
+  const columns: ReportColumn<(typeof rows)[number]>[] = [
+    { key: "unit_id", header: "Партия", render: (r) => `№${r.unit_id}`, printValue: (r) => r.unit_id },
+    { key: "part_name", header: "Деталь", render: (r) => r.part_name, printValue: (r) => r.part_name },
+    { key: "stage_name", header: "Этап", render: (r) => r.stage_name, printValue: (r) => r.stage_name },
+    { key: "area", header: "Участок", render: (r) => areaLabel(r.area), printValue: (r) => areaLabel(r.area) },
+    { key: "status", header: "Статус", render: (r) => r.status, printValue: (r) => r.status },
+    { key: "quantity_pieces", header: "В партии, шт", render: (r) => r.quantity_pieces, printValue: (r) => r.quantity_pieces },
+    { key: "reported_good_pieces", header: "Отчитано, шт", render: (r) => r.reported_good_pieces, printValue: (r) => r.reported_good_pieces },
+    {
+      key: "over_reported",
+      header: "Задвоено, шт",
+      render: (r) => <Tag color="red">+{r.over_reported}</Tag>,
+      printValue: (r) => r.over_reported,
+      sorter: (a, b) => a.over_reported - b.over_reported,
+      defaultSortOrder: "descend",
+    },
+  ];
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <span style={{ color: "rgba(0,0,0,0.45)" }}>
+        Партии п/ф, по которым отчитано (по FIFO) больше готовых деталей, чем в них когда-либо было —
+        признак задвоенного расхода.
+      </span>
+      <ReportTable
+        title="Сверка партий п/ф"
+        filename="sverka-partiy-pf.csv"
+        rowKey="unit_id"
+        columns={columns}
+        data={rows}
+        loading={query.isLoading}
+      />
+    </Space>
+  );
+}
+
 function PlanFactTab() {
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(29, "day"), dayjs()]);
   const [area, setArea] = useState<string | undefined>(undefined);
@@ -442,6 +544,8 @@ export default function Reports() {
           { key: "donor", label: <>Точность донор-рекомендаций <Tag color="blue">2.9</Tag></>, children: <DonorAccuracyTab /> },
           { key: "stale", label: "Давно не двигались", children: <StaleUnitsTab /> },
           { key: "cutting-discrepancy", label: "Отклонения при резке", children: <CuttingDiscrepancyTab /> },
+          { key: "unit-reconciliation", label: "Сверка рулонов", children: <UnitReconciliationTab /> },
+          { key: "part-unit-reconciliation", label: "Сверка партий п/ф", children: <PartUnitReconciliationTab /> },
           { key: "plan-fact", label: "План/факт по заданиям", children: <PlanFactTab /> },
           ...(showReorder ? [{ key: "reorder", label: "Пора заказывать", children: <ReorderTab /> }] : []),
         ]}
