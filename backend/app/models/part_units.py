@@ -82,6 +82,13 @@ class PartEventType(str, enum.Enum):
     PEREKHOD_ETAPA = "Переход_этапа"
     SPISANIE = "Списание"
     ZAVERSHENIE = "Завершение"
+    # Раздел про ревизию путей плёнки/п/ф — зеркалит MaterialEvent:
+    # VOZVRAT — партию физически вернули на склад, не использовав (или
+    # использовав частично), не через списание; KORREKTIROVKA —
+    # формальная правка quantity_pieces (POST /part-units/{id}/adjust)
+    # вместо правки истории напрямую в БД.
+    VOZVRAT = "Возврат"
+    KORREKTIROVKA = "Корректировка"
 
 
 class PartUnitEvent(Base):

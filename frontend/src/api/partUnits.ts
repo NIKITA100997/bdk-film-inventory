@@ -96,3 +96,17 @@ export const advancePartUnit = async (id: number, quantityPieces: number): Promi
 
 export const listPartUnitEvents = async (id: number): Promise<PartUnitEvent[]> =>
   (await apiClient.get<PartUnitEvent[]>(`/part-units/${id}/events`)).data;
+
+// Раздел про ревизию путей п/ф — вернуть партию на склад, не
+// использовав (или использовав лишь частично), зеркалит returnUnit у
+// плёнки.
+export const returnPartUnit = async (id: number, actualQuantityPieces: number): Promise<PartUnit> =>
+  (await apiClient.post<PartUnit>(`/part-units/${id}/return`, { actual_quantity_pieces: actualQuantityPieces })).data;
+
+// Раздел про ревизию путей плёнки/п/ф — формальная корректировка
+// quantity_pieces вместо правки истории напрямую в БД: поднадзорное
+// действие, всегда добавляет событие, причина обязательна.
+export const adjustPartUnit = async (
+  id: number,
+  payload: { actual_quantity_pieces: number; reason: string; note?: string },
+): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${id}/adjust`, payload)).data;

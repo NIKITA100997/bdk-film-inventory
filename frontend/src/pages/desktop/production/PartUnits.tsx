@@ -13,6 +13,8 @@ import {
   issuePartUnit,
   writeOffPartUnit,
   advancePartUnit,
+  returnPartUnit,
+  adjustPartUnit,
   listPartUnitEvents,
   type PartUnit,
   type PartUnitStatus,
@@ -69,6 +71,11 @@ export default function PartUnits() {
   const { user } = useAuth();
   const location = useLocation();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_units.manage");
+  // Раздел про ревизию путей плёнки/п/ф — узкое право, отдельное от
+  // part_units.manage: обычная выдача/списание доступны начальнику
+  // цеха, формальный возврат/корректировка — только тому, кому явно
+  // доверили (обычно админ/начальник склада).
+  const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("part_units.correct");
   const qc = useQueryClient();
   const [form] = Form.useForm<MintFormValues>();
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
@@ -79,6 +86,14 @@ export default function PartUnits() {
   const [placeTarget, setPlaceTarget] = useState<PartUnit | null>(null);
   const [placeLocationCode, setPlaceLocationCode] = useState("");
   const [cardTarget, setCardTarget] = useState<PartUnit | null>(null);
+  // Раздел про ревизию путей плёнки/п/ф — возврат на склад (партия
+  // выдана участку, но физически не использована/использована лишь
+  // частично) и формальная корректировка количества (вместо правки
+  // истории напрямую в БД).
+  const [returnTarget, setReturnTarget] = useState<PartUnit | null>(null);
+  const [returnForm] = Form.useForm<{ actual_quantity_pieces: number }>();
+  const [adjustTarget, setAdjustTarget] = useState<PartUnit | null>(null);
+  const [adjustForm] = Form.useForm<{ actual_quantity_pieces: number; reason: string; note?: string }>();
 
   const [partFilter, setPartFilter] = useState("");
   const [areaFilter, setAreaFilter] = useState<string | undefined>(undefined);
@@ -207,6 +222,28 @@ export default function PartUnits() {
       advanceForm.resetFields();
     },
     onError: () => message.error("Не удалось перевести на следующий этап"),
+  });
+
+  const returnMutation = useMutation({
+    mutationFn: (v: { actual_quantity_pieces: number }) => returnPartUnit(returnTarget!.id, v.actual_quantity_pieces),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["part-units"] });
+      message.success("Партия возвращена на склад");
+      setReturnTarget(null);
+      returnForm.resetFields();
+    },
+    onError: () => message.error("Не удалось вернуть партию на склад"),
+  });
+
+  const adjustMutation = useMutation({
+    mutationFn: (v: { actual_quantity_pieces: number; reason: string; note?: string }) => adjustPartUnit(adjustTarget!.id, v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["part-units"] });
+      message.success("Количество скорректировано");
+      setAdjustTarget(null);
+      adjustForm.resetFields();
+    },
+    onError: () => message.error("Не удалось скорректировать партию"),
   });
 
   const nextStageName = (u: PartUnit): string | null => {
@@ -423,6 +460,30 @@ export default function PartUnits() {
                       ✖
                     </ActionIcon>
                   )}
+                  {canCorrect && u.status === "Выдан_участку" && (
+                    <ActionIcon
+                      tone="outline"
+                      tip="Вернуть на склад"
+                      onClick={() => {
+                        setReturnTarget(u);
+                        returnForm.setFieldsValue({ actual_quantity_pieces: u.quantity_pieces });
+                      }}
+                    >
+                      📥
+                    </ActionIcon>
+                  )}
+                  {canCorrect && (
+                    <ActionIcon
+                      tone="outline"
+                      tip="Скорректировать количество"
+                      onClick={() => {
+                        setAdjustTarget(u);
+                        adjustForm.setFieldsValue({ actual_quantity_pieces: u.quantity_pieces });
+                      }}
+                    >
+                      🛠
+                    </ActionIcon>
+                  )}
                 </Space>
               ),
             },
@@ -521,6 +582,64 @@ export default function PartUnits() {
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={advanceMutation.isPending}>
             Перевести
+          </Button>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`Вернуть партию «${returnTarget?.part_name ?? ""}» на склад`}
+        open={!!returnTarget}
+        onCancel={() => setReturnTarget(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary">
+          Выдано было {returnTarget?.quantity_pieces} шт. Укажите, сколько реально возвращается — если
+          часть физически ушла в дело без отдельного отчёта, разница просто зафиксируется событием.
+        </Typography.Paragraph>
+        <Form
+          layout="vertical"
+          form={returnForm}
+          initialValues={{ actual_quantity_pieces: returnTarget?.quantity_pieces }}
+          onFinish={(v) => returnMutation.mutate(v)}
+        >
+          <Form.Item name="actual_quantity_pieces" label="Фактически возвращается, шт" rules={[{ required: true }]}>
+            <InputNumber min={0} max={returnTarget?.quantity_pieces} style={{ width: "100%" }} />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={returnMutation.isPending}>
+            Вернуть на склад
+          </Button>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`Скорректировать партию «${adjustTarget?.part_name ?? ""}»`}
+        open={!!adjustTarget}
+        onCancel={() => setAdjustTarget(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary">
+          Сейчас в системе {adjustTarget?.quantity_pieces} шт. Формальная правка вместо изменения истории
+          напрямую — действие добавит запись в журнал партии, причина обязательна.
+        </Typography.Paragraph>
+        <Form
+          layout="vertical"
+          form={adjustForm}
+          initialValues={{ actual_quantity_pieces: adjustTarget?.quantity_pieces }}
+          onFinish={(v) => adjustMutation.mutate(v)}
+        >
+          <Form.Item name="actual_quantity_pieces" label="Фактическое количество, шт" rules={[{ required: true }]}>
+            <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="reason" label="Причина" rules={[{ required: true, message: "Укажите причину корректировки" }]}>
+            <Input placeholder="Например: опечатка при вводе" />
+          </Form.Item>
+          <Form.Item name="note" label="Заметка (опционально)">
+            <Input />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={adjustMutation.isPending}>
+            Скорректировать
           </Button>
         </Form>
       </Modal>

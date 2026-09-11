@@ -39,6 +39,24 @@ class PartUnitWriteOff(BaseModel):
     note: str | None = None
 
 
+class PartUnitReturn(BaseModel):
+    """Вернуть партию на склад п/ф, не использовав (или использовав лишь
+    частично) — раздел про ревизию путей п/ф, зеркалит ReturnRequest у
+    плёнки (schemas/units.py)."""
+
+    actual_quantity_pieces: float = Field(ge=0)
+
+
+class PartUnitAdjust(BaseModel):
+    """Формальная корректировка quantity_pieces — раздел про ревизию
+    путей плёнки/п/ф: поднадзорное действие вместо правки истории
+    напрямую в БД, причина обязательна."""
+
+    actual_quantity_pieces: float = Field(ge=0)
+    reason: str
+    note: str | None = None
+
+
 class PartUnitAdvance(BaseModel):
     """Перевод партии на следующий этап напрямую (раздел про мобильный
     скан-сценарий по этапам) — в отличие от отчёта мастера

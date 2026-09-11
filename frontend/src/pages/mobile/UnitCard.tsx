@@ -24,6 +24,7 @@ import {
   getReturnPreview,
   placeUnit,
   writeOffUnit,
+  adjustUnit,
   getUnitEvents,
   printLabel,
   skuLabel,
@@ -43,7 +44,7 @@ import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { useAuth } from "../../auth/AuthContext";
 
-type ActionKind = "place" | "cut" | "return" | "writeoff" | "transfer" | null;
+type ActionKind = "place" | "cut" | "return" | "writeoff" | "transfer" | "adjust" | null;
 
 // Раздел про аудит прав — раньше действия показывались по статусу единицы
 // без единой проверки прав: с одним лишь units.place человек видел и мог
@@ -57,6 +58,11 @@ const actionPermissions: Record<Exclude<ActionKind, "cut" | null>, string> = {
   return: "units.return",
   writeoff: "units.writeoff",
   transfer: "warehouse_transfers.manage",
+  // Раздел про ревизию путей плёнки/п/ф — узкое право, отдельное от
+  // остальных складских действий: формальная корректировка вместо
+  // правки истории напрямую в БД, обычно доверяется только
+  // админу/начальнику склада.
+  adjust: "units.correct",
 };
 
 const statusLabels: Record<string, string> = {
@@ -67,10 +73,14 @@ const statusLabels: Record<string, string> = {
 };
 
 function availableActions(unit: MaterialUnit): Exclude<ActionKind, null>[] {
-  if (unit.status === "Принят") return ["place"];
-  if (unit.status === "На_хранении") return ["cut", "place", "transfer", "writeoff"];
+  // Раздел про ревизию путей плёнки/п/ф — "Скорректировать" не завязана
+  // на статус (можно поправить длину и На_хранении, и Выдан_участку),
+  // кроме уже списанной единицы — там нечего "поправить", есть
+  // отдельный процесс возврата из списания.
+  if (unit.status === "Принят") return ["place", "adjust"];
+  if (unit.status === "На_хранении") return ["cut", "place", "transfer", "writeoff", "adjust"];
   if (unit.status === "Выдан_участку") {
-    return unit.area === "tselnolistovye_dveri" ? ["cut", "return"] : ["return"];
+    return unit.area === "tselnolistovye_dveri" ? ["cut", "return", "adjust"] : ["return", "adjust"];
   }
   return [];
 }
@@ -81,6 +91,7 @@ const actionLabels: Record<Exclude<ActionKind, null>, string> = {
   return: "Вернуть",
   writeoff: "Списать",
   transfer: "Отправить на другой склад",
+  adjust: "Скорректировать",
 };
 
 export default function UnitCard() {
@@ -93,6 +104,7 @@ export default function UnitCard() {
   const [unit, setUnit] = useState<MaterialUnit | null>(null);
   const [action, setAction] = useState<ActionKind>(null);
   const [writeOffOpen, setWriteOffOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
   // Раздел про единую форму резки — после резки может остаться несколько
   // ещё не размещённых "keep"-кусков (несколько ширин из остатка сразу);
   // разместить их предлагаем по очереди, один за другим, тем же приёмом,
@@ -102,6 +114,7 @@ export default function UnitCard() {
   const [placeForm] = Form.useForm<{ location_code: string }>();
   const [returnForm] = Form.useForm<{ actual_length_m: number }>();
   const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
+  const [adjustForm] = Form.useForm<{ actual_length_m: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
   const [transferWarehouseId, setTransferWarehouseId] = useState<number>();
 
   const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
@@ -241,6 +254,19 @@ export default function UnitCard() {
     onError: () => message.error("Не удалось списать"),
   });
 
+  const adjustMutation = useMutation({
+    mutationFn: (values: { actual_length_m: number; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
+      adjustUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
+    onSuccess: (u) => {
+      setUnit(u);
+      setAdjustOpen(false);
+      adjustForm.resetFields();
+      qc.invalidateQueries({ queryKey: ["unit-events", u.id] });
+      message.success("Длина скорректирована");
+    },
+    onError: () => message.error("Не удалось скорректировать"),
+  });
+
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
   const reasonName = (code: string) => writeOffReasonsQuery.data?.find((r) => r.code === code)?.name ?? code;
 
@@ -319,6 +345,17 @@ export default function UnitCard() {
                   .map((a) =>
                     a === "writeoff" ? (
                       <Button key={a} size="large" danger onClick={() => setWriteOffOpen(true)}>
+                        {actionLabels[a]}
+                      </Button>
+                    ) : a === "adjust" ? (
+                      <Button
+                        key={a}
+                        size="large"
+                        onClick={() => {
+                          adjustForm.setFieldsValue({ actual_length_m: unit.length_m });
+                          setAdjustOpen(true);
+                        }}
+                      >
                         {actionLabels[a]}
                       </Button>
                     ) : (
@@ -542,6 +579,35 @@ export default function UnitCard() {
           </Form.Item>
           <Form.Item name="note" label="Заметка (опционально)">
             <Input.TextArea rows={2} placeholder="Детали для претензии поставщику" />
+          </Form.Item>
+          <OccurredAtField />
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Скорректировать длину"
+        open={adjustOpen}
+        onCancel={() => setAdjustOpen(false)}
+        onOk={() => adjustForm.submit()}
+        okButtonProps={{ loading: adjustMutation.isPending }}
+        okText="Скорректировать"
+        destroyOnHidden
+      >
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="info"
+          showIcon
+          message="Формальная правка вместо изменения истории напрямую — действие добавит запись в журнал единицы, причина обязательна."
+        />
+        <Form form={adjustForm} layout="vertical" onFinish={(v) => adjustMutation.mutate(v)}>
+          <Form.Item name="actual_length_m" label="Фактическая длина, м" rules={[{ required: true }]}>
+            <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="reason" label="Причина" rules={[{ required: true, message: "Укажите причину корректировки" }]}>
+            <Input placeholder="Например: опечатка при вводе остатка" />
+          </Form.Item>
+          <Form.Item name="note" label="Заметка (опционально)">
+            <Input.TextArea rows={2} />
           </Form.Item>
           <OccurredAtField />
         </Form>

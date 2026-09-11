@@ -401,6 +401,21 @@ export async function returnUnit(unitId: number, payload: ReturnRequest): Promis
   return data;
 }
 
+// Раздел про ревизию путей плёнки/п/ф — формальная корректировка
+// length_m вместо правки истории напрямую в БД: поднадзорное действие,
+// всегда добавляет событие (Корректировка), причина обязательна.
+export interface UnitAdjustRequest {
+  actual_length_m: number;
+  reason: string;
+  note?: string;
+  occurred_at?: string;
+}
+
+export async function adjustUnit(unitId: number, payload: UnitAdjustRequest): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/adjust`, payload);
+  return data;
+}
+
 export interface ReturnPreview {
   expected_return_length_m: number | null;
   good_pieces: number;

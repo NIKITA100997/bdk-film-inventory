@@ -7,19 +7,34 @@ from app.models.dictionaries import Part
 from app.models.part_units import PartUnit, PartUnitEvent, PartUnitStatus
 from app.models.users import User
 from app.schemas.part_units import (
+    PartUnitAdjust,
     PartUnitAdvance,
     PartUnitCreate,
     PartUnitEventOut,
     PartUnitOut,
     PartUnitPlace,
+    PartUnitReturn,
     PartUnitWriteOff,
 )
-from app.services.part_units import advance_part_unit, issue_part_unit, mint_part_unit, place_part_unit, write_off_part_unit
+from app.services.part_units import (
+    adjust_part_unit,
+    advance_part_unit,
+    issue_part_unit,
+    mint_part_unit,
+    place_part_unit,
+    return_part_unit,
+    write_off_part_unit,
+)
 
 router = APIRouter(prefix="/part-units", tags=["part-units"])
 
 manage_part_units = require_permission("part_units.manage")
 view_part_units = require_permission("part_units.manage", "part_units.view")
+# Раздел про ревизию путей плёнки/п/ф — узкое право, отдельное от
+# part_units.manage: обычная выдача/списание доступны начальнику цеха,
+# а формальная корректировка/возврат-без-повода — только тому, кому это
+# явно доверили (плюс суперпользователь всегда, в обход этой проверки).
+correct_part_units = require_permission("part_units.correct")
 
 
 def _part_unit_out(unit: PartUnit) -> PartUnitOut:
@@ -180,6 +195,45 @@ def write_off_part_unit_endpoint(
     db.commit()
     db.refresh(target)
     return _part_unit_out(target)
+
+
+@router.post("/{unit_id}/return", response_model=PartUnitOut)
+def return_part_unit_endpoint(
+    unit_id: int, payload: PartUnitReturn, db: Session = Depends(get_db), user: User = Depends(correct_part_units)
+) -> PartUnitOut:
+    """Раздел про ревизию путей п/ф — зеркалит POST /units/{id}/return у
+    плёнки: партия физически возвращается на склад, не использовав (или
+    использовав частично) свой остаток."""
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    try:
+        return_part_unit(db, unit=unit, actual_quantity_pieces=payload.actual_quantity_pieces, user_id=user.id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    db.commit()
+    db.refresh(unit)
+    return _part_unit_out(unit)
+
+
+@router.post("/{unit_id}/adjust", response_model=PartUnitOut)
+def adjust_part_unit_endpoint(
+    unit_id: int, payload: PartUnitAdjust, db: Session = Depends(get_db), user: User = Depends(correct_part_units)
+) -> PartUnitOut:
+    """Раздел про ревизию путей п/ф — формальная корректировка
+    quantity_pieces вместо правки истории напрямую в БД. Всегда
+    добавляет событие (PartEventType.KORREKTIROVKA), не завязана на
+    статус партии."""
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    adjust_part_unit(
+        db, unit=unit, actual_quantity_pieces=payload.actual_quantity_pieces,
+        reason=payload.reason, user_id=user.id, note=payload.note,
+    )
+    db.commit()
+    db.refresh(unit)
+    return _part_unit_out(unit)
 
 
 @router.get("/{unit_id}/events", response_model=list[PartUnitEventOut])

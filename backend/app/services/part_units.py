@@ -130,7 +130,16 @@ def mint_part_unit(
         note=note,
     )
     if issue:
-        record_part_event(db, unit=unit, event_type=PartEventType.VYDACHA_UCHASTKU, user_id=user_id)
+        # Раздел про ревизию путей п/ф — quantity_delta здесь раньше
+        # молча оставался 0 (значение по умолчанию), в отличие от
+        # зеркального MaterialEvent.VYDACHA_UCHASTKU у плёнки, который
+        # всегда несёт -length. Любой будущий отчёт "выпуск/расход",
+        # считающий по сумме событий, получил бы для п/ф ноль вместо
+        # реальной выданной величины.
+        record_part_event(
+            db, unit=unit, event_type=PartEventType.VYDACHA_UCHASTKU, user_id=user_id,
+            quantity_delta=quantity_pieces,
+        )
     return unit
 
 
@@ -145,7 +154,12 @@ def issue_part_unit(db: Session, *, unit: PartUnit, user_id: int) -> PartUnit:
         raise ValueError(f"У этапа «{unit.stage.name}» не указан участок — настройте связь в справочнике «Деталь»")
     unit.status = PartUnitStatus.VYDAN_UCHASTKU
     unit.area = unit.stage.area
-    record_part_event(db, unit=unit, event_type=PartEventType.VYDACHA_UCHASTKU, user_id=user_id)
+    # Раздел про ревизию путей п/ф — quantity_delta = реально выданное
+    # количество (см. комментарий у mint_part_unit выше).
+    record_part_event(
+        db, unit=unit, event_type=PartEventType.VYDACHA_UCHASTKU, user_id=user_id,
+        quantity_delta=float(unit.quantity_pieces),
+    )
     return unit
 
 
@@ -334,3 +348,59 @@ def write_off_part_unit(
         note=note,
     )
     return target
+
+
+def return_part_unit(db: Session, *, unit: PartUnit, actual_quantity_pieces: float, user_id: int) -> PartUnit:
+    """Вернуть партию на склад п/ф, не использовав (или использовав лишь
+    частично) — раздел про ревизию путей п/ф: зеркалит `return_unit` у
+    плёнки (api/units.py). Статус → На_хранении, area очищается; этап
+    (`stage_id`) и место в маршруте НЕ откатываются — партия просто
+    физически вернулась, её прогресс по этапам это не отменяет (в
+    отличие от advance_part_unit, который двигает её вперёд).
+
+    `actual_quantity_pieces` — сколько реально возвращается (как
+    `actual_length_m` у плёнки): может быть меньше `quantity_pieces`,
+    если часть физически ушла в дело без отдельного отчёта — разница
+    просто фиксируется событием, как есть, без попытки досчитать расход
+    (в отличие от `return_unit`, у которого для этого есть отдельная
+    привязка к строке задания через ProductionTaskLineReport)."""
+    if unit.status != PartUnitStatus.VYDAN_UCHASTKU:
+        raise ValueError("Вернуть на склад можно только партию, выданную участку")
+    old_quantity = float(unit.quantity_pieces)
+    if actual_quantity_pieces > old_quantity:
+        raise ValueError(f"В партии было {old_quantity} шт — вернуть больше нельзя")
+    unit.quantity_pieces = actual_quantity_pieces
+    unit.status = PartUnitStatus.NA_KHRANENII
+    unit.area = None
+    record_part_event(
+        db,
+        unit=unit,
+        event_type=PartEventType.VOZVRAT,
+        user_id=user_id,
+        quantity_delta=actual_quantity_pieces - old_quantity,
+    )
+    return unit
+
+
+def adjust_part_unit(
+    db: Session, *, unit: PartUnit, actual_quantity_pieces: float, reason: str, user_id: int, note: str | None = None
+) -> PartUnit:
+    """Формальная корректировка quantity_pieces — раздел про ревизию
+    путей плёнки/п/ф: вместо правки истории напрямую в БД (так в этой же
+    сессии чинили штрипсы 2115/2324/партии строки «Багет Б-2/М» —
+    scp-скрипт, ручной UPDATE, удаление на проде вручную) — поднадзорное
+    действие, которое ВСЕГДА добавляет событие, никогда не переписывает
+    и не удаляет прошлое. Не завязана на статус — корректировать можно и
+    На_хранении, и Выдан_участку, причина обязательна (для аудита, кто и
+    почему поправил цифру)."""
+    old_quantity = float(unit.quantity_pieces)
+    unit.quantity_pieces = actual_quantity_pieces
+    record_part_event(
+        db,
+        unit=unit,
+        event_type=PartEventType.KORREKTIROVKA,
+        user_id=user_id,
+        quantity_delta=actual_quantity_pieces - old_quantity,
+        note=reason if not note else f"{reason} — {note}",
+    )
+    return unit

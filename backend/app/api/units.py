@@ -45,6 +45,7 @@ from app.schemas.units import (
     ReconciliationRowOut,
     ReturnPreviewOut,
     ReturnRequest,
+    UnitAdjustRequest,
     UnitEventOut,
     WriteOffRequest,
 )
@@ -1586,6 +1587,39 @@ def return_unit(
             db, unit, reason_code=payload.write_off_reason, note=payload.write_off_note,
             user_id=user.id, occurred_at=payload.occurred_at,
         )
+    db.commit()
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+
+
+@router.post("/{unit_id}/adjust", response_model=MaterialUnitOut)
+def adjust_unit(
+    unit_id: int,
+    payload: UnitAdjustRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.correct")),
+) -> MaterialUnit:
+    """Формальная корректировка length_m — раздел про ревизию путей
+    плёнки/п/ф: вместо правки истории напрямую в БД (так в этой же
+    сессии чинили штрипсы №2115/№2324/партии строки «Багет Б-2/М» —
+    scp-скрипт, ручной UPDATE на проде) — поднадзорное действие,
+    которое ВСЕГДА добавляет событие (EventType.KORREKTIROVKA), никогда
+    не переписывает и не удаляет прошлое. Не завязана на статус —
+    корректировать можно и На_хранении, и Выдан_участку; причина
+    обязательна (для аудита — кто и почему поправил цифру)."""
+    unit = _get_storable_unit(db, unit_id)
+    old_length = float(unit.length_m)
+    unit.length_m = payload.actual_length_m
+    record_event(
+        db,
+        unit=unit,
+        event_type=EventType.KORREKTIROVKA,
+        user_id=user.id,
+        quantity_delta_m=payload.actual_length_m - old_length,
+        from_length=old_length,
+        to_length=payload.actual_length_m,
+        write_off_note=payload.reason if not payload.note else f"{payload.reason} — {payload.note}",
+        occurred_at=payload.occurred_at,
+    )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 

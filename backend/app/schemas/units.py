@@ -410,6 +410,17 @@ class ReturnRequest(BaseModel):
     write_off_note: str | None = None
 
 
+class UnitAdjustRequest(BaseModel):
+    """Формальная корректировка length_m — раздел про ревизию путей
+    плёнки/п/ф: поднадзорное действие вместо правки истории напрямую в
+    БД, причина обязательна."""
+
+    actual_length_m: float = Field(ge=0)
+    reason: str
+    note: str | None = None
+    occurred_at: OccurredAt = None
+
+
 class ReturnPreviewOut(BaseModel):
     """Подсказка перед возвратом (раздел про возврат остатка) — сколько
     плёнки должно остаться по расчёту (выдано минус хорошие и брак),
