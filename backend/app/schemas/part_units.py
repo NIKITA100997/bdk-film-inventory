@@ -74,6 +74,15 @@ class PartUnitOut(BaseModel):
     part_id: int
     part_name: str
     quantity_pieces: float
+    # Раздел про ревизию путей п/ф — сколько реально доступно сейчас
+    # (quantity_pieces за вычетом уже отчитанного по FIFO good_pieces,
+    # см. reported_good_pieces_by_unit) — на последнем этапе партия,
+    # полностью взятая в отчёт, не уменьшает quantity_pieces (см.
+    # advance_part_unit), и выглядит доступной снова, если смотреть
+    # только на это поле. quantity_available — та же поправка, что уже
+    # предотвращает повторный расход внутри consume_part_units_fifo,
+    # теперь видна и в самом интерфейсе.
+    quantity_available: float
     stage_id: int
     stage_name: str
     status: PartUnitStatus

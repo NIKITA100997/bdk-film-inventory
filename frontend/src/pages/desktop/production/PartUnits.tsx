@@ -387,7 +387,26 @@ export default function PartUnits() {
           onRow={(u) => ({ onClick: () => setCardTarget(u), style: { cursor: "pointer" } })}
           columns={[
             { title: "Деталь", dataIndex: "part_name", width: 220 },
-            { title: "Кол-во, шт", dataIndex: "quantity_pieces", width: 90 },
+            {
+              title: "Кол-во, шт",
+              dataIndex: "quantity_available",
+              width: 90,
+              // Раздел про ревизию путей п/ф — quantity_available (за
+              // вычетом уже отчитанного по FIFO) — основное число;
+              // quantity_pieces мельче рядом, только если расходится
+              // (партия на последнем этапе, уже частично отчитанная).
+              render: (_, u) => (
+                <span>
+                  {u.quantity_available}
+                  {u.quantity_available !== u.quantity_pieces && (
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      {" "}
+                      из {u.quantity_pieces}
+                    </Typography.Text>
+                  )}
+                </span>
+              ),
+            },
             {
               // Раздел про учёт п/ф по FIFO — видимость даты, по которой
               // партии теперь расходуются автоматически (не по номеру).
@@ -449,7 +468,7 @@ export default function PartUnits() {
                       tip="Перевести на следующий этап"
                       onClick={() => {
                         setAdvanceTarget(u);
-                        advanceForm.setFieldsValue({ quantity_pieces: u.quantity_pieces });
+                        advanceForm.setFieldsValue({ quantity_pieces: u.quantity_available });
                       }}
                     >
                       ➡️
@@ -466,7 +485,7 @@ export default function PartUnits() {
                       tip="Вернуть на склад"
                       onClick={() => {
                         setReturnTarget(u);
-                        returnForm.setFieldsValue({ actual_quantity_pieces: u.quantity_pieces });
+                        returnForm.setFieldsValue({ actual_quantity_pieces: u.quantity_available });
                       }}
                     >
                       📥
@@ -536,11 +555,11 @@ export default function PartUnits() {
         <Form
           layout="vertical"
           form={writeOffForm}
-          initialValues={{ quantity_pieces: writeOffTarget?.quantity_pieces }}
+          initialValues={{ quantity_pieces: writeOffTarget?.quantity_available }}
           onFinish={(v) => writeOffMutation.mutate(v)}
         >
           <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
-            <InputNumber min={0.01} max={writeOffTarget?.quantity_pieces} style={{ width: "100%" }} />
+            <InputNumber min={0.01} max={writeOffTarget?.quantity_available} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
             <Select loading={reasonsQuery.isLoading} options={(reasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))} />
@@ -574,11 +593,11 @@ export default function PartUnits() {
         <Form
           layout="vertical"
           form={advanceForm}
-          initialValues={{ quantity_pieces: advanceTarget?.quantity_pieces }}
+          initialValues={{ quantity_pieces: advanceTarget?.quantity_available }}
           onFinish={(v) => advanceMutation.mutate(v)}
         >
           <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
-            <InputNumber min={0.01} max={advanceTarget?.quantity_pieces} style={{ width: "100%" }} />
+            <InputNumber min={0.01} max={advanceTarget?.quantity_available} style={{ width: "100%" }} />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={advanceMutation.isPending}>
             Перевести
@@ -594,17 +613,18 @@ export default function PartUnits() {
         destroyOnHidden
       >
         <Typography.Paragraph type="secondary">
-          Выдано было {returnTarget?.quantity_pieces} шт. Укажите, сколько реально возвращается — если
-          часть физически ушла в дело без отдельного отчёта, разница просто зафиксируется событием.
+          Выдано было {returnTarget?.quantity_pieces} шт, доступно к возврату {returnTarget?.quantity_available} шт.
+          Укажите, сколько реально возвращается — если часть физически ушла в дело без отдельного отчёта, разница
+          просто зафиксируется событием.
         </Typography.Paragraph>
         <Form
           layout="vertical"
           form={returnForm}
-          initialValues={{ actual_quantity_pieces: returnTarget?.quantity_pieces }}
+          initialValues={{ actual_quantity_pieces: returnTarget?.quantity_available }}
           onFinish={(v) => returnMutation.mutate(v)}
         >
           <Form.Item name="actual_quantity_pieces" label="Фактически возвращается, шт" rules={[{ required: true }]}>
-            <InputNumber min={0} max={returnTarget?.quantity_pieces} style={{ width: "100%" }} />
+            <InputNumber min={0} max={returnTarget?.quantity_available} style={{ width: "100%" }} />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={returnMutation.isPending}>
             Вернуть на склад
@@ -668,7 +688,10 @@ export default function PartUnits() {
               <div>
                 <Typography.Text type="secondary">Кол-во</Typography.Text>
                 <div>
-                  <b>{cardTarget.quantity_pieces} шт</b>
+                  <b>{cardTarget.quantity_available} шт</b>
+                  {cardTarget.quantity_available !== cardTarget.quantity_pieces && (
+                    <Typography.Text type="secondary"> из {cardTarget.quantity_pieces}</Typography.Text>
+                  )}
                 </div>
               </div>
               <div>

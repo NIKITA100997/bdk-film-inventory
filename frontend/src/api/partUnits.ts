@@ -10,6 +10,12 @@ export interface PartUnit {
   part_id: number;
   part_name: string;
   quantity_pieces: number;
+  // Раздел про ревизию путей п/ф — сколько реально доступно сейчас
+  // (quantity_pieces за вычетом уже отчитанного по FIFO) — партия,
+  // полностью взятая в отчёт на последнем этапе, не уменьшает
+  // quantity_pieces и выглядит доступной снова, если смотреть только
+  // на него.
+  quantity_available: number;
   stage_id: number;
   stage_name: string;
   status: PartUnitStatus;

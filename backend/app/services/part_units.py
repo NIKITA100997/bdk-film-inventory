@@ -281,7 +281,7 @@ def consume_part_units_fifo(
     part_unit) — то есть partия физически исчерпана, но выглядит как
     доступная снова, если проверять только quantity_pieces. Здесь
     остаток на партию считается за вычетом уже проведённых по НЕЙ ЖЕ
-    good_pieces-отчётов (_reported_good_pieces_by_unit) — тот же приём,
+    good_pieces-отчётов (reported_good_pieces_by_unit) — тот же приём,
     что и остаток рулона (compute_unit_consumed_length_m) — иначе
     автоматический FIFO рано или поздно повторно "нашёл" бы уже
     полностью отчитанную партию и задвоил бы её штуки."""
@@ -291,7 +291,7 @@ def consume_part_units_fifo(
         .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
         .all()
     )
-    reported_by_unit = _reported_good_pieces_by_unit(db, [c.id for c in candidates])
+    reported_by_unit = reported_good_pieces_by_unit(db, [c.id for c in candidates])
     free_by_id = {c.id: float(c.quantity_pieces) - reported_by_unit.get(c.id, 0.0) for c in candidates}
     available = sum(v for v in free_by_id.values() if v > 0)
     if available < quantity_pieces:
@@ -314,7 +314,7 @@ def consume_part_units_fifo(
     return results
 
 
-def _reported_good_pieces_by_unit(db: Session, unit_ids: list[int]) -> dict[int, float]:
+def reported_good_pieces_by_unit(db: Session, unit_ids: list[int]) -> dict[int, float]:
     """Σ good_pieces уже поданных отчётов по каждой партии — раздел про
     учёт п/ф по FIFO, см. docstring consume_part_units_fifo."""
     if not unit_ids:
@@ -363,12 +363,21 @@ def return_part_unit(db: Session, *, unit: PartUnit, actual_quantity_pieces: flo
     если часть физически ушла в дело без отдельного отчёта — разница
     просто фиксируется событием, как есть, без попытки досчитать расход
     (в отличие от `return_unit`, у которого для этого есть отдельная
-    привязка к строке задания через ProductionTaskLineReport)."""
+    привязка к строке задания через ProductionTaskLineReport).
+
+    Верхняя граница — не сырое `quantity_pieces`, а доступное за
+    вычетом уже отчитанного (`reported_good_pieces_by_unit`, тот же
+    приём, что и в consume_part_units_fifo): партия на последнем этапе,
+    уже полностью взятая в отчёт, не уменьшает quantity_pieces (см.
+    advance_part_unit) и выглядела бы "доступной" для возврата снова,
+    хотя физически возвращать уже нечего."""
     if unit.status != PartUnitStatus.VYDAN_UCHASTKU:
         raise ValueError("Вернуть на склад можно только партию, выданную участку")
     old_quantity = float(unit.quantity_pieces)
-    if actual_quantity_pieces > old_quantity:
-        raise ValueError(f"В партии было {old_quantity} шт — вернуть больше нельзя")
+    reported = reported_good_pieces_by_unit(db, [unit.id]).get(unit.id, 0.0)
+    available = max(0.0, old_quantity - reported)
+    if actual_quantity_pieces > available:
+        raise ValueError(f"Доступно к возврату {available} шт — вернуть больше нельзя")
     unit.quantity_pieces = actual_quantity_pieces
     unit.status = PartUnitStatus.NA_KHRANENII
     unit.area = None

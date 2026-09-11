@@ -164,7 +164,10 @@ export default function PartUnitCard() {
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
             <Descriptions.Item label="ID">№ {unit.id}</Descriptions.Item>
             <Descriptions.Item label="Деталь">{unit.part_name}</Descriptions.Item>
-            <Descriptions.Item label="Количество">{unit.quantity_pieces} шт</Descriptions.Item>
+            <Descriptions.Item label="Количество">
+              {unit.quantity_available} шт
+              {unit.quantity_available !== unit.quantity_pieces && ` (из ${unit.quantity_pieces})`}
+            </Descriptions.Item>
             <Descriptions.Item label="Этап">{unit.stage_name}</Descriptions.Item>
             <Descriptions.Item label="Статус">
               <Tag color={unit.status === "Выдан_участку" ? "green" : unit.status === "Списан" ? "red" : "blue"}>
@@ -236,7 +239,7 @@ export default function PartUnitCard() {
               layout="vertical"
               onFinish={(v) => advanceMutation.mutate(v)}
               style={{ marginTop: 16 }}
-              initialValues={{ quantity_pieces: unit.quantity_pieces }}
+              initialValues={{ quantity_pieces: unit.quantity_available }}
             >
               {nextStageName(unit) ? (
                 <Alert style={{ marginBottom: 16 }} type="info" showIcon message={`Следующий этап: «${nextStageName(unit)}»`} />
@@ -249,7 +252,7 @@ export default function PartUnitCard() {
                 />
               )}
               <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
-                <InputNumber min={0.01} max={unit.quantity_pieces} step={1} style={{ width: "100%" }} autoFocus />
+                <InputNumber min={0.01} max={unit.quantity_available} step={1} style={{ width: "100%" }} autoFocus />
               </Form.Item>
               <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
                 Меньше, чем в партии — переведётся только часть, остальное останется на текущем этапе.
@@ -315,10 +318,10 @@ export default function PartUnitCard() {
           form={writeOffForm}
           layout="vertical"
           onFinish={(v) => writeOffMutation.mutate(v)}
-          initialValues={{ quantity_pieces: unit?.quantity_pieces }}
+          initialValues={{ quantity_pieces: unit?.quantity_available }}
         >
           <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
-            <InputNumber min={0.01} max={unit?.quantity_pieces} step={1} style={{ width: "100%" }} />
+            <InputNumber min={0.01} max={unit?.quantity_available} step={1} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
             <Select

@@ -22,6 +22,7 @@ from app.services.part_units import (
     issue_part_unit,
     mint_part_unit,
     place_part_unit,
+    reported_good_pieces_by_unit,
     return_part_unit,
     write_off_part_unit,
 )
@@ -37,13 +38,15 @@ view_part_units = require_permission("part_units.manage", "part_units.view")
 correct_part_units = require_permission("part_units.correct")
 
 
-def _part_unit_out(unit: PartUnit) -> PartUnitOut:
+def _part_unit_out(unit: PartUnit, reported_good_pieces: float = 0.0) -> PartUnitOut:
+    quantity = float(unit.quantity_pieces)
     return PartUnitOut(
         id=unit.id,
         parent_id=unit.parent_id,
         part_id=unit.part_id,
         part_name=unit.part.name,
-        quantity_pieces=float(unit.quantity_pieces),
+        quantity_pieces=quantity,
+        quantity_available=max(0.0, quantity - reported_good_pieces),
         stage_id=unit.stage_id,
         stage_name=unit.stage.name,
         status=unit.status,
@@ -56,6 +59,15 @@ def _part_unit_out(unit: PartUnit) -> PartUnitOut:
         created_at=unit.created_at,
         updated_at=unit.updated_at,
     )
+
+
+def _part_unit_out_single(db: Session, unit: PartUnit) -> PartUnitOut:
+    """Раздел про ревизию путей п/ф — вариант _part_unit_out для одной
+    партии за раз (после мутации/создания): один запрос за отчитанным
+    количеством, не N+1, но и без отдельного батч-словаря ради одной
+    единицы."""
+    reported = reported_good_pieces_by_unit(db, [unit.id])
+    return _part_unit_out(unit, reported.get(unit.id, 0.0))
 
 
 @router.get("", response_model=list[PartUnitOut])
@@ -80,7 +92,8 @@ def list_part_units(
     if production_task_line_id is not None:
         query = query.filter(PartUnit.production_task_line_id == production_task_line_id)
     units = query.order_by(PartUnit.created_at.desc()).all()
-    return [_part_unit_out(u) for u in units]
+    reported = reported_good_pieces_by_unit(db, [u.id for u in units])
+    return [_part_unit_out(u, reported.get(u.id, 0.0)) for u in units]
 
 
 @router.post("", response_model=PartUnitOut, status_code=status.HTTP_201_CREATED)
@@ -106,7 +119,7 @@ def create_part_unit(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     db.commit()
     db.refresh(unit)
-    return _part_unit_out(unit)
+    return _part_unit_out_single(db, unit)
 
 
 @router.get("/{unit_id}", response_model=PartUnitOut)
@@ -119,7 +132,7 @@ def get_part_unit(
     unit = db.get(PartUnit, unit_id)
     if unit is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
-    return _part_unit_out(unit)
+    return _part_unit_out_single(db, unit)
 
 
 @router.post("/{unit_id}/issue", response_model=PartUnitOut)
@@ -138,7 +151,7 @@ def issue_part_unit_to_area(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
     db.refresh(unit)
-    return _part_unit_out(unit)
+    return _part_unit_out_single(db, unit)
 
 
 @router.patch("/{unit_id}/place", response_model=PartUnitOut)
@@ -154,7 +167,7 @@ def place_part_unit_endpoint(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
     db.refresh(unit)
-    return _part_unit_out(unit)
+    return _part_unit_out_single(db, unit)
 
 
 @router.post("/{unit_id}/advance", response_model=PartUnitOut)
@@ -176,7 +189,7 @@ def advance_part_unit_endpoint(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
     db.refresh(target)
-    return _part_unit_out(target)
+    return _part_unit_out_single(db, target)
 
 
 @router.post("/{unit_id}/write-off", response_model=PartUnitOut)
@@ -194,7 +207,7 @@ def write_off_part_unit_endpoint(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
     db.refresh(target)
-    return _part_unit_out(target)
+    return _part_unit_out_single(db, target)
 
 
 @router.post("/{unit_id}/return", response_model=PartUnitOut)
@@ -213,7 +226,7 @@ def return_part_unit_endpoint(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
     db.refresh(unit)
-    return _part_unit_out(unit)
+    return _part_unit_out_single(db, unit)
 
 
 @router.post("/{unit_id}/adjust", response_model=PartUnitOut)
@@ -233,7 +246,7 @@ def adjust_part_unit_endpoint(
     )
     db.commit()
     db.refresh(unit)
-    return _part_unit_out(unit)
+    return _part_unit_out_single(db, unit)
 
 
 @router.get("/{unit_id}/events", response_model=list[PartUnitEventOut])
