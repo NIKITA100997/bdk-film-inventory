@@ -9,7 +9,7 @@ from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings
 from app.models.areas import Area
-from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Thickness
+from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Part, PartStage, Thickness
 from app.models.events import EventType, MaterialEvent
 from app.models.production import (
     ProductionLine,
@@ -19,11 +19,13 @@ from app.models.production import (
     ProductionTaskLineReport,
     ProductModel,
 )
-from app.models.part_units import PartUnit
+from app.models.part_units import PartEventType, PartUnit, PartUnitEvent
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
 from app.models.write_off_reasons import WriteOffReasonEntry
 from app.schemas.reports import (
+    ActionLogMaterialLine,
+    ActionLogPartUnitLine,
     CuttingDiscrepancyLine,
     DefectPivotOut,
     DefectPivotRowOut,
@@ -517,6 +519,176 @@ def part_unit_reconciliation(
         )
     result.sort(key=lambda r: r.over_reported, reverse=True)
     return result
+
+
+@router.get("/action-log/material", response_model=list[ActionLogMaterialLine])
+def action_log_material(
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
+    event_type: list[str] | None = Query(None),
+    area: list[str] | None = Query(None),
+    user_id: int | None = None,
+    material_sku_id: int | None = None,
+    unit_id: int | None = None,
+    production_task_line_id: int | None = None,
+    q: str | None = None,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("reports.view")),
+) -> list[ActionLogMaterialLine]:
+    """Журнал действий (раздел про ревизию путей плёнки) — плоская
+    хронология по ВСЕМ рулонам/штрипсам сразу, полнее /movement (все
+    поля события, не только дельта): было→стало, ячейки, причина/
+    заметка списания, привязка к заданию. Дополняет специализированные
+    экраны (история резок с «Отменить», «Перемещения между складами»,
+    «Инвентаризация»), не заменяет их — те не трогаем. По умолчанию —
+    последние 30 дней."""
+    if date_to is None:
+        date_to = dt.date.today()
+    if date_from is None:
+        date_from = date_to - dt.timedelta(days=30)
+    query = (
+        db.query(
+            MaterialEvent, Material.name, Color.name, Thickness.value_mm, User.full_name,
+            WriteOffReasonEntry, ProductionTaskLine, ProductionTask,
+        )
+        .join(MaterialSku, MaterialEvent.material_sku_id == MaterialSku.id)
+        .join(Material, MaterialSku.material_id == Material.id)
+        .join(Color, MaterialSku.color_id == Color.id)
+        .join(Thickness, MaterialSku.thickness_id == Thickness.id)
+        .join(User, MaterialEvent.user_id == User.id)
+        .outerjoin(WriteOffReasonEntry, MaterialEvent.write_off_reason == WriteOffReasonEntry.code)
+        .outerjoin(ProductionTaskLine, MaterialEvent.production_task_line_id == ProductionTaskLine.id)
+        .outerjoin(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+        .filter(func.date(MaterialEvent.timestamp) >= date_from, func.date(MaterialEvent.timestamp) <= date_to)
+    )
+    if event_type:
+        query = query.filter(MaterialEvent.event_type.in_(event_type))
+    if area:
+        query = query.filter(MaterialEvent.area.in_(area))
+    if user_id is not None:
+        query = query.filter(MaterialEvent.user_id == user_id)
+    if material_sku_id is not None:
+        query = query.filter(MaterialEvent.material_sku_id == material_sku_id)
+    if unit_id is not None:
+        query = query.filter(MaterialEvent.unit_id == unit_id)
+    if production_task_line_id is not None:
+        query = query.filter(MaterialEvent.production_task_line_id == production_task_line_id)
+    if q:
+        query = query.filter(MaterialEvent.write_off_note.ilike(f"%{q}%"))
+    rows = query.order_by(MaterialEvent.timestamp.desc()).offset(offset).limit(limit).all()
+
+    return [
+        ActionLogMaterialLine(
+            event_id=ev.event_id,
+            unit_id=ev.unit_id,
+            timestamp=ev.timestamp,
+            user_id=ev.user_id,
+            user_name=user_name,
+            event_type=ev.event_type.value,
+            area=ev.area,
+            material=m,
+            color=c,
+            thickness=float(t),
+            width_mm=float(ev.width_mm),
+            quantity_delta_m=float(ev.quantity_delta_m),
+            from_length=float(ev.from_length) if ev.from_length is not None else None,
+            to_length=float(ev.to_length) if ev.to_length is not None else None,
+            from_cell=ev.from_cell,
+            to_cell=ev.to_cell,
+            write_off_reason=reason_entry.code if reason_entry else None,
+            write_off_reason_name=reason_entry.name if reason_entry else None,
+            write_off_note=ev.write_off_note,
+            expected_length_m=float(ev.expected_length_m) if ev.expected_length_m is not None else None,
+            cutting_operation_id=ev.cutting_operation_id,
+            inventory_session_id=ev.inventory_session_id,
+            production_task_line_id=ev.production_task_line_id,
+            part_name=line.part_name if line else None,
+            task_name=task.name if task else None,
+        )
+        for ev, m, c, t, user_name, reason_entry, line, task in rows
+    ]
+
+
+@router.get("/action-log/part-units", response_model=list[ActionLogPartUnitLine])
+def action_log_part_units(
+    date_from: dt.date | None = None,
+    date_to: dt.date | None = None,
+    event_type: list[str] | None = Query(None),
+    area: list[str] | None = Query(None),
+    user_id: int | None = None,
+    part_id: int | None = None,
+    part_unit_id: int | None = None,
+    production_task_line_id: int | None = None,
+    q: str | None = None,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("reports.view")),
+) -> list[ActionLogPartUnitLine]:
+    """Журнал действий — зеркало action_log_material для партий п/ф
+    (PartUnitEvent). Этап показывается по to_stage_id (переход
+    завершился на нём), если пуст — по from_stage_id (событие без
+    перехода этапа, например Списание/Размещение)."""
+    if date_to is None:
+        date_to = dt.date.today()
+    if date_from is None:
+        date_from = date_to - dt.timedelta(days=30)
+    query = (
+        db.query(PartUnitEvent, Part.name, User.full_name, WriteOffReasonEntry, ProductionTaskLine, ProductionTask)
+        .join(PartUnit, PartUnitEvent.part_unit_id == PartUnit.id)
+        .join(Part, PartUnit.part_id == Part.id)
+        .join(User, PartUnitEvent.user_id == User.id)
+        .outerjoin(WriteOffReasonEntry, PartUnitEvent.write_off_reason == WriteOffReasonEntry.code)
+        .outerjoin(ProductionTaskLine, PartUnitEvent.production_task_line_id == ProductionTaskLine.id)
+        .outerjoin(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+        .filter(func.date(PartUnitEvent.occurred_at) >= date_from, func.date(PartUnitEvent.occurred_at) <= date_to)
+    )
+    if event_type:
+        query = query.filter(PartUnitEvent.event_type.in_(event_type))
+    if area:
+        query = query.filter(PartUnitEvent.area.in_(area))
+    if user_id is not None:
+        query = query.filter(PartUnitEvent.user_id == user_id)
+    if part_id is not None:
+        query = query.filter(PartUnit.part_id == part_id)
+    if part_unit_id is not None:
+        query = query.filter(PartUnitEvent.part_unit_id == part_unit_id)
+    if production_task_line_id is not None:
+        query = query.filter(PartUnitEvent.production_task_line_id == production_task_line_id)
+    if q:
+        query = query.filter(PartUnitEvent.note.ilike(f"%{q}%"))
+    rows = query.order_by(PartUnitEvent.occurred_at.desc()).offset(offset).limit(limit).all()
+
+    stage_ids = {ev.to_stage_id or ev.from_stage_id for ev, *_ in rows if (ev.to_stage_id or ev.from_stage_id)}
+    stage_names = {s.id: s.name for s in db.query(PartStage).filter(PartStage.id.in_(stage_ids)).all()} if stage_ids else {}
+
+    return [
+        ActionLogPartUnitLine(
+            id=ev.id,
+            part_unit_id=ev.part_unit_id,
+            occurred_at=ev.occurred_at,
+            user_id=ev.user_id,
+            user_name=user_name,
+            event_type=ev.event_type.value,
+            area=ev.area,
+            part_name=part_name,
+            stage_name=stage_names.get(ev.to_stage_id or ev.from_stage_id) if (ev.to_stage_id or ev.from_stage_id) else None,
+            quantity_delta=float(ev.quantity_delta),
+            from_stage_id=ev.from_stage_id,
+            to_stage_id=ev.to_stage_id,
+            from_cell=ev.from_cell,
+            to_cell=ev.to_cell,
+            write_off_reason=reason_entry.code if reason_entry else None,
+            write_off_reason_name=reason_entry.name if reason_entry else None,
+            write_off_note=ev.write_off_note,
+            production_task_line_id=ev.production_task_line_id,
+            task_name=task.name if task else None,
+            note=ev.note,
+        )
+        for ev, part_name, user_name, reason_entry, _line, task in rows
+    ]
 
 
 @router.get("/plan-fact-tasks", response_model=list[PlanFactTaskLineOut])

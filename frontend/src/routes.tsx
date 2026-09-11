@@ -14,6 +14,7 @@ import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
 import MaterialCard from "./pages/desktop/MaterialCard";
 import Reports from "./pages/desktop/Reports";
 import Defects from "./pages/desktop/Defects";
+import ActionLog from "./pages/desktop/ActionLog";
 import Blanks from "./pages/desktop/Blanks";
 import StorageMap from "./pages/desktop/StorageMap";
 import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
@@ -84,6 +85,10 @@ export default function AppRoutes() {
         <Route
           path="/defects"
           element={<RequirePermission permissions={["reports.view"]}><Defects /></RequirePermission>}
+        />
+        <Route
+          path="/action-log"
+          element={<RequirePermission permissions={["reports.view"]}><ActionLog /></RequirePermission>}
         />
         {/* "Стеллажи" видны всем (как "Остатки") — вкладка "Управление" внутри
         сама решает, показываться ли, по storage.manage. */}

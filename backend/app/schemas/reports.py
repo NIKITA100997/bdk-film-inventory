@@ -113,6 +113,67 @@ class PlanFactTaskLineOut(BaseModel):
 # ---------- Раздел про модуль "Брак и списания" ----------
 
 
+class ActionLogMaterialLine(BaseModel):
+    """Раздел про журнал действий — расширенная версия MovementEntry:
+    полные поля события плюс пользователь по имени и деталь/задание
+    (как в cutting_discrepancies), для плоской хронологии по всем
+    рулонам/штрипсам сразу — не заменяет специализированные экраны
+    (история резок с «Отменить», «Перемещения между складами»,
+    «Инвентаризация»), дополняет их."""
+
+    event_id: int
+    unit_id: int
+    timestamp: datetime
+    user_id: int
+    user_name: str
+    event_type: str
+    area: str | None
+    material: str
+    color: str
+    thickness: float
+    width_mm: float
+    quantity_delta_m: float
+    from_length: float | None
+    to_length: float | None
+    from_cell: str | None
+    to_cell: str | None
+    write_off_reason: str | None
+    write_off_reason_name: str | None
+    write_off_note: str | None
+    expected_length_m: float | None
+    cutting_operation_id: int | None
+    inventory_session_id: int | None
+    production_task_line_id: int | None
+    part_name: str | None
+    task_name: str | None
+
+
+class ActionLogPartUnitLine(BaseModel):
+    """Раздел про журнал действий — зеркало ActionLogMaterialLine для
+    партий п/ф (PartUnitEvent)."""
+
+    id: int
+    part_unit_id: int
+    occurred_at: datetime
+    user_id: int
+    user_name: str
+    event_type: str
+    area: str | None
+    part_name: str
+    stage_name: str | None
+    quantity_delta: float
+    from_stage_id: int | None
+    to_stage_id: int | None
+    from_cell: str | None
+    to_cell: str | None
+    write_off_reason: str | None
+    write_off_reason_name: str | None
+    write_off_note: str | None
+    production_task_line_id: int | None
+    task_name: str | None
+    note: str | None
+
+
 class UnitReconciliationLine(BaseModel):
     """Раздел про ревизию путей плёнки — рулон/штрипс, у которого
     выданное не сходится с (расход по отчётам + списано + осталось).
