@@ -960,15 +960,22 @@ def create_task_line_report(
         .first()
         is not None
     )
+    # Раздел про общий штрипс/доп. рулон на ту же строку — синтетический
+    # good_pieces такого отчёта (counts_toward_line=false) НЕ означает
+    # "стало на столько-то готовых деталей больше" — это подгонка под
+    # указанный вручную остаток конкретного рулона в метрах, те же самые
+    # детали уже засчитаны основным отчётом. Без этой проверки FIFO
+    # расходовал бы партию п/ф ЕЩЁ РАЗ на те же самые физические детали
+    # (задвоение расхода партии вплоть до "недостаточно партий").
     fifo_results: list[tuple[PartUnit, bool, float]] = []
-    if payload.good_pieces > 0 and has_part_unit_stock:
+    if payload.good_pieces > 0 and has_part_unit_stock and payload.counts_toward_line:
         try:
             fifo_results = consume_part_units_fifo(
                 db, part_id=part.id, area=line.task.area, quantity_pieces=payload.good_pieces, user_id=user.id
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
-    elif payload.good_pieces > 0 and part_unit is not None:
+    elif payload.good_pieces > 0 and part_unit is not None and payload.counts_toward_line:
         # Совместимость: явный part_unit_id для готовых деталей у детали
         # без настроенных этапов (или прямой вызов API в обход текущего
         # фронта) — раньше это был единственный путь, оставляем рабочим.
