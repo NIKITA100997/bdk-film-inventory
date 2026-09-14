@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message, Space, Tag } from "antd";
+import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTaskLineReport, type ProductionTaskLine } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { listPartUnits } from "../../../api/partUnits";
+import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
 
 /** Отчёт о производстве/браке (раздел про брак по дням) — отчёт обычно
  * привязан к конкретной записи распределения (день/линия/сотрудники), не
@@ -198,18 +199,20 @@ export default function ReportModal({
   });
 
   const primaryRollId = Form.useWatch("material_unit_id", reportForm) as number | null | undefined;
-  const extraRollIds = new Set(extraRolls.map((e) => e.materialUnitId));
   // Раздел про общий штрипс на детали одного задания — к своим выданным
   // рулонам добавляем рулоны соседних строк того же задания с такой же
-  // шириной штрипса (borrowable_units), помечая, с какой детали.
-  const rollOptions = [
-    ...line.issued_units.map((u) => ({ value: u.id, label: `№${u.id} — ${u.width_mm}×${u.length_m} м` })),
+  // шириной штрипса (borrowable_units), помечая, с какой детали. Один
+  // список для RollPicker вместо раздельных "Рулон"/"+ ещё рулон".
+  const rollPickerOptions: RollPickerOption[] = [
+    ...line.issued_units.map((u) => ({ value: u.id, widthMm: u.width_mm, remainingM: u.remaining_length_m ?? u.length_m, own: true })),
     ...(line.borrowable_units ?? []).map((u) => ({
       value: u.id,
-      label: `№${u.id} — ${u.width_mm}мм, остаток ${u.remaining_length_m ?? u.length_m} м · с детали «${u.from_part_name ?? "?"}»`,
+      widthMm: u.width_mm,
+      remainingM: u.remaining_length_m ?? u.length_m,
+      own: false,
+      fromPartName: u.from_part_name,
     })),
   ];
-  const extraRollOptions = rollOptions.filter((o) => o.value !== primaryRollId && !extraRollIds.has(o.value));
 
   // Раздел про общий штрипс на детали одного задания — мягкое
   // предупреждение, если на введённые хорошие детали не хватает метража
@@ -277,16 +280,10 @@ export default function ReportModal({
         {requiresRoll && (
           <Form.Item
             name="material_unit_id"
-            label="Рулон (№ штрипса)"
-            rules={[{ required: true, message: "Выберите рулон, из которого резали" }]}
+            label="Рулон(ы), из которых резали"
+            rules={[{ required: true, message: "Выберите хотя бы один рулон" }]}
           >
-            <Select
-              placeholder="Выберите рулон"
-              options={rollOptions}
-              notFoundContent={
-                <Typography.Text type="secondary">Сначала выдайте рулон этой строке на «Выдаче участку»</Typography.Text>
-              }
-            />
+            <RollPicker options={rollPickerOptions} extraRolls={extraRolls} onExtraRollsChange={setExtraRolls} />
           </Form.Item>
         )}
         {requiresRoll && primaryRollId != null && goodPiecesWatch <= 0 && defectRows.length === 0 && (
@@ -300,49 +297,6 @@ export default function ReportModal({
               value={primaryRemainingM}
               placeholder="не трогали"
               onChange={(v) => setPrimaryRemainingM(v ?? undefined)}
-            />
-          </Form.Item>
-        )}
-        {requiresRoll && extraRolls.length > 0 && (
-          <Form.Item label="Ещё рулоны, тоже использованы">
-            <Space direction="vertical" size={4}>
-              {extraRolls.map((extra, i) => (
-                <Space key={extra.materialUnitId} size={4}>
-                  <Tag
-                    closable
-                    onClose={() => setExtraRolls((prev) => prev.filter((_, idx) => idx !== i))}
-                    style={{ marginRight: 0 }}
-                  >
-                    №{extra.materialUnitId}
-                  </Tag>
-                  <InputNumber
-                    size="small"
-                    min={0}
-                    style={{ width: 80 }}
-                    value={extra.remainingM}
-                    placeholder="0"
-                    onChange={(v) =>
-                      setExtraRolls((prev) => prev.map((e, idx) => (idx === i ? { ...e, remainingM: v ?? 0 } : e)))
-                    }
-                  />
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    м остаток
-                  </Typography.Text>
-                </Space>
-              ))}
-            </Space>
-          </Form.Item>
-        )}
-        {requiresRoll && primaryRollId != null && extraRollOptions.length > 0 && (
-          <Form.Item
-            label="+ ещё рулон использован"
-            extra="Раздел про двусторонние детали — если на эти же детали одновременно расходуется ещё один рулон (по одному на сторону), добавьте его сюда и укажите фактический остаток в метрах прямо сейчас (0 — рулон израсходован полностью)."
-          >
-            <Select<number>
-              placeholder="Выберите ещё один рулон"
-              value={undefined}
-              onChange={(v) => setExtraRolls((prev) => [...prev, { materialUnitId: v, remainingM: 0 }])}
-              options={extraRollOptions}
             />
           </Form.Item>
         )}

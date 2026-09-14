@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Col,
   Collapse,
   DatePicker,
@@ -10,6 +11,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Popover,
   Row,
   Select,
   Space,
@@ -1224,6 +1226,39 @@ export default function Issue() {
   ];
   const manualTableRows: ManualTableRow[] = manualIssuedUnits.map((u) => ({ kind: "manual" as const, key: `manual-${u.id}`, unit: u }));
   const tableRows: TableRow[] = [...needTableRows, ...manualTableRows];
+
+  // Раздел про общий штрипс на детали одного задания — при "Взять со
+  // склада" по одной строке ищем в ТОМ ЖЕ задании другие ещё не решённые
+  // строки такой же ширины штрипса, у которых уже есть свой готовый
+  // точный донор (свой физический штрипс на каждую — один рулон одной
+  // выдачей не покрывает несколько строк, но при наличии на складе НЕСКОЛЬКИХ
+  // штрипсов такой ширины отдельные решения по ним можно принять одним
+  // действием, не щёлкая "✓" по очереди на каждой строке). needTableRows
+  // (не activeLines) — те же строки, что сейчас видны с текущим фильтром,
+  // иначе пришлось бы предлагать взять то, что оператор и не искал.
+  const findStockSiblingCandidates = (row: NeedTableRow) => {
+    if (row.kind !== "need") return [];
+    const width = row.line.strip_width_mm || row.line.width_mm;
+    const seen = new Set<number>();
+    const result: { label: string; unitId: number; accept: () => void }[] = [];
+    for (const other of needTableRows) {
+      if (other.line.id === row.line.id || seen.has(other.line.id)) continue;
+      if (other.task.id !== row.task.id) continue;
+      if ((other.line.strip_width_mm || other.line.width_mm) !== width) continue;
+      if (decidedLineIds.has(other.line.id)) continue;
+      if (issuedNoteForLine(other.line)) continue;
+      const otherInfo = lineInfoMap.get(other.line.id);
+      if (otherInfo?.status.kind === "stock" && otherInfo.acceptStock) {
+        seen.add(other.line.id);
+        result.push({
+          label: other.line.part_name ?? other.line.material,
+          unitId: otherInfo.status.match.unit_id,
+          accept: otherInfo.acceptStock,
+        });
+      }
+    }
+    return result;
+  };
   // Фильтр по статусу — только на отображение; cuttingRows ниже считается
   // из needTableRows ДО этого фильтра, чтобы скрытие, скажем, уже решённых
   // строк не меняло состав группы для подбора донора по остальным.
@@ -2134,14 +2169,12 @@ export default function Issue() {
               const stockMatch = info?.status.kind === "stock" ? info.status.match : null;
               return (
                 <Space size={4} wrap>
-                  {info?.acceptStock && (
-                    <ActionIcon
-                      tone="filled"
-                      tip={stockMatch ? `Взять со склада — штрипс №${stockMatch.unit_id}` : "Взять со склада"}
-                      onClick={info.acceptStock}
-                    >
-                      ✓
-                    </ActionIcon>
+                  {info?.acceptStock && stockMatch && (
+                    <AcceptStockAction
+                      unitId={stockMatch.unit_id}
+                      onAccept={info.acceptStock}
+                      siblings={findStockSiblingCandidates(row)}
+                    />
                   )}
                   {info?.acceptCut && (
                     <ActionIcon
@@ -2561,6 +2594,83 @@ export default function Issue() {
  * Диалог сразу же предлагает место по правилу зонирования (если оно
  * есть) и позволяет указать полку вручную — приём и размещение одним
  * действием, а не отдельным походом на «Стеллажи → Без места». */
+// Раздел про общий штрипс на детали одного задания — "Взять со склада"
+// по одной строке, когда рядом (в этом же задании) есть другие ещё не
+// решённые строки такой же ширины с уже готовым точным донором каждая:
+// вместо того чтобы щёлкать "✓" по очереди на каждой, всплывающая
+// подсказка сразу предлагает решить и по ним, одним нажатием на эту же
+// кнопку. Siblings пуст (обычный случай, ширина уникальна в задании) —
+// кнопка ведёт себя ровно как раньше, без лишнего клика на подтверждение.
+function AcceptStockAction({
+  unitId,
+  onAccept,
+  siblings,
+}: {
+  unitId: number;
+  onAccept: () => void;
+  siblings: { label: string; unitId: number; accept: () => void }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [unchecked, setUnchecked] = useState<Set<number>>(new Set());
+
+  if (siblings.length === 0) {
+    return (
+      <ActionIcon tone="filled" tip={`Взять со склада — штрипс №${unitId}`} onClick={onAccept}>
+        ✓
+      </ActionIcon>
+    );
+  }
+
+  const checkedCount = siblings.filter((s) => !unchecked.has(s.unitId)).length;
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      trigger="click"
+      title="Взять со склада"
+      content={
+        <Space direction="vertical" style={{ width: 260 }}>
+          <Typography.Text style={{ fontSize: 12.5 }}>
+            Эта же ширина также нужна ещё в этом задании — на складе уже есть свой штрипс и для них, взять сразу?
+          </Typography.Text>
+          {siblings.map((s) => (
+            <Checkbox
+              key={s.unitId}
+              checked={!unchecked.has(s.unitId)}
+              onChange={(e) =>
+                setUnchecked((prev) => {
+                  const next = new Set(prev);
+                  if (e.target.checked) next.delete(s.unitId);
+                  else next.add(s.unitId);
+                  return next;
+                })
+              }
+            >
+              {s.label} — штрипс №{s.unitId}
+            </Checkbox>
+          ))}
+          <Button
+            type="primary"
+            size="small"
+            block
+            onClick={() => {
+              onAccept();
+              siblings.forEach((s) => !unchecked.has(s.unitId) && s.accept());
+              setOpen(false);
+            }}
+          >
+            Взять со склада — штрипс №{unitId}{checkedCount > 0 ? ` + ещё ${checkedCount}` : ""}
+          </Button>
+        </Space>
+      }
+    >
+      <ActionIcon tone="filled" tip={`Взять со склада — штрипс №${unitId} (есть и на соседние строки)`} onClick={() => setOpen(true)}>
+        ✓
+      </ActionIcon>
+    </Popover>
+  );
+}
+
 function AcceptReturnButton({ unit }: { unit: ProductionTaskLineIssuedUnit }) {
   const [open, setOpen] = useState(false);
   return (

@@ -1,11 +1,12 @@
-import { useRef, useState } from "react";
-import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form } from "antd";
+import { useMemo, useRef, useState } from "react";
+import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form, Checkbox } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { listProductionTasks, createTaskLineReport, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { listPartUnits } from "../../../api/partUnits";
 import { listParts } from "../../../api/dictionaries";
+import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
 
 interface DefectEntry {
   reason: string;
@@ -112,7 +113,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
     line.part_name ? (partUnitsQuery.data ?? []).filter((u) => u.part_name === line.part_name) : [];
 
   const tasks = (tasksQuery.data ?? []).filter((t: ProductionTask) => t.area === area && t.is_active);
-  const addedLineIds = new Set(rows.map((r) => r.line.id));
+  const addedLineIds = useMemo(() => new Set(rows.map((r) => r.line.id)), [rows]);
 
   // production_closed — раздел про явное завершение работы по строке в
   // производстве (независимо от is_closed/выдачи): закрытая строка
@@ -133,7 +134,12 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
     ? positionOptions.filter((o) => o.label.toLowerCase().includes(pickerSearch.trim().toLowerCase()))
     : positionOptions;
 
-  const addRow = (taskId: number, line: ProductionTaskLine) => {
+  // presetRollId — раздел про общий штрипс на детали одного задания:
+  // строка добавляется по подсказке (уже выбранный рулон подходит и ей
+  // по ширине, см. suggestedLines ниже), а не через обычный поиск
+  // позиции — тогда рулон подставляется сразу, не как единственно
+  // возможный автовыбор по issued_units.
+  const addRow = (taskId: number, line: ProductionTaskLine, presetRollId?: number) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     rowCounter.current += 1;
@@ -143,7 +149,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         key: `${line.id}-${rowCounter.current}`,
         taskId: task.id,
         line,
-        materialUnitId: line.issued_units.length === 1 ? line.issued_units[0].id : null,
+        materialUnitId: presetRollId ?? (line.issued_units.length === 1 ? line.issued_units[0].id : null),
         goodPieces: 0,
         defects: [],
         extraRolls: [],
@@ -156,6 +162,43 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const updateRow = (key: string, patch: Partial<ReportRow>) =>
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const removeRow = (key: string) => setRows((prev) => prev.filter((r) => r.key !== key));
+
+  // Раздел про общий штрипс на детали одного задания — как только в одной
+  // строке отчёта выбран рулон (свой или заимствованный), ищем в ТОМ ЖЕ
+  // задании другие ещё не добавленные строки такой же ширины штрипса и
+  // предлагаем сразу добавить их с этим же рулоном, не заставляя мастера
+  // искать их заново через "Добавить позицию…". Один рулон может закрыть
+  // сразу несколько строк — sepen следит, чтобы одна и та же строка не
+  // попала в подсказку дважды, даже если её ширина совпала с рулонами из
+  // нескольких разных строк отчёта.
+  const suggestedLines = useMemo(() => {
+    const suggestions: { line: ProductionTaskLine; taskId: number; rollUnitId: number }[] = [];
+    const seen = new Set<number>();
+    for (const r of rows) {
+      const pickedRollIds = [r.materialUnitId, ...r.extraRolls.map((e) => e.materialUnitId)].filter(
+        (id): id is number => id != null,
+      );
+      if (pickedRollIds.length === 0) continue;
+      const task = tasks.find((t) => t.id === r.taskId);
+      if (!task) continue;
+      const stripWidth = r.line.strip_width_mm || r.line.width_mm;
+      for (const sibling of task.lines) {
+        if (sibling.id === r.line.id) continue;
+        if (sibling.production_closed) continue;
+        if (sibling.remaining_pieces <= 0) continue;
+        if (addedLineIds.has(sibling.id) || seen.has(sibling.id)) continue;
+        if ((sibling.strip_width_mm || sibling.width_mm) !== stripWidth) continue;
+        seen.add(sibling.id);
+        suggestions.push({ line: sibling, taskId: task.id, rollUnitId: pickedRollIds[0] });
+      }
+    }
+    return suggestions;
+  }, [rows, tasks, addedLineIds]);
+  // Отмечены по умолчанию все — suggestionUnchecked хранит только явные
+  // исключения (тот же приём, что "показывать архивные" и т.п. в других
+  // местах проекта: множество отклонений компактнее множества согласий).
+  const [suggestionUnchecked, setSuggestionUnchecked] = useState<Set<number>>(new Set());
+  const checkedSuggestions = suggestedLines.filter((s) => !suggestionUnchecked.has(s.line.id));
 
   const addDefectEntry = (key: string, entry: DefectEntry) =>
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, defects: [...r.defects, entry] } : r)));
@@ -299,11 +342,12 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         {requiresRoll && (
           <>
             {" "}Если деталь окутывается в несколько заходов и сегодня не готова целиком (например, сделана только
-            одна сторона) — можно сохранить строку с 0 хороших и 0 брака, просто выбрав рулон: это зафиксирует
+            одна сторона) — можно сохранить строку с 0 хороших и 0 брака, просто отметив рулон: это зафиксирует
             расход плёнки и позволит вернуть/списать рулон, не дожидаясь готовой детали. Если деталь двусторонняя и
             на неё одновременно расходуется НЕСКОЛЬКО рулонов (по одному на сторону — это те же самые детали, не
-            дополнительные) — под полем «Рулон» появится «+ ещё рулон использован»: добавьте туда остальные рулоны и
-            укажите для каждого фактический остаток в метрах прямо сейчас (0 — рулон израсходован полностью).
+            дополнительные) — отметьте галочкой каждый и укажите для доп. рулонов фактический остаток в метрах
+            прямо сейчас (0 — рулон израсходован полностью). Рулон, отмеченный для одной строки, автоматически
+            предлагается и соседним строкам этого же задания с такой же шириной штрипса.
           </>
         )}
       </Typography.Paragraph>
@@ -381,7 +425,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               ...(requiresRoll
                 ? [
                     {
-                      title: "Рулон (№ штрипса)",
+                      title: "Рулон(ы)",
                       key: "roll",
                       render: (_: unknown, r: ReportRow) => {
                         // Раздел про второй рулон на ту же строку — двусторонние
@@ -389,33 +433,30 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                         // разных рулонов на ОДИН и тот же комплект деталей
                         // (разные стороны), поэтому "сколько деталей именно
                         // из него" не спрашиваем — только остаток в метрах,
-                        // видимый прямо на самом рулоне.
-                        // Раздел про общий штрипс на детали одного задания —
-                        // к своим выданным рулонам добавляем рулоны соседних
-                        // строк того же задания с такой же шириной штрипса
-                        // (borrowable_units), помечая, с какой детали.
-                        const ownOptions = r.line.issued_units.map((u) => ({
-                          value: u.id,
-                          label: `№${u.id} — ${u.width_mm}×${u.length_m} м`,
-                        }));
-                        const borrowOptions = (r.line.borrowable_units ?? []).map((u) => ({
-                          value: u.id,
-                          label: `№${u.id} — ${u.width_mm}мм, остаток ${u.remaining_length_m ?? u.length_m} м · с детали «${u.from_part_name ?? "?"}»`,
-                        }));
-                        const allOptions = [...ownOptions, ...borrowOptions];
-                        const usedIds = new Set<number>(r.extraRolls.map((e) => e.materialUnitId));
-                        if (r.materialUnitId != null) usedIds.add(r.materialUnitId);
-                        const availableExtra = allOptions.filter((o) => !usedIds.has(o.value));
+                        // видимый прямо на самом рулоне. Раздел про общий
+                        // штрипс на детали одного задания — к своим выданным
+                        // рулонам добавляем рулоны соседних строк того же
+                        // задания с такой же шириной штрипса (borrowable_units),
+                        // помечая, с какой детали. RollPicker — единый список
+                        // с галочками вместо раздельных "Рулон"/"+ ещё рулон".
+                        const rollPickerOptions: RollPickerOption[] = [
+                          ...r.line.issued_units.map((u) => ({ value: u.id, widthMm: u.width_mm, remainingM: u.remaining_length_m ?? u.length_m, own: true })),
+                          ...(r.line.borrowable_units ?? []).map((u) => ({
+                            value: u.id,
+                            widthMm: u.width_mm,
+                            remainingM: u.remaining_length_m ?? u.length_m,
+                            own: false,
+                            fromPartName: u.from_part_name,
+                          })),
+                        ];
                         return (
                           <Space direction="vertical" size={4}>
-                            <Select
-                              size="small"
-                              style={{ width: 190 }}
-                              placeholder="Выберите рулон"
-                              value={r.materialUnitId ?? undefined}
+                            <RollPicker
+                              options={rollPickerOptions}
+                              value={r.materialUnitId}
                               onChange={(v) => updateRow(r.key, { materialUnitId: v })}
-                              options={allOptions}
-                              notFoundContent={<Typography.Text type="secondary">Рулон не выдан</Typography.Text>}
+                              extraRolls={r.extraRolls}
+                              onExtraRollsChange={(rolls) => updateRow(r.key, { extraRolls: rolls })}
                             />
                             {r.goodPieces <= 0 && r.defects.length === 0 && r.materialUnitId != null && (
                               <Space size={4}>
@@ -431,42 +472,6 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                                   м остаток (деталь не готова)
                                 </Typography.Text>
                               </Space>
-                            )}
-                            {r.extraRolls.map((extra, i) => (
-                              <Space key={extra.materialUnitId} size={4}>
-                                <Tag
-                                  closable
-                                  onClose={() => updateRow(r.key, { extraRolls: r.extraRolls.filter((_, idx) => idx !== i) })}
-                                  style={{ marginRight: 0 }}
-                                >
-                                  №{extra.materialUnitId}
-                                </Tag>
-                                <InputNumber
-                                  size="small"
-                                  min={0}
-                                  style={{ width: 80 }}
-                                  value={extra.remainingM}
-                                  placeholder="0"
-                                  onChange={(v) =>
-                                    updateRow(r.key, {
-                                      extraRolls: r.extraRolls.map((e, idx) => (idx === i ? { ...e, remainingM: v ?? 0 } : e)),
-                                    })
-                                  }
-                                />
-                                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                                  м остаток
-                                </Typography.Text>
-                              </Space>
-                            ))}
-                            {availableExtra.length > 0 && (
-                              <Select<number>
-                                size="small"
-                                style={{ width: 190 }}
-                                placeholder="+ ещё рулон использован"
-                                value={undefined}
-                                onChange={(v) => updateRow(r.key, { extraRolls: [...r.extraRolls, { materialUnitId: v, remainingM: 0 }] })}
-                                options={availableExtra}
-                              />
                             )}
                           </Space>
                         );
@@ -543,6 +548,43 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               },
             ]}
           />
+
+          {suggestedLines.length > 0 && (
+            <Card size="small" style={{ marginBottom: 16, background: "#e6f7f9", borderColor: "#8dd3dc" }}>
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <Typography.Text>
+                  💡 Уже выбранный рулон подходит по ширине ещё этим строкам того же задания:
+                </Typography.Text>
+                <Space direction="vertical" size={4}>
+                  {suggestedLines.map((s) => (
+                    <Checkbox
+                      key={s.line.id}
+                      checked={!suggestionUnchecked.has(s.line.id)}
+                      onChange={(e) =>
+                        setSuggestionUnchecked((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.delete(s.line.id);
+                          else next.add(s.line.id);
+                          return next;
+                        })
+                      }
+                    >
+                      {s.line.part_name ?? s.line.material} — нужно ещё {s.line.remaining_pieces} шт
+                    </Checkbox>
+                  ))}
+                </Space>
+                <Button
+                  type="primary"
+                  size="small"
+                  disabled={checkedSuggestions.length === 0}
+                  onClick={() => checkedSuggestions.forEach((s) => addRow(s.taskId, s.line, s.rollUnitId))}
+                >
+                  Добавить отмеченные{checkedSuggestions.length > 0 ? ` (${checkedSuggestions.length})` : ""}
+                </Button>
+              </Space>
+            </Card>
+          )}
+
           <Button type="primary" block loading={saveMutation.isPending} onClick={handleSave}>
             Сохранить отчёт ({rows.length} {rows.length === 1 ? "позиция" : "позиций"})
           </Button>
