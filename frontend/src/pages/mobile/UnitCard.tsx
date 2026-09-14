@@ -16,6 +16,7 @@ import {
   message,
 } from "antd";
 import type { Dayjs } from "dayjs";
+import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -26,6 +27,9 @@ import {
   writeOffUnit,
   adjustUnit,
   getUnitEvents,
+  getUnitReconciliation,
+  linkTaskLine,
+  setLegacyTaskNote,
   printLabel,
   skuLabel,
   type MaterialUnit,
@@ -36,10 +40,17 @@ import { addUnitToTransfer } from "../../api/warehouseTransfers";
 import { listUsers } from "../../api/users";
 import { listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
+import { listProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../api/production";
 import QrScanButton from "../../components/QrScanButton";
 import LocationSelect from "../../components/LocationSelect";
 import OccurredAtField from "../../components/OccurredAtField";
 import CuttingForm from "../../components/CuttingForm";
+import { LinkTaskLineForm, LegacyNoteModal } from "../../components/TaskLineLinkControls";
+// Раздел про сверку рулонов в карточке единицы — ReportModal живёт в
+// desktop/production (форма отчёта мастера сложная и уже проверена там,
+// заводить второй экземпляр под мобильную карточку смысла нет: карточка
+// единицы и так открывается и с десктопа, и с планшета/телефона).
+import ReportModal from "../desktop/production/ReportModal";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { useAuth } from "../../auth/AuthContext";
@@ -64,6 +75,11 @@ const actionPermissions: Record<Exclude<ActionKind, "cut" | null>, string> = {
   // админу/начальнику склада.
   adjust: "units.correct",
 };
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
 
 const statusLabels: Record<string, string> = {
   Принят: "Принят",
@@ -116,6 +132,16 @@ export default function UnitCard() {
   const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
   const [adjustForm] = Form.useForm<{ actual_length_m: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
   const [transferWarehouseId, setTransferWarehouseId] = useState<number>();
+  // Раздел про сверку рулонов в карточке единицы — раньше карточка
+  // показывала только "Выдан участку", без ответа на "по какому заданию,
+  // на какую строку" и без действий "Привязать"/"Пометить старым"/"Ввести
+  // отчёт" — они жили только в отдельной вкладке "Сверка" (и то только
+  // для окутки царговых). Тот же приём здесь, но для любой единицы.
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [legacyOpen, setLegacyOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
+  const canLinkTask = canIssue; // units.issue — то же право, что "Выдать участку"
+  const canMarkLegacy = hasPermission("production_tasks.manage");
 
   const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
   const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
@@ -149,6 +175,54 @@ export default function UnitCard() {
     queryKey: ["return-preview", unit?.id],
     queryFn: () => getReturnPreview(unit!.id),
     enabled: !!unit && action === "return" && !!unit.production_task_line_id,
+  });
+
+  // Раздел про сверку рулонов в карточке единицы — задание/строка + итоги
+  // отчётов по единице, независимо от статуса (см. reconciliation_rows,
+  // unit_id в app/api/units.py).
+  const reconciliationQuery = useQuery({
+    queryKey: ["unit-reconciliation", unit?.id],
+    queryFn: () => getUnitReconciliation(unit!.id),
+    enabled: !!unit,
+  });
+  // Полный список заданий — только когда реально нужен: чтобы найти
+  // строку под "Ввести отчёт" или предложить выбор в модалке привязки.
+  // Не грузим его на каждое открытие карточки единицы просто так.
+  const tasksQuery = useQuery({
+    queryKey: ["production-tasks"],
+    queryFn: listProductionTasks,
+    enabled: !!unit && (linkOpen || reconciliationQuery.data?.task_line_id != null),
+  });
+  const findLine = (taskLineId: number): { task: ProductionTask; line: ProductionTaskLine } | null => {
+    for (const t of tasksQuery.data ?? []) {
+      const l = t.lines.find((x) => x.id === taskLineId);
+      if (l) return { task: t, line: l };
+    }
+    return null;
+  };
+  const taskOrderRef = (t: ProductionTask) => (t.external_order_ref ? `№${t.external_order_ref}` : t.name || `#${t.id}`);
+  const openTasks = (tasksQuery.data ?? []).filter((t) => t.is_active);
+
+  const linkMutation = useMutation({
+    mutationFn: (productionTaskLineId: number) => linkTaskLine(unit!.id, productionTaskLineId),
+    onSuccess: (u) => {
+      setUnit(u);
+      setLinkOpen(false);
+      qc.invalidateQueries({ queryKey: ["unit-reconciliation", u.id] });
+      message.success("Единица привязана к заданию");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось привязать")),
+  });
+
+  const legacyMutation = useMutation({
+    mutationFn: (note: string | null) => setLegacyTaskNote(unit!.id, note),
+    onSuccess: (u) => {
+      setUnit(u);
+      setLegacyOpen(false);
+      qc.invalidateQueries({ queryKey: ["unit-reconciliation", u.id] });
+      message.success("Пометка сохранена");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить пометку")),
   });
 
   const scanMutation = useMutation({
@@ -334,6 +408,51 @@ export default function UnitCard() {
               {unit.upd_number} / {unit.pallet_number}
             </Descriptions.Item>
             {unit.parent_id && <Descriptions.Item label="Из рулона">№ {unit.parent_id}</Descriptions.Item>}
+            <Descriptions.Item label="Задание">
+              {reconciliationQuery.isLoading ? (
+                "…"
+              ) : reconciliationQuery.data?.task_label ? (
+                <Space size={4} wrap>
+                  <span>{reconciliationQuery.data.task_label}</span>
+                  {reconciliationQuery.data.task_line_id != null &&
+                    findLine(reconciliationQuery.data.task_line_id)?.line.is_closed && <Tag>Закрыто</Tag>}
+                </Space>
+              ) : unit.legacy_task_note ? (
+                <Space wrap>
+                  <Typography.Text italic type="secondary">
+                    {unit.legacy_task_note}
+                  </Typography.Text>
+                  {canMarkLegacy && (
+                    <Button size="small" onClick={() => legacyMutation.mutate(null)} loading={legacyMutation.isPending}>
+                      Снять пометку
+                    </Button>
+                  )}
+                </Space>
+              ) : (
+                <Space wrap>
+                  <Typography.Text type="secondary">не привязано</Typography.Text>
+                  {canLinkTask && (
+                    <Button size="small" onClick={() => setLinkOpen(true)}>
+                      Привязать
+                    </Button>
+                  )}
+                  {canMarkLegacy && (
+                    <Button size="small" onClick={() => setLegacyOpen(true)}>
+                      Пометить старым
+                    </Button>
+                  )}
+                </Space>
+              )}
+            </Descriptions.Item>
+            {reconciliationQuery.data?.task_line_id != null && (
+              <Descriptions.Item label="Отчёты по строке">
+                {reconciliationQuery.data.reports_count === 0 ? (
+                  <Typography.Text type="danger">нет отчётов</Typography.Text>
+                ) : (
+                  `${reconciliationQuery.data.good_pieces_sum} годных / ${reconciliationQuery.data.defect_pieces_sum} брака (${reconciliationQuery.data.reports_count})`
+                )}
+              </Descriptions.Item>
+            )}
           </Descriptions>
 
           {!action && (
@@ -364,6 +483,18 @@ export default function UnitCard() {
                       </Button>
                     ),
                   )}
+                {reconciliationQuery.data?.task_line_id != null && (
+                  <Button
+                    size="large"
+                    onClick={() => {
+                      const found = findLine(reconciliationQuery.data!.task_line_id!);
+                      if (found) setReportTarget({ taskId: found.task.id, line: found.line });
+                      else message.error("Строка задания не найдена в списке заданий");
+                    }}
+                  >
+                    Ввести отчёт
+                  </Button>
+                )}
                 {unit.status === "На_хранении" && canIssue && (
                   <Button
                     size="large"
@@ -612,6 +743,39 @@ export default function UnitCard() {
           <OccurredAtField />
         </Form>
       </Modal>
+
+      {linkOpen && (
+        <Modal title={`Привязать единицу №${unit?.id} к строке задания`} open onCancel={() => setLinkOpen(false)} footer={null} destroyOnHidden>
+          <LinkTaskLineForm
+            tasks={openTasks}
+            orderRef={taskOrderRef}
+            loading={linkMutation.isPending}
+            onSubmit={(lineId) => linkMutation.mutate(lineId)}
+          />
+        </Modal>
+      )}
+
+      {legacyOpen && (
+        <LegacyNoteModal
+          initial={unit?.legacy_task_note ?? null}
+          onCancel={() => setLegacyOpen(false)}
+          onSubmit={(note) => legacyMutation.mutate(note)}
+          loading={legacyMutation.isPending}
+        />
+      )}
+
+      {reportTarget && (
+        <ReportModal
+          taskId={reportTarget.taskId}
+          line={reportTarget.line}
+          requiresDailyPlan={areasQuery.data?.find((a) => a.code === reconciliationQuery.data?.task_area)?.requires_daily_plan ?? false}
+          requiresRoll={reconciliationQuery.data?.task_area === "okutka_tsargovykh"}
+          onClose={() => {
+            setReportTarget(null);
+            qc.invalidateQueries({ queryKey: ["unit-reconciliation", unit?.id] });
+          }}
+        />
+      )}
     </Card>
   );
 }

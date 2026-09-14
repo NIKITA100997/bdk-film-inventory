@@ -248,6 +248,7 @@ def _cutting_operation_out(db: Session, op: CuttingOperation, user: User) -> Cut
 def reconciliation_rows(
     area: str | None = None,
     only_attention: bool = False,
+    unit_id: int | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(view_tasks),
 ) -> list[ReconciliationRowOut]:
@@ -259,17 +260,24 @@ def reconciliation_rows(
     очистил, см. return_unit) — иначе история возвращённых рулонов
     выпадала бы из фильтра сразу после возврата.
 
+    unit_id — раздел про карточку единицы: та же сборка (задание/строка +
+    итоги отчётов), но для ОДНОЙ конкретной единицы независимо от статуса
+    (карточка показывает это и для уже списанной/принятой единицы, не
+    только Выдан_участку/На_хранении) — обычный статусный фильтр здесь не
+    подходит, поэтому при unit_id он и area пропускаются.
+
     Однoсегментный GET, поэтому обязан идти ДО @router.get("/{unit_id}")
     ниже — тот же порядок регистрации важен, что и у cutting-operations,
     см. комментарий над следующим роутом."""
-    query = (
-        db.query(MaterialUnit)
-        .outerjoin(ProductionTaskLine, MaterialUnit.production_task_line_id == ProductionTaskLine.id)
-        .outerjoin(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
-        .filter(MaterialUnit.status.in_([UnitStatus.VYDAN_UCHASTKU, UnitStatus.NA_KHRANENII]))
-    )
-    if area is not None:
-        query = query.filter(or_(MaterialUnit.area == area, ProductionTask.area == area))
+    query = db.query(MaterialUnit).outerjoin(
+        ProductionTaskLine, MaterialUnit.production_task_line_id == ProductionTaskLine.id
+    ).outerjoin(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+    if unit_id is not None:
+        query = query.filter(MaterialUnit.id == unit_id)
+    else:
+        query = query.filter(MaterialUnit.status.in_([UnitStatus.VYDAN_UCHASTKU, UnitStatus.NA_KHRANENII]))
+        if area is not None:
+            query = query.filter(or_(MaterialUnit.area == area, ProductionTask.area == area))
     units = query.order_by(MaterialUnit.updated_at.desc()).limit(500).all()
 
     report_aggs: dict[int, tuple[int, float, float]] = {}

@@ -551,6 +551,15 @@ export async function getReconciliation(area?: string, onlyAttention?: boolean):
   return data;
 }
 
+// Раздел про карточку единицы — та же сборка (задание/строка + итоги
+// отчётов), но для ОДНОЙ единицы независимо от статуса (см. комментарий
+// у reconciliation_rows в api/units.py). Список из 0 или 1 строки, не
+// объект — тот же ответ эндпоинта, просто отфильтрованный на бэкенде.
+export async function getUnitReconciliation(unitId: number): Promise<ReconciliationRow | null> {
+  const { data } = await apiClient.get<ReconciliationRow[]>("/units/reconciliation", { params: { unit_id: unitId } });
+  return data[0] ?? null;
+}
+
 export async function linkTaskLine(
   unitId: number,
   productionTaskLineId: number,
