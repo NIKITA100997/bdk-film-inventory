@@ -48,8 +48,14 @@ export default function RollPicker({
       if (value == null) {
         onChange?.(optValue);
       } else {
-        const opt = options.find((o) => o.value === optValue);
-        onExtraRollsChange([...extraRolls, { materialUnitId: optValue, remainingM: opt?.remainingM ?? 0 }]);
+        // remainingM по умолчанию — 0 (израсходован полностью), а НЕ
+        // текущий остаток единицы: раньше ("+ ещё рулон" отдельным
+        // Select) новый доп. рулон всегда начинался с 0, мастер поднимал
+        // число, только если реально осталось. Дефолт "весь остаток" (0
+        // расхода) молча прятал реальный расход, если поле забыли
+        // тронуть — ровно так один рулон в реальном инциденте "вообще не
+        // списался".
+        onExtraRollsChange([...extraRolls, { materialUnitId: optValue, remainingM: 0 }]);
       }
       return;
     }

@@ -143,18 +143,29 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     rowCounter.current += 1;
-    setRows((prev) => [
-      ...prev,
-      {
-        key: `${line.id}-${rowCounter.current}`,
-        taskId: task.id,
-        line,
-        materialUnitId: presetRollId ?? (line.issued_units.length === 1 ? line.issued_units[0].id : null),
-        goodPieces: 0,
-        defects: [],
-        extraRolls: [],
-      },
-    ]);
+    const key = `${line.id}-${rowCounter.current}`;
+    // Раздел про защиту от повторного добавления — проверка внутри
+    // функционального updater'а (не по внешнему addedLineIds) видит
+    // самое свежее состояние rows на момент реального применения, а не
+    // на момент рендера, где был вызван addRow: два быстрых клика по
+    // одной и той же позиции (двойной тап на подсказке соседних строк
+    // или на поиске позиции) иначе создавали две строки на одну и ту же
+    // деталь — производство по ней задваивалось в отчёте.
+    setRows((prev) => {
+      if (prev.some((r) => r.line.id === line.id)) return prev;
+      return [
+        ...prev,
+        {
+          key,
+          taskId: task.id,
+          line,
+          materialUnitId: presetRollId ?? (line.issued_units.length === 1 ? line.issued_units[0].id : null),
+          goodPieces: 0,
+          defects: [],
+          extraRolls: [],
+        },
+      ];
+    });
     setPickerOpen(false);
     setPickerSearch("");
   };
