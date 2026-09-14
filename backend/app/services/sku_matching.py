@@ -35,7 +35,11 @@ class SkuMatchIndex:
 
 
 def build_sku_match_index(db: Session) -> SkuMatchIndex:
-    colors = db.query(Color).all()
+    # is_active — как и у skus ниже: архивные (переименованные) цвета не
+    # должны участвовать в подборе, иначе старое название материала
+    # ("TF-53 Бьянко") продолжает находиться вместо актуального
+    # ("Бьянко TF53") даже после переименования цвета в справочнике.
+    colors = db.query(Color).filter(Color.is_active).all()
     color_by_normalized = {re.sub(r"\s+", " ", c.name.strip().lower()): c for c in colors}
 
     # thickness > 0 — отсекает позиции-заглушки (материал "Неизвестно",

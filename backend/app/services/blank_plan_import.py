@@ -259,7 +259,12 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
     part_by_normalized: dict[str, Part] = {p.name.strip().lower(): p for p in parts}
     normalized_names = list(part_by_normalized)
 
-    colors = db.query(Color).all()
+    # is_active — как и для Part/MaterialSku чуть выше/ниже: архивные
+    # (переименованные) цвета не должны участвовать в подборе, иначе
+    # старое название ("TF-53 Бьянко") продолжает находиться вместо
+    # актуального ("Бьянко TF53") даже после того, как цвет в
+    # справочнике переименован и помечен неактивным.
+    colors = db.query(Color).filter(Color.is_active).all()
     color_by_normalized: dict[str, Color] = {re.sub(r"\s+", " ", c.name.strip().lower()): c for c in colors}
 
     # thickness > 0 — отсекает позиции-заглушки (материал "Неизвестно",

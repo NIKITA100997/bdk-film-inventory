@@ -303,20 +303,32 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
     if (selectedBlockIndex === undefined) return;
     const block = blankPlanBlocks[selectedBlockIndex];
     if (!block) return;
-    const loaded: ManualLine[] = block.lines.map((l) => ({
-      material: l.material ?? "",
-      color: l.color_raw,
-      thickness: l.thickness ?? 0,
-      quantity_pieces: l.quantity_pieces,
-      width_mm: l.width_mm ?? 0,
-      length_m: l.length_m ?? 0,
-      strip_width_mm: l.strip_width_mm ?? undefined,
-      part_name: l.part_name,
-      // ?? [] — на случай, если бэкенд ещё не перезапущен с этим полем
-      // (uvicorn без --reload отдаёт старый код) или отвечает старая
-      // прод-версия: не должно валить весь экран из-за одного нового поля.
-      _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
-    }));
+    const loaded: ManualLine[] = block.lines.map((l) => {
+      // При успешном подборе (suggested_sku_id) берём цвет из НАЙДЕННОЙ
+      // позиции номенклатуры, а не из сырого текста файла (l.color_raw) —
+      // раньше цвет всегда брался из сырого текста, даже когда сервер уже
+      // нашёл нужный sku: формулировка в файле ("TF-53 Бьянко") могла не
+      // совпадать с канoническим именем цвета в справочнике ("Бьянко
+      // TF53"), и при создании строки задания find_or_create по этому
+      // сырому тексту заводил/подхватывал ДРУГОЙ (часто нежилой, с нулевым
+      // остатком) цвет вместо подобранного. То же самое уже сделано для
+      // наряд-заказа (parseNaryadMutation.onSuccess выше).
+      const matchedSku = l.suggested_sku_id != null ? skusQuery.data?.find((s) => s.id === l.suggested_sku_id) : undefined;
+      return {
+        material: matchedSku?.material.name ?? l.material ?? "",
+        color: matchedSku?.color.name ?? l.color_raw,
+        thickness: l.thickness ?? 0,
+        quantity_pieces: l.quantity_pieces,
+        width_mm: l.width_mm ?? 0,
+        length_m: l.length_m ?? 0,
+        strip_width_mm: l.strip_width_mm ?? undefined,
+        part_name: l.part_name,
+        // ?? [] — на случай, если бэкенд ещё не перезапущен с этим полем
+        // (uvicorn без --reload отдаёт старый код) или отвечает старая
+        // прод-версия: не должно валить весь экран из-за одного нового поля.
+        _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
+      };
+    });
     setManualLines((lines) => [...lines, ...loaded]);
     setLastImportCount(loaded.length);
     manualForm.setFieldsValue({ name: manualForm.getFieldValue("name") || block.suggested_name });
