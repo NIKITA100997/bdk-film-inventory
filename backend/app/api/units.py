@@ -7,7 +7,7 @@ from sqlalchemy import false, func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 
 from app.api.production import view_tasks
-from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT
+from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT, WIDTH_TOLERANCE_MM
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
@@ -118,7 +118,16 @@ def _validate_matches_task_line(
     # line.strip_width_mm: в отличие от настоящего override (админ говорит
     # "теперь у этой строки другая ширина навсегда"), аналог — разовая
     # взаимозаменяемая замена, официальная ширина строки не меняется.
-    if abs(width_mm - expected_w) > 0.01 and width_mm not in equivalent_widths(db, expected_w):
+    #
+    # Раздел про допуск по ширине штрипса — тем же способом (без override
+    # и без мутации line.strip_width_mm) принимается любое расхождение в
+    # пределах ±WIDTH_TOLERANCE_MM, не только явно заведённый аналог:
+    # живой случай — привязку задним числом не давало сделать из-за пары
+    # мм расхождения, для которой аналог никто не заводил.
+    if (
+        abs(width_mm - expected_w) > WIDTH_TOLERANCE_MM
+        and width_mm not in equivalent_widths(db, expected_w)
+    ):
         if not allow_strip_width_override:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
