@@ -7,7 +7,7 @@ from sqlalchemy import false, func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 
 from app.api.production import view_tasks
-from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT, WIDTH_TOLERANCE_MM
+from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT, MIN_ROLL_WIDTH_MM, WIDTH_TOLERANCE_MM
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
@@ -186,7 +186,11 @@ def receive(
             material_sku_id=sku.id,
             width_mm=payload.width_mm,
             length_m=payload.length_m,
-            is_strip=payload.is_strip,
+            # Раздел про рулон/штрипс — рулон физически не бывает уже
+            # MIN_ROLL_WIDTH_MM: узкая позиция штрипс, даже если галочку на
+            # приёмке не поставили (не полагаемся на то, что кладовщик не
+            # ошибётся).
+            is_strip=payload.is_strip or float(payload.width_mm) < MIN_ROLL_WIDTH_MM,
             status=UnitStatus.NA_KHRANENII if payload.location_code else UnitStatus.PRINYAT,
             location_code=payload.location_code,
         )
@@ -579,6 +583,10 @@ def _apply_write_off(
         )
     old_length = float(unit.length_m)
     unit.status = UnitStatus.SPISAN
+    # Раздел про рулон/штрипс — списание в правиле пользователя тоже
+    # переводит единицу в штрипс (для точности отображения в истории/
+    # журнале, даже когда единица уже терминальна).
+    unit.is_strip = True
     record_event(
         db,
         unit=unit,
@@ -1200,6 +1208,10 @@ def execute_cutting_recipe(
             donor.width_mm = outcome.parent_width_mm
             donor.length_m = outcome.parent_length_m
             donor.status = outcome.parent_status
+            # Раздел про рулон/штрипс — донор резался (пусть отрез сразу
+            # списан в производство, cut_to_length) — навсегда штрипс,
+            # независимо от того, каким он был до этого.
+            donor.is_strip = True
             record_event(
                 db,
                 unit=donor,
@@ -1218,6 +1230,8 @@ def execute_cutting_recipe(
             except ValueError as e:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
             donor.length_m = outcome.parent_length_m
+            # Раздел про рулон/штрипс — см. комментарий в ветке discard выше.
+            donor.is_strip = True
             record_event(
                 db,
                 unit=donor,
@@ -1247,7 +1261,11 @@ def execute_cutting_recipe(
                 material_sku_id=spec.material_sku_id,
                 width_mm=spec.width_mm,
                 length_m=spec.length_m,
-                is_strip=donor.is_strip,
+                # Раздел про рулон/штрипс — отрезанный кусок ВСЕГДА штрипс
+                # (был рез), не наследует is_strip донора — раньше
+                # унаследованный False у отреза по длине от целого рулона
+                # выглядел как "рулон", хотя он уже отрезан.
+                is_strip=True,
                 status=UnitStatus.VYDAN_UCHASTKU if is_issue else UnitStatus.NA_KHRANENII,
                 area=issue_area,
                 production_task_line_id=dest.production_task_line_id if is_issue else None,
@@ -1303,6 +1321,10 @@ def execute_cutting_recipe(
 
         donor.width_mm = outcome.parent_width_mm
         donor.length_m = outcome.parent_length_m
+        # Раздел про рулон/штрипс — продольная резка (по ширине) тоже рез:
+        # донор навсегда штрипс, даже если оставшаяся ширина всё ещё
+        # ≥ MIN_ROLL_WIDTH_MM.
+        donor.is_strip = True
         record_event(
             db,
             unit=donor,
@@ -1452,6 +1474,9 @@ def cut_unit(
 
     unit.length_m = outcome.parent_length_m
     unit.status = outcome.parent_status
+    # Раздел про рулон/штрипс — раскрой по длине это рез, независимо от
+    # того, где он произошёл (склад или уже у участка).
+    unit.is_strip = True
     if payload.remainder_location:
         unit.location_code = payload.remainder_location
     record_event(
@@ -1551,6 +1576,13 @@ def return_unit(
     unit.status = UnitStatus.NA_KHRANENII
     unit.area = None
     unit.location_code = None
+    # Раздел про рулон/штрипс — вернулось меньше, чем было выдано: что-то
+    # физически израсходовали у участка (не обязательно через "Раскрой" в
+    # системе — чаще просто отрезали на месте), единица больше не целый
+    # рулон. Если вернулось РОВНО столько же (например, рулон выдали и
+    # тут же вернули по ошибке, не тронув) — оставляем как было.
+    if float(payload.actual_length_m) < old_length:
+        unit.is_strip = True
     record_event(
         db,
         unit=unit,

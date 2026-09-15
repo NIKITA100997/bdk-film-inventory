@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import false, or_, select
 from sqlalchemy.orm import Query, Session
 
+from app.core.constants import MIN_ROLL_WIDTH_MM
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.events import EventType, MaterialEvent
@@ -259,10 +260,13 @@ def scan(
     )
     synthetic_upd = f"Инвентаризация №{session_id} от {inv_session.started_at.strftime('%d.%m.%Y')}"
     # Найденный излишек ставится сразу на конкретную полку (payload —
-    # результат физического скана), поэтому тип единицы можно взять из
-    # типа стеллажа на этой полке, а не гадать (раздел про приёмку
-    # отдельных штрипсов) — рулонный стеллаж, если код полки не
-    # распознан, тем же способом, что services/placement.py::rules_for_location.
+    # результат физического скана) — раньше тип единицы брался только из
+    # типа стеллажа на этой полке (рулонный/штрипсовый), тем же способом,
+    # что services/placement.py::rules_for_location. Раздел про рулон/
+    # штрипс — реальная ширина надёжнее: рулон физически не бывает уже
+    # MIN_ROLL_WIDTH_MM, независимо от того, на какую полку его
+    # по ошибке положили; тип стеллажа остаётся дополнительным сигналом
+    # (штрипсовая полка форсирует штрипс, даже если ширину внесли неверно).
     rack_code = payload.location_code.rpartition("-")[0]
     rack = db.query(Rack).filter(Rack.code == rack_code).first()
     unit = MaterialUnit(
@@ -271,7 +275,7 @@ def scan(
         material_sku_id=sku.id,
         width_mm=payload.width_mm,
         length_m=payload.length_m,
-        is_strip=rack is not None and rack.type == RackType.STRIP,
+        is_strip=float(payload.width_mm) < MIN_ROLL_WIDTH_MM or (rack is not None and rack.type == RackType.STRIP),
         status=UnitStatus.NA_KHRANENII,
         location_code=payload.location_code,
     )
