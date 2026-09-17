@@ -428,6 +428,14 @@ export default function Issue() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const canReturn = !!user?.is_superuser || !!user?.permissions.includes("units.return");
+  // Раздел про мастера участка на этом же экране — у него есть units.return
+  // (принимать возврат своего участка), но не units.issue: без этого флага
+  // кнопки "Выдать"/"Разрезать и выдать"/подбор донора и т.п. были видны и
+  // кликабельны всем, кто вообще попал на экран (видимость пункта меню —
+  // units.issue ИЛИ units.return), а по клику падал сырой 403 с бэкенда
+  // (require_permission("units.issue")) — мастер не поймёт эту ошибку, ему
+  // только принимать возврат здесь и нужно (см. banner "Готово к возврату").
+  const canIssue = !!user?.is_superuser || !!user?.permissions.includes("units.issue");
   // Раздел про замену плёнки на выдаче — той же номенклатуры может не быть
   // в наличии, точный аналог по цвету/толщине оператор решает подобрать
   // сам вместо заявки на закупку; сервер запомнит расхождение в строке
@@ -923,11 +931,12 @@ export default function Issue() {
   // (availableQuery уже загрузился и exactMatch пуст) — тогда find-эндпоинт
   // сам ничего не выдаст, только предложит донора или скажет, что и его нет.
   useEffect(() => {
+    if (!canIssue) return;
     if (!selected || !selectedSku) return;
     if (availableQuery.isLoading || exactMatch) return;
     findMutation.mutate();
     // findMutation.mutate имеет стабильную идентичность между рендерами (react-query) — не в зависимостях намеренно
-  }, [selected?.line.id, selectedSku?.id, availableQuery.isLoading, exactMatch]);
+  }, [canIssue, selected?.line.id, selectedSku?.id, availableQuery.isLoading, exactMatch]);
 
   // --- Нехватка остатка под выбранную строку задания (раздел про замену
   // "Заказов покупателей" — нехватка обнаруживается в моменте выдачи, не
@@ -1418,11 +1427,18 @@ export default function Issue() {
             />
           )}
 
-          {(availableQuery.isLoading || findMutation.isPending) && (
+          {!canIssue && (
+            <Typography.Text type="secondary">
+              Подбор и выдача штрипса — задача склада, здесь недоступны. Если нужно принять возврат — используйте
+              баннер «Готово к возврату» выше или кнопку возврата в самой строке.
+            </Typography.Text>
+          )}
+
+          {canIssue && (availableQuery.isLoading || findMutation.isPending) && (
             <Typography.Text type="secondary">Подбираем штрипс…</Typography.Text>
           )}
 
-          {exactMatch && (
+          {canIssue && exactMatch && (
             <div style={{ background: "#E7F5EE", border: "1px solid #B7E0CD", borderRadius: 10, padding: 12, marginBottom: 12 }}>
               <div style={{ fontWeight: 700, color: "#146B4E" }}>Есть точный штрипс №{exactMatch.id}</div>
               <div style={{ fontSize: 12.5, marginTop: 4 }}>
@@ -1445,7 +1461,7 @@ export default function Issue() {
             </div>
           )}
 
-          {result?.outcome === "not_found" && (
+          {canIssue && result?.outcome === "not_found" && (
             <div style={{ background: "#FBEAE7", border: "1px solid #E3B5AC", borderRadius: 10, padding: 12, marginBottom: 12 }}>
               <div style={{ fontWeight: 700, color: "#B8483C" }}>Точного штрипса и донора нет на своём складе</div>
               {result.elsewhere_warehouse_name ? (
@@ -1464,7 +1480,7 @@ export default function Issue() {
             </div>
           )}
 
-          {result?.outcome === "donor_suggested" && result.donor && (
+          {canIssue && result?.outcome === "donor_suggested" && result.donor && (
             <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12, marginBottom: 12 }}>
               <div style={{ fontWeight: 700, color: "#A8631E" }}>
                 ⚡ Точного штрипса нет — есть донор №{result.donor.unit_id}
@@ -1512,6 +1528,7 @@ export default function Issue() {
             </div>
           )}
 
+          {canIssue && (
           <Collapse
             ghost
             size="small"
@@ -1666,6 +1683,7 @@ export default function Issue() {
                 : []),
             ]}
           />
+          )}
         </Card>
       )}
 
@@ -2169,14 +2187,14 @@ export default function Issue() {
               const stockMatch = info?.status.kind === "stock" ? info.status.match : null;
               return (
                 <Space size={4} wrap>
-                  {info?.acceptStock && stockMatch && (
+                  {canIssue && info?.acceptStock && stockMatch && (
                     <AcceptStockAction
                       unitId={stockMatch.unit_id}
                       onAccept={info.acceptStock}
                       siblings={findStockSiblingCandidates(row)}
                     />
                   )}
-                  {info?.acceptCut && (
+                  {canIssue && info?.acceptCut && (
                     <ActionIcon
                       tone="outline"
                       tip={info.donorUnitId ? `В резку — донор №${info.donorUnitId}` : "Добавить в план резки"}
@@ -2185,7 +2203,7 @@ export default function Issue() {
                       ✂️
                     </ActionIcon>
                   )}
-                  {groupRows && sku && (
+                  {canIssue && groupRows && sku && (
                     <ActionIcon tip="Свой донор и раскрой" onClick={() => setManualPickerTarget({ sku, rows: groupRows })}>
                       🔧
                     </ActionIcon>
@@ -2221,6 +2239,7 @@ export default function Issue() {
         {detailRow && renderDetailModalBody(detailRow)}
       </Modal>
 
+      {canIssue && (
       <Collapse
         ghost
         style={{ marginTop: 16 }}
@@ -2367,6 +2386,7 @@ export default function Issue() {
           },
         ]}
       />
+      )}
 
 
       <Modal
