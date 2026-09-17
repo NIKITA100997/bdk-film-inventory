@@ -34,6 +34,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.dictionaries import Color, MaterialSku, Part, Thickness
+from app.services.sku_matching import build_stock_cache, group_stock_area_m2
 
 HEADER_NOMENKLATURA = "номенклатура"
 HEADER_CVET = "цвет"
@@ -94,6 +95,10 @@ class EnrichedBlankPlanLine:
     # в этом случае вообще не смотрели, некоторые детали (ПЭТ 2Д/3Д)
     # пишут в файле один и тот же текст цвета для разной по факту плёнки.
     material_locked: bool = False
+    # Раздел про проверку остатка при загрузке задания — суммарный остаток
+    # (м², любой производитель) по материалу+цвету+толщине подобранной
+    # позиции; None — материал вообще не подобрался (нечего проверять).
+    stock_area_m2: float | None = None
 
 
 @dataclass(frozen=True)
@@ -295,6 +300,7 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
         combined_label_to_sku[combined] = s
         sku_by_id[s.id] = s
     combined_labels = list(combined_label_to_sku)
+    stock_cache = build_stock_cache()
 
     result: list[EnrichedBlankPlanBlock] = []
     for block in blocks:
@@ -352,6 +358,12 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
                     else:
                         sku_candidates = [{"sku_id": s.id, "label": _sku_label(s)} for s in fuzzy_skus]
 
+            stock_area_m2 = (
+                group_stock_area_m2(db, stock_cache, sku.material_id, sku.color_id, sku.thickness_id)
+                if sku is not None
+                else None
+            )
+
             enriched_lines.append(
                 EnrichedBlankPlanLine(
                     part_name=part.name if part else line.part_name_raw,
@@ -366,6 +378,7 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
                     quantity_pieces=line.quantity_pieces,
                     sku_candidates=sku_candidates,
                     material_locked=material_locked,
+                    stock_area_m2=stock_area_m2,
                 )
             )
         result.append(

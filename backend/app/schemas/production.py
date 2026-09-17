@@ -108,6 +108,10 @@ class NaryadParsedLineOut(BaseModel):
     # suggested_sku_id пришли от Part.default_material_sku_id, а не от
     # подбора по тексту цвета/скобок.
     material_locked: bool = False
+    # Раздел про проверку остатка при загрузке задания — суммарный остаток
+    # (м², любой производитель) по материалу+цвету+толщине подобранной
+    # позиции; None — материал не подобрался вовсе.
+    stock_area_m2: float | None = None
 
 
 class NaryadParseResultOut(BaseModel):
@@ -150,6 +154,9 @@ class BlankPlanParsedLineOut(BaseModel):
     # Раздел про закрепление плёнки за деталью — см. одноимённое поле у
     # NaryadParsedLineOut выше.
     material_locked: bool = False
+    # Раздел про проверку остатка при загрузке задания — см. одноимённое
+    # поле у NaryadParsedLineOut выше.
+    stock_area_m2: float | None = None
 
 
 class BlankPlanBlockOut(BaseModel):

@@ -32,7 +32,7 @@ import xlrd
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.dictionaries import MaterialSku, Part
-from app.services.sku_matching import build_sku_match_index, match_sku_by_color_text
+from app.services.sku_matching import build_sku_match_index, build_stock_cache, group_stock_area_m2, match_sku_by_color_text
 
 RASKLADKA_MARKER = "раскладка"
 STOP_MARKERS = ("ведомость", "#оттискктокогда#")
@@ -95,6 +95,9 @@ class ParsedNaryadLine:
     # Раздел про закрепление плёнки за деталью — см. одноимённое поле в
     # EnrichedBlankPlanLine (services/blank_plan_import.py).
     material_locked: bool = False
+    # Раздел про проверку остатка при загрузке задания — см. одноимённое
+    # поле в EnrichedBlankPlanLine.
+    stock_area_m2: float | None = None
 
 
 @dataclass(frozen=True)
@@ -413,6 +416,7 @@ def enrich_naryad_lines(db: Session, result: NaryadParseResult) -> NaryadParseRe
     # номенклатуры строится один раз на весь файл (не на строку), тот же
     # приём, что и в enrich_blank_plan_blocks.
     sku_index = build_sku_match_index(db) if any(line.color_raw for line in result.lines) else None
+    stock_cache = build_stock_cache()
 
     enriched_lines = []
     for line in result.lines:
@@ -434,7 +438,9 @@ def enrich_naryad_lines(db: Session, result: NaryadParseResult) -> NaryadParseRe
             if part is not None and part.default_material_sku_id is not None
             else None
         )
+        resolved_sku: MaterialSku | None = None
         if pinned_sku is not None:
+            resolved_sku = pinned_sku
             line = replace(
                 line,
                 suggested_sku_id=pinned_sku.id,
@@ -445,10 +451,20 @@ def enrich_naryad_lines(db: Session, result: NaryadParseResult) -> NaryadParseRe
         elif line.color_raw and sku_index is not None:
             sku, candidates = match_sku_by_color_text(sku_index, line.color_raw)
             if sku is not None:
+                resolved_sku = sku
                 line = replace(
                     line, suggested_sku_id=sku.id, material=sku.material.name, thickness=float(sku.thickness.value_mm)
                 )
             elif candidates:
                 line = replace(line, sku_candidates=candidates)
+        # Раздел про проверку остатка при загрузке задания — см.
+        # одноимённый раздел в enrich_blank_plan_blocks.
+        if resolved_sku is not None:
+            line = replace(
+                line,
+                stock_area_m2=group_stock_area_m2(
+                    db, stock_cache, resolved_sku.material_id, resolved_sku.color_id, resolved_sku.thickness_id
+                ),
+            )
         enriched_lines.append(line)
     return replace(result, lines=enriched_lines)

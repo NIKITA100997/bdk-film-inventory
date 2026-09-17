@@ -15,9 +15,11 @@ import difflib
 import re
 from dataclasses import dataclass
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.dictionaries import Color, MaterialSku, Thickness
+from app.models.units import MaterialUnit, UnitStatus
 
 _SKU_MATCH_CUTOFF = 0.45
 _SKU_CANDIDATES_MAX = 5
@@ -85,3 +87,38 @@ def match_sku_by_color_text(index: SkuMatchIndex, color_text: str) -> tuple[Mate
             else:
                 sku_candidates = [{"sku_id": s.id, "label": sku_label(s)} for s in fuzzy_skus]
     return sku, sku_candidates
+
+
+# Раздел про проверку остатка при загрузке задания — подобранный материал
+# может физически отсутствовать на складе (например, ждём новую партию),
+# тогда лучше сразу сказать об этом при загрузке, а не молча подставить
+# позицию, по которой при выдаче участку окажется нечего резать. Остаток
+# считается по группе материал+цвет+толщина (не по конкретному sku_id —
+# производитель конкретной позиции не хранится в самой строке задания,
+# ProductionTaskLine.material_id/color_id/thickness_id без manufacturer_id,
+# так что для задания годится остаток от ЛЮБОГО производителя этой плёнки).
+def build_stock_cache() -> dict[tuple[int, int, int], float]:
+    """Пустой кэш на начало обработки одного файла — заполняется лениво
+    (group_stock_area_m2 ниже), чтобы на файл с десятками строк одного и
+    того же материала не делать десятки одинаковых запросов."""
+    return {}
+
+
+def group_stock_area_m2(
+    db: Session, cache: dict[tuple[int, int, int], float], material_id: int, color_id: int, thickness_id: int
+) -> float:
+    key = (material_id, color_id, thickness_id)
+    if key not in cache:
+        total = (
+            db.query(func.coalesce(func.sum(MaterialUnit.width_mm * MaterialUnit.length_m / 1000), 0))
+            .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
+            .filter(
+                MaterialSku.material_id == material_id,
+                MaterialSku.color_id == color_id,
+                MaterialSku.thickness_id == thickness_id,
+                MaterialUnit.status == UnitStatus.NA_KHRANENII,
+            )
+            .scalar()
+        )
+        cache[key] = round(float(total or 0), 3)
+    return cache[key]

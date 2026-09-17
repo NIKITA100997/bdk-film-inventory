@@ -33,6 +33,12 @@ type ManualLine = ProductionTaskLineManualCreate & {
   // Part.default_material_sku_id, не от подбора по тексту файла; чисто
   // для подсказки на экране (не отправляется на сервер).
   _materialLocked?: boolean;
+  // Раздел про проверку остатка при загрузке задания — суммарный остаток
+  // (м², любой производитель) по материалу+цвету+толщине на момент
+  // загрузки файла; null/undefined — материал не подобрался, 0 — подобрался,
+  // но на складе пусто. Чисто для подсказки на экране, не отправляется
+  // на сервер и не обновляется при ручной правке строки.
+  _stockAreaM2?: number | null;
 };
 
 /** Поля одной строки задания — общие для "Добавить вручную" (вкладка) и
@@ -277,6 +283,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
           part_name: l.part_name,
           _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
           _materialLocked: l.material_locked,
+          _stockAreaM2: l.stock_area_m2,
         };
       });
       setManualLines((lines) => [...lines, ...loaded]);
@@ -335,6 +342,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
         // прод-версия: не должно валить весь экран из-за одного нового поля.
         _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
         _materialLocked: l.material_locked,
+        _stockAreaM2: l.stock_area_m2,
       };
     });
     setManualLines((lines) => [...lines, ...loaded]);
@@ -669,6 +677,15 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                             🔒 закреплено за деталью
                           </Tag>
                         )}
+                        {/* Раздел про проверку остатка при загрузке задания —
+                            0 значит подобранная позиция физически пуста на
+                            складе; null/undefined (материал не подобрался)
+                            уже показано отдельно веткой ниже. */}
+                        {l._stockAreaM2 === 0 && (
+                          <Tag color="warning" style={{ marginLeft: 6 }}>
+                            ⚠ нет остатка на складе
+                          </Tag>
+                        )}
                       </>
                     ) : (
                       `цвет: ${l.color || "—"} (не подобран)`
@@ -780,10 +797,10 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                 ...v,
                 product_model_id: bomProductModelId || undefined,
                 quantity: bomForm.getFieldValue("quantity") || undefined,
-                // _skuCandidates/_materialLocked — только подсказка для
-                // экрана (см. тип ManualLine выше), в
+                // _skuCandidates/_materialLocked/_stockAreaM2 — только
+                // подсказка для экрана (см. тип ManualLine выше), в
                 // ProductionTaskLineManualCreate таких полей нет.
-                lines: manualLines.map(({ _skuCandidates, _materialLocked, ...rest }) => rest),
+                lines: manualLines.map(({ _skuCandidates, _materialLocked, _stockAreaM2, ...rest }) => rest),
               }),
             )
             .catch(() => {});
