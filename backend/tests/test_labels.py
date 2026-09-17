@@ -7,6 +7,7 @@ from reportlab.pdfgen import canvas as pdfcanvas
 
 from reportlab.pdfbase import pdfmetrics
 
+from app.models.units import UnitStatus
 from app.services.labels import (
     DEFAULT_FIELDS,
     LabelData,
@@ -61,6 +62,7 @@ def make_unit(**overrides):
         width_mm=1400,
         length_m=214,
         production_task_line=None,
+        status=UnitStatus.NA_KHRANENII,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -87,14 +89,33 @@ class TestLabelDataFromUnit:
             part_name="Стоевая",
             task=SimpleNamespace(product_model=SimpleNamespace(name="Дверь царговая"), name="Ручное задание"),
         )
-        data = label_data_from_unit(make_unit(production_task_line=line))
+        data = label_data_from_unit(make_unit(production_task_line=line, status=UnitStatus.VYDAN_UCHASTKU))
         assert data.part_name == "Стоевая"
         assert data.task_name == "Дверь царговая"  # приоритет у модели, как в _task_out
 
     def test_task_line_falls_back_to_manual_task_name(self):
         line = SimpleNamespace(part_name="Добор 150", task=SimpleNamespace(product_model=None, name="QA-TEST-Задание"))
-        data = label_data_from_unit(make_unit(production_task_line=line))
+        data = label_data_from_unit(make_unit(production_task_line=line, status=UnitStatus.VYDAN_UCHASTKU))
         assert data.task_name == "QA-TEST-Задание"
+
+    def test_task_line_in_transit_still_shows_assignment(self):
+        """В_перемещении — единица уже отправлена к участку, "Куда" ещё
+        актуально (см. is_currently_assigned в label_data_from_unit)."""
+        line = SimpleNamespace(part_name="Добор 150", task=SimpleNamespace(product_model=None, name="QA-TEST-Задание"))
+        data = label_data_from_unit(make_unit(production_task_line=line, status=UnitStatus.V_PEREMESHCHENII))
+        assert data.task_name == "QA-TEST-Задание"
+
+    def test_returned_unit_does_not_show_stale_assignment(self):
+        """Баг: production_task_line_id остаётся на единице и после возврата
+        на склад (return_unit его не чистит) — единица На_хранении не должна
+        печатать бирку так, будто всё ещё выдана по заданию."""
+        line = SimpleNamespace(
+            part_name="Стоевая",
+            task=SimpleNamespace(product_model=SimpleNamespace(name="Дверь царговая"), name="Ручное задание"),
+        )
+        data = label_data_from_unit(make_unit(production_task_line=line, status=UnitStatus.NA_KHRANENII))
+        assert data.task_name is None
+        assert data.part_name is None
 
 
 class TestRenderFieldValue:

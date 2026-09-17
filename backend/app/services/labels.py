@@ -20,7 +20,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas as pdfcanvas
 
-from app.models.units import MaterialUnit
+from app.models.units import MaterialUnit, UnitStatus
 
 # Палитра — из презентации БДК (БДК_Презентация_v3_учет_пленок.pptx):
 # зелёный/тёмно-синий вместо исходных зелёного/синего, чтобы не вводить
@@ -137,7 +137,13 @@ class LabelData:
 
 def label_data_from_unit(unit: MaterialUnit) -> LabelData:
     sku = unit.material_sku
-    line = unit.production_task_line
+    # "Куда" печатается только пока единица реально выдана/в пути к участку
+    # (production_task_line_id остаётся на единице и после возврата на склад —
+    # см. return_unit/_line_issued_units_map — иначе штрипс, уже вернувшийся
+    # на хранение, печатал бы бирку "Куда: деталь — задание", как будто всё
+    # ещё выдан).
+    is_currently_assigned = unit.status in (UnitStatus.VYDAN_UCHASTKU, UnitStatus.V_PEREMESHCHENII)
+    line = unit.production_task_line if is_currently_assigned else None
     task_name = None
     if line is not None:
         task_name = (line.task.product_model.name if line.task.product_model else None) or line.task.name
