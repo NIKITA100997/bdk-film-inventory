@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, DatePicker, InputNumber, Modal, Space, Tag, Tooltip, Typography, message } from "antd";
+import { Button, DatePicker, Input, InputNumber, Modal, Space, Tag, Tooltip, Typography, message } from "antd";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";
@@ -36,6 +36,7 @@ export default function CuttingHistory() {
   const [donorUnitId, setDonorUnitId] = useState<number | null>(null);
   const [includeUndone, setIncludeUndone] = useState(false);
   const [recutDonor, setRecutDonor] = useState<MaterialUnit | null>(null);
+  const [search, setSearch] = useState("");
   const queryClient = useQueryClient();
 
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
@@ -73,7 +74,22 @@ export default function CuttingHistory() {
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось загрузить донора")),
   });
 
-  const rows = query.data ?? [];
+  const allRows = query.data ?? [];
+  const searchNeedle = search.trim().toLowerCase();
+  const rows = searchNeedle
+    ? allRows.filter((r) => {
+        const haystack = [
+          String(r.donor_unit_id),
+          r.donor_material_sku.material.name,
+          r.donor_material_sku.color.name,
+          r.user_name,
+          ...r.resulting_pieces.map((p) => String(p.id)),
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(searchNeedle);
+      })
+    : allRows;
 
   const confirmUndo = (op: CuttingOperation) => {
     const pieces = op.resulting_pieces.map((p) => `№${p.id} (${p.width_mm}×${p.length_m} м)`).join(", ") || "—";
@@ -118,6 +134,13 @@ export default function CuttingHistory() {
         >
           {includeUndone ? "Показаны и отменённые" : "Показать и отменённые"}
         </Button>
+        <Input.Search
+          allowClear
+          placeholder="Поиск — материал, цвет, кто резал, № куска…"
+          style={{ width: 280 }}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
       </Space>
 
       <ResponsiveTable<CuttingOperation>

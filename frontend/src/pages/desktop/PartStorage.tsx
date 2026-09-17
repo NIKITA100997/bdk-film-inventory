@@ -27,6 +27,7 @@ export default function PartStorage() {
   const [rackId, setRackId] = useState<number | null>(null);
   const [highlightShelf, setHighlightShelf] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const [form] = Form.useForm<{ code: string; shelf_count: number }>();
 
   // Раздел про сканирование "ЗГ-..." (unitSearch.ts) — предвыбор стеллажа
@@ -57,6 +58,14 @@ export default function PartStorage() {
     for (const c of occupancyForSelected ?? []) map.set(c.shelf, c);
     return [...map.entries()].sort((a, b) => a[0] - b[0]);
   }, [occupancyForSelected]);
+
+  // Поиск партии/детали по всем стеллажам сразу (раздел про удобство
+  // мастера/кладовщика — искать нужно не только по QR-скану "ЗГ-...", но
+  // и вручную, если под рукой нет сканера или номер партии не при себе).
+  const searchNeedle = search.trim().toLowerCase();
+  const cellMatchesSearch = (cell: PartRackOccupancyCell) =>
+    !!searchNeedle && cell.units.some((u) => String(u.id).includes(searchNeedle) || u.part_name.toLowerCase().includes(searchNeedle));
+  const rackHasMatch = (idx: number) => !searchNeedle || (occupancyByRack[idx]?.data ?? []).some(cellMatchesSearch);
 
   const createMutation = useMutation({
     mutationFn: createPartRack,
@@ -116,9 +125,18 @@ export default function PartStorage() {
         )}
       </Space>
 
+      <Input.Search
+        allowClear
+        placeholder="Поиск по всем стеллажам — № партии, деталь…"
+        style={{ width: 320, marginBottom: 16 }}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 720, overflowY: "auto" }}>
           {activeRacks.map((rack, idx) => {
+            if (!rackHasMatch(idx)) return null;
             const occ = occupancyByRack[idx]?.data;
             const total = occ?.length ?? rack.shelf_count;
             const used = occ?.filter((c) => c.units.length > 0).length ?? 0;
@@ -173,7 +191,7 @@ export default function PartStorage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {byShelf.map(([shelf, cell]) => {
                   const occupied = cell.units.length > 0;
-                  const highlighted = shelf === highlightShelf;
+                  const highlighted = shelf === highlightShelf || cellMatchesSearch(cell);
                   return (
                     <div key={shelf} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <Typography.Text style={{ width: 56, fontSize: 12, textAlign: "right", flexShrink: 0 }} type="secondary">

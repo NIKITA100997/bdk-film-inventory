@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tabs, Button, Space, Tag, Typography, Empty, message } from "antd";
+import { Card, Tabs, Button, Input, Space, Tag, Typography, Empty, message } from "antd";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -185,9 +185,27 @@ function HistoryTab() {
     queryKey: ["warehouse-transfers", "prinyato"],
     queryFn: () => listWarehouseTransfers({ status_filter: "prinyato" }),
   });
-  const transfers = transfersQuery.data ?? [];
+  const [search, setSearch] = useState("");
+  const allTransfers = transfersQuery.data ?? [];
+  const searchNeedle = search.trim().toLowerCase();
+  const transfers = searchNeedle
+    ? allTransfers.filter((t) => {
+        const haystack = [t.from_warehouse_name, t.to_warehouse_name, ...t.lines.map((l) => String(l.unit.id))]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(searchNeedle);
+      })
+    : allTransfers;
 
   return (
+    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+    <Input.Search
+      allowClear
+      placeholder="Поиск — склад, № единицы…"
+      style={{ width: 280 }}
+      value={search}
+      onChange={(e) => setSearch(e.target.value)}
+    />
     <ResponsiveTable<WarehouseTransfer>
       size="small"
       rowKey="id"
@@ -203,6 +221,7 @@ function HistoryTab() {
         { title: "Принято", render: (_, t) => (t.received_at ? new Date(t.received_at).toLocaleDateString("ru-RU") : "—") },
       ]}
     />
+    </Space>
   );
 }
 

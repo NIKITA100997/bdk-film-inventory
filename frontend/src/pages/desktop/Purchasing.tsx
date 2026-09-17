@@ -162,10 +162,17 @@ export default function Purchasing() {
     });
   };
 
+  const [requestSearch, setRequestSearch] = useState("");
   const selectableRows = (requestsQuery.data ?? []).filter((r) => r.status === "open" && r.order_id === null);
+  const requestSearchNeedle = requestSearch.trim().toLowerCase();
   const visibleRequests = (requestsQuery.data ?? [])
     .filter((r) => !onlyUngrouped || r.order_id === null)
-    .filter((r) => showClosedRequests || r.status !== "closed");
+    .filter((r) => showClosedRequests || r.status !== "closed")
+    .filter((r) => {
+      if (!requestSearchNeedle) return true;
+      const haystack = [r.material, r.color, r.supplier ?? "", r.note ?? ""].join(" ").toLowerCase();
+      return haystack.includes(requestSearchNeedle);
+    });
   const visibleOrders = (ordersQuery.data ?? []).filter((o) => showClosedOrders || o.is_open);
   const selectedRequests = selectableRows.filter((r) => selectedIds.has(r.id));
   const selectedLines = (() => {
@@ -216,6 +223,13 @@ export default function Purchasing() {
                   <Checkbox checked={showClosedRequests} onChange={(e) => setShowClosedRequests(e.target.checked)}>
                     Показывать закрытые
                   </Checkbox>
+                  <Input.Search
+                    allowClear
+                    placeholder="Поиск — материал, цвет, поставщик, комментарий…"
+                    style={{ width: 280 }}
+                    value={requestSearch}
+                    onChange={(e) => setRequestSearch(e.target.value)}
+                  />
                 </Space>
                 <ResponsiveTable<PurchaseRequest>
                   tableKey="purchase-requests"
