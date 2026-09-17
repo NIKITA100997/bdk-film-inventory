@@ -36,6 +36,12 @@ export interface Part {
   // упорядоченный список этапов у этой детали, пусто = физический учёт
   // для неё ещё не настроен (партию п/ф завести нельзя).
   stages: PartStage[];
+  // Раздел про закрепление плёнки за деталью — не указано (null) значит
+  // "подбирать по тексту цвета из файла, как раньше"; закреплено — при
+  // загрузке задания текст цвета для этой детали вообще не смотрится
+  // (нужно для деталей вроде ПЭТ 2Д/3Д, где один и тот же текст в файле
+  // означает разную по факту плёнку).
+  default_material_sku_id: number | null;
 }
 
 export interface PartStage {
@@ -56,6 +62,7 @@ export interface PartCreate {
   length_m: number;
   strip_width_mm?: number;
   area?: string | null;
+  default_material_sku_id?: number | null;
 }
 
 export interface PartUpdate {
@@ -65,6 +72,7 @@ export interface PartUpdate {
   strip_width_mm?: number;
   area?: string | null;
   is_active?: boolean;
+  default_material_sku_id?: number | null;
 }
 
 export const listParts = async (): Promise<Part[]> => (await apiClient.get<Part[]>("/parts")).data;

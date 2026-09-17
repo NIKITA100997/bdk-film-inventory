@@ -104,6 +104,10 @@ class NaryadParsedLineOut(BaseModel):
     material: str | None = None
     thickness: float | None = None
     sku_candidates: list[SkuCandidateOut] = []
+    # Раздел про закрепление плёнки за деталью — True, если material/
+    # suggested_sku_id пришли от Part.default_material_sku_id, а не от
+    # подбора по тексту цвета/скобок.
+    material_locked: bool = False
 
 
 class NaryadParseResultOut(BaseModel):
@@ -143,6 +147,9 @@ class BlankPlanParsedLineOut(BaseModel):
     thickness: float | None = None
     quantity_pieces: float
     sku_candidates: list[SkuCandidateOut] = []
+    # Раздел про закрепление плёнки за деталью — см. одноимённое поле у
+    # NaryadParsedLineOut выше.
+    material_locked: bool = False
 
 
 class BlankPlanBlockOut(BaseModel):

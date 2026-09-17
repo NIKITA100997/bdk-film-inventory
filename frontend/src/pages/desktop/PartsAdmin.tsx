@@ -9,11 +9,13 @@ import {
   createPart,
   updatePart,
   updatePartStages,
+  listAllMaterialSkus,
   type Part,
   type PartCreate,
   type DuplicateCandidate,
 } from "../../api/dictionaries";
 import { listAreas } from "../../api/areas";
+import { skuLabel } from "../../api/units";
 
 type StageRow = { code: string; name: string; area: string | null };
 type AreaOption = { value: string; label: string };
@@ -47,6 +49,15 @@ export default function PartsAdmin() {
   const partsQuery = useQuery({ queryKey: ["parts", "all"], queryFn: listAllParts });
   const duplicatesQuery = useQuery({ queryKey: ["parts", "duplicates"], queryFn: listPartDuplicates });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  // Раздел про закрепление плёнки за деталью — весь список позиций для
+  // выбора в форме и для подписи уже закреплённой в таблице ниже.
+  const materialSkusQuery = useQuery({ queryKey: ["material-skus", "all"], queryFn: listAllMaterialSkus });
+  const skuOptions = (materialSkusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }));
+  const skuLabelById = (id: number | null) => {
+    if (id == null) return null;
+    const sku = materialSkusQuery.data?.find((s) => s.id === id);
+    return sku ? skuLabel(sku) : `#${id}`;
+  };
   const areaLabel = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : "Общая (все участки)");
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
 
@@ -57,7 +68,13 @@ export default function PartsAdmin() {
 
   const saveMutation = useMutation({
     mutationFn: (payload: PartCreate) =>
-      (editingPart ? updatePart(editingPart.id, { ...payload, area: payload.area ?? null }) : createPart(payload)),
+      (editingPart
+        ? updatePart(editingPart.id, {
+            ...payload,
+            area: payload.area ?? null,
+            default_material_sku_id: payload.default_material_sku_id ?? null,
+          })
+        : createPart(payload)),
     onSuccess: (saved) => {
       invalidateCaches();
       setCreateOpen(false);
@@ -148,6 +165,7 @@ export default function PartsAdmin() {
       length_m: part.length_m,
       strip_width_mm: part.strip_width_mm ?? undefined,
       area: part.area ?? undefined,
+      default_material_sku_id: part.default_material_sku_id ?? undefined,
     });
     setCreateOpen(true);
   };
@@ -206,6 +224,17 @@ export default function PartsAdmin() {
               title: "Штрипс (укутка), мм",
               dataIndex: "strip_width_mm",
               render: (v: number | null) => (v != null ? <Tag color="blue">{v} мм</Tag> : "—"),
+            },
+            {
+              // Раздел про закрепление плёнки за деталью — пусто значит
+              // подбор по тексту цвета из файла, как раньше (нужно для
+              // деталей вроде ПЭТ 2Д/3Д, где текст в файле не различает
+              // плёнку).
+              title: "Плёнка (закреплена)",
+              render: (_, p) => {
+                const label = skuLabelById(p.default_material_sku_id);
+                return label ? <Tag color="purple">{label}</Tag> : <Typography.Text type="secondary">по тексту файла</Typography.Text>;
+              },
             },
             { title: "Участок", dataIndex: "area", render: (v: string | null) => areaLabel(v) },
             {
@@ -307,6 +336,20 @@ export default function PartsAdmin() {
           </Form.Item>
           <Form.Item name="area" label="Участок (опционально — пусто значит общая для всех)">
             <Select allowClear options={areaOptions} placeholder="Общая для всех участков" />
+          </Form.Item>
+          <Form.Item
+            name="default_material_sku_id"
+            label="Закрепить плёнку (опционально)"
+            extra="При загрузке задания из файла текст цвета для этой детали вообще не смотрится — подставляется сразу эта позиция. Нужно для деталей, где один и тот же текст в файле означает разную плёнку (например ПЭТ 2Д/3Д)."
+          >
+            <Select
+              allowClear
+              showSearch
+              loading={materialSkusQuery.isLoading}
+              options={skuOptions}
+              placeholder="Не закреплено — подбор по тексту файла"
+              optionFilterProp="label"
+            />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={saveMutation.isPending}>
             {editingPart ? "Сохранить изменения" : "Добавить деталь"}

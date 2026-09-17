@@ -95,6 +95,11 @@ class PartOut(BaseModel):
     strip_width_mm: float | None
     area: str | None
     is_active: bool
+    # Раздел про закрепление плёнки за деталью — не указано (None) означает
+    # "подбирать по тексту цвета из файла, как раньше"; фронт уже держит
+    # список позиций номенклатуры для формы, поэтому здесь просто id, без
+    # вложенного объекта (MaterialSkuOut определён ниже по файлу).
+    default_material_sku_id: int | None = None
     # Раздел про правку детали "на лету" — сколько строк ещё нетронутых
     # (без резки/отчёта/распределения) активных заданий подтянули новые
     # размеры прямо в момент этого сохранения (не сохраняется в БД, только
@@ -112,6 +117,7 @@ class PartCreate(BaseModel):
     length_m: float = Field(gt=0)
     strip_width_mm: float | None = Field(default=None, gt=0)
     area: str | None = None
+    default_material_sku_id: int | None = None
 
 
 class PartUpdate(BaseModel):
@@ -121,6 +127,7 @@ class PartUpdate(BaseModel):
     strip_width_mm: float | None = Field(default=None, gt=0)
     area: str | None = None
     is_active: bool | None = None
+    default_material_sku_id: int | None = None
 
 
 class MaterialSkuOut(BaseModel):

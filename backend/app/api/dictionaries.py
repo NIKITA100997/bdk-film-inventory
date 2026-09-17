@@ -380,6 +380,7 @@ def create_part(payload: PartCreate, db: Session = Depends(get_db), user=Depends
         length_m=payload.length_m,
         strip_width_mm=payload.strip_width_mm,
         area=payload.area,
+        default_material_sku_id=payload.default_material_sku_id,
     )
     db.add(obj)
     try:
@@ -410,6 +411,11 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
         # в "общая для всех участков" (null), поэтому здесь смотрим, было
         # ли поле явно передано в запросе, а не просто "не null".
         obj.area = payload.area
+    if "default_material_sku_id" in payload.model_fields_set:
+        # Тот же приём — открепить плёнку обратно (null = "подбирать по
+        # тексту цвета из файла, как раньше") такое же осознанное действие,
+        # как и очистка area.
+        obj.default_material_sku_id = payload.default_material_sku_id
     if payload.is_active is not None:
         obj.is_active = payload.is_active
     try:

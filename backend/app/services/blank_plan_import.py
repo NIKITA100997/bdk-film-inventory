@@ -88,6 +88,12 @@ class EnrichedBlankPlanLine:
     # материал+цвет позиций номенклатуры, чтобы оператор выбрал из них на
     # фронтенде вместо того, чтобы искать заново руками с нуля.
     sku_candidates: list[dict] = field(default_factory=list)
+    # Раздел про закрепление плёнки за деталью — True, если material/
+    # suggested_sku_id пришли от Part.default_material_sku_id, а не от
+    # подбора по тексту цвета (см. enrich_blank_plan_blocks): текст файла
+    # в этом случае вообще не смотрели, некоторые детали (ПЭТ 2Д/3Д)
+    # пишут в файле один и тот же текст цвета для разной по факту плёнки.
+    material_locked: bool = False
 
 
 @dataclass(frozen=True)
@@ -282,10 +288,12 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
     )
     skus_by_color_id: dict[int, list[MaterialSku]] = {}
     combined_label_to_sku: dict[str, MaterialSku] = {}
+    sku_by_id: dict[int, MaterialSku] = {}
     for s in skus:
         skus_by_color_id.setdefault(s.color_id, []).append(s)
         combined = re.sub(r"\s+", " ", f"{s.material.name} {s.color.name}".strip().lower())
         combined_label_to_sku[combined] = s
+        sku_by_id[s.id] = s
     combined_labels = list(combined_label_to_sku)
 
     result: list[EnrichedBlankPlanBlock] = []
@@ -296,13 +304,31 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
             match = difflib.get_close_matches(normalized, normalized_names, n=1, cutoff=0.5)
             part = part_by_normalized[match[0]] if match else None
 
-            color_key = re.sub(r"\s+", " ", line.color_raw.strip().lower())
-            color = color_by_normalized.get(color_key)
-            exact_candidates = skus_by_color_id.get(color.id) if color else None
-            sku = exact_candidates[0] if exact_candidates and len(exact_candidates) == 1 else None
+            # Раздел про закрепление плёнки за деталью — если у найденной
+            # детали задан default_material_sku_id, текст цвета из файла
+            # не смотрим вовсе: некоторые детали (ПЭТ 2Д/3Д) пишут в файле
+            # один и тот же текст цвета для разной по факту плёнки, подбор
+            # по тексту такое в принципе не различит.
+            sku: MaterialSku | None = None
+            material_locked = False
+            if part is not None and part.default_material_sku_id is not None:
+                sku = sku_by_id.get(part.default_material_sku_id) or (
+                    db.query(MaterialSku)
+                    .options(joinedload(MaterialSku.material), joinedload(MaterialSku.color), joinedload(MaterialSku.thickness))
+                    .filter(MaterialSku.id == part.default_material_sku_id)
+                    .first()
+                )
+                material_locked = sku is not None
 
             sku_candidates: list[dict] = []
             if sku is None:
+                color_key = re.sub(r"\s+", " ", line.color_raw.strip().lower())
+                color = color_by_normalized.get(color_key)
+                exact_candidates = skus_by_color_id.get(color.id) if color else None
+                sku = exact_candidates[0] if exact_candidates and len(exact_candidates) == 1 else None
+
+            if sku is None:
+                color_key = re.sub(r"\s+", " ", line.color_raw.strip().lower())
                 fuzzy_labels = difflib.get_close_matches(
                     color_key, combined_labels, n=_SKU_CANDIDATES_MAX, cutoff=_SKU_MATCH_CUTOFF
                 )
@@ -316,7 +342,8 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
                     # берём его не гадая: комбинация материал+цвет обычно
                     # даёт именно такой явный отрыв, в отличие от случая
                     # "два реальных близких варианта" (напр. одно и то же
-                    # название цвета у ПЭТ 2Д и ПЭТ 3Д) — там разница
+                    # название цвета у ПЭТ 2Д и ПЭТ 3Д, если для конкретной
+                    # детали плёнка ещё не закреплена выше) — там разница
                     # ratio() между лучшим и вторым мала, это и остаётся
                     # списком на выбор.
                     ratios = [difflib.SequenceMatcher(None, color_key, label).ratio() for label in fuzzy_labels]
@@ -338,6 +365,7 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
                     thickness=float(sku.thickness.value_mm) if sku else None,
                     quantity_pieces=line.quantity_pieces,
                     sku_candidates=sku_candidates,
+                    material_locked=material_locked,
                 )
             )
         result.append(

@@ -27,7 +27,13 @@ type ManualRowFormValues = ProductionTaskLineManualCreate & { sku_id?: number };
 // пока строка не сохранена в задание (подсказка для правки на
 // фронтенде), в схему ProductionTaskLineManualCreate не входит и на
 // бэкенд не уходит (см. manualCreateMutation.mutate ниже — обрезается).
-type ManualLine = ProductionTaskLineManualCreate & { _skuCandidates?: SkuCandidate[] };
+type ManualLine = ProductionTaskLineManualCreate & {
+  _skuCandidates?: SkuCandidate[];
+  // Раздел про закрепление плёнки за деталью — материал пришёл от
+  // Part.default_material_sku_id, не от подбора по тексту файла; чисто
+  // для подсказки на экране (не отправляется на сервер).
+  _materialLocked?: boolean;
+};
 
 /** Поля одной строки задания — общие для "Добавить вручную" (вкладка) и
  * "Изменить строку" (модалка поверх таблицы, см. editingIndex ниже):
@@ -270,6 +276,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
           strip_width_mm: l.strip_width_mm ?? undefined,
           part_name: l.part_name,
           _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
+          _materialLocked: l.material_locked,
         };
       });
       setManualLines((lines) => [...lines, ...loaded]);
@@ -327,6 +334,7 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
         // (uvicorn без --reload отдаёт старый код) или отвечает старая
         // прод-версия: не должно валить весь экран из-за одного нового поля.
         _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
+        _materialLocked: l.material_locked,
       };
     });
     setManualLines((lines) => [...lines, ...loaded]);
@@ -654,7 +662,14 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                         </Form.Item>
                       </Space>
                     ) : l.material && l.color ? (
-                      `${l.material}, ${l.color}, ${l.thickness} мм`
+                      <>
+                        {`${l.material}, ${l.color}, ${l.thickness} мм`}
+                        {l._materialLocked && (
+                          <Tag color="purple" style={{ marginLeft: 6 }}>
+                            🔒 закреплено за деталью
+                          </Tag>
+                        )}
+                      </>
                     ) : (
                       `цвет: ${l.color || "—"} (не подобран)`
                     ),
@@ -765,10 +780,10 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
                 ...v,
                 product_model_id: bomProductModelId || undefined,
                 quantity: bomForm.getFieldValue("quantity") || undefined,
-                // _skuCandidates — только подсказка для правки на фронтенде
-                // (см. тип ManualLine выше), в ProductionTaskLineManualCreate
-                // такого поля нет.
-                lines: manualLines.map(({ _skuCandidates, ...rest }) => rest),
+                // _skuCandidates/_materialLocked — только подсказка для
+                // экрана (см. тип ManualLine выше), в
+                // ProductionTaskLineManualCreate таких полей нет.
+                lines: manualLines.map(({ _skuCandidates, _materialLocked, ...rest }) => rest),
               }),
             )
             .catch(() => {});

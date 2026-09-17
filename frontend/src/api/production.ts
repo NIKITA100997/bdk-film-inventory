@@ -290,6 +290,9 @@ export interface NaryadParsedLine {
   material: string | null;
   thickness: number | null;
   sku_candidates: SkuCandidate[];
+  // Раздел про закрепление плёнки за деталью — см. одноимённое поле у
+  // BlankPlanParsedLine.
+  material_locked: boolean;
 }
 
 export interface NaryadParseResult {
@@ -334,6 +337,10 @@ export interface BlankPlanParsedLine {
   // (services.blank_plan_import.enrich_blank_plan_blocks) — показать на
   // выбор вместо того, чтобы искать заново руками с нуля.
   sku_candidates: SkuCandidate[];
+  // Раздел про закрепление плёнки за деталью — material/suggested_sku_id
+  // пришли от Part.default_material_sku_id, текст цвета из файла не
+  // смотрелся вовсе.
+  material_locked: boolean;
 }
 
 export interface BlankPlanBlock {

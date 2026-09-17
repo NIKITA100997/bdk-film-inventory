@@ -29,9 +29,9 @@ import re
 from dataclasses import dataclass, field, replace
 
 import xlrd
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from app.models.dictionaries import Part
+from app.models.dictionaries import MaterialSku, Part
 from app.services.sku_matching import build_sku_match_index, match_sku_by_color_text
 
 RASKLADKA_MARKER = "раскладка"
@@ -92,6 +92,9 @@ class ParsedNaryadLine:
     material: str | None = None
     thickness: float | None = None
     sku_candidates: list[dict] = field(default_factory=list)
+    # Раздел про закрепление плёнки за деталью — см. одноимённое поле в
+    # EnrichedBlankPlanLine (services/blank_plan_import.py).
+    material_locked: bool = False
 
 
 @dataclass(frozen=True)
@@ -419,7 +422,27 @@ def enrich_naryad_lines(db: Session, result: NaryadParseResult) -> NaryadParseRe
             if part is not None and part.strip_width_mm is not None
             else line
         )
-        if line.color_raw and sku_index is not None:
+        # Раздел про закрепление плёнки за деталью — текст цвета в скобках
+        # (color_raw) не смотрим вовсе, если у найденной детали задан
+        # default_material_sku_id: некоторые детали (ПЭТ 2Д/3Д) пишут
+        # один и тот же текст для разной по факту плёнки.
+        pinned_sku = (
+            db.query(MaterialSku)
+            .options(joinedload(MaterialSku.material), joinedload(MaterialSku.color), joinedload(MaterialSku.thickness))
+            .filter(MaterialSku.id == part.default_material_sku_id)
+            .first()
+            if part is not None and part.default_material_sku_id is not None
+            else None
+        )
+        if pinned_sku is not None:
+            line = replace(
+                line,
+                suggested_sku_id=pinned_sku.id,
+                material=pinned_sku.material.name,
+                thickness=float(pinned_sku.thickness.value_mm),
+                material_locked=True,
+            )
+        elif line.color_raw and sku_index is not None:
             sku, candidates = match_sku_by_color_text(sku_index, line.color_raw)
             if sku is not None:
                 line = replace(

@@ -69,7 +69,15 @@ class Part(Base):
     `area` — необязательная привязка к одному участку (раздел про
     привязку деталей к участку — справочник разросся за счёт нескольких
     разных наборов деталей от разных участков, PartSelect фильтрует по
-    ней), NULL — деталь общая, показывается независимо от участка."""
+    ней), NULL — деталь общая, показывается независимо от участка.
+
+    `default_material_sku_id` — раздел про закрепление плёнки за деталью:
+    материал при загрузке задания из файла обычно подбирается по тексту
+    цвета в файле (см. services/sku_matching.py), но для некоторых деталей
+    один и тот же текст ("Белый") может значить РАЗНУЮ плёнку в
+    зависимости от самой детали (реальный случай — ПЭТ 2Д/3Д, текст файла
+    их никак не различает). Когда закреплено — подбор по тексту цвета не
+    нужен вовсе, деталь всегда предлагает именно эту позицию."""
 
     __tablename__ = "parts"
 
@@ -80,7 +88,9 @@ class Part(Base):
     strip_width_mm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    default_material_sku_id: Mapped[int | None] = mapped_column(ForeignKey("material_skus.id"), nullable=True)
 
+    default_material_sku: Mapped["MaterialSku | None"] = relationship(foreign_keys=[default_material_sku_id])
     stages: Mapped[list["PartStage"]] = relationship(
         back_populates="part", order_by="PartStage.sequence_order", cascade="all, delete-orphan"
     )
