@@ -1654,10 +1654,20 @@ def adjust_unit(
     которое ВСЕГДА добавляет событие (EventType.KORREKTIROVKA), никогда
     не переписывает и не удаляет прошлое. Не завязана на статус —
     корректировать можно и На_хранении, и Выдан_участку; причина
-    обязательна (для аудита — кто и почему поправил цифру)."""
+    обязательна (для аудита — кто и почему поправил цифру).
+
+    is_strip — раздел про рулон/штрипс: автоматическая классификация
+    верна почти всегда, но ручной override той же корректировкой,
+    что и длина — отдельного действия/права заводить не стали."""
     unit = _get_storable_unit(db, unit_id)
     old_length = float(unit.length_m)
     unit.length_m = payload.actual_length_m
+    note = payload.reason if not payload.note else f"{payload.reason} — {payload.note}"
+    if payload.is_strip is not None and payload.is_strip != unit.is_strip:
+        was = "штрипс" if unit.is_strip else "рулон"
+        now = "штрипс" if payload.is_strip else "рулон"
+        note = f"{note} (тип: {was} → {now})"
+        unit.is_strip = payload.is_strip
     record_event(
         db,
         unit=unit,
@@ -1666,7 +1676,7 @@ def adjust_unit(
         quantity_delta_m=payload.actual_length_m - old_length,
         from_length=old_length,
         to_length=payload.actual_length_m,
-        write_off_note=payload.reason if not payload.note else f"{payload.reason} — {payload.note}",
+        write_off_note=note,
         occurred_at=payload.occurred_at,
     )
     db.commit()

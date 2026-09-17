@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import get_current_user
 from app.db.session import get_db
-from app.models.dictionaries import Color, Material, MaterialSku, Thickness
+from app.models.dictionaries import Color, Material, MaterialSku
 from app.models.events import MaterialEvent
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
@@ -16,24 +16,25 @@ router = APIRouter(prefix="/material-cards", tags=["material-cards"])
 
 @router.get("/by-group", response_model=MaterialCardGroupOut)
 def get_material_card_by_group(
-    material: str, color: str, thickness: float, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    material: str, color: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> MaterialCardGroupOut:
-    """Карточка материала по группе материал+цвет+толщина (раздел про
-    производителя внутри карточки материала, не отдельным измерением) —
-    зеркалит get_material_card ниже, только по нескольким SKU (по одному
-    на производителя) сразу, а не по одному sku_id."""
+    """Карточка материала по группе материал+цвет (раздел про
+    производителя/толщину внутри карточки материала, не отдельным
+    измерением — толщина оказалась не настолько важна, чтобы дробить по
+    ней карточку, ровно как раньше уже сделали с производителем) —
+    зеркалит get_material_card ниже, только по нескольким SKU (по одной
+    на каждую пару производитель+толщина) сразу, а не по одному sku_id."""
     skus = (
         db.query(MaterialSku)
         .join(Material, MaterialSku.material_id == Material.id)
         .join(Color, MaterialSku.color_id == Color.id)
-        .join(Thickness, MaterialSku.thickness_id == Thickness.id)
         .options(
             joinedload(MaterialSku.material),
             joinedload(MaterialSku.color),
             joinedload(MaterialSku.thickness),
             joinedload(MaterialSku.manufacturer),
         )
-        .filter(Material.name == material, Color.name == color, Thickness.value_mm == thickness)
+        .filter(Material.name == material, Color.name == color)
         .all()
     )
     if not skus:
@@ -71,7 +72,6 @@ def get_material_card_by_group(
     return MaterialCardGroupOut(
         material=material,
         color=color,
-        thickness=thickness,
         skus=skus,
         total_area_m2=total_area_m2,
         units=units_out,

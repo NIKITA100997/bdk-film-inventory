@@ -409,6 +409,9 @@ export interface UnitAdjustRequest {
   reason: string;
   note?: string;
   occurred_at?: string;
+  // Раздел про рулон/штрипс — ручной override автоматической
+  // классификации; не указано — не трогать текущее значение.
+  is_strip?: boolean;
 }
 
 export async function adjustUnit(unitId: number, payload: UnitAdjustRequest): Promise<MaterialUnit> {

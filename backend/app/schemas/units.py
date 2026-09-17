@@ -413,12 +413,18 @@ class ReturnRequest(BaseModel):
 class UnitAdjustRequest(BaseModel):
     """Формальная корректировка length_m — раздел про ревизию путей
     плёнки/п/ф: поднадзорное действие вместо правки истории напрямую в
-    БД, причина обязательна."""
+    БД, причина обязательна.
+
+    is_strip — раздел про рулон/штрипс: автоматическая классификация
+    (ширина/история резов и списаний, см. units.py) верна почти всегда,
+    но ручной override остаётся нужен на редкие случаи, которые она не
+    предвидит. None — не трогать текущее значение."""
 
     actual_length_m: float = Field(ge=0)
     reason: str
     note: str | None = None
     occurred_at: OccurredAt = None
+    is_strip: bool | None = None
 
 
 class ReturnPreviewOut(BaseModel):

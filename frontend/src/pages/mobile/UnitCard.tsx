@@ -12,6 +12,7 @@ import {
   List,
   Space,
   Modal,
+  Radio,
   Select,
   message,
 } from "antd";
@@ -130,7 +131,7 @@ export default function UnitCard() {
   const [placeForm] = Form.useForm<{ location_code: string }>();
   const [returnForm] = Form.useForm<{ actual_length_m: number }>();
   const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
-  const [adjustForm] = Form.useForm<{ actual_length_m: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
+  const [adjustForm] = Form.useForm<{ actual_length_m: number; reason: string; note?: string; occurred_at?: Dayjs | null; is_strip?: boolean }>();
   const [transferWarehouseId, setTransferWarehouseId] = useState<number>();
   // Раздел про сверку рулонов в карточке единицы — раньше карточка
   // показывала только "Выдан участку", без ответа на "по какому заданию,
@@ -329,7 +330,7 @@ export default function UnitCard() {
   });
 
   const adjustMutation = useMutation({
-    mutationFn: (values: { actual_length_m: number; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
+    mutationFn: (values: { actual_length_m: number; reason: string; note?: string; occurred_at?: Dayjs | null; is_strip?: boolean }) =>
       adjustUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
     onSuccess: (u) => {
       setUnit(u);
@@ -471,7 +472,7 @@ export default function UnitCard() {
                         key={a}
                         size="large"
                         onClick={() => {
-                          adjustForm.setFieldsValue({ actual_length_m: unit.length_m });
+                          adjustForm.setFieldsValue({ actual_length_m: unit.length_m, is_strip: unit.is_strip });
                           setAdjustOpen(true);
                         }}
                       >
@@ -733,6 +734,18 @@ export default function UnitCard() {
         <Form form={adjustForm} layout="vertical" onFinish={(v) => adjustMutation.mutate(v)}>
           <Form.Item name="actual_length_m" label="Фактическая длина, м" rules={[{ required: true }]}>
             <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
+          {/* Раздел про рулон/штрипс — ручной override автоматической
+              классификации (ширина/история резов и списаний почти всегда
+              верна сама, но редкий случай поправить можно и здесь). */}
+          <Form.Item name="is_strip" label="Тип">
+            <Radio.Group
+              options={[
+                { label: "Рулон", value: false },
+                { label: "Штрипс", value: true },
+              ]}
+              optionType="button"
+            />
           </Form.Item>
           <Form.Item name="reason" label="Причина" rules={[{ required: true, message: "Укажите причину корректировки" }]}>
             <Input placeholder="Например: опечатка при вводе остатка" />

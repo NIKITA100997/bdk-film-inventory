@@ -28,21 +28,20 @@ export async function getMaterialCard(skuId: number): Promise<MaterialCard> {
   return data;
 }
 
-// Раздел про производителя внутри карточки материала (не отдельным
-// измерением) — карточка теперь по группе материал+цвет+толщина, skus —
-// все производители этой группы сразу (каждый со своими код-у-поставщика/
-// родная-ширина/фото/аналоги).
+// Раздел про производителя/толщину внутри карточки материала (не
+// отдельным измерением) — карточка теперь по группе материал+цвет, skus —
+// все производители и толщины этой группы сразу (каждый со своими
+// толщиной/код-у-поставщика/родная-ширина/фото/аналоги).
 export interface MaterialCardGroup {
   material: string;
   color: string;
-  thickness: number;
   skus: MaterialSku[];
   total_area_m2: number;
   units: MaterialUnit[];
   events: MaterialEvent[];
 }
 
-export async function getMaterialCardByGroup(material: string, color: string, thickness: number): Promise<MaterialCardGroup> {
-  const { data } = await apiClient.get<MaterialCardGroup>("/material-cards/by-group", { params: { material, color, thickness } });
+export async function getMaterialCardByGroup(material: string, color: string): Promise<MaterialCardGroup> {
+  const { data } = await apiClient.get<MaterialCardGroup>("/material-cards/by-group", { params: { material, color } });
   return data;
 }
