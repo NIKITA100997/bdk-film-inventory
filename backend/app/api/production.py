@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT
@@ -356,7 +356,18 @@ def _line_issued_units_map(db: Session, line_ids: list[int]) -> dict[int, list[M
         db.query(MaterialUnit)
         .filter(
             MaterialUnit.production_task_line_id.in_(line_ids),
-            MaterialUnit.status.in_([UnitStatus.VYDAN_UCHASTKU, UnitStatus.V_PEREMESHCHENII, UnitStatus.NA_KHRANENII]),
+            # Раздел про цепочку выдан→на_хранении — На_хранении сюда
+            # попадает ТОЛЬКО пока area ещё указан (хаб принял, участку
+            # только предстоит локальная довыдача, см. receive_transfer_line
+            # и тот же признак physically_at_area в
+            # _task_borrowable_and_shortfall ниже). Настоящий возврат
+            # (return_unit, area=None) — рулон реально ушёл на склад,
+            # раньше оставался в issued_units навсегда и продолжал
+            # предлагаться в отчёте как будто всё ещё у участка.
+            or_(
+                MaterialUnit.status.in_([UnitStatus.VYDAN_UCHASTKU, UnitStatus.V_PEREMESHCHENII]),
+                and_(MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.area.isnot(None)),
+            ),
         )
         .all()
     )

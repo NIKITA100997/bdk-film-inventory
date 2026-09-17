@@ -51,6 +51,10 @@ export default function RollReconciliationTab() {
   const canWriteOff = !!user?.is_superuser || !!user?.permissions.includes("units.writeoff");
 
   const [bucket, setBucket] = useState<Bucket>("all");
+  // Раздел про поиск в сверке рулонов — список легко разрастается до
+  // сотен строк (выданные+возвращённые рулоны за всю историю участка),
+  // найти конкретный рулон/деталь/задание пролистыванием неудобно.
+  const [search, setSearch] = useState("");
   const [linkTarget, setLinkTarget] = useState<ReconciliationRow | null>(null);
   const [legacyTarget, setLegacyTarget] = useState<ReconciliationRow | null>(null);
   const [returnTarget, setReturnTarget] = useState<ReconciliationRow | null>(null);
@@ -89,7 +93,23 @@ export default function RollReconciliationTab() {
     no_report: rows.filter((r) => bucketOf(r) === "no_report").length,
     legacy: rows.filter((r) => bucketOf(r) === "legacy").length,
   };
-  const shownRows = bucket === "all" ? rows : rows.filter((r) => bucketOf(r) === bucket);
+  const bucketRows = bucket === "all" ? rows : rows.filter((r) => bucketOf(r) === bucket);
+  const searchNeedle = search.trim().toLowerCase();
+  const shownRows = searchNeedle
+    ? bucketRows.filter((r) => {
+        const haystack = [
+          String(r.unit_id),
+          String(r.width_mm),
+          r.task_label ?? "",
+          r.legacy_task_note ?? "",
+          r.location_code ?? "",
+          areaLabel(r.area),
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(searchNeedle);
+      })
+    : bucketRows;
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["units-reconciliation", AREA] });
 
@@ -154,6 +174,13 @@ export default function RollReconciliationTab() {
             {label}
           </Button>
         ))}
+        <Input.Search
+          allowClear
+          placeholder="Поиск — № рулона, деталь, задание, ячейка…"
+          style={{ width: 280 }}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
       </Space>
 
       <Table
