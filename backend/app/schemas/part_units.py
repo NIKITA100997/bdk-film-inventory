@@ -27,6 +27,9 @@ class PartUnitCreate(BaseModel):
     # Раздел про учёт п/ф по FIFO — тот же приём "задним числом", что и
     # stage_id: None = сегодня.
     manufactured_at: date | None = None
+    # Раздел про совместимость с плёнкой — код из PartFilmRestriction,
+    # только видимая пометка на партии (см. модель PartUnit.film_restriction).
+    film_restriction: str | None = None
 
 
 class PartUnitPlace(BaseModel):
@@ -55,6 +58,10 @@ class PartUnitAdjust(BaseModel):
     actual_quantity_pieces: float = Field(ge=0)
     reason: str
     note: str | None = None
+    # Раздел про совместимость с плёнкой — можно проставить/поправить
+    # пометку заодно с корректировкой количества, без пересоздания партии.
+    film_restriction: str | None = None
+    clear_film_restriction: bool = False
 
 
 class PartUnitAdvance(BaseModel):
@@ -90,6 +97,7 @@ class PartUnitOut(BaseModel):
     location_code: str | None
     production_task_line_id: int | None
     note: str | None
+    film_restriction: str | None
     created_by: int
     manufactured_at: date
     created_at: datetime

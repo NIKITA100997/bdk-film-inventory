@@ -23,6 +23,10 @@ export interface PartUnit {
   location_code: string | null;
   production_task_line_id: number | null;
   note: string | null;
+  // Раздел про совместимость с плёнкой — код из справочника
+  // PartFilmRestriction ("ламис"/"с кромкой"/"аляска" и т.п.), только
+  // видимая пометка на партии, не участвует в подборе по FIFO.
+  film_restriction: string | null;
   created_by: number;
   // Раздел про учёт п/ф по FIFO — дата изготовления (не дата записи в
   // систему), по ней партии теперь расходуются автоматически при
@@ -48,6 +52,9 @@ export interface PartUnitCreate {
   // физически изготовлена раньше, чем заводится в систему. Не задано —
   // сегодня.
   manufactured_at?: string | null;
+  // Раздел про совместимость с плёнкой — код из справочника
+  // PartFilmRestriction, если у этой конкретной партии есть ограничение.
+  film_restriction?: string | null;
 }
 
 export interface PartUnitEvent {
@@ -114,5 +121,11 @@ export const returnPartUnit = async (id: number, actualQuantityPieces: number): 
 // действие, всегда добавляет событие, причина обязательна.
 export const adjustPartUnit = async (
   id: number,
-  payload: { actual_quantity_pieces: number; reason: string; note?: string },
+  payload: {
+    actual_quantity_pieces: number;
+    reason: string;
+    note?: string;
+    film_restriction?: string | null;
+    clear_film_restriction?: boolean;
+  },
 ): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${id}/adjust`, payload)).data;

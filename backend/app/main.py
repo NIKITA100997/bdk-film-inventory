@@ -31,6 +31,7 @@ from app.api.units import router as units_router
 from app.api.users import router as users_router
 from app.api.width_analogs import router as width_analogs_router
 from app.api.write_off_reasons import router as write_off_reasons_router
+from app.api.part_film_restrictions import router as part_film_restrictions_router
 from app.core.config import settings
 
 app = FastAPI(title="БДК — учёт плёнки")
@@ -90,6 +91,7 @@ app.include_router(inventory_router, prefix=API_PREFIX)
 app.include_router(material_cards_router, prefix=API_PREFIX)
 app.include_router(production_router, prefix=API_PREFIX)
 app.include_router(part_units_router, prefix=API_PREFIX)
+app.include_router(part_film_restrictions_router, prefix=API_PREFIX)
 app.include_router(part_storage_router, prefix=API_PREFIX)
 app.include_router(part_labels_router, prefix=API_PREFIX)
 app.include_router(abc_router, prefix=API_PREFIX)

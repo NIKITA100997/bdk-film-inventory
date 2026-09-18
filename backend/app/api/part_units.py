@@ -54,6 +54,7 @@ def _part_unit_out(unit: PartUnit, reported_good_pieces: float = 0.0) -> PartUni
         location_code=unit.location_code,
         production_task_line_id=unit.production_task_line_id,
         note=unit.note,
+        film_restriction=unit.film_restriction,
         created_by=unit.created_by,
         manufactured_at=unit.manufactured_at,
         created_at=unit.created_at,
@@ -114,6 +115,7 @@ def create_part_unit(
             note=payload.note,
             stage_id=payload.stage_id,
             manufactured_at=payload.manufactured_at,
+            film_restriction=payload.film_restriction,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
@@ -243,6 +245,7 @@ def adjust_part_unit_endpoint(
     adjust_part_unit(
         db, unit=unit, actual_quantity_pieces=payload.actual_quantity_pieces,
         reason=payload.reason, user_id=user.id, note=payload.note,
+        film_restriction=payload.film_restriction, clear_film_restriction=payload.clear_film_restriction,
     )
     db.commit()
     db.refresh(unit)

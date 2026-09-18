@@ -24,8 +24,70 @@ import { listAreas } from "../../../api/areas";
 import { listParts, type Part } from "../../../api/dictionaries";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { placePartUnit } from "../../../api/partStorage";
+import { listPartFilmRestrictions, createPartFilmRestriction } from "../../../api/partFilmRestrictions";
 import { listUsers } from "../../../api/users";
 import { useAuth } from "../../../auth/AuthContext";
+
+const NEW_FILM_RESTRICTION = "__new__";
+
+/** Раздел про совместимость с плёнкой ("ламис"/"с кромкой"/"аляска" и
+ * т.п.) — пометка на конкретной партии, список видов заранее не
+ * зафиксирован (пользователь сам решил, что будет расширять), поэтому
+ * выпадающий список умеет заводить новый вариант тут же, без отдельного
+ * экрана администрирования. Управляемый компонент (value/onChange),
+ * чтобы Form.Item мог использовать его как обычное поле формы. */
+function FilmRestrictionPicker({ value, onChange }: { value?: string | null; onChange?: (v: string | null) => void }) {
+  const qc = useQueryClient();
+  const [creating, setCreating] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const restrictionsQuery = useQuery({ queryKey: ["part-film-restrictions"], queryFn: listPartFilmRestrictions });
+  const createMutation = useMutation({
+    mutationFn: (name: string) => createPartFilmRestriction(name),
+    onSuccess: (created) => {
+      qc.invalidateQueries({ queryKey: ["part-film-restrictions"] });
+      onChange?.(created.code);
+      setCreating(false);
+      setDraftName("");
+    },
+    onError: () => message.error("Не удалось добавить — такое название уже есть?"),
+  });
+  return (
+    <>
+      <Select
+        allowClear
+        placeholder="Без ограничений"
+        value={value ?? undefined}
+        onChange={(v) => {
+          if (v === NEW_FILM_RESTRICTION) {
+            setCreating(true);
+            return;
+          }
+          onChange?.(v ?? null);
+        }}
+        options={[
+          ...(restrictionsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name })),
+          { value: NEW_FILM_RESTRICTION, label: "+ Добавить новую пометку…" },
+        ]}
+      />
+      <Modal
+        title="Новая пометка совместимости с плёнкой"
+        open={creating}
+        onCancel={() => setCreating(false)}
+        onOk={() => draftName.trim() && createMutation.mutate(draftName.trim())}
+        okButtonProps={{ loading: createMutation.isPending, disabled: !draftName.trim() }}
+        destroyOnHidden
+      >
+        <Input
+          autoFocus
+          placeholder="Например: Ламис (толстые плёнки)"
+          value={draftName}
+          onChange={(e) => setDraftName(e.target.value)}
+          onPressEnter={() => draftName.trim() && createMutation.mutate(draftName.trim())}
+        />
+      </Modal>
+    </>
+  );
+}
 
 const STATUS_LABEL: Record<PartUnitStatus, string> = {
   На_хранении: "На хранении",
@@ -48,6 +110,9 @@ interface MintFormValues {
   // Раздел про учёт п/ф по FIFO — не задано = сегодня (бэкенд сам
   // подставит), задаётся только для регистрации задним числом.
   manufactured_at?: Dayjs;
+  // Раздел про совместимость с плёнкой — код из справочника
+  // PartFilmRestriction, если у этой партии есть ограничение.
+  film_restriction?: string | null;
 }
 
 /** Учёт производства деталей (раздел про физический учёт деталей, пилот:
@@ -118,7 +183,10 @@ export default function PartUnits() {
   const areaLabel = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : "—");
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
   const reasonsQuery = useQuery({ queryKey: ["write-off-reasons", "parts"], queryFn: () => listWriteOffReasons("parts") });
+  const filmRestrictionsQuery = useQuery({ queryKey: ["part-film-restrictions"], queryFn: listPartFilmRestrictions });
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
+  const restrictionName = (code: string | null) =>
+    code ? (filmRestrictionsQuery.data?.find((r) => r.code === code)?.name ?? code) : null;
 
   // Карта stage_id -> имя этапа, по всем деталям сразу (для карточки
   // партии — там встречаются from/to этапы события, которые могут не
@@ -167,6 +235,7 @@ export default function PartUnits() {
         note: v.note,
         stage_id: v.stage_id,
         manufactured_at: v.manufactured_at ? v.manufactured_at.format("YYYY-MM-DD") : undefined,
+        film_restriction: v.film_restriction,
       });
     },
     onSuccess: () => {
@@ -236,7 +305,12 @@ export default function PartUnits() {
   });
 
   const adjustMutation = useMutation({
-    mutationFn: (v: { actual_quantity_pieces: number; reason: string; note?: string }) => adjustPartUnit(adjustTarget!.id, v),
+    mutationFn: (v: { actual_quantity_pieces: number; reason: string; note?: string; film_restriction?: string | null }) =>
+      adjustPartUnit(adjustTarget!.id, {
+        ...v,
+        film_restriction: v.film_restriction ?? undefined,
+        clear_film_restriction: !v.film_restriction && !!adjustTarget?.film_restriction,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
       message.success("Количество скорректировано");
@@ -326,6 +400,13 @@ export default function PartUnits() {
             </Form.Item>
             <Form.Item name="issue" valuePropName="checked" initialValue={false}>
               <Checkbox>Сразу выдать участку (участок — из выбранного этапа)</Checkbox>
+            </Form.Item>
+            <Form.Item
+              name="film_restriction"
+              label="Ограничение по плёнке (опционально)"
+              extra="Эта конкретная партия окутывается только определённым видом плёнки (например, с кромкой — только ПЭТ 2Д/3Д) — пометка видна на партии, подбор плёнки в задание она не блокирует."
+            >
+              <FilmRestrictionPicker />
             </Form.Item>
             <Form.Item name="note" label="Заметка (опционально)">
               <Input />
@@ -422,6 +503,12 @@ export default function PartUnits() {
               render: (_, u) => <Tag color={STATUS_TAG_COLOR[u.status]}>{STATUS_LABEL[u.status]}</Tag>,
             },
             { title: "Место", width: 100, ellipsis: true, render: (_, u) => u.location_code ?? "—" },
+            {
+              title: "Плёнка",
+              width: 130,
+              ellipsis: true,
+              render: (_, u) => (u.film_restriction ? <Tag color="orange">{restrictionName(u.film_restriction)}</Tag> : "—"),
+            },
             { title: "Участок", width: 130, ellipsis: true, render: (_, u) => areaLabel(u.area) },
             { title: "Задание", width: 220, ellipsis: true, render: (_, u) => taskLineLabel(u.production_task_line_id) },
             {
@@ -646,7 +733,7 @@ export default function PartUnits() {
         <Form
           layout="vertical"
           form={adjustForm}
-          initialValues={{ actual_quantity_pieces: adjustTarget?.quantity_pieces }}
+          initialValues={{ actual_quantity_pieces: adjustTarget?.quantity_pieces, film_restriction: adjustTarget?.film_restriction }}
           onFinish={(v) => adjustMutation.mutate(v)}
         >
           <Form.Item name="actual_quantity_pieces" label="Фактическое количество, шт" rules={[{ required: true }]}>
@@ -657,6 +744,9 @@ export default function PartUnits() {
           </Form.Item>
           <Form.Item name="note" label="Заметка (опционально)">
             <Input />
+          </Form.Item>
+          <Form.Item name="film_restriction" label="Ограничение по плёнке (опционально)">
+            <FilmRestrictionPicker />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={adjustMutation.isPending}>
             Скорректировать
@@ -726,6 +816,14 @@ export default function PartUnits() {
                   <b>{taskLineLabel(cardTarget.production_task_line_id)}</b>
                 </div>
               </div>
+              {cardTarget.film_restriction && (
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <Typography.Text type="secondary">Ограничение по плёнке</Typography.Text>
+                  <div>
+                    <Tag color="orange" style={{ marginTop: 2 }}>{restrictionName(cardTarget.film_restriction)}</Tag>
+                  </div>
+                </div>
+              )}
               {cardTarget.note && (
                 <div style={{ gridColumn: "1 / -1" }}>
                   <Typography.Text type="secondary">Заметка</Typography.Text>

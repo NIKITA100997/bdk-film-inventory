@@ -77,6 +77,7 @@ def mint_part_unit(
     note: str | None = None,
     stage_id: int | None = None,
     manufactured_at: date | None = None,
+    film_restriction: str | None = None,
 ) -> PartUnit:
     """Регистрация факта нарезки партии (начальник цеха) — по умолчанию
     рождается на первом этапе детали (sequence_order=1). Деталь без
@@ -116,6 +117,7 @@ def mint_part_unit(
         area=start_stage.area if issue else None,
         production_task_line_id=production_task_line_id,
         note=note,
+        film_restriction=film_restriction,
         created_by=user_id,
     )
     db.add(unit)
@@ -392,7 +394,15 @@ def return_part_unit(db: Session, *, unit: PartUnit, actual_quantity_pieces: flo
 
 
 def adjust_part_unit(
-    db: Session, *, unit: PartUnit, actual_quantity_pieces: float, reason: str, user_id: int, note: str | None = None
+    db: Session,
+    *,
+    unit: PartUnit,
+    actual_quantity_pieces: float,
+    reason: str,
+    user_id: int,
+    note: str | None = None,
+    film_restriction: str | None = None,
+    clear_film_restriction: bool = False,
 ) -> PartUnit:
     """Формальная корректировка quantity_pieces — раздел про ревизию
     путей плёнки/п/ф: вместо правки истории напрямую в БД (так в этой же
@@ -401,15 +411,29 @@ def adjust_part_unit(
     действие, которое ВСЕГДА добавляет событие, никогда не переписывает
     и не удаляет прошлое. Не завязана на статус — корректировать можно и
     На_хранении, и Выдан_участку, причина обязательна (для аудита, кто и
-    почему поправил цифру)."""
+    почему поправил цифру).
+
+    film_restriction/clear_film_restriction — раздел про совместимость с
+    плёнкой: пометку на партии ("ламис"/"с кромкой" и т.п.) можно
+    проставить или снять заодно с корректировкой количества, тем же
+    событием — clear_film_restriction нужен отдельным флагом, иначе
+    "не передали поле" и "явно снять пометку" неразличимы (None в обоих
+    случаях)."""
     old_quantity = float(unit.quantity_pieces)
     unit.quantity_pieces = actual_quantity_pieces
+    restriction_note = ""
+    if clear_film_restriction and unit.film_restriction is not None:
+        restriction_note = " (пометка плёнки снята)"
+        unit.film_restriction = None
+    elif film_restriction is not None and film_restriction != unit.film_restriction:
+        restriction_note = f" (пометка плёнки: {film_restriction})"
+        unit.film_restriction = film_restriction
     record_part_event(
         db,
         unit=unit,
         event_type=PartEventType.KORREKTIROVKA,
         user_id=user_id,
         quantity_delta=actual_quantity_pieces - old_quantity,
-        note=reason if not note else f"{reason} — {note}",
+        note=(reason if not note else f"{reason} — {note}") + restriction_note,
     )
     return unit

@@ -23,6 +23,7 @@ from app.models.production import (
     ProductionTaskLineReport,
 )
 from app.models.part_units import PartUnit, PartUnitStatus, PartUnitEvent, PartEventType
+from app.models.part_film_restrictions import PartFilmRestriction
 from app.models.width_analogs import WidthAnalogGroup, WidthAnalogMember
 
 __all__ = [
@@ -73,4 +74,5 @@ __all__ = [
     "PartUnitStatus",
     "PartUnitEvent",
     "PartEventType",
+    "PartFilmRestriction",
 ]

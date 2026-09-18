@@ -57,6 +57,14 @@ class PartUnit(Base):
     )
 
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Раздел про совместимость с плёнкой (пометка "ламис"/"с кромкой"/
+    # "аляска" и т.п.) — только видимая пометка на партии, см.
+    # PartFilmRestriction; не участвует в подборе по FIFO.
+    film_restriction: Mapped[str | None] = mapped_column(
+        ForeignKey("part_film_restrictions.code"), nullable=True
+    )
+
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
 
     # Раздел про учёт п/ф по FIFO — отдельно от created_at (момент записи
