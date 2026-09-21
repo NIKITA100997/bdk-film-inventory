@@ -3,14 +3,83 @@ import { useLocation } from "react-router-dom";
 import { Card, Space, Typography, Button, Modal, Form, Input, InputNumber, Tag, message } from "antd";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { createPartRack, getPartRackOccupancy, listPartRacks, type PartRackOccupancyCell } from "../../api/partStorage";
+import { createPartRack, getPartRackOccupancy, listPartRacks, placePartUnit, type PartRackOccupancyCell } from "../../api/partStorage";
+import { listPartUnits, type PartUnit } from "../../api/partUnits";
 import { printPartRackLabel, printPartShelfLabelsBatch, printPartUnitLabelsBatch } from "../../api/partLabels";
 import PrintFormatButton from "../../components/PrintFormatButton";
+import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
   return fallback;
+}
+
+/** Без адреса (раздел про адресное хранение деталей) — зеркалит
+ * UnplacedUnitsCard у плёнки (StorageMap.tsx): партии физически на
+ * хранении/выданы участку, но без ячейки — зависли посреди регистрации,
+ * либо задним числом заведены без места (см. ввод остатков п/ф).
+ * Списанные (SPISAN) сюда не попадают — им адрес уже не нужен. Без
+ * подсказки места (в отличие от плёнки) — у п/ф пока нет автоподбора
+ * ячейки по составу/типу, только ручной ввод, тот же, что и в "Учёт п/ф". */
+function UnplacedPartUnitsCard({ areaLabel }: { areaLabel: (code: string | null) => string | null }) {
+  const qc = useQueryClient();
+  const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
+  const unplaced = (unitsQuery.data ?? []).filter((u) => !u.location_code && u.status !== "Списан");
+  if (unplaced.length === 0) return null;
+
+  return (
+    <Card size="small" style={{ background: "#FBEAE7", borderColor: "#E3B5AC", marginBottom: 16 }} title={`⚠️ Без адреса: ${unplaced.length}`}>
+      <Space direction="vertical" style={{ width: "100%" }} size={6}>
+        {unplaced.map((u) => (
+          <UnplacedPartUnitRow key={u.id} unit={u} areaLabel={areaLabel} onPlaced={() => qc.invalidateQueries({ queryKey: ["part-units"] })} />
+        ))}
+      </Space>
+    </Card>
+  );
+}
+
+function UnplacedPartUnitRow({
+  unit,
+  areaLabel,
+  onPlaced,
+}: {
+  unit: PartUnit;
+  areaLabel: (code: string | null) => string | null;
+  onPlaced: () => void;
+}) {
+  const [locationCode, setLocationCode] = useState("");
+  const placeMutation = useMutation({
+    mutationFn: (code: string) => placePartUnit(unit.id, code),
+    onSuccess: () => {
+      message.success("Партия размещена");
+      onPlaced();
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось разместить")),
+  });
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <Typography.Text strong>№{unit.id}</Typography.Text>
+      <Typography.Text>{unit.part_name}</Typography.Text>
+      <Typography.Text type="secondary">{unit.quantity_pieces} шт</Typography.Text>
+      <Tag style={{ margin: 0 }}>{unit.stage_name}</Tag>
+      {unit.area && (
+        <Tag color="blue" style={{ margin: 0 }}>
+          {areaLabel(unit.area)}
+        </Tag>
+      )}
+      <Input
+        size="small"
+        placeholder="Код ячейки"
+        style={{ width: 140 }}
+        value={locationCode}
+        onChange={(e) => setLocationCode(e.target.value)}
+      />
+      <Button size="small" type="primary" loading={placeMutation.isPending} disabled={!locationCode.trim()} onClick={() => placeMutation.mutate(locationCode.trim())}>
+        Разместить
+      </Button>
+    </div>
+  );
 }
 
 /** Стеллажи п/ф (раздел про адресное хранение деталей) — упрощённая
@@ -43,6 +112,9 @@ export default function PartStorage() {
       }
     }
   }, [location.state]);
+
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaLabel = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : null);
 
   const racksQuery = useQuery({ queryKey: ["part-racks"], queryFn: () => listPartRacks() });
   const activeRacks = (racksQuery.data ?? []).filter((r) => r.is_active);
@@ -82,6 +154,7 @@ export default function PartStorage() {
   if (!racksQuery.isLoading && activeRacks.length === 0) {
     return (
       <Card>
+        <UnplacedPartUnitsCard areaLabel={areaLabel} />
         <Typography.Title level={4}>Стеллажи п/ф</Typography.Title>
         <Typography.Paragraph type="secondary">Стеллажи ещё не заведены.</Typography.Paragraph>
         {canManage && (
@@ -114,6 +187,7 @@ export default function PartStorage() {
 
   return (
     <Card>
+      <UnplacedPartUnitsCard areaLabel={areaLabel} />
       <Space style={{ width: "100%", justifyContent: "space-between", marginBottom: 16 }} wrap>
         <Typography.Title level={4} style={{ margin: 0 }}>
           Стеллажи п/ф
@@ -219,6 +293,15 @@ export default function PartStorage() {
                               <Typography.Text>{u.part_name}</Typography.Text>
                               <Typography.Text type="secondary">{u.quantity_pieces} шт</Typography.Text>
                               <Tag style={{ margin: 0 }}>{u.stage_name}</Tag>
+                              {/* Раздел про совместимость area+location_code у п/ф — партия на
+                                  стеллаже может одновременно числиться выданной участку
+                                  (запас, из которого мастер расходует по отчётам), это
+                                  нужно видеть прямо на карте, не только в "Учёт п/ф". */}
+                              {u.area && (
+                                <Tag color="blue" style={{ margin: 0 }}>
+                                  {areaLabel(u.area)}
+                                </Tag>
+                              )}
                             </div>
                           ))
                         ) : (
