@@ -31,6 +31,7 @@ import PartsAdmin from "./pages/desktop/PartsAdmin";
 import ProductionLines from "./pages/desktop/ProductionLines";
 import PartUnits from "./pages/desktop/production/PartUnits";
 import PartInventory from "./pages/desktop/production/PartInventory";
+import PartCard from "./pages/desktop/production/PartCard";
 import AreaAdmin from "./pages/desktop/AreaAdmin";
 import DeletionRequests from "./pages/desktop/DeletionRequests";
 
@@ -169,6 +170,14 @@ export default function AppRoutes() {
           element={
             <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
               <PartUnits />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/part-card"
+          element={
+            <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
+              <PartCard />
             </RequirePermission>
           }
         />

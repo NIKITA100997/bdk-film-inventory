@@ -106,6 +106,7 @@ export default function PartStock() {
         dataSource={filtered}
         pagination={{ pageSize: 30 }}
         scroll={{ x: "max-content" }}
+        onRow={(g) => ({ onClick: () => navigate("/part-card", { state: { partId: g.partId } }), style: { cursor: "pointer" } })}
         summary={() => (
           <Table.Summary.Row>
             <Table.Summary.Cell index={0}>
@@ -158,7 +159,13 @@ export default function PartStock() {
             title: "",
             width: 90,
             render: (_, g) => (
-              <Button size="small" onClick={() => navigate("/part-units", { state: { partFilter: g.partName } })}>
+              <Button
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate("/part-units", { state: { partFilter: g.partName } });
+                }}
+              >
                 Партии →
               </Button>
             ),
