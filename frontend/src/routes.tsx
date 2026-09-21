@@ -12,6 +12,7 @@ import InitialStock from "./pages/mobile/InitialStock";
 
 import MaterialInventory from "./pages/desktop/MaterialInventory";
 import MaterialCard from "./pages/desktop/MaterialCard";
+import GeneralStock from "./pages/desktop/GeneralStock";
 import Reports from "./pages/desktop/Reports";
 import Defects from "./pages/desktop/Defects";
 import ActionLog from "./pages/desktop/ActionLog";
@@ -77,6 +78,10 @@ export default function AppRoutes() {
         поэтому доступ держим таким же широким, как у самого /stock. */}
         <Route path="/stock" element={<MaterialInventory defaultView="list" />} />
         <Route path="/materials" element={<MaterialCard />} />
+        {/* Раздел 6 плана «Детали/П/ф остатки» — сквозной ERP-справочник
+        по всем доменам сразу, виден так же широко, как сам /stock (сам
+        экран внутри уже сужает п/ф-часть по part_units.view/manage). */}
+        <Route path="/general-stock" element={<GeneralStock />} />
 
         <Route
           path="/reports"
