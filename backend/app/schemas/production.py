@@ -197,6 +197,14 @@ class ProductionTaskLineReportCreate(BaseModel):
     good_pieces: float = Field(ge=0)
     defect_pieces: float = Field(ge=0)
     defect_reason: str | None = None
+    # Раздел про переработку брака — по умолчанию списывается насовсем
+    # ("spisat"), как раньше; "pererabotka" резервирует брак (статус
+    # В_переработку) вместо необратимого списания, забрать в готовую
+    # деталь можно позже действием "Переработать в деталь"
+    # (POST /part-units/recycle). Значимо только при FIFO-пути
+    # (has_part_unit_stock — см. create_task_line_report), для детали без
+    # физического учёта резерва нет смысла — там как обычно списывается.
+    defect_disposition: str = "spisat"
     note: str | None = None
     # Раздел про доп. рулон на ту же строку (двусторонние детали — один и
     # тот же комплект деталей физически расходует НЕСКОЛЬКО рулонов

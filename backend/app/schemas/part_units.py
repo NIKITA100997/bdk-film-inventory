@@ -64,6 +64,19 @@ class PartUnitAdjust(BaseModel):
     clear_film_restriction: bool = False
 
 
+class PartUnitRecycle(BaseModel):
+    """"Переработать в деталь" — раздел про переработку брака: забрать
+    резерв (статус В_переработку) детали source_part_id по FIFO и
+    заминтить новую партию ДРУГОЙ детали target_part_id сразу на её
+    этапе «Окутка» (см. recycle_part_units_fifo)."""
+
+    source_part_id: int
+    area: str
+    quantity_pieces: float = Field(gt=0)
+    target_part_id: int
+    note: str | None = None
+
+
 class PartUnitAdvance(BaseModel):
     """Перевод партии на следующий этап напрямую (раздел про мобильный
     скан-сценарий по этапам) — в отличие от отчёта мастера
@@ -116,6 +129,9 @@ class PartUnitEventOut(BaseModel):
     area: str | None
     write_off_reason: str | None
     write_off_note: str | None
+    # Раздел про переработку брака — на событии "Переработка" партии-
+    # источника: id новой партии, в которую она переработалась.
+    related_part_unit_id: int | None
     user_id: int
     occurred_at: datetime
     note: str | None

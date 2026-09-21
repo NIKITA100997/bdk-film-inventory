@@ -15,6 +15,7 @@ import {
   advancePartUnit,
   returnPartUnit,
   adjustPartUnit,
+  recyclePartUnits,
   listPartUnitEvents,
   type PartUnit,
   type PartUnitStatus,
@@ -93,12 +94,14 @@ const STATUS_LABEL: Record<PartUnitStatus, string> = {
   На_хранении: "На хранении",
   Выдан_участку: "Выдан участку",
   Списан: "Списан",
+  В_переработку: "В переработку",
 };
 
 const STATUS_TAG_COLOR: Record<PartUnitStatus, string> = {
   На_хранении: "blue",
   Выдан_участку: "green",
   Списан: "red",
+  В_переработку: "purple",
 };
 
 interface MintFormValues {
@@ -159,6 +162,15 @@ export default function PartUnits() {
   const [returnForm] = Form.useForm<{ actual_quantity_pieces: number }>();
   const [adjustTarget, setAdjustTarget] = useState<PartUnit | null>(null);
   const [adjustForm] = Form.useForm<{ actual_quantity_pieces: number; reason: string; note?: string }>();
+  // Раздел про переработку брака — "Переработать в деталь": забрать
+  // резерв (В_переработку) детали+участка по FIFO и заминтить новую
+  // партию ДРУГОЙ детали сразу на её этапе "Окутка". recycleTarget несёт
+  // деталь+участок источника (клик по любой партии-резерву этого же
+  // сочетания), доступный остаток считается по ВСЕМ таким партиям сразу,
+  // не только по кликнутой строке.
+  const [recycleTarget, setRecycleTarget] = useState<PartUnit | null>(null);
+  const [recycleTargetPart, setRecycleTargetPart] = useState<Part | null>(null);
+  const [recycleForm] = Form.useForm<{ quantity_pieces: number; note?: string }>();
 
   const [partFilter, setPartFilter] = useState("");
   const [areaFilter, setAreaFilter] = useState<string | undefined>(undefined);
@@ -333,6 +345,25 @@ export default function PartUnits() {
     onError: () => message.error("Не удалось скорректировать партию"),
   });
 
+  const recycleMutation = useMutation({
+    mutationFn: (v: { quantity_pieces: number; note?: string }) =>
+      recyclePartUnits({
+        source_part_id: recycleTarget!.part_id,
+        area: recycleTarget!.area!,
+        quantity_pieces: v.quantity_pieces,
+        target_part_id: recycleTargetPart!.id,
+        note: v.note,
+      }),
+    onSuccess: (newUnit) => {
+      qc.invalidateQueries({ queryKey: ["part-units"] });
+      message.success(`Партия №${newUnit.id} детали «${newUnit.part_name}» создана из переработки`);
+      setRecycleTarget(null);
+      setRecycleTargetPart(null);
+      recycleForm.resetFields();
+    },
+    onError: () => message.error("Не удалось переработать — хватает ли резерва, есть ли у целевой детали этап «Окутка»?"),
+  });
+
   const nextStageName = (u: PartUnit): string | null => {
     const part = partsQuery.data?.find((p) => p.id === u.part_id);
     if (!part) return null;
@@ -343,6 +374,14 @@ export default function PartUnits() {
   };
 
   const allUnits = unitsQuery.data ?? [];
+  // Раздел про переработку брака — сколько всего резерва (В_переработку)
+  // доступно по сочетанию деталь+участок кликнутой партии, не только в
+  // ней самой (FIFO на бэкенде расходует все подходящие партии сразу).
+  const recycleAvailable = recycleTarget
+    ? allUnits
+        .filter((u) => u.part_id === recycleTarget.part_id && u.area === recycleTarget.area && u.status === "В_переработку")
+        .reduce((sum, u) => sum + u.quantity_pieces, 0)
+    : 0;
   const stageOptions = [...new Set(allUnits.map((u) => u.stage_name))].map((s) => ({ value: s, label: s }));
   const filteredUnits = allUnits.filter((u) => {
     // Раздел про физический учёт деталей — пока формального адресного
@@ -606,6 +645,19 @@ export default function PartUnits() {
                       ✖
                     </ActionIcon>
                   )}
+                  {canManage && u.status === "В_переработку" && (
+                    <ActionIcon
+                      tone="filled"
+                      tip="Переработать в деталь"
+                      onClick={() => {
+                        setRecycleTarget(u);
+                        setRecycleTargetPart(null);
+                        recycleForm.resetFields();
+                      }}
+                    >
+                      ♻️
+                    </ActionIcon>
+                  )}
                   {canCorrect && u.status === "Выдан_участку" && (
                     <ActionIcon
                       tone="outline"
@@ -795,6 +847,53 @@ export default function PartUnits() {
       </Modal>
 
       <Modal
+        title={`Переработать в деталь — резерв «${recycleTarget?.part_name ?? ""}»`}
+        open={!!recycleTarget}
+        onCancel={() => {
+          setRecycleTarget(null);
+          setRecycleTargetPart(null);
+        }}
+        footer={null}
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary">
+          Доступно в резерве «{recycleTarget?.part_name}» на участке «{areaLabel(recycleTarget?.area ?? null)}»:{" "}
+          <strong>{recycleAvailable} шт</strong>. Материал заберётся по FIFO (от самой старой партии) и станет новой
+          партией выбранной ниже детали сразу на её этапе «Окутка».
+        </Typography.Paragraph>
+        <Form
+          layout="vertical"
+          form={recycleForm}
+          onFinish={(v) => recycleMutation.mutate(v)}
+        >
+          <Form.Item label="Переработать в деталь" required>
+            <PartSelect onSelect={setRecycleTargetPart} placeholder="Найдите целевую деталь в справочнике" />
+            {recycleTargetPart && <Typography.Text type="secondary">Выбрано: {recycleTargetPart.name}</Typography.Text>}
+          </Form.Item>
+          <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
+            <InputNumber min={0.01} max={recycleAvailable} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="note" label="Заметка (опционально)">
+            <Input />
+          </Form.Item>
+          <Button
+            type="primary"
+            htmlType="submit"
+            block
+            disabled={!recycleTargetPart || recycleTargetPart.id === recycleTarget?.part_id}
+            loading={recycleMutation.isPending}
+          >
+            Переработать
+          </Button>
+          {recycleTargetPart && recycleTargetPart.id === recycleTarget?.part_id && (
+            <Typography.Text type="danger" style={{ fontSize: 12 }}>
+              Переработка в ту же деталь не имеет смысла — выберите другую.
+            </Typography.Text>
+          )}
+        </Form>
+      </Modal>
+
+      <Modal
         title={cardTarget ? `Партия «${cardTarget.part_name}»` : ""}
         open={!!cardTarget}
         onCancel={() => setCardTarget(null)}
@@ -908,6 +1007,20 @@ export default function PartUnits() {
                         {ev.area && <> · {areaLabel(ev.area)}</>}
                         {ev.write_off_reason && (
                           <> · причина: {reasonsQuery.data?.find((r) => r.code === ev.write_off_reason)?.name ?? ev.write_off_reason}</>
+                        )}
+                        {ev.related_part_unit_id != null && (
+                          <>
+                            {" "}
+                            ·{" "}
+                            <a
+                              onClick={() => {
+                                const rel = allUnits.find((u) => u.id === ev.related_part_unit_id);
+                                if (rel) setCardTarget(rel);
+                              }}
+                            >
+                              → партия №{ev.related_part_unit_id}
+                            </a>
+                          </>
                         )}
                       </div>
                       {ev.note && (

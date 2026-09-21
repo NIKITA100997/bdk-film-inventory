@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form, Checkbox } from "antd";
+import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form, Checkbox, Radio } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { listProductionTasks, createTaskLineReport, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
@@ -11,6 +11,11 @@ interface DefectEntry {
   reason: string;
   qty: number;
   note?: string;
+  // Раздел про переработку брака — по умолчанию "spisat" (списывается
+  // насовсем, как раньше); "pererabotka" резервирует брак вместо
+  // необратимого списания, забрать в готовую деталь можно позже
+  // действием "Переработать в деталь" ("Учёт п/ф").
+  disposition?: "spisat" | "pererabotka";
 }
 
 interface ReportRow {
@@ -77,7 +82,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [defectRowKey, setDefectRowKey] = useState<string | null>(null);
-  const [defectForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
+  const [defectForm] = Form.useForm<{ reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" }>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons", "production"], queryFn: () => listWriteOffReasons("production") });
@@ -222,6 +227,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               good_pieces: 0,
               defect_pieces: d.qty,
               defect_reason: d.reason,
+              defect_disposition: d.disposition,
               note: d.note,
             }),
           );
@@ -505,7 +511,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                   <Space direction="vertical" size={4}>
                     {r.defects.map((d, i) => (
                       <Tag key={i} closable onClose={() => removeDefectEntry(r.key, i)} style={{ marginRight: 0 }}>
-                        {reasonName(d.reason)}: {d.qty} шт
+                        {reasonName(d.reason)}: {d.qty} шт{d.disposition === "pererabotka" && " ♻️"}
                       </Tag>
                     ))}
                     <Button
@@ -597,6 +603,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                   <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <span>
                       {reasonName(d.reason)}: <strong>{d.qty} шт</strong>
+                      {d.disposition === "pererabotka" && <Tag color="blue" style={{ marginLeft: 4 }}>♻️ в переработку</Tag>}
                       {d.note && <Typography.Text type="secondary"> — {d.note}</Typography.Text>}
                     </span>
                     <Button size="small" danger onClick={() => removeDefectEntry(defectRow.key, i)}>
@@ -613,8 +620,9 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
             <Form
               form={defectForm}
               layout="vertical"
+              initialValues={{ disposition: "spisat" }}
               onFinish={(v) => {
-                addDefectEntry(defectRow.key, { reason: v.reason, qty: v.qty, note: v.note });
+                addDefectEntry(defectRow.key, { reason: v.reason, qty: v.qty, note: v.note, disposition: v.disposition });
                 defectForm.resetFields();
               }}
             >
@@ -627,6 +635,21 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>
                 <InputNumber min={1} style={{ width: "100%" }} />
               </Form.Item>
+              {hasPartStages && (
+                <Form.Item
+                  name="disposition"
+                  label="Что с браком"
+                  extra="«В переработку» резервирует материал (не списывает насовсем) — из него потом можно сделать партию другой детали («Учёт п/ф» → «Переработать в деталь»)."
+                >
+                  <Radio.Group
+                    options={[
+                      { label: "Списать насовсем", value: "spisat" },
+                      { label: "♻️ В переработку", value: "pererabotka" },
+                    ]}
+                    optionType="button"
+                  />
+                </Form.Item>
+              )}
               <Form.Item name="note" label="Заметка (опционально)">
                 <Input placeholder="Например: мусор под плёнкой" />
               </Form.Item>

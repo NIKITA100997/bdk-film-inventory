@@ -51,7 +51,13 @@ from app.services.dictionaries import find_or_create_employees, find_or_create_m
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
 from app.services.naryad_import import enrich_naryad_lines, parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
-from app.services.part_units import advance_part_unit, consume_defect_fifo, consume_part_units_fifo, write_off_part_unit
+from app.services.part_units import (
+    advance_part_unit,
+    consume_defect_fifo,
+    consume_part_units_fifo,
+    reserve_defect_for_recycle_fifo,
+    write_off_part_unit,
+)
 from app.services.production import (
     BlankDemandInputLine,
     BlankSupplyInputLine,
@@ -1009,8 +1015,16 @@ def create_task_line_report(
     # шагом; не выбрал — брак вообще не списывался с п/ф).
     defect_fifo_results: list[tuple[PartUnit, float]] = []
     if payload.defect_pieces > 0 and has_part_unit_stock:
+        # Раздел про переработку брака — "pererabotka" резервирует брак
+        # (статус В_переработку) вместо необратимого списания; забрать
+        # резерв в готовую деталь можно позже отдельным действием
+        # "Переработать в деталь". Обе ветки — тот же FIFO по
+        # manufactured_at, отличается только конечный статус партии.
+        consume_fn = (
+            reserve_defect_for_recycle_fifo if payload.defect_disposition == "pererabotka" else consume_defect_fifo
+        )
         try:
-            defect_fifo_results = consume_defect_fifo(
+            defect_fifo_results = consume_fn(
                 db,
                 part_id=part.id,
                 area=line.task.area,

@@ -13,6 +13,7 @@ from app.schemas.part_units import (
     PartUnitEventOut,
     PartUnitOut,
     PartUnitPlace,
+    PartUnitRecycle,
     PartUnitReturn,
     PartUnitWriteOff,
 )
@@ -22,6 +23,7 @@ from app.services.part_units import (
     issue_part_unit,
     mint_part_unit,
     place_part_unit,
+    recycle_part_units_fifo,
     reported_good_pieces_by_unit,
     return_part_unit,
     write_off_part_unit,
@@ -122,6 +124,30 @@ def create_part_unit(
     db.commit()
     db.refresh(unit)
     return _part_unit_out_single(db, unit)
+
+
+@router.post("/recycle", response_model=PartUnitOut, status_code=status.HTTP_201_CREATED)
+def recycle_part_units_endpoint(
+    payload: PartUnitRecycle, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
+) -> PartUnitOut:
+    """"Переработать в деталь" — раздел про переработку брака: забрать
+    резерв (В_переработку) исходной детали по FIFO и заминтить новую
+    партию другой детали сразу на этапе «Окутка»."""
+    try:
+        new_unit = recycle_part_units_fifo(
+            db,
+            source_part_id=payload.source_part_id,
+            area=payload.area,
+            quantity_pieces=payload.quantity_pieces,
+            target_part_id=payload.target_part_id,
+            user_id=user.id,
+            note=payload.note,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    db.commit()
+    db.refresh(new_unit)
+    return _part_unit_out_single(db, new_unit)
 
 
 @router.get("/{unit_id}", response_model=PartUnitOut)

@@ -2,7 +2,10 @@ import { apiClient } from "./client";
 
 // Физическая партия деталей (лот в штуках, зеркалит MaterialUnit) —
 // раздел про физический учёт деталей (пилот: окутка царговых).
-export type PartUnitStatus = "На_хранении" | "Выдан_участку" | "Списан";
+// В_переработку — раздел про переработку брака: резерв (материал
+// физически остаётся на месте), не потеря — забрать его в готовую
+// деталь можно действием "Переработать в деталь" (recyclePartUnits).
+export type PartUnitStatus = "На_хранении" | "Выдан_участку" | "Списан" | "В_переработку";
 
 export interface PartUnit {
   id: number;
@@ -68,6 +71,9 @@ export interface PartUnitEvent {
   area: string | null;
   write_off_reason: string | null;
   write_off_note: string | null;
+  // Раздел про переработку брака — на событии "Переработка" партии-
+  // источника: id новой партии, в которую она переработалась.
+  related_part_unit_id: number | null;
   user_id: number;
   occurred_at: string;
   note: string | null;
@@ -129,3 +135,14 @@ export const adjustPartUnit = async (
     clear_film_restriction?: boolean;
   },
 ): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${id}/adjust`, payload)).data;
+
+// Раздел про переработку брака — "Переработать в деталь": забрать резерв
+// (В_переработку) исходной детали по FIFO и заминтить новую партию ДРУГОЙ
+// детали сразу на её этапе "Окутка".
+export const recyclePartUnits = async (payload: {
+  source_part_id: number;
+  area: string;
+  quantity_pieces: number;
+  target_part_id: number;
+  note?: string;
+}): Promise<PartUnit> => (await apiClient.post<PartUnit>("/part-units/recycle", payload)).data;

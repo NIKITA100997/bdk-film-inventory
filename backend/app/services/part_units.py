@@ -23,6 +23,7 @@ def record_part_event(
     write_off_note: str | None = None,
     occurred_at: datetime | None = None,
     note: str | None = None,
+    related_part_unit_id: int | None = None,
 ) -> PartUnitEvent:
     """Единая точка записи в журнал партий (зеркалит services/events.py::
     record_event) — вызывается только отсюда, не роутерами напрямую."""
@@ -40,6 +41,7 @@ def record_part_event(
         write_off_note=write_off_note,
         user_id=user_id,
         note=note,
+        related_part_unit_id=related_part_unit_id,
         **({"occurred_at": occurred_at} if occurred_at is not None else {}),
     )
     db.add(event)
@@ -368,6 +370,171 @@ def consume_defect_fifo(
         results.append((candidate, take))
         remaining -= take
     return results
+
+
+def reserve_part_unit_for_recycle(
+    db: Session, *, unit: PartUnit, quantity_pieces: float, reason: str, user_id: int, note: str | None = None
+) -> PartUnit:
+    """Зарезервировать N штук партии под переработку в другую деталь —
+    раздел про переработку брака: та же механика дробления, что у
+    write_off_part_unit, но новый статус V_PERERABOTKU (резерв, партия
+    физически остаётся на месте — обычно на окутке), не SPISAN
+    (окончательная потеря). Забрать резерв в готовую деталь — отдельное
+    действие recycle_part_units_fifo ниже."""
+    if unit.status == PartUnitStatus.SPISAN:
+        raise ValueError("Партия уже списана")
+    from_stage_id = unit.stage_id
+    target = _split_or_reuse(db, unit, quantity_pieces)
+    target.status = PartUnitStatus.V_PERERABOTKU
+    record_part_event(
+        db,
+        unit=target,
+        event_type=PartEventType.V_PERERABOTKU,
+        user_id=user_id,
+        quantity_delta=-quantity_pieces,
+        from_stage_id=from_stage_id,
+        write_off_reason=reason,
+        write_off_note=note,
+        note=note,
+    )
+    return target
+
+
+def reserve_defect_for_recycle_fifo(
+    db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int, reason: str, note: str | None = None
+) -> list[tuple[PartUnit, float]]:
+    """Зарезервировать N бракованных штук партий детали part_id под
+    переработку — альтернатива consume_defect_fifo для случая "В
+    переработку" вместо "Списать насовсем" (раздел про переработку
+    брака): тот же FIFO по manufactured_at и та же поправка на уже
+    отчитанное (reported_good_pieces_by_unit), только вместо
+    write_off_part_unit — reserve_part_unit_for_recycle (статус
+    V_PERERABOTKU, не SPISAN)."""
+    candidates = (
+        db.query(PartUnit)
+        .filter(PartUnit.part_id == part_id, PartUnit.area == area, PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU)
+        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+        .all()
+    )
+    reported_by_unit = reported_good_pieces_by_unit(db, [c.id for c in candidates])
+    free_by_id = {c.id: float(c.quantity_pieces) - reported_by_unit.get(c.id, 0.0) for c in candidates}
+    available = sum(v for v in free_by_id.values() if v > 0)
+    if available < quantity_pieces:
+        part_name = candidates[0].part.name if candidates else db.get(Part, part_id).name
+        raise ValueError(
+            f"Недостаточно партий детали «{part_name}» на участке для переработки — доступно {available} шт, нужно {quantity_pieces} шт"
+        )
+    results: list[tuple[PartUnit, float]] = []
+    remaining = quantity_pieces
+    for candidate in candidates:
+        if remaining <= 0:
+            break
+        free = free_by_id[candidate.id]
+        if free <= 0:
+            continue
+        take = min(remaining, free)
+        reserved = reserve_part_unit_for_recycle(db, unit=candidate, quantity_pieces=take, reason=reason, user_id=user_id, note=note)
+        results.append((reserved, take))
+        remaining -= take
+    return results
+
+
+def recycle_part_units_fifo(
+    db: Session,
+    *,
+    source_part_id: int,
+    area: str,
+    quantity_pieces: float,
+    target_part_id: int,
+    user_id: int,
+    note: str | None = None,
+) -> PartUnit:
+    """"Переработать в деталь" — действие про переработку брака: забрать
+    резерв (V_PERERABOTKU) детали source_part_id по FIFO и заминтить
+    новую партию ДРУГОЙ детали (target_part_id) сразу на её этапе
+    «Окутка» (пользователь подтвердил: материал физически остаётся на
+    окутке и сразу пускается в неё же, минуя склейку/фрезеровку) —
+    новая партия рождается сразу Выдан_участку на участке этого этапа,
+    готовая к работе, как любая другая партия на окутке.
+
+    Резерв никогда не участвует в good/defect-отчётах (в отличие от
+    обычного Выдан_участку), поэтому поправка на "уже отчитанное" здесь
+    не нужна — доступно ровно quantity_pieces партий-источников.
+
+    Каждая затронутая партия-источник переходит в Списан (материал в
+    этой форме исчерпан) с событием "Переработка" (quantity_delta
+    отрицательный, related_part_unit_id → новая партия) — обратная
+    ссылка на источники видна в note новой партии текстом (номера +
+    количество), не отдельным полем: одна партия может родиться сразу
+    из нескольких источников."""
+    if source_part_id == target_part_id:
+        raise ValueError("Переработка в ту же деталь не имеет смысла")
+    target_part = db.get(Part, target_part_id)
+    if target_part is None:
+        raise ValueError("Целевая деталь не найдена")
+    okutka_stage = next((s for s in target_part.stages if s.name == "Окутка"), None)
+    if okutka_stage is None:
+        raise ValueError(f"У детали «{target_part.name}» нет этапа «Окутка» — переработка в неё недоступна")
+    if not okutka_stage.area:
+        raise ValueError(f"У этапа «Окутка» детали «{target_part.name}» не указан участок — настройте в справочнике «Деталь»")
+
+    candidates = (
+        db.query(PartUnit)
+        .filter(PartUnit.part_id == source_part_id, PartUnit.area == area, PartUnit.status == PartUnitStatus.V_PERERABOTKU)
+        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+        .all()
+    )
+    available = sum(float(c.quantity_pieces) for c in candidates)
+    if available < quantity_pieces:
+        part_name = candidates[0].part.name if candidates else db.get(Part, source_part_id).name
+        raise ValueError(
+            f"Недостаточно резерва в переработке детали «{part_name}» — доступно {available} шт, нужно {quantity_pieces} шт"
+        )
+
+    new_unit = PartUnit(
+        part_id=target_part.id,
+        quantity_pieces=quantity_pieces,
+        stage_id=okutka_stage.id,
+        manufactured_at=date.today(),
+        status=PartUnitStatus.VYDAN_UCHASTKU,
+        area=okutka_stage.area,
+        note=note,
+        created_by=user_id,
+    )
+    db.add(new_unit)
+    db.flush()
+
+    remaining = quantity_pieces
+    source_labels: list[str] = []
+    for candidate in candidates:
+        if remaining <= 0:
+            break
+        take = min(remaining, float(candidate.quantity_pieces))
+        target = _split_or_reuse(db, candidate, take)
+        target.status = PartUnitStatus.SPISAN
+        record_part_event(
+            db,
+            unit=target,
+            event_type=PartEventType.PERERABOTKA,
+            user_id=user_id,
+            quantity_delta=-take,
+            related_part_unit_id=new_unit.id,
+            note=note,
+        )
+        source_labels.append(f"№{target.id} ({take} шт)")
+        remaining -= take
+
+    source_note = f"Из резерва переработки: {', '.join(source_labels)}"
+    record_part_event(
+        db,
+        unit=new_unit,
+        event_type=PartEventType.PERERABOTKA,
+        user_id=user_id,
+        quantity_delta=quantity_pieces,
+        to_stage_id=okutka_stage.id,
+        note=f"{note} — {source_note}" if note else source_note,
+    )
+    return new_unit
 
 
 def reported_good_pieces_by_unit(db: Session, unit_ids: list[int]) -> dict[int, float]:

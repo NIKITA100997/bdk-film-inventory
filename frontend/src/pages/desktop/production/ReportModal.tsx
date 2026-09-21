@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message } from "antd";
+import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message, Radio, Tag } from "antd";
 import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTaskLineReport, type ProductionTaskLine } from "../../../api/production";
@@ -36,7 +36,9 @@ export default function ReportModal({
   // брака списывается автоматически от самой старой по дате изготовления
   // (см. app/services/part_units.py::consume_defect_fifo), выбор партии
   // вручную убран целиком.
-  const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string }[]>([]);
+  const [defectRows, setDefectRows] = useState<
+    { reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" }[]
+  >([]);
   // Раздел про второй рулон на ту же строку — двусторонние детали часто
   // расходуют НЕСКОЛЬКО разных рулонов ОДНОВРЕМЕННО на ОДИН и тот же
   // комплект деталей (по одному на сторону, это не разные штуки), поэтому
@@ -57,7 +59,7 @@ export default function ReportModal({
     material_unit_id: number | null;
     good_pieces: number;
   }>();
-  const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
+  const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" }>();
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "production"],
     queryFn: () => listWriteOffReasons("production"),
@@ -75,7 +77,7 @@ export default function ReportModal({
   );
   const reasonName = (code: string) => reasonOptions.find((r) => r.code === code)?.name ?? code;
 
-  const addDefectRow = (v: { reason: string; qty: number; note?: string }) => {
+  const addDefectRow = (v: { reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" }) => {
     setDefectRows((rows) => [...rows, v]);
     defectRowForm.resetFields();
   };
@@ -111,6 +113,7 @@ export default function ReportModal({
             good_pieces: 0,
             defect_pieces: row.qty,
             defect_reason: row.reason,
+            defect_disposition: row.disposition,
             note: row.note,
           }),
         );
@@ -304,6 +307,10 @@ export default function ReportModal({
           columns={[
             { title: "Причина брака", dataIndex: "reason", render: (v: string) => reasonName(v) },
             { title: "Кол-во, шт", dataIndex: "qty" },
+            {
+              title: "Судьба",
+              render: (_, r) => (r.disposition === "pererabotka" ? <Tag color="blue">♻️ в переработку</Tag> : "списан"),
+            },
             { title: "Заметка", render: (_, r) => r.note ?? "—" },
             {
               title: "",
@@ -322,7 +329,7 @@ export default function ReportModal({
         Брак может быть по нескольким причинам сразу — например, 1 деталь мусор под плёнкой, 2 деталь царапины:
         добавьте отдельную строку на каждую причину.
       </Typography.Paragraph>
-      <Form form={defectRowForm} layout="vertical" onFinish={addDefectRow}>
+      <Form form={defectRowForm} layout="vertical" initialValues={{ disposition: "spisat" }} onFinish={addDefectRow}>
         <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
           <Select
             loading={writeOffReasonsQuery.isLoading || partsReasonsQuery.isLoading}
@@ -332,6 +339,21 @@ export default function ReportModal({
         <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: "100%" }} />
         </Form.Item>
+        {requiresRoll && (
+          <Form.Item
+            name="disposition"
+            label="Что с браком"
+            extra="«В переработку» резервирует материал (не списывает насовсем) — из него потом можно сделать партию другой детали («Учёт п/ф» → «Переработать в деталь»)."
+          >
+            <Radio.Group
+              options={[
+                { label: "Списать насовсем", value: "spisat" },
+                { label: "♻️ В переработку", value: "pererabotka" },
+              ]}
+              optionType="button"
+            />
+          </Form.Item>
+        )}
         <Form.Item name="note" label="Заметка (опционально)">
           <Input placeholder="Например: мусор под плёнкой" />
         </Form.Item>

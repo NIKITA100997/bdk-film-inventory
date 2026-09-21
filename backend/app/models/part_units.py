@@ -13,6 +13,13 @@ class PartUnitStatus(str, enum.Enum):
     NA_KHRANENII = "На_хранении"
     VYDAN_UCHASTKU = "Выдан_участку"
     SPISAN = "Списан"
+    # Раздел про переработку брака — резерв, НЕ потеря: партия физически
+    # остаётся на месте (обычно окутка), но больше не годится для этой
+    # детали. Действие "Переработать в деталь" забирает такой резерв по
+    # FIFO и минтит новую партию ДРУГОЙ детали (см. recycle_part_units_fifo,
+    # services/part_units.py). Не участвует ни в consume_part_units_fifo/
+    # consume_defect_fifo (готовые/брак), ни в обычных выдаче/списании.
+    V_PERERABOTKU = "В_переработку"
 
 
 class PartUnit(Base):
@@ -97,6 +104,16 @@ class PartEventType(str, enum.Enum):
     # вместо правки истории напрямую в БД.
     VOZVRAT = "Возврат"
     KORREKTIROVKA = "Корректировка"
+    # Раздел про переработку брака — V_PERERABOTKU: брак зарезервирован
+    # под переработку вместо необратимого списания (событие на партии-
+    # источнике, quantity_delta отрицательный, статус партии становится
+    # V_PERERABOTKU). PERERABOTKA — сам факт переработки резерва в новую
+    # деталь: на партии-источнике (списание из резерва, статус → SPISAN,
+    # related_part_unit_id указывает на новую партию) И на новой партии
+    # целевой детали (quantity_delta положительный, рождается сразу на
+    # этапе "Окутка").
+    V_PERERABOTKU = "В_переработку"
+    PERERABOTKA = "Переработка"
 
 
 class PartUnitEvent(Base):
@@ -127,6 +144,15 @@ class PartUnitEvent(Base):
 
     write_off_reason: Mapped[str | None] = mapped_column(ForeignKey("write_off_reasons.code"), nullable=True)
     write_off_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Раздел про переработку брака — на событии PERERABOTKA партии-
+    # источника указывает на партию, в которую она переработалась (одна
+    # новая партия может родиться из НЕСКОЛЬКИХ источников — обратная
+    # ссылка с новой партии на источники хранится только текстом в note,
+    # отдельного поля под "много ссылок" не заводим).
+    related_part_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("part_units.id", ondelete="SET NULL"), nullable=True
+    )
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
