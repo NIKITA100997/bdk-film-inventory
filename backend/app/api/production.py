@@ -51,7 +51,7 @@ from app.services.dictionaries import find_or_create_employees, find_or_create_m
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
 from app.services.naryad_import import enrich_naryad_lines, parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
-from app.services.part_units import advance_part_unit, consume_part_units_fifo, write_off_part_unit
+from app.services.part_units import advance_part_unit, consume_defect_fifo, consume_part_units_fifo, write_off_part_unit
 from app.services.production import (
     BlankDemandInputLine,
     BlankSupplyInputLine,
@@ -933,6 +933,13 @@ def create_task_line_report(
     # указывать на задание, где она родилась; годной для отчёта партия
     # считается по физическому месту — она должна быть выдана ИМЕННО этому
     # участку (тому же, что и у строки задания), не обязательно этой строке.
+    # Раздел про ревизию путей п/ф — part_unit_id клиента оставлен только
+    # для обратной совместимости (деталь без настроенных этапов/прямой
+    # вызов API в обход текущего фронта, тот же приём, что уже есть для
+    # good_pieces ниже): текущий интерфейс партию для брака больше не
+    # предлагает выбирать вручную вовсе — деталь на участке одна, брак
+    # списывается по FIFO так же, как приходуются готовые (см.
+    # consume_defect_fifo).
     part_unit = None
     if payload.part_unit_id is not None:
         part_unit = db.get(PartUnit, payload.part_unit_id)
@@ -942,8 +949,8 @@ def create_task_line_report(
             or part_unit.status != PartUnitStatus.VYDAN_UCHASTKU
         ):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Партия п/ф не найдена среди выданных этому участку")
-        if payload.defect_pieces > 0 and not payload.defect_reason:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Укажите причину брака, чтобы списать партию п/ф")
+    if payload.defect_pieces > 0 and not payload.defect_reason:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Укажите причину брака")
 
     # Раздел про учёт п/ф по FIFO — для готовых деталей партия больше не
     # выбирается вручную: если у детали настроены этапы, расходуем от
@@ -996,7 +1003,27 @@ def create_task_line_report(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
         fifo_results = [(part_unit, is_final, payload.good_pieces)]
 
-    if part_unit is not None and payload.defect_pieces > 0:
+    # Раздел про ревизию путей п/ф — брак списывается по FIFO так же, как
+    # приходуются готовые детали выше (было: партию для брака выбирал
+    # вручную мастер — деталь физически на участке одна, выбор был лишним
+    # шагом; не выбрал — брак вообще не списывался с п/ф).
+    defect_fifo_results: list[tuple[PartUnit, float]] = []
+    if payload.defect_pieces > 0 and has_part_unit_stock:
+        try:
+            defect_fifo_results = consume_defect_fifo(
+                db,
+                part_id=part.id,
+                area=line.task.area,
+                quantity_pieces=payload.defect_pieces,
+                user_id=user.id,
+                reason=payload.defect_reason,
+                note=payload.note,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+    elif part_unit is not None and payload.defect_pieces > 0:
+        # Совместимость: явный part_unit_id у детали без настроенных
+        # этапов (или прямой вызов API в обход текущего фронта).
         try:
             write_off_part_unit(
                 db,
@@ -1008,6 +1035,7 @@ def create_task_line_report(
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+        defect_fifo_results = [(part_unit, payload.defect_pieces)]
 
     # Раздел про окутку в 2 захода — good_pieces с part_unit считается
     # "готовым" для остатка СТРОКИ ЗАДАНИЯ (counts_toward_line) только
@@ -1017,7 +1045,7 @@ def create_task_line_report(
     # length_m и has_report в return_unit не фильтруют по
     # counts_toward_line), но не уменьшает "нужно ещё" по заданию.
     reports: list[ProductionTaskLineReport] = []
-    if fifo_results:
+    if fifo_results or defect_fifo_results:
         for pu, is_final, taken in fifo_results:
             reports.append(
                 ProductionTaskLineReport(
@@ -1031,15 +1059,19 @@ def create_task_line_report(
                     counts_toward_line=is_final,
                 )
             )
-        if payload.defect_pieces > 0:
+        # Раздел про ревизию путей п/ф — одна строка ProductionTaskLineReport
+        # на каждую затронутую списанием партию (обычно одна, несколько —
+        # если брака больше, чем в самой старой партии, см. consume_defect_
+        # fifo), а не одна строка на весь payload.defect_pieces сразу.
+        for pu, taken in defect_fifo_results:
             reports.append(
                 ProductionTaskLineReport(
                     task_line_id=line_id,
                     assignment_id=payload.assignment_id,
                     material_unit_id=payload.material_unit_id,
-                    part_unit_id=payload.part_unit_id,
+                    part_unit_id=pu.id,
                     good_pieces=0,
-                    defect_pieces=payload.defect_pieces,
+                    defect_pieces=taken,
                     defect_reason=payload.defect_reason,
                     note=payload.note,
                     reported_by=user.id,

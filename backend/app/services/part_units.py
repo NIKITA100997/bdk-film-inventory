@@ -320,6 +320,56 @@ def consume_part_units_fifo(
     return results
 
 
+def consume_defect_fifo(
+    db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int, reason: str, note: str | None = None
+) -> list[tuple[PartUnit, float]]:
+    """Списать N бракованных штук партий детали part_id, выданных этому
+    участку — от самой старой по manufactured_at, тот же принцип FIFO, что
+    и у consume_part_units_fifo для готовых деталей (раздел про ревизию
+    путей п/ф: раньше партию для брака выбирали вручную — деталь физически
+    на участке одна, выбор был лишним шагом, а без него брак вообще не
+    списывался с п/ф). Та же поправка на "уже отчитанное"
+    (reported_good_pieces_by_unit), что у consume_part_units_fifo — партия,
+    уже полностью взятая в good_pieces (но не разделившаяся физически, см.
+    docstring там), не должна выглядеть доступной для списания брака.
+
+    В отличие от consume_part_units_fifo, write_off_part_unit сам переводит
+    затронутую партию в статус Списан — уже списанная партия сама выпадает
+    из кандидатов на следующий раз, никакой отдельной поправки на "уже
+    списанное" не нужно.
+
+    Возвращает список (партия, взято_шт) — одна запись на каждую
+    затронутую партию. ValueError, если суммарно не хватает — ничего не
+    меняется (откат снаружи)."""
+    candidates = (
+        db.query(PartUnit)
+        .filter(PartUnit.part_id == part_id, PartUnit.area == area, PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU)
+        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+        .all()
+    )
+    reported_by_unit = reported_good_pieces_by_unit(db, [c.id for c in candidates])
+    free_by_id = {c.id: float(c.quantity_pieces) - reported_by_unit.get(c.id, 0.0) for c in candidates}
+    available = sum(v for v in free_by_id.values() if v > 0)
+    if available < quantity_pieces:
+        part_name = candidates[0].part.name if candidates else db.get(Part, part_id).name
+        raise ValueError(
+            f"Недостаточно партий детали «{part_name}» на участке для списания брака — доступно {available} шт, нужно {quantity_pieces} шт"
+        )
+    results: list[tuple[PartUnit, float]] = []
+    remaining = quantity_pieces
+    for candidate in candidates:
+        if remaining <= 0:
+            break
+        free = free_by_id[candidate.id]
+        if free <= 0:
+            continue
+        take = min(remaining, free)
+        write_off_part_unit(db, unit=candidate, quantity_pieces=take, reason=reason, user_id=user_id, note=note)
+        results.append((candidate, take))
+        remaining -= take
+    return results
+
+
 def reported_good_pieces_by_unit(db: Session, unit_ids: list[int]) -> dict[int, float]:
     """Σ good_pieces уже поданных отчётов по каждой партии — раздел про
     учёт п/ф по FIFO, см. docstring consume_part_units_fifo."""

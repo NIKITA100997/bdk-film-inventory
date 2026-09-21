@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { listProductionTasks, createTaskLineReport, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
-import { listPartUnits } from "../../../api/partUnits";
 import { listParts } from "../../../api/dictionaries";
 import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
 
@@ -12,12 +11,6 @@ interface DefectEntry {
   reason: string;
   qty: number;
   note?: string;
-  // Раздел про учёт п/ф по FIFO — для готовых деталей партия больше не
-  // выбирается (расходуется автоматически от самой старой), но брак
-  // физически обнаруживается в КОНКРЕТНОЙ партии, поэтому здесь выбор
-  // остаётся ручным, per-запись (у разных причин брака в одной строке
-  // может быть разная партия).
-  partUnitId: number | null;
 }
 
 interface ReportRow {
@@ -84,7 +77,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [defectRowKey, setDefectRowKey] = useState<string | null>(null);
-  const [defectForm] = Form.useForm<{ reason: string; qty: number; note?: string; part_unit_id?: number }>();
+  const [defectForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons", "production"], queryFn: () => listWriteOffReasons("production") });
@@ -99,18 +92,6 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
     (r, i, arr) => arr.findIndex((x) => x.code === r.code) === i,
   );
   const reasonName = (code: string) => reasonOptions.find((r) => r.code === code)?.name ?? code;
-  const partUnitsQuery = useQuery({
-    queryKey: ["part-units", "area", area],
-    queryFn: () => listPartUnits({ area, status_: "Выдан_участку" }),
-    enabled: hasPartStages,
-  });
-  // Раздел про связь этапов с участками — партия п/ф путешествует между
-  // РАЗНЫМИ заданиями (у каждого участка своё), поэтому её
-  // production_task_line_id остаётся указывать на задание, где она
-  // родилась, а не на текущее: подбор партии под конкретную строку — по
-  // совпадению названия детали, не по id строки.
-  const partUnitOptionsForLine = (line: ProductionTaskLine) =>
-    line.part_name ? (partUnitsQuery.data ?? []).filter((u) => u.part_name === line.part_name) : [];
 
   const tasks = (tasksQuery.data ?? []).filter((t: ProductionTask) => t.area === area && t.is_active);
   const addedLineIds = useMemo(() => new Set(rows.map((r) => r.line.id)), [rows]);
@@ -238,7 +219,6 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
             createTaskLineReport(r.taskId, r.line.id, {
               assignment_id: null,
               material_unit_id: r.materialUnitId,
-              part_unit_id: d.partUnitId,
               good_pieces: 0,
               defect_pieces: d.qty,
               defect_reason: d.reason,
@@ -346,8 +326,8 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         сохраните всё одним нажатием.
         {hasPartStages && (
           <>
-            {" "}Партия п/ф для готовых деталей теперь не выбирается — списывается автоматически от самой старой по
-            дате изготовления («Учёт п/ф»). Партию нужно указать только при браке.
+            {" "}Партия п/ф не выбирается вручную ни для готовых деталей, ни для брака — списывается автоматически от
+            самой старой по дате изготовления («Учёт п/ф»).
           </>
         )}
         {requiresRoll && (
@@ -617,7 +597,6 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                   <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <span>
                       {reasonName(d.reason)}: <strong>{d.qty} шт</strong>
-                      {d.partUnitId != null && <Typography.Text type="secondary"> — партия №{d.partUnitId}</Typography.Text>}
                       {d.note && <Typography.Text type="secondary"> — {d.note}</Typography.Text>}
                     </span>
                     <Button size="small" danger onClick={() => removeDefectEntry(defectRow.key, i)}>
@@ -635,7 +614,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               form={defectForm}
               layout="vertical"
               onFinish={(v) => {
-                addDefectEntry(defectRow.key, { reason: v.reason, qty: v.qty, note: v.note, partUnitId: v.part_unit_id ?? null });
+                addDefectEntry(defectRow.key, { reason: v.reason, qty: v.qty, note: v.note });
                 defectForm.resetFields();
               }}
             >
@@ -648,23 +627,6 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>
                 <InputNumber min={1} style={{ width: "100%" }} />
               </Form.Item>
-              {hasPartStages && (
-                <Form.Item
-                  name="part_unit_id"
-                  label="Партия п/ф (опционально)"
-                  extra="Брак физически обнаруживается в конкретной партии — в отличие от готовых деталей, здесь выбор остаётся ручным."
-                >
-                  <Select
-                    allowClear
-                    placeholder="Без партии"
-                    options={partUnitOptionsForLine(defectRow.line).map((u) => ({
-                      value: u.id,
-                      label: `№${u.id} — ${u.quantity_pieces} шт, «${u.stage_name}»`,
-                    }))}
-                    notFoundContent={<Typography.Text type="secondary">Партия не выдана — «Учёт п/ф»</Typography.Text>}
-                  />
-                </Form.Item>
-              )}
               <Form.Item name="note" label="Заметка (опционально)">
                 <Input placeholder="Например: мусор под плёнкой" />
               </Form.Item>

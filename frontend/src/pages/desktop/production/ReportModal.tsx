@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTaskLineReport, type ProductionTaskLine } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
-import { listPartUnits } from "../../../api/partUnits";
 import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
 
 /** Отчёт о производстве/браке (раздел про брак по дням) — отчёт обычно
@@ -33,12 +32,11 @@ export default function ReportModal({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  // Раздел про учёт п/ф по FIFO — партия для готовых деталей больше не
-  // выбирается (расходуется автоматически от самой старой по дате
-  // изготовления), но брак физически обнаруживается в конкретной
-  // партии — выбор остаётся ручным, per-запись брака (part_unit_id
-  // здесь, не на общей форме).
-  const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string; part_unit_id: number | null }[]>([]);
+  // Раздел про учёт п/ф по FIFO — партия и для готовых деталей, и для
+  // брака списывается автоматически от самой старой по дате изготовления
+  // (см. app/services/part_units.py::consume_defect_fifo), выбор партии
+  // вручную убран целиком.
+  const [defectRows, setDefectRows] = useState<{ reason: string; qty: number; note?: string }[]>([]);
   // Раздел про второй рулон на ту же строку — двусторонние детали часто
   // расходуют НЕСКОЛЬКО разных рулонов ОДНОВРЕМЕННО на ОДИН и тот же
   // комплект деталей (по одному на сторону, это не разные штуки), поэтому
@@ -59,7 +57,7 @@ export default function ReportModal({
     material_unit_id: number | null;
     good_pieces: number;
   }>();
-  const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string; part_unit_id?: number }>();
+  const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string }>();
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "production"],
     queryFn: () => listWriteOffReasons("production"),
@@ -77,23 +75,8 @@ export default function ReportModal({
   );
   const reasonName = (code: string) => reasonOptions.find((r) => r.code === code)?.name ?? code;
 
-  const partUnitsQuery = useQuery({
-    queryKey: ["part-units", "line", line.id],
-    queryFn: () => listPartUnits({ production_task_line_id: line.id, status_: "Выдан_участку" }),
-    enabled: requiresRoll,
-  });
-  // Автовыбор партии при единственном варианте — приходит асинхронно
-  // (в отличие от line.issued_units, уже готовых в пропе), initialValues
-  // формы этого не подхватит сам по себе. Раздел про учёт п/ф по FIFO —
-  // теперь только для формы брака (defectRowForm), не общей формы.
-  useEffect(() => {
-    if (partUnitsQuery.data?.length === 1 && defectRowForm.getFieldValue("part_unit_id") == null) {
-      defectRowForm.setFieldValue("part_unit_id", partUnitsQuery.data[0].id);
-    }
-  }, [partUnitsQuery.data, defectRowForm]);
-
-  const addDefectRow = (v: { reason: string; qty: number; note?: string; part_unit_id?: number }) => {
-    setDefectRows((rows) => [...rows, { ...v, part_unit_id: v.part_unit_id ?? null }]);
+  const addDefectRow = (v: { reason: string; qty: number; note?: string }) => {
+    setDefectRows((rows) => [...rows, v]);
     defectRowForm.resetFields();
   };
   const removeDefectRow = (index: number) => setDefectRows((rows) => rows.filter((_, i) => i !== index));
@@ -125,7 +108,6 @@ export default function ReportModal({
           createTaskLineReport(taskId, line.id, {
             assignment_id: v.assignment_id,
             material_unit_id: v.material_unit_id,
-            part_unit_id: row.part_unit_id,
             good_pieces: 0,
             defect_pieces: row.qty,
             defect_reason: row.reason,
@@ -236,9 +218,9 @@ export default function ReportModal({
         Нужно: {line.quantity_pieces} шт, уже произведено: {line.produced_good_pieces} шт, остаток: {line.remaining_pieces} шт.
         {requiresRoll && (
           <>
-            {" "}Партия п/ф для готовых деталей теперь не выбирается — списывается автоматически от самой старой по
-            дате изготовления («Учёт п/ф»); партию нужно указать только при браке. Если деталь окутывается в
-            несколько заходов и сегодня не готова целиком — можно сохранить отчёт с 0 хороших и 0 брака, просто
+            {" "}Партия п/ф не выбирается вручную ни для готовых деталей, ни для брака — списывается автоматически от
+            самой старой по дате изготовления («Учёт п/ф»). Если деталь окутывается в несколько заходов и сегодня не
+            готова целиком — можно сохранить отчёт с 0 хороших и 0 брака, просто
             выбрав рулон: это зафиксирует расход плёнки и позволит вернуть/списать рулон, не дожидаясь готовой детали.
             Если деталь двусторонняя и на неё одновременно расходуется ещё один рулон (по одному на сторону — это те
             же самые детали, не дополнительные) — под полем «Рулон» появится «+ ещё рулон использован»: укажите для
@@ -322,7 +304,6 @@ export default function ReportModal({
           columns={[
             { title: "Причина брака", dataIndex: "reason", render: (v: string) => reasonName(v) },
             { title: "Кол-во, шт", dataIndex: "qty" },
-            { title: "Партия п/ф", render: (_, r) => (r.part_unit_id != null ? `№${r.part_unit_id}` : "—") },
             { title: "Заметка", render: (_, r) => r.note ?? "—" },
             {
               title: "",
@@ -351,28 +332,6 @@ export default function ReportModal({
         <Form.Item name="qty" label="Количество, шт" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: "100%" }} />
         </Form.Item>
-        {requiresRoll && (
-          <Form.Item
-            name="part_unit_id"
-            label="Партия п/ф (опционально)"
-            extra="Раздел про учёт по FIFO — для готовых деталей партия не выбирается, но брак физически обнаруживается в конкретной партии."
-          >
-            <Select
-              allowClear
-              loading={partUnitsQuery.isLoading}
-              placeholder="Выберите партию"
-              options={(partUnitsQuery.data ?? []).map((u) => ({
-                value: u.id,
-                label: `№${u.id} — ${u.quantity_pieces} шт, этап «${u.stage_name}»`,
-              }))}
-              notFoundContent={
-                <Typography.Text type="secondary">
-                  Партия не выдана этой строке (или у детали не настроены этапы) — «Учёт п/ф»
-                </Typography.Text>
-              }
-            />
-          </Form.Item>
-        )}
         <Form.Item name="note" label="Заметка (опционально)">
           <Input placeholder="Например: мусор под плёнкой" />
         </Form.Item>
