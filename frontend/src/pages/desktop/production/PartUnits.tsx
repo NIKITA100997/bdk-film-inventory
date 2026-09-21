@@ -182,6 +182,13 @@ export default function PartUnits() {
     const found = unitsQuery.data.find((u) => u.id === state.openUnitId);
     if (found) setCardTarget(found);
   }, [location.state, unitsQuery.data]);
+  // Раздел про переработку вкладок остатков/стеллажей — переход с
+  // "Остатки п/ф" (сводка по детали) сразу подставляет её в поиск, не
+  // заставляя набирать название заново.
+  useEffect(() => {
+    const state = location.state as { partFilter?: string } | null;
+    if (state?.partFilter) setPartFilter(state.partFilter);
+  }, [location.state]);
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
