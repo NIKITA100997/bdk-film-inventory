@@ -19,6 +19,7 @@ import {
   deleteSkuPhoto,
   skuPhotoUrl,
   mergeMaterialSku,
+  listParts,
   type MaterialSkuUpdate,
   type AnalogEntry,
 } from "../../api/dictionaries";
@@ -361,6 +362,25 @@ export default function MaterialCard() {
     );
   }, [skusQuery.data, groupKey, showArchived]);
 
+  // Раздел про справочный поиск "на какую деталь можно пустить эту плёнку"
+  // (планирование по расходу — см. карточку детали п/ф, PartCard.tsx,
+  // которая показывает обратную связь: деталь → закреплённая плёнка). Тут
+  // наоборот: плёнка → деталь. Единственная формальная связь —
+  // Part.default_material_sku_id (BOM модели материал не хранит, он
+  // выбирается на задании), поэтому ищем по ВСЕМ позициям группы
+  // (материал+цвет), не только показанным сейчас (архив/не архив) — это
+  // просто справка, не список для редактирования.
+  const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
+  const linkedParts = useMemo(() => {
+    if (!groupKey) return [];
+    const groupSkuIds = new Set(
+      (skusQuery.data ?? [])
+        .filter((s) => s.material.name === groupKey.material && s.color.name === groupKey.color)
+        .map((s) => s.id),
+    );
+    return (partsQuery.data ?? []).filter((p) => p.default_material_sku_id != null && groupSkuIds.has(p.default_material_sku_id));
+  }, [partsQuery.data, skusQuery.data, groupKey]);
+
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: number; payload: MaterialSkuUpdate }) => updateMaterialSku(id, payload),
     onSuccess: (_, { id }) => {
@@ -612,6 +632,22 @@ export default function MaterialCard() {
           </Space>
         )}
       </Card>
+
+      {groupKey && linkedParts.length > 0 && (
+        <Card title="Используется для деталей (П/Ф)" size="small">
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+            Эта плёнка закреплена (Part.default_material_sku_id) за деталями ниже — при загрузке задания текст цвета
+            для них не смотрится, берётся сразу эта позиция.
+          </Typography.Paragraph>
+          <Space wrap>
+            {linkedParts.map((p) => (
+              <Button key={p.id} size="small" onClick={() => navigate("/part-card", { state: { partId: p.id } })}>
+                {p.name} →
+              </Button>
+            ))}
+          </Space>
+        </Card>
+      )}
 
       {cardQuery.data && (
         <>
