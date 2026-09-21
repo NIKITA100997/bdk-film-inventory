@@ -34,7 +34,13 @@ def create_part_rack(payload: PartRackCreate, db: Session = Depends(get_db), use
 @router.get("/{rack_id}/occupancy", response_model=list[PartRackOccupancyCellOut])
 def part_rack_occupancy(rack_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[PartRackOccupancyCellOut]:
     """Схема стеллажа п/ф (зеркалит rack_occupancy у плёнки, storage.py) —
-    сетка полок с тем, что на каждой физически сейчас."""
+    сетка полок с тем, что на каждой физически сейчас.
+
+    На_хранении И Выдан_участку — обе видны на карте (раздел про
+    совместимость area+location_code у п/ф, см. place_part_unit): партия
+    на последнем этапе физически лежит на полке участка, даже будучи
+    "выдана" ему. Списанной (SPISAN) на карте быть не должно — она уже
+    не занимает место."""
     rack = db.get(PartRack, rack_id)
     if rack is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
@@ -43,7 +49,7 @@ def part_rack_occupancy(rack_id: int, db: Session = Depends(get_db), user=Depend
         db.query(PartUnit)
         .filter(
             PartUnit.location_code.like(f"{rack.code}-%"),
-            PartUnit.status == PartUnitStatus.NA_KHRANENII,
+            PartUnit.status.in_([PartUnitStatus.NA_KHRANENII, PartUnitStatus.VYDAN_UCHASTKU]),
         )
         .order_by(PartUnit.id)
         .all()

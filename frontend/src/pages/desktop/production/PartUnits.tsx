@@ -546,7 +546,7 @@ export default function PartUnits() {
                   >
                     🖨
                   </PrintFormatButton>
-                  {canManage && u.status === "На_хранении" && (
+                  {canManage && u.status !== "Списан" && (
                     <ActionIcon
                       tone="outline"
                       tip="Разместить на стеллаж"

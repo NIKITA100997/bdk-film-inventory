@@ -48,11 +48,15 @@ def record_part_event(
 
 def place_part_unit(db: Session, *, unit: PartUnit, location_code: str, user_id: int) -> PartUnit:
     """Разместить партию на полку стеллажа п/ф (раздел про адресное
-    хранение) — доступно, пока партия физически в цехе (На_хранении),
-    зеркалит `place_unit` у плёнки. Взаимоисключимо с `area`
-    (выдано участку), как у `MaterialUnit`."""
-    if unit.status != PartUnitStatus.NA_KHRANENII:
-        raise ValueError("Разместить на полку можно только партию, которая сейчас на хранении")
+    хранение). В отличие от плёнки (склад/участок всегда разные физические
+    места, `place_unit`/MaterialUnit держат их взаимоисключающими) —
+    у п/ф на последнем этапе (окутка и т.п.) участок И ЕСТЬ склад: партия
+    хранится прямо на участке (запас, из которого мастер расходует по
+    отчётам) и одновременно должна быть видна на карте стеллажей. Поэтому
+    `area`+`location_code` у п/ф намеренно совместимы; запрещено только
+    для уже списанной партии (SPISAN) — размещать больше нечего."""
+    if unit.status == PartUnitStatus.SPISAN:
+        raise ValueError("Партия уже списана — разместить нечего")
     from_cell = unit.location_code
     unit.location_code = location_code
     record_part_event(
