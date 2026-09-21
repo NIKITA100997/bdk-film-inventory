@@ -90,14 +90,13 @@ export const navTree: NavBlock[] = [
     key: "parts-domain",
     label: "Детали / П/Ф",
     items: [
-      { key: "part-stock", path: "/part-stock", label: "Остатки п/ф", permissions: ["part_units.manage", "part_units.view"] },
-      { key: "part-units", path: "/part-units", label: "Учёт п/ф", permissions: ["part_units.manage", "part_units.view"] },
       {
-        key: "part-storage",
-        path: "/part-storage",
-        label: "Стеллажи п/ф",
+        key: "part-stock",
+        path: "/part-stock",
+        label: "Остатки и стеллажи п/ф",
         permissions: ["part_units.manage", "part_units.view", "part_storage.manage"],
       },
+      { key: "part-units", path: "/part-units", label: "Учёт п/ф", permissions: ["part_units.manage", "part_units.view"] },
     ],
   },
   {
