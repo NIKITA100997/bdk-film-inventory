@@ -332,7 +332,17 @@ export default function PartUnits() {
   const allUnits = unitsQuery.data ?? [];
   const stageOptions = [...new Set(allUnits.map((u) => u.stage_name))].map((s) => ({ value: s, label: s }));
   const filteredUnits = allUnits.filter((u) => {
-    if (partFilter.trim() && !u.part_name.toLowerCase().includes(partFilter.trim().toLowerCase())) return false;
+    // Раздел про физический учёт деталей — пока формального адресного
+    // хранения нет (одна деталь может лежать "на 3 стеллаже" неформально,
+    // без заведённой ячейки), поиск по названию детали заодно ищет и по
+    // заметке (там обычно как раз место — "3 стеллаж", "на полу" и т.п.),
+    // чтобы можно было найти партию по тому, где она физически лежит.
+    if (
+      partFilter.trim() &&
+      !u.part_name.toLowerCase().includes(partFilter.trim().toLowerCase()) &&
+      !(u.note ?? "").toLowerCase().includes(partFilter.trim().toLowerCase())
+    )
+      return false;
     if (areaFilter && u.area !== areaFilter) return false;
     if (statusFilter && u.status !== statusFilter) return false;
     if (stageFilter && u.stage_name !== stageFilter) return false;
@@ -425,8 +435,8 @@ export default function PartUnits() {
         <Space wrap size={[12, 12]} style={{ marginBottom: 16, width: "100%" }}>
           <Input
             allowClear
-            placeholder="Поиск по детали…"
-            style={{ width: 220, maxWidth: "100%" }}
+            placeholder="Поиск по детали или месту (заметке)…"
+            style={{ width: 260, maxWidth: "100%" }}
             value={partFilter}
             onChange={(e) => setPartFilter(e.target.value)}
           />
@@ -503,6 +513,19 @@ export default function PartUnits() {
               render: (_, u) => <Tag color={STATUS_TAG_COLOR[u.status]}>{STATUS_LABEL[u.status]}</Tag>,
             },
             { title: "Место", width: 100, ellipsis: true, render: (_, u) => u.location_code ?? "—" },
+            {
+              title: "Заметка",
+              width: 160,
+              ellipsis: true,
+              render: (_, u) =>
+                u.note ? (
+                  <Typography.Text type="secondary" style={{ fontSize: 12.5 }} ellipsis={{ tooltip: u.note }}>
+                    {u.note}
+                  </Typography.Text>
+                ) : (
+                  "—"
+                ),
+            },
             {
               title: "Плёнка",
               width: 130,
