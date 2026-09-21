@@ -164,6 +164,12 @@ export default function PartUnits() {
   const [areaFilter, setAreaFilter] = useState<string | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<PartUnitStatus | undefined>(undefined);
   const [stageFilter, setStageFilter] = useState<string | undefined>(undefined);
+  // Раздел про ревизию путей п/ф — advance_part_unit на последнем этапе
+  // дробит партию, не уменьшая quantity_pieces (см. quantity_available):
+  // уже полностью отчитанный кусок остаётся отдельной строкой "0 из N",
+  // нужной только для истории/журнала, не для повседневной работы —
+  // скрыта по умолчанию, чтобы не захламлять список.
+  const [hideFullyUsed, setHideFullyUsed] = useState(true);
 
   const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
 
@@ -346,6 +352,7 @@ export default function PartUnits() {
     if (areaFilter && u.area !== areaFilter) return false;
     if (statusFilter && u.status !== statusFilter) return false;
     if (stageFilter && u.stage_name !== stageFilter) return false;
+    if (hideFullyUsed && u.quantity_available <= 0 && u.status !== "Списан") return false;
     return true;
   });
 
@@ -464,6 +471,9 @@ export default function PartUnits() {
             value={stageFilter}
             onChange={setStageFilter}
           />
+          <Checkbox checked={hideFullyUsed} onChange={(e) => setHideFullyUsed(e.target.checked)}>
+            Скрыть полностью использованные (0 доступно)
+          </Checkbox>
         </Space>
 
         <Table<PartUnit>
