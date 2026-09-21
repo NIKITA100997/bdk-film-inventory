@@ -42,7 +42,7 @@ import {
   type UnitStatusValue,
 } from "../../api/units";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
-import { getStockSummary, type StockSummaryLine } from "../../api/reports";
+import { getStockSummary, getRollsVsStrips, type StockSummaryLine, type RollsVsStripsLine } from "../../api/reports";
 import { getStockOverview, type StockOverviewLine } from "../../api/purchasing";
 import { listAbcClasses, recomputeAbc } from "../../api/abc";
 import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionaries";
@@ -181,6 +181,20 @@ export default function MaterialsExplorer() {
     for (const o of stockOverviewQuery.data ?? []) map.set(`${o.material}|${o.color}|${o.thickness}`, o);
     return map;
   }, [stockOverviewQuery.data]);
+  // Раздел про недостающий столбец рулоны/штрипсы в "Остатках" — раньше
+  // разбивку рулон/штрипс по позиции можно было увидеть только в отчёте
+  // "Рулоны и штрипсы" или карточке материала, здесь (там, где обычно и
+  // смотрят остаток) её не было вовсе.
+  const rollsVsStripsQuery = useQuery({
+    queryKey: ["materials-explorer", "rolls-vs-strips", warehouseId, filters.manufacturer],
+    queryFn: () => getRollsVsStrips(warehouseId, filters.manufacturer),
+    enabled: viewMode === "positions",
+  });
+  const rollsVsStripsByGroup = useMemo(() => {
+    const map = new Map<string, RollsVsStripsLine>();
+    for (const r of rollsVsStripsQuery.data ?? []) map.set(`${r.material}|${r.color}|${r.thickness}`, r);
+    return map;
+  }, [rollsVsStripsQuery.data]);
   const unitsQuery = useQuery({
     queryKey: ["materials-explorer", "units", filters, warehouseId],
     queryFn: () => searchUnits({ ...filters, warehouse_id: warehouseId }),
@@ -414,13 +428,26 @@ export default function MaterialsExplorer() {
               onClick={() =>
                 exportToExcel(
                   "ostatki-po-pozitsiyam.xlsx",
-                  filteredPositions,
+                  filteredPositions.map((r) => {
+                    const rvs = rollsVsStripsByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
+                    return {
+                      ...r,
+                      roll_count: rvs?.roll_count ?? 0,
+                      roll_length_m: rvs?.roll_length_m ?? 0,
+                      strip_count: rvs?.strip_count ?? 0,
+                      strip_length_m: rvs?.strip_length_m ?? 0,
+                    };
+                  }),
                   [
                     { key: "material", header: "Материал" },
                     { key: "color", header: "Цвет" },
                     { key: "thickness", header: "Толщина, мм" },
                     { key: "total_area_m2", header: "Остаток, м²" },
                     { key: "unit_count", header: "Единиц" },
+                    { key: "roll_count", header: "Рулонов, шт" },
+                    { key: "roll_length_m", header: "Рулонов, м" },
+                    { key: "strip_count", header: "Штрипсов, шт" },
+                    { key: "strip_length_m", header: "Штрипсов, м" },
                   ],
                 )
               }
@@ -454,6 +481,20 @@ export default function MaterialsExplorer() {
               },
               { title: "Остаток, м²", dataIndex: "total_area_m2", sorter: (a, b) => a.total_area_m2 - b.total_area_m2 },
               { title: "Единиц", dataIndex: "unit_count", sorter: (a, b) => a.unit_count - b.unit_count },
+              {
+                title: "Рулонов",
+                render: (_, r) => {
+                  const rvs = rollsVsStripsByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
+                  return rvs ? `${rvs.roll_count} шт · ${rvs.roll_length_m} м` : "—";
+                },
+              },
+              {
+                title: "Штрипсов",
+                render: (_, r) => {
+                  const rvs = rollsVsStripsByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
+                  return rvs ? `${rvs.strip_count} шт · ${rvs.strip_length_m} м` : "—";
+                },
+              },
               ...(canViewPurchasing
                 ? [
                     {

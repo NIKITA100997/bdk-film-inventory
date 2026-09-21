@@ -334,6 +334,10 @@ export default function MaterialCard() {
   // список единиц можно было только пролистать целиком, без фильтра.
   const [minWidthFilter, setMinWidthFilter] = useState<number | undefined>();
   const [minLengthFilter, setMinLengthFilter] = useState<number | undefined>();
+  // Раздел про недостающий фильтр рулон/штрипс на карточке материала —
+  // тот же тип фильтра, что уже есть в "Остатках плёнки"/"Стеллажах", но
+  // раньше карточка материала его не предлагала вовсе.
+  const [typeFilter, setTypeFilter] = useState<"all" | "roll" | "strip">("all");
   // Архивные/без остатка позиции видны в выборе только тем, кто может их
   // редактировать (объединение "Остатков" и бывшей "Номенклатуры" по итогам
   // продуктового разбора — раньше архивные позиции были видны только на
@@ -464,9 +468,12 @@ export default function MaterialCard() {
 
   const filteredUnits = useMemo(() => {
     return scopedUnits.filter(
-      (u) => (minWidthFilter == null || u.width_mm >= minWidthFilter) && (minLengthFilter == null || u.length_m >= minLengthFilter),
+      (u) =>
+        (minWidthFilter == null || u.width_mm >= minWidthFilter) &&
+        (minLengthFilter == null || u.length_m >= minLengthFilter) &&
+        (typeFilter === "all" || (typeFilter === "strip" ? u.is_strip : !u.is_strip)),
     );
-  }, [scopedUnits, minWidthFilter, minLengthFilter]);
+  }, [scopedUnits, minWidthFilter, minLengthFilter, typeFilter]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -714,6 +721,16 @@ export default function MaterialCard() {
 
           <Card title="Список физических единиц">
             <Space style={{ marginBottom: 12 }} wrap>
+              <Radio.Group
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                options={[
+                  { label: "Все", value: "all" },
+                  { label: "Рулоны", value: "roll" },
+                  { label: "Штрипсы", value: "strip" },
+                ]}
+                optionType="button"
+              />
               <InputNumber
                 placeholder="Ширина от, мм"
                 min={0}
