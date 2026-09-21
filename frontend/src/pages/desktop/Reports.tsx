@@ -21,6 +21,7 @@ import DictAutoComplete from "../../components/DictAutoComplete";
 import { listAreas } from "../../api/areas";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { useAuth } from "../../auth/AuthContext";
+import { UnitLink, PartUnitLink } from "../../components/EntityLink";
 
 function StockSummaryTab() {
   const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
@@ -185,7 +186,7 @@ function MovementTab() {
     { key: "event_type", header: "Событие", render: (r) => r.event_type, printValue: (r) => r.event_type },
     { key: "width_mm", header: "Ширина, мм", render: (r) => r.width_mm, printValue: (r) => r.width_mm, sorter: (a, b) => a.width_mm - b.width_mm },
     { key: "quantity_delta_m", header: "Δ метры", render: (r) => r.quantity_delta_m, printValue: (r) => r.quantity_delta_m, sorter: (a, b) => a.quantity_delta_m - b.quantity_delta_m },
-    { key: "unit_id", header: "Ед.", render: (r) => r.unit_id, printValue: (r) => r.unit_id },
+    { key: "unit_id", header: "Ед.", render: (r) => <UnitLink id={r.unit_id} />, printValue: (r) => r.unit_id },
   ];
 
   return (
@@ -240,7 +241,7 @@ function StaleUnitsTab() {
   const query = useQuery({ queryKey: ["report-stale-units"], queryFn: () => getStaleUnits() });
   const rows = query.data ?? [];
   const columns: ReportColumn<(typeof rows)[number]>[] = [
-    { key: "unit_id", header: "№", render: (r) => r.unit_id, printValue: (r) => r.unit_id },
+    { key: "unit_id", header: "№", render: (r) => <UnitLink id={r.unit_id} />, printValue: (r) => r.unit_id },
     { key: "material", header: "Материал", render: (r) => `${r.material}, ${r.color}, ${r.thickness} мм, ${r.manufacturer}`, printValue: (r) => `${r.material}, ${r.color}, ${r.thickness} мм, ${r.manufacturer}` },
     { key: "size", header: "Ширина×длина", render: (r) => `${r.width_mm}×${r.length_m}`, printValue: (r) => `${r.width_mm}×${r.length_m}` },
     { key: "location_code", header: "Ячейка", render: (r) => r.location_code ?? "—", printValue: (r) => r.location_code ?? "" },
@@ -312,7 +313,7 @@ function CuttingDiscrepancyTab() {
       defaultSortOrder: "descend",
     },
     { key: "discrepancy_percent", header: "Отклонение, %", render: (r) => `${r.discrepancy_percent}%`, printValue: (r) => r.discrepancy_percent },
-    { key: "unit_id", header: "Ед.", render: (r) => r.unit_id, printValue: (r) => r.unit_id },
+    { key: "unit_id", header: "Ед.", render: (r) => <UnitLink id={r.unit_id} />, printValue: (r) => r.unit_id },
   ];
 
   return (
@@ -345,7 +346,7 @@ function UnitReconciliationTab() {
 
   const rows = query.data ?? [];
   const columns: ReportColumn<(typeof rows)[number]>[] = [
-    { key: "unit_id", header: "Рулон", render: (r) => `№${r.unit_id}`, printValue: (r) => r.unit_id },
+    { key: "unit_id", header: "Рулон", render: (r) => <UnitLink id={r.unit_id} />, printValue: (r) => r.unit_id },
     { key: "material", header: "Плёнка", render: (r) => `${r.material}, ${r.color}, ${r.thickness} мм`, printValue: (r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
     { key: "part_name", header: "Деталь", render: (r) => r.part_name ?? "—", printValue: (r) => r.part_name ?? "" },
     { key: "task_name", header: "Задание", render: (r) => r.task_name ?? "—", printValue: (r) => r.task_name ?? "" },
@@ -399,7 +400,7 @@ function PartUnitReconciliationTab() {
 
   const rows = query.data ?? [];
   const columns: ReportColumn<(typeof rows)[number]>[] = [
-    { key: "unit_id", header: "Партия", render: (r) => `№${r.unit_id}`, printValue: (r) => r.unit_id },
+    { key: "unit_id", header: "Партия", render: (r) => <PartUnitLink id={r.unit_id} />, printValue: (r) => r.unit_id },
     { key: "part_name", header: "Деталь", render: (r) => r.part_name, printValue: (r) => r.part_name },
     { key: "stage_name", header: "Этап", render: (r) => r.stage_name, printValue: (r) => r.stage_name },
     { key: "area", header: "Участок", render: (r) => areaLabel(r.area), printValue: (r) => areaLabel(r.area) },

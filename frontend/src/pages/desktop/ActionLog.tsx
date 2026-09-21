@@ -13,6 +13,7 @@ import {
 } from "../../api/actionLog";
 import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
+import { UnitLink, PartUnitLink } from "../../components/EntityLink";
 
 // Раздел про журнал действий (ревизия путей плёнки/п/ф) — значения
 // event_type/PartEventType как они приходят с бэкенда (enum.value,
@@ -126,7 +127,7 @@ function MaterialLogTab({ canCorrect }: { canCorrect: boolean }) {
     { key: "user_name", header: "Кто", render: (r) => r.user_name, printValue: (r) => r.user_name },
     { key: "event_type", header: "Тип", render: (r) => <Tag>{eventTypeLabel(r.event_type)}</Tag>, printValue: (r) => r.event_type },
     { key: "area", header: "Участок", render: (r) => areaLabel(r.area), printValue: (r) => areaLabel(r.area) },
-    { key: "unit_id", header: "Единица", render: (r) => `№${r.unit_id}`, printValue: (r) => r.unit_id },
+    { key: "unit_id", header: "Единица", render: (r) => <UnitLink id={r.unit_id} />, printValue: (r) => r.unit_id },
     { key: "material", header: "Плёнка", render: (r) => `${r.material}, ${r.color}, ${r.thickness} мм`, printValue: (r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
     {
       key: "change",
@@ -253,7 +254,7 @@ function PartUnitLogTab({ canCorrect }: { canCorrect: boolean }) {
     { key: "user_name", header: "Кто", render: (r) => r.user_name, printValue: (r) => r.user_name },
     { key: "event_type", header: "Тип", render: (r) => <Tag>{eventTypeLabel(r.event_type)}</Tag>, printValue: (r) => r.event_type },
     { key: "area", header: "Участок", render: (r) => areaLabel(r.area), printValue: (r) => areaLabel(r.area) },
-    { key: "part_unit_id", header: "Партия", render: (r) => `№${r.part_unit_id}`, printValue: (r) => r.part_unit_id },
+    { key: "part_unit_id", header: "Партия", render: (r) => <PartUnitLink id={r.part_unit_id} />, printValue: (r) => r.part_unit_id },
     { key: "part_name", header: "Деталь", render: (r) => r.part_name, printValue: (r) => r.part_name },
     { key: "stage_name", header: "Этап", render: (r) => r.stage_name ?? "—", printValue: (r) => r.stage_name ?? "" },
     { key: "quantity_delta", header: "Δ шт", render: (r) => `${r.quantity_delta > 0 ? "+" : ""}${r.quantity_delta}`, printValue: (r) => r.quantity_delta },

@@ -27,6 +27,7 @@ import { listAllWriteOffReasons } from "../../api/writeOffReasons";
 import { useAuth } from "../../auth/AuthContext";
 import { palette } from "../../theme";
 import { WriteOffReasonsTab } from "./DictionaryAdmin";
+import { UnitLink } from "../../components/EntityLink";
 
 function DeltaTag({ value, goodDirection }: { value: number | null; goodDirection: "down" | "up" }) {
   if (value === null) return <Tag>нет данных за пред. период</Tag>;
@@ -381,7 +382,7 @@ function WriteOffsTab() {
     },
     { key: "note", header: "Заметка", render: (r) => r.note ?? "—", printValue: (r) => r.note ?? "" },
     { key: "user_name", header: "Кто", render: (r) => r.user_name, printValue: (r) => r.user_name },
-    { key: "unit_id", header: "Единица", render: (r) => `№ ${r.unit_id}`, printValue: (r) => r.unit_id },
+    { key: "unit_id", header: "Единица", render: (r) => <UnitLink id={r.unit_id} />, printValue: (r) => r.unit_id },
   ];
 
   return (
