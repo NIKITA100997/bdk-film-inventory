@@ -1,5 +1,5 @@
 import { Space, Button } from "antd";
-import { exportToCsv } from "../utils/csv";
+import { exportToExcel } from "../utils/excel";
 import { printReport } from "../utils/printReport";
 import ResponsiveTable from "./ResponsiveTable";
 import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "./ColumnSettings";
@@ -50,7 +50,7 @@ export default function ReportTable<T extends object>({ title, filename, rowKey,
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
         <Space wrap>
-          <Button onClick={() => exportToCsv(filename, toPrintRows(), visibleColumns.map((c) => ({ key: c.key, header: c.header })))}>
+          <Button onClick={() => exportToExcel(filename, toPrintRows(), visibleColumns.map((c) => ({ key: c.key, header: c.header })))}>
             Экспорт в Excel
           </Button>
           <Button onClick={() => printReport(title, visibleColumns.map((c) => ({ key: c.key, header: c.header })), toPrintRows())}>

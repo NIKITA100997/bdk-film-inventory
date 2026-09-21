@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { listPartUnits, type PartUnit } from "../../../api/partUnits";
 import { listAreas } from "../../../api/areas";
-import { exportToCsv } from "../../../utils/csv";
+import { exportToExcel } from "../../../utils/excel";
 
 interface PartStockGroup {
   partId: number;
@@ -75,8 +75,8 @@ export default function PartStock() {
   const totalAvailable = filtered.reduce((sum, g) => sum + g.available, 0);
 
   const exportRows = () =>
-    exportToCsv(
-      "ostatki-pf.csv",
+    exportToExcel(
+      "ostatki-pf.xlsx",
       filtered.map((g) => ({
         part: g.partName,
         available: Math.round(g.available * 100) / 100,

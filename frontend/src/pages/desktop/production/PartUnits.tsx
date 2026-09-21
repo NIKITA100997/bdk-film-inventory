@@ -8,7 +8,7 @@ import PrintFormatButton from "../../../components/PrintFormatButton";
 import PartSelect from "../../../components/PartSelect";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { printPartUnitLabel } from "../../../api/partLabels";
-import { exportToCsv } from "../../../utils/csv";
+import { exportToExcel } from "../../../utils/excel";
 import {
   listPartUnits,
   createPartUnit,
@@ -489,8 +489,8 @@ export default function PartUnits() {
           <Button
             size="small"
             onClick={() =>
-              exportToCsv(
-                "uchet-pf.csv",
+              exportToExcel(
+                "uchet-pf.xlsx",
                 filteredUnits.map((u) => ({
                   part: u.part_name,
                   qty: u.quantity_available,

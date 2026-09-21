@@ -53,7 +53,7 @@ import ExistingSkuPicker from "../../components/ExistingSkuPicker";
 import OccurredAtField from "../../components/OccurredAtField";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { useAuth } from "../../auth/AuthContext";
-import { exportToCsv } from "../../utils/csv";
+import { exportToExcel } from "../../utils/excel";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 
@@ -412,8 +412,8 @@ export default function MaterialsExplorer() {
           extra={
             <Button
               onClick={() =>
-                exportToCsv(
-                  "ostatki-po-pozitsiyam.csv",
+                exportToExcel(
+                  "ostatki-po-pozitsiyam.xlsx",
                   filteredPositions,
                   [
                     { key: "material", header: "Материал" },
@@ -521,8 +521,8 @@ export default function MaterialsExplorer() {
           extra={
             <Button
               onClick={() =>
-                exportToCsv(
-                  "ostatki-po-edinitsam.csv",
+                exportToExcel(
+                  "ostatki-po-edinitsam.xlsx",
                   displayedUnits.map((u) => ({
                     id: u.id,
                     material: skuLabel(u.material_sku),

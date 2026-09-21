@@ -7,7 +7,7 @@ import { getStockSummary, getRollsVsStrips } from "../../api/reports";
 import { listPartUnits } from "../../api/partUnits";
 import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
-import { exportToCsv } from "../../utils/csv";
+import { exportToExcel } from "../../utils/excel";
 
 type Domain = "film" | "part";
 
@@ -169,8 +169,8 @@ export default function GeneralStock() {
   ];
 
   const exportRows = (rows: GeneralRow[]) =>
-    exportToCsv(
-      "obshchie-ostatki.csv",
+    exportToExcel(
+      "obshchie-ostatki.xlsx",
       rows.map((r) => ({
         domainLabel: r.domainLabel,
         label: r.label,
