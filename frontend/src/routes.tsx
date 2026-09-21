@@ -10,13 +10,12 @@ import UnitCard from "./pages/mobile/UnitCard";
 import PartUnitCard from "./pages/mobile/PartUnitCard";
 import InitialStock from "./pages/mobile/InitialStock";
 
-import MaterialsExplorer from "./pages/desktop/MaterialsExplorer";
+import MaterialInventory from "./pages/desktop/MaterialInventory";
 import MaterialCard from "./pages/desktop/MaterialCard";
 import Reports from "./pages/desktop/Reports";
 import Defects from "./pages/desktop/Defects";
 import ActionLog from "./pages/desktop/ActionLog";
 import Blanks from "./pages/desktop/Blanks";
-import StorageMap from "./pages/desktop/StorageMap";
 import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
 import CalcSettingsAdmin from "./pages/desktop/CalcSettingsAdmin";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
@@ -75,7 +74,7 @@ export default function AppRoutes() {
         пользователю (как раньше ALL_ROLES) — /materials не пункт меню (8.1
         раздел бэклога доработок), вход только кликом по строке или сканом QR,
         поэтому доступ держим таким же широким, как у самого /stock. */}
-        <Route path="/stock" element={<MaterialsExplorer />} />
+        <Route path="/stock" element={<MaterialInventory defaultView="list" />} />
         <Route path="/materials" element={<MaterialCard />} />
 
         <Route
@@ -92,7 +91,7 @@ export default function AppRoutes() {
         />
         {/* "Стеллажи" видны всем (как "Остатки") — вкладка "Управление" внутри
         сама решает, показываться ли, по storage.manage. */}
-        <Route path="/storage" element={<StorageMap />} />
+        <Route path="/storage" element={<MaterialInventory defaultView="map" />} />
         <Route
           path="/warehouse-transfers"
           element={
