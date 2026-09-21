@@ -555,6 +555,8 @@ export default function MaterialsExplorer() {
             </Space>
           )}
           <ResponsiveTable<MaterialUnit>
+            tableKey="materials-explorer-units"
+            lockedColumns={["ID", "Материал"]}
             cardBreakpoint="sm"
             rowKey="id"
             loading={unitsQuery.isLoading}

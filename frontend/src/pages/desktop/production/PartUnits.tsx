@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Popconfirm, Table, Tag, DatePicker } from "antd";
+import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Popconfirm, Tag, DatePicker } from "antd";
 import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ActionIcon from "../../../components/ActionIcon";
 import PrintFormatButton from "../../../components/PrintFormatButton";
 import PartSelect from "../../../components/PartSelect";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 import { printPartUnitLabel } from "../../../api/partLabels";
+import { exportToCsv } from "../../../utils/csv";
 import {
   listPartUnits,
   createPartUnit,
@@ -481,7 +483,41 @@ export default function PartUnits() {
         </Card>
       )}
 
-      <Card title="Остатки партий">
+      <Card
+        title="Остатки партий"
+        extra={
+          <Button
+            size="small"
+            onClick={() =>
+              exportToCsv(
+                "uchet-pf.csv",
+                filteredUnits.map((u) => ({
+                  part: u.part_name,
+                  qty: u.quantity_available,
+                  manufactured_at: u.manufactured_at,
+                  stage: u.stage_name,
+                  status: STATUS_LABEL[u.status],
+                  area: areaLabel(u.area),
+                  location: u.location_code ?? "",
+                  note: u.note ?? "",
+                })),
+                [
+                  { key: "part", header: "Деталь" },
+                  { key: "qty", header: "Кол-во, шт" },
+                  { key: "manufactured_at", header: "Изготовлено" },
+                  { key: "stage", header: "Этап" },
+                  { key: "status", header: "Статус" },
+                  { key: "area", header: "Участок" },
+                  { key: "location", header: "Место" },
+                  { key: "note", header: "Заметка" },
+                ],
+              )
+            }
+          >
+            Экспорт в Excel
+          </Button>
+        }
+      >
         <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
           Кликните строку, чтобы открыть карточку партии (журнал событий).
         </Typography.Paragraph>
@@ -522,7 +558,10 @@ export default function PartUnits() {
           </Checkbox>
         </Space>
 
-        <Table<PartUnit>
+        <ResponsiveTable<PartUnit>
+          tableKey="part-units"
+          lockedColumns={["Деталь", "Действия"]}
+          cardBreakpoint="lg"
           size="small"
           tableLayout="fixed"
           rowKey="id"

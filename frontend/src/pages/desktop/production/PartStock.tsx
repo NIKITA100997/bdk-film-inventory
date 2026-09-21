@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, Space, Typography, Input, Select, Checkbox, Table, Tag, Button } from "antd";
 import { useQuery } from "@tanstack/react-query";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 import { listPartUnits, type PartUnit } from "../../../api/partUnits";
 import { listAreas } from "../../../api/areas";
+import { exportToCsv } from "../../../utils/csv";
 
 interface PartStockGroup {
   partId: number;
@@ -72,8 +74,34 @@ export default function PartStock() {
 
   const totalAvailable = filtered.reduce((sum, g) => sum + g.available, 0);
 
+  const exportRows = () =>
+    exportToCsv(
+      "ostatki-pf.csv",
+      filtered.map((g) => ({
+        part: g.partName,
+        available: Math.round(g.available * 100) / 100,
+        stages: g.byStage.map((s) => `${s.stageName}: ${Math.round(s.qty * 100) / 100}`).join(", "),
+        areas: g.byArea.map((a) => `${a.area ? areaLabel(a.area) : "склад"}: ${Math.round(a.qty * 100) / 100}`).join(", "),
+        unplaced: g.unplacedCount,
+      })),
+      [
+        { key: "part", header: "Деталь" },
+        { key: "available", header: "Доступно, шт" },
+        { key: "stages", header: "По этапам" },
+        { key: "areas", header: "По участкам" },
+        { key: "unplaced", header: "Без адреса" },
+      ],
+    );
+
   return (
-    <Card title="Остатки п/ф">
+    <Card
+      title="Остатки п/ф"
+      extra={
+        <Button size="small" onClick={exportRows}>
+          Экспорт в Excel
+        </Button>
+      }
+    >
       <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
         Сводка «сколько всего доступно» по каждой детали — для отдельных партий и журнала событий см. «Учёт п/ф».
       </Typography.Paragraph>
@@ -98,7 +126,9 @@ export default function PartStock() {
         </Checkbox>
       </Space>
 
-      <Table<PartStockGroup>
+      <ResponsiveTable<PartStockGroup>
+        tableKey="part-stock"
+        lockedColumns={["Деталь"]}
         size="small"
         tableLayout="fixed"
         rowKey="partId"

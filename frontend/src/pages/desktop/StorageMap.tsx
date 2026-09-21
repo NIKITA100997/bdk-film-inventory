@@ -45,6 +45,7 @@ import {
 import { listColors, listManufacturers, listMaterials, listThicknesses } from "../../api/dictionaries";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import CollapsibleWarningBanner from "../../components/CollapsibleWarningBanner";
 import { placeUnit, printLabel, printLabelsBatch, searchUnits, skuLabel, type MaterialUnit } from "../../api/units";
 import { printRackLabel, printShelfLabelsBatch } from "../../api/labels";
 import { useAuth } from "../../auth/AuthContext";
@@ -591,17 +592,13 @@ export function UnplacedUnitsCard() {
   if (!unplacedQuery.data || unplacedQuery.data.length === 0) return null;
 
   return (
-    <Card
-      size="small"
-      style={{ background: "#FBEAE7", borderColor: "#E3B5AC" }}
-      title={`⚠️ Без места: ${unplacedQuery.data.length}`}
-    >
+    <CollapsibleWarningBanner storageKey="film-unplaced" count={unplacedQuery.data.length} label="Без места">
       <Space direction="vertical" style={{ width: "100%" }} size={6}>
         {unplacedQuery.data.map((u) => (
           <UnplacedRow key={u.id} unit={u} />
         ))}
       </Space>
-    </Card>
+    </CollapsibleWarningBanner>
   );
 }
 

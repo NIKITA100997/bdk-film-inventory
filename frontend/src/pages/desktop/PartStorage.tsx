@@ -7,6 +7,7 @@ import { createPartRack, getPartRackOccupancy, listPartRacks, placePartUnit, typ
 import { listPartUnits, type PartUnit } from "../../api/partUnits";
 import { printPartRackLabel, printPartShelfLabelsBatch, printPartUnitLabelsBatch } from "../../api/partLabels";
 import PrintFormatButton from "../../components/PrintFormatButton";
+import CollapsibleWarningBanner from "../../components/CollapsibleWarningBanner";
 import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -29,13 +30,15 @@ function UnplacedPartUnitsCard({ areaLabel }: { areaLabel: (code: string | null)
   if (unplaced.length === 0) return null;
 
   return (
-    <Card size="small" style={{ background: "#FBEAE7", borderColor: "#E3B5AC", marginBottom: 16 }} title={`⚠️ Без адреса: ${unplaced.length}`}>
-      <Space direction="vertical" style={{ width: "100%" }} size={6}>
-        {unplaced.map((u) => (
-          <UnplacedPartUnitRow key={u.id} unit={u} areaLabel={areaLabel} onPlaced={() => qc.invalidateQueries({ queryKey: ["part-units"] })} />
-        ))}
-      </Space>
-    </Card>
+    <div style={{ marginBottom: 16 }}>
+      <CollapsibleWarningBanner storageKey="part-unplaced" count={unplaced.length} label="Без адреса">
+        <Space direction="vertical" style={{ width: "100%" }} size={6}>
+          {unplaced.map((u) => (
+            <UnplacedPartUnitRow key={u.id} unit={u} areaLabel={areaLabel} onPlaced={() => qc.invalidateQueries({ queryKey: ["part-units"] })} />
+          ))}
+        </Space>
+      </CollapsibleWarningBanner>
+    </div>
   );
 }
 

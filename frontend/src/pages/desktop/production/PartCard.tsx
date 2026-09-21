@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { Card, Space, Typography, Table, Tag, Empty, Button } from "antd";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { listPartUnits, listPartUnitEvents, type PartUnit, type PartUnitEvent } from "../../../api/partUnits";
 import { listParts, listAllMaterialSkus } from "../../../api/dictionaries";
@@ -155,7 +156,9 @@ export default function PartCard() {
       </Card>
 
       <Card title={`Партии (${units.length})`}>
-        <Table<PartUnit>
+        <ResponsiveTable<PartUnit>
+          tableKey="part-card-units"
+          lockedColumns={["№"]}
           size="small"
           tableLayout="fixed"
           rowKey="id"
