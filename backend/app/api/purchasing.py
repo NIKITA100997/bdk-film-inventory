@@ -40,7 +40,7 @@ view_stock_for_sales = require_permission("purchasing.manage", "sales_calculator
 # С "Выдачи участку" (units.issue) — сигнал нехватки прямо в моменте
 # выдачи; с "Приёмки" (units.receive) — привязка заявки к конкретной
 # поставке по УПД. Ни то ни другое не требует прав снабженца.
-create_shop_floor_request = require_permission("units.issue")
+create_shop_floor_request = require_permission("units.issue", "sales_calculator.view")
 fulfill_purchase_request_perm = require_permission("units.receive")
 
 
@@ -329,8 +329,11 @@ def create_shop_floor_purchase_request(
     user: User = Depends(create_shop_floor_request),
 ) -> PurchaseRequestOut:
     """Заявка "с цеха" — кнопка "Подать заявку на закупку" на "Выдаче
-    участку", когда остатка на складе не хватает под строку задания. Без
-    supplier/price_per_m2 — их выбирает снабженец позже на "Закупках"."""
+    участку", когда остатка на складе не хватает под строку задания. Тот
+    же путь у кнопки "Заказать" в "Калькуляторе заказа" (продажник увидел
+    нехватку при расчёте клиенту) — оба origin остаются "shop_floor", не
+    заводим отдельный код ради того, кто именно нажал. Без supplier/
+    price_per_m2 — их выбирает снабженец позже на "Закупках"."""
     material, color, thickness = find_or_create_material_color_thickness(
         db, material=payload.material, color=payload.color, thickness=payload.thickness
     )

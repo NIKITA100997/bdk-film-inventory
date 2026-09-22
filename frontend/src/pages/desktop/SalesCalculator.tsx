@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { Card, Select, InputNumber, Space, Typography, Tag, Image, Empty, Row, Col, Button } from "antd";
+import { Card, Select, InputNumber, Space, Typography, Tag, Image, Empty, Row, Col, Button, Modal, Form, Input, message } from "antd";
 import { PlusOutlined, DeleteOutlined, PictureOutlined } from "@ant-design/icons";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Statistic from "../../components/Statistic";
 import ResponsiveTable from "../../components/ResponsiveTable";
-import { useQuery } from "@tanstack/react-query";
 import { listMaterialSkus, getSkuAnalogs, skuPhotoUrl, type AnalogEntry } from "../../api/dictionaries";
 import { skuLabel, type MaterialSku } from "../../api/units";
 import { listProductModels, type ProductModel, type ProductModelPart } from "../../api/production";
-import { getStockForSkus } from "../../api/purchasing";
+import { getStockForSkus, createShopFloorPurchaseRequest, type PurchaseRequestShopFloorCreate } from "../../api/purchasing";
 
 function Photo({ sku, size = 48 }: { sku: MaterialSku; size?: number }) {
   const url = skuPhotoUrl(sku.photo_path);
@@ -81,9 +81,30 @@ let nextLineKey = 1;
 let nextTrimKey = 1;
 
 export default function SalesCalculator() {
+  const qc = useQueryClient();
   const [skuId, setSkuId] = useState<number | undefined>();
   const [neededM2, setNeededM2] = useState<number | undefined>();
   const [orderLines, setOrderLines] = useState<OrderLine[]>([{ key: "0", qty: 1, showParts: false, trims: [] }]);
+  // Раздел про недостающую кнопку "Заказать" из нехватки в калькуляторе —
+  // тот же путь "заявка с цеха" (без выбора поставщика/цены — снабженец
+  // добавит их позже на "Закупках"), что уже есть на мобильной "Выдаче".
+  const [shortageTarget, setShortageTarget] = useState<{ material: string; color: string; thickness: number } | null>(
+    null,
+  );
+  const [shortageForm] = Form.useForm<PurchaseRequestShopFloorCreate>();
+  const shopFloorRequestMutation = useMutation({
+    mutationFn: (payload: PurchaseRequestShopFloorCreate) => createShopFloorPurchaseRequest(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["stock-for-skus"] });
+      message.success("Заявка на закупку отправлена");
+      setShortageTarget(null);
+    },
+    onError: () => message.error("Не удалось создать заявку"),
+  });
+  const openShortageModal = (material: string, color: string, thickness: number, shortageM2: number, note?: string) => {
+    setShortageTarget({ material, color, thickness });
+    shortageForm.setFieldsValue({ material, color, thickness, requested_area_m2: shortageM2, note });
+  };
 
   const modelsQuery = useQuery({ queryKey: ["product-models"], queryFn: listProductModels });
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
@@ -312,7 +333,25 @@ export default function SalesCalculator() {
                 title: "Хватит?",
                 render: (_, r) =>
                   r.shortage > 0 ? (
-                    <Tag color="orange">Не хватает {r.shortage.toFixed(2)} м²</Tag>
+                    <Space size={4} wrap>
+                      <Tag color="orange">Не хватает {r.shortage.toFixed(2)} м²</Tag>
+                      {r.sku && (
+                        <Button
+                          size="small"
+                          onClick={() =>
+                            openShortageModal(
+                              r.sku!.material.name,
+                              r.sku!.color.name,
+                              r.sku!.thickness.value_mm,
+                              r.shortage,
+                              "Калькулятор заказа",
+                            )
+                          }
+                        >
+                          Заказать
+                        </Button>
+                      )}
+                    </Space>
                   ) : (
                     <Tag color="green">Хватает</Tag>
                   ),
@@ -374,6 +413,17 @@ export default function SalesCalculator() {
                     value={shortageM2 && shortageM2 > 0 ? shortageM2 : "Да"}
                     valueStyle={{ color: shortageM2 && shortageM2 > 0 ? "#C97A2B" : "#2E7D32" }}
                   />
+                  {shortageM2 && shortageM2 > 0 && (
+                    <Button
+                      size="small"
+                      style={{ marginTop: 8 }}
+                      onClick={() =>
+                        openShortageModal(sku.material.name, sku.color.name, sku.thickness.value_mm, shortageM2, "Калькулятор заказа")
+                      }
+                    >
+                      Заказать
+                    </Button>
+                  )}
                 </Col>
               )}
             </Row>
@@ -416,6 +466,35 @@ export default function SalesCalculator() {
           )}
         </Card>
       )}
+
+      <Modal
+        title="Заявка на закупку"
+        open={!!shortageTarget}
+        onCancel={() => setShortageTarget(null)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Form layout="vertical" form={shortageForm} onFinish={(v) => shopFloorRequestMutation.mutate(v)}>
+          <Form.Item name="material" label="Материал">
+            <Input disabled />
+          </Form.Item>
+          <Form.Item name="color" label="Цвет">
+            <Input disabled />
+          </Form.Item>
+          <Form.Item name="thickness" label="Толщина, мм">
+            <InputNumber disabled style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="requested_area_m2" label="Запросить, м²" rules={[{ required: true }]}>
+            <InputNumber min={0.01} step={1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="note" label="Комментарий">
+            <Input />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block loading={shopFloorRequestMutation.isPending}>
+            Отправить заявку
+          </Button>
+        </Form>
+      </Modal>
     </Space>
   );
 }
