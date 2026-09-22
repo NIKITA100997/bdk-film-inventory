@@ -783,6 +783,7 @@ export default function UnitCard() {
           line={reportTarget.line}
           requiresDailyPlan={areasQuery.data?.find((a) => a.code === reconciliationQuery.data?.task_area)?.requires_daily_plan ?? false}
           requiresRoll={reconciliationQuery.data?.task_area === "okutka_tsargovykh"}
+          area={reconciliationQuery.data?.task_area ?? undefined}
           onClose={() => {
             setReportTarget(null);
             qc.invalidateQueries({ queryKey: ["unit-reconciliation", unit?.id] });

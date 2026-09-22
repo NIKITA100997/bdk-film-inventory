@@ -356,6 +356,7 @@ export default function RollReconciliationTab() {
           line={reportTarget.line}
           requiresDailyPlan={areasQuery.data?.find((a) => a.code === AREA)?.requires_daily_plan ?? false}
           requiresRoll={true}
+          area={AREA}
           onClose={() => {
             setReportTarget(null);
             invalidate();

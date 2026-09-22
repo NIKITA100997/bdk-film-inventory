@@ -164,6 +164,7 @@ export default function DailyPlanTab() {
           line={reportTarget.line}
           presetAssignmentId={reportTarget.assignmentId}
           requiresRoll={reportTarget.area === "okutka_tsargovykh"}
+          area={reportTarget.area}
           onClose={() => setReportTarget(null)}
         />
       )}

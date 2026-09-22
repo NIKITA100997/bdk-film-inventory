@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message, Radio, Tag } from "antd";
+import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message, Radio, Tag, Space } from "antd";
 import dayjs from "dayjs";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { createTaskLineReportsBatch, type ProductionTaskLine, type ProductionTaskLineReportCreate } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
+import { listPartUnits } from "../../../api/partUnits";
+import { listParts } from "../../../api/dictionaries";
 import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -28,6 +31,7 @@ export default function ReportModal({
   presetAssignmentId,
   requiresDailyPlan = true,
   requiresRoll = false,
+  area,
   onClose,
 }: {
   taskId: number;
@@ -35,9 +39,30 @@ export default function ReportModal({
   presetAssignmentId?: number;
   requiresDailyPlan?: boolean;
   requiresRoll?: boolean;
+  // Раздел про недостающую видимость остатка п/ф прямо в отчёте —
+  // участок нужен, чтобы узнать, сколько партий п/ф реально доступно
+  // (см. availableForLine ниже); не все вызывающие его знают напрямую
+  // (line не хранит area родительского задания), поэтому необязателен.
+  area?: string;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
+  const hasPartStages = !!area && (partsQuery.data ?? []).some((p) => p.stages.some((s) => s.area === area));
+  const partUnitsQuery = useQuery({
+    queryKey: ["part-units", "area", area],
+    queryFn: () => listPartUnits({ area, status_: "Выдан_участку" }),
+    enabled: hasPartStages,
+  });
+  const availableForLine = (() => {
+    if (!hasPartStages || !line.part_name) return null;
+    const part = (partsQuery.data ?? []).find((p) => p.name === line.part_name);
+    if (!part) return null;
+    return (partUnitsQuery.data ?? [])
+      .filter((u) => u.part_id === part.id)
+      .reduce((sum, u) => sum + u.quantity_available, 0);
+  })();
   // Раздел про учёт п/ф по FIFO — партия и для готовых деталей, и для
   // брака списывается автоматически от самой старой по дате изготовления
   // (см. app/services/part_units.py::consume_defect_fifo), выбор партии
@@ -291,6 +316,16 @@ export default function ReportModal({
         <Form.Item name="good_pieces" label="Хороших деталей, шт" rules={[{ required: true }]}>
           <InputNumber min={0} style={{ width: "100%" }} />
         </Form.Item>
+        {availableForLine != null && (
+          <Space size={4} style={{ marginTop: -8, marginBottom: 16 }}>
+            <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
+              доступно партий п/ф: {Math.round(availableForLine * 100) / 100} шт
+            </Tag>
+            <a style={{ fontSize: 11 }} onClick={() => navigate("/part-units", { state: { partFilter: line.part_name } })}>
+              Учёт п/ф →
+            </a>
+          </Space>
+        )}
         {meterageShort != null && (
           <Typography.Paragraph type="warning" style={{ marginTop: -8 }}>
             На выбранном рулоне остаток {meterageShort.remain} м, а на {meterageShort.good} деталей нужно ~

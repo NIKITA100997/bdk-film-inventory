@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form, Checkbox, Radio } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import {
@@ -12,6 +13,7 @@ import {
 } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { listParts } from "../../../api/dictionaries";
+import { listPartUnits } from "../../../api/partUnits";
 import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -83,12 +85,39 @@ const totalDefect = (row: ReportRow) => row.defects.reduce((sum, d) => sum + d.q
  * места снизу, список просто ужмётся, но останется на экране целиком. */
 export default function MasterQuickReportPanel({ area }: { area: string }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const requiresRoll = area === "okutka_tsargovykh";
   // Раздел про связь этапов с участками — «Партия п/ф» показывается для
   // ЛЮБОГО участка, у которого есть хоть один этап детали (не только у
   // окутки царговых): «Рулон» — отдельная, чисто плёночная забота.
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const hasPartStages = (partsQuery.data ?? []).some((p) => p.stages.some((s) => s.area === area));
+  // Раздел про недостающую видимость остатка п/ф прямо в отчёте —
+  // реальный случай: мастер 8 раз подряд пытался сохранить "532 хороших",
+  // хотя партий п/ф на участке физически было только 512 — экран об этом
+  // никак не предупреждал, отчёт просто падал с ошибкой FIFO на сервере.
+  // Тот же приём агрегации, что и в PartStock.tsx ("Остатки п/ф").
+  const partUnitsQuery = useQuery({
+    queryKey: ["part-units", "area", area],
+    queryFn: () => listPartUnits({ area, status_: "Выдан_участку" }),
+    enabled: hasPartStages,
+  });
+  const availableByPartId = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const u of partUnitsQuery.data ?? []) map.set(u.part_id, (map.get(u.part_id) ?? 0) + u.quantity_available);
+    return map;
+  }, [partUnitsQuery.data]);
+  const partIdByName = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of partsQuery.data ?? []) map.set(p.name, p.id);
+    return map;
+  }, [partsQuery.data]);
+  const availableForLine = (line: ProductionTaskLine): number | null => {
+    if (!line.part_name) return null;
+    const partId = partIdByName.get(line.part_name);
+    if (partId == null) return null;
+    return availableByPartId.get(partId) ?? 0;
+  };
   const [rows, setRows] = useState<ReportRow[]>([]);
   const rowCounter = useRef(0);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -444,15 +473,34 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               {
                 title: "Деталь",
                 key: "part",
-                render: (_, r) => (
-                  <Space direction="vertical" size={0}>
-                    <Typography.Text strong>{r.line.part_name ?? r.line.material}</Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {r.line.material}, {r.line.color}, {r.line.thickness} мм — произведено {r.line.produced_good_pieces} из{" "}
-                      {r.line.quantity_pieces} шт
-                    </Typography.Text>
-                  </Space>
-                ),
+                render: (_, r) => {
+                  const available = availableForLine(r.line);
+                  return (
+                    <Space direction="vertical" size={0}>
+                      <Typography.Text strong>{r.line.part_name ?? r.line.material}</Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {r.line.material}, {r.line.color}, {r.line.thickness} мм — произведено {r.line.produced_good_pieces} из{" "}
+                        {r.line.quantity_pieces} шт
+                      </Typography.Text>
+                      {available != null && (
+                        <Space size={4}>
+                          <Tag
+                            color={available < r.goodPieces + totalDefect(r) ? "orange" : "default"}
+                            style={{ margin: 0, fontSize: 11 }}
+                          >
+                            доступно партий п/ф: {Math.round(available * 100) / 100} шт
+                          </Tag>
+                          <a
+                            style={{ fontSize: 11 }}
+                            onClick={() => navigate("/part-units", { state: { partFilter: r.line.part_name } })}
+                          >
+                            Учёт п/ф →
+                          </a>
+                        </Space>
+                      )}
+                    </Space>
+                  );
+                },
               },
               ...(requiresRoll
                 ? [
