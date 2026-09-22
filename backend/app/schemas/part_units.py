@@ -34,12 +34,16 @@ class PartUnitCreate(BaseModel):
 
 class PartUnitPlace(BaseModel):
     location_code: str
+    # Раздел про недостающее задним числом на мобильной карточке п/ф —
+    # тот же приём, что уже есть у плёнки (OccurredAtField): None = сейчас.
+    occurred_at: datetime | None = None
 
 
 class PartUnitWriteOff(BaseModel):
     quantity_pieces: float = Field(gt=0)
     reason: str
     note: str | None = None
+    occurred_at: datetime | None = None
 
 
 class PartUnitReturn(BaseModel):
@@ -48,6 +52,7 @@ class PartUnitReturn(BaseModel):
     плёнки (schemas/units.py)."""
 
     actual_quantity_pieces: float = Field(ge=0)
+    occurred_at: datetime | None = None
 
 
 class PartUnitAdjust(BaseModel):
@@ -62,6 +67,7 @@ class PartUnitAdjust(BaseModel):
     # пометку заодно с корректировкой количества, без пересоздания партии.
     film_restriction: str | None = None
     clear_film_restriction: bool = False
+    occurred_at: datetime | None = None
 
 
 class PartUnitRecycle(BaseModel):
@@ -85,6 +91,7 @@ class PartUnitAdvance(BaseModel):
     расхода плёнки нет и заводить задание незачем."""
 
     quantity_pieces: float = Field(gt=0)
+    occurred_at: datetime | None = None
 
 
 class PartUnitOut(BaseModel):

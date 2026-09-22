@@ -26,5 +26,5 @@ export const createPartRack = async (payload: { code: string; shelf_count: numbe
 export const getPartRackOccupancy = async (rackId: number): Promise<PartRackOccupancyCell[]> =>
   (await apiClient.get<PartRackOccupancyCell[]>(`/part-racks/${rackId}/occupancy`)).data;
 
-export const placePartUnit = async (unitId: number, locationCode: string): Promise<PartUnit> =>
-  (await apiClient.patch<PartUnit>(`/part-units/${unitId}/place`, { location_code: locationCode })).data;
+export const placePartUnit = async (unitId: number, locationCode: string, occurredAt?: string | null): Promise<PartUnit> =>
+  (await apiClient.patch<PartUnit>(`/part-units/${unitId}/place`, { location_code: locationCode, occurred_at: occurredAt })).data;

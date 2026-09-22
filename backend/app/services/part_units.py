@@ -48,7 +48,9 @@ def record_part_event(
     return event
 
 
-def place_part_unit(db: Session, *, unit: PartUnit, location_code: str, user_id: int) -> PartUnit:
+def place_part_unit(
+    db: Session, *, unit: PartUnit, location_code: str, user_id: int, occurred_at: datetime | None = None
+) -> PartUnit:
     """Разместить партию на полку стеллажа п/ф (раздел про адресное
     хранение). В отличие от плёнки (склад/участок всегда разные физические
     места, `place_unit`/MaterialUnit держат их взаимоисключающими) —
@@ -68,6 +70,7 @@ def place_part_unit(db: Session, *, unit: PartUnit, location_code: str, user_id:
         user_id=user_id,
         from_cell=from_cell,
         to_cell=location_code,
+        occurred_at=occurred_at,
     )
     return unit
 
@@ -203,7 +206,9 @@ def _split_or_reuse(db: Session, unit: PartUnit, quantity_pieces: float) -> Part
     return child
 
 
-def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, user_id: int) -> tuple[PartUnit, bool]:
+def advance_part_unit(
+    db: Session, *, unit: PartUnit, quantity_pieces: float, user_id: int, occurred_at: datetime | None = None
+) -> tuple[PartUnit, bool]:
     """Перевод N штук партии на следующий этап её детали (раздел про
     цифровой аналог "Ежедневки" — вызывается из create_task_line_report
     при good_pieces > 0, участок сам этап не выбирает).
@@ -243,6 +248,7 @@ def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, us
             user_id=user_id,
             quantity_delta=quantity_pieces,
             from_stage_id=target.stage_id,
+            occurred_at=occurred_at,
         )
         return target, True
     from_stage_id = unit.stage_id
@@ -257,6 +263,7 @@ def advance_part_unit(db: Session, *, unit: PartUnit, quantity_pieces: float, us
         quantity_delta=quantity_pieces,
         from_stage_id=from_stage_id,
         to_stage_id=next_stage.id,
+        occurred_at=occurred_at,
     )
     return target, False
 
@@ -552,7 +559,14 @@ def reported_good_pieces_by_unit(db: Session, unit_ids: list[int]) -> dict[int, 
 
 
 def write_off_part_unit(
-    db: Session, *, unit: PartUnit, quantity_pieces: float, reason: str, user_id: int, note: str | None = None
+    db: Session,
+    *,
+    unit: PartUnit,
+    quantity_pieces: float,
+    reason: str,
+    user_id: int,
+    note: str | None = None,
+    occurred_at: datetime | None = None,
 ) -> PartUnit:
     if unit.status == PartUnitStatus.SPISAN:
         raise ValueError("Партия уже списана")
@@ -569,11 +583,14 @@ def write_off_part_unit(
         write_off_reason=reason,
         write_off_note=note,
         note=note,
+        occurred_at=occurred_at,
     )
     return target
 
 
-def return_part_unit(db: Session, *, unit: PartUnit, actual_quantity_pieces: float, user_id: int) -> PartUnit:
+def return_part_unit(
+    db: Session, *, unit: PartUnit, actual_quantity_pieces: float, user_id: int, occurred_at: datetime | None = None
+) -> PartUnit:
     """Вернуть партию на склад п/ф, не использовав (или использовав лишь
     частично) — раздел про ревизию путей п/ф: зеркалит `return_unit` у
     плёнки (api/units.py). Статус → На_хранении, area очищается; этап
@@ -610,6 +627,7 @@ def return_part_unit(db: Session, *, unit: PartUnit, actual_quantity_pieces: flo
         event_type=PartEventType.VOZVRAT,
         user_id=user_id,
         quantity_delta=actual_quantity_pieces - old_quantity,
+        occurred_at=occurred_at,
     )
     return unit
 
@@ -624,6 +642,7 @@ def adjust_part_unit(
     note: str | None = None,
     film_restriction: str | None = None,
     clear_film_restriction: bool = False,
+    occurred_at: datetime | None = None,
 ) -> PartUnit:
     """Формальная корректировка quantity_pieces — раздел про ревизию
     путей плёнки/п/ф: вместо правки истории напрямую в БД (так в этой же
@@ -656,5 +675,6 @@ def adjust_part_unit(
         user_id=user_id,
         quantity_delta=actual_quantity_pieces - old_quantity,
         note=(reason if not note else f"{reason} — {note}") + restriction_note,
+        occurred_at=occurred_at,
     )
     return unit

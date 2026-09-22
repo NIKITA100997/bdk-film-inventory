@@ -190,7 +190,7 @@ def place_part_unit_endpoint(
     if unit is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
     try:
-        place_part_unit(db, unit=unit, location_code=payload.location_code, user_id=user.id)
+        place_part_unit(db, unit=unit, location_code=payload.location_code, user_id=user.id, occurred_at=payload.occurred_at)
     except ValueError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
@@ -212,7 +212,9 @@ def advance_part_unit_endpoint(
     if unit is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
     try:
-        target, _ = advance_part_unit(db, unit=unit, quantity_pieces=payload.quantity_pieces, user_id=user.id)
+        target, _ = advance_part_unit(
+            db, unit=unit, quantity_pieces=payload.quantity_pieces, user_id=user.id, occurred_at=payload.occurred_at
+        )
     except ValueError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
@@ -229,7 +231,13 @@ def write_off_part_unit_endpoint(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
     try:
         target = write_off_part_unit(
-            db, unit=unit, quantity_pieces=payload.quantity_pieces, reason=payload.reason, user_id=user.id, note=payload.note
+            db,
+            unit=unit,
+            quantity_pieces=payload.quantity_pieces,
+            reason=payload.reason,
+            user_id=user.id,
+            note=payload.note,
+            occurred_at=payload.occurred_at,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
@@ -249,7 +257,9 @@ def return_part_unit_endpoint(
     if unit is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
     try:
-        return_part_unit(db, unit=unit, actual_quantity_pieces=payload.actual_quantity_pieces, user_id=user.id)
+        return_part_unit(
+            db, unit=unit, actual_quantity_pieces=payload.actual_quantity_pieces, user_id=user.id, occurred_at=payload.occurred_at
+        )
     except ValueError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
@@ -272,6 +282,7 @@ def adjust_part_unit_endpoint(
         db, unit=unit, actual_quantity_pieces=payload.actual_quantity_pieces,
         reason=payload.reason, user_id=user.id, note=payload.note,
         film_restriction=payload.film_restriction, clear_film_restriction=payload.clear_film_restriction,
+        occurred_at=payload.occurred_at,
     )
     db.commit()
     db.refresh(unit)

@@ -104,14 +104,14 @@ export const issuePartUnit = async (id: number): Promise<PartUnit> =>
 
 export const writeOffPartUnit = async (
   id: number,
-  payload: { quantity_pieces: number; reason: string; note?: string },
+  payload: { quantity_pieces: number; reason: string; note?: string; occurred_at?: string | null },
 ): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${id}/write-off`, payload)).data;
 
 // Раздел про мобильный скан-сценарий по этапам — прямой перевод партии
 // на следующий этап, не через отчёт о производстве (для переходов без
 // расхода плёнки, где заводить задание незачем).
-export const advancePartUnit = async (id: number, quantityPieces: number): Promise<PartUnit> =>
-  (await apiClient.post<PartUnit>(`/part-units/${id}/advance`, { quantity_pieces: quantityPieces })).data;
+export const advancePartUnit = async (id: number, quantityPieces: number, occurredAt?: string | null): Promise<PartUnit> =>
+  (await apiClient.post<PartUnit>(`/part-units/${id}/advance`, { quantity_pieces: quantityPieces, occurred_at: occurredAt })).data;
 
 export const listPartUnitEvents = async (id: number): Promise<PartUnitEvent[]> =>
   (await apiClient.get<PartUnitEvent[]>(`/part-units/${id}/events`)).data;
@@ -119,8 +119,8 @@ export const listPartUnitEvents = async (id: number): Promise<PartUnitEvent[]> =
 // Раздел про ревизию путей п/ф — вернуть партию на склад, не
 // использовав (или использовав лишь частично), зеркалит returnUnit у
 // плёнки.
-export const returnPartUnit = async (id: number, actualQuantityPieces: number): Promise<PartUnit> =>
-  (await apiClient.post<PartUnit>(`/part-units/${id}/return`, { actual_quantity_pieces: actualQuantityPieces })).data;
+export const returnPartUnit = async (id: number, actualQuantityPieces: number, occurredAt?: string | null): Promise<PartUnit> =>
+  (await apiClient.post<PartUnit>(`/part-units/${id}/return`, { actual_quantity_pieces: actualQuantityPieces, occurred_at: occurredAt })).data;
 
 // Раздел про ревизию путей плёнки/п/ф — формальная корректировка
 // quantity_pieces вместо правки истории напрямую в БД: поднадзорное
@@ -133,6 +133,7 @@ export const adjustPartUnit = async (
     note?: string;
     film_restriction?: string | null;
     clear_film_restriction?: boolean;
+    occurred_at?: string | null;
   },
 ): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${id}/adjust`, payload)).data;
 

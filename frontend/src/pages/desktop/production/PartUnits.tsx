@@ -7,8 +7,10 @@ import ActionIcon from "../../../components/ActionIcon";
 import PrintFormatButton from "../../../components/PrintFormatButton";
 import PartSelect from "../../../components/PartSelect";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import OccurredAtField from "../../../components/OccurredAtField";
 import { printPartUnitLabel } from "../../../api/partLabels";
 import { exportToExcel } from "../../../utils/excel";
+import { toOccurredAtIso } from "../../../utils/occurredAt";
 import {
   listPartUnits,
   createPartUnit,
@@ -150,9 +152,9 @@ export default function PartUnits() {
   const [form] = Form.useForm<MintFormValues>();
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
   const [writeOffTarget, setWriteOffTarget] = useState<PartUnit | null>(null);
-  const [writeOffForm] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string }>();
+  const [writeOffForm] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
   const [advanceTarget, setAdvanceTarget] = useState<PartUnit | null>(null);
-  const [advanceForm] = Form.useForm<{ quantity_pieces: number }>();
+  const [advanceForm] = Form.useForm<{ quantity_pieces: number; occurred_at?: Dayjs | null }>();
   const [placeTarget, setPlaceTarget] = useState<PartUnit | null>(null);
   const [placeLocationCode, setPlaceLocationCode] = useState("");
   const [cardTarget, setCardTarget] = useState<PartUnit | null>(null);
@@ -161,9 +163,9 @@ export default function PartUnits() {
   // частично) и формальная корректировка количества (вместо правки
   // истории напрямую в БД).
   const [returnTarget, setReturnTarget] = useState<PartUnit | null>(null);
-  const [returnForm] = Form.useForm<{ actual_quantity_pieces: number }>();
+  const [returnForm] = Form.useForm<{ actual_quantity_pieces: number; occurred_at?: Dayjs | null }>();
   const [adjustTarget, setAdjustTarget] = useState<PartUnit | null>(null);
-  const [adjustForm] = Form.useForm<{ actual_quantity_pieces: number; reason: string; note?: string }>();
+  const [adjustForm] = Form.useForm<{ actual_quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
   // Раздел про переработку брака — "Переработать в деталь": забрать
   // резерв (В_переработку) детали+участка по FIFO и заминтить новую
   // партию ДРУГОЙ детали сразу на её этапе "Окутка". recycleTarget несёт
@@ -296,7 +298,8 @@ export default function PartUnits() {
   });
 
   const writeOffMutation = useMutation({
-    mutationFn: (v: { quantity_pieces: number; reason: string; note?: string }) => writeOffPartUnit(writeOffTarget!.id, v),
+    mutationFn: (v: { quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
+      writeOffPartUnit(writeOffTarget!.id, { ...v, occurred_at: toOccurredAtIso(v.occurred_at) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
       message.success("Партия списана");
@@ -310,7 +313,8 @@ export default function PartUnits() {
   // что теперь доступен и со сканера на телефоне (PartUnitCard.tsx), для
   // симметрии здесь тоже, не только на мобильном.
   const advanceMutation = useMutation({
-    mutationFn: (v: { quantity_pieces: number }) => advancePartUnit(advanceTarget!.id, v.quantity_pieces),
+    mutationFn: (v: { quantity_pieces: number; occurred_at?: Dayjs | null }) =>
+      advancePartUnit(advanceTarget!.id, v.quantity_pieces, toOccurredAtIso(v.occurred_at)),
     onSuccess: (u) => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
       message.success(`Переведена на этап «${u.stage_name}»`);
@@ -321,7 +325,8 @@ export default function PartUnits() {
   });
 
   const returnMutation = useMutation({
-    mutationFn: (v: { actual_quantity_pieces: number }) => returnPartUnit(returnTarget!.id, v.actual_quantity_pieces),
+    mutationFn: (v: { actual_quantity_pieces: number; occurred_at?: Dayjs | null }) =>
+      returnPartUnit(returnTarget!.id, v.actual_quantity_pieces, toOccurredAtIso(v.occurred_at)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
       message.success("Партия возвращена на склад");
@@ -332,11 +337,18 @@ export default function PartUnits() {
   });
 
   const adjustMutation = useMutation({
-    mutationFn: (v: { actual_quantity_pieces: number; reason: string; note?: string; film_restriction?: string | null }) =>
+    mutationFn: (v: {
+      actual_quantity_pieces: number;
+      reason: string;
+      note?: string;
+      film_restriction?: string | null;
+      occurred_at?: Dayjs | null;
+    }) =>
       adjustPartUnit(adjustTarget!.id, {
         ...v,
         film_restriction: v.film_restriction ?? undefined,
         clear_film_restriction: !v.film_restriction && !!adjustTarget?.film_restriction,
+        occurred_at: toOccurredAtIso(v.occurred_at),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
@@ -785,6 +797,7 @@ export default function PartUnits() {
           <Form.Item name="note" label="Заметка (опционально)">
             <Input />
           </Form.Item>
+          <OccurredAtField />
           <Button type="primary" danger htmlType="submit" block loading={writeOffMutation.isPending}>
             Списать
           </Button>
@@ -817,6 +830,7 @@ export default function PartUnits() {
           <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
             <InputNumber min={0.01} max={advanceTarget?.quantity_available} style={{ width: "100%" }} />
           </Form.Item>
+          <OccurredAtField />
           <Button type="primary" htmlType="submit" block loading={advanceMutation.isPending}>
             Перевести
           </Button>
@@ -844,6 +858,7 @@ export default function PartUnits() {
           <Form.Item name="actual_quantity_pieces" label="Фактически возвращается, шт" rules={[{ required: true }]}>
             <InputNumber min={0} max={returnTarget?.quantity_available} style={{ width: "100%" }} />
           </Form.Item>
+          <OccurredAtField />
           <Button type="primary" htmlType="submit" block loading={returnMutation.isPending}>
             Вернуть на склад
           </Button>
@@ -879,6 +894,7 @@ export default function PartUnits() {
           <Form.Item name="film_restriction" label="Ограничение по плёнке (опционально)">
             <FilmRestrictionPicker />
           </Form.Item>
+          <OccurredAtField />
           <Button type="primary" htmlType="submit" block loading={adjustMutation.isPending}>
             Скорректировать
           </Button>

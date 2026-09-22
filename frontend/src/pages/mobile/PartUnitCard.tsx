@@ -1,21 +1,27 @@
 import { useEffect, useState } from "react";
 import { Button, Card, Form, Input, InputNumber, Typography, Descriptions, Alert, Tag, List, Space, Modal, Select, message } from "antd";
+import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   getPartUnit,
   issuePartUnit,
   writeOffPartUnit,
   advancePartUnit,
+  adjustPartUnit,
   listPartUnitEvents,
   type PartUnit,
 } from "../../api/partUnits";
 import { placePartUnit } from "../../api/partStorage";
+import { printPartUnitLabel } from "../../api/partLabels";
 import { listParts } from "../../api/dictionaries";
 import { listUsers } from "../../api/users";
 import { listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import QrScanButton from "../../components/QrScanButton";
+import OccurredAtField from "../../components/OccurredAtField";
+import { toOccurredAtIso } from "../../utils/occurredAt";
+import { useAuth } from "../../auth/AuthContext";
 
 type ActionKind = "place" | "advance" | null;
 
@@ -33,14 +39,19 @@ const statusLabels: Record<string, string> = {
  * расходуется плёнка (см. ReportModal/MasterQuickReportPanel). */
 export default function PartUnitCard() {
   const location = useLocation();
+  const navigate = useNavigate();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("part_units.correct");
   const [unit, setUnit] = useState<PartUnit | null>(null);
   const [action, setAction] = useState<ActionKind>(null);
   const [writeOffOpen, setWriteOffOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
   const [scanForm] = Form.useForm<{ id: number }>();
-  const [placeForm] = Form.useForm<{ location_code: string }>();
-  const [advanceForm] = Form.useForm<{ quantity_pieces: number }>();
-  const [writeOffForm] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string }>();
+  const [placeForm] = Form.useForm<{ location_code: string; occurred_at?: Dayjs | null }>();
+  const [advanceForm] = Form.useForm<{ quantity_pieces: number; occurred_at?: Dayjs | null }>();
+  const [writeOffForm] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
+  const [adjustForm] = Form.useForm<{ actual_quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
 
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
@@ -87,7 +98,8 @@ export default function PartUnitCard() {
   }, [location.state]);
 
   const placeMutation = useMutation({
-    mutationFn: (values: { location_code: string }) => placePartUnit(unit!.id, values.location_code),
+    mutationFn: (values: { location_code: string; occurred_at?: Dayjs | null }) =>
+      placePartUnit(unit!.id, values.location_code, toOccurredAtIso(values.occurred_at)),
     onSuccess: (u) => {
       setUnit(u);
       setAction(null);
@@ -107,7 +119,8 @@ export default function PartUnitCard() {
   });
 
   const advanceMutation = useMutation({
-    mutationFn: (values: { quantity_pieces: number }) => advancePartUnit(unit!.id, values.quantity_pieces),
+    mutationFn: (values: { quantity_pieces: number; occurred_at?: Dayjs | null }) =>
+      advancePartUnit(unit!.id, values.quantity_pieces, toOccurredAtIso(values.occurred_at)),
     onSuccess: (u) => {
       setUnit(u);
       setAction(null);
@@ -119,7 +132,8 @@ export default function PartUnitCard() {
   });
 
   const writeOffMutation = useMutation({
-    mutationFn: (values: { quantity_pieces: number; reason: string; note?: string }) => writeOffPartUnit(unit!.id, values),
+    mutationFn: (values: { quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
+      writeOffPartUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
     onSuccess: (u) => {
       setUnit(u);
       setWriteOffOpen(false);
@@ -128,6 +142,19 @@ export default function PartUnitCard() {
       message.success("Партия списана");
     },
     onError: () => message.error("Не удалось списать"),
+  });
+
+  const adjustMutation = useMutation({
+    mutationFn: (values: { actual_quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
+      adjustPartUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
+    onSuccess: (u) => {
+      setUnit(u);
+      setAdjustOpen(false);
+      adjustForm.resetFields();
+      qc.invalidateQueries({ queryKey: ["part-unit-events", u.id] });
+      message.success("Количество скорректировано");
+    },
+    onError: () => message.error("Не удалось скорректировать"),
   });
 
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
@@ -163,7 +190,9 @@ export default function PartUnitCard() {
         <>
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
             <Descriptions.Item label="ID">№ {unit.id}</Descriptions.Item>
-            <Descriptions.Item label="Деталь">{unit.part_name}</Descriptions.Item>
+            <Descriptions.Item label="Деталь">
+              <a onClick={() => navigate("/part-card", { state: { partId: unit.part_id } })}>{unit.part_name}</a>
+            </Descriptions.Item>
             <Descriptions.Item label="Количество">
               {unit.quantity_available} шт
               {unit.quantity_available !== unit.quantity_pieces && ` (из ${unit.quantity_pieces})`}
@@ -203,6 +232,18 @@ export default function PartUnitCard() {
                   Списать
                 </Button>
               )}
+              {canCorrect && (
+                <Button
+                  size="large"
+                  onClick={() => {
+                    adjustForm.setFieldsValue({ actual_quantity_pieces: unit.quantity_pieces });
+                    setAdjustOpen(true);
+                  }}
+                >
+                  Скорректировать
+                </Button>
+              )}
+              <Button onClick={() => printPartUnitLabel(unit.id)}>Печать бирки</Button>
               <Button
                 onClick={() => {
                   setUnit(null);
@@ -224,6 +265,7 @@ export default function PartUnitCard() {
               >
                 <Input placeholder="Например, ЗГ-1-01" autoFocus />
               </Form.Item>
+              <OccurredAtField />
               <Button type="primary" htmlType="submit" block loading={placeMutation.isPending}>
                 Сохранить адрес
               </Button>
@@ -257,6 +299,7 @@ export default function PartUnitCard() {
               <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
                 Меньше, чем в партии — переведётся только часть, остальное останется на текущем этапе.
               </Typography.Text>
+              <OccurredAtField />
               <Button type="primary" htmlType="submit" block loading={advanceMutation.isPending} style={{ marginTop: 12 }}>
                 Перевести
               </Button>
@@ -333,6 +376,36 @@ export default function PartUnitCard() {
           <Form.Item name="note" label="Заметка (опционально)">
             <Input.TextArea rows={2} />
           </Form.Item>
+          <OccurredAtField />
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Скорректировать количество"
+        open={adjustOpen}
+        onCancel={() => setAdjustOpen(false)}
+        onOk={() => adjustForm.submit()}
+        okButtonProps={{ loading: adjustMutation.isPending }}
+        okText="Скорректировать"
+        destroyOnHidden
+      >
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="info"
+          showIcon
+          message="Формальная правка вместо изменения истории напрямую — действие добавит запись в журнал партии, причина обязательна."
+        />
+        <Form form={adjustForm} layout="vertical" onFinish={(v) => adjustMutation.mutate(v)}>
+          <Form.Item name="actual_quantity_pieces" label="Фактическое количество, шт" rules={[{ required: true }]}>
+            <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="reason" label="Причина" rules={[{ required: true, message: "Укажите причину корректировки" }]}>
+            <Input placeholder="Например: опечатка при вводе" />
+          </Form.Item>
+          <Form.Item name="note" label="Заметка (опционально)">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <OccurredAtField />
         </Form>
       </Modal>
     </Card>
