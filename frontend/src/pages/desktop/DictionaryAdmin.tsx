@@ -56,6 +56,10 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
 
   const entriesQuery = useQuery({ queryKey: [kind, "all"], queryFn: () => listAllNameDict(kind) });
   const duplicatesQuery = useQuery({ queryKey: [kind, "duplicates"], queryFn: () => listNameDictDuplicates(kind) });
+  // Раздел про массовое архивирование дубликатов — при импорте справочника
+  // задним числом пар-кандидатов может быть десятки, архивировать по
+  // одной неудобно (тот же приём выбора строк, что уже есть в "Деталях").
+  const [selectedDuplicateKeys, setSelectedDuplicateKeys] = useState<(string | number)[]>([]);
 
   // ["dict-autocomplete", kind] — отдельный неймспейс ключа кэша автокомплита
   // (DictAutoComplete.tsx, разведён с сырыми списками вроде этого, когда
@@ -102,6 +106,20 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
       message.success("Удалено");
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить")),
+  });
+
+  // Backend-эндпоинта под пакетное архивирование дубликатов отдельно не
+  // заводили — цикл по уже существующему одиночному updateNameDictEntry.
+  const bulkArchiveDuplicatesMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      for (const id of ids) await updateNameDictEntry(kind, id, { is_active: false });
+    },
+    onSuccess: (_, ids) => {
+      invalidateDictCaches();
+      message.success(`Архивировано: ${ids.length}`);
+      setSelectedDuplicateKeys([]);
+    },
+    onError: () => message.error("Не удалось архивировать часть значений"),
   });
 
   return (
@@ -195,7 +213,33 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
         ]}
       />
 
-      <Card size="small" title="Возможные дубликаты" loading={duplicatesQuery.isLoading}>
+      <Card
+        size="small"
+        title="Возможные дубликаты"
+        loading={duplicatesQuery.isLoading}
+        extra={
+          selectedDuplicateKeys.length > 0 && (
+            <Popconfirm
+              title={`Архивировать ${selectedDuplicateKeys.length} значений B?`}
+              description="Значения останутся в системе для старых записей, но пропадут из подсказок."
+              onConfirm={() => {
+                const ids = [
+                  ...new Set(
+                    (duplicatesQuery.data ?? [])
+                      .filter((d) => selectedDuplicateKeys.includes(`${d.a_id}-${d.b_id}`))
+                      .map((d) => d.b_id),
+                  ),
+                ];
+                bulkArchiveDuplicatesMutation.mutate(ids);
+              }}
+            >
+              <Button size="small" danger loading={bulkArchiveDuplicatesMutation.isPending}>
+                Архивировать выбранные B ({selectedDuplicateKeys.length})
+              </Button>
+            </Popconfirm>
+          )
+        }
+      >
         {(duplicatesQuery.data ?? []).length === 0 ? (
           <Empty description="Похожих значений не найдено" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         ) : (
@@ -205,6 +249,10 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
             pagination={false}
             dataSource={duplicatesQuery.data}
             scroll={{ x: "max-content" }}
+            rowSelection={{
+              selectedRowKeys: selectedDuplicateKeys,
+              onChange: (keys) => setSelectedDuplicateKeys(keys as (string | number)[]),
+            }}
             columns={[
               { title: "Значение A", dataIndex: "a_name" },
               { title: "Значение B", dataIndex: "b_name" },
