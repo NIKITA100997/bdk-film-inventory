@@ -14,6 +14,7 @@ import {
   Modal,
   Radio,
   Select,
+  Checkbox,
   message,
 } from "antd";
 import type { Dayjs } from "dayjs";
@@ -129,7 +130,13 @@ export default function UnitCard() {
   const [placeQueue, setPlaceQueue] = useState<MaterialUnit[]>([]);
   const [scanForm] = Form.useForm<{ id: number }>();
   const [placeForm] = Form.useForm<{ location_code: string }>();
-  const [returnForm] = Form.useForm<{ actual_length_m: number }>();
+  const [returnForm] = Form.useForm<{
+    actual_length_m: number;
+    write_off: boolean;
+    write_off_reason?: string;
+    write_off_note?: string;
+  }>();
+  const returnWriteOff = Form.useWatch("write_off", returnForm);
   const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
   const [adjustForm] = Form.useForm<{ actual_length_m: number; reason: string; note?: string; occurred_at?: Dayjs | null; is_strip?: boolean }>();
   const [transferWarehouseId, setTransferWarehouseId] = useState<number>();
@@ -295,16 +302,38 @@ export default function UnitCard() {
   });
 
   const returnMutation = useMutation({
-    mutationFn: (values: { actual_length_m: number; occurred_at?: Dayjs | null }) =>
-      returnUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
-    onSuccess: (u) => {
+    mutationFn: (values: {
+      actual_length_m: number;
+      write_off?: boolean;
+      write_off_reason?: string;
+      write_off_note?: string;
+      occurred_at?: Dayjs | null;
+    }) =>
+      returnUnit(unit!.id, {
+        actual_length_m: values.actual_length_m,
+        write_off_reason: values.write_off ? values.write_off_reason : undefined,
+        write_off_note: values.write_off ? values.write_off_note : undefined,
+        occurred_at: toOccurredAtIso(values.occurred_at),
+      }),
+    onSuccess: (u, values) => {
       setUnit(u);
+      returnForm.resetFields();
+      qc.invalidateQueries({ queryKey: ["unit-events", u.id] });
+      if (values.write_off) {
+        // Раздел про "принять и только потом списать нулевую" — рулон,
+        // израсходованный в ноль на участке, списывается тем же
+        // действием "Вернуть" (см. write_off_reason в ReturnRequest,
+        // backend/app/api/units.py::return_unit), без промежуточного
+        // захода в "На хранении" и лишнего шага "куда положить".
+        setAction(null);
+        message.success("Остаток возвращён и сразу списан");
+        return;
+      }
       // Раздел про возврат остатка — сразу переходим к размещению
       // (placeSuggestion уже подхватит новую ширину/остаток единицы), а
       // не закрываем карточку: один поток "вернули → куда положить →
       // напечатали бирку" вместо трёх отдельных действий.
       setAction("place");
-      returnForm.resetFields();
       message.success(
         <>
           Остаток возвращён на хранение —{" "}
@@ -620,7 +649,7 @@ export default function UnitCard() {
                 returnMutation.mutate(v);
               }}
               style={{ marginTop: 16 }}
-              initialValues={{ actual_length_m: unit.length_m }}
+              initialValues={{ actual_length_m: unit.length_m, write_off: false }}
             >
               {returnPreviewQuery.data?.expected_return_length_m != null && (
                 <Alert
@@ -643,9 +672,25 @@ export default function UnitCard() {
               <Form.Item name="actual_length_m" label="Фактическая текущая длина, м" rules={[{ required: true }]}>
                 <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
               </Form.Item>
+              <Form.Item name="write_off" valuePropName="checked">
+                <Checkbox>Списать этот остаток сразу (например, если рулон израсходован в ноль)</Checkbox>
+              </Form.Item>
+              {returnWriteOff && (
+                <>
+                  <Form.Item name="write_off_reason" label="Причина списания" rules={[{ required: true, message: "Выберите причину" }]}>
+                    <Select
+                      loading={writeOffReasonsQuery.isLoading}
+                      options={(writeOffReasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))}
+                    />
+                  </Form.Item>
+                  <Form.Item name="write_off_note" label="Комментарий">
+                    <Input.TextArea rows={2} />
+                  </Form.Item>
+                </>
+              )}
               <OccurredAtField />
               <Button type="primary" htmlType="submit" block loading={returnMutation.isPending}>
-                Вернуть на склад
+                {returnWriteOff ? "Вернуть и списать" : "Вернуть на склад"}
               </Button>
               <Button block style={{ marginTop: 8 }} onClick={() => setAction(null)}>
                 Отмена
