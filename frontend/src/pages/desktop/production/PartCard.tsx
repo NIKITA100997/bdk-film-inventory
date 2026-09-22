@@ -1,9 +1,19 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Card, Space, Typography, Table, Tag, Empty, Button, Modal, Checkbox, InputNumber, message, Segmented, Select } from "antd";
+import { Card, Space, Typography, Table, Tag, Empty, Button, Modal, Checkbox, InputNumber, message, Segmented, Select, Form, Input, Alert } from "antd";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { advancePartUnit, listPartUnits, listPartUnitEvents, type PartUnit, type PartUnitEvent } from "../../../api/partUnits";
+import {
+  advancePartUnit,
+  writeOffPartUnit,
+  returnPartUnit,
+  adjustPartUnit,
+  listPartUnits,
+  listPartUnitEvents,
+  type PartUnit,
+  type PartUnitEvent,
+} from "../../../api/partUnits";
+import { placePartUnit } from "../../../api/partStorage";
 import { listParts, listAllMaterialSkus } from "../../../api/dictionaries";
 import { listProductModels } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
@@ -11,6 +21,9 @@ import { listUsers } from "../../../api/users";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { skuLabel } from "../../../api/units";
 import { useAuth } from "../../../auth/AuthContext";
+import OccurredAtField from "../../../components/OccurredAtField";
+import { toOccurredAtIso } from "../../../utils/occurredAt";
+import type { Dayjs } from "dayjs";
 
 const STATUS_LABEL: Record<string, string> = {
   На_хранении: "На хранении",
@@ -37,6 +50,10 @@ export default function PartCard() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_units.manage");
+  // Раздел про "действия надо добавить в карточку детали" — то же узкое
+  // право, что уже отдельно от part_units.manage в "Учёт п/ф" (Вернуть на
+  // склад/Скорректировать — обычно только админ/начальник склада).
+  const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("part_units.correct");
   const partId = (location.state as { partId?: number } | null)?.partId;
 
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
@@ -138,12 +155,33 @@ export default function PartCard() {
     label: areaLabel(a),
   }));
   const filteredUnits = units.filter((u) => {
-    if (partiiStatusFilter && u.status !== partiiStatusFilter) return false;
+    // Раздел про "зачем указывать списание среди партий" — списание не
+    // добавляет партию, это действие НАД ней (видно в "Истории" ниже), а
+    // не остаток. По умолчанию (статус не выбран явно) списанные партии
+    // тут не показываются вовсе — иначе за ними не видно, сколько реально
+    // осталось от живых партий. Выбрать статус "Списан" явно в
+    // переключателе — можно, тогда видно именно их (это уже осознанный
+    // просмотр истории списаний, не остаток).
+    if (partiiStatusFilter) {
+      if (u.status !== partiiStatusFilter) return false;
+    } else if (u.status === "Списан") {
+      return false;
+    }
     if (partiiStageFilter && u.stage_id !== partiiStageFilter) return false;
     if (partiiAreaFilter && u.area !== partiiAreaFilter) return false;
     if (hideFullyUsed && u.quantity_available <= 0 && u.status !== "Списан") return false;
     return true;
   });
+
+  // Раздел про "действия надо добавить в карточку детали" — те же 4
+  // быстрых действия на физическую единицу, что уже есть на карточке
+  // материала (MaterialCard.tsx: Скорректировать/Списать/Разместить/
+  // Вернуть), прямо в таблице "Партии", без захода в мобильную карточку
+  // партии.
+  const [adjustTarget, setAdjustTarget] = useState<PartUnit | null>(null);
+  const [writeOffTarget, setWriteOffTarget] = useState<PartUnit | null>(null);
+  const [placeTarget, setPlaceTarget] = useState<PartUnit | null>(null);
+  const [returnTarget, setReturnTarget] = useState<PartUnit | null>(null);
 
   const defaultSku = part?.default_material_sku_id != null ? skusQuery.data?.find((s) => s.id === part.default_material_sku_id) : null;
   const bomLines = (modelsQuery.data ?? []).flatMap((m) =>
@@ -323,6 +361,34 @@ export default function PartCard() {
             { title: "Участок", render: (_, u) => areaLabel(u.area) },
             { title: "Место", render: (_, u) => u.location_code ?? "—" },
             { title: "Изготовлено", dataIndex: "manufactured_at", render: (v: string) => new Date(v).toLocaleDateString("ru-RU") },
+            {
+              title: "",
+              width: 210,
+              render: (_, u) => (
+                <Space size={4} wrap onClick={(e) => e.stopPropagation()}>
+                  {canManage && u.status !== "Списан" && (
+                    <Button size="small" onClick={() => setPlaceTarget(u)}>
+                      Разместить
+                    </Button>
+                  )}
+                  {canCorrect && u.status === "Выдан_участку" && (
+                    <Button size="small" onClick={() => setReturnTarget(u)}>
+                      Вернуть
+                    </Button>
+                  )}
+                  {canCorrect && (
+                    <Button size="small" onClick={() => setAdjustTarget(u)}>
+                      Скорректировать
+                    </Button>
+                  )}
+                  {canManage && u.status !== "Списан" && (
+                    <Button size="small" danger onClick={() => setWriteOffTarget(u)}>
+                      Списать
+                    </Button>
+                  )}
+                </Space>
+              ),
+            },
           ]}
         />
       </Card>
@@ -435,6 +501,181 @@ export default function PartCard() {
           </Space>
         )}
       </Modal>
+
+      {placeTarget && <PartUnitPlaceModal unit={placeTarget} onClose={() => setPlaceTarget(null)} />}
+      {returnTarget && <PartUnitReturnModal unit={returnTarget} onClose={() => setReturnTarget(null)} />}
+      {adjustTarget && <PartUnitAdjustModal unit={adjustTarget} onClose={() => setAdjustTarget(null)} />}
+      {writeOffTarget && <PartUnitWriteOffModal unit={writeOffTarget} onClose={() => setWriteOffTarget(null)} />}
     </Space>
+  );
+}
+
+/** Раздел про "действия надо добавить в карточку детали" — те же 4
+ * быстрых действия на физическую единицу, что уже есть на карточке
+ * материала (MaterialCard.tsx), как модалки по клику в таблице "Партии"
+ * этой карточки. */
+function PartUnitPlaceModal({ unit, onClose }: { unit: PartUnit; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form] = Form.useForm<{ location_code: string; occurred_at?: Dayjs | null }>();
+
+  const placeMutation = useMutation({
+    mutationFn: (v: { location_code: string; occurred_at?: Dayjs | null }) =>
+      placePartUnit(unit.id, v.location_code, toOccurredAtIso(v.occurred_at)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["part-units"] });
+      message.success(`Партия №${unit.id} размещена`);
+      onClose();
+    },
+    onError: () => message.error("Не удалось разместить партию"),
+  });
+
+  return (
+    <Modal title={`Разместить — партия №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ location_code: unit.location_code ?? undefined }}
+        onFinish={(v) => placeMutation.mutate(v)}
+      >
+        <Form.Item name="location_code" label="Адрес ячейки" rules={[{ required: true }]}>
+          <Input placeholder="Например, ЗГ-1-04" />
+        </Form.Item>
+        <OccurredAtField />
+        <Button type="primary" htmlType="submit" block loading={placeMutation.isPending}>
+          Сохранить адрес
+        </Button>
+      </Form>
+    </Modal>
+  );
+}
+
+function PartUnitReturnModal({ unit, onClose }: { unit: PartUnit; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form] = Form.useForm<{ actual_quantity_pieces: number; occurred_at?: Dayjs | null }>();
+
+  const returnMutation = useMutation({
+    mutationFn: (v: { actual_quantity_pieces: number; occurred_at?: Dayjs | null }) =>
+      returnPartUnit(unit.id, v.actual_quantity_pieces, toOccurredAtIso(v.occurred_at)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["part-units"] });
+      message.success(`Партия №${unit.id} возвращена на склад`);
+      onClose();
+    },
+    onError: () => message.error("Не удалось оформить возврат"),
+  });
+
+  return (
+    <Modal title={`Вернуть на склад — партия №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
+      <Typography.Paragraph type="secondary">
+        Выдано было {unit.quantity_pieces} шт, доступно к возврату {unit.quantity_available} шт.
+      </Typography.Paragraph>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ actual_quantity_pieces: unit.quantity_available }}
+        onFinish={(v) => returnMutation.mutate(v)}
+      >
+        <Form.Item name="actual_quantity_pieces" label="Фактически возвращается, шт" rules={[{ required: true }]}>
+          <InputNumber min={0} max={unit.quantity_available} style={{ width: "100%" }} />
+        </Form.Item>
+        <OccurredAtField />
+        <Button type="primary" htmlType="submit" block loading={returnMutation.isPending}>
+          Вернуть на склад
+        </Button>
+      </Form>
+    </Modal>
+  );
+}
+
+function PartUnitAdjustModal({ unit, onClose }: { unit: PartUnit; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form] = Form.useForm<{ actual_quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
+
+  const adjustMutation = useMutation({
+    mutationFn: (v: { actual_quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
+      adjustPartUnit(unit.id, { ...v, occurred_at: toOccurredAtIso(v.occurred_at) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["part-units"] });
+      message.success(`Партия №${unit.id} скорректирована`);
+      onClose();
+    },
+    onError: () => message.error("Не удалось скорректировать"),
+  });
+
+  return (
+    <Modal title={`Скорректировать — партия №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
+      <Typography.Paragraph type="secondary">
+        Сейчас в системе {unit.quantity_pieces} шт. Формальная правка вместо изменения истории напрямую — действие
+        добавит запись в журнал партии, причина обязательна.
+      </Typography.Paragraph>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ actual_quantity_pieces: unit.quantity_pieces }}
+        onFinish={(v) => adjustMutation.mutate(v)}
+      >
+        <Form.Item name="actual_quantity_pieces" label="Фактическое количество, шт" rules={[{ required: true }]}>
+          <InputNumber min={0} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="reason" label="Причина" rules={[{ required: true, message: "Укажите причину корректировки" }]}>
+          <Input placeholder="Например: опечатка при вводе" />
+        </Form.Item>
+        <Form.Item name="note" label="Заметка (опционально)">
+          <Input.TextArea rows={2} />
+        </Form.Item>
+        <OccurredAtField />
+        <Button type="primary" htmlType="submit" block loading={adjustMutation.isPending}>
+          Скорректировать
+        </Button>
+      </Form>
+    </Modal>
+  );
+}
+
+function PartUnitWriteOffModal({ unit, onClose }: { unit: PartUnit; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
+  const reasonsQuery = useQuery({ queryKey: ["write-off-reasons", "parts"], queryFn: () => listWriteOffReasons("parts") });
+
+  const writeOffMutation = useMutation({
+    mutationFn: (v: { quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
+      writeOffPartUnit(unit.id, { ...v, occurred_at: toOccurredAtIso(v.occurred_at) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["part-units"] });
+      message.success(`Партия №${unit.id} списана`);
+      onClose();
+    },
+    onError: () => message.error("Не удалось списать"),
+  });
+
+  return (
+    <Modal title={`Списать — партия №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
+      <Alert
+        style={{ marginBottom: 16 }}
+        type="warning"
+        showIcon
+        message="Отменить нельзя — используйте, если партия испорчена или физически отсутствует."
+      />
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ quantity_pieces: unit.quantity_available }}
+        onFinish={(v) => writeOffMutation.mutate(v)}
+      >
+        <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
+          <InputNumber min={0.01} max={unit.quantity_available} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
+          <Select loading={reasonsQuery.isLoading} options={(reasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))} />
+        </Form.Item>
+        <Form.Item name="note" label="Заметка (опционально)">
+          <Input.TextArea rows={2} />
+        </Form.Item>
+        <OccurredAtField />
+        <Button type="primary" danger htmlType="submit" block loading={writeOffMutation.isPending}>
+          Списать
+        </Button>
+      </Form>
+    </Modal>
   );
 }

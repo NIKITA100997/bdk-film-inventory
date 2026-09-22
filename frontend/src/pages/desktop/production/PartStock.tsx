@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, Space, Typography, Input, Select, Checkbox, Table, Tag, Button } from "antd";
-import { useQuery } from "@tanstack/react-query";
+import { Card, Space, Typography, Input, Select, Checkbox, Table, Tag, Button, Modal, Form, InputNumber, DatePicker, message } from "antd";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Dayjs } from "dayjs";
 import ResponsiveTable from "../../../components/ResponsiveTable";
-import { listPartUnits, type PartUnit } from "../../../api/partUnits";
+import { createPartUnit, listPartUnits, type PartUnit } from "../../../api/partUnits";
 import { listAreas } from "../../../api/areas";
 import { exportToExcel } from "../../../utils/excel";
 import { useAuth } from "../../../auth/AuthContext";
+import PartSelect from "../../../components/PartSelect";
+import type { Part } from "../../../api/dictionaries";
 
 interface PartStockGroup {
   partId: number;
@@ -25,6 +28,15 @@ interface PartStockGroup {
 export default function PartStock() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_units.manage");
+  // Раздел про "в остатки и стеллажи нужно добавить возможность ставить
+  // на учёт новые партии" — раньше единственный вход в регистрацию был
+  // через "Учёт п/ф", а деталь без единой партии вообще не попадала в
+  // этот список (группировка строится ИЗ существующих партий) — то есть
+  // для новой детали здесь просто негде было нажать "добавить". Модалка
+  // ниже не завязана на конкретную строку — свой выбор детали, как в
+  // форме "Учёт п/ф".
+  const [registerOpen, setRegisterOpen] = useState(false);
   const [search, setSearch] = useState("");
   // Раздел про удобство работы мастера участка п/ф — у аккаунта с
   // закреплённым участком (см. isUchastka в MaterialsExplorer.tsx, тот же
@@ -103,9 +115,16 @@ export default function PartStock() {
     <Card
       title="Остатки п/ф"
       extra={
-        <Button size="small" onClick={exportRows}>
-          Экспорт в Excel
-        </Button>
+        <Space size={8}>
+          {canManage && (
+            <Button size="small" type="primary" onClick={() => setRegisterOpen(true)}>
+              + Зарегистрировать партию
+            </Button>
+          )}
+          <Button size="small" onClick={exportRows}>
+            Экспорт в Excel
+          </Button>
+        </Space>
       }
     >
       <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
@@ -197,6 +216,103 @@ export default function PartStock() {
           },
         ]}
       />
+
+      {registerOpen && <RegisterPartUnitModal onClose={() => setRegisterOpen(false)} />}
     </Card>
+  );
+}
+
+/** Раздел про "в остатки и стеллажи нужно добавить возможность ставить на
+ * учёт новые партии" — та же регистрация, что уже есть на "Учёт п/ф"
+ * (createPartUnit), но доступная прямо отсюда, включая деталь, у которой
+ * пока вообще нет ни одной партии (и потому нет строки в этой таблице). */
+function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [selectedPart, setSelectedPart] = useState<Part | null>(null);
+  const [form] = Form.useForm<{
+    quantity_pieces: number;
+    stage_id?: number;
+    manufactured_at?: Dayjs;
+    issue: boolean;
+    note?: string;
+  }>();
+
+  const mintMutation = useMutation({
+    mutationFn: (v: { quantity_pieces: number; stage_id?: number; manufactured_at?: Dayjs; issue: boolean; note?: string }) =>
+      createPartUnit({
+        part_id: selectedPart!.id,
+        quantity_pieces: v.quantity_pieces,
+        stage_id: v.stage_id,
+        manufactured_at: v.manufactured_at ? v.manufactured_at.format("YYYY-MM-DD") : undefined,
+        issue: v.issue,
+        note: v.note,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["part-units"] });
+      message.success("Партия зарегистрирована");
+      onClose();
+    },
+    onError: () => message.error("Не удалось зарегистрировать партию — у детали настроены этапы?"),
+  });
+
+  return (
+    <Modal title="Зарегистрировать партию" open onCancel={onClose} footer={null} destroyOnHidden width={480}>
+      <Form
+        layout="vertical"
+        form={form}
+        onFinish={(v) => {
+          if (!selectedPart) {
+            message.warning("Выберите деталь");
+            return;
+          }
+          mintMutation.mutate(v);
+        }}
+      >
+        <Form.Item label="Деталь">
+          <PartSelect
+            onSelect={(p) => {
+              setSelectedPart(p);
+              form.setFieldValue("stage_id", undefined);
+            }}
+            placeholder="Найдите деталь в справочнике"
+          />
+          {selectedPart && <Typography.Text type="secondary">Выбрано: {selectedPart.name}</Typography.Text>}
+        </Form.Item>
+        {selectedPart && selectedPart.stages.length > 1 && (
+          <Form.Item
+            name="stage_id"
+            label="Начальный этап"
+            extra="Партия уже прошла часть маршрута и заводится в систему только сейчас — по умолчанию первый этап."
+          >
+            <Select
+              allowClear
+              placeholder={selectedPart.stages[0].name}
+              options={[...selectedPart.stages]
+                .sort((a, b) => a.sequence_order - b.sequence_order)
+                .map((s) => ({ value: s.id, label: s.name }))}
+            />
+          </Form.Item>
+        )}
+        <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
+          <InputNumber min={1} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item
+          name="manufactured_at"
+          label="Дата изготовления (опционально)"
+          extra="Партии расходуются от самой старой при отчёте о готовых деталях. Не указано — сегодня."
+        >
+          <DatePicker style={{ width: "100%" }} format="DD.MM.YYYY" placeholder="Сегодня" disabledDate={(d) => d.isAfter(Date.now(), "day")} />
+        </Form.Item>
+        <Form.Item name="issue" valuePropName="checked" initialValue={false}>
+          <Checkbox>Сразу выдать участку (участок — из выбранного этапа)</Checkbox>
+        </Form.Item>
+        <Form.Item name="note" label="Заметка (опционально)">
+          <Input />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" block loading={mintMutation.isPending}>
+          Зарегистрировать
+        </Button>
+      </Form>
+    </Modal>
   );
 }
