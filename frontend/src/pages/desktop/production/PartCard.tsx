@@ -81,11 +81,18 @@ export default function PartCard() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Card
-        title={part ? `Деталь «${part.name}»` : "Деталь"}
-        extra={<Button onClick={() => navigate("/part-stock")}>← К остаткам</Button>}
-        loading={partsQuery.isLoading}
-      >
+      <Card loading={partsQuery.isLoading}>
+        {/* Раздел про адаптацию под смартфон — обычный Card title/extra
+         * не переносит строку на узких экранах и обрезает многоточием
+         * длинное название детали (единственный способ мастеру
+         * убедиться, что это нужная деталь). Свой заголовок с
+         * flexWrap вместо этого. */}
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 16 }}>
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            {part ? `Деталь «${part.name}»` : "Деталь"}
+          </Typography.Title>
+          <Button onClick={() => navigate("/part-stock")}>← К остаткам</Button>
+        </div>
         {part && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, fontSize: 13 }}>
             <div>
