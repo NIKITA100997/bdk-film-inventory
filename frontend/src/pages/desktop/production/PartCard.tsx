@@ -1,14 +1,16 @@
+import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Card, Space, Typography, Table, Tag, Empty, Button } from "antd";
+import { Card, Space, Typography, Table, Tag, Empty, Button, Modal, Checkbox, InputNumber, message } from "antd";
 import ResponsiveTable from "../../../components/ResponsiveTable";
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { listPartUnits, listPartUnitEvents, type PartUnit, type PartUnitEvent } from "../../../api/partUnits";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { advancePartUnit, listPartUnits, listPartUnitEvents, type PartUnit, type PartUnitEvent } from "../../../api/partUnits";
 import { listParts, listAllMaterialSkus } from "../../../api/dictionaries";
 import { listProductModels } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
 import { listUsers } from "../../../api/users";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { skuLabel } from "../../../api/units";
+import { useAuth } from "../../../auth/AuthContext";
 
 const STATUS_LABEL: Record<string, string> = {
   На_хранении: "На хранении",
@@ -30,6 +32,9 @@ const STATUS_TAG_COLOR: Record<string, string> = {
 export default function PartCard() {
   const location = useLocation();
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_units.manage");
   const partId = (location.state as { partId?: number } | null)?.partId;
 
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
@@ -49,7 +54,7 @@ export default function PartCard() {
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
 
   const units = unitsQuery.data ?? [];
-  const stageNames = [...new Set(units.map((u) => u.stage_name))];
+  const stageIds = [...new Set(units.map((u) => u.stage_id))];
 
   const eventsByUnit = useQueries({
     queries: units.map((u) => ({ queryKey: ["part-unit-events", u.id], queryFn: () => listPartUnitEvents(u.id) })),
@@ -61,10 +66,61 @@ export default function PartCard() {
   allEvents.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
 
   const totalAvailable = units.reduce((sum, u) => sum + u.quantity_available, 0);
-  const byStage = stageNames.map((sn) => ({
-    stageName: sn,
-    qty: units.filter((u) => u.stage_name === sn).reduce((sum, u) => sum + u.quantity_available, 0),
-  }));
+  // stageId вместо имени — по нему, а не по строке, ищем следующий этап
+  // маршрута (sequence_order) для быстрого действия "Перевести".
+  const byStage = stageIds.map((stageId) => {
+    const stageUnits = units.filter((u) => u.stage_id === stageId);
+    return {
+      stageId,
+      stageName: stageUnits[0]?.stage_name ?? `#${stageId}`,
+      qty: stageUnits.reduce((sum, u) => sum + u.quantity_available, 0),
+    };
+  });
+  const nextStageOf = (stageId: number) => {
+    if (!part) return null;
+    const stages = [...part.stages].sort((a, b) => a.sequence_order - b.sequence_order);
+    const idx = stages.findIndex((s) => s.id === stageId);
+    if (idx === -1 || idx + 1 >= stages.length) return null;
+    return stages[idx + 1];
+  };
+
+  // Раздел про удобство работы мастера участка п/ф — быстрый перевод
+  // партий на следующий этап прямо с карточки детали (сводка "по
+  // этапам"), не через отдельный журнал "Учёт п/ф". Мастеру важно самому
+  // видеть и выбирать, какая именно партия/дата изготовления двигается
+  // (не слепой FIFO) — модалка со списком партий ИМЕННО этого этапа,
+  // отмеченных участку, с редактируемым количеством у каждой; итоговое
+  // перемещённое количество может складываться из нескольких партий
+  // сразу — они просто переводятся каждая своим вызовом того же
+  // advancePartUnit, что и при переводе одной партии.
+  const [advanceTarget, setAdvanceTarget] = useState<{ stageId: number; stageName: string } | null>(null);
+  const [advanceQty, setAdvanceQty] = useState<Record<number, number | null>>({});
+  const advanceRows = advanceTarget
+    ? units
+        .filter((u) => u.stage_id === advanceTarget.stageId && u.status === "Выдан_участку" && u.quantity_available > 0)
+        .sort((a, b) => a.manufactured_at.localeCompare(b.manufactured_at))
+    : [];
+  const advanceNextStage = advanceTarget ? nextStageOf(advanceTarget.stageId) : null;
+  const advanceTotal = Object.values(advanceQty).reduce((sum: number, v) => sum + (v ?? 0), 0);
+  const advanceMutation = useMutation({
+    mutationFn: async () => {
+      for (const u of advanceRows) {
+        const qty = advanceQty[u.id];
+        if (qty && qty > 0) await advancePartUnit(u.id, qty);
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["part-units", "part", partId] });
+      message.success(
+        advanceNextStage
+          ? `Переведено ${Math.round(advanceTotal * 100) / 100} шт на этап «${advanceNextStage.name}»`
+          : `Отмечено завершение для ${Math.round(advanceTotal * 100) / 100} шт`,
+      );
+      setAdvanceTarget(null);
+      setAdvanceQty({});
+    },
+    onError: () => message.error("Не удалось перевести — проверьте количества по каждой партии"),
+  });
 
   const defaultSku = part?.default_material_sku_id != null ? skusQuery.data?.find((s) => s.id === part.default_material_sku_id) : null;
   const bomLines = (modelsQuery.data ?? []).flatMap((m) =>
@@ -124,8 +180,19 @@ export default function PartCard() {
           <div style={{ marginTop: 12 }}>
             <Space size={4} wrap>
               {byStage.map((s) => (
-                <Tag key={s.stageName} style={{ margin: 0 }}>
+                <Tag key={s.stageId} style={{ margin: 0 }}>
                   {s.stageName}: {Math.round(s.qty * 100) / 100}
+                  {canManage && (
+                    <a
+                      style={{ marginLeft: 8 }}
+                      onClick={() => {
+                        setAdvanceTarget({ stageId: s.stageId, stageName: s.stageName });
+                        setAdvanceQty({});
+                      }}
+                    >
+                      Перевести →
+                    </a>
+                  )}
                 </Tag>
               ))}
             </Space>
@@ -241,6 +308,75 @@ export default function PartCard() {
           </Space>
         )}
       </Card>
+
+      <Modal
+        title={
+          advanceTarget &&
+          (advanceNextStage
+            ? `Перевести «${part?.name}» с этапа «${advanceTarget.stageName}» на «${advanceNextStage.name}»`
+            : `Завершение этапа «${advanceTarget.stageName}»`)
+        }
+        open={!!advanceTarget}
+        onCancel={() => {
+          setAdvanceTarget(null);
+          setAdvanceQty({});
+        }}
+        footer={null}
+        destroyOnHidden
+        width={560}
+      >
+        {advanceRows.length === 0 ? (
+          <Typography.Text type="secondary">На этом этапе нет партий, выданных участку.</Typography.Text>
+        ) : (
+          <Space direction="vertical" style={{ width: "100%" }} size="middle">
+            <Typography.Text type="secondary">
+              Отметьте партии и при необходимости поправьте количество — можно перевести сразу несколько партий одним
+              действием.
+            </Typography.Text>
+            <Space direction="vertical" style={{ width: "100%" }} size={4}>
+              {advanceRows.map((u) => {
+                const checked = advanceQty[u.id] != null;
+                return (
+                  <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: "1px solid #EAE8E2" }}>
+                    <Checkbox
+                      checked={checked}
+                      onChange={(e) =>
+                        setAdvanceQty((prev) => ({ ...prev, [u.id]: e.target.checked ? u.quantity_available : null }))
+                      }
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div>
+                        №{u.id} · {new Date(u.manufactured_at).toLocaleDateString("ru-RU")}
+                        {u.location_code && <> · {u.location_code}</>}
+                      </div>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        доступно {u.quantity_available} шт
+                      </Typography.Text>
+                    </div>
+                    <InputNumber
+                      min={0.01}
+                      max={u.quantity_available}
+                      disabled={!checked}
+                      value={advanceQty[u.id] ?? u.quantity_available}
+                      onChange={(v) => setAdvanceQty((prev) => ({ ...prev, [u.id]: v }))}
+                      style={{ width: 100 }}
+                    />
+                  </div>
+                );
+              })}
+            </Space>
+            <Button
+              type="primary"
+              block
+              disabled={advanceTotal <= 0}
+              loading={advanceMutation.isPending}
+              onClick={() => advanceMutation.mutate()}
+            >
+              {advanceNextStage ? `Перевести ${Math.round(advanceTotal * 100) / 100} шт` : `Завершить ${Math.round(advanceTotal * 100) / 100} шт`}
+            </Button>
+          </Space>
+        )}
+      </Modal>
     </Space>
   );
 }
