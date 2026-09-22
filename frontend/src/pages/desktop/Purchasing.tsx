@@ -5,6 +5,7 @@ import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import { exportToExcel } from "../../utils/excel";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -202,15 +203,46 @@ export default function Purchasing() {
             children: (
               <Card
                 extra={
-                  <Button
-                    type="primary"
-                    onClick={() => {
-                      setPrefill(null);
-                      setCreateOpen(true);
-                    }}
-                  >
-                    Новая заявка
-                  </Button>
+                  <Space>
+                    <Button
+                      onClick={() =>
+                        exportToExcel(
+                          "zayavki-postavshchiku.xlsx",
+                          visibleRequests.map((r) => ({
+                            material: `${r.material}, ${r.color}, ${r.thickness} мм`,
+                            requested_area_m2: r.requested_area_m2,
+                            current_stock_m2: r.current_stock_m2,
+                            supplier: r.supplier ?? "",
+                            price_per_m2: r.price_per_m2 ?? "",
+                            note: r.note ?? "",
+                            status: r.status === "open" ? "Открыта" : "Закрыта",
+                            created_at: new Date(r.created_at).toLocaleDateString("ru-RU"),
+                          })),
+                          [
+                            { key: "material", header: "Материал" },
+                            { key: "requested_area_m2", header: "Запрошено, м²" },
+                            { key: "current_stock_m2", header: "Остаток на складе, м²" },
+                            { key: "supplier", header: "Поставщик" },
+                            { key: "price_per_m2", header: "Цена, ₽/м²" },
+                            { key: "note", header: "Комментарий" },
+                            { key: "status", header: "Статус" },
+                            { key: "created_at", header: "Создана" },
+                          ],
+                        )
+                      }
+                    >
+                      Экспорт в Excel
+                    </Button>
+                    <Button
+                      type="primary"
+                      onClick={() => {
+                        setPrefill(null);
+                        setCreateOpen(true);
+                      }}
+                    >
+                      Новая заявка
+                    </Button>
+                  </Space>
                 }
               >
                 <Space style={{ marginBottom: 12 }}>
@@ -364,9 +396,42 @@ export default function Purchasing() {
             children: (
               <Card
                 extra={
-                  <Checkbox checked={showClosedOrders} onChange={(e) => setShowClosedOrders(e.target.checked)}>
-                    Показывать закрытые
-                  </Checkbox>
+                  <Space>
+                    <Button
+                      onClick={() =>
+                        exportToExcel(
+                          "zakazy-postavshchikam.xlsx",
+                          visibleOrders.flatMap((order) =>
+                            order.lines.map((line) => ({
+                              order_id: order.id,
+                              status: order.is_open ? "Открыт" : "Закрыт",
+                              supplier: order.supplier,
+                              created_at: new Date(order.created_at).toLocaleDateString("ru-RU"),
+                              material: `${line.material}, ${line.color}, ${line.thickness} мм`,
+                              requested_area_m2: line.requested_area_m2,
+                              current_stock_m2: line.current_stock_m2,
+                              request_count: line.request_ids.length,
+                            })),
+                          ),
+                          [
+                            { key: "order_id", header: "№ заказа" },
+                            { key: "status", header: "Статус" },
+                            { key: "supplier", header: "Поставщик" },
+                            { key: "created_at", header: "Создан" },
+                            { key: "material", header: "Материал" },
+                            { key: "requested_area_m2", header: "Запрошено, м²" },
+                            { key: "current_stock_m2", header: "Остаток на складе, м²" },
+                            { key: "request_count", header: "Из заявок" },
+                          ],
+                        )
+                      }
+                    >
+                      Экспорт в Excel
+                    </Button>
+                    <Checkbox checked={showClosedOrders} onChange={(e) => setShowClosedOrders(e.target.checked)}>
+                      Показывать закрытые
+                    </Checkbox>
+                  </Space>
                 }
               >
                 {visibleOrders.length === 0 ? (
@@ -453,7 +518,37 @@ export default function Purchasing() {
             key: "suppliers",
             label: "Поставщики",
             children: (
-              <Card>
+              <Card
+                extra={
+                  (supplierStatsQuery.data ?? []).length > 0 && (
+                    <Button
+                      onClick={() =>
+                        exportToExcel(
+                          "postavshchiki.xlsx",
+                          (supplierStatsQuery.data ?? []).map((s) => ({
+                            supplier_name: s.supplier_name,
+                            closed_requests: s.closed_requests,
+                            avg_price_per_m2: s.avg_price_per_m2 ?? "",
+                            avg_lead_time_days: s.avg_lead_time_days ?? "",
+                            avg_delivery_variance_days: s.avg_delivery_variance_days ?? "",
+                            last_request_at: new Date(s.last_request_at).toLocaleDateString("ru-RU"),
+                          })),
+                          [
+                            { key: "supplier_name", header: "Поставщик" },
+                            { key: "closed_requests", header: "Закрыто заявок" },
+                            { key: "avg_price_per_m2", header: "Средняя цена, ₽/м²" },
+                            { key: "avg_lead_time_days", header: "Средний срок, дней" },
+                            { key: "avg_delivery_variance_days", header: "Отклонение от срока, дн." },
+                            { key: "last_request_at", header: "Последняя заявка" },
+                          ],
+                        )
+                      }
+                    >
+                      Экспорт в Excel
+                    </Button>
+                  )
+                }
+              >
                 <Typography.Paragraph type="secondary">
                   Средняя цена, фактический срок поставки (закрытие минус создание заявки) и отклонение от
                   обещанной даты (там, где она указывалась) — только по закрытым заявкам с указанным поставщиком.
