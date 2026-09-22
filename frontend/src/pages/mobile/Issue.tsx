@@ -52,6 +52,7 @@ import { suggestLocation } from "../../api/storage";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { createShopFloorPurchaseRequest, type PurchaseRequestShopFloorCreate } from "../../api/purchasing";
 import { listAreas } from "../../api/areas";
+import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { listSites } from "../../api/sites";
 import { listWarehouses } from "../../api/storage";
 import {
@@ -1869,25 +1870,45 @@ export default function Issue() {
           message={`🏁 Готово к возврату — ${pendingReturnByTask.length} ${pendingReturnByTask.length === 1 ? "задание" : "задания"}`}
           description={
             <Space direction="vertical" size={10} style={{ width: "100%" }}>
-              {pendingReturnByTask.map(({ task, units }) => (
-                <div key={task.id}>
-                  <Typography.Text strong>
-                    {task.product_model_name ?? task.name ?? `Задание №${task.id}`} · {areaLabel(task.area)}
-                  </Typography.Text>
-                  <div>
-                    <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
-                      Производство завершено — заберите со участка: {units.map((u) => `№${u.id} (${u.width_mm}×${u.length_m} м)`).join(", ")}
+              {pendingReturnByTask.map(({ task, units }) => {
+                // Раздел про "штрипсы с остатком 0 в баннере" — среди
+                // готовых к возврату часто больше половины уже
+                // израсходованы в ноль физически (нечего нести на склад,
+                // только закрыть запись — см. AcceptReturnModal, там для
+                // них само подставляется "списать сразу"); разделяем
+                // строку, чтобы сразу было видно, где реально нужно
+                // сходить и забрать остаток, а где просто формальность.
+                const withLeftover = units.filter((u) => Number(u.length_m) > 0);
+                const empty = units.filter((u) => Number(u.length_m) === 0);
+                return (
+                  <div key={task.id}>
+                    <Typography.Text strong>
+                      {task.product_model_name ?? task.name ?? `Задание №${task.id}`} · {areaLabel(task.area)}
                     </Typography.Text>
+                    {withLeftover.length > 0 && (
+                      <div>
+                        <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                          Заберите остаток со участка: {withLeftover.map((u) => `№${u.id} (${u.width_mm}×${u.length_m} м)`).join(", ")}
+                        </Typography.Text>
+                      </div>
+                    )}
+                    {empty.length > 0 && (
+                      <div>
+                        <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                          Израсходованы в ноль, нести нечего — только закрыть запись: {empty.map((u) => `№${u.id}`).join(", ")}
+                        </Typography.Text>
+                      </div>
+                    )}
+                    {canReturn && (
+                      <Space size={4} wrap style={{ marginTop: 4 }}>
+                        {units.map((u) => (
+                          <AcceptReturnButton key={u.id} unit={u} />
+                        ))}
+                      </Space>
+                    )}
                   </div>
-                  {canReturn && (
-                    <Space size={4} wrap style={{ marginTop: 4 }}>
-                      {units.map((u) => (
-                        <AcceptReturnButton key={u.id} unit={u} />
-                      ))}
-                    </Space>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </Space>
           }
         />
@@ -2727,15 +2748,34 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
     if (!lengthTouched) setActualLength(expected ?? unit.length_m);
   }, [expected, unit.length_m, lengthTouched]);
 
+  // Раздел про "штрипсы с остатком 0 в баннере Готово к возврату" —
+  // рулон, израсходованный в ноль на участке, не нужно сначала "принять
+  // на склад", а потом отдельно списывать: тот же приём, что и в
+  // мобильной карточке единицы (UnitCard.tsx) — write_off_reason в
+  // ReturnRequest списывает остаток тем же действием. Чекбокс сам
+  // включается, когда фактическая длина — 0 (обычный случай для этого
+  // баннера), но кладовщик может его снять, если решил всё-таки принять
+  // огрызок на склад.
+  const [writeOff, setWriteOff] = useState(false);
+  const [writeOffTouched, setWriteOffTouched] = useState(false);
+  const [writeOffReason, setWriteOffReason] = useState<string | undefined>(undefined);
+  const [writeOffNote, setWriteOffNote] = useState("");
+  const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons", "warehouse"], queryFn: () => listWriteOffReasons("warehouse") });
+  useEffect(() => {
+    if (!writeOffTouched) setWriteOff((actualLength ?? expected ?? unit.length_m) === 0);
+  }, [actualLength, expected, unit.length_m, writeOffTouched]);
+
   const acceptMutation = useMutation({
     mutationFn: async () => {
       const occurredAtIso = toOccurredAtIso(occurredAt);
       const returned = await returnUnit(unit.id, {
         actual_length_m: actualLength ?? expected ?? unit.length_m,
         occurred_at: occurredAtIso,
+        write_off_reason: writeOff ? writeOffReason : undefined,
+        write_off_note: writeOff ? writeOffNote.trim() || undefined : undefined,
       });
-      if (locationCode.trim()) await placeUnit(returned.id, locationCode.trim(), occurredAtIso);
-      return { returned, placed: !!locationCode.trim() };
+      if (!writeOff && locationCode.trim()) await placeUnit(returned.id, locationCode.trim(), occurredAtIso);
+      return { returned, placed: !writeOff && !!locationCode.trim() };
     },
     onSuccess: ({ returned, placed }) => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
@@ -2743,10 +2783,14 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
       qc.invalidateQueries({ queryKey: ["rack-occupancy"] });
       qc.invalidateQueries({ queryKey: ["issue-manual-issued"] });
       message.success(
-        <>
-          №{returned.id} принят{placed ? ` и размещён: ${locationCode.trim()}` : ""} —{" "}
-          <a onClick={() => printLabel(returned.id, { kind: "cutting_issue" })}>печать бирки</a>
-        </>,
+        writeOff ? (
+          `№${returned.id} принят и сразу списан`
+        ) : (
+          <>
+            №{returned.id} принят{placed ? ` и размещён: ${locationCode.trim()}` : ""} —{" "}
+            <a onClick={() => printLabel(returned.id, { kind: "cutting_issue" })}>печать бирки</a>
+          </>
+        ),
       );
       onClose();
     },
@@ -2787,21 +2831,54 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
         0 — если рулон израсходован полностью. Всё, что не вернулось, система досчитает как расход по этому рулону.
       </Typography.Text>
 
-      {suggestionQuery.isLoading ? null : suggestionQuery.data ? (
-        <Alert style={{ marginBottom: 8 }} type="success" showIcon message={`По правилу зонирования подходит: ${suggestionQuery.data}`} />
-      ) : (
-        <Alert style={{ marginBottom: 8 }} type="warning" showIcon message="Нет подходящего правила зонирования — укажите полку вручную" />
-      )}
-      <Typography.Text strong>Куда поместить остаток (необязательно)</Typography.Text>
-      <Input
-        style={{ marginTop: 8, marginBottom: 16 }}
-        placeholder="Например, Ш-1-04 — оставьте пустым, если пока не знаете"
-        value={locationCode}
+      <Checkbox
+        checked={writeOff}
         onChange={(e) => {
-          setLocationTouched(true);
-          setLocationCode(e.target.value);
+          setWriteOffTouched(true);
+          setWriteOff(e.target.checked);
         }}
-      />
+        style={{ marginBottom: 16 }}
+      >
+        Списать этот остаток сразу, без размещения на склад
+      </Checkbox>
+
+      {writeOff ? (
+        <>
+          <Typography.Text strong>Причина списания</Typography.Text>
+          <Select
+            style={{ width: "100%", marginTop: 8, marginBottom: 12 }}
+            loading={writeOffReasonsQuery.isLoading}
+            value={writeOffReason}
+            onChange={setWriteOffReason}
+            options={(writeOffReasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))}
+          />
+          <Input.TextArea
+            style={{ marginBottom: 16 }}
+            placeholder="Комментарий (необязательно)"
+            rows={2}
+            value={writeOffNote}
+            onChange={(e) => setWriteOffNote(e.target.value)}
+          />
+        </>
+      ) : (
+        <>
+          {suggestionQuery.isLoading ? null : suggestionQuery.data ? (
+            <Alert style={{ marginBottom: 8 }} type="success" showIcon message={`По правилу зонирования подходит: ${suggestionQuery.data}`} />
+          ) : (
+            <Alert style={{ marginBottom: 8 }} type="warning" showIcon message="Нет подходящего правила зонирования — укажите полку вручную" />
+          )}
+          <Typography.Text strong>Куда поместить остаток (необязательно)</Typography.Text>
+          <Input
+            style={{ marginTop: 8, marginBottom: 16 }}
+            placeholder="Например, Ш-1-04 — оставьте пустым, если пока не знаете"
+            value={locationCode}
+            onChange={(e) => {
+              setLocationTouched(true);
+              setLocationCode(e.target.value);
+            }}
+          />
+        </>
+      )}
       <DatePicker
         style={{ width: "100%", marginBottom: 16 }}
         format="DD.MM.YYYY"
@@ -2815,10 +2892,10 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
         type="primary"
         block
         loading={acceptMutation.isPending}
-        disabled={actualLength == null}
+        disabled={actualLength == null || (writeOff && !writeOffReason)}
         onClick={() => acceptMutation.mutate()}
       >
-        {locationCode.trim() ? "Принять и разместить" : "Принять без места"}
+        {writeOff ? "Принять и списать" : locationCode.trim() ? "Принять и разместить" : "Принять без места"}
       </Button>
       <Button block style={{ marginTop: 8 }} onClick={onClose}>
         Отмена
