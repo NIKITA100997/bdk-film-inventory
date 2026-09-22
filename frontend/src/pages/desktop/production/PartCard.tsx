@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Card, Space, Typography, Table, Tag, Empty, Button, Modal, Checkbox, InputNumber, message } from "antd";
+import { Card, Space, Typography, Table, Tag, Empty, Button, Modal, Checkbox, InputNumber, message, Segmented, Select } from "antd";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { advancePartUnit, listPartUnits, listPartUnitEvents, type PartUnit, type PartUnitEvent } from "../../../api/partUnits";
@@ -16,11 +16,13 @@ const STATUS_LABEL: Record<string, string> = {
   На_хранении: "На хранении",
   Выдан_участку: "Выдан участку",
   Списан: "Списан",
+  В_переработку: "В переработку",
 };
 const STATUS_TAG_COLOR: Record<string, string> = {
   На_хранении: "blue",
   Выдан_участку: "green",
   Списан: "red",
+  В_переработку: "purple",
 };
 
 /** Карточка детали п/ф (раздел про переработку вкладок остатков/
@@ -120,6 +122,27 @@ export default function PartCard() {
       setAdvanceQty({});
     },
     onError: () => message.error("Не удалось перевести — проверьте количества по каждой партии"),
+  });
+
+  // Раздел про "партии внутри карточки" — мастеру важнее всего кол-во и
+  // на каком участке/этапе оно находится, разграничение внутри (по
+  // статусу/этапу/участку) — уже здесь, без отдельного захода в "Учёт
+  // п/ф" (тот остаётся плоским журналом для сквозного поиска по всем
+  // деталям, не рабочим экраном одной детали).
+  const [partiiStatusFilter, setPartiiStatusFilter] = useState<string | undefined>(undefined);
+  const [partiiStageFilter, setPartiiStageFilter] = useState<number | undefined>(undefined);
+  const [partiiAreaFilter, setPartiiAreaFilter] = useState<string | undefined>(undefined);
+  const [hideFullyUsed, setHideFullyUsed] = useState(true);
+  const partiiAreaOptions = [...new Set(units.map((u) => u.area).filter((a): a is string => !!a))].map((a) => ({
+    value: a,
+    label: areaLabel(a),
+  }));
+  const filteredUnits = units.filter((u) => {
+    if (partiiStatusFilter && u.status !== partiiStatusFilter) return false;
+    if (partiiStageFilter && u.stage_id !== partiiStageFilter) return false;
+    if (partiiAreaFilter && u.area !== partiiAreaFilter) return false;
+    if (hideFullyUsed && u.quantity_available <= 0 && u.status !== "Списан") return false;
+    return true;
   });
 
   const defaultSku = part?.default_material_sku_id != null ? skusQuery.data?.find((s) => s.id === part.default_material_sku_id) : null;
@@ -229,7 +252,41 @@ export default function PartCard() {
         </Typography.Paragraph>
       </Card>
 
-      <Card title={`Партии (${units.length})`}>
+      <Card title={`Партии (${filteredUnits.length} из ${units.length})`}>
+        <Space wrap size={[12, 12]} style={{ marginBottom: 16, width: "100%" }}>
+          <Segmented
+            value={partiiStatusFilter ?? "all"}
+            onChange={(v) => setPartiiStatusFilter(v === "all" ? undefined : (v as string))}
+            options={[
+              { label: "Все", value: "all" },
+              { label: "На хранении", value: "На_хранении" },
+              { label: "Выдан участку", value: "Выдан_участку" },
+              { label: "Списан", value: "Списан" },
+              { label: "В переработку", value: "В_переработку" },
+            ]}
+          />
+          <Select
+            allowClear
+            placeholder="Все этапы"
+            style={{ width: 200 }}
+            value={partiiStageFilter}
+            onChange={setPartiiStageFilter}
+            options={[...(part?.stages ?? [])]
+              .sort((a, b) => a.sequence_order - b.sequence_order)
+              .map((s) => ({ value: s.id, label: s.name }))}
+          />
+          <Select
+            allowClear
+            placeholder="Все участки"
+            style={{ width: 220 }}
+            value={partiiAreaFilter}
+            onChange={setPartiiAreaFilter}
+            options={partiiAreaOptions}
+          />
+          <Checkbox checked={hideFullyUsed} onChange={(e) => setHideFullyUsed(e.target.checked)}>
+            Скрыть полностью использованные (0 доступно)
+          </Checkbox>
+        </Space>
         <ResponsiveTable<PartUnit>
           tableKey="part-card-units"
           lockedColumns={["№"]}
@@ -237,7 +294,8 @@ export default function PartCard() {
           tableLayout="fixed"
           rowKey="id"
           loading={unitsQuery.isLoading}
-          dataSource={units}
+          dataSource={filteredUnits}
+          locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
           pagination={{ pageSize: 10 }}
           // Раздел про "нельзя открыть партию отдельно" — раньше клик вёл в
           // "Учёт п/ф" на read-only модалку (только цифры и история, без

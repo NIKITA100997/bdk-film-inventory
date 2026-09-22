@@ -492,9 +492,12 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                           </Tag>
                           <a
                             style={{ fontSize: 11 }}
-                            onClick={() => navigate("/part-units", { state: { partFilter: r.line.part_name } })}
+                            onClick={() => {
+                              const partId = r.line.part_name ? partIdByName.get(r.line.part_name) : undefined;
+                              if (partId != null) navigate("/part-card", { state: { partId } });
+                            }}
                           >
-                            Учёт п/ф →
+                            Остатки п/ф →
                           </a>
                         </Space>
                       )}

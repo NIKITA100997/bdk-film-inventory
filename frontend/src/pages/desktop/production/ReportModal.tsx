@@ -55,12 +55,11 @@ export default function ReportModal({
     queryFn: () => listPartUnits({ area, status_: "Выдан_участку" }),
     enabled: hasPartStages,
   });
+  const partForLine = line.part_name ? (partsQuery.data ?? []).find((p) => p.name === line.part_name) : undefined;
   const availableForLine = (() => {
-    if (!hasPartStages || !line.part_name) return null;
-    const part = (partsQuery.data ?? []).find((p) => p.name === line.part_name);
-    if (!part) return null;
+    if (!hasPartStages || !partForLine) return null;
     return (partUnitsQuery.data ?? [])
-      .filter((u) => u.part_id === part.id)
+      .filter((u) => u.part_id === partForLine.id)
       .reduce((sum, u) => sum + u.quantity_available, 0);
   })();
   // Раздел про учёт п/ф по FIFO — партия и для готовых деталей, и для
@@ -321,8 +320,8 @@ export default function ReportModal({
             <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
               доступно партий п/ф: {Math.round(availableForLine * 100) / 100} шт
             </Tag>
-            <a style={{ fontSize: 11 }} onClick={() => navigate("/part-units", { state: { partFilter: line.part_name } })}>
-              Учёт п/ф →
+            <a style={{ fontSize: 11 }} onClick={() => partForLine && navigate("/part-card", { state: { partId: partForLine.id } })}>
+              Остатки п/ф →
             </a>
           </Space>
         )}

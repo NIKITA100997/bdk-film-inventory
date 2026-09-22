@@ -195,21 +195,6 @@ export default function PartStock() {
               </Space>
             ),
           },
-          {
-            title: "",
-            width: 90,
-            render: (_, g) => (
-              <Button
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate("/part-units", { state: { partFilter: g.partName } });
-                }}
-              >
-                Партии →
-              </Button>
-            ),
-          },
         ]}
       />
     </Card>
