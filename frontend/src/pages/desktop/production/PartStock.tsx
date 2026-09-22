@@ -6,6 +6,7 @@ import ResponsiveTable from "../../../components/ResponsiveTable";
 import { listPartUnits, type PartUnit } from "../../../api/partUnits";
 import { listAreas } from "../../../api/areas";
 import { exportToExcel } from "../../../utils/excel";
+import { useAuth } from "../../../auth/AuthContext";
 
 interface PartStockGroup {
   partId: number;
@@ -23,8 +24,13 @@ interface PartStockGroup {
  * по этапам и участкам, без разглядывания отдельных партий. */
 export default function PartStock() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
-  const [areaFilter, setAreaFilter] = useState<string | undefined>(undefined);
+  // Раздел про удобство работы мастера участка п/ф — у аккаунта с
+  // закреплённым участком (см. isUchastka в MaterialsExplorer.tsx, тот же
+  // приём) экран по умолчанию открывается уже отфильтрованным на "что у
+  // меня", а не пустым "выберите участок" каждый раз заново.
+  const [areaFilter, setAreaFilter] = useState<string | undefined>(user?.area ?? undefined);
   const [showEmpty, setShowEmpty] = useState(false);
 
   const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
@@ -173,7 +179,11 @@ export default function PartStock() {
             render: (_, g) => (
               <Space size={4} wrap>
                 {g.byArea.map((a) => (
-                  <Tag key={a.area ?? "none"} color={a.area ? "blue" : undefined} style={{ margin: 0 }}>
+                  <Tag
+                    key={a.area ?? "none"}
+                    color={a.area && a.area === areaFilter ? "green" : a.area ? "blue" : undefined}
+                    style={{ margin: 0, fontWeight: a.area === areaFilter ? 700 : undefined }}
+                  >
                     {a.area ? areaLabel(a.area) : "склад (не выдано)"}: {Math.round(a.qty * 100) / 100}
                   </Tag>
                 ))}

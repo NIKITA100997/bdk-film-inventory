@@ -177,7 +177,10 @@ export default function PartUnits() {
   const [recycleForm] = Form.useForm<{ quantity_pieces: number; note?: string }>();
 
   const [partFilter, setPartFilter] = useState("");
-  const [areaFilter, setAreaFilter] = useState<string | undefined>(undefined);
+  // Раздел про удобство работы мастера участка п/ф — тот же приём, что
+  // MaterialsExplorer.tsx (isUchastka): у аккаунта с закреплённым участком
+  // список по умолчанию уже отфильтрован на "что у меня", а не на всё сразу.
+  const [areaFilter, setAreaFilter] = useState<string | undefined>(user?.area ?? undefined);
   const [statusFilter, setStatusFilter] = useState<PartUnitStatus | undefined>(undefined);
   const [stageFilter, setStageFilter] = useState<string | undefined>(undefined);
   // Раздел про ревизию путей п/ф — advance_part_unit на последнем этапе

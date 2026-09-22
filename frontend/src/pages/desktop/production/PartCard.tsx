@@ -172,7 +172,13 @@ export default function PartCard() {
           loading={unitsQuery.isLoading}
           dataSource={units}
           pagination={{ pageSize: 10 }}
-          onRow={(u) => ({ onClick: () => navigate("/part-units", { state: { openUnitId: u.id } }), style: { cursor: "pointer" } })}
+          // Раздел про "нельзя открыть партию отдельно" — раньше клик вёл в
+          // "Учёт п/ф" на read-only модалку (только цифры и история, без
+          // единой кнопки действия). "Карточка партии п/ф" (PartUnitCard.tsx)
+          // — тот же экран, что сканер на телефоне, с реальными действиями
+          // (перевести на этап/списать/разместить/скорректировать), и уже
+          // умеет открываться сразу с готовым unitId (см. её useEffect).
+          onRow={(u) => ({ onClick: () => navigate("/m/part-unit-card", { state: { unitId: u.id } }), style: { cursor: "pointer" } })}
           columns={[
             { title: "№", dataIndex: "id", width: 70 },
             {

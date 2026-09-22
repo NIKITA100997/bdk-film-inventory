@@ -2,10 +2,12 @@ import { useState, type ReactNode } from "react";
 import { Drawer } from "antd";
 import { HomeOutlined, InboxOutlined, ExportOutlined, QrcodeOutlined, MenuOutlined } from "@ant-design/icons";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { navTree, isNavItemVisible, type NavItem } from "./navConfig";
 import { runUnitOrMaterialSearch } from "../utils/unitSearch";
 import FullScreenScanner from "../components/FullScreenScanner";
+import { listParts } from "../api/dictionaries";
 
 interface PhoneTab extends NavItem {
   icon: ReactNode;
@@ -15,12 +17,17 @@ interface PhoneTab extends NavItem {
 // автогенерация из navTree (там нет ни иконок, ни отметки "топ-3", а
 // "Скан" вообще не пункт меню — см. план). "Ещё" ниже показывает всё
 // остальное из navTree, что не попало в этот список.
-const PINNED_TABS: PhoneTab[] = [
+//
+// "Остатки" — путь не фиксирован: участок из справочника этапов деталей
+// (значит, мастер работает с п/ф, не с плёнкой — на таком участке плёнка
+// физически никогда не лежит) ведёт на "Остатки и стеллажи п/ф", иначе —
+// на "Остатки плёнки". Раньше вкладка была жёстко "/stock" — мастер п/ф,
+// открыв её, закономерно не видел там ничего своего и не знал, что нужный
+// экран спрятан в "Ещё".
+const PINNED_TABS_BASE: PhoneTab[] = [
   { key: "home", path: "/", label: "Сегодня", icon: <HomeOutlined /> },
-  { key: "stock", path: "/stock", label: "Остатки", icon: <InboxOutlined /> },
   { key: "issue", path: "/m/issue", label: "Выдача", icon: <ExportOutlined />, permissions: ["units.issue", "units.return"] },
 ];
-const PINNED_PATHS = new Set(PINNED_TABS.map((t) => t.path));
 
 interface PhoneTabBarProps {
   // "Ввести номер вручную" из полноэкранного сканера — открывает уже
@@ -35,15 +42,23 @@ export default function PhoneTabBar({ onManualSearchRequest }: PhoneTabBarProps)
   const location = useLocation();
   const [scannerOpen, setScannerOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
 
   if (!user) return null;
 
-  const visibleTabs = PINNED_TABS.filter((t) => isNavItemVisible(t, user));
+  const isPartsArea = !!user.area && (partsQuery.data ?? []).some((p) => p.stages.some((s) => s.area === user.area));
+  const stockTab: PhoneTab = isPartsArea
+    ? { key: "stock", path: "/part-stock", label: "Остатки", icon: <InboxOutlined />, permissions: ["part_units.manage", "part_units.view", "part_storage.manage"] }
+    : { key: "stock", path: "/stock", label: "Остатки", icon: <InboxOutlined /> };
+  const pinnedTabs = [PINNED_TABS_BASE[0], stockTab, PINNED_TABS_BASE[1]];
+  const pinnedPaths = new Set(pinnedTabs.map((t) => t.path));
+
+  const visibleTabs = pinnedTabs.filter((t) => isNavItemVisible(t, user));
 
   const moreBlocks = navTree
     .map((block) => ({
       block,
-      items: block.items.filter((item) => !PINNED_PATHS.has(item.path) && isNavItemVisible(item, user)),
+      items: block.items.filter((item) => !pinnedPaths.has(item.path) && isNavItemVisible(item, user)),
     }))
     .filter(({ items }) => items.length > 0);
 
