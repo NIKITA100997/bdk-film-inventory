@@ -385,6 +385,22 @@ export const createTaskLineReport = async (
 ): Promise<ProductionTaskLineReport> =>
   (await apiClient.post<ProductionTaskLineReport>(`/production-tasks/${taskId}/lines/${lineId}/reports`, payload)).data;
 
+// Раздел про сбой формы отчёта (несколько payload'ов одного клика
+// "Сохранить" раньше слались независимыми запросами — если один падал
+// после того, как другие уже закоммитились, повторный клик задваивал уже
+// прошедшие) — вся пачка одной строки одной транзакцией на бэкенде: либо
+// коммитятся все payload'ы разом, либо ни один (см. create_task_line_
+// reports_batch). Использовать вместо N отдельных createTaskLineReport
+// внутри одного Promise.all на одну и ту же строку задания.
+export const createTaskLineReportsBatch = async (
+  taskId: number,
+  lineId: number,
+  payloads: ProductionTaskLineReportCreate[],
+): Promise<ProductionTaskLineReport[]> =>
+  (
+    await apiClient.post<ProductionTaskLineReport[]>(`/production-tasks/${taskId}/lines/${lineId}/reports/batch`, payloads)
+  ).data;
+
 export interface ProductionTaskLineAssignment {
   id: number;
   line_id: number;

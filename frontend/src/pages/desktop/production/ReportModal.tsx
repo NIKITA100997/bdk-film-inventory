@@ -1,10 +1,16 @@
 import { useState } from "react";
 import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message, Radio, Tag } from "antd";
 import dayjs from "dayjs";
+import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createTaskLineReport, type ProductionTaskLine } from "../../../api/production";
+import { createTaskLineReportsBatch, type ProductionTaskLine, type ProductionTaskLineReportCreate } from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
 
 /** Отчёт о производстве/браке (раздел про брак по дням) — отчёт обычно
  * привязан к конкретной записи распределения (день/линия/сотрудники), не
@@ -83,40 +89,41 @@ export default function ReportModal({
   };
   const removeDefectRow = (index: number) => setDefectRows((rows) => rows.filter((_, i) => i !== index));
 
+  // Раздел про сбой формы отчёта — несколько payload'ов одного клика
+  // "Сохранить" (основной good_pieces + причины брака + доп. рулоны)
+  // раньше слались независимыми запросами (Promise.all): если один
+  // падал уже ПОСЛЕ того, как другие успели закоммититься по отдельности,
+  // повторный клик пересылал всё заново, задваивая уже прошедшее
+  // (реальный случай — брак списался 8 раз вместо одного). Теперь — один
+  // batch-запрос на всю строку одной транзакцией на бэкенде
+  // (create_task_line_reports_batch): либо коммитится всё разом, либо
+  // ничего — повторный клик безопасен, а ошибка показывает настоящую
+  // причину вместо общей фразы.
   const reportMutation = useMutation({
-    // Раздел про несколько причин брака в одном отчёте — накопительный
-    // журнал (ProductionTaskLineReport) уже это поддерживает: просто шлём
-    // несколько строк вместо одной (хорошие детали отдельной строкой,
-    // затем по одной строке на каждую причину брака), агрегаты суммируют
-    // их на бэкенде так же, как если бы это были отчёты за разные смены.
     mutationFn: async (v: {
       assignment_id: number | null;
       material_unit_id: number | null;
       good_pieces: number;
     }) => {
-      const calls: Promise<unknown>[] = [];
+      const payloads: ProductionTaskLineReportCreate[] = [];
       if (v.good_pieces > 0) {
-        calls.push(
-          createTaskLineReport(taskId, line.id, {
-            assignment_id: v.assignment_id,
-            material_unit_id: v.material_unit_id,
-            good_pieces: v.good_pieces,
-            defect_pieces: 0,
-          }),
-        );
+        payloads.push({
+          assignment_id: v.assignment_id,
+          material_unit_id: v.material_unit_id,
+          good_pieces: v.good_pieces,
+          defect_pieces: 0,
+        });
       }
       for (const row of defectRows) {
-        calls.push(
-          createTaskLineReport(taskId, line.id, {
-            assignment_id: v.assignment_id,
-            material_unit_id: v.material_unit_id,
-            good_pieces: 0,
-            defect_pieces: row.qty,
-            defect_reason: row.reason,
-            defect_disposition: row.disposition,
-            note: row.note,
-          }),
-        );
+        payloads.push({
+          assignment_id: v.assignment_id,
+          material_unit_id: v.material_unit_id,
+          good_pieces: 0,
+          defect_pieces: row.qty,
+          defect_reason: row.reason,
+          defect_disposition: row.disposition,
+          note: row.note,
+        });
       }
       // Раздел про расход плёнки без готовой детали (окутка в 2 захода) —
       // ни хороших, ни брака ещё нет (деталь физически не готова), но
@@ -134,19 +141,17 @@ export default function ReportModal({
         const target = primaryRemainingM ?? puRemaining;
         const consumedNeeded = Math.max(0, puRemaining - target);
         const gp = line.length_m > 0 ? consumedNeeded / line.length_m : 0;
-        calls.push(
-          createTaskLineReport(taskId, line.id, {
-            assignment_id: v.assignment_id,
-            material_unit_id: v.material_unit_id,
-            good_pieces: gp,
-            defect_pieces: 0,
-            counts_toward_line: false,
-            note:
-              primaryRemainingM != null
-                ? `Остаток указан вручную: ${primaryRemainingM} м`
-                : "Рулон использован, деталь ещё не готова",
-          }),
-        );
+        payloads.push({
+          assignment_id: v.assignment_id,
+          material_unit_id: v.material_unit_id,
+          good_pieces: gp,
+          defect_pieces: 0,
+          counts_toward_line: false,
+          note:
+            primaryRemainingM != null
+              ? `Остаток указан вручную: ${primaryRemainingM} м`
+              : "Рулон использован, деталь ещё не готова",
+        });
       }
       // Раздел про второй рулон на ту же строку (двусторонние детали) —
       // это те же самые детали, что и good_pieces выше, просто ещё один
@@ -162,25 +167,23 @@ export default function ReportModal({
         const currentRemaining = unit?.remaining_length_m ?? unit?.length_m ?? 0;
         const consumedNeeded = Math.max(0, currentRemaining - extra.remainingM);
         const goodPiecesEquivalent = line.length_m > 0 ? consumedNeeded / line.length_m : 0;
-        calls.push(
-          createTaskLineReport(taskId, line.id, {
-            assignment_id: v.assignment_id,
-            material_unit_id: extra.materialUnitId,
-            good_pieces: goodPiecesEquivalent,
-            defect_pieces: 0,
-            counts_toward_line: false,
-            note: `Остаток указан вручную: ${extra.remainingM} м`,
-          }),
-        );
+        payloads.push({
+          assignment_id: v.assignment_id,
+          material_unit_id: extra.materialUnitId,
+          good_pieces: goodPiecesEquivalent,
+          defect_pieces: 0,
+          counts_toward_line: false,
+          note: `Остаток указан вручную: ${extra.remainingM} м`,
+        });
       }
-      await Promise.all(calls);
+      if (payloads.length > 0) await createTaskLineReportsBatch(taskId, line.id, payloads);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       message.success("Отчёт сохранён");
       onClose();
     },
-    onError: () => message.error("Не удалось сохранить отчёт"),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить отчёт")),
   });
 
   const primaryRollId = Form.useWatch("material_unit_id", reportForm) as number | null | undefined;

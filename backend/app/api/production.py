@@ -867,28 +867,29 @@ def list_task_line_reports(
     )
 
 
-@router.post(
-    "/production-tasks/{task_id}/lines/{line_id}/reports",
-    response_model=ProductionTaskLineReportOut,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_task_line_report(
+def _build_task_line_report(
     task_id: int,
     line_id: int,
     payload: ProductionTaskLineReportCreate,
-    db: Session = Depends(get_db),
-    user: User = Depends(report_production),
-) -> ProductionTaskLineReport:
-    """Отчёт о факте производства (раздел про брак в производстве) — не
-    мутирует ProductionTaskLine.quantity_pieces (неизменная цель),
-    накопительный журнал, остаток считается на лету при сборке
-    ProductionTaskOut (см. _line_report_aggregates) — так остаток
-    "видит" сумму по нескольким отчётам (например, за разные смены).
-    Обычно привязан к конкретной записи распределения (раздел про брак по
-    дням) — мастер отчитывается за конкретный день/линию, не за строку
-    задания в целом. Исключение — участок с Area.requires_daily_plan=False
-    (раздел про отключение распределения по дням): там распределений и не
-    предполагается, отчёт принимается без assignment_id."""
+    db: Session,
+    user: User,
+) -> list[ProductionTaskLineReport]:
+    """Собрать (и добавить в сессию через db.add_all, БЕЗ db.commit) строки
+    отчёта для одного payload — раздел про атомарное сохранение пачки
+    отчётов одним запросом (см. create_task_line_reports_batch): раньше
+    "Задания цеха"/"Ежедневка" слали несколько независимых HTTP-запросов
+    одним Promise.all на один клик "Сохранить" (основной good_pieces +
+    по одной записи на каждую причину брака + по одной на каждый
+    доп. рулон/остаток) — если ОДИН из них падал (чаще всего "недостаточно
+    партий п/ф" на основном good_pieces), остальные уже успевали
+    закоммититься по отдельности, а форма это никак не отслеживала:
+    повторный клик "Сохранить" переслал ВСЕ вызовы заново, задваивая уже
+    прошедшие (реальный случай — брак 15 шт списался 8 раз как 120, потому
+    что 7 из 8 попыток были именно такими повторами). Здесь — та же логика
+    построения строк отчёта, что раньше жила прямо в create_task_line_report,
+    вынесена в общую функцию без собственного commit, чтобы вызывающий код
+    мог собрать НЕСКОЛЬКО payload'ов одного клика в одну транзакцию и
+    закоммитить (или откатить) их разом."""
     line = _get_task_line(db, task_id, line_id)
     area = db.get(Area, line.task.area)
     requires_daily_plan = area is None or area.requires_daily_plan
@@ -1115,10 +1116,73 @@ def create_task_line_report(
             )
         )
     db.add_all(reports)
+    return reports
+
+
+@router.post(
+    "/production-tasks/{task_id}/lines/{line_id}/reports",
+    response_model=ProductionTaskLineReportOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_task_line_report(
+    task_id: int,
+    line_id: int,
+    payload: ProductionTaskLineReportCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(report_production),
+) -> ProductionTaskLineReport:
+    """Отчёт о факте производства (раздел про брак в производстве) — не
+    мутирует ProductionTaskLine.quantity_pieces (неизменная цель),
+    накопительный журнал, остаток считается на лету при сборке
+    ProductionTaskOut (см. _line_report_aggregates) — так остаток
+    "видит" сумму по нескольким отчётам (например, за разные смены).
+    Обычно привязан к конкретной записи распределения (раздел про брак по
+    дням) — мастер отчитывается за конкретный день/линию, не за строку
+    задания в целом. Исключение — участок с Area.requires_daily_plan=False
+    (раздел про отключение распределения по дням): там распределений и не
+    предполагается, отчёт принимается без assignment_id."""
+    reports = _build_task_line_report(task_id, line_id, payload, db, user)
     db.commit()
     for r in reports:
         db.refresh(r)
     return reports[-1]
+
+
+@router.post(
+    "/production-tasks/{task_id}/lines/{line_id}/reports/batch",
+    response_model=list[ProductionTaskLineReportOut],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_task_line_reports_batch(
+    task_id: int,
+    line_id: int,
+    payloads: list[ProductionTaskLineReportCreate],
+    db: Session = Depends(get_db),
+    user: User = Depends(report_production),
+) -> list[ProductionTaskLineReport]:
+    """Один клик "Сохранить отчёт" в "Заданиях цеха"/"Ежедневке" почти
+    всегда означает НЕСКОЛЬКО payload'ов сразу на одну строку (основной
+    good_pieces + по одной записи на каждую причину брака + по одной на
+    каждый доп. рулон/остаток) — раньше фронт слал их отдельными
+    независимыми запросами (Promise.all), и если ОДИН из них падал
+    (обычно "недостаточно партий п/ф" на основном good_pieces), остальные
+    уже успевали закоммититься по отдельности за секунду до этого — форма
+    об этом не знала и просто показывала общую ошибку. Повторный клик
+    "Сохранить" пересылал ВСЕ payload'ы заново, задваивая уже прошедшие
+    (реальный случай — 15 шт брака списались 8 раз как 120, потому что 7
+    из 8 попыток были именно такими повторами частично успешного пакета).
+
+    Здесь — вся пачка одной транзакцией: если ХОТЯ БЫ ОДИН payload падает,
+    ничего не коммитится вообще (db.commit() только один раз, в самом
+    конце) — исходная строка просто остаётся как была, повторный клик
+    безопасен."""
+    reports: list[ProductionTaskLineReport] = []
+    for payload in payloads:
+        reports.extend(_build_task_line_report(task_id, line_id, payload, db, user))
+    db.commit()
+    for r in reports:
+        db.refresh(r)
+    return reports
 
 
 # --- Распределение по линиям ---------------------------------------------

@@ -1,11 +1,23 @@
 import { useMemo, useRef, useState } from "react";
 import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form, Checkbox, Radio } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import ResponsiveTable from "../../../components/ResponsiveTable";
-import { listProductionTasks, createTaskLineReport, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
+import {
+  listProductionTasks,
+  createTaskLineReportsBatch,
+  type ProductionTask,
+  type ProductionTaskLine,
+  type ProductionTaskLineReportCreate,
+} from "../../../api/production";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { listParts } from "../../../api/dictionaries";
 import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
 
 interface DefectEntry {
   reason: string;
@@ -202,26 +214,37 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const removeDefectEntry = (key: string, index: number) =>
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, defects: r.defects.filter((_, i) => i !== index) } : r)));
 
+  // Раздел про сбой формы отчёта (несколько независимых запросов одним
+  // Promise.all на один клик "Сохранить" — если один падал уже ПОСЛЕ
+  // того, как другие успели закоммититься по отдельности, форма не
+  // отслеживала частичный успех: повторный клик пересылал ВСЕ вызовы
+  // заново, задваивая уже прошедшие. Реальный случай — брак 15 шт
+  // списался 8 раз как 120, потому что 7 из 8 попыток были именно такими
+  // повторами). Теперь — один batch-запрос НА СТРОКУ (все её payload'ы:
+  // основной good_pieces + причины брака + доп. рулоны) одной транзакцией
+  // на бэкенде (create_task_line_reports_batch): либо коммитится вся
+  // строка целиком, либо ничего — повторный клик безопасен. Строки
+  // между собой (Promise.allSettled) независимы: если упала одна из
+  // десяти позиций, остальные девять всё равно сохранятся, а в форме
+  // останется только упавшая — со внятной причиной вместо общей фразы.
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const calls: Promise<unknown>[] = [];
-      for (const r of rows) {
-        if (r.goodPieces > 0) {
-          // Раздел про учёт п/ф по FIFO — партия для готовых деталей
-          // больше не передаётся: бэкенд сам расходует от самой старой
-          // (по дате изготовления), part_unit_id здесь не нужен.
-          calls.push(
-            createTaskLineReport(r.taskId, r.line.id, {
+      const settled = await Promise.allSettled(
+        rows.map(async (r) => {
+          const payloads: ProductionTaskLineReportCreate[] = [];
+          if (r.goodPieces > 0) {
+            // Раздел про учёт п/ф по FIFO — партия для готовых деталей
+            // больше не передаётся: бэкенд сам расходует от самой старой
+            // (по дате изготовления), part_unit_id здесь не нужен.
+            payloads.push({
               assignment_id: null,
               material_unit_id: r.materialUnitId,
               good_pieces: r.goodPieces,
               defect_pieces: 0,
-            }),
-          );
-        }
-        for (const d of r.defects) {
-          calls.push(
-            createTaskLineReport(r.taskId, r.line.id, {
+            });
+          }
+          for (const d of r.defects) {
+            payloads.push({
               assignment_id: null,
               material_unit_id: r.materialUnitId,
               good_pieces: 0,
@@ -229,27 +252,25 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               defect_reason: d.reason,
               defect_disposition: d.disposition,
               note: d.note,
-            }),
-          );
-        }
-        // Раздел про расход плёнки без готовой детали (окутка в 2 захода) —
-        // ни одной хорошей детали, ни брака ещё нет (деталь физически не
-        // готова), но рулон уже трогали. Раньше слался "нулевой" отчёт
-        // (good=0/defect=0) — рулон навсегда выглядел нетронутым. Теперь
-        // мастер вводит фактический остаток этого рулона: расход
-        // считается из (было − остаток), отчёт с counts_toward_line=false
-        // (сам факт использования всё так же фиксируется — рулон можно
-        // вернуть/списать, see has_report в return_unit). Пустой остаток =
-        // не трогали → good_pieces 0, как раньше.
-        if (requiresRoll && r.goodPieces <= 0 && r.defects.length === 0 && r.materialUnitId) {
-          const pu = r.line.issued_units.find((u) => u.id === r.materialUnitId) ??
-            (r.line.borrowable_units ?? []).find((u) => u.id === r.materialUnitId);
-          const puRemaining = pu?.remaining_length_m ?? pu?.length_m ?? 0;
-          const target = r.primaryRemainingM ?? puRemaining;
-          const consumedNeeded = Math.max(0, puRemaining - target);
-          const gp = r.line.length_m > 0 ? consumedNeeded / r.line.length_m : 0;
-          calls.push(
-            createTaskLineReport(r.taskId, r.line.id, {
+            });
+          }
+          // Раздел про расход плёнки без готовой детали (окутка в 2 захода) —
+          // ни одной хорошей детали, ни брака ещё нет (деталь физически не
+          // готова), но рулон уже трогали. Раньше слался "нулевой" отчёт
+          // (good=0/defect=0) — рулон навсегда выглядел нетронутым. Теперь
+          // мастер вводит фактический остаток этого рулона: расход
+          // считается из (было − остаток), отчёт с counts_toward_line=false
+          // (сам факт использования всё так же фиксируется — рулон можно
+          // вернуть/списать, see has_report в return_unit). Пустой остаток =
+          // не трогали → good_pieces 0, как раньше.
+          if (requiresRoll && r.goodPieces <= 0 && r.defects.length === 0 && r.materialUnitId) {
+            const pu = r.line.issued_units.find((u) => u.id === r.materialUnitId) ??
+              (r.line.borrowable_units ?? []).find((u) => u.id === r.materialUnitId);
+            const puRemaining = pu?.remaining_length_m ?? pu?.length_m ?? 0;
+            const target = r.primaryRemainingM ?? puRemaining;
+            const consumedNeeded = Math.max(0, puRemaining - target);
+            const gp = r.line.length_m > 0 ? consumedNeeded / r.line.length_m : 0;
+            payloads.push({
               assignment_id: null,
               material_unit_id: r.materialUnitId,
               good_pieces: gp,
@@ -259,44 +280,58 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                 r.primaryRemainingM != null
                   ? `Остаток указан вручную: ${r.primaryRemainingM} м`
                   : "Рулон использован, деталь ещё не готова",
-            }),
-          );
-        }
-        // Раздел про второй рулон на ту же строку (двусторонние детали) —
-        // это те же самые деталей, что и в goodPieces выше, просто ещё
-        // один рулон физически тоже участвовал (другая сторона), поэтому
-        // "сколько деталей именно из него" не считаем — вместо этого
-        // подбираем good_pieces под указанный вручную остаток ЭТОГО
-        // рулона и шлём отдельным отчётом с counts_toward_line=false,
-        // чтобы не задвоить план строки (эти деталей уже учтены основным
-        // отчётом выше).
-        for (const extra of r.extraRolls) {
-          const unit =
-            r.line.issued_units.find((u) => u.id === extra.materialUnitId) ??
-            (r.line.borrowable_units ?? []).find((u) => u.id === extra.materialUnitId);
-          const currentRemaining = unit?.remaining_length_m ?? unit?.length_m ?? 0;
-          const consumedNeeded = Math.max(0, currentRemaining - extra.remainingM);
-          const goodPiecesEquivalent = r.line.length_m > 0 ? consumedNeeded / r.line.length_m : 0;
-          calls.push(
-            createTaskLineReport(r.taskId, r.line.id, {
+            });
+          }
+          // Раздел про второй рулон на ту же строку (двусторонние детали) —
+          // это те же самые деталей, что и в goodPieces выше, просто ещё
+          // один рулон физически тоже участвовал (другая сторона), поэтому
+          // "сколько деталей именно из него" не считаем — вместо этого
+          // подбираем good_pieces под указанный вручную остаток ЭТОГО
+          // рулона и шлём отдельным отчётом с counts_toward_line=false,
+          // чтобы не задвоить план строки (эти деталей уже учтены основным
+          // отчётом выше).
+          for (const extra of r.extraRolls) {
+            const unit =
+              r.line.issued_units.find((u) => u.id === extra.materialUnitId) ??
+              (r.line.borrowable_units ?? []).find((u) => u.id === extra.materialUnitId);
+            const currentRemaining = unit?.remaining_length_m ?? unit?.length_m ?? 0;
+            const consumedNeeded = Math.max(0, currentRemaining - extra.remainingM);
+            const goodPiecesEquivalent = r.line.length_m > 0 ? consumedNeeded / r.line.length_m : 0;
+            payloads.push({
               assignment_id: null,
               material_unit_id: extra.materialUnitId,
               good_pieces: goodPiecesEquivalent,
               defect_pieces: 0,
               counts_toward_line: false,
               note: `Остаток указан вручную: ${extra.remainingM} м`,
-            }),
-          );
-        }
-      }
-      await Promise.all(calls);
+            });
+          }
+          if (payloads.length > 0) await createTaskLineReportsBatch(r.taskId, r.line.id, payloads);
+          return r.key;
+        }),
+      );
+      return settled;
     },
-    onSuccess: () => {
+    onSuccess: (settled) => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
-      message.success(`Отчёт по ${rows.length} ${rows.length === 1 ? "позиции" : "позициям"} сохранён`);
-      setRows([]);
+      const succeededKeys = new Set(
+        settled.filter((s): s is PromiseFulfilledResult<string> => s.status === "fulfilled").map((s) => s.value),
+      );
+      const failures = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected");
+      if (failures.length === 0) {
+        message.success(`Отчёт по ${rows.length} ${rows.length === 1 ? "позиции" : "позициям"} сохранён`);
+        setRows([]);
+      } else {
+        // Раздел про частичный успех — упавшие строки остаются в форме
+        // для повтора (без риска задвоить уже сохранённые), успевшие
+        // сохраниться убираются сразу.
+        setRows((prev) => prev.filter((r) => !succeededKeys.has(r.key)));
+        message.error(
+          `Сохранено ${succeededKeys.size} из ${rows.length}. Ошибка: ${apiErrorMessage(failures[0].reason, "не удалось сохранить часть позиций")}`,
+        );
+      }
     },
-    onError: () => message.error("Не удалось сохранить отчёт — проверьте позиции с ошибками"),
+    onError: () => message.error("Не удалось сохранить отчёт"),
   });
 
   const handleSave = () => {
