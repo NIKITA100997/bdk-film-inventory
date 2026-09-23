@@ -1077,13 +1077,48 @@ def _build_task_line_report(
             if excess_amount > 0:
                 settle_excess_part_unit_at_area(db, unit=pu, user_id=user.id)
                 processed_fifo_results.append((pu, True, excess_amount))
-        # Раздел про autoflush=False (app/db/session.py) — без явного
-        # flush следующий ниже запрос consume_defect_fifo/reserve_defect_
-        # for_recycle_fifo увидел бы в БД ЕЩЁ старый статус Выдан_участку
-        # у только что списанной/переведённой в На_хранении партии (сам
-        # SQL-запрос идёт мимо identity map) и повторно выбрал бы её же
-        # кандидатом — ValueError "Партия уже списана" на объекте, который
-        # уже мутирован в памяти этим циклом.
+
+    # Раздел про строки отчёта для "хороших" — собираются и добавляются в
+    # сессию ЗДЕСЬ, сразу после расхода "хороших" и ДО обработки брака
+    # ниже (не вместе со строками брака в конце, как раньше) по двум
+    # причинам разом:
+    #   1) Раздел про autoflush=False (app/db/session.py) — без явного
+    #      flush ниже запрос consume_defect_fifo/reserve_defect_for_
+    #      recycle_fifo увидел бы в БД ЕЩЁ старый статус Выдан_участку у
+    #      партии, которую только что списал/перевёл в На_хранении блок
+    #      выше (сам SQL-запрос идёт мимо identity map) и повторно выбрал
+    #      бы её кандидатом — ValueError "Партия уже списана" на объекте,
+    #      уже мутированном в памяти этим же циклом (реальный случай на
+    #      проде, воспроизведён и исправлен).
+    #   2) Более общая и более старая гонка (существовала ДО этой правки,
+    #      независимо от неё): reported_good_pieces_by_unit (см.
+    #      consume_defect_fifo/consume_part_units_fifo, services/part_
+    #      units.py) считает "уже отчитанное" по СТРОКАМ ProductionTaskLine
+    #      Report в БД — если строки good_pieces не вставлены и не
+    #      сброшены ДО того, как FIFO брака сделает свой запрос "сколько
+    #      свободно" по той же самой партии, где good ЦЕЛИКОМ (полное
+    #      совпадение, advance_part_unit намеренно не уменьшает quantity_
+    #      pieces на терминальном переходе) забрал уже ВСЁ — брак увидит
+    #      партию как полностью свободную ЕЩЁ РАЗ и по-настоящему заберёт
+    #      с неё лишнее (не ошибка, а тихая порча остатка). Обнаружено по
+    #      факту на прод-данных (партии №505/№653 — carry-over расхождение
+    #      quantity_pieces с суммой good по отчётам на 1 и 5 шт
+    #      соответственно, из периода ДО всех правок этой сессии).
+    good_reports: list[ProductionTaskLineReport] = [
+        ProductionTaskLineReport(
+            task_line_id=line_id,
+            assignment_id=payload.assignment_id,
+            material_unit_id=payload.material_unit_id,
+            part_unit_id=pu.id,
+            good_pieces=taken,
+            defect_pieces=0,
+            reported_by=user.id,
+            counts_toward_line=is_final,
+        )
+        for pu, is_final, taken in processed_fifo_results
+    ]
+    if good_reports:
+        db.add_all(good_reports)
         db.flush()
 
     # Раздел про ревизию путей п/ф — брак списывается по FIFO так же, как
@@ -1135,21 +1170,8 @@ def _build_task_line_report(
     # и по-прежнему учитывается в расходе рулона (compute_unit_consumed_
     # length_m и has_report в return_unit не фильтруют по
     # counts_toward_line), но не уменьшает "нужно ещё" по заданию.
-    reports: list[ProductionTaskLineReport] = []
+    reports: list[ProductionTaskLineReport] = list(good_reports)
     if fifo_results or defect_fifo_results:
-        for pu, is_final, taken in processed_fifo_results:
-            reports.append(
-                ProductionTaskLineReport(
-                    task_line_id=line_id,
-                    assignment_id=payload.assignment_id,
-                    material_unit_id=payload.material_unit_id,
-                    part_unit_id=pu.id,
-                    good_pieces=taken,
-                    defect_pieces=0,
-                    reported_by=user.id,
-                    counts_toward_line=is_final,
-                )
-            )
         # Раздел про ревизию путей п/ф — одна строка ProductionTaskLineReport
         # на каждую затронутую списанием партию (обычно одна, несколько —
         # если брака больше, чем в самой старой партии, см. consume_defect_
