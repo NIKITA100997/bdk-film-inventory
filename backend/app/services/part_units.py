@@ -632,6 +632,32 @@ def return_part_unit(
     return unit
 
 
+def settle_excess_part_unit_at_area(
+    db: Session, *, unit: PartUnit, user_id: int, occurred_at: datetime | None = None
+) -> PartUnit:
+    """Излишек сверх плана строки задания на финальном этапе (окутка и
+    т.п.) — раздел про списание готовых п/ф по плану строки задания (см.
+    _build_task_line_report): становится обычным доступным остатком
+    (На_хранении), но, В ОТЛИЧИЕ от return_part_unit, `area` НЕ
+    очищается — для п/ф на последнем этапе участок И ЕСТЬ склад (см.
+    докстринг place_part_unit), а не площадка, с которой физически
+    возвращаются на настоящий склад. Очистка area здесь сделала бы
+    остаток невидимым в разбивке "по участкам" (Остатки п/ф) именно там,
+    где он физически лежит."""
+    if unit.status != PartUnitStatus.VYDAN_UCHASTKU:
+        raise ValueError("Перевести в остаток можно только партию, выданную участку")
+    unit.status = PartUnitStatus.NA_KHRANENII
+    record_part_event(
+        db,
+        unit=unit,
+        event_type=PartEventType.VOZVRAT,
+        user_id=user_id,
+        quantity_delta=0,
+        occurred_at=occurred_at,
+    )
+    return unit
+
+
 def adjust_part_unit(
     db: Session,
     *,

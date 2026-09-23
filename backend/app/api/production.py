@@ -56,7 +56,7 @@ from app.services.part_units import (
     consume_defect_fifo,
     consume_part_units_fifo,
     reserve_defect_for_recycle_fifo,
-    return_part_unit,
+    settle_excess_part_unit_at_area,
     write_off_part_unit,
 )
 from app.services.production import (
@@ -1060,8 +1060,8 @@ def _build_task_line_report(
     # строки (line.quantity_pieces) авто-списывается системной причиной
     # (партия физически ушла под это задание), а всё сверх плана
     # переводится в обычный доступный остаток (На_хранении, не
-    # размещено) — той же операцией, что и "Вернуть на склад", потому что
-    # по смыслу это то же самое: излишек, который не пошёл в дело.
+    # размещено, но участок НЕ сбрасывается — см. settle_excess_part_
+    # unit_at_area: участок и есть склад для готовых п/ф).
     #
     # processed_fifo_results заменяет fifo_results для построения строк
     # отчёта ниже — партия, которую эта проводка разделила на списанную и
@@ -1108,7 +1108,7 @@ def _build_task_line_report(
                 )
                 processed_fifo_results.append((wo_unit, True, write_off_amount))
             if excess_amount > 0:
-                return_part_unit(db, unit=pu, actual_quantity_pieces=excess_amount, user_id=user.id)
+                settle_excess_part_unit_at_area(db, unit=pu, user_id=user.id)
                 processed_fifo_results.append((pu, True, excess_amount))
 
     # Раздел про окутку в 2 захода — good_pieces с part_unit считается
