@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT
+from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT, PART_UNIT_AUTO_WRITE_OFF_REASON_CODE
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.areas import Area
@@ -56,6 +56,7 @@ from app.services.part_units import (
     consume_defect_fifo,
     consume_part_units_fifo,
     reserve_defect_for_recycle_fifo,
+    return_part_unit,
     write_off_part_unit,
 )
 from app.services.production import (
@@ -1052,6 +1053,64 @@ def _build_task_line_report(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
         defect_fifo_results = [(part_unit, payload.defect_pieces)]
 
+    # Раздел про списание готовых п/ф по плану строки задания — партия,
+    # дошедшая до последнего этапа (is_final), раньше молча оставалась
+    # висеть Выдан_участку навсегда (advance_part_unit не меняет статус
+    # на терминальном переходе — см. его докстрину). Теперь: ровно план
+    # строки (line.quantity_pieces) авто-списывается системной причиной
+    # (партия физически ушла под это задание), а всё сверх плана
+    # переводится в обычный доступный остаток (На_хранении, не
+    # размещено) — той же операцией, что и "Вернуть на склад", потому что
+    # по смыслу это то же самое: излишек, который не пошёл в дело.
+    #
+    # processed_fifo_results заменяет fifo_results для построения строк
+    # отчёта ниже — партия, которую эта проводка разделила на списанную и
+    # излишек, должна дать ДВЕ строки ProductionTaskLineReport (по одной
+    # на каждый реально затронутый part_unit_id, тот же приём, что уже
+    # используется для defect_fifo_results/нескольких партий одного
+    # прихода). Если строить одну строку на исходный pu.id со старым
+    # taken — reported_good_pieces_by_unit для этого id разошлась бы с
+    # его новым (уменьшённым) quantity_pieces и сломала бы будущий FIFO
+    # по этой же партии (появилась бы отрицательная "свободная" величина).
+    #
+    # already_counted — сколько по этой строке уже засчитано ДО этого
+    # payload (та же агрегация, что использует сводка строки задания,
+    # см. _task_line_out/_line_reports_agg выше), running растёт по мере
+    # обработки каждой затронутой партии этого же payload.
+    processed_fifo_results: list[tuple[PartUnit, bool, float]] = []
+    if fifo_results:
+        already_counted = float(
+            db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
+            .filter(
+                ProductionTaskLineReport.task_line_id == line_id,
+                ProductionTaskLineReport.counts_toward_line.is_(True),
+            )
+            .scalar()
+        )
+        running = already_counted
+        plan = float(line.quantity_pieces)
+        for pu, is_final, taken in fifo_results:
+            if not is_final:
+                processed_fifo_results.append((pu, is_final, taken))
+                continue
+            budget = max(0.0, plan - running)
+            write_off_amount = min(taken, budget)
+            excess_amount = taken - write_off_amount
+            running += taken
+            if write_off_amount > 0:
+                wo_unit = write_off_part_unit(
+                    db,
+                    unit=pu,
+                    quantity_pieces=write_off_amount,
+                    reason=PART_UNIT_AUTO_WRITE_OFF_REASON_CODE,
+                    user_id=user.id,
+                    note=f"Автосписание по строке задания №{line_id}",
+                )
+                processed_fifo_results.append((wo_unit, True, write_off_amount))
+            if excess_amount > 0:
+                return_part_unit(db, unit=pu, actual_quantity_pieces=excess_amount, user_id=user.id)
+                processed_fifo_results.append((pu, True, excess_amount))
+
     # Раздел про окутку в 2 захода — good_pieces с part_unit считается
     # "готовым" для остатка СТРОКИ ЗАДАНИЯ (counts_toward_line) только
     # если партия дошла до последнего этапа (is_final). Промежуточный
@@ -1061,7 +1120,7 @@ def _build_task_line_report(
     # counts_toward_line), но не уменьшает "нужно ещё" по заданию.
     reports: list[ProductionTaskLineReport] = []
     if fifo_results or defect_fifo_results:
-        for pu, is_final, taken in fifo_results:
+        for pu, is_final, taken in processed_fifo_results:
             reports.append(
                 ProductionTaskLineReport(
                     task_line_id=line_id,
