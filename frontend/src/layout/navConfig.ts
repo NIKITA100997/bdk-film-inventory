@@ -126,6 +126,12 @@ export const navTree: NavBlock[] = [
         label: "Задания цеха (План на день)",
         permissions: ["production_tasks.manage", "production_tasks.view"],
       },
+      {
+        key: "area-tasks",
+        path: "/area-tasks",
+        label: "Задания участков",
+        permissions: ["production_tasks.manage", "production_tasks.report", "production_tasks.view"],
+      },
       // Линии — не конфигурация в стороне, а часть производства: та же
       // область, что "Задания цеха", просто отдельный пункт вместо вкладки
       // (раздел про адаптацию под планшет — линии трогаются не каждый
