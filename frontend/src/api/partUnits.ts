@@ -43,9 +43,6 @@ export interface PartUnitCreate {
   part_id: number;
   quantity_pieces: number;
   production_task_line_id?: number | null;
-  // Раздел про связь этапов с участками — участок выдачи выводится из
-  // выбранного этапа, здесь только факт "сразу выдать".
-  issue?: boolean;
   note?: string | null;
   // Раздел про регистрацию задним числом — партия уже прошла часть
   // маршрута (например, уже склеена и отфрезерована), заводим её сразу
@@ -96,11 +93,6 @@ export const createPartUnit = async (payload: PartUnitCreate): Promise<PartUnit>
 // Раздел про мобильный скан-сценарий по этапам — одна партия по ID,
 // зеркалит getUnit у плёнки: карточка партии открывается сканом бирки.
 export const getPartUnit = async (id: number): Promise<PartUnit> => (await apiClient.get<PartUnit>(`/part-units/${id}`)).data;
-
-// Раздел про связь этапов с участками — участок выводится из текущего
-// этапа партии на бэкенде, здесь нечего передавать.
-export const issuePartUnit = async (id: number): Promise<PartUnit> =>
-  (await apiClient.post<PartUnit>(`/part-units/${id}/issue`)).data;
 
 export const writeOffPartUnit = async (
   id: number,

@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   getPartUnit,
-  issuePartUnit,
   writeOffPartUnit,
   advancePartUnit,
   adjustPartUnit,
@@ -109,15 +108,6 @@ export default function PartUnitCard() {
     onError: () => message.error("Не удалось разместить"),
   });
 
-  const issueMutation = useMutation({
-    mutationFn: () => issuePartUnit(unit!.id),
-    onSuccess: (u) => {
-      setUnit(u);
-      message.success(`Выдана участку «${areaLabel(u.area ?? "")}»`);
-    },
-    onError: () => message.error("Не удалось выдать участку"),
-  });
-
   const advanceMutation = useMutation({
     mutationFn: (values: { quantity_pieces: number; occurred_at?: Dayjs | null }) =>
       advancePartUnit(unit!.id, values.quantity_pieces, toOccurredAtIso(values.occurred_at)),
@@ -213,14 +203,9 @@ export default function PartUnitCard() {
           {!action && (
             <Space wrap size="middle" style={{ marginBottom: 16 }}>
               {unit.status === "На_хранении" && (
-                <>
-                  <Button size="large" type="primary" onClick={() => setAction("place")}>
-                    Разместить
-                  </Button>
-                  <Button size="large" loading={issueMutation.isPending} onClick={() => issueMutation.mutate()}>
-                    Выдать участку
-                  </Button>
-                </>
+                <Button size="large" type="primary" onClick={() => setAction("place")}>
+                  Разместить
+                </Button>
               )}
               {unit.status === "Выдан_участку" && (
                 <Button size="large" type="primary" onClick={() => setAction("advance")}>

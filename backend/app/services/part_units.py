@@ -82,7 +82,6 @@ def mint_part_unit(
     quantity_pieces: float,
     user_id: int,
     production_task_line_id: int | None = None,
-    issue: bool = False,
     note: str | None = None,
     stage_id: int | None = None,
     manufactured_at: date | None = None,
@@ -103,18 +102,15 @@ def mint_part_unit(
     партия расходуется (не дата записи в систему) — тот же приём
     "задним числом", что и у stage_id; None — сегодня.
 
-    Раздел про связь этапов с участками — участок выдачи выводится из
-    `start_stage.area`, не выбирается вручную (см. PartStage.area):
-    начальник цеха выбирает ТОЛЬКО факт "сразу выдать участку", куда
-    именно — определяет сам этап.
-
-    `area` партии = участок ЭТАПА всегда, а не только когда issue=True —
-    для п/ф участок и есть физическое место хранения (см. докстринг
-    place_part_unit): если сейчас заводят партию "на хранении" на этапе
-    "Фрезеровка" — она физически уже отфрезерована и лежит на этом самом
-    участке, а не на абстрактном "складе без адреса". `issue` влияет
-    только на статус (можно ли сразу расходовать по FIFO отчёта), не на
-    то, где партия физически лежит."""
+    Раздел про "зачем кнопка выдать участку, если физически деталь уже
+    на участке" — партия считается выданной участку АВТОМАТИЧЕСКИ, если
+    у стартового этапа настроен участок (обычно так и есть — см. докстринг
+    place_part_unit: участок и есть физическое место, где деталь реально
+    лежит с момента изготовления, отдельного шага "выдать" для этого не
+    нужно). Явного выбора "на хранении / выдано" больше нет — статус
+    целиком выводится из наличия участка у этапа; отдельного пути
+    "зарегистрировать, но не выдавать" сознательно нет (см. issue_part_
+    unit/эндпоинт /issue — удалены за ненадобностью)."""
     if not part.stages:
         raise ValueError(f"У детали «{part.name}» не настроены этапы — добавьте их в справочнике «Деталь»")
     if stage_id is not None:
@@ -123,14 +119,13 @@ def mint_part_unit(
             raise ValueError(f"Этап не найден среди этапов детали «{part.name}»")
     else:
         start_stage = part.stages[0]
-    if issue and not start_stage.area:
-        raise ValueError(f"У этапа «{start_stage.name}» не указан участок — настройте связь в справочнике «Деталь»")
+    issued = bool(start_stage.area)
     unit = PartUnit(
         part_id=part.id,
         quantity_pieces=quantity_pieces,
         stage_id=start_stage.id,
         manufactured_at=manufactured_at if manufactured_at is not None else date.today(),
-        status=PartUnitStatus.VYDAN_UCHASTKU if issue else PartUnitStatus.NA_KHRANENII,
+        status=PartUnitStatus.VYDAN_UCHASTKU if issued else PartUnitStatus.NA_KHRANENII,
         area=start_stage.area,
         production_task_line_id=production_task_line_id,
         note=note,
@@ -148,7 +143,7 @@ def mint_part_unit(
         to_stage_id=start_stage.id,
         note=note,
     )
-    if issue:
+    if issued:
         # Раздел про ревизию путей п/ф — quantity_delta здесь раньше
         # молча оставался 0 (значение по умолчанию), в отличие от
         # зеркального MaterialEvent.VYDACHA_UCHASTKU у плёнки, который
@@ -159,26 +154,6 @@ def mint_part_unit(
             db, unit=unit, event_type=PartEventType.VYDACHA_UCHASTKU, user_id=user_id,
             quantity_delta=quantity_pieces,
         )
-    return unit
-
-
-def issue_part_unit(db: Session, *, unit: PartUnit, user_id: int) -> PartUnit:
-    """Выдать участку — раздел про связь этапов с участками: участок
-    выводится из `unit.stage.area`, не выбирается вручную. Если у этапа
-    нет участка — явная ошибка конфигурации справочника, не место для
-    ручного выбора."""
-    if unit.status != PartUnitStatus.NA_KHRANENII:
-        raise ValueError("Выдать участку можно только партию, которая сейчас на хранении")
-    if not unit.stage.area:
-        raise ValueError(f"У этапа «{unit.stage.name}» не указан участок — настройте связь в справочнике «Деталь»")
-    unit.status = PartUnitStatus.VYDAN_UCHASTKU
-    unit.area = unit.stage.area
-    # Раздел про ревизию путей п/ф — quantity_delta = реально выданное
-    # количество (см. комментарий у mint_part_unit выше).
-    record_part_event(
-        db, unit=unit, event_type=PartEventType.VYDACHA_UCHASTKU, user_id=user_id,
-        quantity_delta=float(unit.quantity_pieces),
-    )
     return unit
 
 

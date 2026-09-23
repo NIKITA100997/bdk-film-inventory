@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Popconfirm, Tag, DatePicker } from "antd";
+import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Tag, DatePicker } from "antd";
 import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ActionIcon from "../../../components/ActionIcon";
@@ -14,7 +14,6 @@ import { toOccurredAtIso } from "../../../utils/occurredAt";
 import {
   listPartUnits,
   createPartUnit,
-  issuePartUnit,
   writeOffPartUnit,
   advancePartUnit,
   returnPartUnit,
@@ -111,7 +110,6 @@ const STATUS_TAG_COLOR: Record<PartUnitStatus, string> = {
 interface MintFormValues {
   quantity_pieces: number;
   task_line_key?: string;
-  issue: boolean;
   note?: string;
   stage_id?: number;
   // Раздел про учёт п/ф по FIFO — не задано = сегодня (бэкенд сам
@@ -225,10 +223,8 @@ export default function PartUnits() {
   // совпадать с ТЕКУЩИМ этапом партии, только через полный список этапов
   // по её детали можно назвать их по имени, не по голому id).
   const stageNameById = new Map<number, string>();
-  const stageAreaById = new Map<number, string | null>();
   for (const p of partsQuery.data ?? []) for (const s of p.stages) {
     stageNameById.set(s.id, s.name);
-    stageAreaById.set(s.id, s.area);
   }
   const stageName = (id: number | null) => (id == null ? null : (stageNameById.get(id) ?? `#${id}`));
 
@@ -263,7 +259,6 @@ export default function PartUnits() {
         part_id: selectedPart!.id,
         quantity_pieces: v.quantity_pieces,
         production_task_line_id: lineIdStr ? Number(lineIdStr) : undefined,
-        issue: v.issue,
         note: v.note,
         stage_id: v.stage_id,
         manufactured_at: v.manufactured_at ? v.manufactured_at.format("YYYY-MM-DD") : undefined,
@@ -277,15 +272,6 @@ export default function PartUnits() {
       setSelectedPart(null);
     },
     onError: () => message.error("Не удалось зарегистрировать партию — у детали настроены этапы?"),
-  });
-
-  const issueMutation = useMutation({
-    mutationFn: (id: number) => issuePartUnit(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["part-units"] });
-      message.success("Партия выдана участку");
-    },
-    onError: () => message.error("Не удалось выдать партию — у этапа не назначен участок?"),
   });
 
   const placeMutation = useMutation({
@@ -478,9 +464,6 @@ export default function PartUnits() {
                 filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
               />
             </Form.Item>
-            <Form.Item name="issue" valuePropName="checked" initialValue={false}>
-              <Checkbox>Сразу выдать участку (участок — из выбранного этапа)</Checkbox>
-            </Form.Item>
             <Form.Item
               name="film_restriction"
               label="Ограничение по плёнке (опционально)"
@@ -667,20 +650,6 @@ export default function PartUnits() {
                     >
                       📦
                     </ActionIcon>
-                  )}
-                  {canManage && u.status === "На_хранении" && (
-                    <Popconfirm
-                      title={`Выдать партию участку «${areaLabel(stageAreaById.get(u.stage_id) ?? null)}»?`}
-                      okText="Выдать"
-                      cancelText="Отмена"
-                      onConfirm={() => issueMutation.mutate(u.id)}
-                    >
-                      <span>
-                        <ActionIcon tone="filled" tip="Выдать участку">
-                          📤
-                        </ActionIcon>
-                      </span>
-                    </Popconfirm>
                   )}
                   {canManage && u.status === "Выдан_участку" && (
                     <ActionIcon

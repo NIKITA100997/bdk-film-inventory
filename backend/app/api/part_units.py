@@ -20,7 +20,6 @@ from app.schemas.part_units import (
 from app.services.part_units import (
     adjust_part_unit,
     advance_part_unit,
-    issue_part_unit,
     mint_part_unit,
     place_part_unit,
     recycle_part_units_fifo,
@@ -113,7 +112,6 @@ def create_part_unit(
             quantity_pieces=payload.quantity_pieces,
             user_id=user.id,
             production_task_line_id=payload.production_task_line_id,
-            issue=payload.issue,
             note=payload.note,
             stage_id=payload.stage_id,
             manufactured_at=payload.manufactured_at,
@@ -160,25 +158,6 @@ def get_part_unit(
     unit = db.get(PartUnit, unit_id)
     if unit is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
-    return _part_unit_out_single(db, unit)
-
-
-@router.post("/{unit_id}/issue", response_model=PartUnitOut)
-def issue_part_unit_to_area(
-    unit_id: int, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
-) -> PartUnitOut:
-    """Раздел про связь этапов с участками — без тела запроса: участок
-    выводится из текущего этапа партии (`unit.stage.area`), не выбирается
-    начальником цеха вручную."""
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
-    try:
-        issue_part_unit(db, unit=unit, user_id=user.id)
-    except ValueError as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
-    db.commit()
-    db.refresh(unit)
     return _part_unit_out_single(db, unit)
 
 

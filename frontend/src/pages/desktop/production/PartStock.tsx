@@ -252,18 +252,16 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
     quantity_pieces: number;
     stage_id?: number;
     manufactured_at?: Dayjs;
-    issue: boolean;
     note?: string;
   }>();
 
   const mintMutation = useMutation({
-    mutationFn: (v: { quantity_pieces: number; stage_id?: number; manufactured_at?: Dayjs; issue: boolean; note?: string }) =>
+    mutationFn: (v: { quantity_pieces: number; stage_id?: number; manufactured_at?: Dayjs; note?: string }) =>
       createPartUnit({
         part_id: selectedPart!.id,
         quantity_pieces: v.quantity_pieces,
         stage_id: v.stage_id,
         manufactured_at: v.manufactured_at ? v.manufactured_at.format("YYYY-MM-DD") : undefined,
-        issue: v.issue,
         note: v.note,
       }),
     onSuccess: () => {
@@ -321,9 +319,6 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
           extra="Партии расходуются от самой старой при отчёте о готовых деталях. Не указано — сегодня."
         >
           <DatePicker style={{ width: "100%" }} format="DD.MM.YYYY" placeholder="Сегодня" disabledDate={(d) => d.isAfter(Date.now(), "day")} />
-        </Form.Item>
-        <Form.Item name="issue" valuePropName="checked" initialValue={false}>
-          <Checkbox>Сразу выдать участку (участок — из выбранного этапа)</Checkbox>
         </Form.Item>
         <Form.Item name="note" label="Заметка (опционально)">
           <Input />
