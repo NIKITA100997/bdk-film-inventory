@@ -100,6 +100,8 @@ class PartOut(BaseModel):
     # список позиций номенклатуры для формы, поэтому здесь просто id, без
     # вложенного объекта (MaterialSkuOut определён ниже по файлу).
     default_material_sku_id: int | None = None
+    min_stock_pieces: float | None = None
+    min_batch_pieces: float | None = None
     # Раздел про правку детали "на лету" — сколько строк ещё нетронутых
     # (без резки/отчёта/распределения) активных заданий подтянули новые
     # размеры прямо в момент этого сохранения (не сохраняется в БД, только
@@ -118,6 +120,8 @@ class PartCreate(BaseModel):
     strip_width_mm: float | None = Field(default=None, gt=0)
     area: str | None = None
     default_material_sku_id: int | None = None
+    min_stock_pieces: float | None = Field(default=None, ge=0)
+    min_batch_pieces: float | None = Field(default=None, gt=0)
 
 
 class PartUpdate(BaseModel):
@@ -128,6 +132,8 @@ class PartUpdate(BaseModel):
     area: str | None = None
     is_active: bool | None = None
     default_material_sku_id: int | None = None
+    min_stock_pieces: float | None = Field(default=None, ge=0)
+    min_batch_pieces: float | None = Field(default=None, gt=0)
 
 
 class MaterialSkuOut(BaseModel):

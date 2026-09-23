@@ -129,6 +129,7 @@ export default function AreaTasks() {
               <Space wrap size={8}>
                 <span>{task.name}</span>
                 {task.source === "shield_batch" && <Tag color="purple">запуск щитовых</Tag>}
+                {task.source === "pf_demand" && <Tag color="blue">пополнение п/ф</Tag>}
                 {!task.is_active && <Tag>закрыто</Tag>}
                 {task.ship_date && (
                   <Typography.Text type="secondary" style={{ fontWeight: 400 }}>

@@ -73,6 +73,8 @@ export default function PartsAdmin() {
             ...payload,
             area: payload.area ?? null,
             default_material_sku_id: payload.default_material_sku_id ?? null,
+            min_stock_pieces: payload.min_stock_pieces ?? null,
+            min_batch_pieces: payload.min_batch_pieces ?? null,
           })
         : createPart(payload)),
     onSuccess: (saved) => {
@@ -166,6 +168,8 @@ export default function PartsAdmin() {
       strip_width_mm: part.strip_width_mm ?? undefined,
       area: part.area ?? undefined,
       default_material_sku_id: part.default_material_sku_id ?? undefined,
+      min_stock_pieces: part.min_stock_pieces ?? undefined,
+      min_batch_pieces: part.min_batch_pieces ?? undefined,
     });
     setCreateOpen(true);
   };
@@ -351,6 +355,14 @@ export default function PartsAdmin() {
               optionFilterProp="label"
             />
           </Form.Item>
+          <Space size={12} style={{ display: "flex" }}>
+            <Form.Item name="min_stock_pieces" label="Мин. остаток п/ф, шт" style={{ flex: 1 }}>
+              <InputNumber min={0} style={{ width: "100%" }} placeholder="не задан" />
+            </Form.Item>
+            <Form.Item name="min_batch_pieces" label="Мин. партия производства, шт" style={{ flex: 1 }}>
+              <InputNumber min={1} style={{ width: "100%" }} placeholder="не задана" />
+            </Form.Item>
+          </Space>
           <Button type="primary" htmlType="submit" block loading={saveMutation.isPending}>
             {editingPart ? "Сохранить изменения" : "Добавить деталь"}
           </Button>

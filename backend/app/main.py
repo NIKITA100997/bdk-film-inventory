@@ -34,6 +34,7 @@ from app.api.write_off_reasons import router as write_off_reasons_router
 from app.api.part_film_restrictions import router as part_film_restrictions_router
 from app.api.door_series import router as door_series_router
 from app.api.area_tasks import router as area_tasks_router
+from app.api.pf_demand import router as pf_demand_router
 from app.core.config import settings
 
 app = FastAPI(title="БДК — учёт плёнки")
@@ -108,6 +109,7 @@ app.include_router(width_analogs_router, prefix=API_PREFIX)
 app.include_router(write_off_reasons_router, prefix=API_PREFIX)
 app.include_router(door_series_router, prefix=API_PREFIX)
 app.include_router(area_tasks_router, prefix=API_PREFIX)
+app.include_router(pf_demand_router, prefix=API_PREFIX)
 
 
 @app.get("/health")

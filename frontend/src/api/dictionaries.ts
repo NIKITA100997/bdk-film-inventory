@@ -42,6 +42,10 @@ export interface Part {
   // (нужно для деталей вроде ПЭТ 2Д/3Д, где один и тот же текст в файле
   // означает разную по факту плёнку).
   default_material_sku_id: number | null;
+  // Раздел про потребность п/ф — ниже минимального остатка предлагается
+  // задание на производство, не меньше минимальной партии; null — не задано.
+  min_stock_pieces: number | null;
+  min_batch_pieces: number | null;
 }
 
 export interface PartStage {
@@ -63,6 +67,8 @@ export interface PartCreate {
   strip_width_mm?: number;
   area?: string | null;
   default_material_sku_id?: number | null;
+  min_stock_pieces?: number | null;
+  min_batch_pieces?: number | null;
 }
 
 export interface PartUpdate {
@@ -73,6 +79,8 @@ export interface PartUpdate {
   area?: string | null;
   is_active?: boolean;
   default_material_sku_id?: number | null;
+  min_stock_pieces?: number | null;
+  min_batch_pieces?: number | null;
 }
 
 export const listParts = async (): Promise<Part[]> => (await apiClient.get<Part[]>("/parts")).data;

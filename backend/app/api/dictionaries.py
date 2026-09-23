@@ -381,6 +381,8 @@ def create_part(payload: PartCreate, db: Session = Depends(get_db), user=Depends
         strip_width_mm=payload.strip_width_mm,
         area=payload.area,
         default_material_sku_id=payload.default_material_sku_id,
+        min_stock_pieces=payload.min_stock_pieces,
+        min_batch_pieces=payload.min_batch_pieces,
     )
     db.add(obj)
     try:
@@ -416,6 +418,9 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
         # тексту цвета из файла, как раньше") такое же осознанное действие,
         # как и очистка area.
         obj.default_material_sku_id = payload.default_material_sku_id
+    for field in ("min_stock_pieces", "min_batch_pieces"):
+        if field in payload.model_fields_set:
+            setattr(obj, field, getattr(payload, field))
     if payload.is_active is not None:
         obj.is_active = payload.is_active
     try:

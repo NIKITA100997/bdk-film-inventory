@@ -89,6 +89,11 @@ class Part(Base):
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     default_material_sku_id: Mapped[int | None] = mapped_column(ForeignKey("material_skus.id"), nullable=True)
+    # Раздел про потребность п/ф — ниже минимального остатка детали
+    # предлагается задание на производство, не меньше минимальной партии
+    # (см. services/pf_demand.py). NULL — не задано.
+    min_stock_pieces: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    min_batch_pieces: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
 
     default_material_sku: Mapped["MaterialSku | None"] = relationship(foreign_keys=[default_material_sku_id])
     stages: Mapped[list["PartStage"]] = relationship(

@@ -32,6 +32,7 @@ import PartsAdmin from "./pages/desktop/PartsAdmin";
 import ProductionLines from "./pages/desktop/ProductionLines";
 import DoorSeriesAdmin from "./pages/desktop/DoorSeriesAdmin";
 import AreaTasks from "./pages/desktop/production/AreaTasks";
+import PfDemand from "./pages/desktop/production/PfDemand";
 import PartUnits from "./pages/desktop/production/PartUnits";
 import PartInventory from "./pages/desktop/production/PartInventory";
 import PartCard from "./pages/desktop/production/PartCard";
@@ -169,6 +170,14 @@ export default function AppRoutes() {
           element={
             <RequirePermission permissions={["production_tasks.manage"]}>
               <ProductionLines />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/pf-demand"
+          element={
+            <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"]}>
+              <PfDemand />
             </RequirePermission>
           }
         />

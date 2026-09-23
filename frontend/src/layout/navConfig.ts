@@ -114,6 +114,12 @@ export const navTree: NavBlock[] = [
         permissions: ["part_units.manage", "part_units.view", "part_storage.manage"],
       },
       { key: "part-units", path: "/part-units", label: "Учёт п/ф", permissions: ["part_units.manage", "part_units.view"] },
+      {
+        key: "pf-demand",
+        path: "/pf-demand",
+        label: "Потребность п/ф",
+        permissions: ["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"],
+      },
     ],
   },
   {
