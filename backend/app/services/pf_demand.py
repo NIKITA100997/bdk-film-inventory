@@ -50,15 +50,24 @@ def compute_suggestion(
     return need, shortage, suggested
 
 
+def task_part_remaining(lines: list[tuple[float, float, bool]]) -> float:
+    """Сколько ещё нужно сделать детали по одному заданию цеха — по всем её
+    строкам в задании вместе (план, сделано, строка закрыта). Мастер
+    отчитывается за общий штрипс по одной строке, поэтому одни строки
+    перевыполнены, а соседние той же детали стоят на нуле — построчно это
+    выглядело бы как потребность. Закрытая строка (выдача или производство
+    закрыты) из плана выпадает, но сделанное по ней сверх её плана
+    засчитывается соседним."""
+    open_plan = sum(plan for plan, _, closed in lines if not closed)
+    credited = sum(good for _, good, _ in lines) - sum(min(good, plan) for plan, good, closed in lines if closed)
+    return max(0.0, open_plan - credited)
+
+
 def _task_demand_by_part_name(db: Session) -> dict[str, float]:
     lines = (
         db.query(ProductionTaskLine)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
-        .filter(
-            ProductionTask.is_active.is_(True),
-            ProductionTaskLine.production_closed.is_(False),
-            ProductionTaskLine.part_name.isnot(None),
-        )
+        .filter(ProductionTask.is_active.is_(True), ProductionTaskLine.part_name.isnot(None))
         .all()
     )
     if not lines:
@@ -72,9 +81,14 @@ def _task_demand_by_part_name(db: Session) -> dict[str, float]:
         .group_by(ProductionTaskLineReport.task_line_id)
         .all()
     )
-    demand: dict[str, float] = defaultdict(float)
+    by_task_part: dict[tuple[int, str], list[tuple[float, float, bool]]] = defaultdict(list)
     for line in lines:
-        demand[line.part_name] += max(0.0, float(line.quantity_pieces) - float(good.get(line.id, 0)))
+        by_task_part[(line.task_id, line.part_name)].append(
+            (float(line.quantity_pieces), float(good.get(line.id, 0)), line.is_closed or line.production_closed)
+        )
+    demand: dict[str, float] = defaultdict(float)
+    for (_, part_name), part_lines in by_task_part.items():
+        demand[part_name] += task_part_remaining(part_lines)
     return demand
 
 
