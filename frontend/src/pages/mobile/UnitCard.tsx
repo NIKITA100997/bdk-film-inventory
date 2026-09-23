@@ -138,7 +138,7 @@ export default function UnitCard() {
   }>();
   const returnWriteOff = Form.useWatch("write_off", returnForm);
   const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
-  const [adjustForm] = Form.useForm<{ actual_length_m: number; reason: string; note?: string; occurred_at?: Dayjs | null; is_strip?: boolean }>();
+  const [adjustForm] = Form.useForm<{ actual_length_m: number; width_mm?: number; reason: string; note?: string; occurred_at?: Dayjs | null; is_strip?: boolean }>();
   const [transferWarehouseId, setTransferWarehouseId] = useState<number>();
   // Раздел про сверку рулонов в карточке единицы — раньше карточка
   // показывала только "Выдан участку", без ответа на "по какому заданию,
@@ -359,7 +359,7 @@ export default function UnitCard() {
   });
 
   const adjustMutation = useMutation({
-    mutationFn: (values: { actual_length_m: number; reason: string; note?: string; occurred_at?: Dayjs | null; is_strip?: boolean }) =>
+    mutationFn: (values: { actual_length_m: number; width_mm?: number; reason: string; note?: string; occurred_at?: Dayjs | null; is_strip?: boolean }) =>
       adjustUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
     onSuccess: (u) => {
       setUnit(u);
@@ -501,7 +501,7 @@ export default function UnitCard() {
                         key={a}
                         size="large"
                         onClick={() => {
-                          adjustForm.setFieldsValue({ actual_length_m: unit.length_m, is_strip: unit.is_strip });
+                          adjustForm.setFieldsValue({ actual_length_m: unit.length_m, width_mm: unit.width_mm, is_strip: unit.is_strip });
                           setAdjustOpen(true);
                         }}
                       >
@@ -779,6 +779,9 @@ export default function UnitCard() {
         <Form form={adjustForm} layout="vertical" onFinish={(v) => adjustMutation.mutate(v)}>
           <Form.Item name="actual_length_m" label="Фактическая длина, м" rules={[{ required: true }]}>
             <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
+            <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
           {/* Раздел про рулон/штрипс — ручной override автоматической
               классификации (ширина/история резов и списаний почти всегда

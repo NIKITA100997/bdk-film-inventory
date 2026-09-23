@@ -412,6 +412,10 @@ export interface UnitAdjustRequest {
   // Раздел про рулон/штрипс — ручной override автоматической
   // классификации; не указано — не трогать текущее значение.
   is_strip?: boolean;
+  // Раздел про ручную правку ширины штрипса — раньше единственный
+  // способ поправить это был ручной UPDATE на проде. Не указано — не
+  // трогать текущее значение.
+  width_mm?: number;
 }
 
 export async function adjustUnit(unitId: number, payload: UnitAdjustRequest): Promise<MaterialUnit> {

@@ -425,6 +425,11 @@ class UnitAdjustRequest(BaseModel):
     note: str | None = None
     occurred_at: OccurredAt = None
     is_strip: bool | None = None
+    # Раздел про ручную правку ширины штрипса — раньше единственный
+    # способ поправить width_mm был ручной UPDATE на проде (см. историю
+    # штрипсов №2115/№2324); теперь то же поднадзорное действие, что и
+    # длина/тип. None — не трогать текущее значение.
+    width_mm: float | None = Field(default=None, gt=0)
 
 
 class ReturnPreviewOut(BaseModel):

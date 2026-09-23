@@ -1647,8 +1647,8 @@ def adjust_unit(
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("units.correct")),
 ) -> MaterialUnit:
-    """Формальная корректировка length_m — раздел про ревизию путей
-    плёнки/п/ф: вместо правки истории напрямую в БД (так в этой же
+    """Формальная корректировка length_m/width_mm — раздел про ревизию
+    путей плёнки/п/ф: вместо правки истории напрямую в БД (так в этой же
     сессии чинили штрипсы №2115/№2324/партии строки «Багет Б-2/М» —
     scp-скрипт, ручной UPDATE на проде) — поднадзорное действие,
     которое ВСЕГДА добавляет событие (EventType.KORREKTIROVKA), никогда
@@ -1658,7 +1658,11 @@ def adjust_unit(
 
     is_strip — раздел про рулон/штрипс: автоматическая классификация
     верна почти всегда, но ручной override той же корректировкой,
-    что и длина — отдельного действия/права заводить не стали."""
+    что и длина — отдельного действия/права заводить не стали.
+
+    width_mm — раньше это была ЕДИНСТВЕННАЯ величина, которую всё ещё
+    правили ручным UPDATE в обход системы (штрипсы №2115/№2324); теперь
+    то же поднадзорное действие, что и длина/тип."""
     unit = _get_storable_unit(db, unit_id)
     old_length = float(unit.length_m)
     unit.length_m = payload.actual_length_m
@@ -1668,6 +1672,10 @@ def adjust_unit(
         now = "штрипс" if payload.is_strip else "рулон"
         note = f"{note} (тип: {was} → {now})"
         unit.is_strip = payload.is_strip
+    if payload.width_mm is not None and payload.width_mm != float(unit.width_mm):
+        old_width = float(unit.width_mm)
+        note = f"{note} (ширина: {old_width} → {payload.width_mm} мм)"
+        unit.width_mm = payload.width_mm
     record_event(
         db,
         unit=unit,

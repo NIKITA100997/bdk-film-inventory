@@ -1041,6 +1041,7 @@ function UnitAdjustModal({ unit, onClose }: { unit: MaterialUnit; onClose: () =>
   const qc = useQueryClient();
   const [form] = Form.useForm<{
     actual_length_m: number;
+    width_mm: number;
     is_strip: boolean;
     reason: string;
     note?: string;
@@ -1048,7 +1049,7 @@ function UnitAdjustModal({ unit, onClose }: { unit: MaterialUnit; onClose: () =>
   }>();
 
   const adjustMutation = useMutation({
-    mutationFn: (v: { actual_length_m: number; is_strip: boolean; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
+    mutationFn: (v: { actual_length_m: number; width_mm: number; is_strip: boolean; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
       adjustUnit(unit.id, { ...v, occurred_at: toOccurredAtIso(v.occurred_at) } as UnitAdjustRequest),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["material-card-group"] });
@@ -1067,11 +1068,14 @@ function UnitAdjustModal({ unit, onClose }: { unit: MaterialUnit; onClose: () =>
       <Form
         form={form}
         layout="vertical"
-        initialValues={{ actual_length_m: unit.length_m, is_strip: unit.is_strip }}
+        initialValues={{ actual_length_m: unit.length_m, width_mm: unit.width_mm, is_strip: unit.is_strip }}
         onFinish={(v) => adjustMutation.mutate(v)}
       >
         <Form.Item name="actual_length_m" label="Фактическая длина, м" rules={[{ required: true }]}>
           <InputNumber min={0} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
+          <InputNumber min={1} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item name="is_strip" label="Тип">
           <Radio.Group
