@@ -24,6 +24,17 @@ from app.services.part_units import reported_good_pieces_by_unit
 
 
 @dataclass(frozen=True)
+class PfDemandSource:
+    """Задание цеха, из которого набралась потребность детали."""
+
+    task_id: int
+    task_name: str
+    open_plan: float
+    done: float
+    remaining: float
+
+
+@dataclass(frozen=True)
 class PfDemandRow:
     part_id: int
     part_name: str
@@ -38,6 +49,7 @@ class PfDemandRow:
     first_stage_id: int
     first_stage_name: str
     first_stage_area: str | None
+    sources: list[PfDemandSource]
 
 
 def compute_suggestion(
@@ -63,7 +75,7 @@ def task_part_remaining(lines: list[tuple[float, float, bool]]) -> float:
     return max(0.0, open_plan - credited)
 
 
-def _task_demand_by_part_name(db: Session) -> dict[str, float]:
+def _task_demand_by_part_name(db: Session) -> dict[str, list[PfDemandSource]]:
     lines = (
         db.query(ProductionTaskLine)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
@@ -86,9 +98,22 @@ def _task_demand_by_part_name(db: Session) -> dict[str, float]:
         by_task_part[(line.task_id, line.part_name)].append(
             (float(line.quantity_pieces), float(good.get(line.id, 0)), line.is_closed or line.production_closed)
         )
-    demand: dict[str, float] = defaultdict(float)
-    for (_, part_name), part_lines in by_task_part.items():
-        demand[part_name] += task_part_remaining(part_lines)
+    tasks = {line.task_id: line.task for line in lines}
+    demand: dict[str, list[PfDemandSource]] = defaultdict(list)
+    for (task_id, part_name), part_lines in by_task_part.items():
+        remaining = task_part_remaining(part_lines)
+        if remaining <= 0:
+            continue
+        task = tasks[task_id]
+        demand[part_name].append(
+            PfDemandSource(
+                task_id=task_id,
+                task_name=(task.product_model.name if task.product_model else None) or task.name or f"Задание №{task_id}",
+                open_plan=sum(plan for plan, _, closed in part_lines if not closed),
+                done=sum(good for _, good, _ in part_lines),
+                remaining=remaining,
+            )
+        )
     return demand
 
 
@@ -140,7 +165,8 @@ def compute_pf_demand(db: Session) -> list[PfDemandRow]:
     rows = []
     for p in parts:
         fs = first_stage[p.id]
-        d = demand.get(p.name, 0.0)
+        sources = sorted(demand.get(p.name, []), key=lambda s: s.task_id)
+        d = sum(s.remaining for s in sources)
         w = in_work.get(fs.id, 0.0)
         min_stock = float(p.min_stock_pieces) if p.min_stock_pieces is not None else None
         min_batch = float(p.min_batch_pieces) if p.min_batch_pieces is not None else None
@@ -154,7 +180,7 @@ def compute_pf_demand(db: Session) -> list[PfDemandRow]:
             PfDemandRow(
                 part_id=p.id, part_name=p.name, min_stock=min_stock, min_batch=min_batch, task_demand=d,
                 stock=s, in_work=w, need=need, shortage=shortage, suggested=suggested,
-                first_stage_id=fs.id, first_stage_name=fs.name, first_stage_area=fs.area,
+                first_stage_id=fs.id, first_stage_name=fs.name, first_stage_area=fs.area, sources=sources,
             )
         )
     return sorted(rows, key=lambda r: (-r.shortage, r.part_name))

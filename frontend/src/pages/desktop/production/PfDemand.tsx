@@ -103,6 +103,42 @@ export default function PfDemand() {
         pagination={{ pageSize: 50 }}
         scroll={{ x: "max-content" }}
         locale={{ emptyText: onlyShortage ? "Нехватки нет" : "Нет деталей с минимальным остатком или потребностью" }}
+        expandable={{
+          rowExpandable: (r) => r.sources.length > 0,
+          expandedRowRender: (r) => (
+            <div style={{ padding: "4px 0" }}>
+              <Typography.Text type="secondary">
+                Откуда «по заданиям цеха»: остаток по заданию целиком (сделанное сверх плана одной строки закрывает
+                соседние). Если задание уже сделано — закройте его в «Заданиях цеха», и оно уйдёт отсюда.
+              </Typography.Text>
+              <table style={{ marginTop: 8, borderCollapse: "collapse", width: "auto" }}>
+                <thead>
+                  <tr>
+                    {["Задание цеха", "План", "Сделано", "Остаток"].map((h) => (
+                      <th key={h} style={{ textAlign: "left", padding: "2px 16px 2px 0", fontWeight: 500 }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.sources.map((s) => (
+                    <tr key={s.task_id}>
+                      <td style={{ padding: "2px 16px 2px 0" }}>
+                        №{s.task_id} · {s.task_name}
+                      </td>
+                      <td style={{ padding: "2px 16px 2px 0" }}>{fmt(s.open_plan)}</td>
+                      <td style={{ padding: "2px 16px 2px 0" }}>{fmt(s.done)}</td>
+                      <td style={{ padding: "2px 16px 2px 0" }}>
+                        <b>{fmt(s.remaining)}</b>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ),
+        }}
         rowSelection={
           canManage
             ? {

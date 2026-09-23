@@ -1,5 +1,13 @@
 import { apiClient } from "./client";
 
+export interface PfDemandSource {
+  task_id: number;
+  task_name: string;
+  open_plan: number;
+  done: number;
+  remaining: number;
+}
+
 export interface PfDemandRow {
   part_id: number;
   part_name: string;
@@ -14,6 +22,7 @@ export interface PfDemandRow {
   first_stage_id: number;
   first_stage_name: string;
   first_stage_area: string | null;
+  sources: PfDemandSource[];
 }
 
 export const listPfDemand = async (): Promise<PfDemandRow[]> => (await apiClient.get<PfDemandRow[]>("/pf-demand")).data;

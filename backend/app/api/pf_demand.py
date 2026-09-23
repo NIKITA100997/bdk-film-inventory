@@ -18,6 +18,14 @@ manage = require_permission("production_tasks.manage")
 view = require_permission("production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view")
 
 
+class PfDemandSourceOut(BaseModel):
+    task_id: int
+    task_name: str
+    open_plan: float
+    done: float
+    remaining: float
+
+
 class PfDemandOut(BaseModel):
     part_id: int
     part_name: str
@@ -32,6 +40,7 @@ class PfDemandOut(BaseModel):
     first_stage_id: int
     first_stage_name: str
     first_stage_area: str | None
+    sources: list[PfDemandSourceOut]
 
 
 class PfDemandTaskItem(BaseModel):
@@ -50,7 +59,10 @@ class PfDemandTasksOut(BaseModel):
 
 @router.get("", response_model=list[PfDemandOut])
 def list_pf_demand(db: Session = Depends(get_db), user: User = Depends(view)) -> list[PfDemandOut]:
-    return [PfDemandOut(**row.__dict__) for row in compute_pf_demand(db)]
+    return [
+        PfDemandOut(**{**row.__dict__, "sources": [PfDemandSourceOut(**s.__dict__) for s in row.sources]})
+        for row in compute_pf_demand(db)
+    ]
 
 
 @router.post("/tasks", response_model=PfDemandTasksOut, status_code=status.HTTP_201_CREATED)
