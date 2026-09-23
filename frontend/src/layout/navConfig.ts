@@ -131,6 +131,7 @@ export const navTree: NavBlock[] = [
       // (раздел про адаптацию под планшет — линии трогаются не каждый
       // день, но это всё ещё производство, не администрирование).
       { key: "production-lines", path: "/production-lines", label: "Линии цеха", permissions: ["production_tasks.manage"] },
+      { key: "door-series", path: "/door-series", label: "Серии щитовых дверей", permissions: ["production_tasks.manage"] },
     ],
   },
   {
