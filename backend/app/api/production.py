@@ -1011,48 +1011,6 @@ def _build_task_line_report(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
         fifo_results = [(part_unit, is_final, payload.good_pieces)]
 
-    # Раздел про ревизию путей п/ф — брак списывается по FIFO так же, как
-    # приходуются готовые детали выше (было: партию для брака выбирал
-    # вручную мастер — деталь физически на участке одна, выбор был лишним
-    # шагом; не выбрал — брак вообще не списывался с п/ф).
-    defect_fifo_results: list[tuple[PartUnit, float]] = []
-    if payload.defect_pieces > 0 and has_part_unit_stock:
-        # Раздел про переработку брака — "pererabotka" резервирует брак
-        # (статус В_переработку) вместо необратимого списания; забрать
-        # резерв в готовую деталь можно позже отдельным действием
-        # "Переработать в деталь". Обе ветки — тот же FIFO по
-        # manufactured_at, отличается только конечный статус партии.
-        consume_fn = (
-            reserve_defect_for_recycle_fifo if payload.defect_disposition == "pererabotka" else consume_defect_fifo
-        )
-        try:
-            defect_fifo_results = consume_fn(
-                db,
-                part_id=part.id,
-                area=line.task.area,
-                quantity_pieces=payload.defect_pieces,
-                user_id=user.id,
-                reason=payload.defect_reason,
-                note=payload.note,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
-    elif part_unit is not None and payload.defect_pieces > 0:
-        # Совместимость: явный part_unit_id у детали без настроенных
-        # этапов (или прямой вызов API в обход текущего фронта).
-        try:
-            write_off_part_unit(
-                db,
-                unit=part_unit,
-                quantity_pieces=payload.defect_pieces,
-                reason=payload.defect_reason,
-                user_id=user.id,
-                note=payload.note,
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
-        defect_fifo_results = [(part_unit, payload.defect_pieces)]
-
     # Раздел про списание готовых п/ф по плану строки задания — партия,
     # дошедшая до последнего этапа (is_final), раньше молча оставалась
     # висеть Выдан_участку навсегда (advance_part_unit не меняет статус
@@ -1062,6 +1020,15 @@ def _build_task_line_report(
     # переводится в обычный доступный остаток (На_хранении, не
     # размещено, но участок НЕ сбрасывается — см. settle_excess_part_
     # unit_at_area: участок и есть склад для готовых п/ф).
+    #
+    # Раздел про порядок обработки внутри ОДНОГО payload'а — этот блок
+    # обязан идти СРАЗУ после расхода "хороших", до обработки брака ниже:
+    # тронутые тут партии (списанные/переведённые в На_хранении) должны
+    # выпасть из кандидатов на брак ДО того, как consume_defect_fifo/
+    # reserve_defect_for_recycle_fifo сделают свой собственный запрос (там
+    # фильтр по статусу VYDAN_UCHASTKU) — иначе брак может выбрать ТУ ЖЕ
+    # партию, которую уже полностью списал этот блок, и получить "Партия
+    # уже списана" на объекте, который здесь уже мутировали.
     #
     # processed_fifo_results заменяет fifo_results для построения строк
     # отчёта ниже — партия, которую эта проводка разделила на списанную и
@@ -1110,6 +1077,56 @@ def _build_task_line_report(
             if excess_amount > 0:
                 settle_excess_part_unit_at_area(db, unit=pu, user_id=user.id)
                 processed_fifo_results.append((pu, True, excess_amount))
+        # Раздел про autoflush=False (app/db/session.py) — без явного
+        # flush следующий ниже запрос consume_defect_fifo/reserve_defect_
+        # for_recycle_fifo увидел бы в БД ЕЩЁ старый статус Выдан_участку
+        # у только что списанной/переведённой в На_хранении партии (сам
+        # SQL-запрос идёт мимо identity map) и повторно выбрал бы её же
+        # кандидатом — ValueError "Партия уже списана" на объекте, который
+        # уже мутирован в памяти этим циклом.
+        db.flush()
+
+    # Раздел про ревизию путей п/ф — брак списывается по FIFO так же, как
+    # приходуются готовые детали выше (было: партию для брака выбирал
+    # вручную мастер — деталь физически на участке одна, выбор был лишним
+    # шагом; не выбрал — брак вообще не списывался с п/ф).
+    defect_fifo_results: list[tuple[PartUnit, float]] = []
+    if payload.defect_pieces > 0 and has_part_unit_stock:
+        # Раздел про переработку брака — "pererabotka" резервирует брак
+        # (статус В_переработку) вместо необратимого списания; забрать
+        # резерв в готовую деталь можно позже отдельным действием
+        # "Переработать в деталь". Обе ветки — тот же FIFO по
+        # manufactured_at, отличается только конечный статус партии.
+        consume_fn = (
+            reserve_defect_for_recycle_fifo if payload.defect_disposition == "pererabotka" else consume_defect_fifo
+        )
+        try:
+            defect_fifo_results = consume_fn(
+                db,
+                part_id=part.id,
+                area=line.task.area,
+                quantity_pieces=payload.defect_pieces,
+                user_id=user.id,
+                reason=payload.defect_reason,
+                note=payload.note,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+    elif part_unit is not None and payload.defect_pieces > 0:
+        # Совместимость: явный part_unit_id у детали без настроенных
+        # этапов (или прямой вызов API в обход текущего фронта).
+        try:
+            write_off_part_unit(
+                db,
+                unit=part_unit,
+                quantity_pieces=payload.defect_pieces,
+                reason=payload.defect_reason,
+                user_id=user.id,
+                note=payload.note,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+        defect_fifo_results = [(part_unit, payload.defect_pieces)]
 
     # Раздел про окутку в 2 захода — good_pieces с part_unit считается
     # "готовым" для остатка СТРОКИ ЗАДАНИЯ (counts_toward_line) только
