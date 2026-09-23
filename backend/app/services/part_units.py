@@ -106,7 +106,15 @@ def mint_part_unit(
     Раздел про связь этапов с участками — участок выдачи выводится из
     `start_stage.area`, не выбирается вручную (см. PartStage.area):
     начальник цеха выбирает ТОЛЬКО факт "сразу выдать участку", куда
-    именно — определяет сам этап."""
+    именно — определяет сам этап.
+
+    `area` партии = участок ЭТАПА всегда, а не только когда issue=True —
+    для п/ф участок и есть физическое место хранения (см. докстринг
+    place_part_unit): если сейчас заводят партию "на хранении" на этапе
+    "Фрезеровка" — она физически уже отфрезерована и лежит на этом самом
+    участке, а не на абстрактном "складе без адреса". `issue` влияет
+    только на статус (можно ли сразу расходовать по FIFO отчёта), не на
+    то, где партия физически лежит."""
     if not part.stages:
         raise ValueError(f"У детали «{part.name}» не настроены этапы — добавьте их в справочнике «Деталь»")
     if stage_id is not None:
@@ -123,7 +131,7 @@ def mint_part_unit(
         stage_id=start_stage.id,
         manufactured_at=manufactured_at if manufactured_at is not None else date.today(),
         status=PartUnitStatus.VYDAN_UCHASTKU if issue else PartUnitStatus.NA_KHRANENII,
-        area=start_stage.area if issue else None,
+        area=start_stage.area,
         production_task_line_id=production_task_line_id,
         note=note,
         film_restriction=film_restriction,
