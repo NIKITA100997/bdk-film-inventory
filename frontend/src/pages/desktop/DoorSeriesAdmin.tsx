@@ -18,9 +18,8 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 
 const EDGE_LABEL: Record<string, string> = { abs: "ABS", aluminum: "Алюминий" };
 
-/** Серии щитовых дверей — по ним строка графика запуска получает свой
- * маршрут по этапам (Кромка ABS или алюминиевый профиль на Сборке,
- * Фрезеровка под замок) и размеры п/ф (толщина каркаса и щита). */
+/** Серии щитовых дверей — по ним строка графика запуска получает размеры
+ * п/ф (толщина каркаса и щита) и кромку по умолчанию. */
 export default function DoorSeriesAdmin() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<DoorSeries | "new" | null>(null);
@@ -54,10 +53,6 @@ export default function DoorSeriesAdmin() {
         frame_thickness_mm: target.frame_thickness_mm,
         panel_mdf_thickness_mm: target.panel_mdf_thickness_mm,
         edge_type: target.edge_type,
-        has_glass: target.has_glass,
-        has_moulding: target.has_moulding,
-        needs_lock_milling: target.needs_lock_milling,
-        milling_program: target.milling_program,
       });
     }
   };
@@ -79,8 +74,9 @@ export default function DoorSeriesAdmin() {
       }
     >
       <Typography.Paragraph type="secondary">
-        Название — ровно как в колонке «Серия» графика запуска. Толщины — после шлифовки, по техкарте (каркас: А — 26,
-        А10 — 22, В и Е — 24, Н — 26 мм; щит — 6 мм, у Н (ВО) — 8 мм).
+        Базовые серии, как в «Данных для формул». Варианты из графика (В-10.2, Е-14.2) относятся к базовой серии
+        автоматически. Толщины — после шлифовки, по техкарте. Кромка здесь — по умолчанию: стекло, молдинг,
+        защёлку и изредка другую кромку берём из наименования каждой строки графика.
       </Typography.Paragraph>
       <ResponsiveTable<DoorSeries>
         tableKey="door-series"
@@ -95,18 +91,7 @@ export default function DoorSeriesAdmin() {
           { title: "Серия", dataIndex: "name" },
           { title: "Каркас, мм", dataIndex: "frame_thickness_mm" },
           { title: "Щит, мм", dataIndex: "panel_mdf_thickness_mm" },
-          { title: "Кромка", dataIndex: "edge_type", render: (v: string) => EDGE_LABEL[v] ?? v },
-          {
-            title: "Состав",
-            render: (_, s) => (
-              <Space size={4} wrap>
-                {s.has_glass && <Tag>стекло</Tag>}
-                {s.has_moulding && <Tag>молдинг</Tag>}
-                {s.needs_lock_milling && <Tag>фрез. под замок</Tag>}
-              </Space>
-            ),
-          },
-          { title: "Программа фрезеровки", dataIndex: "milling_program", render: (v: string | null) => v ?? "—" },
+          { title: "Кромка по умолчанию", dataIndex: "edge_type", render: (v: string) => EDGE_LABEL[v] ?? v },
           {
             title: "Статус",
             dataIndex: "is_active",
@@ -138,11 +123,10 @@ export default function DoorSeriesAdmin() {
         <Form
           layout="vertical"
           form={form}
-          initialValues={{ has_glass: false, has_moulding: false, needs_lock_milling: false }}
-          onFinish={(v) => saveMutation.mutate({ ...v, milling_program: v.milling_program?.trim() || null })}
+          onFinish={(v) => saveMutation.mutate(v)}
         >
-          <Form.Item name="name" label="Серия (как в графике)" rules={[{ required: true, whitespace: true }]}>
-            <Input placeholder="А10" />
+          <Form.Item name="name" label="Серия" rules={[{ required: true, whitespace: true }]}>
+            <Input placeholder="В-10" />
           </Form.Item>
           <Space size={12} style={{ display: "flex" }}>
             <Form.Item name="frame_thickness_mm" label="Каркас, мм" rules={[{ required: true }]}>
@@ -154,7 +138,7 @@ export default function DoorSeriesAdmin() {
           </Space>
           <Form.Item
             name="edge_type"
-            label="Кромка"
+            label="Кромка по умолчанию"
             rules={[{ required: true, message: "Выберите тип кромки" }]}
             extra="ABS — Сборка, затем отдельная Кромка. Алюминий — профиль ставится на Сборке, этапа Кромки нет."
           >
@@ -165,18 +149,6 @@ export default function DoorSeriesAdmin() {
                 { label: "Алюминий", value: "aluminum" },
               ]}
             />
-          </Form.Item>
-          <Form.Item name="has_glass" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>Со стеклом</Checkbox>
-          </Form.Item>
-          <Form.Item name="has_moulding" valuePropName="checked" style={{ marginBottom: 4 }}>
-            <Checkbox>С молдингом</Checkbox>
-          </Form.Item>
-          <Form.Item name="needs_lock_milling" valuePropName="checked">
-            <Checkbox>Фрезеровка под замок</Checkbox>
-          </Form.Item>
-          <Form.Item name="milling_program" label="Программа фрезеровки периметра (опционально)">
-            <Input placeholder="Б/Ф 8мм" />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={saveMutation.isPending}>
             Сохранить

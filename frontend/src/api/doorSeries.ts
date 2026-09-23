@@ -8,10 +8,6 @@ export interface DoorSeries {
   frame_thickness_mm: number;
   panel_mdf_thickness_mm: number;
   edge_type: EdgeType;
-  has_glass: boolean;
-  has_moulding: boolean;
-  needs_lock_milling: boolean;
-  milling_program: string | null;
   is_active: boolean;
 }
 

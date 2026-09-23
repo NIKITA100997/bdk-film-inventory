@@ -46,18 +46,11 @@ def update_door_series(
     series = db.get(DoorSeries, series_id)
     if series is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Серия не найдена")
-    # model_fields_set, а не "is not None" — иначе программу фрезеровки
-    # нельзя было бы очистить (None неотличим от "поле не передали").
-    changes = {k: getattr(payload, k) for k in payload.model_fields_set}
+    changes = payload.model_dump(exclude_none=True)
     if "name" in changes:
-        if changes["name"] is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Название не может быть пустым")
         changes["name"] = changes["name"].strip()
         if _name_taken(db, changes["name"], exclude_id=series_id):
             raise HTTPException(status.HTTP_409_CONFLICT, "Серия с таким названием уже есть")
-    for field in ("frame_thickness_mm", "panel_mdf_thickness_mm", "edge_type", "has_glass", "has_moulding", "needs_lock_milling", "is_active"):
-        if field in changes and changes[field] is None:
-            del changes[field]
     for field, value in changes.items():
         setattr(series, field, value)
     db.commit()

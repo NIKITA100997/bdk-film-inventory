@@ -5,15 +5,19 @@ from app.db.base import Base
 
 
 class DoorSeries(Base):
-    """Серия щитовой двери (раздел про производство щитовых дверей) — то, что
-    в графике запуска стоит в колонке «Серия». Из неё выводится маршрут
-    двери по этапам (есть ли Кромка ABS, Фрезеровка под замок) и размеры
-    п/ф: толщина каркаса и толщина МДФ панели берутся отсюда, а не из
-    формулы в коде — по техкарте они различаются даже внутри одной буквы
-    (А10 тоньше остальной А, Н бывает с щитом 6 и 8 мм).
+    """Серия щитовой двери (раздел про производство щитовых дверей) —
+    базовая серия из «Данных для формул» (В-10, Е-14, Н-1 ВО…). Варианты из
+    графика запуска (В-10.2, Е-14.2) сопоставляются с базовой серией
+    нормализацией названия (см. services/shield_schedule.py).
 
-    Названия заводятся ровно так, как пишутся в графике запуска — по ним
-    строка графика сопоставляется с серией при вставке."""
+    Толщина каркаса и МДФ щита — атрибуты серии, не формула в коде: по
+    техкарте они различаются и внутри одной буквы (А-10 тоньше остальной
+    А, у Н-1 ВО щит 8 мм вместо 6).
+
+    edge_type — кромка ПО УМОЛЧАНИЮ для серии. Стекло, молдинг и защёлка
+    (фрезеровка под замок) — свойства конкретной строки заказа, берутся из
+    её наименования: в реальных графиках они различаются внутри одной
+    серии, как и кромка изредка (В-16.2 с алюминиевым профилем)."""
 
     __tablename__ = "door_series"
     __table_args__ = (CheckConstraint("edge_type IN ('abs', 'aluminum')", name="ck_door_series_edge_type"),)
@@ -22,13 +26,7 @@ class DoorSeries(Base):
     name: Mapped[str] = mapped_column(String(64), unique=True)
     frame_thickness_mm: Mapped[float] = mapped_column(Numeric(6, 2))
     panel_mdf_thickness_mm: Mapped[float] = mapped_column(Numeric(6, 2))
-    # "abs" — Сборка перед отдельной Кромкой; "aluminum" — профиль ставится
-    # на Сборке, отдельного этапа Кромки нет.
+    # "abs" — кромкооблицовка (ABS/ПЭТ) отдельным этапом после Сборки;
+    # "aluminum" — профиль ставится на Сборке, этапа Кромки нет.
     edge_type: Mapped[str] = mapped_column(String(16))
-    has_glass: Mapped[bool] = mapped_column(Boolean, default=False)
-    has_moulding: Mapped[bool] = mapped_column(Boolean, default=False)
-    needs_lock_milling: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Программа станка для фрезеровки периметра — ключ группировки дверей
-    # под одну наладку на дашборде.
-    milling_program: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
