@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, Space, Typography, Input, Select, Checkbox, Table, Tag, Button, Modal, Form, InputNumber, DatePicker, message } from "antd";
+import { Card, Space, Typography, Input, Select, Segmented, Checkbox, Table, Tag, Button, Modal, Form, InputNumber, DatePicker, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Dayjs } from "dayjs";
 import ResponsiveTable from "../../../components/ResponsiveTable";
@@ -44,6 +44,14 @@ export default function PartStock() {
   // меня", а не пустым "выберите участок" каждый раз заново.
   const [areaFilter, setAreaFilter] = useState<string | undefined>(user?.area ?? undefined);
   const [showEmpty, setShowEmpty] = useState(false);
+  // Раздел про "отдельно посмотреть, что просто на хранении" — раньше
+  // сводка складывала На_хранении и Выдан_участку в одно число: с тех пор
+  // как area у "на хранении" тоже привязывается к участку этапа (см.
+  // mint_part_unit), это стало неотличимо в разбивке "по участкам" —
+  // число на тэге участка больше не говорит, сколько из него реально
+  // выдано, а сколько просто лежит. Явный фильтр по статусу — тот же
+  // переключатель, что уже есть в карточке детали (PartCard.tsx).
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
 
   const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
@@ -55,6 +63,7 @@ export default function PartStock() {
     const byPart = new Map<number, PartUnit[]>();
     for (const u of units) {
       if (u.status === "Списан") continue;
+      if (statusFilter && u.status !== statusFilter) continue;
       const arr = byPart.get(u.part_id) ?? [];
       arr.push(u);
       byPart.set(u.part_id, arr);
@@ -82,7 +91,7 @@ export default function PartStock() {
       });
     }
     return result.sort((a, b) => a.partName.localeCompare(b.partName, "ru"));
-  }, [unitsQuery.data, showEmpty]);
+  }, [unitsQuery.data, showEmpty, statusFilter]);
 
   const filtered = groups.filter((g) => {
     if (search.trim() && !g.partName.toLowerCase().includes(search.trim().toLowerCase())) return false;
@@ -145,6 +154,16 @@ export default function PartStock() {
           options={areaOptions}
           value={areaFilter}
           onChange={setAreaFilter}
+        />
+        <Segmented
+          value={statusFilter ?? "all"}
+          onChange={(v) => setStatusFilter(v === "all" ? undefined : (v as string))}
+          options={[
+            { label: "Всё (кроме списанного)", value: "all" },
+            { label: "На хранении", value: "На_хранении" },
+            { label: "Выдан участку", value: "Выдан_участку" },
+            { label: "В переработку", value: "В_переработку" },
+          ]}
         />
         <Checkbox checked={showEmpty} onChange={(e) => setShowEmpty(e.target.checked)}>
           Показывать без остатка
