@@ -9,6 +9,7 @@ import { ORDER_STATUS_LABEL, listProductionOrders, type ProductionOrder } from "
 import TechCardView from "./nomenclature/TechCardView";
 import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
 import PartCard from "./production/PartCard";
+import { MovementsPanel } from "./UnifiedStock";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green" };
 
@@ -48,6 +49,9 @@ export default function ItemCard() {
   const tabs = [
     ...(stockTab ? [stockTab] : []),
     { key: "techcard", label: "Техкарта", children: <TechCardView itemId={itemId} /> },
+    ...(card.source_type === "sku" || card.source_type === "part"
+      ? [{ key: "movements", label: "Движение", children: <MovementsPanel itemId={itemId} /> }]
+      : []),
     ...(card.kind_code !== "plenka" && canSeeOrders
       ? [{ key: "orders", label: `Заказы${orders.length ? ` (${orders.length})` : ""}`, children: <OrdersOfItem itemId={itemId} orders={orders} loading={ordersQuery.isLoading} /> }]
       : []),

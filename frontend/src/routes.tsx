@@ -11,7 +11,7 @@ import PartUnitCard from "./pages/mobile/PartUnitCard";
 import InitialStock from "./pages/mobile/InitialStock";
 
 import MaterialInventory from "./pages/desktop/MaterialInventory";
-import GeneralStock from "./pages/desktop/GeneralStock";
+import UnifiedStock from "./pages/desktop/UnifiedStock";
 import Reports from "./pages/desktop/Reports";
 import Defects from "./pages/desktop/Defects";
 import ActionLog from "./pages/desktop/ActionLog";
@@ -82,7 +82,7 @@ export default function AppRoutes() {
         {/* Раздел 6 плана «Детали/П/ф остатки» — сквозной ERP-справочник
         по всем доменам сразу, виден так же широко, как сам /stock (сам
         экран внутри уже сужает п/ф-часть по part_units.view/manage). */}
-        <Route path="/general-stock" element={<GeneralStock />} />
+        <Route path="/general-stock" element={<UnifiedStock />} />
 
         <Route
           path="/reports"

@@ -74,7 +74,7 @@ export const navTree: NavBlock[] = [
     key: "warehouse",
     label: "Склад",
     items: [
-      { key: "general-stock", path: "/general-stock", label: "Общие остатки" },
+      { key: "general-stock", path: "/general-stock", label: "Остатки и движения (все)" },
       { key: "receive", path: "/m/receive", label: "Приёмка плёнки", permissions: ["units.receive"] },
       { key: "initial-stock", path: "/m/initial-stock", label: "Начальные остатки", permissions: ["units.receive"] },
       { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue", "units.return"] },
