@@ -431,3 +431,27 @@ class BlankDemandLineOut(BaseModel):
     needed_length_m: float
     on_hand_length_m: float
     deficit_length_m: float
+
+
+class OperationLineCreate(BaseModel):
+    """Строка задания без плёнки (этап 3 — задание на любой участок):
+    операция техкарты (этап детали на этом участке) — отчёт двигает партии
+    детали; либо просто название работы (упаковка и т.п.) — счёт штук."""
+
+    part_stage_id: int | None = None
+    name: str | None = None
+    quantity_pieces: float = Field(gt=0)
+
+
+class OperationTaskCreate(BaseModel):
+    name: str
+    area: str
+    lines: list[OperationLineCreate] = Field(min_length=1)
+
+
+class AreaOperationOut(BaseModel):
+    part_stage_id: int
+    part_id: int
+    part_name: str
+    stage_name: str
+    is_first: bool

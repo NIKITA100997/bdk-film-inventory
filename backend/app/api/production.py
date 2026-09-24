@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
@@ -6,7 +8,7 @@ from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT, PART_UNIT_AUTO_WRIT
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.areas import Area
-from app.models.dictionaries import Color, Material, MaterialSku, Part, Thickness
+from app.models.dictionaries import Color, Material, MaterialSku, Part, PartStage, Thickness
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.part_units import PartUnit, PartUnitStatus
 from app.models.production import (
@@ -20,6 +22,8 @@ from app.models.production import (
 )
 from app.models.users import User
 from app.schemas.production import (
+    AreaOperationOut,
+    OperationTaskCreate,
     BlankDemandLineOut,
     BlankPlanBlockOut,
     BlankPlanParsedLineOut,
@@ -46,6 +50,7 @@ from app.schemas.production import (
     ProductModelUpdate,
 )
 from app.schemas.deletion_requests import DeleteResultOut
+from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness, task_lines_with_progress
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
@@ -771,6 +776,72 @@ def create_production_task_manual(
     return _task_out(db, task)
 
 
+@router.get("/production-operations", response_model=list[AreaOperationOut])
+def list_area_operations(
+    area: str, db: Session = Depends(get_db), user: User = Depends(view_tasks)
+) -> list[AreaOperationOut]:
+    """Операции техкарт, выполняемые на участке, — этапы деталей п/ф, кроме
+    последнего этапа многоэтапной детали (там она уже готова и расходуется
+    следующим переделом)."""
+    out = []
+    for s in (
+        db.query(PartStage)
+        .join(Part, Part.id == PartStage.part_id)
+        .filter(PartStage.area == area, Part.is_active.is_(True))
+        .order_by(Part.name, PartStage.sequence_order)
+    ):
+        orders = sorted(x.sequence_order for x in s.part.stages)
+        if len(orders) > 1 and s.sequence_order == orders[-1]:
+            continue
+        out.append(
+            AreaOperationOut(
+                part_stage_id=s.id, part_id=s.part_id, part_name=s.part.name, stage_name=s.name,
+                is_first=s.sequence_order == orders[0],
+            )
+        )
+    return out
+
+
+@router.post("/production-tasks/operations", response_model=ProductionTaskOut, status_code=status.HTTP_201_CREATED)
+def create_operation_task(
+    payload: OperationTaskCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductionTaskOut:
+    """Задание без плёнки на любой участок (этап 3 единой модели) — то же
+    «Задание цеха», строки ссылаются на операцию техкарты или просто
+    называют работу. length_m = 0: расход плёнки на штуку."""
+    area = db.get(Area, payload.area)
+    if area is None or not area.is_active:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Участок не найден")
+    task = ProductionTask(name=payload.name, area=payload.area, created_by=user.id)
+    db.add(task)
+    db.flush()
+    for lp in payload.lines:
+        if lp.part_stage_id is not None:
+            try:
+                stage = validate_line_stage(db, task_area=payload.area, part_stage_id=lp.part_stage_id)
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+            db.add(
+                ProductionTaskLine(
+                    task_id=task.id, quantity_pieces=lp.quantity_pieces, part_stage_id=stage.id,
+                    part_id=stage.part_id, part_name=stage.part.name,
+                    width_mm=stage.part.width_mm or 0, length_m=0,
+                )
+            )
+        elif lp.name and lp.name.strip():
+            db.add(
+                ProductionTaskLine(
+                    task_id=task.id, quantity_pieces=lp.quantity_pieces, part_name=lp.name.strip(),
+                    width_mm=0, length_m=0,
+                )
+            )
+        else:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Строка: выберите операцию или впишите работу")
+    db.commit()
+    db.refresh(task)
+    return _task_out(db, task)
+
+
 @router.post("/production-tasks/parse-naryad", response_model=NaryadParseResultOut)
 async def parse_naryad(
     file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(manage_production)
@@ -870,6 +941,53 @@ def list_task_line_reports(
     )
 
 
+def _build_operation_report(
+    line: ProductionTaskLine,
+    payload: ProductionTaskLineReportCreate,
+    db: Session,
+    user: User,
+) -> list[ProductionTaskLineReport]:
+    """Отчёт по строке с операцией техкарты (этап 3 единой модели — задание
+    на любой участок): партии детали двигаются по её маршруту так же, как в
+    бывших «Заданиях участкам» — первая операция рождает партию, средняя
+    переводит дальше по FIFO, брак списывается с партий этой операции. Рулон
+    не нужен. Без commit — как и весь _build_task_line_report."""
+    if payload.material_unit_id is not None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="У строки без плёнки рулон не указывается")
+    if payload.defect_pieces > 0 and not payload.defect_reason:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Укажите причину брака")
+    if payload.defect_pieces > 0 and payload.defect_disposition == "pererabotka":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Переработка брака пока только на окутке — здесь брак списывается",
+        )
+    stage = db.get(PartStage, line.part_stage_id)
+    if stage is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Операция строки не найдена")
+    if payload.counts_toward_line:
+        try:
+            apply_report_to_part_units(
+                db, stage=stage, area=line.task.area, good_pieces=payload.good_pieces,
+                defect_pieces=payload.defect_pieces, defect_reason=payload.defect_reason, note=payload.note,
+                user_id=user.id, occurred_at=datetime.now(timezone.utc),
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+    report = ProductionTaskLineReport(
+        task_line_id=line.id,
+        assignment_id=payload.assignment_id,
+        good_pieces=payload.good_pieces,
+        defect_pieces=payload.defect_pieces,
+        defect_reason=payload.defect_reason,
+        note=payload.note,
+        reported_by=user.id,
+        counts_toward_line=payload.counts_toward_line,
+    )
+    db.add(report)
+    db.flush()
+    return [report]
+
+
 def _build_task_line_report(
     task_id: int,
     line_id: int,
@@ -902,6 +1020,8 @@ def _build_task_line_report(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Распределение не найдено для этой строки задания")
     elif requires_daily_plan:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к распределению по дням")
+    if line.part_stage_id is not None:
+        return _build_operation_report(line, payload, db, user)
     if payload.material_unit_id is not None:
         unit = db.get(MaterialUnit, payload.material_unit_id)
         # Раздел про сверку рулонов на окутке — допускаем ещё и На_хранении
@@ -932,7 +1052,7 @@ def _build_task_line_report(
                 )
         if not (status_ok and line_ok):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Рулон не найден среди выданных на эту строку")
-    elif line.task.area == AREA_REQUIRES_ROLL_ON_REPORT:
+    elif line.task.area == AREA_REQUIRES_ROLL_ON_REPORT and line.material_id is not None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к рулону")
     # Раздел про физический учёт деталей (пилот: окутка царговых) —
     # необязательно (в отличие от рулона выше): не у каждой детали ещё
@@ -984,8 +1104,11 @@ def _build_task_line_report(
     part = db.get(Part, line.part_id) if line.part_id else None
     if part is None and line.part_name:
         part = db.query(Part).filter(Part.name == line.part_name).first()
+    # Строка без плёнки и без операции (упаковка и т.п.) — просто счёт штук,
+    # партии п/ф двигает только строка с операцией техкарты (выше).
     has_part_unit_stock = (
-        part is not None
+        line.material_id is not None
+        and part is not None
         and part.stages
         and db.query(PartUnit.id)
         .filter(PartUnit.part_id == part.id, PartUnit.area == line.task.area, PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU)
