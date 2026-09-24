@@ -133,6 +133,12 @@ export const navTree: NavBlock[] = [
     label: "Производство",
     items: [
       {
+        key: "production-orders",
+        path: "/production-orders",
+        label: "Заказы на производство",
+        permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report"],
+      },
+      {
         key: "production-tasks",
         path: "/production-tasks",
         label: "Задания цеха (План на день)",
