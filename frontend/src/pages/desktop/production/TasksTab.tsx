@@ -27,6 +27,7 @@ import { listUsers } from "../../../api/users";
 import { listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import CreateTaskModal from "./CreateTaskModal";
+import OperationTaskModal from "./OperationTaskModal";
 import AssignmentModal from "./AssignmentModal";
 import ReportModal from "./ReportModal";
 
@@ -58,6 +59,7 @@ export default function TasksTab() {
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const canReport = canManage || !!user?.permissions.includes("production_tasks.report");
   const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [operationModalOpen, setOperationModalOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine; area: string } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -143,9 +145,12 @@ export default function TasksTab() {
               Показывать архивные
             </Checkbox>
             {canManage && (
-              <Button type="primary" onClick={() => setTaskModalOpen(true)}>
-                Создать задание
-              </Button>
+              <>
+                <Button onClick={() => setOperationModalOpen(true)}>Задание без плёнки</Button>
+                <Button type="primary" onClick={() => setTaskModalOpen(true)}>
+                  Создать задание
+                </Button>
+              </>
             )}
           </Space>
         }
@@ -228,8 +233,9 @@ export default function TasksTab() {
                         {
                           title: "Деталь",
                           render: (_, l) => (
-                            <Space size={4}>
+                            <Space size={4} wrap>
                               {l.part_name ?? "—"}
+                              {l.operation_name && <Tag color="purple">{l.operation_name}</Tag>}
                               {l.is_closed && <Tag>Закрыто</Tag>}
                               {l.production_closed && <Tag color="blue">Производство завершено</Tag>}
                             </Space>
@@ -237,15 +243,15 @@ export default function TasksTab() {
                         },
                         { title: "Линия", dataIndex: "line_name" },
                         { title: "Материал", render: (_, l) => lineFilmLabel(l) },
-                        { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
-                        { title: "Штрипс (плёнка), мм", render: (_, l) => l.strip_width_mm ?? "авто" },
+                        { title: "Размер детали", render: (_, l) => (l.material === null ? "—" : `${l.width_mm} мм × ${l.length_m} м`) },
+                        { title: "Штрипс (плёнка), мм", render: (_, l) => (l.material === null ? "—" : (l.strip_width_mm ?? "авто")) },
                         { title: "Нужно, шт", dataIndex: "quantity_pieces" },
                         {
                           // Раздел про общий погонаж на задание — раньше видно
                           // было только расход на одну деталь ("Размер детали"),
                           // не на всю строку сразу.
                           title: "Погонаж на строку, м",
-                          render: (_, l) => (l.quantity_pieces * l.length_m).toFixed(2),
+                          render: (_, l) => (l.material === null ? "—" : (l.quantity_pieces * l.length_m).toFixed(2)),
                         },
                         { title: "Произведено", dataIndex: "produced_good_pieces" },
                         { title: "Брак", dataIndex: "defect_pieces" },
@@ -253,7 +259,7 @@ export default function TasksTab() {
                           title: "Осталось произвести",
                           render: (_, l) => (
                             <Typography.Text strong={l.remaining_pieces > 0}>
-                              {l.remaining_pieces} шт{l.remaining_pieces > 0 ? ` (${l.remaining_length_m} м)` : ""}
+                              {l.remaining_pieces} шт{l.remaining_pieces > 0 && l.material !== null ? ` (${l.remaining_length_m} м)` : ""}
                             </Typography.Text>
                           ),
                         },
@@ -263,7 +269,10 @@ export default function TasksTab() {
                           // может быть уже достаточно, даже если производство
                           // ещё не отчиталось, см. Issue.tsx "довыдать").
                           title: "Ещё выдать, м",
-                          render: (_, l) => (
+                          render: (_, l) =>
+                            l.material === null ? (
+                              "—"
+                            ) : (
                             <Typography.Text type={l.shortfall_length_m > 0 ? "warning" : "secondary"}>
                               {l.shortfall_length_m > 0 ? l.shortfall_length_m.toFixed(2) : "выдано достаточно"}
                             </Typography.Text>
@@ -311,7 +320,7 @@ export default function TasksTab() {
                                     </Button>
                                   </>
                                 )}
-                                {canManage && (
+                                {canManage && l.material !== null && (
                                   <Button
                                     size="small"
                                     onClick={() => {
@@ -333,7 +342,7 @@ export default function TasksTab() {
                                     Изменить размер/материал
                                   </Button>
                                 )}
-                                {canManage && (
+                                {canManage && l.material !== null && (
                                   <Button
                                     size="small"
                                     loading={closeLineMutation.isPending}
@@ -438,13 +447,14 @@ export default function TasksTab() {
       </Card>
 
       <CreateTaskModal open={taskModalOpen} onClose={() => setTaskModalOpen(false)} />
+      <OperationTaskModal open={operationModalOpen} onClose={() => setOperationModalOpen(false)} />
 
       {reportTarget && (
         <ReportModal
           taskId={reportTarget.taskId}
           line={reportTarget.line}
           requiresDailyPlan={areaRequiresDailyPlan(reportTarget.area)}
-          requiresRoll={reportTarget.area === "okutka_tsargovykh"}
+          requiresRoll={reportTarget.area === "okutka_tsargovykh" && reportTarget.line.material !== null}
           area={reportTarget.area}
           onClose={() => setReportTarget(null)}
         />

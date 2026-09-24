@@ -346,6 +346,8 @@ class ProductionTaskLineOut(BaseModel):
     length_m: float
     strip_width_mm: float | None = None
     part_name: str | None
+    # Операция техкарты строки без плёнки (название этапа детали), иначе None.
+    operation_name: str | None = None
     # Раздел про закрытие строки задания по выдаче — ручной флаг "выдача
     # закрыта", не производная величина (см. models/production.py).
     is_closed: bool = False

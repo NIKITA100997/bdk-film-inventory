@@ -27,7 +27,6 @@ from app.models.part_units import PartUnit, PartUnitStatus, PartUnitEvent, PartE
 from app.models.part_film_restrictions import PartFilmRestriction
 from app.models.width_analogs import WidthAnalogGroup, WidthAnalogMember
 from app.models.door_series import DoorSeries
-from app.models.area_tasks import AreaTask, AreaTaskLine, AreaTaskReport
 
 __all__ = [
     "User",
@@ -79,9 +78,6 @@ __all__ = [
     "PartEventType",
     "PartFilmRestriction",
     "DoorSeries",
-    "AreaTask",
-    "AreaTaskLine",
-    "AreaTaskReport",
     "Item",
     "ItemKind",
 ]

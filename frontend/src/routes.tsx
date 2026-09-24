@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Navigate, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import AppLayout from "./layout/AppLayout";
@@ -31,7 +31,6 @@ import ProductModels from "./pages/desktop/ProductModels";
 import PartsAdmin from "./pages/desktop/PartsAdmin";
 import ProductionLines from "./pages/desktop/ProductionLines";
 import DoorSeriesAdmin from "./pages/desktop/DoorSeriesAdmin";
-import AreaTasks from "./pages/desktop/production/AreaTasks";
 import PfDemand from "./pages/desktop/production/PfDemand";
 import Nomenclature from "./pages/desktop/Nomenclature";
 import PartUnits from "./pages/desktop/production/PartUnits";
@@ -145,7 +144,7 @@ export default function AppRoutes() {
         <Route
           path="/production-tasks"
           element={
-            <RequirePermission permissions={["production_tasks.manage", "production_tasks.view"]}>
+            <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report"]}>
               <ProductionTasks />
             </RequirePermission>
           }
@@ -192,11 +191,7 @@ export default function AppRoutes() {
         />
         <Route
           path="/area-tasks"
-          element={
-            <RequirePermission permissions={["production_tasks.manage", "production_tasks.report", "production_tasks.view"]}>
-              <AreaTasks />
-            </RequirePermission>
-          }
+          element={<Navigate to="/production-tasks" replace />}
         />
         <Route
           path="/door-series"

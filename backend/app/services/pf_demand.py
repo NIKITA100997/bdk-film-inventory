@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.area_tasks import AreaTask, AreaTaskLine, AreaTaskReport
 from app.models.dictionaries import Part, PartStage
 from app.models.part_units import PartUnit, PartUnitStatus
 from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
@@ -79,7 +78,13 @@ def _task_demand_by_part(db: Session, task_ids: list[int] | None = None) -> dict
     query = (
         db.query(ProductionTaskLine)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
-        .filter(ProductionTask.is_active.is_(True), ProductionTaskLine.part_name.isnot(None))
+        # Строки-операции (сделать деталь) — не потребность, а «в работе»,
+        # см. _in_work_by_first_stage; потребность — строки, расходующие п/ф.
+        .filter(
+            ProductionTask.is_active.is_(True),
+            ProductionTaskLine.part_name.isnot(None),
+            ProductionTaskLine.part_stage_id.is_(None),
+        )
     )
     if task_ids:
         query = query.filter(ProductionTaskLine.task_id.in_(task_ids))
@@ -141,17 +146,20 @@ def _in_work_by_first_stage(db: Session, first_stage_ids: set[int]) -> dict[int,
     if not first_stage_ids:
         return {}
     lines = (
-        db.query(AreaTaskLine)
-        .join(AreaTask, AreaTask.id == AreaTaskLine.task_id)
-        .filter(AreaTask.is_active.is_(True), AreaTaskLine.part_stage_id.in_(first_stage_ids))
+        db.query(ProductionTaskLine)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(ProductionTask.is_active.is_(True), ProductionTaskLine.part_stage_id.in_(first_stage_ids))
         .all()
     )
     if not lines:
         return {}
     good = dict(
-        db.query(AreaTaskReport.line_id, func.coalesce(func.sum(AreaTaskReport.good_pieces), 0))
-        .filter(AreaTaskReport.line_id.in_([line.id for line in lines]))
-        .group_by(AreaTaskReport.line_id)
+        db.query(ProductionTaskLineReport.task_line_id, func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
+        .filter(
+            ProductionTaskLineReport.task_line_id.in_([line.id for line in lines]),
+            ProductionTaskLineReport.counts_toward_line.is_(True),
+        )
+        .group_by(ProductionTaskLineReport.task_line_id)
         .all()
     )
     in_work: dict[int, float] = defaultdict(float)

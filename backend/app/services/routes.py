@@ -3,7 +3,7 @@
 — тот же маршрут, применённый к нескольким деталям одной транзакцией.
 
 Этапы правятся НА МЕСТЕ, а не стираются и создаются заново: на этап
-ссылаются партии п/ф, их события и строки заданий участкам. Этап из нового
+ссылаются партии п/ф, их события и строки-операции заданий. Этап из нового
 списка сопоставляется со старым по коду, потом по названию, потом по
 позиции в списке (сменили участок у строки — тот же этап) — у него
 остаётся тот же id, меняются только порядок/название, поэтому
@@ -15,9 +15,9 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.models.area_tasks import AreaTaskLine
 from app.models.dictionaries import Part, PartStage
 from app.models.part_units import PartUnit, PartUnitEvent
+from app.models.production import ProductionTaskLine
 
 
 @dataclass
@@ -38,7 +38,7 @@ def _stage_in_use(db: Session, stage_id: int) -> bool:
         .filter((PartUnitEvent.from_stage_id == stage_id) | (PartUnitEvent.to_stage_id == stage_id))
         .first()
         is not None
-        or db.query(AreaTaskLine.id).filter(AreaTaskLine.part_stage_id == stage_id).first() is not None
+        or db.query(ProductionTaskLine.id).filter(ProductionTaskLine.part_stage_id == stage_id).first() is not None
     )
 
 

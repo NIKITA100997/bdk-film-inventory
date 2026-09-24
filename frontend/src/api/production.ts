@@ -111,6 +111,8 @@ export interface ProductionTaskLine {
   material: string | null;
   color: string | null;
   thickness: number | null;
+  // Операция техкарты строки без плёнки (этап детали), иначе null.
+  operation_name?: string | null;
   quantity_pieces: number;
   width_mm: number;
   length_m: number;
@@ -521,3 +523,22 @@ export interface BlankDemandLine {
 
 export const getBlanksDemand = async (): Promise<BlankDemandLine[]> =>
   (await apiClient.get<BlankDemandLine[]>("/blanks-demand")).data;
+
+/** Операция техкарты на участке — этап детали п/ф (этап 3: задание на любой участок). */
+export interface AreaOperation {
+  part_stage_id: number;
+  part_id: number;
+  part_name: string;
+  stage_name: string;
+  is_first: boolean;
+}
+
+export const listAreaOperations = async (area: string): Promise<AreaOperation[]> =>
+  (await apiClient.get<AreaOperation[]>("/production-operations", { params: { area } })).data;
+
+/** Задание без плёнки: строки — операция техкарты или просто работа (упаковка и т.п.). */
+export const createOperationTask = async (payload: {
+  name: string;
+  area: string;
+  lines: { part_stage_id: number | null; name: string | null; quantity_pieces: number }[];
+}): Promise<ProductionTask> => (await apiClient.post<ProductionTask>("/production-tasks/operations", payload)).data;

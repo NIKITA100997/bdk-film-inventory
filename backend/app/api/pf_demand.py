@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import require_permission
 from app.db.session import get_db
-from app.models.area_tasks import AreaTask, AreaTaskLine
+from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.dictionaries import Part
 from app.models.users import User
 from app.services.pf_demand import compute_pf_demand
@@ -73,8 +73,8 @@ def list_pf_demand(
 def create_pf_tasks(
     payload: PfDemandTasksCreate, db: Session = Depends(get_db), user: User = Depends(manage)
 ) -> PfDemandTasksOut:
-    """Задания участкам на производство п/ф — одно задание на участок первого
-    этапа, строка на деталь; дальше по этапам партии идут отчётами."""
+    """Задания цеха на производство п/ф — одно задание на участок первого
+    этапа, строка-операция на деталь; дальше по этапам партии идут отчётами."""
     by_area: dict[str, list[tuple[Part, float, int]]] = defaultdict(list)
     missing_area: list[str] = []
     for item in payload.items:
@@ -94,12 +94,15 @@ def create_pf_tasks(
     today = date.today().strftime("%d.%m.%Y")
     task_ids = []
     for area, items in by_area.items():
-        task = AreaTask(
-            area=area, name=f"Производство п/ф от {today}", source="pf_demand", ship_date=payload.ship_date,
-            is_active=True, created_by=user.id,
-        )
-        for i, (part, qty, stage_id) in enumerate(items):
-            task.lines.append(AreaTaskLine(sort_order=i, name=part.name, quantity_pieces=qty, part_stage_id=stage_id))
+        ship = f", отгрузка {payload.ship_date.strftime('%d.%m.%Y')}" if payload.ship_date else ""
+        task = ProductionTask(area=area, name=f"Производство п/ф от {today}{ship}", is_active=True, created_by=user.id)
+        for part, qty, stage_id in items:
+            task.lines.append(
+                ProductionTaskLine(
+                    quantity_pieces=qty, part_stage_id=stage_id, part_id=part.id, part_name=part.name,
+                    width_mm=part.width_mm or 0, length_m=0,
+                )
+            )
         db.add(task)
         db.flush()
         task_ids.append(task.id)

@@ -63,10 +63,10 @@ export default function PfDemand() {
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["pf-demand"] });
-      qc.invalidateQueries({ queryKey: ["area-tasks"] });
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
       message.success(
         <span>
-          Создано заданий участкам: {res.task_ids.length}. <a onClick={() => navigate("/area-tasks")}>Открыть задания участков</a>
+          Создано заданий: {res.task_ids.length}. <a onClick={() => navigate("/production-tasks")}>Открыть задания цеха</a>
         </span>,
       );
     },

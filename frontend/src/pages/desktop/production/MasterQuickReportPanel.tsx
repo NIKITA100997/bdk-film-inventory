@@ -88,6 +88,8 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const requiresRoll = area === "okutka_tsargovykh";
+  // Рулон — только у строки с плёнкой (строка-операция без плёнки его не требует).
+  const rowRequiresRoll = (r: ReportRow) => requiresRoll && r.line.material !== null;
   // Раздел про связь этапов с участками — «Партия п/ф» показывается для
   // ЛЮБОГО участка, у которого есть хоть один этап детали (не только у
   // окутки царговых): «Рулон» — отдельная, чисто плёночная забота.
@@ -293,7 +295,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
           // (сам факт использования всё так же фиксируется — рулон можно
           // вернуть/списать, see has_report в return_unit). Пустой остаток =
           // не трогали → good_pieces 0, как раньше.
-          if (requiresRoll && r.goodPieces <= 0 && r.defects.length === 0 && r.materialUnitId) {
+          if (rowRequiresRoll(r) && r.goodPieces <= 0 && r.defects.length === 0 && r.materialUnitId) {
             const pu = r.line.issued_units.find((u) => u.id === r.materialUnitId) ??
               (r.line.borrowable_units ?? []).find((u) => u.id === r.materialUnitId);
             const puRemaining = pu?.remaining_length_m ?? pu?.length_m ?? 0;
@@ -375,12 +377,12 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
       // только если рулон реально выбран — тогда это осознанный отчёт
       // "рулон использован, деталь не готова", а не пустая строка,
       // которую забыли заполнить.
-      const isMaterialOnlyReport = requiresRoll && r.goodPieces <= 0 && totalDefect(r) <= 0 && !!r.materialUnitId;
+      const isMaterialOnlyReport = rowRequiresRoll(r) && r.goodPieces <= 0 && totalDefect(r) <= 0 && !!r.materialUnitId;
       if (r.goodPieces <= 0 && totalDefect(r) <= 0 && !isMaterialOnlyReport) {
         message.warning(`Укажите хорошие детали или брак по строке «${r.line.part_name ?? r.line.material}»`);
         return;
       }
-      if (requiresRoll && !r.materialUnitId) {
+      if (rowRequiresRoll(r) && !r.materialUnitId) {
         message.warning(`Выберите рулон по строке «${r.line.part_name ?? r.line.material}»`);
         return;
       }
@@ -512,6 +514,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                       title: "Рулон(ы)",
                       key: "roll",
                       render: (_: unknown, r: ReportRow) => {
+                        if (r.line.material === null) return <Typography.Text type="secondary">без плёнки</Typography.Text>;
                         // Раздел про второй рулон на ту же строку — двусторонние
                         // детали нередко расходуют одновременно НЕСКОЛЬКО
                         // разных рулонов на ОДИН и тот же комплект деталей
