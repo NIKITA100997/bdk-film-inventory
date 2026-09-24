@@ -36,6 +36,7 @@ from app.api.door_series import router as door_series_router
 from app.api.pf_demand import router as pf_demand_router
 from app.api.items import router as items_router
 from app.api.item_types import router as item_types_router
+from app.api.production_orders import router as production_orders_router
 from app.core.config import settings
 
 app = FastAPI(title="БДК — учёт плёнки")
@@ -112,6 +113,7 @@ app.include_router(door_series_router, prefix=API_PREFIX)
 app.include_router(pf_demand_router, prefix=API_PREFIX)
 app.include_router(items_router, prefix=API_PREFIX)
 app.include_router(item_types_router, prefix=API_PREFIX)
+app.include_router(production_orders_router, prefix=API_PREFIX)
 
 
 @app.get("/health")

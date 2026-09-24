@@ -11,10 +11,10 @@
 
 from collections import defaultdict
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from app.models.dictionaries import Part
-from app.models.items import ItemComponent
+from app.models.dictionaries import MaterialSku, Part
+from app.models.items import Item, ItemComponent, sku_item_name
 from app.models.production import ProductModel, ProductModelPart
 
 
@@ -62,3 +62,26 @@ def sync_bom_components(db: Session, model_ids: set[int] | list[int]) -> None:
 
 def models_of_bom_lines(lines: list[ProductModelPart]) -> set[int]:
     return {line.product_model_id for line in lines}
+
+
+def live_item_names(db: Session, item_ids: set[int]) -> dict[int, str]:
+    """Живые названия позиций — из исходных таблиц (там они правятся), для
+    позиций без своей таблицы — снимок items.name."""
+    if not item_ids:
+        return {}
+    names = {i.id: i.name for i in db.query(Item).filter(Item.id.in_(item_ids))}
+    for p in db.query(Part).filter(Part.item_id.in_(item_ids)):
+        names[p.item_id] = p.name
+    for m in db.query(ProductModel).filter(ProductModel.item_id.in_(item_ids)):
+        names[m.item_id] = m.name
+    for sku in (
+        db.query(MaterialSku)
+        .options(
+            joinedload(MaterialSku.material), joinedload(MaterialSku.color),
+            joinedload(MaterialSku.thickness), joinedload(MaterialSku.manufacturer),
+        )
+        .filter(MaterialSku.item_id.in_(item_ids))
+    ):
+        names[sku.item_id] = sku_item_name(sku.material.name, sku.color.name, sku.thickness.value_mm, sku.manufacturer.name)
+    return names
+

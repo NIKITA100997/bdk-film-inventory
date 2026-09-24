@@ -52,6 +52,7 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.components import sync_bom_components
 from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
+from app.services.production_orders import consume_components_at_operation
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness, task_lines_with_progress
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
@@ -974,10 +975,19 @@ def _build_operation_report(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Операция строки не найдена")
     if payload.counts_toward_line:
         try:
-            apply_report_to_part_units(
-                db, stage=stage, area=line.task.area, good_pieces=payload.good_pieces,
-                defect_pieces=payload.defect_pieces, defect_reason=payload.defect_reason, note=payload.note,
-                user_id=user.id, occurred_at=datetime.now(timezone.utc),
+            # Партии самой позиции — если это деталь п/ф (у изделия своих
+            # партий пока нет, только счёт штук).
+            if stage.part is not None:
+                apply_report_to_part_units(
+                    db, stage=stage, area=line.task.area, good_pieces=payload.good_pieces,
+                    defect_pieces=payload.defect_pieces, defect_reason=payload.defect_reason, note=payload.note,
+                    user_id=user.id, occurred_at=datetime.now(timezone.utc),
+                )
+            # Комплектующие, которые по составу расходуются на этой операции
+            # (единая модель, п.4): и на годные, и на брак.
+            consume_components_at_operation(
+                db, stage=stage, area=line.task.area, quantity=payload.good_pieces + payload.defect_pieces,
+                user_id=user.id,
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e

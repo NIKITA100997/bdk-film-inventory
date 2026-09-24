@@ -12,7 +12,7 @@ from app.models.areas import Area
 from app.models.dictionaries import MaterialSku, Part
 from app.models.items import Item, ItemComponent, ItemKind, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
-from app.services.components import sync_bom_components
+from app.services.components import live_item_names, sync_bom_components
 from app.services.routes import RouteInUseError, RouteStep, apply_route
 
 router = APIRouter(tags=["items"])
@@ -449,27 +449,6 @@ class TechCardOut(BaseModel):
     inputs: list[TechInput]
     used_in: list[TechUsage]
 
-
-def live_item_names(db: Session, item_ids: set[int]) -> dict[int, str]:
-    """Живые названия позиций — из исходных таблиц (там они правятся), для
-    позиций без своей таблицы — снимок items.name."""
-    if not item_ids:
-        return {}
-    names = {i.id: i.name for i in db.query(Item).filter(Item.id.in_(item_ids))}
-    for p in db.query(Part).filter(Part.item_id.in_(item_ids)):
-        names[p.item_id] = p.name
-    for m in db.query(ProductModel).filter(ProductModel.item_id.in_(item_ids)):
-        names[m.item_id] = m.name
-    for sku in (
-        db.query(MaterialSku)
-        .options(
-            joinedload(MaterialSku.material), joinedload(MaterialSku.color),
-            joinedload(MaterialSku.thickness), joinedload(MaterialSku.manufacturer),
-        )
-        .filter(MaterialSku.item_id.in_(item_ids))
-    ):
-        names[sku.item_id] = sku_item_name(sku.material.name, sku.color.name, sku.thickness.value_mm, sku.manufacturer.name)
-    return names
 
 
 @router.get("/items/{item_id}/techcard", response_model=TechCardOut)

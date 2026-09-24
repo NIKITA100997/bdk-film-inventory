@@ -94,6 +94,8 @@ class ProductionTask(Base):
     # группировки заданий по одному заказу и как точка стыковки с 1С.
     external_order_ref: Mapped[int | None] = mapped_column(Integer, nullable=True)
     area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
+    # Задание участку из заказа на производство (единая модель, пункт 4).
+    production_order_id: Mapped[int | None] = mapped_column(ForeignKey("production_orders.id"), nullable=True, index=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Раздел про удаление сущностей — задание с историей выдачи нельзя
@@ -155,6 +157,8 @@ class ProductionTaskLine(Base):
     # Операция техкарты (этап детали), которую выполняет строка — отчёт по
     # строке без плёнки двигает партии этой детали по её маршруту.
     part_stage_id: Mapped[int | None] = mapped_column(ForeignKey("part_stages.id"), nullable=True)
+    # Строка заказа на производство, из которой родилась строка задания.
+    order_line_id: Mapped[int | None] = mapped_column(ForeignKey("production_order_lines.id"), nullable=True, index=True)
 
     # Раздел про закрытие строки задания по выдаче — та же механика, что
     # ProductionTask.is_active выше, но на уровень строки: ручной флаг
