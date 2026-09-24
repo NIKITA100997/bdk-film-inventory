@@ -22,6 +22,7 @@ import {
 } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../../auth/AuthContext";
+import TypeRulesPanel from "./TypeRulesPanel";
 import { listItemKinds } from "../../../api/items";
 import {
   PROPERTY_TYPE_LABEL,
@@ -300,6 +301,7 @@ export default function TypesTab() {
                   },
                 ]}
               />
+              <TypeRulesPanel type={selected} canManage={canManage} />
             </Space>
           </Card>
         ) : (

@@ -33,6 +33,23 @@ export interface ItemProperty {
   used: number;
 }
 
+export interface TypeOperation {
+  name: string;
+  area: string;
+  condition: string | null;
+}
+
+export interface TypeComponentRule {
+  name_template: string;
+  qty_expr: string;
+  condition: string | null;
+  width_expr: string | null;
+  length_expr: string | null;
+  strip_width_expr: string | null;
+  route_part_id: number | null;
+  operation_name: string | null;
+}
+
 export interface ItemType {
   id: number;
   kind_code: string;
@@ -40,7 +57,11 @@ export interface ItemType {
   name: string;
   is_active: boolean;
   item_count: number;
+  // Правила типа (пункт 3): шаблон названия позиции, операции с условиями, правила состава.
+  name_template: string | null;
   properties: ItemProperty[];
+  operations: TypeOperation[];
+  component_rules: TypeComponentRule[];
 }
 
 export interface PropertyInput {
@@ -67,7 +88,10 @@ export const listItemTypes = async (kind?: string): Promise<ItemType[]> =>
 export const createItemType = async (payload: { kind_code: string; name: string }): Promise<ItemType> =>
   (await apiClient.post<ItemType>("/item-types", payload)).data;
 
-export const updateItemType = async (id: number, payload: { name?: string; is_active?: boolean }): Promise<ItemType> =>
+export const updateItemType = async (
+  id: number,
+  payload: { name?: string; is_active?: boolean; name_template?: string },
+): Promise<ItemType> =>
   (await apiClient.put<ItemType>(`/item-types/${id}`, payload)).data;
 
 export const deleteItemType = async (id: number): Promise<void> => {
@@ -94,6 +118,8 @@ export interface ItemPropertiesState {
   kind_code: string;
   type_id: number | null;
   values: Record<string, PropertyValue>;
+  // Свойства сохранены, но правила типа не применились (не хватает данных).
+  rules_errors?: string[];
 }
 
 export const getItemProperties = async (itemId: number): Promise<ItemPropertiesState> =>
@@ -103,3 +129,38 @@ export const setItemProperties = async (
   itemId: number,
   payload: { type_id: number | null; values: Record<string, PropertyValue> },
 ): Promise<ItemPropertiesState> => (await apiClient.put<ItemPropertiesState>(`/items/${itemId}/properties`, payload)).data;
+
+export const setTypeOperations = async (typeId: number, ops: TypeOperation[]): Promise<ItemType> =>
+  (await apiClient.put<ItemType>(`/item-types/${typeId}/operations`, ops)).data;
+
+export const setTypeComponentRules = async (typeId: number, rules: TypeComponentRule[]): Promise<ItemType> =>
+  (await apiClient.put<ItemType>(`/item-types/${typeId}/component-rules`, rules)).data;
+
+export interface RulesPreview {
+  name: string | null;
+  operations: TypeOperation[];
+  components: {
+    name: string;
+    qty: number;
+    width_mm: number | null;
+    length_mm: number | null;
+    strip_width_mm: number | null;
+    operation_name: string | null;
+    exists: boolean;
+  }[];
+  errors: string[];
+}
+
+export const previewTypeRules = async (
+  typeId: number,
+  payload: { item_id?: number; values?: Record<string, PropertyValue> },
+): Promise<RulesPreview> => (await apiClient.post<RulesPreview>(`/item-types/${typeId}/preview`, payload)).data;
+
+export const applyTypeRules = async (typeId: number): Promise<{ applied: number; errors: Record<string, string[]> }> =>
+  (await apiClient.post(`/item-types/${typeId}/apply`)).data;
+
+export const createItemByType = async (
+  typeId: number,
+  values: Record<string, PropertyValue>,
+): Promise<{ item_id: number; name: string; created: boolean }> =>
+  (await apiClient.post("/items/by-type", { type_id: typeId, values })).data;

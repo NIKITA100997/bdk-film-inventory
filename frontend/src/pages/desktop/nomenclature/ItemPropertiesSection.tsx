@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { isAxiosError } from "axios";
-import { Button, Checkbox, Descriptions, Form, Input, InputNumber, Select, Space, Typography, message } from "antd";
+import { Button, Descriptions, Form, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getItemProperties,
@@ -9,6 +9,7 @@ import {
   type ItemProperty,
   type PropertyValue,
 } from "../../../api/itemTypes";
+import PropertyInputs from "./PropertyInputs";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -44,10 +45,14 @@ export default function ItemPropertiesSection({ itemId, kindCode, canEdit }: { i
 
   const mutation = useMutation({
     mutationFn: () => setItemProperties(itemId, { type_id: typeId, values }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["item-properties", itemId] });
       qc.invalidateQueries({ queryKey: ["item-types"] });
-      message.success("Свойства сохранены");
+      qc.invalidateQueries({ queryKey: ["techcard", itemId] });
+      qc.invalidateQueries({ queryKey: ["items"] });
+      if (res.rules_errors && res.rules_errors.length > 0)
+        message.warning(`Свойства сохранены, но техкарта по правилам типа не пересчитана: ${res.rules_errors.join("; ")}`, 8);
+      else message.success("Свойства сохранены");
       setEditing(false);
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить свойства")),
@@ -98,31 +103,7 @@ export default function ItemPropertiesSection({ itemId, kindCode, canEdit }: { i
           options={kindTypes.map((t) => ({ value: t.id, label: t.name }))}
         />
       </Form.Item>
-      {type?.properties.map((p) => {
-        const key = String(p.id);
-        const v = values[key];
-        const set = (nv: PropertyValue) => setValues((s) => ({ ...s, [key]: nv }));
-        return (
-          <Form.Item key={p.id} label={`${p.name}${p.unit ? `, ${p.unit}` : ""}`} required={p.is_required}>
-            {p.value_type === "number" && (
-              <InputNumber value={(v as number | null) ?? null} style={{ width: 200 }} onChange={(nv) => set(nv)} />
-            )}
-            {p.value_type === "text" && <Input value={(v as string | null) ?? ""} onChange={(e) => set(e.target.value)} />}
-            {p.value_type === "bool" && <Checkbox checked={!!v} onChange={(e) => set(e.target.checked)} />}
-            {p.value_type === "list" && (
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                style={{ width: 260 }}
-                value={(v as number | null) ?? undefined}
-                onChange={(nv) => set(nv ?? null)}
-                options={p.options.filter((o) => o.is_active || o.id === v).map((o) => ({ value: o.id, label: o.value }))}
-              />
-            )}
-          </Form.Item>
-        );
-      })}
+      {type && <PropertyInputs type={type} values={values} onChange={setValues} />}
       <Space>
         <Button type="primary" loading={mutation.isPending} onClick={() => mutation.mutate()}>
           Сохранить
