@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { isAxiosError } from "axios";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button, Card, Checkbox, Drawer, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tabs, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import TypesTab from "./nomenclature/TypesTab";
+import PartsAdmin from "./PartsAdmin";
+import ProductModels from "./ProductModels";
 import ItemPropertiesSection from "./nomenclature/ItemPropertiesSection";
 import RouteEditorModal from "./nomenclature/RouteEditorModal";
 import ComponentsEditorModal from "./nomenclature/ComponentsEditorModal";
@@ -34,20 +36,27 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green" };
 
 /** Номенклатура — одна запись на любую позицию (плёнка, п/ф, изделие…),
- * вид задаёт, в чём она учитывается. Первый этап перехода на единую модель:
- * позиции по-прежнему правятся в своих справочниках, здесь — общий список и
- * переход в привычную карточку. */
+ * вид задаёт, в чём она учитывается; здесь же типы с правилами и прежние
+ * справочники деталей и моделей (единая модель, 24.09). Вкладка — в адресе
+ * (?tab=…): на неё ведут пункты меню и старые адреса /parts, /product-models. */
 export default function Nomenclature() {
-  return (
-    <Tabs
-      items={[
-        { key: "items", label: "Номенклатура", children: <ItemsTab /> },
-        { key: "unlinked", label: "Строки без детали", children: <UnlinkedTab /> },
-        { key: "manual", label: "Связанные вручную", children: <ManualLinksTab /> },
-        { key: "types", label: "Типы и свойства", children: <TypesTab /> },
-      ]}
-    />
-  );
+  const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const canConfigure = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const tabs = [
+    { key: "items", label: "Номенклатура", children: <ItemsTab /> },
+    { key: "types", label: "Типы и правила", children: <TypesTab /> },
+    ...(canConfigure
+      ? [
+          { key: "parts", label: "Детали п/ф", children: <PartsAdmin /> },
+          { key: "models", label: "Модели продукции (BOM)", children: <ProductModels /> },
+        ]
+      : []),
+    { key: "unlinked", label: "Строки без детали", children: <UnlinkedTab /> },
+    { key: "manual", label: "Связанные вручную", children: <ManualLinksTab /> },
+  ];
+  const active = tabs.some((t) => t.key === params.get("tab")) ? (params.get("tab") as string) : "items";
+  return <Tabs activeKey={active} onChange={(k) => setParams(k === "items" ? {} : { tab: k })} items={tabs} destroyOnHidden />;
 }
 
 function ItemsTab() {

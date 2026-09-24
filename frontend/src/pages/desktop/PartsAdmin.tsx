@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Card, Space, Typography, Button, Modal, Form, Input, InputNumber, Select, Checkbox, Tag, Empty, Popconfirm, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import {
   listAllParts,
@@ -36,7 +35,6 @@ type AreaOption = { value: string; label: string };
  * же правом (production_tasks.manage), что и "Модели продукции" рядом. */
 export default function PartsAdmin() {
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingPart, setEditingPart] = useState<Part | null>(null);
@@ -165,10 +163,6 @@ export default function PartsAdmin() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        Справочник деталей — здесь. Рядом: <a onClick={() => navigate("/product-models")}>Модели продукции (BOM)</a> ·{" "}
-        <a onClick={() => navigate("/production-lines")}>Линии цеха</a>
-      </Typography.Paragraph>
       <Card
         title="Детали (справочник)"
         extra={

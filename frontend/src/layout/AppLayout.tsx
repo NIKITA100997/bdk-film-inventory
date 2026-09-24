@@ -65,6 +65,9 @@ export default function AppLayout() {
         : visibleItems.map((item) => ({ key: item.path, label: item.label })),
     );
 
+  // Пункты с вкладкой в адресе (/nomenclature?tab=types) подсвечиваются точно.
+  const navPaths = new Set(navTree.flatMap((b) => b.items.map((i) => i.path)));
+
   const userMenuItems: MenuProps["items"] = [
     {
       key: "info",
@@ -230,7 +233,7 @@ export default function AppLayout() {
         <Menu
           mode="horizontal"
           style={{ flexShrink: 0 }}
-          selectedKeys={[location.pathname]}
+          selectedKeys={[navPaths.has(location.pathname + location.search) ? location.pathname + location.search : location.pathname]}
           items={items}
           onClick={(e) => navigate(e.key)}
         />

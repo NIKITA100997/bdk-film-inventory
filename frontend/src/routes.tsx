@@ -27,10 +27,7 @@ import LabelTemplateAdmin from "./pages/desktop/LabelTemplateAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
 import SalesCalculator from "./pages/desktop/SalesCalculator";
 import ProductionTasks from "./pages/desktop/ProductionTasks";
-import ProductModels from "./pages/desktop/ProductModels";
-import PartsAdmin from "./pages/desktop/PartsAdmin";
 import ProductionLines from "./pages/desktop/ProductionLines";
-import DoorSeriesAdmin from "./pages/desktop/DoorSeriesAdmin";
 import PfDemand from "./pages/desktop/production/PfDemand";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
 import Nomenclature from "./pages/desktop/Nomenclature";
@@ -150,22 +147,8 @@ export default function AppRoutes() {
             </RequirePermission>
           }
         />
-        <Route
-          path="/product-models"
-          element={
-            <RequirePermission permissions={["production_tasks.manage"]}>
-              <ProductModels />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/parts"
-          element={
-            <RequirePermission permissions={["production_tasks.manage"]}>
-              <PartsAdmin />
-            </RequirePermission>
-          }
-        />
+        <Route path="/product-models" element={<Navigate to="/nomenclature?tab=models" replace />} />
+        <Route path="/parts" element={<Navigate to="/nomenclature?tab=parts" replace />} />
         <Route
           path="/production-lines"
           element={
@@ -202,14 +185,7 @@ export default function AppRoutes() {
           path="/area-tasks"
           element={<Navigate to="/production-tasks" replace />}
         />
-        <Route
-          path="/door-series"
-          element={
-            <RequirePermission permissions={["production_tasks.manage"]}>
-              <DoorSeriesAdmin />
-            </RequirePermission>
-          }
-        />
+        <Route path="/door-series" element={<Navigate to="/nomenclature?tab=types" replace />} />
         <Route
           path="/part-units"
           element={
