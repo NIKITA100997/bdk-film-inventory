@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.models.dictionaries import Part, PartStage
+from app.models.items import Item
 from app.models.part_units import PartUnit, PartUnitEvent
 from app.models.production import ProductionTaskLine
 
@@ -42,8 +43,11 @@ def _stage_in_use(db: Session, stage_id: int) -> bool:
     )
 
 
-def apply_route(db: Session, part: Part, steps: list[RouteStep]) -> None:
-    """Привести этапы детали к списку steps (без commit)."""
+def apply_route(db: Session, part: Part | Item, steps: list[RouteStep]) -> None:
+    """Привести маршрут детали — или любой позиции номенклатуры (пункт 3
+    единой модели) — к списку steps (без commit). Для позиции, за которой
+    стоит деталь п/ф, вызывайте с деталью: новые этапы получат и деталь, и
+    позицию."""
     # Код этапа — String(50), а экран кладёт туда код участка (до 128).
     steps = [RouteStep(code=s.code[:50], name=s.name[:255], area=s.area) for s in steps]
     existing = sorted(part.stages, key=lambda s: s.sequence_order)
@@ -81,6 +85,7 @@ def apply_route(db: Session, part: Part, steps: list[RouteStep]) -> None:
     for i, (step, stage) in enumerate(zip(steps, matched), start=1):
         if stage is None:
             part.stages.append(PartStage(sequence_order=i, code=step.code, name=step.name, area=step.area))
+            # у позиции без детали item_id ставит сама коллекция Item.stages
         else:
             stage.sequence_order = i
             stage.code = step.code

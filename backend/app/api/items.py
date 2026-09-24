@@ -11,7 +11,7 @@ from app.models.areas import Area
 from app.models.dictionaries import MaterialSku, Part
 from app.models.items import Item, ItemKind, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
-from app.services.routes import RouteStep, apply_route
+from app.services.routes import RouteInUseError, RouteStep, apply_route
 
 router = APIRouter(tags=["items"])
 
@@ -394,6 +394,7 @@ def create_size_parts(payload: SizeCreateIn, db: Session = Depends(get_db), user
 
 class TechOperation(BaseModel):
     sequence_order: int
+    code: str | None = None
     name: str
     area: str | None
     area_name: str | None
@@ -447,12 +448,12 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
     sku = (
         db.query(MaterialSku).filter(MaterialSku.item_id == item_id).first() if part is None and model is None else None
     )
+    operations = [
+        TechOperation(sequence_order=s.sequence_order, code=s.code, name=s.name, area=s.area, area_name=area_names.get(s.area))
+        for s in item.stages
+    ]
     if part is not None:
         name, source_type, source_id = part.name, "part", part.id
-        operations = [
-            TechOperation(sequence_order=s.sequence_order, name=s.name, area=s.area, area_name=area_names.get(s.area))
-            for s in part.stages
-        ]
         # Плёнка на штуку: штрипс шириной strip_width_mm длиной length_m.
         film = part.default_material_sku
         inputs.append(
@@ -499,3 +500,36 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
         item_id=item.id, name=name, kind_code=kind.code, kind_name=kind.name, source_type=source_type,
         source_id=source_id, operations=operations, inputs=inputs, used_in=used_in,
     )
+
+
+class RouteStepIO(BaseModel):
+    code: str
+    name: str
+    area: str | None = None
+
+
+@router.put("/items/{item_id}/route", response_model=list[TechOperation])
+def set_item_route(
+    item_id: int, payload: list[RouteStepIO], db: Session = Depends(get_db), user=Depends(link_lines)
+) -> list[TechOperation]:
+    """Маршрут любой позиции (пункт 3 единой модели): правка на месте, как у
+    деталей п/ф (services/routes.py) — партии и история остаются на своих
+    этапах, занятый этап удалить нельзя."""
+    item = db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    if any(not s.area for s in payload):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "У каждой операции должен быть участок")
+    owner = db.query(Part).filter(Part.item_id == item.id).first() or item
+    try:
+        apply_route(db, owner, [RouteStep(code=s.code, name=s.name, area=s.area) for s in payload])
+    except RouteInUseError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    db.commit()
+    db.refresh(item)
+    area_names = {a.code: a.name for a in db.query(Area)}
+    return [
+        TechOperation(sequence_order=s.sequence_order, code=s.code, name=s.name, area=s.area, area_name=area_names.get(s.area))
+        for s in item.stages
+    ]

@@ -38,6 +38,8 @@ def validate_line_stage(db: Session, *, task_area: str, part_stage_id: int) -> P
     stage = db.get(PartStage, part_stage_id)
     if stage is None:
         raise ValueError("Этап детали не найден")
+    if stage.part is None:
+        raise ValueError(f"«{stage.name}» — операция изделия, а не детали п/ф: она попадёт в задание из заказа на производство")
     if stage.area != task_area:
         raise ValueError(f"Этап «{stage.name}» детали «{stage.part.name}» выполняется на другом участке")
     stages = _ordered_stages(stage)

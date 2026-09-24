@@ -85,10 +85,16 @@ export interface TechCard {
   kind_name: string;
   source_type: "sku" | "part" | "model" | null;
   source_id: number | null;
-  operations: { sequence_order: number; name: string; area: string | null; area_name: string | null }[];
+  operations: { sequence_order: number; code: string | null; name: string; area: string | null; area_name: string | null }[];
   inputs: { name: string; part_id: number | null; qty_per_unit: number | null; unit: string; note: string | null }[];
   used_in: { name: string; source_type: "model" | "part"; source_id: number; qty_per_unit: number | null }[];
 }
 
 export const getTechCard = async (itemId: number): Promise<TechCard> =>
   (await apiClient.get<TechCard>(`/items/${itemId}/techcard`)).data;
+
+/** Маршрут любой позиции (единая модель, пункт 3) — правка на месте. */
+export const setItemRoute = async (
+  itemId: number,
+  steps: { code: string; name: string; area: string | null }[],
+): Promise<TechCard["operations"]> => (await apiClient.put<TechCard["operations"]>(`/items/${itemId}/route`, steps)).data;

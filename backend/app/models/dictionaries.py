@@ -123,16 +123,24 @@ class PartStage(Base):
     участок для выдачи выводится ИЗ этапа, не выбирается вручную."""
 
     __tablename__ = "part_stages"
-    __table_args__ = (UniqueConstraint("part_id", "sequence_order", name="uq_part_stage_order"),)
+    __table_args__ = (
+        UniqueConstraint("part_id", "sequence_order", name="uq_part_stage_order"),
+        UniqueConstraint("item_id", "sequence_order", name="uq_part_stage_item_order"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id", ondelete="CASCADE"), index=True)
+    # Единая модель, пункт 3 — операция маршрута ЛЮБОЙ позиции номенклатуры
+    # (item_id); part_id — только у детали п/ф (у изделия операции без детали).
+    # Таблица пока называется part_stages: на неё ссылаются партии п/ф.
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    part_id: Mapped[int | None] = mapped_column(ForeignKey("parts.id", ondelete="CASCADE"), nullable=True, index=True)
     sequence_order: Mapped[int] = mapped_column()
     code: Mapped[str] = mapped_column(String(50))
     name: Mapped[str] = mapped_column(String(255))
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
 
-    part: Mapped[Part] = relationship(back_populates="stages")
+    part: Mapped[Part | None] = relationship(back_populates="stages")
+    item: Mapped["Item"] = relationship(back_populates="stages")
 
 
 class MaterialSku(Base):

@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import TypesTab from "./nomenclature/TypesTab";
 import ItemPropertiesSection from "./nomenclature/ItemPropertiesSection";
+import RouteEditorModal from "./nomenclature/RouteEditorModal";
 import { useAuth } from "../../auth/AuthContext";
 import { listParts } from "../../api/dictionaries";
 import {
@@ -413,6 +414,8 @@ function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => v
     !!user?.is_superuser ||
     !!user?.permissions.includes("production_tasks.manage") ||
     !!user?.permissions.includes("materials.manage");
+  const canEditRoute = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const [routeOpen, setRouteOpen] = useState(false);
   const cardQuery = useQuery({
     queryKey: ["techcard", item?.id],
     queryFn: () => getTechCard(item!.id),
@@ -441,7 +444,6 @@ function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => v
       extra={
         item?.source_type && (
           <Space>
-            {item.source_type === "part" && <Button onClick={() => navigate("/parts")}>Изменить маршрут</Button>}
             <Button type="primary" onClick={openSource}>
               Открыть карточку
             </Button>
@@ -459,11 +461,18 @@ function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => v
           </section>
           {card.source_type !== "sku" && (
             <section>
-              <Typography.Title level={5}>Маршрут</Typography.Title>
+              <Space style={{ justifyContent: "space-between", width: "100%" }}>
+                <Typography.Title level={5} style={{ margin: 0 }}>
+                  Маршрут
+                </Typography.Title>
+                {canEditRoute && (
+                  <Button size="small" onClick={() => setRouteOpen(true)}>
+                    Изменить маршрут
+                  </Button>
+                )}
+              </Space>
               {card.operations.length === 0 ? (
-                <Typography.Text type="secondary">
-                  {card.source_type === "model" ? "Маршрут изделия появится вместе с заданиями по изделиям." : "Этапы не заданы."}
-                </Typography.Text>
+                <Typography.Text type="secondary">Операции не заданы.</Typography.Text>
               ) : (
                 <ol style={{ margin: 0, paddingLeft: 20 }}>
                   {card.operations.map((o) => (
@@ -522,6 +531,7 @@ function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => v
           </section>
         </Space>
       )}
+      {routeOpen && card && <RouteEditorModal card={card} onClose={() => setRouteOpen(false)} />}
     </Drawer>
   );
 }

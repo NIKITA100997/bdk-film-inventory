@@ -48,6 +48,11 @@ class Item(Base):
 
     kind: Mapped[ItemKind] = relationship()
     type: Mapped["ItemType | None"] = relationship()
+    # Маршрут позиции (пункт 3). У детали п/ф те же строки видны и как
+    # Part.stages — меняются через один из них за раз (services/routes.py).
+    stages: Mapped[list["PartStage"]] = relationship(  # noqa: F821
+        "PartStage", back_populates="item", order_by="PartStage.sequence_order", cascade="all, delete-orphan"
+    )
 
 
 class ItemType(Base):
@@ -174,7 +179,7 @@ def _link_items_and_parts(session: Session, flush_context, instances) -> None:
       • строка BOM модели и строка задания цеха получают ссылку на деталь по
         названию, если ссылки нет или название поменяли (переименование
         самой детали ссылку не рвёт — поэтому и нужна ссылка вместо текста)."""
-    from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Part, Thickness
+    from app.models.dictionaries import Color, Manufacturer, Material, MaterialSku, Part, PartStage, Thickness
     from app.models.production import ProductionTaskLine, ProductModel, ProductModelPart
 
     kinds: dict[str, int] | None = None
@@ -204,6 +209,13 @@ def _link_items_and_parts(session: Session, flush_context, instances) -> None:
                     manufacturer = obj.manufacturer or session.get(Manufacturer, obj.manufacturer_id)
                     name = sku_item_name(material.name, color.name, thickness.value_mm, manufacturer.name)
                     obj.item = Item(kind_id=kid, name=name)
+
+        # Этап, добавленный к детали, — операция её позиции номенклатуры.
+        for obj in list(session.new):
+            if isinstance(obj, PartStage) and obj.item_id is None:
+                part = obj.part or (session.get(Part, obj.part_id) if obj.part_id else None)
+                if part is not None:
+                    obj.item = part.item or session.get(Item, part.item_id)
 
         for obj in list(session.deleted):
             if isinstance(obj, (Part, ProductModel, MaterialSku)) and obj.item_id is not None:
