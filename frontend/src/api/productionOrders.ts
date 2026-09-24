@@ -64,8 +64,9 @@ export interface OrderInput {
   lines: { item_id: number; quantity: number; note: string | null }[];
 }
 
-export const listProductionOrders = async (includeClosed: boolean): Promise<ProductionOrder[]> =>
-  (await apiClient.get<ProductionOrder[]>("/production-orders", { params: { include_closed: includeClosed } })).data;
+export const listProductionOrders = async (includeClosed: boolean, itemId?: number): Promise<ProductionOrder[]> =>
+  (await apiClient.get<ProductionOrder[]>("/production-orders", { params: { include_closed: includeClosed, item_id: itemId } }))
+    .data;
 
 export const createProductionOrder = async (payload: OrderInput): Promise<ProductionOrder> =>
   (await apiClient.post<ProductionOrder>("/production-orders", payload)).data;

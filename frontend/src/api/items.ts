@@ -99,6 +99,12 @@ export interface TechCard {
     operation_name: string | null;
   }[];
   used_in: { name: string; source_type: "model" | "part" | "item"; source_id: number; qty_per_unit: number | null; item_id: number | null }[];
+  // Плёнка: группа для складской части карточки.
+  material: string | null;
+  color: string | null;
+  thickness: number | null;
+  is_active: boolean;
+  type_name: string | null;
 }
 
 export const getTechCard = async (itemId: number): Promise<TechCard> =>
@@ -115,3 +121,7 @@ export const setItemComponents = async (
   itemId: number,
   rows: { component_item_id: number; qty_per_unit: number; stage_id: number | null }[],
 ): Promise<TechCard> => (await apiClient.put<TechCard>(`/items/${itemId}/components`, rows)).data;
+
+/** Позиция номенклатуры за деталью / плёнкой / моделью — для перехода в карточку позиции. */
+export const lookupItem = async (params: { part_id?: number; sku_id?: number; model_id?: number }): Promise<number> =>
+  (await apiClient.get<{ item_id: number }>("/items/lookup", { params })).data.item_id;

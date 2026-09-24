@@ -179,9 +179,15 @@ def _write_lines(db: Session, order: ProductionOrder, lines: list[OrderLineIn]) 
 
 @router.get("/production-orders", response_model=list[OrderOut])
 def list_orders(
-    include_closed: bool = Query(default=False), db: Session = Depends(get_db), user: User = Depends(view_orders)
+    include_closed: bool = Query(default=False),
+    item_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(view_orders),
 ) -> list[OrderOut]:
     q = db.query(ProductionOrder)
+    if item_id is not None:
+        # Заказы, где есть позиция (для вкладки «Заказы» карточки позиции).
+        q = q.filter(ProductionOrder.lines.any(ProductionOrderLine.item_id == item_id))
     if not include_closed:
         q = q.filter(ProductionOrder.status != ORDER_CLOSED)
     return [_order_out(db, o) for o in q.order_by(ProductionOrder.id.desc())]

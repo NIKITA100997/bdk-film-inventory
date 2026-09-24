@@ -44,7 +44,8 @@ const STATUS_TAG_COLOR: Record<string, string> = {
  * общая история по ВСЕМ им сразу (не по одной партии за раз, как
  * "карточка партии" в PartUnits.tsx). Не пункт меню — открывается кликом
  * по строке в "Остатки п/ф" (тот же приём, что карточка материала). */
-export default function PartCard() {
+/** partId — когда карточка встроена в карточку позиции (ItemCard). */
+export default function PartCard({ partId: partIdProp }: { partId?: number } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -54,7 +55,7 @@ export default function PartCard() {
   // право, что уже отдельно от part_units.manage в "Учёт п/ф" (Вернуть на
   // склад/Скорректировать — обычно только админ/начальник склада).
   const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("part_units.correct");
-  const partId = (location.state as { partId?: number } | null)?.partId;
+  const partId = partIdProp ?? (location.state as { partId?: number } | null)?.partId;
 
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const part = partsQuery.data?.find((p) => p.id === partId);

@@ -33,7 +33,7 @@ import ProductionOrders from "./pages/desktop/production/ProductionOrders";
 import Nomenclature from "./pages/desktop/Nomenclature";
 import PartUnits from "./pages/desktop/production/PartUnits";
 import PartInventory from "./pages/desktop/production/PartInventory";
-import PartCard from "./pages/desktop/production/PartCard";
+import ItemCard, { PartCardRedirect } from "./pages/desktop/ItemCard";
 import AreaAdmin from "./pages/desktop/AreaAdmin";
 import DeletionRequests from "./pages/desktop/DeletionRequests";
 
@@ -195,10 +195,18 @@ export default function AppRoutes() {
           }
         />
         <Route
+          path="/item/:id"
+          element={
+            <RequirePermission permissions={["materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"]}>
+              <ItemCard />
+            </RequirePermission>
+          }
+        />
+        <Route
           path="/part-card"
           element={
             <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
-              <PartCard />
+              <PartCardRedirect />
             </RequirePermission>
           }
         />

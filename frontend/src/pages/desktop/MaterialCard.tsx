@@ -47,7 +47,7 @@ import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import type { Dayjs } from "dayjs";
 
-interface MaterialCardPrefill {
+export interface MaterialCardPrefill {
   material?: string;
   color?: string;
   // Раздел про толщину внутри карточки материала (не отдельным
@@ -300,7 +300,9 @@ function MergeSkuModal({ sku, allSkus, onClose }: { sku: MaterialSku; allSkus: M
   );
 }
 
-export default function MaterialCard() {
+/** prefill — когда карточка встроена в карточку позиции (ItemCard), а не
+ * открыта переходом со state. */
+export default function MaterialCard({ prefill: prefillProp }: { prefill?: MaterialCardPrefill } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -349,7 +351,7 @@ export default function MaterialCard() {
   const qc = useQueryClient();
 
   useEffect(() => {
-    const prefill = location.state as MaterialCardPrefill | null;
+    const prefill = prefillProp ?? (location.state as MaterialCardPrefill | null);
     if (!prefill?.material || !prefill.color || groupKey !== null) return;
     // Приходим сюда по клику из агрегатной строки "Материалы"/"Стеллажи"/
     // карточки единицы — материал+цвет уже однозначно задают группу, ждать
@@ -357,7 +359,7 @@ export default function MaterialCard() {
     // они есть от старых вызывающих, больше не участвуют в выборе —
     // карточка теперь на всю группу сразу, не на одну толщину/производителя).
     setGroupKey({ material: prefill.material, color: prefill.color });
-  }, [location.state, groupKey]);
+  }, [location.state, groupKey, prefillProp]);
 
   const skusInGroup = useMemo(() => {
     if (!groupKey) return [];

@@ -450,7 +450,39 @@ class TechCardOut(BaseModel):
     operations: list[TechOperation]
     inputs: list[TechInput]
     used_in: list[TechUsage]
+    # Плёнка: группа для складской части карточки (материал + цвет).
+    material: str | None = None
+    color: str | None = None
+    thickness: float | None = None
+    is_active: bool = True
+    type_name: str | None = None
 
+
+
+class ItemLookupOut(BaseModel):
+    item_id: int
+
+
+@router.get("/items/lookup", response_model=ItemLookupOut)
+def lookup_item(
+    part_id: int | None = Query(default=None),
+    sku_id: int | None = Query(default=None),
+    model_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    user=Depends(view_items),
+) -> ItemLookupOut:
+    """Позиция номенклатуры за деталью / позицией плёнки / моделью — чтобы
+    прежние переходы («открыть деталь») вели в одну карточку позиции."""
+    item_id = None
+    if part_id is not None:
+        item_id = db.query(Part.item_id).filter(Part.id == part_id).scalar()
+    elif sku_id is not None:
+        item_id = db.query(MaterialSku.item_id).filter(MaterialSku.id == sku_id).scalar()
+    elif model_id is not None:
+        item_id = db.query(ProductModel.item_id).filter(ProductModel.id == model_id).scalar()
+    if item_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    return ItemLookupOut(item_id=item_id)
 
 
 @router.get("/items/{item_id}/techcard", response_model=TechCardOut)
@@ -552,9 +584,15 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
             )
         )
 
+    active = (
+        part.is_active if part is not None else model.is_active if model is not None else sku.is_active if sku is not None else item.is_active
+    )
     return TechCardOut(
         item_id=item.id, name=name, kind_code=kind.code, kind_name=kind.name, source_type=source_type,
         source_id=source_id, operations=operations, inputs=inputs, used_in=used_in,
+        material=sku.material.name if sku is not None else None, color=sku.color.name if sku is not None else None,
+        thickness=float(sku.thickness.value_mm) if sku is not None else None, is_active=active,
+        type_name=item.type.name if item.type else None,
     )
 
 
