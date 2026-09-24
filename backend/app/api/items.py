@@ -123,10 +123,12 @@ def list_items(
         add(m.item_id, m.name, m.is_active, "model", m.id)
     for item in items.values():
         if item.id not in seen:
-            kind = kinds[item.kind_id]
+            # Позиция без своей таблицы (ГП по типу и т.п.). Не называть
+            # переменную kind — это параметр фильтра выше по функции.
+            item_kind = kinds[item.kind_id]
             out.append(
                 ItemOut(
-                    id=item.id, kind_code=kind.code, kind_name=kind.name, unit=kind.unit, name=item.name,
+                    id=item.id, kind_code=item_kind.code, kind_name=item_kind.name, unit=item_kind.unit, name=item.name,
                     code_1c=item.code_1c, is_active=item.is_active, source_type=None, source_id=None,
                 )
             )
