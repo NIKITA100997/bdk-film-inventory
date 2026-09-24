@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Checkbox, Input, Modal, Popconfirm, Segmented, Select, Space, Tabs, Tag, Typography, message } from "antd";
+import { Button, Card, Checkbox, Drawer, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tabs, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { useAuth } from "../../auth/AuthContext";
 import { listParts } from "../../api/dictionaries";
 import {
   createSizeParts,
+  getTechCard,
   linkLines,
   listItemKinds,
   listItems,
@@ -45,7 +46,6 @@ export default function Nomenclature() {
 }
 
 function ItemsTab() {
-  const navigate = useNavigate();
   const [kind, setKind] = useState<string>("all");
   const [q, setQ] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
@@ -70,18 +70,14 @@ function ItemsTab() {
     return c;
   }, [itemsQuery.data]);
 
-  const open = (i: Item) => {
-    if (i.source_type === "sku") navigate("/materials", { state: { material: i.material, color: i.color, thickness: i.thickness } });
-    else if (i.source_type === "part") navigate("/part-card", { state: { partId: i.source_id } });
-    else if (i.source_type === "model") navigate("/product-models");
-  };
+  const [card, setCard] = useState<Item | null>(null);
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Card>
         <Typography.Paragraph type="secondary">
-          Все позиции в одном списке: плёнка, п/ф, изделия. Вид задаёт, в чём позиция учитывается. Правка — пока в
-          привычных справочниках (клик по строке открывает карточку). Код 1С заполним при сопоставлении с 1С.
+          Все позиции в одном списке: плёнка, п/ф, изделия. Вид задаёт, в чём позиция учитывается. Клик по строке —
+          техкарта: маршрут, состав и где используется. Правка — пока в привычных справочниках. Код 1С заполним при сопоставлении с 1С.
         </Typography.Paragraph>
         <Space wrap size={[12, 12]}>
           <Segmented
@@ -107,7 +103,7 @@ function ItemsTab() {
         dataSource={rows}
         pagination={{ pageSize: 50 }}
         scroll={{ x: "max-content" }}
-        onRow={(i) => ({ onClick: () => open(i), style: { cursor: i.source_type ? "pointer" : undefined } })}
+        onRow={(i) => ({ onClick: () => setCard(i), style: { cursor: "pointer" } })}
         columns={[
           { title: "Наименование", dataIndex: "name" },
           { title: "Вид", render: (_, i) => <Tag color={KIND_COLOR[i.kind_code]}>{i.kind_name}</Tag> },
@@ -116,6 +112,7 @@ function ItemsTab() {
           { title: "Статус", render: (_, i) => (i.is_active ? <Tag color="green">активна</Tag> : <Tag>архив</Tag>) },
         ]}
       />
+      <TechCardDrawer item={card} onClose={() => setCard(null)} />
     </Space>
   );
 }
@@ -400,5 +397,119 @@ function SizePartsModal({ onClose }: { onClose: () => void }) {
         />
       </Space>
     </Modal>
+  );
+}
+
+/** Техкарта позиции — одна карточка на любой вид: маршрут по участкам,
+ * спецификация (из чего состоит) и где используется. Правка пока в
+ * привычных справочниках — кнопки ведут туда. */
+function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => void }) {
+  const navigate = useNavigate();
+  const cardQuery = useQuery({
+    queryKey: ["techcard", item?.id],
+    queryFn: () => getTechCard(item!.id),
+    enabled: !!item,
+  });
+  const card = cardQuery.data;
+  const openSource = () => {
+    if (!item) return;
+    if (item.source_type === "sku") navigate("/materials", { state: { material: item.material, color: item.color, thickness: item.thickness } });
+    else if (item.source_type === "part") navigate("/part-card", { state: { partId: item.source_id } });
+    else if (item.source_type === "model") navigate("/product-models");
+  };
+  const qty = (v: number | null, unit: string) => (v == null ? "—" : `${Number(v.toFixed(3))} ${unit}`);
+
+  return (
+    <Drawer
+      open={!!item}
+      onClose={onClose}
+      width={640}
+      title={
+        <Space direction="vertical" size={0}>
+          <span>{item?.name}</span>
+          {item && <Tag color={KIND_COLOR[item.kind_code]}>{item.kind_name}</Tag>}
+        </Space>
+      }
+      extra={
+        item?.source_type && (
+          <Space>
+            {item.source_type === "part" && <Button onClick={() => navigate("/parts")}>Изменить маршрут</Button>}
+            <Button type="primary" onClick={openSource}>
+              Открыть карточку
+            </Button>
+          </Space>
+        )
+      }
+    >
+      {cardQuery.isLoading || !card ? (
+        <Typography.Text type="secondary">Загрузка…</Typography.Text>
+      ) : (
+        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+          {card.source_type !== "sku" && (
+            <section>
+              <Typography.Title level={5}>Маршрут</Typography.Title>
+              {card.operations.length === 0 ? (
+                <Typography.Text type="secondary">
+                  {card.source_type === "model" ? "Маршрут изделия появится вместе с заданиями по изделиям." : "Этапы не заданы."}
+                </Typography.Text>
+              ) : (
+                <ol style={{ margin: 0, paddingLeft: 20 }}>
+                  {card.operations.map((o) => (
+                    <li key={o.sequence_order}>
+                      {o.name}
+                      {o.area_name && o.area_name !== o.name && <Typography.Text type="secondary"> — {o.area_name}</Typography.Text>}
+                      {!o.area && <Tag color="warning" style={{ marginLeft: 8 }}>участок не задан</Tag>}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          )}
+          {card.source_type !== "sku" && (
+            <section>
+              <Typography.Title level={5}>Состав на 1 шт</Typography.Title>
+              {card.inputs.length === 0 ? (
+                <Typography.Text type="secondary">Состав не задан.</Typography.Text>
+              ) : (
+                <Table
+                  size="small"
+                  rowKey={(_, i) => String(i)}
+                  pagination={false}
+                  dataSource={card.inputs}
+                  columns={[
+                    {
+                      title: "Что",
+                      render: (_, r) => (
+                        <Space size={4} wrap>
+                          <span>{r.name}</span>
+                          {card.source_type === "model" && !r.part_id && <Tag color="warning">без позиции</Tag>}
+                        </Space>
+                      ),
+                    },
+                    { title: "Кол-во", render: (_, r) => qty(r.qty_per_unit, r.unit) },
+                    { title: "", render: (_, r) => <Typography.Text type="secondary">{r.note}</Typography.Text> },
+                  ]}
+                />
+              )}
+            </section>
+          )}
+          <section>
+            <Typography.Title level={5}>Где используется</Typography.Title>
+            {card.used_in.length === 0 ? (
+              <Typography.Text type="secondary">Нигде в составах не указана.</Typography.Text>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                {card.used_in.map((u) => (
+                  <li key={`${u.source_type}${u.source_id}`}>
+                    {u.name}
+                    <Typography.Text type="secondary"> — {qty(u.qty_per_unit, card.source_type === "sku" ? "м на шт" : "шт")}</Typography.Text>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </Space>
+      )}
+    </Drawer>
   );
 }

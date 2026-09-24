@@ -75,5 +75,20 @@ export const createSizeParts = async (payload: {
 }): Promise<{ created: number; linked_existing: number; bom_lines: number; task_lines: number }> =>
   (await apiClient.post("/items/size-parts", payload)).data;
 
-export const unlinkLines =async (payload: { part_name: string; part_id: number }): Promise<{ bom_lines: number; task_lines: number }> =>
+export const unlinkLines = async (payload: { part_name: string; part_id: number }): Promise<{ bom_lines: number; task_lines: number }> =>
   (await apiClient.post<{ bom_lines: number; task_lines: number }>("/items/unlink-lines", payload)).data;
+
+export interface TechCard {
+  item_id: number;
+  name: string;
+  kind_code: string;
+  kind_name: string;
+  source_type: "sku" | "part" | "model" | null;
+  source_id: number | null;
+  operations: { sequence_order: number; name: string; area: string | null; area_name: string | null }[];
+  inputs: { name: string; part_id: number | null; qty_per_unit: number | null; unit: string; note: string | null }[];
+  used_in: { name: string; source_type: "model" | "part"; source_id: number; qty_per_unit: number | null }[];
+}
+
+export const getTechCard = async (itemId: number): Promise<TechCard> =>
+  (await apiClient.get<TechCard>(`/items/${itemId}/techcard`)).data;

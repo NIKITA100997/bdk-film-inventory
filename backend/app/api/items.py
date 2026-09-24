@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import require_permission
 from app.db.session import get_db
+from app.models.areas import Area
 from app.models.dictionaries import MaterialSku, Part
 from app.models.items import Item, ItemKind, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
@@ -389,3 +390,112 @@ def create_size_parts(payload: SizeCreateIn, db: Session = Depends(get_db), user
         task += len(g["task"])
     db.commit()
     return SizeCreateOut(created=created, linked_existing=linked_existing, bom_lines=bom, task_lines=task)
+
+
+class TechOperation(BaseModel):
+    sequence_order: int
+    name: str
+    area: str | None
+    area_name: str | None
+
+
+class TechInput(BaseModel):
+    name: str
+    part_id: int | None  # вход — позиция п/ф (None — строка ещё не связана)
+    qty_per_unit: float | None
+    unit: str
+    note: str | None = None
+
+
+class TechUsage(BaseModel):
+    name: str
+    source_type: str  # "model" | "part"
+    source_id: int
+    qty_per_unit: float | None
+
+
+class TechCardOut(BaseModel):
+    item_id: int
+    name: str
+    kind_code: str
+    kind_name: str
+    source_type: str | None
+    source_id: int | None
+    operations: list[TechOperation]
+    inputs: list[TechInput]
+    used_in: list[TechUsage]
+
+
+@router.get("/items/{item_id}/techcard", response_model=TechCardOut)
+def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_items)) -> TechCardOut:
+    """Техкарта позиции (этап 2 единой модели) — одна карточка на любой вид:
+    маршрут (операции по участкам), спецификация (из чего состоит) и где
+    используется. Данные пока живут в прежних таблицах (этапы детали, BOM
+    модели, плёнка детали) — здесь они собраны в одно место."""
+    item = db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    kind = db.get(ItemKind, item.kind_id)
+    area_names = {a.code: a.name for a in db.query(Area)}
+    name, source_type, source_id = item.name, None, None
+    operations: list[TechOperation] = []
+    inputs: list[TechInput] = []
+    used_in: list[TechUsage] = []
+
+    part = db.query(Part).filter(Part.item_id == item_id).first()
+    model = db.query(ProductModel).filter(ProductModel.item_id == item_id).first() if part is None else None
+    sku = (
+        db.query(MaterialSku).filter(MaterialSku.item_id == item_id).first() if part is None and model is None else None
+    )
+    if part is not None:
+        name, source_type, source_id = part.name, "part", part.id
+        operations = [
+            TechOperation(sequence_order=s.sequence_order, name=s.name, area=s.area, area_name=area_names.get(s.area))
+            for s in part.stages
+        ]
+        # Плёнка на штуку: штрипс шириной strip_width_mm длиной length_m.
+        film = part.default_material_sku
+        inputs.append(
+            TechInput(
+                name=(
+                    sku_item_name(film.material.name, film.color.name, film.thickness.value_mm, film.manufacturer.name)
+                    if film
+                    else "Плёнка — выбирается в задании"
+                ),
+                part_id=None,
+                qty_per_unit=float(part.length_m),
+                unit="м",
+                note=f"штрипс {_fmt(part.strip_width_mm)} мм" if part.strip_width_mm else None,
+            )
+        )
+        for bom, m in (
+            db.query(ProductModelPart, ProductModel)
+            .join(ProductModel, ProductModel.id == ProductModelPart.product_model_id)
+            .filter(ProductModelPart.part_id == part.id)
+            .order_by(ProductModel.name)
+        ):
+            used_in.append(TechUsage(name=m.name, source_type="model", source_id=m.id, qty_per_unit=float(bom.qty_per_unit)))
+    elif model is not None:
+        name, source_type, source_id = model.name, "model", model.id
+        linked = {p.id: p.name for p in db.query(Part).filter(Part.id.in_([b.part_id for b in model.parts if b.part_id]))}
+        for b in model.parts:
+            inputs.append(
+                TechInput(
+                    name=linked.get(b.part_id) or b.part_name or "—",
+                    part_id=b.part_id,
+                    qty_per_unit=float(b.qty_per_unit),
+                    unit="шт",
+                    note=f"{_fmt(b.width_mm)}×{_fmt(round(float(b.length_m) * 1000, 1))} мм, {area_names.get(b.area, b.area)}",
+                )
+            )
+    elif sku is not None:
+        name, source_type, source_id = (
+            sku_item_name(sku.material.name, sku.color.name, sku.thickness.value_mm, sku.manufacturer.name), "sku", sku.id
+        )
+        for p in db.query(Part).filter(Part.default_material_sku_id == sku.id).order_by(Part.name):
+            used_in.append(TechUsage(name=p.name, source_type="part", source_id=p.id, qty_per_unit=float(p.length_m)))
+
+    return TechCardOut(
+        item_id=item.id, name=name, kind_code=kind.code, kind_name=kind.name, source_type=source_type,
+        source_id=source_id, operations=operations, inputs=inputs, used_in=used_in,
+    )
