@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form, Checkbox, Radio } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import ResponsiveTable from "../../../components/ResponsiveTable";
@@ -87,7 +88,8 @@ const totalDefect = (row: ReportRow) => row.defects.reduce((sum, d) => sum + d.q
 export default function MasterQuickReportPanel({ area }: { area: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const requiresRoll = area === "okutka_tsargovykh";
+  const areasForRollQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const requiresRoll = areaRequiresRoll(areasForRollQuery.data, area);
   // Рулон — только у строки с плёнкой (строка-операция без плёнки его не требует).
   const rowRequiresRoll = (r: ReportRow) => requiresRoll && r.line.material !== null;
   // Раздел про связь этапов с участками — «Партия п/ф» показывается для

@@ -24,7 +24,7 @@ import {
 import { listMaterialSkus } from "../../../api/dictionaries";
 import { skuLabel } from "../../../api/units";
 import { listUsers } from "../../../api/users";
-import { listAreas } from "../../../api/areas";
+import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
@@ -454,7 +454,7 @@ export default function TasksTab() {
           taskId={reportTarget.taskId}
           line={reportTarget.line}
           requiresDailyPlan={areaRequiresDailyPlan(reportTarget.area)}
-          requiresRoll={reportTarget.area === "okutka_tsargovykh" && reportTarget.line.material !== null}
+          requiresRoll={areaRequiresRoll(areasQuery.data, reportTarget.area) && reportTarget.line.material !== null}
           area={reportTarget.area}
           onClose={() => setReportTarget(null)}
         />

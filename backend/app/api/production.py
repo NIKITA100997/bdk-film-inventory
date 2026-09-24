@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT, PART_UNIT_AUTO_WRITE_OFF_REASON_CODE
+from app.core.constants import PART_UNIT_AUTO_WRITE_OFF_REASON_CODE
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.areas import Area
@@ -1060,7 +1060,7 @@ def _build_task_line_report(
                 )
         if not (status_ok and line_ok):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Рулон не найден среди выданных на эту строку")
-    elif line.task.area == AREA_REQUIRES_ROLL_ON_REPORT and line.material_id is not None:
+    elif area is not None and area.requires_roll_on_report and line.material_id is not None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к рулону")
     # Раздел про физический учёт деталей (пилот: окутка царговых) —
     # необязательно (в отличие от рулона выше): не у каждой детали ещё

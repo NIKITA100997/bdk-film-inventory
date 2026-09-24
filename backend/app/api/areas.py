@@ -43,6 +43,7 @@ def create_area(payload: AreaCreate, db: Session = Depends(get_db), user=Depends
         is_active=True,
         site_id=payload.site_id,
         requires_daily_plan=payload.requires_daily_plan,
+        requires_roll_on_report=payload.requires_roll_on_report,
     )
     db.add(area)
     db.commit()
@@ -66,6 +67,8 @@ def update_area(code: str, payload: AreaUpdate, db: Session = Depends(get_db), u
         area.site_id = payload.site_id
     if payload.requires_daily_plan is not None:
         area.requires_daily_plan = payload.requires_daily_plan
+    if payload.requires_roll_on_report is not None:
+        area.requires_roll_on_report = payload.requires_roll_on_report
     db.commit()
     db.refresh(area)
     return area

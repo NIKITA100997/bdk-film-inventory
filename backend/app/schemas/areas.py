@@ -13,12 +13,16 @@ class AreaOut(BaseModel):
     # Раздел про отключение распределения по дням — False у участков,
     # которые планируются просто "на участок", без разбивки по дням.
     requires_daily_plan: bool = True
+    # Отчёт по строке с плёнкой — только с рулоном; возврат рулона — только
+    # после отчёта.
+    requires_roll_on_report: bool = False
 
 
 class AreaCreate(BaseModel):
     name: str
     site_id: int | None = None
     requires_daily_plan: bool = True
+    requires_roll_on_report: bool = False
 
 
 class AreaUpdate(BaseModel):
@@ -26,3 +30,4 @@ class AreaUpdate(BaseModel):
     is_active: bool | None = None
     site_id: int | None = None
     requires_daily_plan: bool | None = None
+    requires_roll_on_report: bool | None = None

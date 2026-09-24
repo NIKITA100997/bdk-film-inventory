@@ -7,9 +7,10 @@ from sqlalchemy import false, func, or_
 from sqlalchemy.orm import Query, Session, joinedload
 
 from app.api.production import view_tasks
-from app.core.constants import AREA_REQUIRES_ROLL_ON_REPORT, MIN_ROLL_WIDTH_MM, WIDTH_TOLERANCE_MM
+from app.core.constants import MIN_ROLL_WIDTH_MM, WIDTH_TOLERANCE_MM
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
+from app.models.areas import Area
 from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.cutting_operations import CuttingOperation
 from app.models.dictionaries import Color, Material, MaterialSku, Thickness
@@ -1543,7 +1544,7 @@ def return_unit(
     очищается; окончательное место на стеллаже задаётся позже через
     /units/{id}/place.
 
-    Раздел про сверку рулонов на окутке — для AREA_REQUIRES_ROLL_ON_REPORT
+    Раздел про сверку рулонов на окутке — для участка с Area.requires_roll_on_report
     материал не должен "тихо" уйти с участка без единого отчёта о
     производстве (так на живых данных накопились рулоны, которые вернули,
     но выпуск по ним так и не завели): возврат требует хотя бы одной строки
@@ -1561,7 +1562,8 @@ def return_unit(
     unit = _get_storable_unit(db, unit_id)
     if unit.status != UnitStatus.VYDAN_UCHASTKU:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Вернуть можно только единицу, выданную участку")
-    if unit.area == AREA_REQUIRES_ROLL_ON_REPORT and unit.production_task_line_id is not None:
+    unit_area = db.get(Area, unit.area) if unit.area else None
+    if unit_area is not None and unit_area.requires_roll_on_report and unit.production_task_line_id is not None:
         has_report = (
             db.query(ProductionTaskLineReport.id)
             .filter(ProductionTaskLineReport.material_unit_id == unit_id)

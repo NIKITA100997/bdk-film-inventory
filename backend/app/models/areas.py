@@ -33,3 +33,7 @@ class Area(Base):
     # а на выдаче такие строки не помечаются как "не распределено"
     # (это нормальное для них состояние, а не сигнал "забыли спланировать").
     requires_daily_plan: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # Единая модель, пункт 5 — участок как рабочий центр: отчёт о
+    # производстве по строке с плёнкой обязан указать рулон, а рулон нельзя
+    # вернуть без отчёта (раньше — хардкод кода окутки царговых).
+    requires_roll_on_report: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

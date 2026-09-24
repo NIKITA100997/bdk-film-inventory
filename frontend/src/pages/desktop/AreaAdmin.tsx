@@ -27,9 +27,9 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 export default function AreaAdmin() {
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
-  const [createForm] = Form.useForm<{ name: string; site_id?: number; requires_daily_plan?: boolean }>();
+  const [createForm] = Form.useForm<{ name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean }>();
   const [editing, setEditing] = useState<Area | null>(null);
-  const [editForm] = Form.useForm<{ name: string; site_id?: number; requires_daily_plan?: boolean }>();
+  const [editForm] = Form.useForm<{ name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean }>();
   const [showArchived, setShowArchived] = useState(false);
 
   const [siteCreateOpen, setSiteCreateOpen] = useState(false);
@@ -45,8 +45,8 @@ export default function AreaAdmin() {
   const warehouseLabel = (warehouseId: number) => (warehousesQuery.data ?? []).find((w) => w.id === warehouseId)?.name ?? "—";
 
   const createMutation = useMutation({
-    mutationFn: (v: { name: string; site_id?: number; requires_daily_plan?: boolean }) =>
-      createArea(v.name, v.site_id, v.requires_daily_plan),
+    mutationFn: (v: { name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean }) =>
+      createArea(v.name, v.site_id, v.requires_daily_plan, v.requires_roll_on_report),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["areas"] });
       setCreateOpen(false);
@@ -65,8 +65,13 @@ export default function AreaAdmin() {
   });
 
   const editMutation = useMutation({
-    mutationFn: (v: { name: string; site_id?: number; requires_daily_plan?: boolean }) =>
-      updateArea(editing!.code, { name: v.name, site_id: v.site_id ?? null, requires_daily_plan: v.requires_daily_plan }),
+    mutationFn: (v: { name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean }) =>
+      updateArea(editing!.code, {
+        name: v.name,
+        site_id: v.site_id ?? null,
+        requires_daily_plan: v.requires_daily_plan,
+        requires_roll_on_report: v.requires_roll_on_report,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["areas"] });
       setEditing(null);
@@ -188,6 +193,11 @@ export default function AreaAdmin() {
               render: (v: boolean) => (v ? <Tag color="blue">По дням</Tag> : <Tag>Просто на участок</Tag>),
             },
             {
+              title: "Рулон в отчёте",
+              dataIndex: "requires_roll_on_report",
+              render: (v: boolean) => (v ? <Tag color="orange">Обязателен</Tag> : <Typography.Text type="secondary">—</Typography.Text>),
+            },
+            {
               title: "Статус",
               dataIndex: "is_active",
               render: (v: boolean) => (v ? <Tag color="green">Активен</Tag> : <Tag>В архиве</Tag>),
@@ -204,6 +214,7 @@ export default function AreaAdmin() {
                         name: a.name,
                         site_id: a.site_id ?? undefined,
                         requires_daily_plan: a.requires_daily_plan,
+                        requires_roll_on_report: a.requires_roll_on_report,
                       });
                     }}
                   >
@@ -243,6 +254,13 @@ export default function AreaAdmin() {
             Если выключить — задания участка планируются просто на участок, без «Распределить»/«План на день»,
             и на выдаче не помечаются как «не распределено».
           </Typography.Paragraph>
+          <Form.Item name="requires_roll_on_report" valuePropName="checked">
+            <Checkbox>Рулон обязателен в отчёте о производстве</Checkbox>
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+            Отчёт по строке с плёнкой — только с указанием рулона, а рулон нельзя вернуть без отчёта (как на окутке
+            царговых). Строк без плёнки не касается.
+          </Typography.Paragraph>
           <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
             Создать
           </Button>
@@ -267,6 +285,13 @@ export default function AreaAdmin() {
           <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
             Если выключить — задания участка планируются просто на участок, без «Распределить»/«План на день»,
             и на выдаче не помечаются как «не распределено».
+          </Typography.Paragraph>
+          <Form.Item name="requires_roll_on_report" valuePropName="checked">
+            <Checkbox>Рулон обязателен в отчёте о производстве</Checkbox>
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+            Отчёт по строке с плёнкой — только с указанием рулона, а рулон нельзя вернуть без отчёта (как на окутке
+            царговых). Строк без плёнки не касается.
           </Typography.Paragraph>
           <Button type="primary" htmlType="submit" block loading={editMutation.isPending}>
             Сохранить

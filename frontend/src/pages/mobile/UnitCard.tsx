@@ -40,7 +40,7 @@ import {
 import { suggestLocation, listWarehouses } from "../../api/storage";
 import { addUnitToTransfer } from "../../api/warehouseTransfers";
 import { listUsers } from "../../api/users";
-import { listAreas } from "../../api/areas";
+import { areaRequiresRoll, listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { listProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../api/production";
 import QrScanButton from "../../components/QrScanButton";
@@ -830,7 +830,7 @@ export default function UnitCard() {
           taskId={reportTarget.taskId}
           line={reportTarget.line}
           requiresDailyPlan={areasQuery.data?.find((a) => a.code === reconciliationQuery.data?.task_area)?.requires_daily_plan ?? false}
-          requiresRoll={reconciliationQuery.data?.task_area === "okutka_tsargovykh"}
+          requiresRoll={areaRequiresRoll(areasQuery.data, reconciliationQuery.data?.task_area)}
           area={reconciliationQuery.data?.task_area ?? undefined}
           onClose={() => {
             setReportTarget(null);

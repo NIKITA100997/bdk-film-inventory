@@ -26,7 +26,9 @@ import ReportModal from "./ReportModal";
 // заданию): десятки уже выданных/возвращённых рулонов без привязки к
 // заданию или без единого отчёта о производстве. Один список вместо трёх,
 // с точечными действиями, чтобы дозаполнить связи задним числом.
-const AREA = "okutka_tsargovykh";
+// Участок сверки — первый с настройкой «рулон обязателен в отчёте»
+// (единая модель, п.5); пока такой один — окутка царговых.
+const DEFAULT_ROLL_AREA = "okutka_tsargovykh";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -61,12 +63,13 @@ export default function RollReconciliationTab() {
   const [writeOffTarget, setWriteOffTarget] = useState<ReconciliationRow | null>(null);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
 
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const AREA = areasQuery.data?.find((a) => a.requires_roll_on_report && a.is_active)?.code ?? DEFAULT_ROLL_AREA;
   const reconciliationQuery = useQuery({
     queryKey: ["units-reconciliation", AREA],
     queryFn: () => getReconciliation(AREA),
   });
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
-  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "warehouse"],
     queryFn: () => listWriteOffReasons("warehouse"),
@@ -75,7 +78,7 @@ export default function RollReconciliationTab() {
   const areaLabel = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : "—");
   const areaTasks = useMemo(
     () => (tasksQuery.data ?? []).filter((t) => t.area === AREA && t.is_active),
-    [tasksQuery.data],
+    [tasksQuery.data, AREA],
   );
   const findLine = (taskLineId: number): { task: ProductionTask; line: ProductionTaskLine } | null => {
     for (const t of tasksQuery.data ?? []) {

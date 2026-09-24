@@ -4,7 +4,7 @@ import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { lineFilmLabel, listProductionTasks, type ProductionTaskLine } from "../../../api/production";
-import { listAreas } from "../../../api/areas";
+import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import ReportModal from "./ReportModal";
 import MasterQuickReportPanel from "./MasterQuickReportPanel";
@@ -163,7 +163,7 @@ export default function DailyPlanTab() {
           taskId={reportTarget.taskId}
           line={reportTarget.line}
           presetAssignmentId={reportTarget.assignmentId}
-          requiresRoll={reportTarget.area === "okutka_tsargovykh"}
+          requiresRoll={areaRequiresRoll(areasQuery.data, reportTarget.area) && reportTarget.line.material !== null}
           area={reportTarget.area}
           onClose={() => setReportTarget(null)}
         />
