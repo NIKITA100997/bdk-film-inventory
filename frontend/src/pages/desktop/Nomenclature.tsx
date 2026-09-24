@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { Button, Card, Checkbox, Drawer, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tabs, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import TypesTab from "./nomenclature/TypesTab";
+import ItemPropertiesSection from "./nomenclature/ItemPropertiesSection";
 import { useAuth } from "../../auth/AuthContext";
 import { listParts } from "../../api/dictionaries";
 import {
@@ -40,6 +42,7 @@ export default function Nomenclature() {
         { key: "items", label: "Номенклатура", children: <ItemsTab /> },
         { key: "unlinked", label: "Строки без детали", children: <UnlinkedTab /> },
         { key: "manual", label: "Связанные вручную", children: <ManualLinksTab /> },
+        { key: "types", label: "Типы и свойства", children: <TypesTab /> },
       ]}
     />
   );
@@ -405,6 +408,11 @@ function SizePartsModal({ onClose }: { onClose: () => void }) {
  * привычных справочниках — кнопки ведут туда. */
 function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => void }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canEditTypes =
+    !!user?.is_superuser ||
+    !!user?.permissions.includes("production_tasks.manage") ||
+    !!user?.permissions.includes("materials.manage");
   const cardQuery = useQuery({
     queryKey: ["techcard", item?.id],
     queryFn: () => getTechCard(item!.id),
@@ -445,6 +453,10 @@ function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => v
         <Typography.Text type="secondary">Загрузка…</Typography.Text>
       ) : (
         <Space direction="vertical" size="large" style={{ width: "100%" }}>
+          <section>
+            <Typography.Title level={5}>Тип и свойства</Typography.Title>
+            <ItemPropertiesSection itemId={card.item_id} kindCode={card.kind_code} canEdit={canEditTypes} />
+          </section>
           {card.source_type !== "sku" && (
             <section>
               <Typography.Title level={5}>Маршрут</Typography.Title>
