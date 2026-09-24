@@ -197,3 +197,57 @@ def link_unlinked_lines(payload: LinkLinesIn, db: Session = Depends(get_db), use
                 counts[label] += 1
     db.commit()
     return LinkLinesOut(bom_lines=counts["bom"], task_lines=counts["task"])
+
+
+class ManualLinkGroup(BaseModel):
+    part_name: str
+    part_id: int
+    linked_part_name: str
+    bom_lines: int
+    task_lines: int
+
+
+@router.get("/items/manual-links", response_model=list[ManualLinkGroup])
+def list_manual_links(db: Session = Depends(get_db), user=Depends(view_items)) -> list[ManualLinkGroup]:
+    """Связи, сделанные вручную кнопкой «Связать»: название в строке не
+    совпадает с названием детали. Связи по совпадающему названию система
+    ставит сама — их здесь нет, снимать их незачем."""
+    parts = {p.id: p for p in db.query(Part)}
+    groups: dict[tuple[str, int], dict] = {}
+    for model, label in ((ProductModelPart, "bom"), (ProductionTaskLine, "task")):
+        for name, part_id in db.query(model.part_name, model.part_id).filter(
+            model.part_name.isnot(None), model.part_id.isnot(None)
+        ):
+            part = parts.get(part_id)
+            if part is None or normalize_name(part.name) == normalize_name(name):
+                continue
+            g = groups.setdefault(
+                (normalize_name(name), part_id),
+                {"part_name": name, "part_id": part_id, "linked_part_name": part.name, "bom": 0, "task": 0},
+            )
+            g[label] += 1
+    return sorted(
+        (
+            ManualLinkGroup(
+                part_name=g["part_name"], part_id=g["part_id"], linked_part_name=g["linked_part_name"],
+                bom_lines=g["bom"], task_lines=g["task"],
+            )
+            for g in groups.values()
+        ),
+        key=lambda g: g.part_name.lower(),
+    )
+
+
+@router.post("/items/unlink-lines", response_model=LinkLinesOut)
+def unlink_lines(payload: LinkLinesIn, db: Session = Depends(get_db), user=Depends(link_lines)) -> LinkLinesOut:
+    """Снять ручную связь: строки с этим названием, привязанные к этой детали,
+    снова без детали (отчёты по ним перестанут двигать её партии)."""
+    key = normalize_name(payload.part_name)
+    counts = {"bom": 0, "task": 0}
+    for model, label in ((ProductModelPart, "bom"), (ProductionTaskLine, "task")):
+        for line in db.query(model).filter(model.part_id == payload.part_id, model.part_name.isnot(None)):
+            if normalize_name(line.part_name) == key:
+                line.part_id = None
+                counts[label] += 1
+    db.commit()
+    return LinkLinesOut(bom_lines=counts["bom"], task_lines=counts["task"])

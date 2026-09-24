@@ -41,3 +41,17 @@ export const listUnlinkedLines = async (): Promise<UnlinkedLineGroup[]> =>
 
 export const linkLines = async (payload: { part_name: string; part_id: number }): Promise<{ bom_lines: number; task_lines: number }> =>
   (await apiClient.post<{ bom_lines: number; task_lines: number }>("/items/link-lines", payload)).data;
+
+export interface ManualLinkGroup {
+  part_name: string;
+  part_id: number;
+  linked_part_name: string;
+  bom_lines: number;
+  task_lines: number;
+}
+
+export const listManualLinks = async (): Promise<ManualLinkGroup[]> =>
+  (await apiClient.get<ManualLinkGroup[]>("/items/manual-links")).data;
+
+export const unlinkLines = async (payload: { part_name: string; part_id: number }): Promise<{ bom_lines: number; task_lines: number }> =>
+  (await apiClient.post<{ bom_lines: number; task_lines: number }>("/items/unlink-lines", payload)).data;

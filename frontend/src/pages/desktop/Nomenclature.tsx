@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Checkbox, Input, Segmented, Select, Space, Tabs, Tag, Typography, message } from "antd";
+import { Button, Card, Checkbox, Input, Popconfirm, Segmented, Select, Space, Tabs, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { useAuth } from "../../auth/AuthContext";
@@ -10,8 +10,11 @@ import {
   linkLines,
   listItemKinds,
   listItems,
+  listManualLinks,
   listUnlinkedLines,
+  unlinkLines,
   type Item,
+  type ManualLinkGroup,
   type UnlinkedLineGroup,
 } from "../../api/items";
 
@@ -32,6 +35,7 @@ export default function Nomenclature() {
       items={[
         { key: "items", label: "Номенклатура", children: <ItemsTab /> },
         { key: "unlinked", label: "Строки без детали", children: <UnlinkedTab /> },
+        { key: "manual", label: "Связанные вручную", children: <ManualLinksTab /> },
       ]}
     />
   );
@@ -126,6 +130,7 @@ function UnlinkedTab() {
     mutationFn: (v: { part_name: string; part_id: number }) => linkLines(v),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["items-unlinked"] });
+      qc.invalidateQueries({ queryKey: ["items-manual"] });
       qc.invalidateQueries({ queryKey: ["pf-demand"] });
       message.success(`Связано: строк заданий ${res.task_lines}, строк BOM ${res.bom_lines}`);
     },
@@ -193,6 +198,74 @@ function UnlinkedTab() {
                 >
                   Связать
                 </Button>
+              ),
+          },
+        ]}
+      />
+    </Space>
+  );
+}
+
+function ManualLinksTab() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const canLink = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const manualQuery = useQuery({ queryKey: ["items-manual"], queryFn: listManualLinks });
+
+  const mutation = useMutation({
+    mutationFn: (v: { part_name: string; part_id: number }) => unlinkLines(v),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["items-manual"] });
+      qc.invalidateQueries({ queryKey: ["items-unlinked"] });
+      qc.invalidateQueries({ queryKey: ["pf-demand"] });
+      message.success(`Отвязано: строк заданий ${res.task_lines}, строк BOM ${res.bom_lines}`);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось отвязать")),
+  });
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Card>
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+          Строки, связанные с деталью вручную кнопкой «Связать» (название в строке отличается от названия детали).
+          Если связали не с той деталью — «Отвязать»: строки вернутся в «Строки без детали», и там можно выбрать
+          правильную. Уже проведённые отчёты при этом не пересчитываются.
+        </Typography.Paragraph>
+      </Card>
+      <ResponsiveTable<ManualLinkGroup>
+        tableKey="nomenclature-manual"
+        lockedColumns={["Название в строках"]}
+        size="small"
+        rowKey={(g) => `${g.part_name}|${g.part_id}`}
+        loading={manualQuery.isLoading}
+        dataSource={manualQuery.data ?? []}
+        pagination={{ pageSize: 50 }}
+        scroll={{ x: "max-content" }}
+        locale={{ emptyText: "Ручных связей нет" }}
+        columns={[
+          { title: "Название в строках", dataIndex: "part_name" },
+          { title: "Связано с деталью", dataIndex: "linked_part_name" },
+          { title: "Задания цеха", render: (_, g) => g.task_lines || "—" },
+          { title: "BOM моделей", render: (_, g) => g.bom_lines || "—" },
+          {
+            title: "",
+            render: (_, g) =>
+              canLink && (
+                <Popconfirm
+                  title="Отвязать строки от детали?"
+                  description="Новые отчёты по этим строкам перестанут двигать партии этой детали."
+                  okText="Отвязать"
+                  cancelText="Отмена"
+                  onConfirm={() => mutation.mutate({ part_name: g.part_name, part_id: g.part_id })}
+                >
+                  <Button
+                    size="small"
+                    danger
+                    loading={mutation.isPending && mutation.variables?.part_name === g.part_name && mutation.variables?.part_id === g.part_id}
+                  >
+                    Отвязать
+                  </Button>
+                </Popconfirm>
               ),
           },
         ]}
