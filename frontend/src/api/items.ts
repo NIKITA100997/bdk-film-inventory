@@ -85,9 +85,20 @@ export interface TechCard {
   kind_name: string;
   source_type: "sku" | "part" | "model" | null;
   source_id: number | null;
-  operations: { sequence_order: number; code: string | null; name: string; area: string | null; area_name: string | null }[];
-  inputs: { name: string; part_id: number | null; qty_per_unit: number | null; unit: string; note: string | null }[];
-  used_in: { name: string; source_type: "model" | "part"; source_id: number; qty_per_unit: number | null }[];
+  operations: { id: number | null; sequence_order: number; code: string | null; name: string; area: string | null; area_name: string | null }[];
+  inputs: {
+    name: string;
+    part_id: number | null;
+    qty_per_unit: number | null;
+    unit: string;
+    note: string | null;
+    // Строка общего состава: компонент, откуда строка (bom / manual / rule) и операция расхода.
+    component_item_id: number | null;
+    source: "bom" | "manual" | "rule" | null;
+    stage_id: number | null;
+    operation_name: string | null;
+  }[];
+  used_in: { name: string; source_type: "model" | "part" | "item"; source_id: number; qty_per_unit: number | null; item_id: number | null }[];
 }
 
 export const getTechCard = async (itemId: number): Promise<TechCard> =>
@@ -98,3 +109,9 @@ export const setItemRoute = async (
   itemId: number,
   steps: { code: string; name: string; area: string | null }[],
 ): Promise<TechCard["operations"]> => (await apiClient.put<TechCard["operations"]>(`/items/${itemId}/route`, steps)).data;
+
+/** Ручной состав позиции (source=manual) целиком. */
+export const setItemComponents = async (
+  itemId: number,
+  rows: { component_item_id: number; qty_per_unit: number; stage_id: number | null }[],
+): Promise<TechCard> => (await apiClient.put<TechCard>(`/items/${itemId}/components`, rows)).data;

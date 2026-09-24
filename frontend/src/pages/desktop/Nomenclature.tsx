@@ -7,6 +7,7 @@ import ResponsiveTable from "../../components/ResponsiveTable";
 import TypesTab from "./nomenclature/TypesTab";
 import ItemPropertiesSection from "./nomenclature/ItemPropertiesSection";
 import RouteEditorModal from "./nomenclature/RouteEditorModal";
+import ComponentsEditorModal from "./nomenclature/ComponentsEditorModal";
 import { useAuth } from "../../auth/AuthContext";
 import { listParts } from "../../api/dictionaries";
 import {
@@ -416,6 +417,7 @@ function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => v
     !!user?.permissions.includes("materials.manage");
   const canEditRoute = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const [routeOpen, setRouteOpen] = useState(false);
+  const [componentsOpen, setComponentsOpen] = useState(false);
   const cardQuery = useQuery({
     queryKey: ["techcard", item?.id],
     queryFn: () => getTechCard(item!.id),
@@ -488,7 +490,16 @@ function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => v
           )}
           {card.source_type !== "sku" && (
             <section>
-              <Typography.Title level={5}>Состав на 1 шт</Typography.Title>
+              <Space style={{ justifyContent: "space-between", width: "100%" }}>
+                <Typography.Title level={5} style={{ margin: 0 }}>
+                  Состав на 1 шт
+                </Typography.Title>
+                {canEditRoute && (
+                  <Button size="small" onClick={() => setComponentsOpen(true)}>
+                    Изменить состав
+                  </Button>
+                )}
+              </Space>
               {card.inputs.length === 0 ? (
                 <Typography.Text type="secondary">Состав не задан.</Typography.Text>
               ) : (
@@ -503,11 +514,18 @@ function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => v
                       render: (_, r) => (
                         <Space size={4} wrap>
                           <span>{r.name}</span>
-                          {card.source_type === "model" && !r.part_id && <Tag color="warning">без позиции</Tag>}
+                          {r.source === "bom" && !r.component_item_id && <Tag color="warning">без позиции</Tag>}
+                          {r.source === "bom" && r.component_item_id && <Tag>из BOM</Tag>}
+                          {r.source === "manual" && <Tag color="blue">вручную</Tag>}
+                          {r.source === "rule" && <Tag color="purple">по правилу</Tag>}
                         </Space>
                       ),
                     },
                     { title: "Кол-во", render: (_, r) => qty(r.qty_per_unit, r.unit) },
+                    {
+                      title: "Операция",
+                      render: (_, r) => r.operation_name ?? <Typography.Text type="secondary">—</Typography.Text>,
+                    },
                     { title: "", render: (_, r) => <Typography.Text type="secondary">{r.note}</Typography.Text> },
                   ]}
                 />
@@ -532,6 +550,7 @@ function TechCardDrawer({ item, onClose }: { item: Item | null; onClose: () => v
         </Space>
       )}
       {routeOpen && card && <RouteEditorModal card={card} onClose={() => setRouteOpen(false)} />}
+      {componentsOpen && card && <ComponentsEditorModal card={card} onClose={() => setComponentsOpen(false)} />}
     </Drawer>
   );
 }

@@ -50,6 +50,7 @@ from app.schemas.production import (
     ProductModelUpdate,
 )
 from app.schemas.deletion_requests import DeleteResultOut
+from app.services.components import sync_bom_components
 from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness, task_lines_with_progress
@@ -609,6 +610,8 @@ def add_product_model_part(
         part_name=payload.part_name,
     )
     db.add(part)
+    db.flush()
+    sync_bom_components(db, [model_id])
     db.commit()
     db.refresh(part)
     return _part_out(db, part)
@@ -628,6 +631,8 @@ def update_product_model_part(
     part.length_m = payload.length_m
     part.strip_width_mm = sw
     part.part_name = payload.part_name
+    db.flush()
+    sync_bom_components(db, [model_id])
     db.commit()
     db.refresh(part)
     return _part_out(db, part)
@@ -641,6 +646,8 @@ def delete_product_model_part(
     if part is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Деталь не найдена")
     db.delete(part)
+    db.flush()
+    sync_bom_components(db, [model_id])
     db.commit()
 
 

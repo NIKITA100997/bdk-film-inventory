@@ -55,6 +55,23 @@ class Item(Base):
     )
 
 
+class ItemComponent(Base):
+    """Строка состава позиции (единая модель, пункт 3): компонент и сколько
+    его на 1 шт, необязательно — на какой операции маршрута расходуется.
+    source: "bom" (из BOM модели, держится синхронно), "manual", "rule"
+    (по правилам типа). См. services/components.py."""
+
+    __tablename__ = "item_components"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parent_item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    component_item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    qty_per_unit: Mapped[float] = mapped_column(Numeric(12, 4))
+    stage_id: Mapped[int | None] = mapped_column(ForeignKey("part_stages.id", ondelete="SET NULL"), nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="manual")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class ItemType(Base):
     """Тип изделия внутри вида номенклатуры (единая модель, пункт 1) —
     «Щитовая дверь», «Царговая дверь», «Металлическая дверь» внутри ГП.

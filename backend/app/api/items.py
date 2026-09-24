@@ -2,15 +2,17 @@ from collections import defaultdict
 from difflib import SequenceMatcher
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import MaterialSku, Part
-from app.models.items import Item, ItemKind, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
+from app.models.items import Item, ItemComponent, ItemKind, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
+from app.services.components import sync_bom_components
 from app.services.routes import RouteInUseError, RouteStep, apply_route
 
 router = APIRouter(tags=["items"])
@@ -192,11 +194,16 @@ def link_unlinked_lines(payload: LinkLinesIn, db: Session = Depends(get_db), use
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Деталь не найдена")
     key = normalize_name(payload.part_name)
     counts = {"bom": 0, "task": 0}
+    touched_models: set[int] = set()
     for model, label in ((ProductModelPart, "bom"), (ProductionTaskLine, "task")):
         for line in db.query(model).filter(model.part_name.isnot(None), model.part_id.is_(None)):
             if normalize_name(line.part_name) == key:
                 line.part_id = part.id
                 counts[label] += 1
+                if label == "bom":
+                    touched_models.add(line.product_model_id)
+    db.flush()
+    sync_bom_components(db, touched_models)
     db.commit()
     return LinkLinesOut(bom_lines=counts["bom"], task_lines=counts["task"])
 
@@ -246,11 +253,16 @@ def unlink_lines(payload: LinkLinesIn, db: Session = Depends(get_db), user=Depen
     снова без детали (отчёты по ним перестанут двигать её партии)."""
     key = normalize_name(payload.part_name)
     counts = {"bom": 0, "task": 0}
+    touched_models: set[int] = set()
     for model, label in ((ProductModelPart, "bom"), (ProductionTaskLine, "task")):
         for line in db.query(model).filter(model.part_id == payload.part_id, model.part_name.isnot(None)):
             if normalize_name(line.part_name) == key:
                 line.part_id = None
                 counts[label] += 1
+                if label == "bom":
+                    touched_models.add(line.product_model_id)
+    db.flush()
+    sync_bom_components(db, touched_models)
     db.commit()
     return LinkLinesOut(bom_lines=counts["bom"], task_lines=counts["task"])
 
@@ -388,11 +400,14 @@ def create_size_parts(payload: SizeCreateIn, db: Session = Depends(get_db), user
             line.part_id = part.id
         bom += len(g["bom"])
         task += len(g["task"])
+    db.flush()
+    sync_bom_components(db, {line.product_model_id for g in groups.values() for line in g["bom"] if line.part_id})
     db.commit()
     return SizeCreateOut(created=created, linked_existing=linked_existing, bom_lines=bom, task_lines=task)
 
 
 class TechOperation(BaseModel):
+    id: int | None = None
     sequence_order: int
     code: str | None = None
     name: str
@@ -406,13 +421,21 @@ class TechInput(BaseModel):
     qty_per_unit: float | None
     unit: str
     note: str | None = None
+    # Строка общего состава (пункт 3): позиция-компонент, откуда строка
+    # ("bom" — из BOM модели, "manual", "rule"; None — плёнка детали или
+    # несвязанная строка BOM) и операция, на которой расходуется.
+    component_item_id: int | None = None
+    source: str | None = None
+    stage_id: int | None = None
+    operation_name: str | None = None
 
 
 class TechUsage(BaseModel):
     name: str
-    source_type: str  # "model" | "part"
+    source_type: str  # "model" | "part" | "item"
     source_id: int
     qty_per_unit: float | None
+    item_id: int | None = None
 
 
 class TechCardOut(BaseModel):
@@ -427,19 +450,41 @@ class TechCardOut(BaseModel):
     used_in: list[TechUsage]
 
 
+def live_item_names(db: Session, item_ids: set[int]) -> dict[int, str]:
+    """Живые названия позиций — из исходных таблиц (там они правятся), для
+    позиций без своей таблицы — снимок items.name."""
+    if not item_ids:
+        return {}
+    names = {i.id: i.name for i in db.query(Item).filter(Item.id.in_(item_ids))}
+    for p in db.query(Part).filter(Part.item_id.in_(item_ids)):
+        names[p.item_id] = p.name
+    for m in db.query(ProductModel).filter(ProductModel.item_id.in_(item_ids)):
+        names[m.item_id] = m.name
+    for sku in (
+        db.query(MaterialSku)
+        .options(
+            joinedload(MaterialSku.material), joinedload(MaterialSku.color),
+            joinedload(MaterialSku.thickness), joinedload(MaterialSku.manufacturer),
+        )
+        .filter(MaterialSku.item_id.in_(item_ids))
+    ):
+        names[sku.item_id] = sku_item_name(sku.material.name, sku.color.name, sku.thickness.value_mm, sku.manufacturer.name)
+    return names
+
+
 @router.get("/items/{item_id}/techcard", response_model=TechCardOut)
 def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_items)) -> TechCardOut:
-    """Техкарта позиции (этап 2 единой модели) — одна карточка на любой вид:
-    маршрут (операции по участкам), спецификация (из чего состоит) и где
-    используется. Данные пока живут в прежних таблицах (этапы детали, BOM
-    модели, плёнка детали) — здесь они собраны в одно место."""
+    """Техкарта позиции — одна карточка на любой вид: маршрут (операции по
+    участкам), состав (из чего состоит, общая спецификация item_components)
+    и где используется. У детали п/ф в составе ещё и плёнка на штуку; у
+    модели изделия — несвязанные строки BOM, чтобы ничего не пропало."""
     item = db.get(Item, item_id)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
     kind = db.get(ItemKind, item.kind_id)
     area_names = {a.code: a.name for a in db.query(Area)}
+    kinds = {k.id: k for k in db.query(ItemKind)}
     name, source_type, source_id = item.name, None, None
-    operations: list[TechOperation] = []
     inputs: list[TechInput] = []
     used_in: list[TechUsage] = []
 
@@ -449,9 +494,11 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
         db.query(MaterialSku).filter(MaterialSku.item_id == item_id).first() if part is None and model is None else None
     )
     operations = [
-        TechOperation(sequence_order=s.sequence_order, code=s.code, name=s.name, area=s.area, area_name=area_names.get(s.area))
+        TechOperation(id=s.id, sequence_order=s.sequence_order, code=s.code, name=s.name, area=s.area, area_name=area_names.get(s.area))
         for s in item.stages
     ]
+    stage_names = {s.id: s.name for s in item.stages}
+
     if part is not None:
         name, source_type, source_id = part.name, "part", part.id
         # Плёнка на штуку: штрипс шириной strip_width_mm длиной length_m.
@@ -469,37 +516,118 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
                 note=f"штрипс {_fmt(part.strip_width_mm)} мм" if part.strip_width_mm else None,
             )
         )
-        for bom, m in (
-            db.query(ProductModelPart, ProductModel)
-            .join(ProductModel, ProductModel.id == ProductModelPart.product_model_id)
-            .filter(ProductModelPart.part_id == part.id)
-            .order_by(ProductModel.name)
-        ):
-            used_in.append(TechUsage(name=m.name, source_type="model", source_id=m.id, qty_per_unit=float(bom.qty_per_unit)))
     elif model is not None:
         name, source_type, source_id = model.name, "model", model.id
-        linked = {p.id: p.name for p in db.query(Part).filter(Part.id.in_([b.part_id for b in model.parts if b.part_id]))}
-        for b in model.parts:
-            inputs.append(
-                TechInput(
-                    name=linked.get(b.part_id) or b.part_name or "—",
-                    part_id=b.part_id,
-                    qty_per_unit=float(b.qty_per_unit),
-                    unit="шт",
-                    note=f"{_fmt(b.width_mm)}×{_fmt(round(float(b.length_m) * 1000, 1))} мм, {area_names.get(b.area, b.area)}",
-                )
-            )
     elif sku is not None:
         name, source_type, source_id = (
             sku_item_name(sku.material.name, sku.color.name, sku.thickness.value_mm, sku.manufacturer.name), "sku", sku.id
         )
         for p in db.query(Part).filter(Part.default_material_sku_id == sku.id).order_by(Part.name):
-            used_in.append(TechUsage(name=p.name, source_type="part", source_id=p.id, qty_per_unit=float(p.length_m)))
+            used_in.append(
+                TechUsage(name=p.name, source_type="part", source_id=p.id, qty_per_unit=float(p.length_m), item_id=p.item_id)
+            )
+
+    components = (
+        db.query(ItemComponent).filter(ItemComponent.parent_item_id == item.id).order_by(ItemComponent.sort_order, ItemComponent.id).all()
+    )
+    parents = db.query(ItemComponent).filter(ItemComponent.component_item_id == item.id).all()
+    names = live_item_names(db, {c.component_item_id for c in components} | {c.parent_item_id for c in parents})
+    comp_items = {i.id: i for i in db.query(Item).filter(Item.id.in_([c.component_item_id for c in components]))} if components else {}
+    comp_parts = {p.item_id: p for p in db.query(Part).filter(Part.item_id.in_(list(comp_items)))} if comp_items else {}
+    for c in components:
+        ci = comp_items.get(c.component_item_id)
+        cp = comp_parts.get(c.component_item_id)
+        inputs.append(
+            TechInput(
+                name=names.get(c.component_item_id, "—"), part_id=cp.id if cp else None,
+                qty_per_unit=float(c.qty_per_unit), unit=kinds[ci.kind_id].unit if ci else "шт",
+                note=f"{_fmt(cp.width_mm)}×{_fmt(round(float(cp.length_m) * 1000, 1))} мм" if cp else None,
+                component_item_id=c.component_item_id, source=c.source, stage_id=c.stage_id,
+                operation_name=stage_names.get(c.stage_id) if c.stage_id else None,
+            )
+        )
+    if model is not None:
+        # Строки BOM, ещё не связанные с деталью, — в составе их пока нет.
+        for b in model.parts:
+            if b.part_id is None:
+                inputs.append(
+                    TechInput(
+                        name=b.part_name or "—", part_id=None, qty_per_unit=float(b.qty_per_unit), unit="шт",
+                        note=f"{_fmt(b.width_mm)}×{_fmt(round(float(b.length_m) * 1000, 1))} мм, {area_names.get(b.area, b.area)}",
+                        source="bom",
+                    )
+                )
+    parent_models = {m.item_id: m for m in db.query(ProductModel).filter(ProductModel.item_id.in_([c.parent_item_id for c in parents]))} if parents else {}
+    parent_parts = {p.item_id: p for p in db.query(Part).filter(Part.item_id.in_([c.parent_item_id for c in parents]))} if parents else {}
+    for c in sorted(parents, key=lambda c: names.get(c.parent_item_id, "").lower()):
+        m = parent_models.get(c.parent_item_id)
+        pp = parent_parts.get(c.parent_item_id)
+        used_in.append(
+            TechUsage(
+                name=names.get(c.parent_item_id, "—"),
+                source_type="model" if m else ("part" if pp else "item"),
+                source_id=m.id if m else (pp.id if pp else c.parent_item_id),
+                qty_per_unit=float(c.qty_per_unit), item_id=c.parent_item_id,
+            )
+        )
 
     return TechCardOut(
         item_id=item.id, name=name, kind_code=kind.code, kind_name=kind.name, source_type=source_type,
         source_id=source_id, operations=operations, inputs=inputs, used_in=used_in,
     )
+
+
+class ComponentIn(BaseModel):
+    component_item_id: int
+    qty_per_unit: float = Field(gt=0)
+    stage_id: int | None = None
+
+
+def _descendants(db: Session, item_id: int) -> set[int]:
+    seen: set[int] = set()
+    stack = [item_id]
+    while stack:
+        cur = stack.pop()
+        for (cid,) in db.query(ItemComponent.component_item_id).filter(ItemComponent.parent_item_id == cur):
+            if cid not in seen:
+                seen.add(cid)
+                stack.append(cid)
+    return seen
+
+
+@router.put("/items/{item_id}/components", response_model=TechCardOut)
+def set_item_components(
+    item_id: int, payload: list[ComponentIn], db: Session = Depends(get_db), user=Depends(link_lines)
+) -> TechCardOut:
+    """Ручной состав позиции (source="manual") целиком. Строки из BOM модели
+    и по правилам типа здесь не трогаются — у них свой источник. Позиция не
+    может входить в собственный состав, в том числе через другие позиции."""
+    item = db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    stage_ids = {s.id for s in item.stages}
+    for row in payload:
+        comp = db.get(Item, row.component_item_id)
+        if comp is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Компонент не найден")
+        if comp.id == item.id or item.id in _descendants(db, comp.id):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"«{live_item_names(db, {comp.id}).get(comp.id)}» сам состоит из этой позиции — так состав зациклится",
+            )
+        if row.stage_id is not None and row.stage_id not in stage_ids:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Операция не из маршрута этой позиции")
+    db.query(ItemComponent).filter(ItemComponent.parent_item_id == item.id, ItemComponent.source == "manual").delete()
+    base = db.query(func.coalesce(func.max(ItemComponent.sort_order), 0)).filter(ItemComponent.parent_item_id == item.id).scalar()
+    for i, row in enumerate(payload, start=1):
+        db.add(
+            ItemComponent(
+                parent_item_id=item.id, component_item_id=row.component_item_id, qty_per_unit=row.qty_per_unit,
+                stage_id=row.stage_id, source="manual", sort_order=base + i,
+            )
+        )
+    db.commit()
+    return get_techcard(item_id, db, user)
 
 
 class RouteStepIO(BaseModel):
@@ -530,6 +658,6 @@ def set_item_route(
     db.refresh(item)
     area_names = {a.code: a.name for a in db.query(Area)}
     return [
-        TechOperation(sequence_order=s.sequence_order, code=s.code, name=s.name, area=s.area, area_name=area_names.get(s.area))
+        TechOperation(id=s.id, sequence_order=s.sequence_order, code=s.code, name=s.name, area=s.area, area_name=area_names.get(s.area))
         for s in item.stages
     ]
