@@ -1,4 +1,4 @@
-from app.models.items import Item, ItemKind
+from app.models.items import Item, ItemKind, ItemProperty, ItemPropertyOption, ItemPropertyValue, ItemType
 from app.models.users import User, UserRole
 from app.models.areas import Area
 from app.models.sites import Site

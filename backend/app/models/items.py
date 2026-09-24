@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, event, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, event, func
 from sqlalchemy.orm import Mapped, Session, attributes, mapped_column, relationship
 
 from app.db.base import Base
@@ -42,8 +42,94 @@ class Item(Base):
     code_1c: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Тип изделия внутри вида (ГП → «Щитовая дверь»…): задаёт набор свойств
+    # позиции. NULL — тип не назначен (плёнка, п/ф пока без типов).
+    type_id: Mapped[int | None] = mapped_column(ForeignKey("item_types.id"), nullable=True, index=True)
 
     kind: Mapped[ItemKind] = relationship()
+    type: Mapped["ItemType | None"] = relationship()
+
+
+class ItemType(Base):
+    """Тип изделия внутри вида номенклатуры (единая модель, пункт 1) —
+    «Щитовая дверь», «Царговая дверь», «Металлическая дверь» внутри ГП.
+    Новый тип — строка справочника с настройками (свойства, позже —
+    маршрут и правила состава), а не новая таблица и новый экран."""
+
+    __tablename__ = "item_types"
+    __table_args__ = (UniqueConstraint("kind_id", "name", name="uq_item_types_kind_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind_id: Mapped[int] = mapped_column(ForeignKey("item_kinds.id"), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    kind: Mapped[ItemKind] = relationship()
+    properties: Mapped[list["ItemProperty"]] = relationship(
+        back_populates="type", order_by="ItemProperty.sort_order", cascade="all, delete-orphan"
+    )
+
+
+PROPERTY_VALUE_TYPES = ("number", "text", "bool", "list")
+
+
+class ItemProperty(Base):
+    """Свойство (характеристика) типа изделия (единая модель, пункт 2) —
+    «Ширина, мм», «Серия», «Кромка»… value_type: number / text / bool / list.
+
+    У свойства-списка варианты могут нести свои параметры: option_fields —
+    описание полей [{"code", "name", "value_type"}], значения — в
+    ItemPropertyOption.params. Так серия щитовой двери хранит толщину
+    каркаса/панели и кромку, и правила состава смогут на них ссылаться."""
+
+    __tablename__ = "item_properties"
+    __table_args__ = (UniqueConstraint("type_id", "code", name="uq_item_properties_type_code"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    type_id: Mapped[int] = mapped_column(ForeignKey("item_types.id", ondelete="CASCADE"), index=True)
+    code: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(128))
+    value_type: Mapped[str] = mapped_column(String(16))
+    unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    is_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    option_fields: Mapped[list] = mapped_column(JSON, default=list)
+
+    type: Mapped[ItemType] = relationship(back_populates="properties")
+    options: Mapped[list["ItemPropertyOption"]] = relationship(
+        back_populates="property", order_by="ItemPropertyOption.sort_order", cascade="all, delete-orphan"
+    )
+
+
+class ItemPropertyOption(Base):
+    """Вариант свойства-списка («В-10» у серии) и значения его параметров."""
+
+    __tablename__ = "item_property_options"
+    __table_args__ = (UniqueConstraint("property_id", "value", name="uq_item_property_options_value"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("item_properties.id", ondelete="CASCADE"), index=True)
+    value: Mapped[str] = mapped_column(String(128))
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    property: Mapped[ItemProperty] = relationship(back_populates="options")
+
+
+class ItemPropertyValue(Base):
+    """Значение свойства у позиции номенклатуры. Заполнено одно поле — по
+    типу свойства (list — option_id)."""
+
+    __tablename__ = "item_property_values"
+
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("item_properties.id", ondelete="CASCADE"), primary_key=True)
+    value_number: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
+    value_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    value_bool: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    option_id: Mapped[int | None] = mapped_column(ForeignKey("item_property_options.id"), nullable=True)
 
 
 KIND_FILM = "plenka"
