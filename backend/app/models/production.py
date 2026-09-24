@@ -127,9 +127,14 @@ class ProductionTaskLine(Base):
     task_id: Mapped[int] = mapped_column(ForeignKey("production_tasks.id"))
     line_id: Mapped[int | None] = mapped_column(ForeignKey("production_lines.id"), nullable=True)
 
-    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))
-    color_id: Mapped[int] = mapped_column(ForeignKey("colors.id"))
-    thickness_id: Mapped[int] = mapped_column(ForeignKey("thicknesses.id"))
+    # Раздел про одно задание на любой участок (этап 3 единой модели) —
+    # плёнка у строки необязательна: NULL у всех трёх = строка без плёнки
+    # (сборка каркаса, склейка щитов и т.п.). У такой строки length_m = 0 —
+    # расход плёнки на штуку, поэтому вся плёночная арифметика (нехватка,
+    # резерв, заготовки, расход рулона) сама даёт ноль.
+    material_id: Mapped[int | None] = mapped_column(ForeignKey("materials.id"), nullable=True)
+    color_id: Mapped[int | None] = mapped_column(ForeignKey("colors.id"), nullable=True)
+    thickness_id: Mapped[int | None] = mapped_column(ForeignKey("thicknesses.id"), nullable=True)
 
     quantity_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
     # Раздел про размер детали — ширина/длина куска плёнки НА ОДНУ деталь
@@ -147,6 +152,9 @@ class ProductionTaskLine(Base):
     # тексту part_name (ставится сама по названию, см. app/models/items.py;
     # переименование детали её не рвёт). part_name остаётся для отображения.
     part_id: Mapped[int | None] = mapped_column(ForeignKey("parts.id"), nullable=True, index=True)
+    # Операция техкарты (этап детали), которую выполняет строка — отчёт по
+    # строке без плёнки двигает партии этой детали по её маршруту.
+    part_stage_id: Mapped[int | None] = mapped_column(ForeignKey("part_stages.id"), nullable=True)
 
     # Раздел про закрытие строки задания по выдаче — та же механика, что
     # ProductionTask.is_active выше, но на уровень строки: ручной флаг

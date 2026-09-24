@@ -150,6 +150,8 @@ def reserved_area_m2_by_group(lines: list[TaskLineForReserve]) -> dict[tuple[int
     самих заданиях нет, остаток и так означает "ещё не произведено"."""
     totals: dict[tuple[int, int, int], float] = {}
     for line in lines:
+        if line.material_id is None:
+            continue  # строка без плёнки
         remaining_pieces = compute_remaining_pieces(line.quantity_pieces, line.produced_good_pieces)
         if remaining_pieces <= 0:
             continue

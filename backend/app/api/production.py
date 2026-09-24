@@ -188,9 +188,9 @@ def _task_line_out(
         id=line.id,
         line_id=line.line_id,
         line_name=prod_line.name if prod_line else "—",
-        material=db.get(Material, line.material_id).name,
-        color=db.get(Color, line.color_id).name,
-        thickness=float(db.get(Thickness, line.thickness_id).value_mm),
+        material=db.get(Material, line.material_id).name if line.material_id else None,
+        color=db.get(Color, line.color_id).name if line.color_id else None,
+        thickness=float(db.get(Thickness, line.thickness_id).value_mm) if line.thickness_id else None,
         quantity_pieces=float(line.quantity_pieces),
         width_mm=float(line.width_mm),
         length_m=float(line.length_m),
@@ -671,6 +671,8 @@ def get_blanks_demand(
 
     demand_lines = []
     for line in lines:
+        if line.material_id is None:
+            continue  # строка без плёнки
         good, defect = report_aggregates.get(line.id, (0.0, 0.0))
         issued = issued_length_by_line.get(line.id, 0.0)
         shortfall = compute_shortfall_length_m(float(line.quantity_pieces), float(line.length_m), defect, issued)

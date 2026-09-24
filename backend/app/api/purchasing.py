@@ -123,6 +123,7 @@ def _stock_and_reserve_by_group(
             ),
         )
         for line in lines
+        if line.material_id is not None
     ]
     reserved_by_group = reserved_area_m2_by_group(reserve_input)
     return stock_by_group, reserved_by_group

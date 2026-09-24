@@ -47,7 +47,7 @@ export function LinkTaskLineForm({
           value={lineId ?? undefined}
           onChange={setLineId}
           disabled={!task}
-          options={(task?.lines ?? []).map((l) => ({
+          options={(task?.lines ?? []).filter((l) => l.material !== null).map((l) => ({
             value: l.id,
             label: `${l.part_name ?? ""} ${l.color}, ${l.width_mm}×${l.length_m} м`.trim(),
           }))}

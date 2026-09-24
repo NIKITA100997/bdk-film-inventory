@@ -196,7 +196,8 @@ interface ManualTableRow {
 }
 type TableRow = NeedTableRow | ManualTableRow;
 
-function findSku(skus: MaterialSku[] | undefined, material: string, color: string, thickness: number) {
+function findSku(skus: MaterialSku[] | undefined, material: string | null, color: string | null, thickness: number | null) {
+  if (material === null || color === null || thickness === null) return undefined; // строка без плёнки
   return skus?.find(
     (s) =>
       s.material.name.toLowerCase() === material.toLowerCase() &&
@@ -251,7 +252,7 @@ function groupQueueRows(rows: QueueRowData[]) {
     const key = `${r.task.area}|${r.line.material}|${r.line.color}|${r.line.thickness}`;
     let g = groups.get(key);
     if (!g) {
-      g = { key, material: r.line.material, color: r.line.color, thickness: r.line.thickness, rows: [] };
+      g = { key, material: r.line.material ?? "", color: r.line.color ?? "", thickness: r.line.thickness ?? 0, rows: [] };
       groups.set(key, g);
       order.push(key);
     }
@@ -631,7 +632,13 @@ export default function Issue() {
   // тоже, иначе очередь по заданию не сможет предложить донора/заявку на
   // нехватку для материала, которого сейчас физически нет вообще).
   const manualSkusQuery = useQuery({ queryKey: ["material-skus", "in-stock"], queryFn: () => listMaterialSkus(true) });
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  // Выдача — только плёнка: строки без плёнки (сборка, склейка…) сюда не
+  // попадают. select — только для этого экрана, общий кэш заданий не трогаем.
+  const tasksQuery = useQuery({
+    queryKey: ["production-tasks"],
+    queryFn: listProductionTasks,
+    select: (tasks) => tasks.map((t) => ({ ...t, lines: t.lines.filter((l) => l.material !== null) })),
+  });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   // Раздел про отключение распределения по дням — для такого участка
@@ -1261,7 +1268,7 @@ export default function Issue() {
       if (otherInfo?.status.kind === "stock" && otherInfo.acceptStock) {
         seen.add(other.line.id);
         result.push({
-          label: other.line.part_name ?? other.line.material,
+          label: other.line.part_name ?? other.line.material ?? "",
           unitId: otherInfo.status.match.unit_id,
           accept: otherInfo.acceptStock,
         });

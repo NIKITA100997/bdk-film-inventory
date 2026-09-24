@@ -3,7 +3,7 @@ import { Card, Space, Typography, DatePicker, Tag, Button, Empty, Select } from 
 import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
-import { listProductionTasks, type ProductionTaskLine } from "../../../api/production";
+import { lineFilmLabel, listProductionTasks, type ProductionTaskLine } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import ReportModal from "./ReportModal";
@@ -107,7 +107,7 @@ export default function DailyPlanTab() {
               { title: "Модель / Задание", render: (_, r) => r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}` },
               { title: "Деталь", render: (_, r) => r.line.part_name ?? "—" },
               { title: "Линия", render: (_, r) => r.assignment.line_name },
-              { title: "Плёнка (номенклатура)", render: (_, r) => `${r.line.material}, ${r.line.color}, ${r.line.thickness} мм` },
+              { title: "Плёнка (номенклатура)", render: (_, r) => lineFilmLabel(r.line) },
               { title: "Штрипс", render: (_, r) => `${r.line.strip_width_mm || r.line.width_mm} мм` },
               { title: "План на день", render: (_, r) => <Tag color="blue">{r.assignment.quantity_pieces} шт</Tag> },
               { title: "Сотрудники линии", render: (_, r) => r.assignment.employee_names },

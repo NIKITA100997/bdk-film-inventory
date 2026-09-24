@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import {
+  lineFilmLabel,
   listProductionTasks,
   createTaskLineReportsBatch,
   type ProductionTask,
@@ -479,7 +480,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                     <Space direction="vertical" size={0}>
                       <Typography.Text strong>{r.line.part_name ?? r.line.material}</Typography.Text>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        {r.line.material}, {r.line.color}, {r.line.thickness} мм — произведено {r.line.produced_good_pieces} из{" "}
+                        {lineFilmLabel(r.line)} — произведено {r.line.produced_good_pieces} из{" "}
                         {r.line.quantity_pieces} шт
                       </Typography.Text>
                       {available != null && (

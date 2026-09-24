@@ -101,6 +101,8 @@ def _validate_matches_task_line(
     line = db.get(ProductionTaskLine, task_line_id)
     if line is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
+    if line.material_id is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Строка задания без плёнки — рулон на неё не выдаётся")
     if (sku.material_id, sku.color_id, sku.thickness_id) != (line.material_id, line.color_id, line.thickness_id):
         if not allow_material_override:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Плёнка не соответствует материалу строки задания")
@@ -314,7 +316,7 @@ def reconciliation_rows(
         line = u.production_task_line
         task_label = None
         if line is not None:
-            color = db.get(Color, line.color_id)
+            color = db.get(Color, line.color_id) if line.color_id else None
             order_ref = (
                 f"№{line.task.external_order_ref}" if line.task.external_order_ref
                 else (line.task.name or f"#{line.task.id}")

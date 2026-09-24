@@ -178,8 +178,8 @@ def sync_part_to_task_lines(db: Session, part: Part, previous_name: str | None =
 
     updated: list[ProductionTaskLine] = []
     for line in matching:
-        if line.id in touched_ids:
-            continue
+        if line.id in touched_ids or line.material_id is None:
+            continue  # строка без плёнки: length_m = 0 — расход плёнки, не размер детали
         changed = False
         if part.width_mm is not None and line.width_mm != part.width_mm:
             line.width_mm = part.width_mm

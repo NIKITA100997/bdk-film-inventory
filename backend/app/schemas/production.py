@@ -337,9 +337,10 @@ class ProductionTaskLineOut(BaseModel):
     id: int
     line_id: int | None
     line_name: str
-    material: str
-    color: str
-    thickness: float
+    # None у строки без плёнки (этап 3 — задание на любой участок).
+    material: str | None
+    color: str | None
+    thickness: float | None
     quantity_pieces: float
     width_mm: float
     length_m: float

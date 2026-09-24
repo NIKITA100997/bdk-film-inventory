@@ -98,13 +98,19 @@ export interface BorrowableUnit extends ProductionTaskLineIssuedUnit {
   from_part_name: string | null;
 }
 
+/** Подпись плёнки строки задания; у строки без плёнки (сборка, склейка…) — «без плёнки». */
+export function lineFilmLabel(l: { material: string | null; color: string | null; thickness: number | null }): string {
+  return l.material === null ? "без плёнки" : `${l.material}, ${l.color}, ${l.thickness} мм`;
+}
+
 export interface ProductionTaskLine {
   id: number;
   line_id: number | null;
   line_name: string;
-  material: string;
-  color: string;
-  thickness: number;
+  // null у строки без плёнки (задание на любой участок — сборка, склейка…).
+  material: string | null;
+  color: string | null;
+  thickness: number | null;
   quantity_pieces: number;
   width_mm: number;
   length_m: number;

@@ -10,6 +10,7 @@ import ResponsiveTable from "../../../components/ResponsiveTable";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  lineFilmLabel,
   listProductionTasks,
   deleteProductionTask,
   archiveProductionTask,
@@ -173,6 +174,7 @@ export default function TasksTab() {
                 // вслепую) и общий остаток на довыдачу по заданию сразу.
                 const bySku = new Map<string, { label: string; totalM: number; shortfallM: number }>();
                 for (const l of task.lines) {
+                  if (l.material === null) continue; // строка без плёнки
                   const key = `${l.material}|${l.color}|${l.thickness}`;
                   const entry = bySku.get(key) ?? { label: `${l.material}, ${l.color}, ${l.thickness} мм`, totalM: 0, shortfallM: 0 };
                   entry.totalM += l.quantity_pieces * l.length_m;
@@ -234,7 +236,7 @@ export default function TasksTab() {
                           ),
                         },
                         { title: "Линия", dataIndex: "line_name" },
-                        { title: "Материал", render: (_, l) => `${l.material}, ${l.color}, ${l.thickness} мм` },
+                        { title: "Материал", render: (_, l) => lineFilmLabel(l) },
                         { title: "Размер детали", render: (_, l) => `${l.width_mm} мм × ${l.length_m} м` },
                         { title: "Штрипс (плёнка), мм", render: (_, l) => l.strip_width_mm ?? "авто" },
                         { title: "Нужно, шт", dataIndex: "quantity_pieces" },
@@ -318,7 +320,7 @@ export default function TasksTab() {
                                         (s) =>
                                           s.material.name === l.material &&
                                           s.color.name === l.color &&
-                                          Math.abs(s.thickness.value_mm - l.thickness) < 0.001,
+                                          Math.abs(s.thickness.value_mm - (l.thickness ?? NaN)) < 0.001,
                                       );
                                       dimsForm.setFieldsValue({
                                         width_mm: l.width_mm,
