@@ -75,7 +75,7 @@ def task_part_remaining(lines: list[tuple[float, float, bool]]) -> float:
     return max(0.0, open_plan - credited)
 
 
-def _task_demand_by_part_name(db: Session, task_ids: list[int] | None = None) -> dict[str, list[PfDemandSource]]:
+def _task_demand_by_part(db: Session, task_ids: list[int] | None = None) -> dict[int, list[PfDemandSource]]:
     query = (
         db.query(ProductionTaskLine)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
@@ -95,19 +95,24 @@ def _task_demand_by_part_name(db: Session, task_ids: list[int] | None = None) ->
         .group_by(ProductionTaskLineReport.task_line_id)
         .all()
     )
-    by_task_part: dict[tuple[int, str], list[tuple[float, float, bool]]] = defaultdict(list)
+    # Раздел про единую номенклатуру — деталь строки по ссылке; строки без
+    # ссылки (название не совпало ни с одной деталью) в потребность не идут,
+    # они видны в «Номенклатура → Строки без детали».
+    by_task_part: dict[tuple[int, int], list[tuple[float, float, bool]]] = defaultdict(list)
     for line in lines:
-        by_task_part[(line.task_id, line.part_name)].append(
+        if line.part_id is None:
+            continue
+        by_task_part[(line.task_id, line.part_id)].append(
             (float(line.quantity_pieces), float(good.get(line.id, 0)), line.is_closed or line.production_closed)
         )
     tasks = {line.task_id: line.task for line in lines}
-    demand: dict[str, list[PfDemandSource]] = defaultdict(list)
-    for (task_id, part_name), part_lines in by_task_part.items():
+    demand: dict[int, list[PfDemandSource]] = defaultdict(list)
+    for (task_id, part_id), part_lines in by_task_part.items():
         remaining = task_part_remaining(part_lines)
         if remaining <= 0:
             continue
         task = tasks[task_id]
-        demand[part_name].append(
+        demand[part_id].append(
             PfDemandSource(
                 task_id=task_id,
                 task_name=(task.product_model.name if task.product_model else None) or task.name or f"Задание №{task_id}",
@@ -166,13 +171,13 @@ def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[Pf
     parts = db.query(Part).filter(Part.is_active.is_(True)).all()
     parts = [p for p in parts if p.stages]
     first_stage: dict[int, PartStage] = {p.id: min(p.stages, key=lambda s: s.sequence_order) for p in parts}
-    demand = _task_demand_by_part_name(db, task_ids)
+    demand = _task_demand_by_part(db, task_ids)
     stock = _stock_by_part(db)
     in_work = _in_work_by_first_stage(db, {s.id for s in first_stage.values()})
     rows = []
     for p in parts:
         fs = first_stage[p.id]
-        sources = sorted(demand.get(p.name, []), key=lambda s: s.task_id)
+        sources = sorted(demand.get(p.id, []), key=lambda s: s.task_id)
         d = sum(s.remaining for s in sources)
         w = in_work.get(fs.id, 0.0)
         min_stock = float(p.min_stock_pieces) if p.min_stock_pieces is not None else None

@@ -64,6 +64,12 @@ export const navTree: NavBlock[] = [
       // причина быть в "Общем" (была "сквозная справка для всех ролей")
       // отпала, переехала в "Материалы (плёнка)" ниже, к "Стеллажам".
       { key: "general-stock", path: "/general-stock", label: "Общие остатки (справочник)" },
+      {
+        key: "nomenclature",
+        path: "/nomenclature",
+        label: "Номенклатура",
+        permissions: ["materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"],
+      },
     ],
   },
   {

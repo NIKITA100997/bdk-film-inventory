@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base
+from app.models.items import Item  # noqa: F401 — для relationship("Item")
 
 
 class Material(Base):
@@ -94,7 +95,11 @@ class Part(Base):
     # (см. services/pf_demand.py). NULL — не задано.
     min_stock_pieces: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     min_batch_pieces: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Раздел про единую номенклатуру — запись номенклатуры вида «П/ф»
+    # (создаётся сама, см. app/models/items.py).
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, unique=True)
 
+    item: Mapped["Item | None"] = relationship()
     default_material_sku: Mapped["MaterialSku | None"] = relationship(foreign_keys=[default_material_sku_id])
     stages: Mapped[list["PartStage"]] = relationship(
         back_populates="part", order_by="PartStage.sequence_order", cascade="all, delete-orphan"
@@ -150,7 +155,10 @@ class MaterialSku(Base):
     # UPLOAD_DIR — отдаётся статикой, во внешнем хранилище нужды пока нет.
     photo_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Раздел про единую номенклатуру — запись вида «Плёнка».
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, unique=True)
 
+    item: Mapped["Item | None"] = relationship()
     material: Mapped[Material] = relationship()
     color: Mapped[Color] = relationship()
     thickness: Mapped[Thickness] = relationship()

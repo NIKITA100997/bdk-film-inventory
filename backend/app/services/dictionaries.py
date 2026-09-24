@@ -165,7 +165,11 @@ def sync_part_to_task_lines(db: Session, part: Part, previous_name: str | None =
         .filter(ProductionTaskLine.part_name.isnot(None))
         .all()
     )
-    matching = [line for line in candidates if _normalize_part_name(line.part_name) in normalized_names]
+    matching = [
+        line
+        for line in candidates
+        if line.part_id == part.id or (line.part_id is None and _normalize_part_name(line.part_name) in normalized_names)
+    ]
     if not matching:
         return []
 

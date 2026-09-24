@@ -977,7 +977,11 @@ def _build_task_line_report(
     # деталь без этапов, отчёт обычный, без FIFO. Если хотя бы одна
     # партия есть, но её не хватает на весь good_pieces — это уже
     # настоящая нехватка, ошибка оправдана.
-    part = db.query(Part).filter(Part.name == line.part_name).first() if line.part_name else None
+    # Раздел про единую номенклатуру — по ссылке, а не по тексту названия;
+    # запасной вариант по названию — для строк, где ссылки ещё нет.
+    part = db.get(Part, line.part_id) if line.part_id else None
+    if part is None and line.part_name:
+        part = db.query(Part).filter(Part.name == line.part_name).first()
     has_part_unit_stock = (
         part is not None
         and part.stages
