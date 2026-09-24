@@ -24,6 +24,7 @@ import {
 } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import ScheduleImportModal from "./ScheduleImportModal";
 import { useAuth } from "../../../auth/AuthContext";
 import { listItems } from "../../../api/items";
 import {
@@ -62,6 +63,7 @@ export default function ProductionOrders() {
   const [includeClosed, setIncludeClosed] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const [editing, setEditing] = useState<ProductionOrder | "new" | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const ordersQuery = useQuery({
     queryKey: ["production-orders", includeClosed],
     queryFn: () => listProductionOrders(includeClosed),
@@ -77,6 +79,7 @@ export default function ProductionOrders() {
             <Checkbox checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)}>
               С закрытыми
             </Checkbox>
+            {canManage && <Button onClick={() => setImportOpen(true)}>Из графика…</Button>}
             {canManage && (
               <Button type="primary" onClick={() => setEditing("new")}>
                 Новый заказ
@@ -139,6 +142,15 @@ export default function ProductionOrders() {
         ]}
       />
       <OrderDrawer order={opened} onClose={() => setOpenId(null)} onEdit={(o) => setEditing(o)} canManage={canManage} />
+      {importOpen && (
+        <ScheduleImportModal
+          onClose={() => setImportOpen(false)}
+          onCreated={(o) => {
+            setImportOpen(false);
+            setOpenId(o.id);
+          }}
+        />
+      )}
       {editing && (
         <OrderModal
           order={editing === "new" ? null : editing}

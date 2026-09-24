@@ -23,8 +23,11 @@ def upgrade() -> None:
         sa.Column("component_type_id", sa.Integer(), sa.ForeignKey("item_types.id", ondelete="SET NULL"), nullable=True),
     )
     op.add_column("item_type_components", sa.Column("component_values", sa.JSON(), nullable=False, server_default="{}"))
+    # Шаблон названия с условными частями бывает длиннее 255.
+    op.alter_column("item_types", "name_template", existing_type=sa.String(255), type_=sa.String(1000))
 
 
 def downgrade() -> None:
+    op.alter_column("item_types", "name_template", existing_type=sa.String(1000), type_=sa.String(255))
     op.drop_column("item_type_components", "component_values")
     op.drop_column("item_type_components", "component_type_id")

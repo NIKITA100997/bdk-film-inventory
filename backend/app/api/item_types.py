@@ -241,6 +241,8 @@ def update_item_type(
         t.is_active = payload.is_active
     if payload.name_template is not None:
         tpl = " ".join(payload.name_template.split()) or None
+        if tpl and len(tpl) > 1000:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Шаблон названия длиннее 1000 символов")
         if tpl:
             _check_template(t, tpl, "Название позиции")
         t.name_template = tpl
@@ -650,23 +652,29 @@ def create_item_by_type(payload: ItemCreateIn, db: Session = Depends(get_db), us
     типа, техкарта — по его правилам. Такая позиция уже есть — вернуть её
     (одна позиция на сочетание свойств, как «отдельная позиция на размер»)."""
     t = _get_type(db, payload.type_id)
-    if not t.name_template:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "У типа не задан шаблон названия позиции")
-    ctx = type_rules.context_from_values(db, t, {int(k): v for k, v in payload.values.items()})
-    res = type_rules.compute(db, t, ctx)
-    if res.errors:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "; ".join(res.errors))
-    existing = db.query(Item).filter(Item.kind_id == t.kind_id, func.lower(Item.name) == res.name.lower()).first()
-    if existing is not None:
-        return ItemCreateOut(item_id=existing.id, name=existing.name, created=False)
-    item = Item(kind_id=t.kind_id, name=res.name, type_id=t.id)
-    db.add(item)
-    db.flush()
-    _write_values(db, item, t, {int(k): v for k, v in payload.values.items()})
-    db.flush()
-    applied = type_rules.apply(db, item)
-    if applied.errors:
+    values = {int(k): v for k, v in payload.values.items()}
+    # Значения — через ту же проверку, что в карточке позиции (тип, варианты).
+    for p in t.properties:
+        raw = values.get(p.id)
+        if raw in (None, ""):
+            continue
+        try:
+            if p.value_type == "number":
+                values[p.id] = float(raw)
+            elif p.value_type == "bool":
+                values[p.id] = bool(raw)
+            elif p.value_type == "list":
+                opt = db.get(ItemPropertyOption, int(raw))
+                if opt is None or opt.property_id != p.id:
+                    raise ValueError
+                values[p.id] = opt.id
+            else:
+                values[p.id] = str(raw).strip()[:255]
+        except (TypeError, ValueError) as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"«{p.name}»: неверное значение") from e
+    item, created, errors = type_rules.ensure_item(db, t, values)
+    if errors:
         db.rollback()
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "; ".join(applied.errors))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "; ".join(errors))
     db.commit()
-    return ItemCreateOut(item_id=item.id, name=item.name, created=True)
+    return ItemCreateOut(item_id=item.id, name=item.name, created=created)

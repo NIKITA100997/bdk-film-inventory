@@ -288,3 +288,35 @@ def property_codes(type_: ItemType) -> set[str]:
 def list_param_codes(type_: ItemType) -> dict[str, set[str]]:
     return {p.code: {f["code"] for f in (p.option_fields or [])} for p in type_.properties if p.value_type == "list"}
 
+
+
+def ensure_item(db: Session, type_: ItemType, values: dict[int, object]) -> tuple[Item | None, bool, list[str]]:
+    """Позиция по типу и значениям свойств (без commit): название — по
+    шаблону типа, техкарта — по его правилам. Такая позиция уже есть —
+    вернуть её (одна позиция на сочетание свойств). Возвращает (позиция,
+    создана ли, ошибки); при ошибках позиция None и ничего не записано —
+    внутри savepoint."""
+    from sqlalchemy import func as _func
+
+    if not type_.name_template:
+        return None, False, ["У типа не задан шаблон названия позиции"]
+    missing = [p.name for p in type_.properties if p.is_required and p.value_type != "bool" and values.get(p.id) in (None, "")]
+    if missing:
+        return None, False, ["Не заполнено: " + ", ".join(missing)]
+    res = compute(db, type_, context_from_values(db, type_, values))
+    if res.errors:
+        return None, False, res.errors
+    existing = db.query(Item).filter(Item.kind_id == type_.kind_id, _func.lower(Item.name) == res.name.lower()).first()
+    if existing is not None:
+        return existing, False, []
+    sp = db.begin_nested()
+    item = Item(kind_id=type_.kind_id, name=res.name, type_id=type_.id)
+    db.add(item)
+    db.flush()
+    _set_values(db, item, type_, {pid: v for pid, v in values.items() if v not in (None, "")})
+    applied = apply(db, item)
+    if applied.errors:
+        sp.rollback()
+        return None, False, applied.errors
+    sp.commit()
+    return item, True, []

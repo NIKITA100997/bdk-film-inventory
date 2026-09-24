@@ -89,7 +89,7 @@ class ItemType(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # Шаблон названия позиции этого типа по её свойствам:
     # «Дверь щитовая {серия} {ширина}х{высота}» (services/expressions.py).
-    name_template: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    name_template: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
     kind: Mapped[ItemKind] = relationship()
     properties: Mapped[list["ItemProperty"]] = relationship(

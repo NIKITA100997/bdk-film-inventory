@@ -19,6 +19,8 @@ from app.models.production_orders import ORDER_CLOSED, ORDER_DRAFT, ProductionOr
 from app.models.users import User
 from app.services.components import live_item_names
 from app.services.production_orders import OrderError, close_order, release_order
+from app.services.schedule_import import import_schedule
+from app.models.items import ItemType
 
 router = APIRouter(tags=["production-orders"])
 
@@ -254,3 +256,55 @@ def close(order_id: int, db: Session = Depends(get_db), user: User = Depends(man
     db.refresh(order)
     return _order_out(db, order)
 
+
+
+class ScheduleImportIn(BaseModel):
+    text: str
+    type_id: int
+    name: str | None = None
+    dry_run: bool = True
+
+
+class ScheduleRowOut(BaseModel):
+    series: str
+    size: str
+    color: str
+    name_text: str
+    qty: int
+    invoice_no: str
+    ship_date: str | None
+    item_name: str | None
+    exists: bool
+    errors: list[str]
+
+
+class ScheduleImportOut(BaseModel):
+    rows: list[ScheduleRowOut]
+    parse_errors: list[str]
+    order: OrderOut | None
+
+
+@router.post("/production-orders/from-schedule", response_model=ScheduleImportOut)
+def order_from_schedule(
+    payload: ScheduleImportIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+) -> ScheduleImportOut:
+    """График запуска (вставлен из Excel) → черновик заказа: строка графика
+    — позиция по типу (находится или создаётся с техкартой по правилам) и
+    строка заказа. dry_run — только предпросмотр; с ошибками заказ не
+    создаётся."""
+    type_ = db.get(ItemType, payload.type_id)
+    if type_ is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Тип не найден")
+    rows, parse_errors, order = import_schedule(
+        db, text=payload.text, type_=type_, order_name=payload.name, user_id=user.id, dry_run=payload.dry_run
+    )
+    if order is not None:
+        db.commit()
+        db.refresh(order)
+    else:
+        db.rollback()
+    return ScheduleImportOut(
+        rows=[ScheduleRowOut(**{k: getattr(r, k) for k in ScheduleRowOut.model_fields}) for r in rows],
+        parse_errors=parse_errors,
+        order=_order_out(db, order) if order is not None else None,
+    )

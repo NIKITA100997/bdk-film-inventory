@@ -82,3 +82,25 @@ export const releaseProductionOrder = async (id: number): Promise<ProductionOrde
 
 export const closeProductionOrder = async (id: number): Promise<ProductionOrder> =>
   (await apiClient.post<ProductionOrder>(`/production-orders/${id}/close`)).data;
+
+export interface ScheduleImportRow {
+  series: string;
+  size: string;
+  color: string;
+  name_text: string;
+  qty: number;
+  invoice_no: string;
+  ship_date: string | null;
+  item_name: string | null;
+  exists: boolean;
+  errors: string[];
+}
+
+/** График запуска, вставленный из Excel → черновик заказа (dry_run — предпросмотр). */
+export const importOrderFromSchedule = async (payload: {
+  text: string;
+  type_id: number;
+  name: string | null;
+  dry_run: boolean;
+}): Promise<{ rows: ScheduleImportRow[]; parse_errors: string[]; order: ProductionOrder | null }> =>
+  (await apiClient.post("/production-orders/from-schedule", payload)).data;

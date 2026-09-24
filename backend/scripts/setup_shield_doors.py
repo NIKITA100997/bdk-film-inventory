@@ -108,10 +108,21 @@ door = ensure_type(
         {"code": "стекло", "name": "Стекло", "value_type": "bool"},
         {"code": "молдинг", "name": "Молдинг", "value_type": "bool"},
         {"code": "замок", "name": "Фрезеровка под замок", "value_type": "bool"},
+        # Кромка двери — обычно как у серии, но в графике бывает другой
+        # (В-16.2 с алюминиевым профилем): разбор графика берёт её из строки.
+        {"code": "кромка", "name": "Кромка", "value_type": "list", "is_required": True},
     ],
     'Дверь щитовая {серия} {ширина}х{высота} {цвет} {"со стеклом" if стекло else ""} '
-    '{"с молдингом" if молдинг else ""} {"под замок" if замок else ""}',
+    '{"с молдингом" if молдинг else ""} {"под замок" if замок else ""} '
+    '{"(алюм. профиль)" if кромка == "aluminum" and серия.кромка != "aluminum" else ""} '
+    '{"(кромка ABS)" if кромка == "abs" and серия.кромка != "abs" else ""}',
 )
+edge_prop = next(p for p in door["properties"] if p["code"] == "кромка")
+if not edge_prop["options"]:
+    ok(c.put(f"/api/item-properties/{edge_prop['id']}/options", json=[
+        {"value": "abs", "params": {}, "is_active": True},
+        {"value": "aluminum", "params": {}, "is_active": True},
+    ]), "edge options")
 
 # --- серии: из справочника серий щитовых дверей ---
 series_prop = next(p for p in door["properties"] if p["code"] == "серия")
@@ -148,7 +159,7 @@ ok(c.put(f"/api/item-types/{door['id']}/operations", json=[
     {"name": "Склейка щитов", "area": A["Склейка щитов"]},
     {"name": "Фрезеровка периметра", "area": A["Фрезеровка периметра щитов"]},
     {"name": "Сборка", "area": A["Сборка щитовых дверей"]},
-    {"name": "Кромка", "area": A["Кромка щитовых дверей"], "condition": 'серия.кромка == "abs"'},
+    {"name": "Кромка", "area": A["Кромка щитовых дверей"], "condition": 'кромка == "abs"'},
     {"name": "Фрезеровка под замок", "area": A["Фрезеровка под замок"], "condition": "замок"},
     {"name": "Упаковка", "area": A["Упаковка щитовых дверей"]},
 ]), "door ops")
