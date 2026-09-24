@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from app.api.items import view_items
 from app.core.security import require_permission
 from app.db.session import get_db
+from app.models.areas import Area
+from app.models.dictionaries import Part
 from app.models.items import (
     PROPERTY_VALUE_TYPES,
     Item,
@@ -24,7 +26,11 @@ from app.models.items import (
     ItemPropertyOption,
     ItemPropertyValue,
     ItemType,
+    ItemTypeComponent,
+    ItemTypeOperation,
 )
+from app.services import type_rules
+from app.services.expressions import ExpressionError, names_in, names_in_template
 
 router = APIRouter(tags=["item-types"])
 
@@ -81,6 +87,24 @@ class ItemTypeIn(BaseModel):
 class ItemTypeUpdate(BaseModel):
     name: str | None = None
     is_active: bool | None = None
+    name_template: str | None = None
+
+
+class TypeOperationIO(BaseModel):
+    name: str
+    area: str
+    condition: str | None = None
+
+
+class TypeComponentIO(BaseModel):
+    name_template: str
+    qty_expr: str = "1"
+    condition: str | None = None
+    width_expr: str | None = None
+    length_expr: str | None = None
+    strip_width_expr: str | None = None
+    route_part_id: int | None = None
+    operation_name: str | None = None
 
 
 class ItemTypeOut(BaseModel):
@@ -90,7 +114,10 @@ class ItemTypeOut(BaseModel):
     name: str
     is_active: bool
     item_count: int
+    name_template: str | None = None
     properties: list[PropertyOut]
+    operations: list[TypeOperationIO] = []
+    component_rules: list[TypeComponentIO] = []
 
 
 def _slug(name: str) -> str:
@@ -125,7 +152,16 @@ def _type_out(db: Session, t: ItemType) -> ItemTypeOut:
     count = db.query(func.count(Item.id)).filter(Item.type_id == t.id).scalar()
     return ItemTypeOut(
         id=t.id, kind_code=t.kind.code, kind_name=t.kind.name, name=t.name, is_active=t.is_active,
-        item_count=count or 0, properties=[_property_out(db, p) for p in t.properties],
+        item_count=count or 0, name_template=t.name_template, properties=[_property_out(db, p) for p in t.properties],
+        operations=[TypeOperationIO(name=o.name, area=o.area, condition=o.condition) for o in t.operations],
+        component_rules=[
+            TypeComponentIO(
+                name_template=r.name_template, qty_expr=r.qty_expr, condition=r.condition, width_expr=r.width_expr,
+                length_expr=r.length_expr, strip_width_expr=r.strip_width_expr, route_part_id=r.route_part_id,
+                operation_name=r.operation_name,
+            )
+            for r in t.component_rules
+        ],
     )
 
 
@@ -199,6 +235,11 @@ def update_item_type(
         t.name = name
     if payload.is_active is not None:
         t.is_active = payload.is_active
+    if payload.name_template is not None:
+        tpl = " ".join(payload.name_template.split()) or None
+        if tpl:
+            _check_template(t, tpl, "Название позиции")
+        t.name_template = tpl
     db.commit()
     return _type_out(db, t)
 
@@ -308,6 +349,8 @@ class ItemPropertiesOut(BaseModel):
     kind_code: str
     type_id: int | None
     values: dict[int, float | str | bool | int | None]  # property_id → число/текст/да-нет/id варианта
+    # Свойства сохранены, но правила типа не применились (не хватает данных).
+    rules_errors: list[str] = []
 
 
 class ItemPropertiesIn(BaseModel):
@@ -354,31 +397,254 @@ def set_item_properties(
     db.query(ItemPropertyValue).filter(ItemPropertyValue.item_id == item.id).delete()
     item.type_id = new_type.id if new_type else None
     if new_type is not None:
-        missing = []
-        for p in new_type.properties:
-            raw = payload.values.get(p.id)
-            if raw is None or raw == "":
-                if p.is_required:
-                    missing.append(p.name)
-                continue
-            v = ItemPropertyValue(item_id=item.id, property_id=p.id)
-            try:
-                if p.value_type == "number":
-                    v.value_number = float(raw)
-                elif p.value_type == "text":
-                    v.value_text = str(raw).strip()[:255]
-                elif p.value_type == "bool":
-                    v.value_bool = bool(raw)
-                else:
-                    opt = db.get(ItemPropertyOption, int(raw))
-                    if opt is None or opt.property_id != p.id:
-                        raise ValueError
-                    v.option_id = opt.id
-            except (TypeError, ValueError) as e:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"«{p.name}»: неверное значение") from e
-            db.add(v)
-        if missing:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Заполните: " + ", ".join(missing))
+        _write_values(db, item, new_type, payload.values)
+    db.flush()
+    db.refresh(item)
+    rules_errors: list[str] = []
+    if new_type is not None and (new_type.operations or new_type.component_rules or new_type.name_template):
+        sp = db.begin_nested()
+        res = type_rules.apply(db, item)
+        if res.errors:
+            sp.rollback()
+            rules_errors = res.errors
+        else:
+            sp.commit()
     db.commit()
     db.refresh(item)
-    return ItemPropertiesOut(item_id=item.id, kind_code=item.kind.code, type_id=item.type_id, values=_read_values(db, item))
+    return ItemPropertiesOut(
+        item_id=item.id, kind_code=item.kind.code, type_id=item.type_id, values=_read_values(db, item),
+        rules_errors=rules_errors,
+    )
+
+
+def _write_values(db: Session, item: Item, new_type: ItemType, values: dict) -> None:
+    """Записать значения свойств позиции по типу (старые значения уже сняты)."""
+    missing = []
+    for p in new_type.properties:
+        raw = values.get(p.id)
+        if raw is None or raw == "":
+            if p.is_required:
+                missing.append(p.name)
+            continue
+        v = ItemPropertyValue(item_id=item.id, property_id=p.id)
+        try:
+            if p.value_type == "number":
+                v.value_number = float(raw)
+            elif p.value_type == "text":
+                v.value_text = str(raw).strip()[:255]
+            elif p.value_type == "bool":
+                v.value_bool = bool(raw)
+            else:
+                opt = db.get(ItemPropertyOption, int(raw))
+                if opt is None or opt.property_id != p.id:
+                    raise ValueError
+                v.option_id = opt.id
+        except (TypeError, ValueError) as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"«{p.name}»: неверное значение") from e
+        db.add(v)
+    if missing:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Заполните: " + ", ".join(missing))
+
+
+def _check_names(t: ItemType, used: set[str], where: str) -> None:
+    known = type_rules.property_codes(t)
+    unknown = sorted(used - known)
+    if unknown:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"{where}: нет свойства «{unknown[0]}» — коды свойств типа: {', '.join(sorted(known)) or 'нет свойств'}",
+        )
+
+
+def _check_expr(t: ItemType, expr: str | None, where: str) -> None:
+    if not expr or not expr.strip():
+        return
+    try:
+        _check_names(t, names_in(expr), where)
+    except ExpressionError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{where}: {e}") from e
+
+
+def _check_template(t: ItemType, tpl: str, where: str) -> None:
+    try:
+        _check_names(t, names_in_template(tpl), where)
+    except ExpressionError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{where}: {e}") from e
+
+
+@router.put("/item-types/{type_id}/operations", response_model=ItemTypeOut)
+def set_type_operations(
+    type_id: int, payload: list[TypeOperationIO], db: Session = Depends(get_db), user=Depends(manage_types)
+) -> ItemTypeOut:
+    """Операции маршрута типа по порядку, с условием (пусто — всегда)."""
+    t = _get_type(db, type_id)
+    areas = {a.code for a in db.query(Area)}
+    names = [" ".join(o.name.split()) for o in payload]
+    if any(not n for n in names) or len({n.lower() for n in names}) != len(names):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Названия операций должны быть заполнены и не повторяться")
+    for o, n in zip(payload, names):
+        if o.area not in areas:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Операция «{n}»: участок не найден")
+        _check_expr(t, o.condition, f"Условие операции «{n}»")
+    t.operations.clear()
+    db.flush()
+    for i, (o, n) in enumerate(zip(payload, names), start=1):
+        t.operations.append(
+            ItemTypeOperation(sequence_order=i, name=n, area=o.area, condition=(o.condition or "").strip() or None)
+        )
+    db.commit()
+    db.refresh(t)
+    return _type_out(db, t)
+
+
+@router.put("/item-types/{type_id}/component-rules", response_model=ItemTypeOut)
+def set_type_component_rules(
+    type_id: int, payload: list[TypeComponentIO], db: Session = Depends(get_db), user=Depends(manage_types)
+) -> ItemTypeOut:
+    """Правила состава типа: компонент по шаблону названия, количество и
+    размеры — формулами от свойств."""
+    t = _get_type(db, type_id)
+    for r in payload:
+        tpl = " ".join(r.name_template.split())
+        if not tpl:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите шаблон названия компонента")
+        where = f"Правило «{tpl}»"
+        _check_template(t, tpl, where)
+        for expr in (r.qty_expr, r.condition, r.width_expr, r.length_expr, r.strip_width_expr):
+            _check_expr(t, expr, where)
+        if r.route_part_id is not None and db.get(Part, r.route_part_id) is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{where}: деталь-образец маршрута не найдена")
+    # Строки состава "по правилу" ссылаются на правило (rule_id) — при замене
+    # правил ссылка обнуляется, состав пересчитается при следующем применении.
+    t.component_rules.clear()
+    db.flush()
+    for i, r in enumerate(payload, start=1):
+        t.component_rules.append(
+            ItemTypeComponent(
+                sort_order=i, name_template=" ".join(r.name_template.split()), qty_expr=(r.qty_expr or "1").strip(),
+                condition=(r.condition or "").strip() or None, width_expr=(r.width_expr or "").strip() or None,
+                length_expr=(r.length_expr or "").strip() or None,
+                strip_width_expr=(r.strip_width_expr or "").strip() or None, route_part_id=r.route_part_id,
+                operation_name=(r.operation_name or "").strip() or None,
+            )
+        )
+    db.commit()
+    db.refresh(t)
+    return _type_out(db, t)
+
+
+class PlannedComponentOut(BaseModel):
+    name: str
+    qty: float
+    width_mm: float | None
+    length_mm: float | None
+    strip_width_mm: float | None
+    operation_name: str | None
+    exists: bool
+
+
+class RulesPreviewOut(BaseModel):
+    name: str | None
+    operations: list[TypeOperationIO]
+    components: list[PlannedComponentOut]
+    errors: list[str]
+
+
+class RulesPreviewIn(BaseModel):
+    item_id: int | None = None
+    values: dict[int, float | str | bool | int | None] = Field(default_factory=dict)
+
+
+def _preview_out(db: Session, res: type_rules.RulesResult) -> RulesPreviewOut:
+    return RulesPreviewOut(
+        name=res.name,
+        operations=[TypeOperationIO(name=n, area=a) for n, a in res.operations],
+        components=[
+            PlannedComponentOut(
+                name=c.name, qty=c.qty, width_mm=c.width_mm, length_mm=c.length_mm, strip_width_mm=c.strip_width_mm,
+                operation_name=c.operation_name, exists=c.existing_item_id is not None,
+            )
+            for c in res.components
+        ],
+        errors=res.errors,
+    )
+
+
+@router.post("/item-types/{type_id}/preview", response_model=RulesPreviewOut)
+def preview_type_rules(
+    type_id: int, payload: RulesPreviewIn, db: Session = Depends(get_db), user=Depends(view_items)
+) -> RulesPreviewOut:
+    """Проверка правил без сохранения: на существующей позиции типа или на
+    введённых значениях свойств."""
+    t = _get_type(db, type_id)
+    if payload.item_id is not None:
+        item = db.get(Item, payload.item_id)
+        if item is None or item.type_id != t.id:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Позиция не этого типа")
+        values = type_rules.item_values(db, item)
+    else:
+        values = {int(k): v for k, v in payload.values.items()}
+    return _preview_out(db, type_rules.compute(db, t, type_rules.context_from_values(db, t, values)))
+
+
+class ApplyResultOut(BaseModel):
+    applied: int
+    errors: dict[str, list[str]]  # название позиции → ошибки
+
+
+@router.post("/item-types/{type_id}/apply", response_model=ApplyResultOut)
+def apply_type_rules(type_id: int, db: Session = Depends(get_db), user=Depends(manage_types)) -> ApplyResultOut:
+    """Пересчитать техкарты всех позиций типа по правилам. Позиция с
+    ошибками в данных не меняется (остальные — применяются)."""
+    t = _get_type(db, type_id)
+    applied, errors = 0, {}
+    for item in db.query(Item).filter(Item.type_id == t.id).order_by(Item.name):
+        sp = db.begin_nested()
+        res = type_rules.apply(db, item)
+        if res.errors:
+            sp.rollback()
+            errors[item.name] = res.errors
+        else:
+            sp.commit()
+            applied += 1
+    db.commit()
+    return ApplyResultOut(applied=applied, errors=errors)
+
+
+class ItemCreateIn(BaseModel):
+    type_id: int
+    values: dict[int, float | str | bool | int | None] = Field(default_factory=dict)
+
+
+class ItemCreateOut(BaseModel):
+    item_id: int
+    name: str
+    created: bool
+
+
+@router.post("/items/by-type", response_model=ItemCreateOut, status_code=status.HTTP_201_CREATED)
+def create_item_by_type(payload: ItemCreateIn, db: Session = Depends(get_db), user=Depends(manage_types)) -> ItemCreateOut:
+    """Позиция по типу (ГП «Щитовая дверь» и т.п.): название — по шаблону
+    типа, техкарта — по его правилам. Такая позиция уже есть — вернуть её
+    (одна позиция на сочетание свойств, как «отдельная позиция на размер»)."""
+    t = _get_type(db, payload.type_id)
+    if not t.name_template:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "У типа не задан шаблон названия позиции")
+    ctx = type_rules.context_from_values(db, t, {int(k): v for k, v in payload.values.items()})
+    res = type_rules.compute(db, t, ctx)
+    if res.errors:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "; ".join(res.errors))
+    existing = db.query(Item).filter(Item.kind_id == t.kind_id, func.lower(Item.name) == res.name.lower()).first()
+    if existing is not None:
+        return ItemCreateOut(item_id=existing.id, name=existing.name, created=False)
+    item = Item(kind_id=t.kind_id, name=res.name, type_id=t.id)
+    db.add(item)
+    db.flush()
+    _write_values(db, item, t, {int(k): v for k, v in payload.values.items()})
+    db.flush()
+    applied = type_rules.apply(db, item)
+    if applied.errors:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "; ".join(applied.errors))
+    db.commit()
+    return ItemCreateOut(item_id=item.id, name=item.name, created=True)

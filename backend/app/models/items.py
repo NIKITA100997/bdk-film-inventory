@@ -70,6 +70,7 @@ class ItemComponent(Base):
     stage_id: Mapped[int | None] = mapped_column(ForeignKey("part_stages.id", ondelete="SET NULL"), nullable=True)
     source: Mapped[str] = mapped_column(String(16), default="manual")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    rule_id: Mapped[int | None] = mapped_column(ForeignKey("item_type_components.id", ondelete="SET NULL"), nullable=True)
 
 
 class ItemType(Base):
@@ -86,11 +87,59 @@ class ItemType(Base):
     name: Mapped[str] = mapped_column(String(128))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Шаблон названия позиции этого типа по её свойствам:
+    # «Дверь щитовая {серия} {ширина}х{высота}» (services/expressions.py).
+    name_template: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     kind: Mapped[ItemKind] = relationship()
     properties: Mapped[list["ItemProperty"]] = relationship(
         back_populates="type", order_by="ItemProperty.sort_order", cascade="all, delete-orphan"
     )
+    operations: Mapped[list["ItemTypeOperation"]] = relationship(
+        order_by="ItemTypeOperation.sequence_order", cascade="all, delete-orphan"
+    )
+    component_rules: Mapped[list["ItemTypeComponent"]] = relationship(
+        order_by="ItemTypeComponent.sort_order", cascade="all, delete-orphan"
+    )
+
+
+class ItemTypeOperation(Base):
+    """Операция маршрута типа изделия с условием (пункт 3): у позиции типа
+    маршрут собирается из операций, чьё условие верно на её свойствах —
+    «Кромка» только при серия.кромка == "abs", «Фрезеровка под замок» —
+    только при замке."""
+
+    __tablename__ = "item_type_operations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    type_id: Mapped[int] = mapped_column(ForeignKey("item_types.id", ondelete="CASCADE"), index=True)
+    sequence_order: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(String(255))
+    area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
+    condition: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class ItemTypeComponent(Base):
+    """Правило состава типа изделия (пункт 3): компонент по формулам от
+    свойств позиции. Название — шаблон («Каркас {ширина+10}х{высота+10}х
+    {серия.толщина_каркаса}»); позиция п/ф с таким названием находится или
+    заводится сама (решение 24.09: отдельная позиция на размер) — с
+    размерами по формулам (мм) и маршрутом как у детали-образца.
+    operation_name — на какой операции маршрута изделия расходуется."""
+
+    __tablename__ = "item_type_components"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    type_id: Mapped[int] = mapped_column(ForeignKey("item_types.id", ondelete="CASCADE"), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    name_template: Mapped[str] = mapped_column(String(255))
+    qty_expr: Mapped[str] = mapped_column(String(255), default="1")
+    condition: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    width_expr: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    length_expr: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    strip_width_expr: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    route_part_id: Mapped[int | None] = mapped_column(ForeignKey("parts.id", ondelete="SET NULL"), nullable=True)
+    operation_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 PROPERTY_VALUE_TYPES = ("number", "text", "bool", "list")
