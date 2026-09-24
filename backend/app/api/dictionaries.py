@@ -2,6 +2,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -57,6 +58,7 @@ from app.services.analogs import (
     sku_stock_m2,
 )
 from app.services.deletion_requests import request_deletion
+from app.services.routes import RouteInUseError, RouteStep, apply_route
 from app.services.dict_admin import find_fuzzy_duplicates
 from app.services.dictionaries import (
     color_in_use,
@@ -443,25 +445,49 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
 def update_part_stages(
     part_id: int, payload: list[PartStageCreate], db: Session = Depends(get_db), user=Depends(manage_parts)
 ) -> Part:
-    """Заменить весь список этапов детали целиком (раздел про физический
-    учёт деталей, пилот: окутка царговых) — проще, чем точечный CRUD по
-    одной строке; порядок в списке = sequence_order. Не трогает уже
-    существующие PartUnit — они продолжают ссылаться на свой stage_id, даже
-    если этот этап пропал из нового списка (партия просто "застревает" на
-    несуществующем больше этапе — advance_part_unit для неё просто не
-    найдёт следующего этапа и зафиксирует событие "Завершение", как для
-    партии, дошедшей до конца маршрута; это осознанный компромисс:
-    переиндексация чужих партий задним числом — больший риск, чем эта
-    редкая ручная ошибка настройки)."""
+    """Заменить маршрут детали (порядок в списке = sequence_order). Этапы
+    правятся на месте — партии и история остаются на своих этапах, см.
+    services/routes.py."""
     obj = db.get(Part, part_id)
     if obj is None:
         raise HTTPException(404, "Деталь не найдена")
-    db.query(PartStage).filter(PartStage.part_id == part_id).delete()
-    for i, stage in enumerate(payload, start=1):
-        db.add(PartStage(part_id=part_id, sequence_order=i, code=stage.code, name=stage.name, area=stage.area))
+    try:
+        apply_route(db, obj, [RouteStep(code=s.code, name=s.name, area=s.area) for s in payload])
+    except RouteInUseError as e:
+        db.rollback()
+        raise HTTPException(409, str(e)) from e
     db.commit()
     db.refresh(obj)
     return obj
+
+
+class BulkStagesIn(BaseModel):
+    part_ids: list[int]
+    stages: list[PartStageCreate]
+
+
+class BulkStagesOut(BaseModel):
+    updated: int
+
+
+@router.put("/parts/stages/bulk", response_model=BulkStagesOut)
+def update_parts_stages_bulk(
+    payload: BulkStagesIn, db: Session = Depends(get_db), user=Depends(manage_parts)
+) -> BulkStagesOut:
+    """Массовая смена маршрута — одной транзакцией: применилось ко всем
+    отмеченным деталям или ни к одной (с названием мешающей детали)."""
+    parts = db.query(Part).filter(Part.id.in_(payload.part_ids)).all()
+    if len(parts) != len(set(payload.part_ids)):
+        raise HTTPException(404, "Часть деталей не найдена")
+    steps = [RouteStep(code=s.code, name=s.name, area=s.area) for s in payload.stages]
+    try:
+        for part in parts:
+            apply_route(db, part, steps)
+    except RouteInUseError as e:
+        db.rollback()
+        raise HTTPException(409, str(e)) from e
+    db.commit()
+    return BulkStagesOut(updated=len(parts))
 
 
 @router.post("/material-skus", response_model=MaterialSkuOut, status_code=status.HTTP_201_CREATED)

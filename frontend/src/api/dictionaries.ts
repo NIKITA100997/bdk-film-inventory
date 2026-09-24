@@ -96,6 +96,13 @@ export const updatePart = async (id: number, payload: PartUpdate): Promise<Part>
 export const updatePartStages = async (id: number, stages: { code: string; name: string; area: string | null }[]): Promise<Part> =>
   (await apiClient.put<Part>(`/parts/${id}/stages`, stages)).data;
 
+// Массовая смена маршрута — одной транзакцией: ко всем деталям или ни к одной.
+export const updatePartsStagesBulk = async (
+  partIds: number[],
+  stages: { code: string; name: string; area: string | null }[],
+): Promise<{ updated: number }> =>
+  (await apiClient.put<{ updated: number }>("/parts/stages/bulk", { part_ids: partIds, stages })).data;
+
 // in_stock_only (раздел про нулевые позиции при выдаче) — сужает до
 // позиций, у которых реально есть остаток "На хранении" прямо сейчас.
 export const listMaterialSkus = async (inStockOnly = false): Promise<MaterialSku[]> =>

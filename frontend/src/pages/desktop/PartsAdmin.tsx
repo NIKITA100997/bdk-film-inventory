@@ -9,13 +9,20 @@ import {
   createPart,
   updatePart,
   updatePartStages,
+  updatePartsStagesBulk,
   listAllMaterialSkus,
   type Part,
   type PartCreate,
   type DuplicateCandidate,
 } from "../../api/dictionaries";
+import { isAxiosError } from "axios";
 import { listAreas } from "../../api/areas";
 import { skuLabel } from "../../api/units";
+
+function stagesErrorMessage(e: unknown): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return "Не удалось сохранить этапы";
+}
 
 type StageRow = { code: string; name: string; area: string | null };
 type AreaOption = { value: string; label: string };
@@ -106,7 +113,7 @@ export default function PartsAdmin() {
       message.success("Этапы сохранены");
       setStagesTarget(null);
     },
-    onError: () => message.error("Не удалось сохранить этапы"),
+    onError: (e) => message.error(stagesErrorMessage(e)),
   });
 
   const openStages = (part: Part) => {
@@ -114,10 +121,10 @@ export default function PartsAdmin() {
     setStageRows(part.stages.map((s) => ({ code: s.code, name: s.name, area: s.area })));
   };
 
-  // Раздел про массовую настройку этапов — маршрут применяется сразу
-  // ко всем отмеченным деталям, по одному запросу за раз (не Promise.all),
-  // чтобы точно знать, какая именно деталь не сохранилась, если что-то
-  // упало (например, у неё уже архивирован участок).
+  // Раздел про массовую настройку этапов — маршрут применяется ко всем
+  // отмеченным деталям одной транзакцией на сервере: всё или ничего, а
+  // если какой-то детали мешают партии на убираемом этапе — её название
+  // в сообщении об ошибке.
   const selectedParts = (partsQuery.data ?? []).filter((p) => selectedPartIds.includes(p.id));
   const openBulkStages = () => {
     const template = selectedParts.find((p) => p.stages.length > 0);
@@ -125,32 +132,14 @@ export default function PartsAdmin() {
     setBulkOpen(true);
   };
   const bulkStagesMutation = useMutation({
-    mutationFn: async () => {
-      const results: { part: Part; ok: boolean }[] = [];
-      for (const part of selectedParts) {
-        try {
-          await updatePartStages(part.id, bulkStageRows);
-          results.push({ part, ok: true });
-        } catch {
-          results.push({ part, ok: false });
-        }
-      }
-      return results;
-    },
-    onSuccess: (results) => {
+    mutationFn: () => updatePartsStagesBulk(selectedParts.map((p) => p.id), bulkStageRows),
+    onSuccess: (res) => {
       invalidateCaches();
-      const failed = results.filter((r) => !r.ok);
-      if (failed.length === 0) {
-        message.success(`Этапы применены к ${results.length} ${pluralParts(results.length)}`);
-        setBulkOpen(false);
-        setSelectedPartIds([]);
-      } else {
-        message.warning(
-          `Готово для ${results.length - failed.length} из ${results.length}. Не удалось: ${failed.map((r) => r.part.name).join(", ")}`,
-        );
-      }
+      message.success(`Этапы применены к ${res.updated} ${pluralParts(res.updated)}`);
+      setBulkOpen(false);
+      setSelectedPartIds([]);
     },
-    onError: () => message.error("Не удалось сохранить этапы"),
+    onError: (e) => message.error(stagesErrorMessage(e)),
   });
 
   const openCreate = () => {
