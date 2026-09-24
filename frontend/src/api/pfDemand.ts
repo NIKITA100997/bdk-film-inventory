@@ -25,7 +25,14 @@ export interface PfDemandRow {
   sources: PfDemandSource[];
 }
 
-export const listPfDemand = async (): Promise<PfDemandRow[]> => (await apiClient.get<PfDemandRow[]>("/pf-demand")).data;
+// indexes: null — task_ids=1&task_ids=2, как ждёт FastAPI, а не task_ids[]=1.
+export const listPfDemand = async (taskIds: number[] = []): Promise<PfDemandRow[]> =>
+  (
+    await apiClient.get<PfDemandRow[]>("/pf-demand", {
+      params: taskIds.length ? { task_ids: taskIds } : undefined,
+      paramsSerializer: { indexes: null },
+    })
+  ).data;
 
 export const createPfTasks = async (payload: {
   items: { part_id: number; quantity_pieces: number }[];

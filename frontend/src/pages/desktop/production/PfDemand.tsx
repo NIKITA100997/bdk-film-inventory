@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Checkbox, Form, InputNumber, Modal, Space, Tag, Typography, message } from "antd";
+import { Button, Card, Checkbox, Form, InputNumber, Modal, Select, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { useAuth } from "../../../auth/AuthContext";
@@ -29,8 +29,17 @@ export default function PfDemand() {
   const [qty, setQty] = useState<Record<number, number | null>>({});
   const [selected, setSelected] = useState<number[]>([]);
   const [editTarget, setEditTarget] = useState<PfDemandRow | null>(null);
+  const [taskFilter, setTaskFilter] = useState<number[]>([]);
 
-  const demandQuery = useQuery({ queryKey: ["pf-demand"], queryFn: listPfDemand });
+  // Варианты фильтра — задания цеха из общего расчёта (без фильтра); при
+  // пустом фильтре это тот же запрос, что и таблица.
+  const allQuery = useQuery({ queryKey: ["pf-demand", []], queryFn: () => listPfDemand([]) });
+  const demandQuery = useQuery({ queryKey: ["pf-demand", taskFilter], queryFn: () => listPfDemand(taskFilter) });
+  const taskOptions = useMemo(() => {
+    const byId = new Map<number, string>();
+    for (const r of allQuery.data ?? []) for (const s of r.sources) byId.set(s.task_id, s.task_name);
+    return [...byId.entries()].sort((a, b) => a[0] - b[0]).map(([id, name]) => ({ value: id, label: `№${id} · ${name}` }));
+  }, [allQuery.data]);
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaName = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : null);
 
@@ -88,9 +97,29 @@ export default function PfDemand() {
           заказанное в заданиях участкам. К производству — нехватка, но не меньше минимальной партии. Задание уходит
           участку первого этапа детали.
         </Typography.Paragraph>
-        <Checkbox checked={onlyShortage} onChange={(e) => setOnlyShortage(e.target.checked)}>
-          Только с нехваткой
-        </Checkbox>
+        <Space wrap size={[12, 12]}>
+          <Select
+            mode="multiple"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            style={{ minWidth: 420 }}
+            placeholder="Все задания цеха"
+            options={taskOptions}
+            value={taskFilter}
+            onChange={setTaskFilter}
+            loading={allQuery.isLoading}
+          />
+          <Checkbox checked={onlyShortage} onChange={(e) => setOnlyShortage(e.target.checked)}>
+            Только с нехваткой
+          </Checkbox>
+        </Space>
+        {taskFilter.length > 0 && (
+          <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+            Только выбранные задания: «Нужно» — их остаток без минимального остатка детали. «Есть» и «В работе» — общие
+            по детали, они же покрывают и другие задания.
+          </Typography.Paragraph>
+        )}
       </Card>
 
       <ResponsiveTable<PfDemandRow>

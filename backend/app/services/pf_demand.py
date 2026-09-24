@@ -75,13 +75,15 @@ def task_part_remaining(lines: list[tuple[float, float, bool]]) -> float:
     return max(0.0, open_plan - credited)
 
 
-def _task_demand_by_part_name(db: Session) -> dict[str, list[PfDemandSource]]:
-    lines = (
+def _task_demand_by_part_name(db: Session, task_ids: list[int] | None = None) -> dict[str, list[PfDemandSource]]:
+    query = (
         db.query(ProductionTaskLine)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
         .filter(ProductionTask.is_active.is_(True), ProductionTaskLine.part_name.isnot(None))
-        .all()
     )
+    if task_ids:
+        query = query.filter(ProductionTaskLine.task_id.in_(task_ids))
+    lines = query.all()
     if not lines:
         return {}
     good = dict(
@@ -153,13 +155,18 @@ def _in_work_by_first_stage(db: Session, first_stage_ids: set[int]) -> dict[int,
     return in_work
 
 
-def compute_pf_demand(db: Session) -> list[PfDemandRow]:
+def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[PfDemandRow]:
     """Детали с этапами, у которых задан минимальный остаток, есть
-    потребность по заданиям цеха или что-то в работе."""
+    потребность по заданиям цеха или что-то в работе.
+
+    task_ids — только выбранные задания цеха: «что произвести, чтобы
+    закрыть именно их». Минимальный остаток тогда не добавляется (запас —
+    не про конкретное задание), остаток и «в работе» вычитаются как
+    обычно; в список попадают только детали этих заданий."""
     parts = db.query(Part).filter(Part.is_active.is_(True)).all()
     parts = [p for p in parts if p.stages]
     first_stage: dict[int, PartStage] = {p.id: min(p.stages, key=lambda s: s.sequence_order) for p in parts}
-    demand = _task_demand_by_part_name(db)
+    demand = _task_demand_by_part_name(db, task_ids)
     stock = _stock_by_part(db)
     in_work = _in_work_by_first_stage(db, {s.id for s in first_stage.values()})
     rows = []
@@ -170,11 +177,14 @@ def compute_pf_demand(db: Session) -> list[PfDemandRow]:
         w = in_work.get(fs.id, 0.0)
         min_stock = float(p.min_stock_pieces) if p.min_stock_pieces is not None else None
         min_batch = float(p.min_batch_pieces) if p.min_batch_pieces is not None else None
-        if min_stock is None and d <= 0 and w <= 0:
+        if task_ids:
+            if d <= 0:
+                continue
+        elif min_stock is None and d <= 0 and w <= 0:
             continue
         s = stock.get(p.id, 0.0)
         need, shortage, suggested = compute_suggestion(
-            task_demand=d, min_stock=min_stock, stock=s, in_work=w, min_batch=min_batch
+            task_demand=d, min_stock=None if task_ids else min_stock, stock=s, in_work=w, min_batch=min_batch
         )
         rows.append(
             PfDemandRow(

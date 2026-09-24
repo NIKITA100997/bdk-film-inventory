@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -58,10 +58,14 @@ class PfDemandTasksOut(BaseModel):
 
 
 @router.get("", response_model=list[PfDemandOut])
-def list_pf_demand(db: Session = Depends(get_db), user: User = Depends(view)) -> list[PfDemandOut]:
+def list_pf_demand(
+    task_ids: list[int] | None = Query(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(view),
+) -> list[PfDemandOut]:
     return [
         PfDemandOut(**{**row.__dict__, "sources": [PfDemandSourceOut(**s.__dict__) for s in row.sources]})
-        for row in compute_pf_demand(db)
+        for row in compute_pf_demand(db, task_ids)
     ]
 
 
