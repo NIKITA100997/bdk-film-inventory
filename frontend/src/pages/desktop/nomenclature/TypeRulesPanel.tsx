@@ -7,6 +7,7 @@ import { listParts } from "../../../api/dictionaries";
 import {
   applyTypeRules,
   createItemByType,
+  listItemTypes,
   previewTypeRules,
   setTypeComponentRules,
   setTypeOperations,
@@ -33,6 +34,8 @@ const emptyRule: TypeComponentRule = {
   strip_width_expr: null,
   route_part_id: null,
   operation_name: null,
+  component_type_id: null,
+  component_values: {},
 };
 
 /** Правила типа изделия (единая модель, пункт 3): название позиции по
@@ -46,6 +49,10 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
   const areaName = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
+  // Тип компонента — только вида «П/ф» (компонент заводится деталью).
+  const pfTypes = (typesQuery.data ?? []).filter((t) => t.kind_code === "pf" && t.id !== type.id);
+  const typeName = (id: number | null) => (typesQuery.data ?? []).find((t) => t.id === id)?.name;
 
   const [nameTpl, setNameTpl] = useState<string | null>(null);
   const [opsDraft, setOpsDraft] = useState<TypeOperation[] | null>(null);
@@ -250,7 +257,22 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
               pagination={false}
               dataSource={type.component_rules}
               columns={[
-                { title: "Компонент (шаблон)", render: (_, r) => <code>{r.name_template}</code> },
+                {
+                  title: "Компонент",
+                  render: (_, r) =>
+                    r.component_type_id ? (
+                      <Space direction="vertical" size={0}>
+                        <Tag color="purple">тип: {typeName(r.component_type_id) ?? "—"}</Tag>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {Object.entries(r.component_values)
+                            .map(([k, v]) => `${k} = ${v}`)
+                            .join("; ")}
+                        </Typography.Text>
+                      </Space>
+                    ) : (
+                      <code>{r.name_template}</code>
+                    ),
+                },
                 { title: "На 1 шт", render: (_, r) => <code>{r.qty_expr}</code> },
                 {
                   title: "Размеры, мм",
@@ -330,6 +352,30 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
                       onChange={(v) => patchRule(i, { route_part_id: v ?? null })}
                     />
                   </Col>
+                  <Col xs={24} md={10}>
+                    <Select
+                      allowClear
+                      placeholder="…или компонент со своим типом (п/ф)"
+                      style={{ width: "100%" }}
+                      value={r.component_type_id ?? undefined}
+                      options={pfTypes.map((t) => ({ value: t.id, label: t.name }))}
+                      onChange={(v) => patchRule(i, { component_type_id: v ?? null, component_values: {} })}
+                    />
+                  </Col>
+                  {r.component_type_id &&
+                    (typesQuery.data ?? [])
+                      .find((t) => t.id === r.component_type_id)
+                      ?.properties.map((p) => (
+                        <Col xs={12} md={7} key={p.code}>
+                          <Input
+                            addonBefore={p.code}
+                            placeholder="формула"
+                            value={r.component_values[p.code] ?? ""}
+                            style={{ fontFamily: "monospace" }}
+                            onChange={(e) => patchRule(i, { component_values: { ...r.component_values, [p.code]: e.target.value } })}
+                          />
+                        </Col>
+                      ))}
                   <Col xs={24} md={6}>
                     <Button danger block onClick={() => setRulesDraft((d) => (d ?? []).filter((_, j) => j !== i))}>
                       Убрать правило

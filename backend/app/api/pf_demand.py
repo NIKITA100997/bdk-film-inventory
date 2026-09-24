@@ -73,23 +73,27 @@ def list_pf_demand(
 def create_pf_tasks(
     payload: PfDemandTasksCreate, db: Session = Depends(get_db), user: User = Depends(manage)
 ) -> PfDemandTasksOut:
-    """Задания цеха на производство п/ф — одно задание на участок первого
-    этапа, строка-операция на деталь; дальше по этапам партии идут отчётами."""
+    """Задания цеха на производство п/ф — по всем операциям маршрута детали
+    (как запуск заказа): задание на участок, строка на операцию. Последний
+    этап многоэтапной детали — готовая деталь на хранении, не операция."""
     by_area: dict[str, list[tuple[Part, float, int]]] = defaultdict(list)
     missing_area: list[str] = []
     for item in payload.items:
         part = db.get(Part, item.part_id)
         if part is None or not part.stages:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"У детали #{item.part_id} не настроены этапы")
-        first = min(part.stages, key=lambda s: s.sequence_order)
-        if first.area is None:
-            missing_area.append(part.name)
-            continue
-        by_area[first.area].append((part, item.quantity_pieces, first.id))
+        stages = sorted(part.stages, key=lambda s: s.sequence_order)
+        if len(stages) > 1:
+            stages = stages[:-1]
+        for stage in stages:
+            if stage.area is None:
+                missing_area.append(f"{part.name} ({stage.name})")
+                continue
+            by_area[stage.area].append((part, item.quantity_pieces, stage.id))
     if missing_area:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "У первого этапа не указан участок: " + ", ".join(missing_area) + " — настройте в справочнике деталей",
+            "У этапов не указан участок: " + ", ".join(missing_area) + " — настройте маршрут детали",
         )
     today = date.today().strftime("%d.%m.%Y")
     task_ids = []

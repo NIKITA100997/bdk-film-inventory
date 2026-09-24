@@ -105,6 +105,9 @@ class TypeComponentIO(BaseModel):
     strip_width_expr: str | None = None
     route_part_id: int | None = None
     operation_name: str | None = None
+    # Компонент со своим типом: тип (вида «П/ф») и формулы его свойств.
+    component_type_id: int | None = None
+    component_values: dict[str, str] = {}
 
 
 class ItemTypeOut(BaseModel):
@@ -158,7 +161,8 @@ def _type_out(db: Session, t: ItemType) -> ItemTypeOut:
             TypeComponentIO(
                 name_template=r.name_template, qty_expr=r.qty_expr, condition=r.condition, width_expr=r.width_expr,
                 length_expr=r.length_expr, strip_width_expr=r.strip_width_expr, route_part_id=r.route_part_id,
-                operation_name=r.operation_name,
+                operation_name=r.operation_name, component_type_id=r.component_type_id,
+                component_values=dict(r.component_values or {}),
             )
             for r in t.component_rules
         ],
@@ -504,12 +508,29 @@ def set_type_component_rules(
     """Правила состава типа: компонент по шаблону названия, количество и
     размеры — формулами от свойств."""
     t = _get_type(db, type_id)
+    pf_kind = db.query(ItemKind).filter(ItemKind.code == "pf").first()
     for r in payload:
         tpl = " ".join(r.name_template.split())
-        if not tpl:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите шаблон названия компонента")
-        where = f"Правило «{tpl}»"
-        _check_template(t, tpl, where)
+        child = db.get(ItemType, r.component_type_id) if r.component_type_id else None
+        if r.component_type_id and child is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Тип компонента не найден")
+        if not tpl and child is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите шаблон названия компонента или его тип")
+        where = f"Правило «{tpl or child.name}»"
+        if child is not None:
+            if child.id == t.id:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{where}: тип не может состоять из самого себя")
+            if pf_kind is None or child.kind_id != pf_kind.id:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{where}: тип компонента — только вида «П/ф»")
+            if not child.name_template:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{where}: у типа «{child.name}» не задан шаблон названия")
+            child_codes = type_rules.property_codes(child)
+            for code, expr in (r.component_values or {}).items():
+                if code not in child_codes:
+                    raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{where}: у «{child.name}» нет свойства «{code}»")
+                _check_expr(t, expr, f"{where}, «{code}»")
+        if tpl:
+            _check_template(t, tpl, where)
         for expr in (r.qty_expr, r.condition, r.width_expr, r.length_expr, r.strip_width_expr):
             _check_expr(t, expr, where)
         if r.route_part_id is not None and db.get(Part, r.route_part_id) is None:
@@ -525,7 +546,8 @@ def set_type_component_rules(
                 condition=(r.condition or "").strip() or None, width_expr=(r.width_expr or "").strip() or None,
                 length_expr=(r.length_expr or "").strip() or None,
                 strip_width_expr=(r.strip_width_expr or "").strip() or None, route_part_id=r.route_part_id,
-                operation_name=(r.operation_name or "").strip() or None,
+                operation_name=(r.operation_name or "").strip() or None, component_type_id=r.component_type_id,
+                component_values={k: v.strip() for k, v in (r.component_values or {}).items() if v and v.strip()},
             )
         )
     db.commit()

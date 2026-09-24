@@ -168,65 +168,74 @@ def _in_work_by_first_stage(db: Session, first_stage_ids: set[int]) -> dict[int,
     return in_work
 
 
-def _order_demand_by_part(db: Session, task_ids: list[int] | None = None) -> dict[int, list[PfDemandSource]]:
-    """Потребность в комплектующих п/ф из запущенных заказов на производство
-    (единая модель, п.4): остаток заказа × состав позиции. Остаток — по
-    операции, на которой компонент расходуется (годные + брак по ней уже
-    списали комплектующие); операция не указана — весь заказ."""
+def _operation_demand_by_part(db: Session, task_ids: list[int] | None = None) -> dict[int, list[PfDemandSource]]:
+    """Потребность в комплектующих п/ф от открытых строк-операций (единая
+    модель): заказов на производство (дверь → каркас, цветная панель) и
+    заданий на сами п/ф (цветная панель → сырая панель) — многоуровневый
+    расчёт, как MRP. Строка расходует комплектующие, которые по составу её
+    позиции нужны на этой операции (компонент без операции — на первой).
+    Остаток — план строки минус годные и брак по ней: на них комплектующие
+    уже списаны."""
     from app.models.items import ItemComponent
-    from app.models.production_orders import ORDER_RELEASED, ProductionOrder, ProductionOrderLine
+    from app.models.production_orders import ProductionOrder
 
     out: dict[int, list[PfDemandSource]] = defaultdict(list)
-    rows = (
-        db.query(ProductionOrderLine, ProductionOrder)
-        .join(ProductionOrder, ProductionOrder.id == ProductionOrderLine.order_id)
-        .filter(ProductionOrder.status == ORDER_RELEASED)
-        .all()
+    q = (
+        db.query(ProductionTaskLine, ProductionTask)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(ProductionTask.is_active.is_(True), ProductionTaskLine.part_stage_id.isnot(None))
     )
+    if task_ids:
+        q = q.filter(ProductionTaskLine.task_id.in_(task_ids))
+    rows = q.all()
     if not rows:
         return out
     parts_by_item = {p.item_id: p for p in db.query(Part).filter(Part.is_active.is_(True)) if p.stages}
-    for ol, order in rows:
-        for comp in db.query(ItemComponent).filter(ItemComponent.parent_item_id == ol.item_id):
+    done_by_line = dict(
+        db.query(
+            ProductionTaskLineReport.task_line_id,
+            func.coalesce(func.sum(ProductionTaskLineReport.good_pieces + ProductionTaskLineReport.defect_pieces), 0),
+        )
+        .filter(
+            ProductionTaskLineReport.task_line_id.in_([ln.id for ln, _ in rows]),
+            ProductionTaskLineReport.counts_toward_line.is_(True),
+        )
+        .group_by(ProductionTaskLineReport.task_line_id)
+        .all()
+    )
+    orders = {o.id: o for o in db.query(ProductionOrder)}
+    for line, task in rows:
+        if line.is_closed or line.production_closed:
+            continue
+        stage = db.get(PartStage, line.part_stage_id)
+        if stage is None:
+            continue
+        first_id = min(stage.item.stages, key=lambda s: s.sequence_order).id if stage.item.stages else stage.id
+        comps = [
+            c for c in db.query(ItemComponent).filter(ItemComponent.parent_item_id == stage.item_id)
+            if c.stage_id == stage.id or (c.stage_id is None and stage.id == first_id)
+        ]
+        if not comps:
+            continue
+        done = float(done_by_line.get(line.id, 0))
+        units_left = max(0.0, float(line.quantity_pieces) - done)
+        if units_left <= 0:
+            continue
+        order = orders.get(task.production_order_id) if task.production_order_id else None
+        label = f"Заказ №{order.id} «{order.name}»" if order else (task.name or f"Задание №{task.id}")
+        for comp in comps:
             part = parts_by_item.get(comp.component_item_id)
             if part is None:
-                continue
-            line = None
-            if comp.stage_id is not None:
-                line = (
-                    db.query(ProductionTaskLine)
-                    .filter(ProductionTaskLine.order_line_id == ol.id, ProductionTaskLine.part_stage_id == comp.stage_id)
-                    .first()
-                )
-            if task_ids and (line is None or line.task_id not in task_ids):
-                continue
-            done = 0.0
-            if line is not None:
-                done = float(
-                    db.query(
-                        func.coalesce(func.sum(ProductionTaskLineReport.good_pieces + ProductionTaskLineReport.defect_pieces), 0)
-                    )
-                    .filter(
-                        ProductionTaskLineReport.task_line_id == line.id,
-                        ProductionTaskLineReport.counts_toward_line.is_(True),
-                    )
-                    .scalar()
-                )
-            units_left = max(0.0, float(ol.quantity) - done)
-            if units_left <= 0:
                 continue
             per = float(comp.qty_per_unit)
             out[part.id].append(
                 PfDemandSource(
-                    task_id=line.task_id if line else 0,
-                    task_name=f"Заказ №{order.id} «{order.name}»",
-                    open_plan=round(float(ol.quantity) * per, 2),
-                    done=round(done * per, 2),
+                    task_id=task.id, task_name=f"{label}: {stage.name}",
+                    open_plan=round(float(line.quantity_pieces) * per, 2), done=round(done * per, 2),
                     remaining=round(units_left * per, 2),
                 )
             )
     return out
-
 
 def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[PfDemandRow]:
     """Детали с этапами, у которых задан минимальный остаток, есть
@@ -241,7 +250,7 @@ def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[Pf
     parts = [p for p in parts if p.stages]
     first_stage: dict[int, PartStage] = {p.id: min(p.stages, key=lambda s: s.sequence_order) for p in parts}
     demand = _task_demand_by_part(db, task_ids)
-    for part_id, sources in _order_demand_by_part(db, task_ids).items():
+    for part_id, sources in _operation_demand_by_part(db, task_ids).items():
         demand.setdefault(part_id, []).extend(sources)
     stock = _stock_by_part(db)
     in_work = _in_work_by_first_stage(db, {s.id for s in first_stage.values()})

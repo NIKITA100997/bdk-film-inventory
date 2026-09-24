@@ -99,7 +99,8 @@ class ItemType(Base):
         order_by="ItemTypeOperation.sequence_order", cascade="all, delete-orphan"
     )
     component_rules: Mapped[list["ItemTypeComponent"]] = relationship(
-        order_by="ItemTypeComponent.sort_order", cascade="all, delete-orphan"
+        order_by="ItemTypeComponent.sort_order", cascade="all, delete-orphan",
+        foreign_keys="ItemTypeComponent.type_id",
     )
 
 
@@ -140,6 +141,12 @@ class ItemTypeComponent(Base):
     strip_width_expr: Mapped[str | None] = mapped_column(String(255), nullable=True)
     route_part_id: Mapped[int | None] = mapped_column(ForeignKey("parts.id", ondelete="SET NULL"), nullable=True)
     operation_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Компонент со своим типом (многоуровневая номенклатура: дверь → цветная
+    # панель → сырая панель): тип компонента и значения его свойств —
+    # формулами от свойств родителя {код свойства компонента: формула}.
+    # Тогда название, маршрут и состав компонента — по правилам его типа.
+    component_type_id: Mapped[int | None] = mapped_column(ForeignKey("item_types.id", ondelete="SET NULL"), nullable=True)
+    component_values: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 PROPERTY_VALUE_TYPES = ("number", "text", "bool", "list")

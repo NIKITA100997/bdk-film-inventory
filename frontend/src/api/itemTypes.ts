@@ -48,6 +48,9 @@ export interface TypeComponentRule {
   strip_width_expr: string | null;
   route_part_id: number | null;
   operation_name: string | null;
+  // Компонент со своим типом (вида «П/ф») и формулы его свойств от свойств родителя.
+  component_type_id: number | null;
+  component_values: Record<string, string>;
 }
 
 export interface ItemType {

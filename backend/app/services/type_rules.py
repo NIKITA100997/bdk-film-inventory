@@ -45,6 +45,9 @@ class PlannedComponent:
     operation_name: str | None
     existing_part_id: int | None
     existing_item_id: int | None
+    # Компонент со своим типом: тип и значения его свойств (property_id → значение).
+    child_type_id: int | None = None
+    child_values: dict | None = None
 
 
 @dataclass
@@ -61,7 +64,9 @@ def context_from_values(db: Session, type_: ItemType, values: dict[int, object])
     ctx: dict = {}
     for p in type_.properties:
         raw = values.get(p.id)
-        if raw is None or raw == "":
+        if (raw is None or raw == "") and p.value_type == "bool":
+            ctx[p.code] = False  # неотмеченный флажок — «нет», а не «не заполнено»
+        elif raw is None or raw == "":
             ctx[p.code] = None
         elif p.value_type == "list":
             opt = db.get(ItemPropertyOption, int(raw))
@@ -101,6 +106,34 @@ def _find_part(db: Session, name: str) -> Part | None:
     )
 
 
+def _child_values(db: Session, child_type: ItemType, exprs: dict, ctx: dict) -> dict[int, object]:
+    """Значения свойств компонента по формулам от свойств родителя."""
+    from app.services.expressions import evaluate
+
+    out: dict[int, object] = {}
+    props = {p.code: p for p in child_type.properties}
+    for code, expr in (exprs or {}).items():
+        p = props.get(code)
+        if p is None or not str(expr).strip():
+            continue
+        v = evaluate(str(expr), ctx)
+        if p.value_type == "list":
+            text = v.value if isinstance(v, OptionRef) else str(v)
+            opt = next((o for o in p.options if o.value.strip().lower() == text.strip().lower()), None)
+            if opt is None:
+                raise ExpressionError(f"У «{child_type.name}» в списке «{p.name}» нет варианта «{text}»")
+            out[p.id] = opt.id
+        elif p.value_type == "number":
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ExpressionError(f"«{p.name}» у «{child_type.name}» — число, а формула дала «{v}»")
+            out[p.id] = float(v)
+        elif p.value_type == "bool":
+            out[p.id] = bool(v)
+        else:
+            out[p.id] = str(v)
+    return out
+
+
 def compute(db: Session, type_: ItemType, ctx: dict) -> RulesResult:
     res = RulesResult()
     if type_.name_template:
@@ -115,16 +148,26 @@ def compute(db: Session, type_: ItemType, ctx: dict) -> RulesResult:
         except ExpressionError as e:
             res.errors.append(f"Операция «{op.name}»: {e}")
     for rule in type_.component_rules:
+        child_type = None
         try:
             if not evaluate_condition(rule.condition, ctx):
                 continue
-            name = render_template(rule.name_template, ctx)
+            child_type = db.get(ItemType, rule.component_type_id) if rule.component_type_id else None
+            child_values = None
+            if child_type is not None:
+                # Компонент со своим типом — название по шаблону ЕГО типа.
+                child_values = _child_values(db, child_type, rule.component_values or {}, ctx)
+                if not child_type.name_template:
+                    raise ExpressionError(f"у типа «{child_type.name}» не задан шаблон названия")
+                name = render_template(child_type.name_template, context_from_values(db, child_type, child_values))
+            else:
+                name = render_template(rule.name_template, ctx)
             qty = evaluate_number(rule.qty_expr or "1", ctx)
             width = evaluate_number(rule.width_expr, ctx) if rule.width_expr else None
             length = evaluate_number(rule.length_expr, ctx) if rule.length_expr else None
             strip = evaluate_number(rule.strip_width_expr, ctx) if rule.strip_width_expr else None
         except ExpressionError as e:
-            res.errors.append(f"Состав «{rule.name_template}»: {e}")
+            res.errors.append(f"Состав «{rule.name_template or (child_type.name if child_type else '')}»: {e}")
             continue
         if qty <= 0:
             continue
@@ -137,6 +180,7 @@ def compute(db: Session, type_: ItemType, ctx: dict) -> RulesResult:
                 rule_id=rule.id, name=name, qty=qty, width_mm=width, length_mm=length, strip_width_mm=strip,
                 operation_name=rule.operation_name, existing_part_id=part.id if part else None,
                 existing_item_id=part.item_id if part else (existing_item.id if existing_item else None),
+                child_type_id=child_type.id if child_type else None, child_values=child_values,
             )
         )
         if part is None and existing_item is None and (width is None or length is None):
@@ -144,9 +188,33 @@ def compute(db: Session, type_: ItemType, ctx: dict) -> RulesResult:
     return res
 
 
-def apply(db: Session, item: Item) -> RulesResult:
-    """Применить правила типа позиции (без commit). При ошибках — ничего не
-    пишет и возвращает их."""
+def _set_values(db: Session, item: Item, type_: ItemType, values: dict[int, object]) -> None:
+    item.type_id = type_.id
+    db.query(ItemPropertyValue).filter(ItemPropertyValue.item_id == item.id).delete()
+    props = {p.id: p for p in type_.properties}
+    for pid, raw in values.items():
+        p = props[pid]
+        v = ItemPropertyValue(item_id=item.id, property_id=pid)
+        if p.value_type == "number":
+            v.value_number = raw
+        elif p.value_type == "bool":
+            v.value_bool = raw
+        elif p.value_type == "list":
+            v.option_id = raw
+        else:
+            v.value_text = raw
+        db.add(v)
+    db.flush()
+    db.refresh(item)
+
+
+def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
+    """Применить правила типа позиции (без commit). При ошибках в данных
+    самой позиции — ничего не пишет и возвращает их; ошибки компонентов со
+    своим типом тоже возвращаются — вызывающий код откатывает всё
+    (везде применение идёт в savepoint или с rollback)."""
+    if _depth > 5:
+        return RulesResult(errors=["Слишком глубокая вложенность типов компонентов — проверьте, нет ли цикла"])
     type_ = item.type
     if type_ is None:
         return RulesResult()
@@ -193,6 +261,15 @@ def apply(db: Session, item: Item) -> RulesResult:
                         part.area = template.area
                 db.flush()
                 comp_item_id = part.item_id
+            if c.child_type_id is not None:
+                # Компонент со своим типом: тип, значения свойств и его
+                # собственные правила (маршрут, состав) — вглубь.
+                child = db.get(Item, comp_item_id)
+                _set_values(db, child, db.get(ItemType, c.child_type_id), c.child_values or {})
+                sub = apply(db, child, _depth + 1)
+                if sub.errors:
+                    res.errors.extend(f"«{c.name}»: {e}" for e in sub.errors)
+                    return res
             db.add(
                 ItemComponent(
                     parent_item_id=item.id, component_item_id=comp_item_id, qty_per_unit=c.qty,
