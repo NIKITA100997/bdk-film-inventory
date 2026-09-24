@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, event, func
@@ -54,6 +55,23 @@ def normalize_name(name: str) -> str:
     """Та же нормализация, что у sync_part_to_task_lines: регистр, пробелы
     по краям, ё/е."""
     return name.strip().lower().replace("ё", "е")
+
+
+_SIZE_IN_NAME = re.compile(r"\d+([.,]\d+)?\s*[хxХX×*]\s*\d+")
+
+
+def fmt_num(v: float) -> str:
+    return f"{float(v):g}"
+
+
+def size_part_name(part_name: str, width_mm: float, length_m: float) -> str:
+    """Название позиции на размер (решение 24.09: отдельная позиция на
+    размер): «Поперечная (МежКомн) 110х404». Если размер уже в названии
+    (как в 1С: «Добор телескоп 10*100*2070») — как есть."""
+    name = " ".join(part_name.split())
+    if _SIZE_IN_NAME.search(name):
+        return name
+    return f"{name} {fmt_num(width_mm)}х{fmt_num(round(float(length_m) * 1000, 1))}"
 
 
 def sku_item_name(material: str, color: str, thickness_mm: float, manufacturer: str) -> str:
@@ -113,13 +131,21 @@ def _link_items_and_parts(session: Session, flush_context, instances) -> None:
             renamed = attributes.get_history(obj, "part_name").has_changes() and obj not in session.new
             if obj.part_id is not None and not renamed:
                 continue
-            key = normalize_name(obj.part_name)
-            part_id = (
-                session.query(Part.id)
-                .filter(func.replace(func.lower(func.trim(Part.name)), "ё", "е") == key)
-                .order_by(Part.id)
-                .limit(1)
-                .scalar()
-            )
+            # По названию; не нашлось — позиция на этот размер под общим
+            # названием («Поперечная (МежКомн)» 110×404 → «… 110х404»).
+            keys = [normalize_name(obj.part_name)]
+            if obj.width_mm is not None and obj.length_m is not None:
+                keys.append(normalize_name(size_part_name(obj.part_name, obj.width_mm, obj.length_m)))
+            part_id = None
+            for key in dict.fromkeys(keys):
+                part_id = (
+                    session.query(Part.id)
+                    .filter(func.replace(func.lower(func.trim(Part.name)), "ё", "е") == key)
+                    .order_by(Part.id)
+                    .limit(1)
+                    .scalar()
+                )
+                if part_id is not None:
+                    break
             if part_id is not None or renamed:
                 obj.part_id = part_id

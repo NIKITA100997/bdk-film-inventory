@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.dictionaries import MaterialSku, Part
-from app.models.items import Item, ItemKind, normalize_name, sku_item_name
+from app.models.items import Item, ItemKind, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
+from app.services.routes import RouteStep, apply_route
 
 router = APIRouter(tags=["items"])
 
@@ -251,3 +252,140 @@ def unlink_lines(payload: LinkLinesIn, db: Session = Depends(get_db), user=Depen
                 counts[label] += 1
     db.commit()
     return LinkLinesOut(bom_lines=counts["bom"], task_lines=counts["task"])
+
+
+class SizeCandidate(BaseModel):
+    part_name: str
+    width_mm: float
+    length_m: float
+    strip_width_mm: float | None
+    area: str | None
+    proposed_name: str
+    existing_part_id: int | None  # позиция с таким названием уже есть — только связать
+    bom_lines: int
+    task_lines: int
+    active_task_lines: int
+
+
+def _size_key(name: str, width: float, length: float) -> tuple[str, float, float]:
+    return (normalize_name(name), round(float(width), 2), round(float(length), 3))
+
+
+def _unlinked_size_groups(db: Session) -> dict[tuple[str, float, float], dict]:
+    groups: dict[tuple[str, float, float], dict] = {}
+
+    def add(line, kind: str, area: str | None, active: bool) -> None:
+        g = groups.setdefault(
+            _size_key(line.part_name, line.width_mm, line.length_m),
+            {"name": line.part_name, "width": float(line.width_mm), "length": float(line.length_m),
+             "strips": defaultdict(int), "areas": set(), "bom": [], "task": [], "active": 0},
+        )
+        g[kind].append(line)
+        g["active"] += 1 if active else 0
+        if line.strip_width_mm is not None:
+            g["strips"][float(line.strip_width_mm)] += 1
+        if area:
+            g["areas"].add(area)
+
+    for line in db.query(ProductModelPart).filter(ProductModelPart.part_name.isnot(None), ProductModelPart.part_id.is_(None)):
+        add(line, "bom", line.area, False)
+    rows = (
+        db.query(ProductionTaskLine, ProductionTask.area, ProductionTask.is_active)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(ProductionTaskLine.part_name.isnot(None), ProductionTaskLine.part_id.is_(None))
+    )
+    for line, area, active in rows:
+        add(line, "task", area, bool(active))
+    return groups
+
+
+def _proposed_names(groups: dict) -> dict[tuple, str]:
+    """Размер в названии, но под этим названием несколько размеров — всё
+    равно дописываем размер, иначе позиции совпадут по названию."""
+    names = {k: size_part_name(g["name"], g["width"], g["length"]) for k, g in groups.items()}
+    counts: dict[str, int] = defaultdict(int)
+    for n in names.values():
+        counts[normalize_name(n)] += 1
+    for k, n in names.items():
+        if counts[normalize_name(n)] > 1:
+            g = groups[k]
+            names[k] = f"{' '.join(g['name'].split())} {_fmt(g['width'])}х{_fmt(round(g['length'] * 1000, 1))}"
+    return names
+
+
+@router.get("/items/size-candidates", response_model=list[SizeCandidate])
+def list_size_candidates(db: Session = Depends(get_db), user=Depends(view_items)) -> list[SizeCandidate]:
+    """Строки без детали, сгруппированные по названию И размеру — каждая
+    группа станет своей позицией номенклатуры (решение 24.09: отдельная
+    позиция на размер)."""
+    groups = _unlinked_size_groups(db)
+    names = _proposed_names(groups)
+    existing = {normalize_name(p.name): p.id for p in db.query(Part)}
+    out = []
+    for k, g in groups.items():
+        strip = max(g["strips"].items(), key=lambda x: x[1])[0] if g["strips"] else None
+        out.append(
+            SizeCandidate(
+                part_name=g["name"], width_mm=g["width"], length_m=g["length"], strip_width_mm=strip,
+                area=next(iter(g["areas"])) if len(g["areas"]) == 1 else None,
+                proposed_name=names[k], existing_part_id=existing.get(normalize_name(names[k])),
+                bom_lines=len(g["bom"]), task_lines=len(g["task"]), active_task_lines=g["active"],
+            )
+        )
+    return sorted(out, key=lambda c: (-c.active_task_lines, c.proposed_name.lower()))
+
+
+class SizeCreateIn(BaseModel):
+    keys: list[tuple[str, float, float]]  # (part_name, width_mm, length_m) из списка кандидатов
+    route_part_id: int | None = None  # маршрут — как у этой детали
+
+
+class SizeCreateOut(BaseModel):
+    created: int
+    linked_existing: int
+    bom_lines: int
+    task_lines: int
+
+
+@router.post("/items/size-parts", response_model=SizeCreateOut)
+def create_size_parts(payload: SizeCreateIn, db: Session = Depends(get_db), user=Depends(link_lines)) -> SizeCreateOut:
+    """Завести позиции п/ф по выбранным группам и связать с ними их строки.
+    Если позиция с таким названием уже есть — только связать."""
+    route: list[RouteStep] = []
+    if payload.route_part_id is not None:
+        template = db.get(Part, payload.route_part_id)
+        if template is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Деталь-образец маршрута не найдена")
+        route = [RouteStep(code=s.code, name=s.name, area=s.area) for s in template.stages]
+    groups = _unlinked_size_groups(db)
+    names = _proposed_names(groups)
+    existing = {normalize_name(p.name): p for p in db.query(Part)}
+    created = linked_existing = bom = task = 0
+    for name, width, length in payload.keys:
+        k = _size_key(name, width, length)
+        g = groups.get(k)
+        if g is None:
+            continue  # уже связали (повторное нажатие) — не ошибка
+        part = existing.get(normalize_name(names[k]))
+        if part is None:
+            strip = max(g["strips"].items(), key=lambda x: x[1])[0] if g["strips"] else None
+            part = Part(
+                name=names[k], width_mm=g["width"], length_m=g["length"], strip_width_mm=strip,
+                area=next(iter(g["areas"])) if len(g["areas"]) == 1 else None, is_active=True,
+            )
+            db.add(part)
+            db.flush()
+            if route:
+                apply_route(db, part, route)
+            existing[normalize_name(part.name)] = part
+            created += 1
+        else:
+            linked_existing += 1
+        for line in g["bom"]:
+            line.part_id = part.id
+        for line in g["task"]:
+            line.part_id = part.id
+        bom += len(g["bom"])
+        task += len(g["task"])
+    db.commit()
+    return SizeCreateOut(created=created, linked_existing=linked_existing, bom_lines=bom, task_lines=task)

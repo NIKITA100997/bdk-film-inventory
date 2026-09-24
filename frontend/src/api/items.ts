@@ -53,5 +53,27 @@ export interface ManualLinkGroup {
 export const listManualLinks = async (): Promise<ManualLinkGroup[]> =>
   (await apiClient.get<ManualLinkGroup[]>("/items/manual-links")).data;
 
-export const unlinkLines = async (payload: { part_name: string; part_id: number }): Promise<{ bom_lines: number; task_lines: number }> =>
+export interface SizeCandidate {
+  part_name: string;
+  width_mm: number;
+  length_m: number;
+  strip_width_mm: number | null;
+  area: string | null;
+  proposed_name: string;
+  existing_part_id: number | null;
+  bom_lines: number;
+  task_lines: number;
+  active_task_lines: number;
+}
+
+export const listSizeCandidates = async (): Promise<SizeCandidate[]> =>
+  (await apiClient.get<SizeCandidate[]>("/items/size-candidates")).data;
+
+export const createSizeParts = async (payload: {
+  keys: [string, number, number][];
+  route_part_id: number | null;
+}): Promise<{ created: number; linked_existing: number; bom_lines: number; task_lines: number }> =>
+  (await apiClient.post("/items/size-parts", payload)).data;
+
+export const unlinkLines =async (payload: { part_name: string; part_id: number }): Promise<{ bom_lines: number; task_lines: number }> =>
   (await apiClient.post<{ bom_lines: number; task_lines: number }>("/items/unlink-lines", payload)).data;

@@ -1,20 +1,23 @@
 import { useMemo, useState } from "react";
 import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Checkbox, Input, Popconfirm, Segmented, Select, Space, Tabs, Tag, Typography, message } from "antd";
+import { Button, Card, Checkbox, Input, Modal, Popconfirm, Segmented, Select, Space, Tabs, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { useAuth } from "../../auth/AuthContext";
 import { listParts } from "../../api/dictionaries";
 import {
+  createSizeParts,
   linkLines,
   listItemKinds,
   listItems,
   listManualLinks,
+  listSizeCandidates,
   listUnlinkedLines,
   unlinkLines,
   type Item,
   type ManualLinkGroup,
+  type SizeCandidate,
   type UnlinkedLineGroup,
 } from "../../api/items";
 
@@ -122,6 +125,7 @@ function UnlinkedTab() {
   const { user } = useAuth();
   const canLink = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const [choice, setChoice] = useState<Record<string, number | undefined>>({});
+  const [sizesOpen, setSizesOpen] = useState(false);
   const unlinkedQuery = useQuery({ queryKey: ["items-unlinked"], queryFn: listUnlinkedLines });
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const partOptions = (partsQuery.data ?? []).filter((p) => p.is_active).map((p) => ({ value: p.id, label: p.name }));
@@ -144,9 +148,15 @@ function UnlinkedTab() {
           Названия деталей в строках заданий цеха и BOM моделей, которых нет в справочнике деталей. Такие строки не
           списывают п/ф по отчёту и не попадают в потребность. Выберите деталь и нажмите «Связать» — свяжутся все строки
           с этим названием (текст строк не меняется). Общие названия в BOM вроде «Стоевая (МежКомн)» — это тип детали, а
-          не конкретный размер: их правильно решать техкартами на следующем этапе, связывать с одной деталью не нужно.
+          не конкретный размер: для них — «Создать позиции по размерам», каждый размер станет своей позицией.
         </Typography.Paragraph>
+        {canLink && (
+          <Button style={{ marginTop: 12 }} onClick={() => setSizesOpen(true)}>
+            Создать позиции по размерам…
+          </Button>
+        )}
       </Card>
+      {sizesOpen && <SizePartsModal onClose={() => setSizesOpen(false)} />}
       <ResponsiveTable<UnlinkedLineGroup>
         tableKey="nomenclature-unlinked"
         lockedColumns={["Название в строках"]}
@@ -271,5 +281,124 @@ function ManualLinksTab() {
         ]}
       />
     </Space>
+  );
+}
+
+const sizeKey = (c: SizeCandidate) => `${c.part_name}|${c.width_mm}|${c.length_m}`;
+
+/** Строки без детали по названию И размеру — каждая группа становится своей
+ * позицией п/ф (решение 24.09: отдельная позиция на размер), строки сразу
+ * связываются с ней. Маршрут — копия маршрута выбранной детали. */
+function SizePartsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const candidatesQuery = useQuery({ queryKey: ["items-size-candidates"], queryFn: listSizeCandidates });
+  const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
+  const [selected, setSelected] = useState<string[]>([]);
+  const [routePartId, setRoutePartId] = useState<number | null | undefined>(undefined);
+
+  // По умолчанию — самый частый маршрут среди активных деталей.
+  const defaultRoutePartId = useMemo(() => {
+    const byChain = new Map<string, { id: number; n: number }>();
+    for (const p of partsQuery.data ?? []) {
+      if (!p.is_active || p.stages.length === 0) continue;
+      const key = p.stages.map((s) => `${s.name}@${s.area ?? ""}`).join(">");
+      const cur = byChain.get(key);
+      byChain.set(key, { id: cur?.id ?? p.id, n: (cur?.n ?? 0) + 1 });
+    }
+    return [...byChain.values()].sort((a, b) => b.n - a.n)[0]?.id ?? null;
+  }, [partsQuery.data]);
+  const route = routePartId === undefined ? defaultRoutePartId : routePartId;
+  const routePart = (partsQuery.data ?? []).find((p) => p.id === route);
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      createSizeParts({
+        keys: (candidatesQuery.data ?? [])
+          .filter((c) => selected.includes(sizeKey(c)))
+          .map((c): [string, number, number] => [c.part_name, c.width_mm, c.length_m]),
+        route_part_id: route,
+      }),
+    onSuccess: (res) => {
+      for (const key of [["items-size-candidates"], ["items-unlinked"], ["items-manual"], ["items"], ["pf-demand"], ["dict-autocomplete", "parts"]])
+        qc.invalidateQueries({ queryKey: key });
+      message.success(
+        `Создано позиций: ${res.created}${res.linked_existing ? `, связано с уже существующими: ${res.linked_existing}` : ""}. ` +
+          `Связано строк заданий ${res.task_lines}, BOM ${res.bom_lines}`,
+      );
+      setSelected([]);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось создать позиции")),
+  });
+
+  return (
+    <Modal
+      open
+      width={980}
+      title="Создать позиции по размерам"
+      onCancel={onClose}
+      okText={`Создать и связать (${selected.length})`}
+      okButtonProps={{ disabled: selected.length === 0, loading: mutation.isPending }}
+      onOk={() => mutation.mutate()}
+      cancelText="Закрыть"
+    >
+      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Typography.Text type="secondary">
+          Отметьте группы — каждая станет позицией п/ф с этим размером, её строки в заданиях и BOM сразу свяжутся с ней.
+          Размеры и ширина штрипса берутся из строк. Новые строки с тем же названием и размером дальше будут
+          связываться сами.
+        </Typography.Text>
+        <Space wrap>
+          <Typography.Text>Маршрут как у детали:</Typography.Text>
+          <Select
+            showSearch
+            allowClear
+            optionFilterProp="label"
+            style={{ width: 360 }}
+            placeholder="Без маршрута"
+            value={route ?? undefined}
+            onChange={(v) => setRoutePartId(v ?? null)}
+            options={(partsQuery.data ?? []).filter((p) => p.is_active && p.stages.length > 0).map((p) => ({ value: p.id, label: p.name }))}
+          />
+          {routePart && <Typography.Text type="secondary">{routePart.stages.map((s) => s.name).join(" → ")}</Typography.Text>}
+        </Space>
+        <ResponsiveTable<SizeCandidate>
+          tableKey="nomenclature-size-candidates"
+          lockedColumns={["Новая позиция"]}
+          size="small"
+          rowKey={sizeKey}
+          loading={candidatesQuery.isLoading}
+          dataSource={candidatesQuery.data ?? []}
+          pagination={{ pageSize: 20 }}
+          scroll={{ x: "max-content", y: 420 }}
+          locale={{ emptyText: "Строк без детали нет" }}
+          rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys as string[]) }}
+          columns={[
+            {
+              title: "Новая позиция",
+              render: (_, c) => (
+                <Space direction="vertical" size={0}>
+                  <span>{c.proposed_name}</span>
+                  {c.existing_part_id && <Tag color="blue">уже есть — только связать</Tag>}
+                </Space>
+              ),
+            },
+            { title: "Название в строках", dataIndex: "part_name" },
+            { title: "Ширина, мм", render: (_, c) => c.width_mm },
+            { title: "Длина, м", render: (_, c) => c.length_m },
+            { title: "Штрипс, мм", render: (_, c) => c.strip_width_mm ?? "—" },
+            {
+              title: "Строк",
+              render: (_, c) =>
+                [
+                  c.task_lines ? `заданий ${c.task_lines}${c.active_task_lines ? ` (акт. ${c.active_task_lines})` : ""}` : "",
+                  c.bom_lines ? `BOM ${c.bom_lines}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(", "),
+            },
+          ]}
+        />
+      </Space>
+    </Modal>
   );
 }
