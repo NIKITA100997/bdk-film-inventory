@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
-from app.models.dictionaries import MaterialSku, Part
+from app.models.dictionaries import Color, Material, MaterialSku, Part
 from app.models.items import Item, ItemComponent, ItemKind, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
 from app.services.components import live_item_names, sync_bom_components
@@ -17,8 +17,12 @@ from app.services.routes import RouteInUseError, RouteStep, apply_route
 
 router = APIRouter(tags=["items"])
 
+# Просмотр номенклатуры и карточки позиции — и кладовщикам плёнки (приёмка,
+# выдача, возврат): карточка позиции заменила карточку материала. Только
+# просмотр — правка по своим правам.
 view_items = require_permission(
-    "materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"
+    "materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view",
+    "units.receive", "units.issue", "units.return",
 )
 link_lines = require_permission("production_tasks.manage")
 
@@ -468,6 +472,9 @@ def lookup_item(
     part_id: int | None = Query(default=None),
     sku_id: int | None = Query(default=None),
     model_id: int | None = Query(default=None),
+    material: str | None = Query(default=None),
+    color: str | None = Query(default=None),
+    thickness: float | None = Query(default=None),
     db: Session = Depends(get_db),
     user=Depends(view_items),
 ) -> ItemLookupOut:
@@ -480,6 +487,20 @@ def lookup_item(
         item_id = db.query(MaterialSku.item_id).filter(MaterialSku.id == sku_id).scalar()
     elif model_id is not None:
         item_id = db.query(ProductModel.item_id).filter(ProductModel.id == model_id).scalar()
+    elif material and color:
+        # Группа плёнки (материал + цвет, толщина — если есть): карточка
+        # материала показывает всю группу, позиция — активная первой.
+        q = (
+            db.query(MaterialSku)
+            .join(MaterialSku.material)
+            .join(MaterialSku.color)
+            .filter(func.lower(Material.name) == material.lower(), func.lower(Color.name) == color.lower())
+        )
+        skus = q.all()
+        if thickness is not None:
+            skus = sorted(skus, key=lambda s: abs(float(s.thickness.value_mm) - thickness))
+        skus = sorted(skus, key=lambda s: not s.is_active)
+        item_id = skus[0].item_id if skus else None
     if item_id is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
     return ItemLookupOut(item_id=item_id)

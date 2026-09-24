@@ -123,5 +123,24 @@ export const setItemComponents = async (
 ): Promise<TechCard> => (await apiClient.put<TechCard>(`/items/${itemId}/components`, rows)).data;
 
 /** Позиция номенклатуры за деталью / плёнкой / моделью — для перехода в карточку позиции. */
-export const lookupItem = async (params: { part_id?: number; sku_id?: number; model_id?: number }): Promise<number> =>
+/** Права, с которыми открываются номенклатура и карточка позиции (просмотр). */
+export const ITEM_VIEW_PERMISSIONS = [
+  "materials.manage",
+  "production_tasks.manage",
+  "production_tasks.view",
+  "part_units.manage",
+  "part_units.view",
+  "units.receive",
+  "units.issue",
+  "units.return",
+];
+
+export const lookupItem = async (params: {
+  part_id?: number;
+  sku_id?: number;
+  model_id?: number;
+  material?: string;
+  color?: string;
+  thickness?: number;
+}): Promise<number> =>
   (await apiClient.get<{ item_id: number }>("/items/lookup", { params })).data.item_id;

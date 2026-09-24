@@ -4,10 +4,10 @@ import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "
 import { Button, Card, Empty, Progress, Result, Space, Spin, Table, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
-import { getTechCard, lookupItem } from "../../api/items";
+import { ITEM_VIEW_PERMISSIONS, getTechCard, lookupItem } from "../../api/items";
 import { ORDER_STATUS_LABEL, listProductionOrders, type ProductionOrder } from "../../api/productionOrders";
 import TechCardView from "./nomenclature/TechCardView";
-import MaterialCard from "./MaterialCard";
+import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
 import PartCard from "./production/PartCard";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green" };
@@ -25,12 +25,14 @@ export default function ItemCard() {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const cardQuery = useQuery({ queryKey: ["techcard", itemId], queryFn: () => getTechCard(itemId), enabled: itemId > 0 });
+  const has = (code: string) => !!user?.is_superuser || !!user?.permissions.includes(code);
+  // Заказы — только не у плёнки и тем, кто видит заказы на производство.
+  const canSeeOrders = has("production_tasks.manage") || has("production_tasks.view") || has("production_tasks.report");
   const ordersQuery = useQuery({
     queryKey: ["production-orders", "item", itemId],
     queryFn: () => listProductionOrders(true, itemId),
-    enabled: itemId > 0,
+    enabled: itemId > 0 && canSeeOrders && !!cardQuery.data && cardQuery.data.kind_code !== "plenka",
   });
-  const has = (code: string) => !!user?.is_superuser || !!user?.permissions.includes(code);
   const card = cardQuery.data;
 
   if (cardQuery.isLoading) return <Spin style={{ display: "block", margin: 48 }} />;
@@ -46,7 +48,7 @@ export default function ItemCard() {
   const tabs = [
     ...(stockTab ? [stockTab] : []),
     { key: "techcard", label: "Техкарта", children: <TechCardView itemId={itemId} /> },
-    ...(card.kind_code !== "plenka"
+    ...(card.kind_code !== "plenka" && canSeeOrders
       ? [{ key: "orders", label: `Заказы${orders.length ? ` (${orders.length})` : ""}`, children: <OrdersOfItem itemId={itemId} orders={orders} loading={ordersQuery.isLoading} /> }]
       : []),
   ];
@@ -129,5 +131,28 @@ export function PartCardRedirect() {
   }, [partId]);
   if (target === null) return <Spin style={{ display: "block", margin: 48 }} />;
   if (target === "fallback") return <PartCard />;
+  return <Navigate to={`/item/${target}?tab=stock`} replace />;
+}
+
+/** Прежний адрес карточки материала (/materials со state материал+цвет) —
+ * ведёт в карточку позиции на вкладку «Склад». Нет прав на карточку
+ * позиции или не нашлась позиция — прежняя карточка, доступ не теряется. */
+export function MaterialCardRedirect() {
+  const location = useLocation();
+  const { user } = useAuth();
+  const prefill = location.state as MaterialCardPrefill | null;
+  const canView = !!user?.is_superuser || ITEM_VIEW_PERMISSIONS.some((p) => user?.permissions.includes(p));
+  const [target, setTarget] = useState<number | null | "fallback">(null);
+  useEffect(() => {
+    if (!canView || !prefill?.material || !prefill.color) {
+      setTarget("fallback");
+      return;
+    }
+    lookupItem({ material: prefill.material, color: prefill.color, thickness: prefill.thickness })
+      .then(setTarget)
+      .catch(() => setTarget("fallback"));
+  }, [canView, prefill?.material, prefill?.color, prefill?.thickness]);
+  if (target === null) return <Spin style={{ display: "block", margin: 48 }} />;
+  if (target === "fallback") return <MaterialCard />;
   return <Navigate to={`/item/${target}?tab=stock`} replace />;
 }

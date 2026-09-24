@@ -11,7 +11,6 @@ import PartUnitCard from "./pages/mobile/PartUnitCard";
 import InitialStock from "./pages/mobile/InitialStock";
 
 import MaterialInventory from "./pages/desktop/MaterialInventory";
-import MaterialCard from "./pages/desktop/MaterialCard";
 import GeneralStock from "./pages/desktop/GeneralStock";
 import Reports from "./pages/desktop/Reports";
 import Defects from "./pages/desktop/Defects";
@@ -33,7 +32,8 @@ import ProductionOrders from "./pages/desktop/production/ProductionOrders";
 import Nomenclature from "./pages/desktop/Nomenclature";
 import PartUnits from "./pages/desktop/production/PartUnits";
 import PartInventory from "./pages/desktop/production/PartInventory";
-import ItemCard, { PartCardRedirect } from "./pages/desktop/ItemCard";
+import ItemCard, { MaterialCardRedirect, PartCardRedirect } from "./pages/desktop/ItemCard";
+import { ITEM_VIEW_PERMISSIONS } from "./api/items";
 import AreaAdmin from "./pages/desktop/AreaAdmin";
 import DeletionRequests from "./pages/desktop/DeletionRequests";
 
@@ -78,7 +78,7 @@ export default function AppRoutes() {
         раздел бэклога доработок), вход только кликом по строке или сканом QR,
         поэтому доступ держим таким же широким, как у самого /stock. */}
         <Route path="/stock" element={<MaterialInventory defaultView="list" />} />
-        <Route path="/materials" element={<MaterialCard />} />
+        <Route path="/materials" element={<MaterialCardRedirect />} />
         {/* Раздел 6 плана «Детали/П/ф остатки» — сквозной ERP-справочник
         по всем доменам сразу, виден так же широко, как сам /stock (сам
         экран внутри уже сужает п/ф-часть по part_units.view/manage). */}
@@ -197,7 +197,7 @@ export default function AppRoutes() {
         <Route
           path="/item/:id"
           element={
-            <RequirePermission permissions={["materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"]}>
+            <RequirePermission permissions={ITEM_VIEW_PERMISSIONS}>
               <ItemCard />
             </RequirePermission>
           }
