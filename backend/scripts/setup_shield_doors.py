@@ -6,7 +6,15 @@
 
 Решения пользователя 24.09: отдельный участок на каждую операцию;
 ламинированная панель — отдельная позиция по цвету; черновик деталей
-(«Панель щитовой двери …», «Заготовка для щита …») — в архив."""
+(«Панель щитовой двери …», «Заготовка для щита …») — в архив.
+
+25.09 — по спецификациям 1С («Модели» щитовых) и решениям пользователя:
+заготовка МДФ — общая для всех серий и цветов, её последняя операция
+«Готово» без участка (общий запас: дальше — на ламинацию или на
+фрезеровку); панель с узором (у двери с молдингом) — «фрезеровка →
+ламинация», а на ПЭТ (по плёнке) — «ламинация → фрезеровка»; каркас
+собирается из стоек/поперечных/усилителей/вставок, пенопласт — на склейку
+щита по таблице ширин. Кромка, молдинг, стекло — позже, с видом «Материал»."""
 
 import sys
 
@@ -84,16 +92,26 @@ frame = ensure_type(
     [num("ширина", "Ширина"), num("высота", "Высота"), num("толщина", "Толщина")],
     "Каркас {ширина}х{высота}х{толщина}",
 )
-raw = ensure_type(
-    "pf", "Панель щитовая",
-    [num("толщина", "Толщина"), num("ширина", "Ширина"), num("высота", "Высота")],
-    "Панель {толщина}х{ширина}х{высота}",
-)
+# Сырая панель называлась «Панель щитовая» — теперь как в 1С: «Заготовка МДФ».
+if ("pf", "Заготовка МДФ") not in types and ("pf", "Панель щитовая") in types:
+    old = types.pop(("pf", "Панель щитовая"))
+    types[("pf", "Заготовка МДФ")] = ok(c.put(f"/api/item-types/{old['id']}", json={"name": "Заготовка МДФ"}), "rename raw")
+    print("тип переименован: Панель щитовая → Заготовка МДФ")
+size3 = [num("толщина", "Толщина"), num("ширина", "Ширина"), num("высота", "Высота")]
+color = {"code": "цвет", "name": "Цвет", "value_type": "text", "is_required": True}
+series_text = {"code": "серия", "name": "Серия", "value_type": "text", "is_required": True}
+raw = ensure_type("pf", "Заготовка МДФ", size3, "Заготовка МДФ {толщина}х{ширина}х{высота}")
 lam = ensure_type(
-    "pf", "Панель щитовая ламинированная",
-    [num("толщина", "Толщина"), num("ширина", "Ширина"), num("высота", "Высота"),
-     {"code": "цвет", "name": "Цвет", "value_type": "text", "is_required": True}],
-    "Панель {толщина}х{ширина}х{высота} {цвет}",
+    "pf", "Панель щитовая ламинированная", [*size3, color], "Панель щитовой двери {толщина}х{ширина}х{высота} ({цвет})"
+)
+milled = ensure_type(
+    "pf", "Панель щитовая фрезерованная", [series_text, *size3],
+    "{серия} Панель щитовой двери {толщина}х{ширина}х{высота} (фрезерованная)",
+)
+patterned = ensure_type(
+    "pf", "Панель щитовая с узором",
+    [series_text, *size3, color, {"code": "пэт", "name": "Плёнка ПЭТ (сначала ламинация)", "value_type": "bool"}],
+    "{серия} Панель щитовой двери {толщина}х{ширина}х{высота} ({цвет})",
 )
 door = ensure_type(
     "izdelie", "Щитовая дверь",
@@ -137,24 +155,60 @@ ok(c.put(f"/api/item-properties/{series_prop['id']}/options", json=options), "se
 print("серий:", len(options))
 
 # --- маршруты и правила ---
+READY = None  # «Готово» без участка — общий запас, с любого участка
+SIZE = {"толщина": "толщина", "ширина": "ширина", "высота": "высота"}
+DIMS = {"width_expr": "ширина", "length_expr": "высота"}  # размеры детали-компонента, мм
+ok(c.put(f"/api/item-types/{raw['id']}/operations", json=[
+    {"name": "Распил", "area": A["Распил панелей"]},
+    {"name": "Готово", "area": READY},
+]), "raw ops")
+ok(c.put(f"/api/item-types/{raw['id']}/component-rules", json=[]), "raw rules")
+ok(c.put(f"/api/item-types/{lam['id']}/operations", json=[
+    {"name": "Шлифовка", "area": A["Шлифовка панелей"]},
+    {"name": "Ламинация", "area": LAMINATION_AREA},
+    {"name": "Готово", "area": READY},  # дальше — на склейку (гладкая) или на фрезеровку (ПЭТ с узором)
+]), "lam ops")
+ok(c.put(f"/api/item-types/{lam['id']}/component-rules", json=[
+    {"name_template": "", "qty_expr": "1", "operation_name": "Шлифовка", "component_type_id": raw["id"], "component_values": SIZE, **DIMS},
+]), "lam rules")
+ok(c.put(f"/api/item-types/{milled['id']}/operations", json=[
+    {"name": "Фрезеровка", "area": A["Фрезеровка панелей"]},
+    {"name": "Шлифовка", "area": A["Шлифовка панелей"]},
+    {"name": "Готова к ламинации", "area": LAMINATION_AREA},
+]), "milled ops")
+ok(c.put(f"/api/item-types/{milled['id']}/component-rules", json=[
+    {"name_template": "", "qty_expr": "1", "operation_name": "Фрезеровка", "component_type_id": raw["id"], "component_values": SIZE, **DIMS},
+]), "milled rules")
+ok(c.put(f"/api/item-types/{patterned['id']}/operations", json=[
+    {"name": "Ламинация", "area": LAMINATION_AREA, "condition": "not пэт"},
+    {"name": "Фрезеровка", "area": A["Фрезеровка панелей"], "condition": "пэт"},
+    {"name": "Готова к склейке", "area": A["Склейка щитов"]},
+]), "patterned ops")
+ok(c.put(f"/api/item-types/{patterned['id']}/component-rules", json=[
+    {"name_template": "", "qty_expr": "1", "condition": "not пэт", "operation_name": "Ламинация",
+     "component_type_id": milled["id"], "component_values": {"серия": "серия", **SIZE}, **DIMS},
+    {"name_template": "", "qty_expr": "1", "condition": "пэт", "operation_name": "Фрезеровка",
+     "component_type_id": lam["id"], "component_values": {**SIZE, "цвет": "цвет"}, **DIMS},
+]), "patterned rules")
+
 ok(c.put(f"/api/item-types/{frame['id']}/operations", json=[
     {"name": "Сборка каркаса", "area": A["Сборка каркасов"]},
     {"name": "Готов к склейке", "area": A["Склейка щитов"]},
 ]), "frame ops")
-ok(c.put(f"/api/item-types/{raw['id']}/operations", json=[
-    {"name": "Распил", "area": A["Распил панелей"]},
-    {"name": "Фрезеровка", "area": A["Фрезеровка панелей"]},
-    {"name": "Шлифовка", "area": A["Шлифовка панелей"]},
-    {"name": "Готова к ламинации", "area": LAMINATION_AREA},
-]), "raw ops")
-ok(c.put(f"/api/item-types/{lam['id']}/operations", json=[
-    {"name": "Ламинация", "area": LAMINATION_AREA},
-    {"name": "Готова к склейке", "area": A["Склейка щитов"]},
-]), "lam ops")
-ok(c.put(f"/api/item-types/{lam['id']}/component-rules", json=[
-    {"name_template": "", "qty_expr": "1", "width_expr": "ширина", "length_expr": "высота", "operation_name": "Ламинация",
-     "component_type_id": raw["id"], "component_values": {"толщина": "толщина", "ширина": "ширина", "высота": "высота"}},
-]), "lam rules")
+
+
+def piece(name, qty, w, length):
+    """Деталь каркаса по спецификациям 1С (каркас = дверь + 10 мм)."""
+    return {"name_template": name, "qty_expr": qty, "width_expr": w, "length_expr": length, "operation_name": "Сборка каркаса"}
+
+
+ok(c.put(f"/api/item-types/{frame['id']}/component-rules", json=[
+    piece("Стойка каркаса {толщина}х50х{высота}", "2", "50", "высота"),
+    piece("Поперечная каркаса {толщина}х50х{ширина - 102}", "2", "50", "ширина - 102"),
+    piece("Усилитель каркаса {толщина}х16х{высота - 102}", "1 if ширина <= 610 else 2", "16", "высота - 102"),
+    piece("Вставка замковая каркаса {толщина}х50х300", "2", "50", "300"),
+]), "frame rules")
+
 ok(c.put(f"/api/item-types/{door['id']}/operations", json=[
     {"name": "Склейка щитов", "area": A["Склейка щитов"]},
     {"name": "Фрезеровка периметра", "area": A["Фрезеровка периметра щитов"]},
@@ -163,13 +217,32 @@ ok(c.put(f"/api/item-types/{door['id']}/operations", json=[
     {"name": "Фрезеровка под замок", "area": A["Фрезеровка под замок"], "condition": "замок"},
     {"name": "Упаковка", "area": A["Упаковка щитовых дверей"]},
 ]), "door ops")
+PANEL = {"толщина": "серия.толщина_панели", "ширина": "ширина + 10", "высота": "высота + 10"}
+PANEL_DIMS = {"width_expr": "ширина + 10", "length_expr": "высота + 10"}
+
+
+def foam(w, qty):
+    """Пенопласт на склейку щита — по таблице ширин из спецификаций 1С."""
+    return {
+        "name_template": "Пенопласт {серия.толщина_каркаса - 1}х" + str(w) + "х{высота - 100}", "qty_expr": qty,
+        "width_expr": str(w), "length_expr": "высота - 100", "operation_name": "Склейка щитов",
+    }
+
+
 ok(c.put(f"/api/item-types/{door['id']}/component-rules", json=[
     {"name_template": "", "qty_expr": "1", "width_expr": "ширина + 10", "length_expr": "высота + 10",
      "operation_name": "Склейка щитов", "component_type_id": frame["id"],
      "component_values": {"ширина": "ширина + 10", "высота": "высота + 10", "толщина": "серия.толщина_каркаса"}},
-    {"name_template": "", "qty_expr": "2", "width_expr": "ширина + 10", "length_expr": "высота + 10",
-     "operation_name": "Склейка щитов", "component_type_id": lam["id"],
-     "component_values": {"толщина": "серия.толщина_панели", "ширина": "ширина + 10", "высота": "высота + 10", "цвет": "цвет"}},
+    # Гладкая панель — общая для всех серий; с молдингом — панель с узором серии.
+    {"name_template": "", "qty_expr": "2", "condition": "not молдинг", "operation_name": "Склейка щитов",
+     "component_type_id": lam["id"], "component_values": {**PANEL, "цвет": "цвет"}, **PANEL_DIMS},
+    {"name_template": "", "qty_expr": "2", "condition": "молдинг", "operation_name": "Склейка щитов",
+     "component_type_id": patterned["id"],
+     "component_values": {"серия": "серия", **PANEL, "цвет": "цвет", "пэт": '"ПЭТ" in цвет or "пэт" in цвет'},
+     **PANEL_DIMS},
+    foam(200, "2 if ширина in (600, 900, 1000) else 0"),
+    foam(150, "3 if ширина == 700 else (2 if ширина == 800 else 0)"),
+    foam(250, "1 if ширина >= 800 else 0"),
 ]), "door rules")
 print("маршруты и правила заданы")
 

@@ -92,7 +92,7 @@ class ItemTypeUpdate(BaseModel):
 
 class TypeOperationIO(BaseModel):
     name: str
-    area: str
+    area: str | None = None  # None — «общий запас» (только последняя операция)
     condition: str | None = None
 
 
@@ -488,8 +488,14 @@ def set_type_operations(
     names = [" ".join(o.name.split()) for o in payload]
     if any(not n for n in names) or len({n.lower() for n in names}) != len(names):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Названия операций должны быть заполнены и не повторяться")
-    for o, n in zip(payload, names):
-        if o.area not in areas:
+    for i, (o, n) in enumerate(zip(payload, names)):
+        if o.area is None:
+            if i != len(payload) - 1:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    f"Операция «{n}»: без участка может быть только последняя («Готово» — общий запас)",
+                )
+        elif o.area not in areas:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Операция «{n}»: участок не найден")
         _check_expr(t, o.condition, f"Условие операции «{n}»")
     t.operations.clear()

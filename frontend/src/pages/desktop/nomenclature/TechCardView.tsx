@@ -55,7 +55,12 @@ export default function TechCardView({ itemId }: { itemId: number }) {
                     <li key={o.sequence_order}>
                       {o.name}
                       {o.area_name && o.area_name !== o.name && <Typography.Text type="secondary"> — {o.area_name}</Typography.Text>}
-                      {!o.area && <Tag color="warning" style={{ marginLeft: 8 }}>участок не задан</Tag>}
+                      {!o.area &&
+                        (o.sequence_order === card.operations.length ? (
+                          <Typography.Text type="secondary"> — общий запас, с любого участка</Typography.Text>
+                        ) : (
+                          <Tag color="warning" style={{ marginLeft: 8 }}>участок не задан</Tag>
+                        ))}
                     </li>
                   ))}
                 </ol>

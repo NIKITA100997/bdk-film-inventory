@@ -815,8 +815,11 @@ def set_item_route(
     item = db.get(Item, item_id)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
-    if any(not s.area for s in payload):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "У каждой операции должен быть участок")
+    # Без участка — только последняя операция («Готово» — общий запас).
+    if any(not s.area for s in payload[:-1]):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Участок нужен у каждой операции, кроме последней («Готово» — общий запас)"
+        )
     owner = db.query(Part).filter(Part.item_id == item.id).first() or item
     try:
         apply_route(db, owner, [RouteStep(code=s.code, name=s.name, area=s.area) for s in payload])

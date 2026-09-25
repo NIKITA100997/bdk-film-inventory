@@ -48,7 +48,8 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
-  const areaName = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
+  const areaName = (code: string | null) =>
+    code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : "общий запас, с любого участка";
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
   // Тип компонента — только вида «П/ф» (компонент заводится деталью).
   const pfTypes = (typesQuery.data ?? []).filter((t) => t.kind_code === "pf" && t.id !== type.id);
@@ -74,7 +75,7 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить шаблон")),
   });
   const opsMutation = useMutation({
-    mutationFn: (ops: TypeOperation[]) => setTypeOperations(type.id, ops),
+    mutationFn: (ops: TypeOperation[]) => setTypeOperations(type.id, ops.map((o) => ({ ...o, area: o.area || null }))),
     onSuccess: () => {
       invalidate();
       setOpsDraft(null);
@@ -206,12 +207,13 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
                 <Input placeholder="Операция" value={o.name} style={{ width: 200 }} onChange={(e) => patchOp(i, { name: e.target.value })} />
                 <Select
                   showSearch
+                  allowClear={i === opsDraft.length - 1}
                   optionFilterProp="label"
-                  placeholder="Участок"
+                  placeholder={i === opsDraft.length - 1 ? "Участок (пусто — общий запас)" : "Участок"}
                   style={{ width: 260 }}
                   value={o.area || undefined}
                   options={areaOptions}
-                  onChange={(v) => patchOp(i, { area: v })}
+                  onChange={(v) => patchOp(i, { area: v ?? null })}
                 />
                 <Input
                   placeholder="условие (пусто — всегда)"
@@ -424,7 +426,7 @@ function CheckModal({
   type: ItemType;
   mode: "preview" | "create";
   onClose: () => void;
-  areaName: (code: string) => string;
+  areaName: (code: string | null) => string;
 }) {
   const qc = useQueryClient();
   const [values, setValues] = useState<Record<string, PropertyValue>>({});

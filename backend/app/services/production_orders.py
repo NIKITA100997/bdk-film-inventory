@@ -81,8 +81,8 @@ def close_order(db: Session, order: ProductionOrder) -> None:
     db.flush()
 
 
-def _final_stage_id(part: Part) -> int | None:
-    return max(part.stages, key=lambda s: s.sequence_order).id if part.stages else None
+def _final_stage(part: Part) -> PartStage | None:
+    return max(part.stages, key=lambda s: s.sequence_order) if part.stages else None
 
 
 def consume_components_at_operation(
@@ -112,17 +112,22 @@ def consume_components_at_operation(
         need = round(float(comp.qty_per_unit) * quantity, 4)
         q = db.query(PartUnit).filter(
             PartUnit.part_id == part.id,
-            PartUnit.area == area,
             PartUnit.status.in_([PartUnitStatus.VYDAN_UCHASTKU, PartUnitStatus.NA_KHRANENII]),
         )
-        final_id = _final_stage_id(part)
-        if final_id is not None:
-            q = q.filter(PartUnit.stage_id == final_id)
+        final = _final_stage(part)
+        if final is not None:
+            q = q.filter(PartUnit.stage_id == final.id)
+        # Последний этап без участка («Готово» — общий запас: заготовка МДФ
+        # щитовой панели идёт дальше то на ламинацию, то на фрезеровку) —
+        # партии берутся с любого участка; иначе — только с участка операции.
+        anywhere = final is not None and final.area is None
+        if not anywhere:
+            q = q.filter(PartUnit.area == area)
         units = q.order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc()).all()
         available = sum(float(u.quantity_pieces) for u in units)
         if available + 1e-9 < need:
             raise ValueError(
-                f"Не хватает «{part.name}» для операции «{stage.name}»: на участке готовых {available:g} шт, "
+                f"Не хватает «{part.name}» для операции «{stage.name}»: {'' if anywhere else 'на участке '}готовых {available:g} шт, "
                 f"нужно {need:g} шт"
             )
         remaining = need

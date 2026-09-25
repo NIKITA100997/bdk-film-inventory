@@ -49,7 +49,8 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить маршрут")),
   });
-  const invalid = rows.some((r) => !r.name.trim() || !r.area);
+  // Без участка — только последняя операция («Готово» — общий запас).
+  const invalid = rows.some((r, i) => !r.name.trim() || (!r.area && i < rows.length - 1));
 
   return (
     <Modal
@@ -81,11 +82,12 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="Участок"
+              allowClear={i === rows.length - 1}
+              placeholder={i === rows.length - 1 ? "Участок (пусто — общий запас)" : "Участок"}
               style={{ width: 280 }}
               value={r.area ?? undefined}
               options={areaOptions}
-              onChange={(v) => patch(i, { area: v, name: r.name || areaOptions.find((a) => a.value === v)?.label || "" })}
+              onChange={(v) => patch(i, { area: v ?? null, name: r.name || areaOptions.find((a) => a.value === v)?.label || "" })}
             />
             <Button size="small" disabled={i === 0} onClick={() => move(i, -1)}>
               ↑

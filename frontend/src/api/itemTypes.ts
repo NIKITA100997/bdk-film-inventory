@@ -35,7 +35,8 @@ export interface ItemProperty {
 
 export interface TypeOperation {
   name: string;
-  area: string;
+  /** null — «общий запас»: последняя операция без участка, партии берутся с любого. */
+  area: string | null;
   condition: string | null;
 }
 

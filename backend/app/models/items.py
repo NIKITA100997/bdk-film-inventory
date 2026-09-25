@@ -133,7 +133,9 @@ class ItemTypeOperation(Base):
     type_id: Mapped[int] = mapped_column(ForeignKey("item_types.id", ondelete="CASCADE"), index=True)
     sequence_order: Mapped[int] = mapped_column(Integer)
     name: Mapped[str] = mapped_column(String(255))
-    area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
+    # NULL — «общий запас»: у детали последняя операция без участка, партии
+    # списываются на следующую операцию с любого участка (production_orders).
+    area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     condition: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
