@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.dictionaries import Part
 from app.models.items import (
+    KIND_PF,
     Item,
     ItemComponent,
     ItemPropertyOption,
@@ -268,6 +269,7 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
                 # собственные правила (маршрут, состав) — вглубь.
                 child = db.get(Item, comp_item_id)
                 _set_values(db, child, db.get(ItemType, c.child_type_id), c.child_values or {})
+                guess_group(db, child)
                 sub = apply(db, child, _depth + 1)
                 if sub.errors:
                     res.errors.extend(f"«{c.name}»: {e}" for e in sub.errors)
@@ -319,6 +321,29 @@ def link_model(db: Session, item: Item) -> Item | None:
     return model
 
 
+def guess_group(db: Session, item: Item) -> None:
+    """Группа новой позиции без группы — как у позиций того же типа с теми же
+    вариантами свойств-списков (линия «МК» → «МК / Детали»): самая частая
+    среди них. Не нашлось — остаётся без группы."""
+    if item.group_id is not None or item.type is None:
+        return
+    lists = [p.id for p in item.type.properties if p.value_type == "list"]
+    mine = {
+        v.property_id: v.option_id
+        for v in db.query(ItemPropertyValue).filter(ItemPropertyValue.item_id == item.id, ItemPropertyValue.property_id.in_(lists))
+    }
+    q = db.query(Item.group_id, func.count(Item.id)).filter(
+        Item.type_id == item.type_id, Item.id != item.id, Item.group_id.isnot(None), Item.is_model.is_(False)
+    )
+    for pid, oid in mine.items():
+        q = q.filter(Item.id.in_(
+            db.query(ItemPropertyValue.item_id).filter(ItemPropertyValue.property_id == pid, ItemPropertyValue.option_id == oid)
+        ))
+    best = q.group_by(Item.group_id).order_by(func.count(Item.id).desc()).first()
+    if best is not None:
+        item.group_id = best[0]
+
+
 def property_codes(type_: ItemType) -> set[str]:
     return {p.code for p in type_.properties}
 
@@ -348,8 +373,23 @@ def ensure_item(db: Session, type_: ItemType, values: dict[int, object]) -> tupl
     if existing is not None:
         return existing, False, []
     sp = db.begin_nested()
-    item = Item(kind_id=type_.kind_id, name=res.name, type_id=type_.id)
-    db.add(item)
+    if type_.kind.code == KIND_PF:
+        # П/ф ведётся партиями через деталь (Part) — заводим её, позиция
+        # номенклатуры появится сама. Ширина/длина — из свойств (мм); крой
+        # плёнки (длина с припуском, штрипс) правится в «Деталях п/ф».
+        ctx = context_from_values(db, type_, values)
+        width = ctx.get("ширина")
+        length = ctx.get("длина") if ctx.get("длина") is not None else ctx.get("высота")
+        part = Part(
+            name=res.name, width_mm=float(width or 0), length_m=round(float(length or 0) / 1000, 3), is_active=True,
+        )
+        db.add(part)
+        db.flush()
+        item = part.item
+        item.type_id = type_.id
+    else:
+        item = Item(kind_id=type_.kind_id, name=res.name, type_id=type_.id)
+        db.add(item)
     db.flush()
     _set_values(db, item, type_, {pid: v for pid, v in values.items() if v not in (None, "")})
     applied = apply(db, item)
@@ -357,6 +397,7 @@ def ensure_item(db: Session, type_: ItemType, values: dict[int, object]) -> tupl
         sp.rollback()
         return None, False, applied.errors
     link_model(db, item)
+    guess_group(db, item)
     db.flush()
     sp.commit()
     return item, True, []
