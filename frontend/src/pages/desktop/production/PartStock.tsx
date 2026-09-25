@@ -1,3 +1,5 @@
+import RegistrationStageField from "../../../components/RegistrationStageSelect";
+import { useRegistrationDefaults } from "../../../utils/registrationStages";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, Space, Typography, Input, Select, Segmented, Checkbox, Table, Tag, Button, Modal, Form, InputNumber, DatePicker, message } from "antd";
@@ -248,6 +250,7 @@ export default function PartStock() {
 function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
+  const defaultStage = useRegistrationDefaults();
   const [form] = Form.useForm<{
     quantity_pieces: number;
     stage_id?: number;
@@ -289,27 +292,13 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
           <PartSelect
             onSelect={(p) => {
               setSelectedPart(p);
-              form.setFieldValue("stage_id", undefined);
+              form.setFieldValue("stage_id", defaultStage(p));
             }}
             placeholder="Найдите деталь в справочнике"
           />
           {selectedPart && <Typography.Text type="secondary">Выбрано: {selectedPart.name}</Typography.Text>}
         </Form.Item>
-        {selectedPart && selectedPart.stages.length > 1 && (
-          <Form.Item
-            name="stage_id"
-            label="Начальный этап"
-            extra="Партия уже прошла часть маршрута и заводится в систему только сейчас — по умолчанию первый этап."
-          >
-            <Select
-              allowClear
-              placeholder={selectedPart.stages[0].name}
-              options={[...selectedPart.stages]
-                .sort((a, b) => a.sequence_order - b.sequence_order)
-                .map((s) => ({ value: s.id, label: s.name }))}
-            />
-          </Form.Item>
-        )}
+        {selectedPart && <RegistrationStageField part={selectedPart} />}
         <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: "100%" }} />
         </Form.Item>

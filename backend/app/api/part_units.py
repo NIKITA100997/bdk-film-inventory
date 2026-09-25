@@ -166,6 +166,26 @@ def make_source_parts(db: Session = Depends(get_db), user: User = Depends(view_p
     return [r[0] for r in rows]
 
 
+@router.get("/registration-stages", response_model=dict[int, int])
+def registration_stages(db: Session = Depends(get_db), user: User = Depends(view_part_units)) -> dict[int, int]:
+    """Этап по умолчанию при регистрации партии: у детали, которая делается
+    из заготовки (на операции её маршрута расходуется комплектующее), —
+    следующий после этой операции. Вручную такую партию ставят на учёт уже
+    сделанной («Стоевая … ПАЗ-11» — уже отфрезерована → «Окутка»)."""
+    out: dict[int, int] = {}
+    rows = (
+        db.query(Part, ItemComponent.stage_id)
+        .join(ItemComponent, ItemComponent.parent_item_id == Part.item_id)
+        .filter(ItemComponent.stage_id.isnot(None))
+    )
+    for part, stage_id in rows:
+        stages = sorted(part.stages, key=lambda s: s.sequence_order)
+        idx = next((i for i, s in enumerate(stages) if s.id == stage_id), None)
+        if idx is not None and idx + 1 < len(stages):
+            out.setdefault(part.id, stages[idx + 1].id)
+    return out
+
+
 @router.get("/{unit_id}", response_model=PartUnitOut)
 def get_part_unit(
     unit_id: int, db: Session = Depends(get_db), user: User = Depends(view_part_units)

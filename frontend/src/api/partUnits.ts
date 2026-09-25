@@ -112,6 +112,11 @@ export interface MakeTarget {
   per_unit: number;
 }
 
+// Этап по умолчанию при регистрации партии: деталь из заготовки → этап
+// после её операции (part_id → stage_id).
+export const getRegistrationStages = async (): Promise<Record<number, number>> =>
+  (await apiClient.get<Record<number, number>>("/part-units/registration-stages")).data;
+
 export const listMakeSourceParts = async (): Promise<number[]> =>
   (await apiClient.get<number[]>("/part-units/make-source-parts")).data;
 

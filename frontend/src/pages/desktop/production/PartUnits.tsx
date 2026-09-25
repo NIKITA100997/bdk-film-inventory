@@ -1,3 +1,5 @@
+import RegistrationStageField from "../../../components/RegistrationStageSelect";
+import { useRegistrationDefaults } from "../../../utils/registrationStages";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Tag, DatePicker } from "antd";
@@ -196,6 +198,7 @@ export default function PartUnits() {
   const makeSourcesQuery = useQuery({ queryKey: ["part-unit-make-sources"], queryFn: listMakeSourceParts });
   const makeSources = new Set(makeSourcesQuery.data ?? []);
   const [makeTarget, setMakeTarget] = useState<PartUnit | null>(null);
+  const defaultStage = useRegistrationDefaults();
 
   // Раздел про сканирование "ПФ<id>" (unitSearch.ts) — открыть карточку
   // партии сразу после перехода, как только список партий загрузится
@@ -431,27 +434,13 @@ export default function PartUnits() {
               <PartSelect
                 onSelect={(p) => {
                   setSelectedPart(p);
-                  form.setFieldValue("stage_id", undefined);
+                  form.setFieldValue("stage_id", defaultStage(p));
                 }}
                 placeholder="Найдите деталь в справочнике"
               />
               {selectedPart && <Typography.Text type="secondary">Выбрано: {selectedPart.name}</Typography.Text>}
             </Form.Item>
-            {selectedPart && selectedPart.stages.length > 1 && (
-              <Form.Item
-                name="stage_id"
-                label="Начальный этап"
-                extra="Партия уже прошла часть маршрута (например, уже склеена и отфрезерована) и заводится в систему только сейчас — по умолчанию первый этап."
-              >
-                <Select
-                  allowClear
-                  placeholder={selectedPart.stages[0].name}
-                  options={[...selectedPart.stages]
-                    .sort((a, b) => a.sequence_order - b.sequence_order)
-                    .map((s) => ({ value: s.id, label: s.name }))}
-                />
-              </Form.Item>
-            )}
+            {selectedPart && <RegistrationStageField part={selectedPart} />}
             <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
