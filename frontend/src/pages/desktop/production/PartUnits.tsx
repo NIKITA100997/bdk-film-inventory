@@ -902,7 +902,7 @@ export default function PartUnits() {
           onFinish={(v) => recycleMutation.mutate(v)}
         >
           <Form.Item label="Переработать в деталь" required>
-            <PartSelect onSelect={setRecycleTargetPart} placeholder="Найдите целевую деталь в справочнике" />
+            <PartSelect area={recycleTarget?.area ?? undefined} onSelect={setRecycleTargetPart} placeholder="Найдите целевую деталь в справочнике" />
             {recycleTargetPart && <Typography.Text type="secondary">Выбрано: {recycleTargetPart.name}</Typography.Text>}
           </Form.Item>
           <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>

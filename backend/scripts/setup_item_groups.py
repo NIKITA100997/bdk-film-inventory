@@ -1,7 +1,8 @@
 """Группы номенклатуры П/ф (25.09.2026) — только данные: папки «МК»,
 «Панели (металлические двери)», «Щитовые», «Погонаж» и разнесение деталей
-по названию. Позиции, которым группа уже назначена (в том числе вручную), не
-трогаются; не подошедшие ни под одно правило — выводятся списком.
+по названию; в МК и Панелях — подгруппы «Заготовки» и «Детали». Позиции,
+которым группа уже назначена (в том числе вручную), не трогаются; не
+подошедшие ни под одно правило — выводятся списком.
 
 Повторяемо. Запуск из backend/:
     .venv/Scripts/python.exe scripts/setup_item_groups.py [--dry-run]"""
@@ -69,6 +70,28 @@ for item in db.query(Item).filter(Item.kind_id == kind.id, Item.group_id.is_(Non
 
 for k, v in moved.items():
     print(f"{k}: {len(v)}")
+
+# Подгруппы по уровню (как в ERP: заготовка и деталь — один вид п/ф, разница
+# — место в спецификации): «Заготовки» — общие заготовки до фрезеровки,
+# «Детали» — остальное. Раскладываются только позиции, лежащие прямо в
+# верхней папке; разложенные вручную по другим подгруппам — не трогаются.
+for top in (MK, PANELS):
+    parent = groups[top]
+    subs = {}
+    for order, sub in enumerate(("Заготовки", "Детали"), start=1):
+        g = db.query(ItemGroup).filter(ItemGroup.parent_id == parent.id, ItemGroup.name == sub).first()
+        if g is None:
+            g = ItemGroup(kind_id=kind.id, parent_id=parent.id, name=sub, sort_order=order)
+            db.add(g)
+            db.flush()
+            print(f"подгруппа создана: {top} / {sub}")
+        subs[sub] = g
+    counts = {"Заготовки": 0, "Детали": 0}
+    for item in db.query(Item).filter(Item.group_id == parent.id):
+        sub = "Заготовки" if names.get(item.id, item.name).startswith("Заготовка") else "Детали"
+        item.group_id = subs[sub].id
+        counts[sub] += 1
+    print(f"{top}: в «Заготовки» {counts['Заготовки']}, в «Детали» {counts['Детали']}")
 print("без группы (не подошли под правила):", sorted(unmatched))
 if DRY:
     db.rollback()
