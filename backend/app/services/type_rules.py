@@ -66,6 +66,8 @@ def context_from_values(db: Session, type_: ItemType, values: dict[int, object])
         raw = values.get(p.id)
         if (raw is None or raw == "") and p.value_type == "bool":
             ctx[p.code] = False  # неотмеченный флажок — «нет», а не «не заполнено»
+        elif (raw is None or raw == "") and p.value_type == "text" and not p.is_required:
+            ctx[p.code] = ""  # необязательный текст пуст — «нет» (стекло без вида и т.п.)
         elif raw is None or raw == "":
             ctx[p.code] = None
         elif p.value_type == "list":
@@ -281,6 +283,42 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
     return res
 
 
+def link_model(db: Session, item: Item) -> Item | None:
+    """Вариант → его модель («Щитовая дверь В-9»): по значению свойства,
+    задающего модель у типа. Модели нет — заводится (без commit). У типа
+    без моделей или у позиции без этого значения — ссылка снимается."""
+    type_ = item.type
+    prop = next((p for p in type_.properties if p.id == type_.model_property_id), None) if type_ else None
+    value = (
+        db.query(ItemPropertyValue)
+        .filter(ItemPropertyValue.item_id == item.id, ItemPropertyValue.property_id == prop.id)
+        .first()
+        if prop is not None and not item.is_model
+        else None
+    )
+    if value is None or value.option_id is None:
+        item.model_id = None
+        return None
+    model = (
+        db.query(Item)
+        .join(ItemPropertyValue, ItemPropertyValue.item_id == Item.id)
+        .filter(
+            Item.is_model.is_(True), Item.type_id == type_.id,
+            ItemPropertyValue.property_id == prop.id, ItemPropertyValue.option_id == value.option_id,
+        )
+        .first()
+    )
+    if model is None:
+        opt = db.get(ItemPropertyOption, value.option_id)
+        model = Item(kind_id=item.kind_id, name=f"{type_.name} {opt.value}"[:255], type_id=type_.id, is_model=True)
+        db.add(model)
+        db.flush()
+        db.add(ItemPropertyValue(item_id=model.id, property_id=prop.id, option_id=opt.id))
+        db.flush()
+    item.model_id = model.id
+    return model
+
+
 def property_codes(type_: ItemType) -> set[str]:
     return {p.code for p in type_.properties}
 
@@ -318,5 +356,7 @@ def ensure_item(db: Session, type_: ItemType, values: dict[int, object]) -> tupl
     if applied.errors:
         sp.rollback()
         return None, False, applied.errors
+    link_model(db, item)
+    db.flush()
     sp.commit()
     return item, True, []

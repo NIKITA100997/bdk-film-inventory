@@ -62,6 +62,12 @@ class Item(Base):
     # Группа (папка) номенклатуры — для навигации, как группы в 1С; NULL —
     # вне групп. На учёт и правила не влияет.
     group_id: Mapped[int | None] = mapped_column(ForeignKey("item_groups.id"), nullable=True, index=True)
+    # Модель и варианты (как номенклатура и характеристики в 1С): модель —
+    # серия («Щитовая дверь В-9»), вариант — сочетание размера, цвета… со
+    # своей техкартой по правилам типа. is_model — это сама модель (правила
+    # к ней не применяются, в заказы не берётся); model_id — у варианта.
+    is_model: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    model_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)
 
     kind: Mapped[ItemKind] = relationship()
     type: Mapped["ItemType | None"] = relationship()
@@ -107,10 +113,16 @@ class ItemType(Base):
     # Шаблон названия позиции этого типа по её свойствам:
     # «Дверь щитовая {серия} {ширина}х{высота}» (services/expressions.py).
     name_template: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Свойство-список, которое задаёт модель («серия»): позиции типа с одним
+    # вариантом этого свойства — варианты одной модели. NULL — без моделей.
+    model_property_id: Mapped[int | None] = mapped_column(
+        ForeignKey("item_properties.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
 
     kind: Mapped[ItemKind] = relationship()
     properties: Mapped[list["ItemProperty"]] = relationship(
-        back_populates="type", order_by="ItemProperty.sort_order", cascade="all, delete-orphan"
+        back_populates="type", order_by="ItemProperty.sort_order", cascade="all, delete-orphan",
+        foreign_keys="ItemProperty.type_id",
     )
     operations: Mapped[list["ItemTypeOperation"]] = relationship(
         order_by="ItemTypeOperation.sequence_order", cascade="all, delete-orphan"
@@ -193,7 +205,7 @@ class ItemProperty(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     option_fields: Mapped[list] = mapped_column(JSON, default=list)
 
-    type: Mapped[ItemType] = relationship(back_populates="properties")
+    type: Mapped[ItemType] = relationship(back_populates="properties", foreign_keys=[type_id])
     options: Mapped[list["ItemPropertyOption"]] = relationship(
         back_populates="property", order_by="ItemPropertyOption.sort_order", cascade="all, delete-orphan"
     )

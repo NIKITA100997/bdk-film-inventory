@@ -1,7 +1,7 @@
 """Импорт графика запуска щитовых дверей в заказ на производство (единая
 модель). Разбор строк — services/shield_schedule.py; здесь строка графика
 становится значениями свойств типа «Щитовая дверь» (по кодам свойств:
-серия, ширина, высота, цвет, стекло, молдинг, замок, кромка), позиция
+серия, ширина, высота, цвет, стекло, молдинг, замок, кромка, цвет_кромки), позиция
 находится или создаётся по типу, строка — строкой заказа."""
 
 from dataclasses import dataclass, field
@@ -14,7 +14,7 @@ from app.models.production_orders import ORDER_DRAFT, ProductionOrder, Productio
 from app.services import type_rules
 from app.services.shield_schedule import ScheduleRow, parse_line_features, parse_pasted_schedule, parse_size, series_key
 
-REQUIRED_CODES = ("серия", "ширина", "высота", "цвет", "стекло", "молдинг", "замок", "кромка")
+REQUIRED_CODES = ("серия", "ширина", "высота", "цвет", "стекло", "молдинг", "замок", "кромка", "цвет_кромки")
 
 
 @dataclass
@@ -59,10 +59,11 @@ def _values_for_row(type_: ItemType, row: ScheduleRow) -> tuple[dict[int, object
         props["ширина"].id: float(size[0]),
         props["высота"].id: float(size[1]),
         props["цвет"].id: color,
-        props["стекло"].id: features.has_glass,
+        props["стекло"].id: features.glass,  # вид стекла, "" — без стекла
         props["молдинг"].id: features.has_moulding,
         props["замок"].id: features.needs_lock_milling,
         props["кромка"].id: edge.id,
+        props["цвет_кромки"].id: features.edge_text,
     }, []
 
 

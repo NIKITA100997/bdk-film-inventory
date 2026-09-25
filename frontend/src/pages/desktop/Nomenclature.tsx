@@ -82,15 +82,32 @@ function ItemsTab() {
     queryFn: () => listItems({ include_inactive: includeInactive }),
   });
 
+  // Модели — строками, их варианты — внутри (как характеристики в 1С).
+  // Поиск: подошла модель — все её варианты; подошёл вариант — модель с ним.
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase().replace(/ё/g, "е");
     const inGroup = group != null && group !== NO_GROUP ? groupWithDescendants(groups, group) : null;
-    return (itemsQuery.data ?? []).filter(
-      (i) =>
-        (kind === "all" || i.kind_code === kind) &&
-        (group == null || (group === NO_GROUP ? i.group_id == null : i.group_id != null && inGroup!.has(i.group_id))) &&
-        (!needle || i.name.toLowerCase().replace(/ё/g, "е").includes(needle) || (i.code_1c ?? "").toLowerCase().includes(needle)),
-    );
+    const all = itemsQuery.data ?? [];
+    const matches = (i: Item) =>
+      !needle || i.name.toLowerCase().replace(/ё/g, "е").includes(needle) || (i.code_1c ?? "").toLowerCase().includes(needle);
+    const models = new Set(all.filter((i) => i.is_model).map((i) => i.id));
+    const variants = new Map<number, Item[]>();
+    for (const i of all) if (i.model_id != null && models.has(i.model_id)) variants.set(i.model_id, [...(variants.get(i.model_id) ?? []), i]);
+    const out: ItemRow[] = [];
+    for (const i of all) {
+      if (i.model_id != null && models.has(i.model_id)) continue;
+      if (kind !== "all" && i.kind_code !== kind) continue;
+      if (group != null && (group === NO_GROUP ? i.group_id != null : i.group_id == null || !inGroup!.has(i.group_id))) continue;
+      if (i.is_model) {
+        const own = variants.get(i.id) ?? [];
+        const kids = matches(i) ? own : own.filter(matches);
+        if (!matches(i) && kids.length === 0) continue;
+        out.push({ ...i, variant_count: own.length, children: kids.length ? kids : undefined });
+      } else if (matches(i)) {
+        out.push(i);
+      }
+    }
+    return out;
   }, [itemsQuery.data, kind, q, group, groups]);
 
   const moveMutation = useMutation({
@@ -177,7 +194,7 @@ function ItemsTab() {
       {kind !== "all" && (
         <GroupsModal open={groupsOpen} onClose={() => setGroupsOpen(false)} kind={kind} kindName={kindName} groups={groups} />
       )}
-      <ResponsiveTable<Item>
+      <ResponsiveTable<ItemRow>
         tableKey="nomenclature"
         lockedColumns={["Наименование"]}
         size="small"
@@ -193,7 +210,18 @@ function ItemsTab() {
             : undefined
         }
         columns={[
-          { title: "Наименование", dataIndex: "name" },
+          {
+            title: "Наименование",
+            render: (_, i: ItemRow) =>
+              i.is_model ? (
+                <Space size={6}>
+                  <b>{i.name}</b>
+                  <Tag color="gold">модель · вариантов: {i.variant_count ?? 0}</Tag>
+                </Space>
+              ) : (
+                i.name
+              ),
+          },
           { title: "Вид", render: (_, i) => <Tag color={KIND_COLOR[i.kind_code]}>{i.kind_name}</Tag> },
           {
             title: "Группа",
@@ -207,6 +235,8 @@ function ItemsTab() {
     </Space>
   );
 }
+
+type ItemRow = Item & { variant_count?: number; children?: Item[] };
 
 function UnlinkedTab() {
   const qc = useQueryClient();

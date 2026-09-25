@@ -369,7 +369,7 @@ function OrderModal({
   );
   const patch = (i: number, p: Partial<LineDraft>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...p } : l)));
   const itemOptions = (itemsQuery.data ?? [])
-    .filter((i) => i.kind_code !== "plenka")
+    .filter((i) => i.kind_code !== "plenka" && !i.is_model) // модель — не в заказ, берётся её вариант
     .map((i) => ({ value: i.id, label: `${i.name} · ${i.kind_name}` }));
 
   const mutation = useMutation({

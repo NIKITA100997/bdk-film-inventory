@@ -88,6 +88,8 @@ class ItemTypeUpdate(BaseModel):
     name: str | None = None
     is_active: bool | None = None
     name_template: str | None = None
+    # Код свойства-списка, задающего модель («серия»); "" — без моделей.
+    model_property_code: str | None = None
 
 
 class TypeOperationIO(BaseModel):
@@ -117,7 +119,9 @@ class ItemTypeOut(BaseModel):
     name: str
     is_active: bool
     item_count: int
+    model_count: int = 0
     name_template: str | None = None
+    model_property_code: str | None = None
     properties: list[PropertyOut]
     operations: list[TypeOperationIO] = []
     component_rules: list[TypeComponentIO] = []
@@ -152,10 +156,14 @@ def _property_out(db: Session, p: ItemProperty) -> PropertyOut:
 
 
 def _type_out(db: Session, t: ItemType) -> ItemTypeOut:
-    count = db.query(func.count(Item.id)).filter(Item.type_id == t.id).scalar()
+    count = db.query(func.count(Item.id)).filter(Item.type_id == t.id, Item.is_model.is_(False)).scalar()
+    models = db.query(func.count(Item.id)).filter(Item.type_id == t.id, Item.is_model.is_(True)).scalar()
+    model_prop = next((p for p in t.properties if p.id == t.model_property_id), None)
     return ItemTypeOut(
         id=t.id, kind_code=t.kind.code, kind_name=t.kind.name, name=t.name, is_active=t.is_active,
-        item_count=count or 0, name_template=t.name_template, properties=[_property_out(db, p) for p in t.properties],
+        item_count=count or 0, model_count=models or 0, name_template=t.name_template,
+        model_property_code=model_prop.code if model_prop else None,
+        properties=[_property_out(db, p) for p in t.properties],
         operations=[TypeOperationIO(name=o.name, area=o.area, condition=o.condition) for o in t.operations],
         component_rules=[
             TypeComponentIO(
@@ -246,6 +254,17 @@ def update_item_type(
         if tpl:
             _check_template(t, tpl, "Название позиции")
         t.name_template = tpl
+    if payload.model_property_code is not None:
+        code = payload.model_property_code.strip()
+        prop = next((p for p in t.properties if p.code == code), None) if code else None
+        if code and (prop is None or prop.value_type != "list"):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Модель задаётся свойством-списком этого типа (например, «серия»)")
+        if (prop.id if prop else None) != t.model_property_id:
+            t.model_property_id = prop.id if prop else None
+            db.flush()
+            # Переразложить позиции типа по моделям.
+            for item in db.query(Item).filter(Item.type_id == t.id, Item.is_model.is_(False)):
+                type_rules.link_model(db, item)
     db.commit()
     return _type_out(db, t)
 
@@ -397,6 +416,8 @@ def set_item_properties(
     item = db.get(Item, item_id)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    if item.is_model:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Это модель — свойства задаются у её вариантов")
     new_type = _get_type(db, payload.type_id) if payload.type_id is not None else None
     if new_type is not None and new_type.kind_id != item.kind_id:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Тип относится к другому виду номенклатуры")
@@ -415,6 +436,7 @@ def set_item_properties(
             rules_errors = res.errors
         else:
             sp.commit()
+    type_rules.link_model(db, item)
     db.commit()
     db.refresh(item)
     return ItemPropertiesOut(
@@ -628,7 +650,7 @@ def apply_type_rules(type_id: int, db: Session = Depends(get_db), user=Depends(m
     ошибками в данных не меняется (остальные — применяются)."""
     t = _get_type(db, type_id)
     applied, errors = 0, {}
-    for item in db.query(Item).filter(Item.type_id == t.id).order_by(Item.name):
+    for item in db.query(Item).filter(Item.type_id == t.id, Item.is_model.is_(False)).order_by(Item.name):
         sp = db.begin_nested()
         res = type_rules.apply(db, item)
         if res.errors:

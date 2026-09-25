@@ -116,3 +116,25 @@ class TestPastedSchedule:
         rows, errors = parse_pasted_schedule("\t1\tВ-5\t800х2000\tБелый\tВ-5 800х2000\tмного")
         assert rows == []
         assert errors and errors[0].startswith("Строка 1")
+
+
+def test_glass_kind_and_edge_text_from_1c_name():
+    f = parse_line_features(
+        "В-9 кромка с 4-х сторон 600х2000 - ПЭТ Светло-серый (gray silk) (стекло Зеркало ГРАФИТ) кромка черная ABS 2мм", "abs"
+    )
+    assert (f.glass, f.edge_text, f.edge_type) == ("Зеркало ГРАФИТ", "черная ABS 2мм", "abs")
+
+
+def test_glass_without_kind():
+    f = parse_line_features("В-16.2 со стеклом кромка Black", "abs")
+    assert (f.glass, f.edge_text, f.edge_type) == ("есть", "Black", "aluminum")
+
+
+def test_no_glass():
+    assert parse_line_features("В-5 600х2000 Эмалит белый", "abs").glass == ""
+
+
+def test_edge_after_sides_phrase_without_brackets():
+    # «кромка с 4-х сторон …» без скобок не должна поглощать саму кромку двери.
+    f = parse_line_features("В-5 кромка с 4-х сторон 600х2000 - Эмалит белый кромка черная ABS", "aluminum")
+    assert (f.edge_text, f.edge_type) == ("черная ABS", "abs")

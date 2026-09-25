@@ -417,19 +417,24 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
   );
 }
 
-function CheckModal({
+export function CheckModal({
   type,
   mode,
   onClose,
   areaName,
+  initialValues,
+  onCreated,
 }: {
   type: ItemType;
   mode: "preview" | "create";
   onClose: () => void;
   areaName: (code: string | null) => string;
+  /** Заполнено заранее — например, серия у «Добавить вариант» в карточке модели. */
+  initialValues?: Record<string, PropertyValue>;
+  onCreated?: (itemId: number) => void;
 }) {
   const qc = useQueryClient();
-  const [values, setValues] = useState<Record<string, PropertyValue>>({});
+  const [values, setValues] = useState<Record<string, PropertyValue>>(initialValues ?? {});
   const [result, setResult] = useState<RulesPreview | null>(null);
   const previewMutation = useMutation({
     mutationFn: () => previewTypeRules(type.id, { values }),
@@ -442,6 +447,7 @@ function CheckModal({
       qc.invalidateQueries({ queryKey: ["items"] });
       qc.invalidateQueries({ queryKey: ["item-types"] });
       message.success(res.created ? `Создана позиция «${res.name}»` : `Такая позиция уже есть: «${res.name}»`);
+      onCreated?.(res.item_id);
       onClose();
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось создать позицию")),

@@ -61,6 +61,9 @@ export interface ItemType {
   name: string;
   is_active: boolean;
   item_count: number;
+  model_count: number;
+  /** Свойство-список, задающее модель («серия»); null — без моделей. */
+  model_property_code: string | null;
   // Правила типа (пункт 3): шаблон названия позиции, операции с условиями, правила состава.
   name_template: string | null;
   properties: ItemProperty[];

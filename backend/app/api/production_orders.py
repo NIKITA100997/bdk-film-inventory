@@ -170,8 +170,13 @@ def _write_lines(db: Session, order: ProductionOrder, lines: list[OrderLineIn]) 
     order.lines.clear()
     db.flush()
     for i, ln in enumerate(lines, start=1):
-        if db.get(Item, ln.item_id) is None:
+        item = db.get(Item, ln.item_id)
+        if item is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+        if item.is_model:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, f"«{item.name}» — модель: в заказ берётся её вариант (размер, цвет…)"
+            )
         order.lines.append(
             ProductionOrderLine(item_id=ln.item_id, quantity=ln.quantity, note=(ln.note or "").strip() or None, sort_order=i)
         )

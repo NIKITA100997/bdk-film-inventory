@@ -19,6 +19,9 @@ export interface Item {
   source_type: "sku" | "part" | "model" | null;
   source_id: number | null;
   group_id: number | null;
+  /** Модель (серия) — варианты ссылаются на неё через model_id. */
+  is_model: boolean;
+  model_id: number | null;
   material: string | null;
   color: string | null;
   thickness: number | null;
@@ -157,6 +160,10 @@ export interface TechCard {
   thickness: number | null;
   is_active: boolean;
   type_name: string | null;
+  type_id: number | null;
+  is_model: boolean;
+  model_id: number | null;
+  model_name: string | null;
 }
 
 export const getTechCard = async (itemId: number): Promise<TechCard> =>

@@ -24,7 +24,7 @@ export default function ComponentsEditorModal({ card, onClose }: { card: TechCar
   );
   const patch = (i: number, p: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const itemOptions = (itemsQuery.data ?? [])
-    .filter((i) => i.id !== card.item_id)
+    .filter((i) => i.id !== card.item_id && !i.is_model)
     .map((i) => ({ value: i.id, label: `${i.name} · ${i.kind_name}` }));
   const opOptions = card.operations.filter((o) => o.id !== null).map((o) => ({ value: o.id as number, label: `${o.sequence_order}. ${o.name}` }));
   const bomRows = card.inputs.filter((i) => i.source === "bom");

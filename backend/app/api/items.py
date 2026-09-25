@@ -48,6 +48,8 @@ class ItemOut(BaseModel):
     source_type: str | None  # "sku" | "part" | "model"
     source_id: int | None
     group_id: int | None = None
+    is_model: bool = False
+    model_id: int | None = None
     material: str | None = None
     color: str | None = None
     thickness: float | None = None
@@ -107,7 +109,7 @@ def list_items(
             ItemOut(
                 id=item.id, kind_code=kind.code, kind_name=kind.name, unit=kind.unit, name=name,
                 code_1c=item.code_1c, is_active=active, source_type=source_type, source_id=source_id,
-                group_id=item.group_id, **extra,
+                group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, **extra,
             )
         )
 
@@ -137,7 +139,7 @@ def list_items(
                 ItemOut(
                     id=item.id, kind_code=item_kind.code, kind_name=item_kind.name, unit=item_kind.unit, name=item.name,
                     code_1c=item.code_1c, is_active=item.is_active, source_type=None, source_id=None,
-                    group_id=item.group_id,
+                    group_id=item.group_id, is_model=item.is_model, model_id=item.model_id,
                 )
             )
 
@@ -589,6 +591,11 @@ class TechCardOut(BaseModel):
     thickness: float | None = None
     is_active: bool = True
     type_name: str | None = None
+    type_id: int | None = None
+    # Модель и варианты: is_model — это модель; model_* — модель варианта.
+    is_model: bool = False
+    model_id: int | None = None
+    model_name: str | None = None
 
 
 
@@ -742,7 +749,9 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
         source_id=source_id, operations=operations, inputs=inputs, used_in=used_in,
         material=sku.material.name if sku is not None else None, color=sku.color.name if sku is not None else None,
         thickness=float(sku.thickness.value_mm) if sku is not None else None, is_active=active,
-        type_name=item.type.name if item.type else None,
+        type_name=item.type.name if item.type else None, type_id=item.type_id,
+        is_model=item.is_model, model_id=item.model_id,
+        model_name=db.get(Item, item.model_id).name if item.model_id else None,
     )
 
 

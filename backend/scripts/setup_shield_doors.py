@@ -123,18 +123,31 @@ door = ensure_type(
         ]},
         num("ширина", "Ширина"), num("высота", "Высота"),
         {"code": "цвет", "name": "Цвет", "value_type": "text", "is_required": True},
-        {"code": "стекло", "name": "Стекло", "value_type": "bool"},
+        # Вид стекла («Черное», «Зеркало ГРАФИТ»); пусто — без стекла.
+        {"code": "стекло", "name": "Стекло", "value_type": "text"},
         {"code": "молдинг", "name": "Молдинг", "value_type": "bool"},
         {"code": "замок", "name": "Фрезеровка под замок", "value_type": "bool"},
         # Кромка двери — обычно как у серии, но в графике бывает другой
         # (В-16.2 с алюминиевым профилем): разбор графика берёт её из строки.
         {"code": "кромка", "name": "Кромка", "value_type": "list", "is_required": True},
+        # Цвет и материал кромки как в 1С: «черная ABS 2мм», «ПЭТ Белая 1мм».
+        {"code": "цвет_кромки", "name": "Цвет кромки", "value_type": "text"},
     ],
-    'Дверь щитовая {серия} {ширина}х{высота} {цвет} {"со стеклом" if стекло else ""} '
-    '{"с молдингом" if молдинг else ""} {"под замок" if замок else ""} '
-    '{"(алюм. профиль)" if кромка == "aluminum" and серия.кромка != "aluminum" else ""} '
-    '{"(кромка ABS)" if кромка == "abs" and серия.кромка != "abs" else ""}',
+    'Дверь щитовая {серия} {ширина}х{высота} {цвет}{" с молдингом" if молдинг else ""}{" под замок" if замок else ""}'
+    '{", стекло " + стекло if стекло else ""}{", кромка " + цвет_кромки if цвет_кромки else ""}'
+    '{" (алюм. профиль)" if not цвет_кромки and кромка == "aluminum" and серия.кромка != "aluminum" else ""}'
+    '{" (кромка ABS)" if not цвет_кромки and кромка == "abs" and серия.кромка != "abs" else ""}',
 )
+# Стекло было галочкой — теперь вид стекла (текст). Менять можно, пока свойство
+# не заполнено ни у одной позиции.
+glass = next(p for p in door["properties"] if p["code"] == "стекло")
+if glass["value_type"] == "bool":
+    ok(c.put(f"/api/item-properties/{glass['id']}", json={
+        "code": "стекло", "name": "Стекло", "value_type": "text", "is_required": False, "option_fields": [],
+    }), "glass → text")
+    print("свойство «Стекло»: галочка → вид стекла")
+# Модель — серия: «Щитовая дверь В-9», размеры, цвета… — её варианты.
+door = ok(c.put(f"/api/item-types/{door['id']}", json={"model_property_code": "серия"}), "door model property")
 edge_prop = next(p for p in door["properties"] if p["code"] == "кромка")
 if not edge_prop["options"]:
     ok(c.put(f"/api/item-properties/{edge_prop['id']}/options", json=[

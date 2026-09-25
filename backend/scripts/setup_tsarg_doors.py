@@ -106,3 +106,6 @@ for m, s, w, h in parsed:
         raise SystemExit(f"{m.name}: {r['rules_errors']}")
     done += 1
 print("назначено моделям:", done)
+# Модель — серия («Царговая дверь М-1»), размеры — её варианты.
+t = ok(c.put(f"/api/item-types/{t['id']}", json={"model_property_code": "серия"}), "model property")
+print("моделей:", t["model_count"])

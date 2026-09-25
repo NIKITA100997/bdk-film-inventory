@@ -7,6 +7,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { ITEM_VIEW_PERMISSIONS, getTechCard, lookupItem } from "../../api/items";
 import { ORDER_STATUS_LABEL, listProductionOrders, type ProductionOrder } from "../../api/productionOrders";
 import TechCardView from "./nomenclature/TechCardView";
+import ModelVariants from "./nomenclature/ModelVariants";
 import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
 import PartCard from "./production/PartCard";
 import { MovementsPanel } from "./UnifiedStock";
@@ -46,16 +47,19 @@ export default function ItemCard() {
         ? { key: "stock", label: "Склад", children: <PartCard partId={card.source_id} /> }
         : null;
   const orders = ordersQuery.data ?? [];
-  const tabs = [
-    ...(stockTab ? [stockTab] : []),
-    { key: "techcard", label: "Техкарта", children: <TechCardView itemId={itemId} /> },
-    ...(card.source_type === "sku" || card.source_type === "part"
-      ? [{ key: "movements", label: "Движение", children: <MovementsPanel itemId={itemId} /> }]
-      : []),
-    ...(card.kind_code !== "plenka" && canSeeOrders
-      ? [{ key: "orders", label: `Заказы${orders.length ? ` (${orders.length})` : ""}`, children: <OrdersOfItem itemId={itemId} orders={orders} loading={ordersQuery.isLoading} /> }]
-      : []),
-  ];
+  // Модель (серия) — только её варианты: маршрут, состав и остатки — у вариантов.
+  const tabs = card.is_model
+    ? [{ key: "variants", label: "Варианты", children: <ModelVariants modelId={itemId} typeId={card.type_id} /> }]
+    : [
+        ...(stockTab ? [stockTab] : []),
+        { key: "techcard", label: "Техкарта", children: <TechCardView itemId={itemId} /> },
+        ...(card.source_type === "sku" || card.source_type === "part"
+          ? [{ key: "movements", label: "Движение", children: <MovementsPanel itemId={itemId} /> }]
+          : []),
+        ...(card.kind_code !== "plenka" && canSeeOrders
+          ? [{ key: "orders", label: `Заказы${orders.length ? ` (${orders.length})` : ""}`, children: <OrdersOfItem itemId={itemId} orders={orders} loading={ordersQuery.isLoading} /> }]
+          : []),
+      ];
   const active = tabs.some((t) => t.key === params.get("tab")) ? (params.get("tab") as string) : tabs[0].key;
 
   return (
@@ -71,8 +75,14 @@ export default function ItemCard() {
             </Typography.Title>
             <Tag color={KIND_COLOR[card.kind_code]}>{card.kind_name}</Tag>
             {card.type_name && <Tag color="purple">{card.type_name}</Tag>}
+            {card.is_model && <Tag color="gold">модель</Tag>}
             {!card.is_active && <Tag>архив</Tag>}
           </Space>
+          {card.model_id != null && (
+            <Typography.Text type="secondary">
+              Вариант модели <a onClick={() => navigate(`/item/${card.model_id}`)}>{card.model_name}</a>
+            </Typography.Text>
+          )}
         </Space>
       </Card>
       <Tabs activeKey={active} onChange={(k) => setParams({ tab: k })} items={tabs} destroyOnHidden />

@@ -34,13 +34,16 @@ class LineFeatures:
     has_glass: bool
     has_moulding: bool
     needs_lock_milling: bool
+    glass: str = ""  # вид стекла: «Черное», «Зеркало ГРАФИТ»; «есть» — без вида; "" — без стекла
+    edge_text: str = ""  # кромка как в наименовании: «черная ABS 2мм», «ПЭТ Белая 1мм», «Black»
 
 
 # Последняя «кромка …» в наименовании — сама кромка двери; «кромка 4х» и
 # «кромка с 4-х сторон …» описывают только стороны и отбрасываются.
-_EDGE_RE = re.compile(r"кромка\s+(.+?)(?=\s*(?:молдинг|\(|\)|$))", re.IGNORECASE)
+_EDGE_RE = re.compile(r"кромка\s+(.+?)(?=\s*(?:молдинг|кромка|\(|\)|$))", re.IGNORECASE)
 _ALUMINUM_EDGE_RE = re.compile(r"^(black|silver)$", re.IGNORECASE)
 _BANDING_EDGE_RE = re.compile(r"abs|пэт|\d\s*мм", re.IGNORECASE)
+_GLASS_RE = re.compile(r"\bстекло\s+([^()]+?)\s*(?=\)|\s+кромк|\s+молдинг|$)", re.IGNORECASE)
 
 
 def parse_line_features(name: str, default_edge: str) -> LineFeatures:
@@ -50,15 +53,20 @@ def parse_line_features(name: str, default_edge: str) -> LineFeatures:
     Фрезеровка под замок — «Защелка» или «PL410»."""
     edges = [e for e in _EDGE_RE.findall(name or "") if not re.match(r"^(с\s|\d)", e.strip(), re.IGNORECASE)]
     edge_type = default_edge
+    last = ""
     if edges:
         last = edges[-1].strip()
         if _ALUMINUM_EDGE_RE.match(last):
             edge_type = "aluminum"
         elif _BANDING_EDGE_RE.search(last):
             edge_type = "abs"
+    has_glass = bool(re.search(r"стекл", name or "", re.IGNORECASE))
+    glass = _GLASS_RE.search(name or "")
     return LineFeatures(
         edge_type=edge_type,
-        has_glass=bool(re.search(r"стекл", name, re.IGNORECASE)),
+        glass=" ".join(glass.group(1).split()) if glass else ("есть" if has_glass else ""),
+        edge_text=" ".join(last.split()),
+        has_glass=has_glass,
         has_moulding=bool(re.search(r"молдинг|\(м\d", name, re.IGNORECASE)),
         needs_lock_milling=bool(re.search(r"защ[её]лк|pl\s*410", name, re.IGNORECASE)),
     )
