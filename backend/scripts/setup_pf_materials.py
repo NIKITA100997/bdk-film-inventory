@@ -42,7 +42,7 @@ FACTORY, GLUE_AREA = "fabrika", "skleyka_mdf_s_zagotovkoy"
 SANDWICH, GLUE, READY = "Склейка сэндвича", "Склейка МДФ с заготовкой", "Готово"
 GLUED = {"36х108х2035", "30х110х1840", "26х30х1800", "34х200х1840", "34х120х1840", "34х90х1840"}
 # Решение пользователя 25.09: все стоевые, поперечные и пороги МК — из
-# склеенного щита (любого размера; «… МДФ» — щит из МДФ, своя заготовка).
+# склеенного щита (любого размера); «… МДФ» — цельный МДФ, не щит.
 GLUED_PROFILES = ("Стоевая", "Поперечная", "Порог")
 SHEET = 1.2 * 1.84  # лист 929(1200)… — закладка поперечных/Нео: 929×1840 мм
 # Состав склеенной заготовки на 1 шт: (материал, м² на 1 шт, операция).
@@ -59,6 +59,21 @@ BLANK_BOM = {
     # Планка 26×30 — из облицованной заготовки поперечной: 3 шт из одной.
     "26х30х1800": [("Заготовка МК 30х110х1840", 1 / 3, GLUE)],
 }
+
+
+def blank_bom(size: str):
+    """Состав заготовки по размеру. Стоевые (36×100/108/110/120, 40×120) —
+    пакет стоевой из техкарты (пользователь: «это тоже щиты»); длиннее 2035
+    («на 2400 щиты длиннее делают») — МДФ пропорционально длине, фанера та
+    же (вставки по 400 мм в тех же зонах). Остальное — по техкарте или нет."""
+    if size in BLANK_BOM:
+        return BLANK_BOM[size]
+    t, w, length = (int(x) for x in size.split("х"))
+    if (t, w) in {(36, 100), (36, 108), (36, 110), (36, 120), (40, 120)}:
+        k = length / 2035
+        return [(m, q * k if m.startswith("МДФ") else q, op) for m, q, op in BLANK_BOM["36х108х2035"]]
+    return None
+
 
 db = SessionLocal()
 admin = db.query(User).filter(User.is_superuser.is_(True), User.is_active.is_(True)).order_by(User.id).first()
@@ -109,9 +124,11 @@ glued_of = {}
 thicknesses = set()
 for item in details:
     ctx = ctx_of(item)
-    glued = ctx["линия"] == "МК" and (
-        str(ctx["профиль"]).startswith(GLUED_PROFILES)
-        or (size_key(ctx) in GLUED and "МДФ" not in (ctx.get("исполнение") or ""))
+    # «… МДФ» — цельный МДФ, не щит (пользователь: «МДФ — это МДФ»).
+    glued = (
+        ctx["линия"] == "МК"
+        and "МДФ" not in (ctx.get("исполнение") or "")
+        and (str(ctx["профиль"]).startswith(GLUED_PROFILES) or size_key(ctx) in GLUED)
     )
     glued_of[item.id] = glued
     if not glued:
@@ -179,12 +196,13 @@ blank_items = db.query(Item).filter(Item.type_id == blank_type.id).all()
 for item in blank_items:
     type_rules.apply(db, item)  # маршрут: сэндвич → облицовка → готово
 db.flush()
-blanks_done = []
+blanks_done, no_norms = [], []
 for item in blank_items:
     part = db.query(Part).filter(Part.item_id == item.id).first()
     m = re.search(r"(\d+х\d+х\d+)$", part.name) if part else None
-    bom = BLANK_BOM.get(m.group(1)) if m and part.name.startswith("Заготовка МК ") else None
+    bom = blank_bom(m.group(1)) if m and part.name.startswith("Заготовка МК ") else None
     if not bom:
+        no_norms.append(part.name)
         continue
     stages = {s.name: s.id for s in item.stages}
     db.query(ItemComponent).filter(ItemComponent.parent_item_id == item.id, ItemComponent.source == "manual").delete()
@@ -216,7 +234,8 @@ db.flush()
 
 glued_n = sum(glued_of.values())
 print(f"деталей: из склеенной заготовки {glued_n}, из МДФ {len(glued_of) - glued_n}; состав изменился у {changed}; новых деталей п/ф: {new_parts}")
-print("состав склеенных заготовок из техкарты:", blanks_done)
+print("состав заготовок (техкарта, стоевые — по пакету стоевой):", blanks_done)
+print("заготовки без норм:", no_norms)
 print("новые заготовки (без норм — размера нет в техкарте):", [n for n in new_blanks if n.startswith("Заготовка")])
 print(f"удалено ненужных заготовок: {len(removed)}")
 if errors:
