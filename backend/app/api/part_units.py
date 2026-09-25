@@ -1,9 +1,13 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Part
+from app.models.items import ItemComponent
 from app.models.part_units import PartUnit, PartUnitEvent, PartUnitStatus
 from app.models.users import User
 from app.schemas.part_units import (
@@ -27,6 +31,7 @@ from app.services.part_units import (
     return_part_unit,
     write_off_part_unit,
 )
+from app.services.production_orders import detail_targets, make_detail_from_unit
 
 router = APIRouter(prefix="/part-units", tags=["part-units"])
 
@@ -148,6 +153,19 @@ def recycle_part_units_endpoint(
     return _part_unit_out_single(db, new_unit)
 
 
+@router.get("/make-source-parts", response_model=list[int])
+def make_source_parts(db: Session = Depends(get_db), user: User = Depends(view_part_units)) -> list[int]:
+    """Детали, из которых по составу делаются другие (заготовка до фрезеровки
+    → детали с пазом): у их партий на экране — «Сделать деталь»."""
+    rows = (
+        db.query(Part.id)
+        .join(ItemComponent, ItemComponent.component_item_id == Part.item_id)
+        .filter(ItemComponent.stage_id.isnot(None))
+        .distinct()
+    )
+    return [r[0] for r in rows]
+
+
 @router.get("/{unit_id}", response_model=PartUnitOut)
 def get_part_unit(
     unit_id: int, db: Session = Depends(get_db), user: User = Depends(view_part_units)
@@ -175,6 +193,53 @@ def place_part_unit_endpoint(
     db.commit()
     db.refresh(unit)
     return _part_unit_out_single(db, unit)
+
+
+class MakeTargetOut(BaseModel):
+    part_id: int
+    part_name: str
+    operation: str
+    per_unit: float
+
+
+class MakeIn(BaseModel):
+    target_part_id: int
+    quantity_pieces: float = Field(gt=0)
+    occurred_at: datetime | None = None
+
+
+@router.get("/{unit_id}/make-targets", response_model=list[MakeTargetOut])
+def make_targets(unit_id: int, db: Session = Depends(get_db), user: User = Depends(view_part_units)) -> list[MakeTargetOut]:
+    """Какие детали можно сделать из этой партии (по составу: заготовка до
+    фрезеровки → детали с пазом)."""
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    return [
+        MakeTargetOut(part_id=p.id, part_name=p.name, operation=s.name, per_unit=q)
+        for p, s, q in detail_targets(db, unit.part)
+    ]
+
+
+@router.post("/{unit_id}/make", response_model=PartUnitOut, status_code=status.HTTP_201_CREATED)
+def make_from_unit(
+    unit_id: int, payload: MakeIn, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
+) -> PartUnitOut:
+    """«Сделать деталь из заготовки» — заготовка списывается в производство,
+    партия детали рождается уже после операции (см. make_detail_from_unit)."""
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    try:
+        new_unit = make_detail_from_unit(
+            db, unit=unit, target_part_id=payload.target_part_id, quantity_pieces=payload.quantity_pieces,
+            user_id=user.id, occurred_at=payload.occurred_at,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    db.commit()
+    db.refresh(new_unit)
+    return _part_unit_out_single(db, new_unit)
 
 
 @router.post("/{unit_id}/advance", response_model=PartUnitOut)

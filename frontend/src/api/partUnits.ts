@@ -102,6 +102,27 @@ export const writeOffPartUnit = async (
 // Раздел про мобильный скан-сценарий по этапам — прямой перевод партии
 // на следующий этап, не через отчёт о производстве (для переходов без
 // расхода плёнки, где заводить задание незачем).
+// «Сделать деталь из заготовки» (общая заготовка до фрезеровки → деталь с
+// пазом): заготовка списывается в производство, партия детали рождается
+// уже после операции (у МК — сразу на «Окутке»).
+export interface MakeTarget {
+  part_id: number;
+  part_name: string;
+  operation: string;
+  per_unit: number;
+}
+
+export const listMakeSourceParts = async (): Promise<number[]> =>
+  (await apiClient.get<number[]>("/part-units/make-source-parts")).data;
+
+export const getMakeTargets = async (unitId: number): Promise<MakeTarget[]> =>
+  (await apiClient.get<MakeTarget[]>(`/part-units/${unitId}/make-targets`)).data;
+
+export const makeFromPartUnit = async (
+  unitId: number,
+  payload: { target_part_id: number; quantity_pieces: number; occurred_at?: string | null },
+): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${unitId}/make`, payload)).data;
+
 export const advancePartUnit = async (id: number, quantityPieces: number, occurredAt?: string | null): Promise<PartUnit> =>
   (await apiClient.post<PartUnit>(`/part-units/${id}/advance`, { quantity_pieces: quantityPieces, occurred_at: occurredAt })).data;
 

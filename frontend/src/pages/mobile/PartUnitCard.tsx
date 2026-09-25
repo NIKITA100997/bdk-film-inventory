@@ -7,6 +7,7 @@ import {
   getPartUnit,
   writeOffPartUnit,
   advancePartUnit,
+  listMakeSourceParts,
   adjustPartUnit,
   listPartUnitEvents,
   type PartUnit,
@@ -17,6 +18,7 @@ import { listParts } from "../../api/dictionaries";
 import { listUsers } from "../../api/users";
 import { listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
+import MakeFromUnitModal from "../../components/MakeFromUnitModal";
 import QrScanButton from "../../components/QrScanButton";
 import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
@@ -43,6 +45,8 @@ export default function PartUnitCard() {
   const { user } = useAuth();
   const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("part_units.correct");
   const [unit, setUnit] = useState<PartUnit | null>(null);
+  const [makeOpen, setMakeOpen] = useState(false);
+  const makeSourcesQuery = useQuery({ queryKey: ["part-unit-make-sources"], queryFn: listMakeSourceParts });
   const [action, setAction] = useState<ActionKind>(null);
   const [writeOffOpen, setWriteOffOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
@@ -200,6 +204,9 @@ export default function PartUnitCard() {
             {unit.note && <Descriptions.Item label="Заметка">{unit.note}</Descriptions.Item>}
           </Descriptions>
 
+          {makeOpen && unit && (
+            <MakeFromUnitModal size="large" unit={unit} onClose={() => setMakeOpen(false)} onDone={(made) => setUnit(made)} />
+          )}
           {!action && (
             <Space wrap size="middle" style={{ marginBottom: 16 }}>
               {unit.status === "На_хранении" && (
@@ -212,6 +219,12 @@ export default function PartUnitCard() {
                   Перевести на следующий этап
                 </Button>
               )}
+              {(makeSourcesQuery.data ?? []).includes(unit.part_id) &&
+                (unit.status === "Выдан_участку" || unit.status === "На_хранении") && (
+                  <Button size="large" type="primary" onClick={() => setMakeOpen(true)}>
+                    Сделать деталь
+                  </Button>
+                )}
               {unit.status !== "Списан" && (
                 <Button size="large" danger onClick={() => setWriteOffOpen(true)}>
                   Списать

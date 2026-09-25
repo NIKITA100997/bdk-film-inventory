@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Tag, DatePicker } from "antd";
 import type { Dayjs } from "dayjs";
+import MakeFromUnitModal from "../../../components/MakeFromUnitModal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ActionIcon from "../../../components/ActionIcon";
 import PrintFormatButton from "../../../components/PrintFormatButton";
@@ -16,6 +17,7 @@ import {
   createPartUnit,
   writeOffPartUnit,
   advancePartUnit,
+  listMakeSourceParts,
   returnPartUnit,
   adjustPartUnit,
   recyclePartUnits,
@@ -189,6 +191,11 @@ export default function PartUnits() {
   const [hideFullyUsed, setHideFullyUsed] = useState(true);
 
   const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
+  // Детали, из которых делаются другие (заготовка до фрезеровки) — у их
+  // партий кнопка «Сделать деталь».
+  const makeSourcesQuery = useQuery({ queryKey: ["part-unit-make-sources"], queryFn: listMakeSourceParts });
+  const makeSources = new Set(makeSourcesQuery.data ?? []);
+  const [makeTarget, setMakeTarget] = useState<PartUnit | null>(null);
 
   // Раздел про сканирование "ПФ<id>" (unitSearch.ts) — открыть карточку
   // партии сразу после перехода, как только список партий загрузится
@@ -663,6 +670,11 @@ export default function PartUnits() {
                       ➡️
                     </ActionIcon>
                   )}
+                  {canManage && makeSources.has(u.part_id) && (u.status === "Выдан_участку" || u.status === "На_хранении") && (
+                    <ActionIcon tone="filled" tip="Сделать деталь (фрезеровка заготовки)" onClick={() => setMakeTarget(u)}>
+                      ⚙️
+                    </ActionIcon>
+                  )}
                   {canManage && u.status !== "Списан" && (
                     <ActionIcon tone="ghost" danger tip="Списать" onClick={() => setWriteOffTarget(u)}>
                       ✖
@@ -776,6 +788,7 @@ export default function PartUnits() {
         </Form>
       </Modal>
 
+      {makeTarget && <MakeFromUnitModal unit={makeTarget} onClose={() => setMakeTarget(null)} />}
       <Modal
         title={`Перевести партию «${advanceTarget?.part_name ?? ""}» на следующий этап`}
         open={!!advanceTarget}
