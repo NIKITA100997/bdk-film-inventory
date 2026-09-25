@@ -17,13 +17,21 @@ from app.models.items import Item, ItemGroup, ItemKind, ItemType  # noqa: E402
 
 DRY = "--dry-run" in sys.argv
 MK, PANELS, SHIELD, TRIM = "МК", "Панели (металлические двери)", "Щитовые", "Погонаж"
-SHIELD_TYPES = ("Каркас щитовой двери", "Панель щитовая", "Панель щитовая ламинированная")
+SHIELD_TYPES = (
+    "Каркас щитовой двери", "Заготовка МДФ", "Панель щитовая ламинированная", "Панель щитовая фрезерованная",
+    "Панель щитовая с узором",
+)
 
 
 def classify(name: str, type_name: str | None) -> str | None:
     n = name.strip()
     low = n.lower()
-    if type_name in SHIELD_TYPES or low.startswith(("заготовка для щита", "панель щитовой двери", "каркас ")):
+    if (
+        type_name in SHIELD_TYPES
+        or low.startswith(("заготовка для щита", "заготовка мдф", "каркас ", "пенопласт"))
+        or "панель щитовой двери" in low
+        or "каркаса " in low  # стойка / поперечная / усилитель / вставка замковая каркаса
+    ):
         return SHIELD
     if "(панель)" in low or "/п" in low:
         return PANELS
