@@ -95,6 +95,7 @@ for (group_id, size), parts in sorted(by_blank.items(), key=lambda kv: (groups[k
                 db, unit=unit, event_type=PartEventType.KORREKTIROVKA, user_id=admin.id, from_stage_id=from_stage,
                 to_stage_id=to_stage.id, note=f"{NOTE}: была «{part.name}»"[:255],
             )
+            db.flush()  # autoflush выключен: событие должно попасть в базу до перевода истории ниже
             moved_units += 1
         if glue is not None:
             # История этапа «Склейка» детали — теперь на этапе заготовки.
