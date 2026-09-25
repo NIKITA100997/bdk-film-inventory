@@ -1192,6 +1192,12 @@ def _build_task_line_report(
     # см. _task_line_out/_line_reports_agg выше), running растёт по мере
     # обработки каждой затронутой партии этого же payload.
     processed_fifo_results: list[tuple[PartUnit, bool, float]] = []
+    # Партии-излишки этого отчёта (ушли «на хранение» сверх плана строки).
+    # Строка отчёта за излишек — это ВЫПУСК этой партии, а не её расход:
+    # к партии она не привязывается (part_unit_id = None, связь — в
+    # заметке), иначе reported_good_pieces_by_unit вычитал бы её и излишек
+    # выглядел бы израсходованным (доступно 0 — ошибка до 25.09).
+    excess_unit_ids: set[int] = set()
     if fifo_results:
         already_counted = float(
             db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
@@ -1224,6 +1230,7 @@ def _build_task_line_report(
             if excess_amount > 0:
                 settle_excess_part_unit_at_area(db, unit=pu, user_id=user.id)
                 processed_fifo_results.append((pu, True, excess_amount))
+                excess_unit_ids.add(pu.id)
 
     # Раздел про строки отчёта для "хороших" — собираются и добавляются в
     # сессию ЗДЕСЬ, сразу после расхода "хороших" и ДО обработки брака
@@ -1256,9 +1263,10 @@ def _build_task_line_report(
             task_line_id=line_id,
             assignment_id=payload.assignment_id,
             material_unit_id=payload.material_unit_id,
-            part_unit_id=pu.id,
+            part_unit_id=None if pu.id in excess_unit_ids else pu.id,
             good_pieces=taken,
             defect_pieces=0,
+            note=f"излишек сверх плана → партия №{pu.id}" if pu.id in excess_unit_ids else None,
             reported_by=user.id,
             counts_toward_line=is_final,
         )
