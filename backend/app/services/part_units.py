@@ -86,7 +86,6 @@ def mint_part_unit(
     stage_id: int | None = None,
     manufactured_at: date | None = None,
     film_restriction: str | None = None,
-    issue_to_area: bool | None = None,
 ) -> PartUnit:
     """Регистрация факта нарезки партии (начальник цеха) — по умолчанию
     рождается на первом этапе детали (sequence_order=1). Деталь без
@@ -120,16 +119,14 @@ def mint_part_unit(
             raise ValueError(f"Этап не найден среди этапов детали «{part.name}»")
     else:
         start_stage = part.stages[0]
-    # issue_to_area=False (25.09): сделана, но ещё не передана на участок
-    # этапа — «На хранении», передаётся потом issue_part_unit.
-    issued = bool(start_stage.area) and issue_to_area is not False
+    issued = bool(start_stage.area)
     unit = PartUnit(
         part_id=part.id,
         quantity_pieces=quantity_pieces,
         stage_id=start_stage.id,
         manufactured_at=manufactured_at if manufactured_at is not None else date.today(),
         status=PartUnitStatus.VYDAN_UCHASTKU if issued else PartUnitStatus.NA_KHRANENII,
-        area=start_stage.area if issued else None,
+        area=start_stage.area,
         production_task_line_id=production_task_line_id,
         note=note,
         film_restriction=film_restriction,
@@ -164,10 +161,10 @@ def issue_part_unit(
     db: Session, *, unit: PartUnit, user_id: int, quantity_pieces: float | None = None,
     occurred_at: datetime | None = None,
 ) -> PartUnit:
-    """«Передать на участок» (25.09): партия «На хранении» — сделана, но не
-    передана (отфрезерована, лежит на участке п/ф) — уходит на участок своего
-    этапа (окутка) и становится доступна его отчётам. Часть партии —
-    отделяется новой партией. С полки стеллажа партия при этом снимается."""
+    """«Передать на участок» (25.09): партия «На хранении» (например,
+    возвращённая на склад) уходит на участок своего этапа и становится
+    доступна его отчётам. Часть партии — отделяется новой партией. С полки
+    стеллажа партия при этом снимается."""
     if unit.status != PartUnitStatus.NA_KHRANENII:
         raise ValueError("Передать на участок можно только партию «На хранении»")
     area = unit.stage.area if unit.stage else None

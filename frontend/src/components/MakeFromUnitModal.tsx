@@ -11,8 +11,9 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 
 /** «Сделать деталь из заготовки» — общая заготовка до фрезеровки становится
  * деталью с пазом: выбрать деталь и сколько штук; заготовка списывается в
- * производство по норме состава, партия детали появляется уже после
- * операции (у МК — на «Окутке»). Для десктопа и мобильной карточки. */
+ * производство по норме состава, партия детали появляется на этапе
+ * операции, на её участке (у МК — отфрезерована, на участке п/ф). Для
+ * десктопа и мобильной карточки. */
 export default function MakeFromUnitModal({
   unit,
   onClose,
@@ -63,8 +64,9 @@ export default function MakeFromUnitModal({
       destroyOnHidden
     >
       <Typography.Paragraph type="secondary">
-        «{unit.part_name}» — в наличии {available} шт. Заготовка спишется в производство, деталь появится уже после
-        операции{chosen ? ` «${chosen.operation}»` : ""}.
+        «{unit.part_name}» — в наличии {available} шт. Заготовка спишется в производство, партия детали появится на
+        этапе{chosen ? ` «${chosen.operation}»` : " операции"} — на его участке, уже сделанной. Дальше, как обычно, —
+        «Перевести на следующий этап».
       </Typography.Paragraph>
       {targetsQuery.isSuccess && targets.length === 0 && (
         <Alert type="warning" showIcon message="Из этой детали по составу ничего не делается" />

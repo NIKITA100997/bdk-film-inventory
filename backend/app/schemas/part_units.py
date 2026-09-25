@@ -30,11 +30,6 @@ class PartUnitCreate(BaseModel):
     # Раздел про совместимость с плёнкой — код из PartFilmRestriction,
     # только видимая пометка на партии (см. модель PartUnit.film_restriction).
     film_restriction: str | None = None
-    # 25.09: партия может быть сделана, но ещё не передана на участок этапа
-    # (отфрезерована, лежит на участке п/ф — окутка её ещё не получила).
-    # None/True — как раньше: выдана участку этапа, если у этапа он есть;
-    # False — «На хранении», передаётся потом кнопкой «Передать на участок».
-    issue_to_area: bool | None = None
 
 
 class PartUnitIssue(BaseModel):

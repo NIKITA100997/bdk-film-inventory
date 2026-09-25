@@ -1,5 +1,4 @@
 import RegistrationStageField from "../../../components/RegistrationStageSelect";
-import { useRegistrationDefaults } from "../../../utils/registrationStages";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Tag, DatePicker } from "antd";
@@ -123,7 +122,6 @@ interface MintFormValues {
   // Раздел про совместимость с плёнкой — код из справочника
   // PartFilmRestriction, если у этой партии есть ограничение.
   film_restriction?: string | null;
-  issue_to_area?: boolean;
 }
 
 /** Учёт производства деталей (раздел про физический учёт деталей, пилот:
@@ -201,7 +199,6 @@ export default function PartUnits() {
   const makeSources = new Set(makeSourcesQuery.data ?? []);
   const [makeTarget, setMakeTarget] = useState<PartUnit | null>(null);
   const [issueTarget, setIssueTarget] = useState<PartUnit | null>(null);
-  const defaultStage = useRegistrationDefaults();
 
   // Раздел про сканирование "ПФ<id>" (unitSearch.ts) — открыть карточку
   // партии сразу после перехода, как только список партий загрузится
@@ -276,7 +273,6 @@ export default function PartUnits() {
         stage_id: v.stage_id,
         manufactured_at: v.manufactured_at ? v.manufactured_at.format("YYYY-MM-DD") : undefined,
         film_restriction: v.film_restriction,
-        issue_to_area: v.issue_to_area,
       });
     },
     onSuccess: () => {
@@ -438,8 +434,7 @@ export default function PartUnits() {
               <PartSelect
                 onSelect={(p) => {
                   setSelectedPart(p);
-                  form.setFieldValue("stage_id", defaultStage(p));
-                  form.setFieldValue("issue_to_area", defaultStage(p) === undefined);
+                  form.setFieldValue("stage_id", undefined);
                 }}
                 placeholder="Найдите деталь в справочнике"
               />

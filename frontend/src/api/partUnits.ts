@@ -55,9 +55,6 @@ export interface PartUnitCreate {
   // Раздел про совместимость с плёнкой — код из справочника
   // PartFilmRestriction, если у этой конкретной партии есть ограничение.
   film_restriction?: string | null;
-  // 25.09: false — сделана, но ещё не передана на участок этапа
-  // («На хранении», потом «Передать на участок»); не задано — как раньше.
-  issue_to_area?: boolean | null;
 }
 
 export interface PartUnitEvent {
@@ -115,11 +112,6 @@ export interface MakeTarget {
   per_unit: number;
 }
 
-// Этап по умолчанию при регистрации партии: деталь из заготовки → этап
-// после её операции (part_id → stage_id).
-export const getRegistrationStages = async (): Promise<Record<number, number>> =>
-  (await apiClient.get<Record<number, number>>("/part-units/registration-stages")).data;
-
 export const listMakeSourceParts = async (): Promise<number[]> =>
   (await apiClient.get<number[]>("/part-units/make-source-parts")).data;
 
@@ -131,8 +123,8 @@ export const makeFromPartUnit = async (
   payload: { target_part_id: number; quantity_pieces: number; occurred_at?: string | null },
 ): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${unitId}/make`, payload)).data;
 
-// «Передать на участок» — партию «На хранении» на участок её этапа
-// (отфрезерованную — на окутку). quantityPieces не задано — всю партию.
+// «Передать на участок» — партию «На хранении» (например, возвращённую на
+// склад) на участок её этапа. quantityPieces не задано — всю партию.
 export const issuePartUnit = async (id: number, quantityPieces?: number | null): Promise<PartUnit> =>
   (await apiClient.post<PartUnit>(`/part-units/${id}/issue`, { quantity_pieces: quantityPieces ?? null })).data;
 

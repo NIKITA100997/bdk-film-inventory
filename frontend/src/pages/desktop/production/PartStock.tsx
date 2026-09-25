@@ -1,5 +1,4 @@
 import RegistrationStageField from "../../../components/RegistrationStageSelect";
-import { useRegistrationDefaults } from "../../../utils/registrationStages";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, Space, Typography, Input, Select, Segmented, Checkbox, Table, Tag, Button, Modal, Form, InputNumber, DatePicker, message } from "antd";
@@ -250,24 +249,21 @@ export default function PartStock() {
 function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
-  const defaultStage = useRegistrationDefaults();
   const [form] = Form.useForm<{
     quantity_pieces: number;
     stage_id?: number;
     manufactured_at?: Dayjs;
     note?: string;
-    issue_to_area?: boolean;
-  }>();
+    }>();
 
   const mintMutation = useMutation({
-    mutationFn: (v: { quantity_pieces: number; stage_id?: number; manufactured_at?: Dayjs; note?: string; issue_to_area?: boolean }) =>
+    mutationFn: (v: { quantity_pieces: number; stage_id?: number; manufactured_at?: Dayjs; note?: string }) =>
       createPartUnit({
         part_id: selectedPart!.id,
         quantity_pieces: v.quantity_pieces,
         stage_id: v.stage_id,
         manufactured_at: v.manufactured_at ? v.manufactured_at.format("YYYY-MM-DD") : undefined,
         note: v.note,
-        issue_to_area: v.issue_to_area,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
@@ -294,8 +290,7 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
           <PartSelect
             onSelect={(p) => {
               setSelectedPart(p);
-              form.setFieldValue("stage_id", defaultStage(p));
-              form.setFieldValue("issue_to_area", defaultStage(p) === undefined);
+              form.setFieldValue("stage_id", undefined);
             }}
             placeholder="Найдите деталь в справочнике"
           />
