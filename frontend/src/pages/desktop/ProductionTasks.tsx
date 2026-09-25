@@ -1,4 +1,5 @@
 import { Card, Tabs, Typography } from "antd";
+import { useSearchParams } from "react-router-dom";
 import DailyPlanTab from "./production/DailyPlanTab";
 import TasksTab from "./production/TasksTab";
 import RollReconciliationTab from "./production/RollReconciliationTab";
@@ -14,10 +15,14 @@ import RollReconciliationTab from "./production/RollReconciliationTab";
  * компоненты в ./production/ — каждый сам тянет нужные данные по своим
  * query-ключам (кэш React Query общий, лишних запросов не добавляет). */
 export default function ProductionTasks() {
+  // ?task=ID (сквозной поиск по номеру) — сразу «Все задания» с этим заданием.
+  const [params] = useSearchParams();
   return (
     <Card>
       <Typography.Title level={4}>Производственные задания цеха</Typography.Title>
       <Tabs
+        key={params.get("task") ?? "default"}
+        defaultActiveKey={params.get("task") ? "tasks" : "daily-plan"}
         items={[
           { key: "daily-plan", label: "📅 План на день (Мастер)", children: <DailyPlanTab /> },
           { key: "tasks", label: "📋 Все задания", children: <TasksTab /> },

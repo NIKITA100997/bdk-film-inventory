@@ -320,7 +320,7 @@ export default function Overview() {
               )}
             </Space>
             <Input.Search
-              placeholder="ID единицы или материал…"
+              placeholder="Номер (рулон, партия, задание, заказ) или материал…"
               enterButton="Найти"
               style={{ maxWidth: 360 }}
               value={quickQuery}
@@ -345,7 +345,7 @@ export default function Overview() {
             <Space direction="vertical" size="middle" style={{ width: "100%" }}>
               <Typography.Text type="secondary">Для вашей роли пока нет отдельных сигналов на обзорном экране.</Typography.Text>
               <Input.Search
-                placeholder="ID единицы или материал…"
+                placeholder="Номер (рулон, партия, задание, заказ) или материал…"
                 enterButton="Найти"
                 style={{ maxWidth: 360 }}
                 value={quickQuery}

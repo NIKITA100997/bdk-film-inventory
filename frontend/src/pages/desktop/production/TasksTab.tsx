@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid, Modal, InputNumber, Form, Select } from "antd";
 // Раздел про широкую таблицу строк задания — ResponsiveTable только для
 // внутренней таблицы строк (плоский список, без expandable). Внешняя
@@ -62,7 +63,11 @@ export default function TasksTab() {
   const [operationModalOpen, setOperationModalOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine; area: string } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
+  // ?task=ID — задание из сквозного поиска: раскрыто, архивные показаны.
+  const [params] = useSearchParams();
+  const focusTaskId = Number(params.get("task")) || null;
+  const [showArchived, setShowArchived] = useState(!!focusTaskId);
+  const [expanded, setExpanded] = useState<readonly React.Key[]>(focusTaskId ? [focusTaskId] : []);
   // Раздел про правку размера/материала прямо в задании (пока размеры ещё
   // тестируются и не всегда хватает нужной номенклатуры) — то же самое,
   // что и sync_part_to_task_lines/override_strip_width/override_material
@@ -172,6 +177,8 @@ export default function TasksTab() {
             pagination={{ pageSize: 20 }}
             scroll={wideScreen ? { x: "max-content" } : undefined}
             expandable={{
+              expandedRowKeys: expanded,
+              onExpandedRowsChange: (keys) => setExpanded(keys),
               expandedRowRender: (task) => {
                 // Раздел про общий погонаж на задание — итог по плёнке
                 // (обычно одна на всё задание, но строки технически могут

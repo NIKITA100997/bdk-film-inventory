@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { isAxiosError } from "axios";
 import dayjs, { type Dayjs } from "dayjs";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Button,
   Card,
@@ -61,12 +61,15 @@ export default function ProductionOrders() {
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const [includeClosed, setIncludeClosed] = useState(false);
-  const [openId, setOpenId] = useState<number | null>(null);
+  // ?order=ID (сквозной поиск по номеру) — сразу открыть карточку заказа.
+  const [params] = useSearchParams();
+  const [openId, setOpenId] = useState<number | null>(Number(params.get("order")) || null);
   const [editing, setEditing] = useState<ProductionOrder | "new" | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [includeClosedDefault] = useState(!!params.get("order"));
   const ordersQuery = useQuery({
-    queryKey: ["production-orders", includeClosed],
-    queryFn: () => listProductionOrders(includeClosed),
+    queryKey: ["production-orders", includeClosed || includeClosedDefault],
+    queryFn: () => listProductionOrders(includeClosed || includeClosedDefault),
   });
   const opened = (ordersQuery.data ?? []).find((o) => o.id === openId) ?? null;
 

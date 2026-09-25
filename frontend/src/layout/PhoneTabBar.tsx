@@ -154,7 +154,7 @@ export default function PhoneTabBar({ onManualSearchRequest }: PhoneTabBarProps)
       <FullScreenScanner
         open={scannerOpen}
         onClose={() => setScannerOpen(false)}
-        onScan={(code) => runUnitOrMaterialSearch(code, navigate)}
+        onScan={(code) => runUnitOrMaterialSearch(code, navigate, "scan")}
         onManualEntry={onManualSearchRequest}
       />
 

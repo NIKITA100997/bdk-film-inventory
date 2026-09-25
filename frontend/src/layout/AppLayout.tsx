@@ -174,7 +174,7 @@ export default function AppLayout() {
               // странице ниже есть другие поля, т.е. на "Остатках").
               enterKeyHint="search"
               prefix={<SearchOutlined />}
-              placeholder="ID единицы или материал…"
+              placeholder="Номер (рулон, партия, задание, заказ) или материал…"
               value={headerQuery}
               onChange={(e) => setHeaderQuery(e.target.value)}
               onPressEnter={() => {
@@ -208,7 +208,7 @@ export default function AppLayout() {
               aria-label="Поиск по ID/материалу"
             />
             <QrScanButton
-              onScan={(code) => runUnitOrMaterialSearch(code, navigate)}
+              onScan={(code) => runUnitOrMaterialSearch(code, navigate, "scan")}
               tooltip="Сканировать QR камерой"
               type="primary"
             />
