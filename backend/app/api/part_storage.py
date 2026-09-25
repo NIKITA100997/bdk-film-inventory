@@ -10,6 +10,8 @@ from app.models.part_storage import PartRack
 from app.models.part_units import PartUnit, PartUnitStatus
 from app.schemas.part_storage import PartRackCreate, PartRackOccupancyCellOut, PartRackOut
 
+from app.api.storage_places import code_taken_anywhere  # noqa: E402
+
 router = APIRouter(prefix="/part-racks", tags=["part-storage"])
 
 manage_part_storage = require_permission("part_storage.manage")
@@ -22,8 +24,9 @@ def list_part_racks(db: Session = Depends(get_db), user=Depends(get_current_user
 
 @router.post("", response_model=PartRackOut, status_code=status.HTTP_201_CREATED)
 def create_part_rack(payload: PartRackCreate, db: Session = Depends(get_db), user=Depends(manage_part_storage)) -> PartRack:
-    if db.query(PartRack).filter(PartRack.code == payload.code).first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Стеллаж с таким кодом уже существует")
+    taken = code_taken_anywhere(db, payload.code)
+    if taken:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Код уже занят стеллажом {taken}")
     rack = PartRack(code=payload.code, shelf_count=payload.shelf_count)
     db.add(rack)
     db.commit()

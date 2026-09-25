@@ -38,6 +38,7 @@ from app.api.items import router as items_router
 from app.api.item_types import router as item_types_router
 from app.api.production_orders import router as production_orders_router
 from app.api.unified_stock import router as unified_stock_router
+from app.api.storage_places import router as storage_places_router
 from app.core.config import settings
 
 app = FastAPI(title="БДК — учёт плёнки")
@@ -116,6 +117,7 @@ app.include_router(items_router, prefix=API_PREFIX)
 app.include_router(item_types_router, prefix=API_PREFIX)
 app.include_router(production_orders_router, prefix=API_PREFIX)
 app.include_router(unified_stock_router, prefix=API_PREFIX)
+app.include_router(storage_places_router, prefix=API_PREFIX)
 
 
 @app.get("/health")

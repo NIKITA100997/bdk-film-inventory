@@ -22,6 +22,8 @@ from app.schemas.storage import (
 )
 from app.services.placement import suggest_location
 
+from app.api.storage_places import code_taken_anywhere  # noqa: E402
+
 router = APIRouter(tags=["storage"])
 
 # Справочник ячеек (4.1 п.5, 4.2 ТЗ) — заводится один раз при вводе стеллажа в
@@ -120,8 +122,9 @@ def rack_occupancy(rack_id: int, db: Session = Depends(get_db), user=Depends(get
 
 @router.post("/racks", response_model=RackOut, status_code=status.HTTP_201_CREATED)
 def create_rack(payload: RackCreate, db: Session = Depends(get_db), user=Depends(manage_storage)) -> Rack:
-    if db.query(Rack).filter(Rack.code == payload.code).first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Стеллаж с таким кодом уже существует")
+    taken = code_taken_anywhere(db, payload.code)
+    if taken:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Код уже занят стеллажом {taken}")
     if db.get(Warehouse, payload.warehouse_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Склад не найден")
     rack = Rack(
@@ -145,8 +148,9 @@ def update_rack(
     if rack is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
     if payload.code is not None and payload.code != rack.code:
-        if db.query(Rack).filter(Rack.code == payload.code, Rack.id != rack_id).first():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Стеллаж с таким кодом уже существует")
+        taken = code_taken_anywhere(db, payload.code, exclude_film_id=rack_id)
+        if taken:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Код уже занят стеллажом {taken}")
         rack.code = payload.code
     if payload.type is not None:
         rack.type = payload.type

@@ -12,6 +12,7 @@ import InitialStock from "./pages/mobile/InitialStock";
 
 import MaterialInventory from "./pages/desktop/MaterialInventory";
 import UnifiedStock from "./pages/desktop/UnifiedStock";
+import StoragePlaces from "./pages/desktop/StoragePlaces";
 import Reports from "./pages/desktop/Reports";
 import Defects from "./pages/desktop/Defects";
 import ActionLog from "./pages/desktop/ActionLog";
@@ -83,6 +84,7 @@ export default function AppRoutes() {
         по всем доменам сразу, виден так же широко, как сам /stock (сам
         экран внутри уже сужает п/ф-часть по part_units.view/manage). */}
         <Route path="/general-stock" element={<UnifiedStock />} />
+        <Route path="/storage-places" element={<StoragePlaces />} />
 
         <Route
           path="/reports"
