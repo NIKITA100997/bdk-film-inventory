@@ -55,6 +55,9 @@ export interface PartUnitCreate {
   // Раздел про совместимость с плёнкой — код из справочника
   // PartFilmRestriction, если у этой конкретной партии есть ограничение.
   film_restriction?: string | null;
+  // 25.09: false — сделана, но ещё не передана на участок этапа
+  // («На хранении», потом «Передать на участок»); не задано — как раньше.
+  issue_to_area?: boolean | null;
 }
 
 export interface PartUnitEvent {
@@ -127,6 +130,11 @@ export const makeFromPartUnit = async (
   unitId: number,
   payload: { target_part_id: number; quantity_pieces: number; occurred_at?: string | null },
 ): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${unitId}/make`, payload)).data;
+
+// «Передать на участок» — партию «На хранении» на участок её этапа
+// (отфрезерованную — на окутку). quantityPieces не задано — всю партию.
+export const issuePartUnit = async (id: number, quantityPieces?: number | null): Promise<PartUnit> =>
+  (await apiClient.post<PartUnit>(`/part-units/${id}/issue`, { quantity_pieces: quantityPieces ?? null })).data;
 
 export const advancePartUnit = async (id: number, quantityPieces: number, occurredAt?: string | null): Promise<PartUnit> =>
   (await apiClient.post<PartUnit>(`/part-units/${id}/advance`, { quantity_pieces: quantityPieces, occurred_at: occurredAt })).data;

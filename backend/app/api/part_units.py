@@ -19,9 +19,11 @@ from app.schemas.part_units import (
     PartUnitPlace,
     PartUnitRecycle,
     PartUnitReturn,
+    PartUnitIssue,
     PartUnitWriteOff,
 )
 from app.services.part_units import (
+    issue_part_unit,
     adjust_part_unit,
     advance_part_unit,
     mint_part_unit,
@@ -121,6 +123,7 @@ def create_part_unit(
             stage_id=payload.stage_id,
             manufactured_at=payload.manufactured_at,
             film_restriction=payload.film_restriction,
+            issue_to_area=payload.issue_to_area,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
@@ -260,6 +263,25 @@ def make_from_unit(
     db.commit()
     db.refresh(new_unit)
     return _part_unit_out_single(db, new_unit)
+
+
+@router.post("/{unit_id}/issue", response_model=PartUnitOut)
+def issue_part_unit_endpoint(
+    unit_id: int, payload: PartUnitIssue, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
+) -> PartUnitOut:
+    """«Передать на участок» — партию «На хранении» на участок её этапа."""
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    try:
+        target = issue_part_unit(
+            db, unit=unit, user_id=user.id, quantity_pieces=payload.quantity_pieces, occurred_at=payload.occurred_at
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    db.commit()
+    db.refresh(target)
+    return _part_unit_out_single(db, target)
 
 
 @router.post("/{unit_id}/advance", response_model=PartUnitOut)

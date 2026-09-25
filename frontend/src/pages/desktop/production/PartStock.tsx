@@ -256,16 +256,18 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
     stage_id?: number;
     manufactured_at?: Dayjs;
     note?: string;
+    issue_to_area?: boolean;
   }>();
 
   const mintMutation = useMutation({
-    mutationFn: (v: { quantity_pieces: number; stage_id?: number; manufactured_at?: Dayjs; note?: string }) =>
+    mutationFn: (v: { quantity_pieces: number; stage_id?: number; manufactured_at?: Dayjs; note?: string; issue_to_area?: boolean }) =>
       createPartUnit({
         part_id: selectedPart!.id,
         quantity_pieces: v.quantity_pieces,
         stage_id: v.stage_id,
         manufactured_at: v.manufactured_at ? v.manufactured_at.format("YYYY-MM-DD") : undefined,
         note: v.note,
+        issue_to_area: v.issue_to_area,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
@@ -293,6 +295,7 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
             onSelect={(p) => {
               setSelectedPart(p);
               form.setFieldValue("stage_id", defaultStage(p));
+              form.setFieldValue("issue_to_area", defaultStage(p) === undefined);
             }}
             placeholder="Найдите деталь в справочнике"
           />

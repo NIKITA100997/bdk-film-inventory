@@ -5,6 +5,7 @@ import { useLocation } from "react-router-dom";
 import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Tag, DatePicker } from "antd";
 import type { Dayjs } from "dayjs";
 import MakeFromUnitModal from "../../../components/MakeFromUnitModal";
+import IssuePartUnitModal from "../../../components/IssuePartUnitModal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ActionIcon from "../../../components/ActionIcon";
 import PrintFormatButton from "../../../components/PrintFormatButton";
@@ -122,6 +123,7 @@ interface MintFormValues {
   // Раздел про совместимость с плёнкой — код из справочника
   // PartFilmRestriction, если у этой партии есть ограничение.
   film_restriction?: string | null;
+  issue_to_area?: boolean;
 }
 
 /** Учёт производства деталей (раздел про физический учёт деталей, пилот:
@@ -198,6 +200,7 @@ export default function PartUnits() {
   const makeSourcesQuery = useQuery({ queryKey: ["part-unit-make-sources"], queryFn: listMakeSourceParts });
   const makeSources = new Set(makeSourcesQuery.data ?? []);
   const [makeTarget, setMakeTarget] = useState<PartUnit | null>(null);
+  const [issueTarget, setIssueTarget] = useState<PartUnit | null>(null);
   const defaultStage = useRegistrationDefaults();
 
   // Раздел про сканирование "ПФ<id>" (unitSearch.ts) — открыть карточку
@@ -273,6 +276,7 @@ export default function PartUnits() {
         stage_id: v.stage_id,
         manufactured_at: v.manufactured_at ? v.manufactured_at.format("YYYY-MM-DD") : undefined,
         film_restriction: v.film_restriction,
+        issue_to_area: v.issue_to_area,
       });
     },
     onSuccess: () => {
@@ -435,6 +439,7 @@ export default function PartUnits() {
                 onSelect={(p) => {
                   setSelectedPart(p);
                   form.setFieldValue("stage_id", defaultStage(p));
+                  form.setFieldValue("issue_to_area", defaultStage(p) === undefined);
                 }}
                 placeholder="Найдите деталь в справочнике"
               />
@@ -659,6 +664,11 @@ export default function PartUnits() {
                       ➡️
                     </ActionIcon>
                   )}
+                  {canManage && u.status === "На_хранении" && (
+                    <ActionIcon tone="filled" tip="Передать на участок этапа" onClick={() => setIssueTarget(u)}>
+                      🚚
+                    </ActionIcon>
+                  )}
                   {canManage && makeSources.has(u.part_id) && (u.status === "Выдан_участку" || u.status === "На_хранении") && (
                     <ActionIcon tone="filled" tip="Сделать деталь (фрезеровка заготовки)" onClick={() => setMakeTarget(u)}>
                       ⚙️
@@ -778,6 +788,7 @@ export default function PartUnits() {
       </Modal>
 
       {makeTarget && <MakeFromUnitModal unit={makeTarget} onClose={() => setMakeTarget(null)} />}
+      {issueTarget && <IssuePartUnitModal unit={issueTarget} onClose={() => setIssueTarget(null)} />}
       <Modal
         title={`Перевести партию «${advanceTarget?.part_name ?? ""}» на следующий этап`}
         open={!!advanceTarget}

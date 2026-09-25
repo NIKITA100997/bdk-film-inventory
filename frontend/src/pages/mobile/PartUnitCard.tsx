@@ -19,6 +19,7 @@ import { listUsers } from "../../api/users";
 import { listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import MakeFromUnitModal from "../../components/MakeFromUnitModal";
+import IssuePartUnitModal from "../../components/IssuePartUnitModal";
 import QrScanButton from "../../components/QrScanButton";
 import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
@@ -46,6 +47,7 @@ export default function PartUnitCard() {
   const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("part_units.correct");
   const [unit, setUnit] = useState<PartUnit | null>(null);
   const [makeOpen, setMakeOpen] = useState(false);
+  const [issueOpen, setIssueOpen] = useState(false);
   const makeSourcesQuery = useQuery({ queryKey: ["part-unit-make-sources"], queryFn: listMakeSourceParts });
   const [action, setAction] = useState<ActionKind>(null);
   const [writeOffOpen, setWriteOffOpen] = useState(false);
@@ -204,6 +206,9 @@ export default function PartUnitCard() {
             {unit.note && <Descriptions.Item label="Заметка">{unit.note}</Descriptions.Item>}
           </Descriptions>
 
+          {issueOpen && unit && (
+            <IssuePartUnitModal size="large" unit={unit} onClose={() => setIssueOpen(false)} onDone={(issued) => setUnit(issued)} />
+          )}
           {makeOpen && unit && (
             <MakeFromUnitModal size="large" unit={unit} onClose={() => setMakeOpen(false)} onDone={(made) => setUnit(made)} />
           )}
@@ -212,6 +217,11 @@ export default function PartUnitCard() {
               {unit.status === "На_хранении" && (
                 <Button size="large" type="primary" onClick={() => setAction("place")}>
                   Разместить
+                </Button>
+              )}
+              {unit.status === "На_хранении" && (
+                <Button size="large" type="primary" onClick={() => setIssueOpen(true)}>
+                  Передать на участок
                 </Button>
               )}
               {unit.status === "Выдан_участку" && (

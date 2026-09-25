@@ -20,7 +20,7 @@ from app.models.part_units import PartUnit, PartUnitStatus
 from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.production_orders import ORDER_CLOSED, ORDER_DRAFT, ORDER_RELEASED, ProductionOrder
 from app.services.components import live_item_names
-from app.services.part_units import advance_part_unit, mint_part_unit, write_off_part_unit
+from app.services.part_units import mint_part_unit, write_off_part_unit
 
 
 class OrderError(ValueError):
@@ -108,8 +108,9 @@ def make_detail_from_unit(
     """«Сделать деталь из заготовки» без задания (как «Перевести дальше»):
     операция детали, на которой по составу расходуется эта заготовка, —
     выполнена. Заготовка списывается в производство (норма × штук), партия
-    детали рождается на этой операции и сразу переходит на следующую
-    (у МК: фрезеровка сделана → «Окутка»). Без commit."""
+    детали рождается на следующем этапе «На хранении» — сделана, но ещё не
+    передана туда (у МК: отфрезерована, окутке передаётся кнопкой «Передать
+    на участок»). Без commit."""
     if quantity_pieces <= 0:
         raise ValueError("Укажите количество деталей")
     target = next(((t, s, q) for t, s, q in detail_targets(db, unit.part) if t.id == target_part_id), None)
@@ -131,14 +132,14 @@ def make_detail_from_unit(
         db, unit=unit, quantity_pieces=need, reason=PART_UNIT_AUTO_WRITE_OFF_REASON_CODE, user_id=user_id,
         note=f"В производство: {part.name} — {stage.name}"[:255], occurred_at=when,
     )
+    stages = sorted(part.stages, key=lambda s: s.sequence_order)
+    after = next((stages[i + 1] for i, s in enumerate(stages) if s.id == stage.id and i + 1 < len(stages)), stage)
     new_unit = mint_part_unit(
-        db, part=part, quantity_pieces=quantity_pieces, user_id=user_id, stage_id=stage.id,
-        manufactured_at=when.date(), note=f"Из партии №{unit.id} «{unit.part.name}»"[:255],
+        db, part=part, quantity_pieces=quantity_pieces, user_id=user_id, stage_id=after.id,
+        manufactured_at=when.date(), note=f"Из партии №{unit.id} «{unit.part.name}»"[:255], issue_to_area=False,
     )
     db.flush()
-    moved, _ = advance_part_unit(db, unit=new_unit, quantity_pieces=quantity_pieces, user_id=user_id, occurred_at=when)
-    db.flush()
-    return moved
+    return new_unit
 
 
 def consume_components_at_operation(
