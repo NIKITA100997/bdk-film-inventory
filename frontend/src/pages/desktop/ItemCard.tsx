@@ -12,7 +12,7 @@ import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
 import PartCard from "./production/PartCard";
 import { MovementsPanel } from "./UnifiedStock";
 
-const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green" };
+const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
 
 /** Карточка позиции (единая модель) — одна на любой вид номенклатуры:
  *  • «Склад» — остатки и действия по виду: у плёнки — рулоны и штрипсы

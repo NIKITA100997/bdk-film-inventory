@@ -35,7 +35,7 @@ function apiErrorMessage(e: unknown, fallback: string): string {
   return fallback;
 }
 
-const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green" };
+const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
 
 /** Номенклатура — одна запись на любую позицию (плёнка, п/ф, изделие…),
  * вид задаёт, в чём она учитывается; здесь же типы с правилами и прежние
