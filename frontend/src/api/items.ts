@@ -18,6 +18,7 @@ export interface Item {
   is_active: boolean;
   source_type: "sku" | "part" | "model" | null;
   source_id: number | null;
+  group_id: number | null;
   material: string | null;
   color: string | null;
   thickness: number | null;
@@ -35,6 +36,57 @@ export const listItemKinds = async (): Promise<ItemKind[]> => (await apiClient.g
 
 export const listItems = async (params: { kind?: string; q?: string; include_inactive?: boolean }): Promise<Item[]> =>
   (await apiClient.get<Item[]>("/items", { params })).data;
+
+/** Группа номенклатуры — папка, как в 1С (вложенная, внутри вида). */
+export interface ItemGroup {
+  id: number;
+  kind_code: string;
+  parent_id: number | null;
+  name: string;
+  sort_order: number;
+  items: number;
+}
+
+export const listItemGroups = async (): Promise<ItemGroup[]> => (await apiClient.get<ItemGroup[]>("/item-groups")).data;
+export const createItemGroup = async (payload: { kind_code: string; parent_id: number | null; name: string }): Promise<ItemGroup> =>
+  (await apiClient.post<ItemGroup>("/item-groups", payload)).data;
+export const updateItemGroup = async (id: number, payload: { parent_id: number | null; name: string; sort_order: number }): Promise<ItemGroup> =>
+  (await apiClient.put<ItemGroup>(`/item-groups/${id}`, payload)).data;
+export const deleteItemGroup = async (id: number): Promise<void> => {
+  await apiClient.delete(`/item-groups/${id}`);
+};
+export const setItemsGroup = async (payload: { item_ids: number[]; group_id: number | null }): Promise<{ moved: number }> =>
+  (await apiClient.post<{ moved: number }>("/items/set-group", payload)).data;
+
+/** Путь группы «МК / Стоевые» и все её потомки (для отбора с подгруппами). */
+export function groupPath(groups: ItemGroup[], id: number | null): string {
+  const byId = new Map(groups.map((g) => [g.id, g]));
+  const parts: string[] = [];
+  for (let g = id != null ? byId.get(id) : undefined; g; g = g.parent_id != null ? byId.get(g.parent_id) : undefined) parts.unshift(g.name);
+  return parts.join(" / ");
+}
+
+export function groupWithDescendants(groups: ItemGroup[], id: number): Set<number> {
+  const out = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const g of groups) {
+      if (g.parent_id != null && out.has(g.parent_id) && !out.has(g.id)) {
+        out.add(g.id);
+        grew = true;
+      }
+    }
+  }
+  return out;
+}
+
+/** Дерево групп вида для TreeSelect. */
+export function groupTree(groups: ItemGroup[], kind: string, parent: number | null = null): { value: number; title: string; children: ReturnType<typeof groupTree> }[] {
+  return groups
+    .filter((g) => g.kind_code === kind && g.parent_id === parent)
+    .map((g) => ({ value: g.id, title: g.name, children: groupTree(groups, kind, g.id) }));
+}
 
 export const listUnlinkedLines = async (): Promise<UnlinkedLineGroup[]> =>
   (await apiClient.get<UnlinkedLineGroup[]>("/items/unlinked-lines")).data;

@@ -10,7 +10,7 @@ from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import Color, Material, MaterialSku, Part
-from app.models.items import Item, ItemComponent, ItemKind, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
+from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
 from app.services.components import live_item_names, sync_bom_components
 from app.services.routes import RouteInUseError, RouteStep, apply_route
@@ -25,6 +25,7 @@ view_items = require_permission(
     "units.receive", "units.issue", "units.return",
 )
 link_lines = require_permission("production_tasks.manage")
+manage_groups = require_permission("production_tasks.manage", "materials.manage")
 
 
 class ItemKindOut(BaseModel):
@@ -46,6 +47,7 @@ class ItemOut(BaseModel):
     # Откуда позиция на переходном этапе и как открыть её привычную карточку.
     source_type: str | None  # "sku" | "part" | "model"
     source_id: int | None
+    group_id: int | None = None
     material: str | None = None
     color: str | None = None
     thickness: float | None = None
@@ -104,7 +106,8 @@ def list_items(
         out.append(
             ItemOut(
                 id=item.id, kind_code=kind.code, kind_name=kind.name, unit=kind.unit, name=name,
-                code_1c=item.code_1c, is_active=active, source_type=source_type, source_id=source_id, **extra,
+                code_1c=item.code_1c, is_active=active, source_type=source_type, source_id=source_id,
+                group_id=item.group_id, **extra,
             )
         )
 
@@ -134,6 +137,7 @@ def list_items(
                 ItemOut(
                     id=item.id, kind_code=item_kind.code, kind_name=item_kind.name, unit=item_kind.unit, name=item.name,
                     code_1c=item.code_1c, is_active=item.is_active, source_type=None, source_id=None,
+                    group_id=item.group_id,
                 )
             )
 
@@ -146,6 +150,131 @@ def list_items(
         out = [i for i in out if needle in normalize_name(i.name) or (i.code_1c and needle in i.code_1c.lower())]
     order = {k.code: k.sort_order for k in kinds.values()}
     return sorted(out, key=lambda i: (order.get(i.kind_code, 99), i.name.lower()))
+
+
+class GroupOut(BaseModel):
+    id: int
+    kind_code: str
+    parent_id: int | None
+    name: str
+    sort_order: int
+    items: int  # позиций прямо в группе (без подгрупп)
+
+
+class GroupIn(BaseModel):
+    kind_code: str
+    parent_id: int | None = None
+    name: str = Field(min_length=1, max_length=128)
+    sort_order: int = 0
+
+
+class GroupUpdate(BaseModel):
+    parent_id: int | None = None
+    name: str = Field(min_length=1, max_length=128)
+    sort_order: int = 0
+
+
+class SetGroupIn(BaseModel):
+    item_ids: list[int]
+    group_id: int | None = None
+
+
+def _group_out(db: Session, g: ItemGroup, kinds: dict[int, ItemKind]) -> GroupOut:
+    n = db.query(func.count(Item.id)).filter(Item.group_id == g.id).scalar() or 0
+    return GroupOut(id=g.id, kind_code=kinds[g.kind_id].code, parent_id=g.parent_id, name=g.name, sort_order=g.sort_order, items=n)
+
+
+def _check_parent(db: Session, kind_id: int, parent_id: int | None, self_id: int | None = None) -> None:
+    """Родитель — того же вида и не сама группа и не её потомок (без циклов)."""
+    seen: set[int] = set()
+    pid = parent_id
+    while pid is not None:
+        if pid == self_id or pid in seen:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Группу нельзя вложить саму в себя")
+        seen.add(pid)
+        parent = db.get(ItemGroup, pid)
+        if parent is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Родительская группа не найдена")
+        if parent.kind_id != kind_id:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Родительская группа — другого вида номенклатуры")
+        pid = parent.parent_id
+
+
+def _check_name(db: Session, kind_id: int, parent_id: int | None, name: str, self_id: int | None = None) -> None:
+    q = db.query(ItemGroup.id).filter(
+        ItemGroup.kind_id == kind_id, ItemGroup.parent_id.is_(None) if parent_id is None else ItemGroup.parent_id == parent_id,
+        func.lower(ItemGroup.name) == name.strip().lower(),
+    )
+    if self_id is not None:
+        q = q.filter(ItemGroup.id != self_id)
+    if q.first():
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Группа «{name.strip()}» здесь уже есть")
+
+
+@router.get("/item-groups", response_model=list[GroupOut])
+def list_groups(db: Session = Depends(get_db), user=Depends(view_items)) -> list[GroupOut]:
+    kinds = {k.id: k for k in db.query(ItemKind)}
+    return [_group_out(db, g, kinds) for g in db.query(ItemGroup).order_by(ItemGroup.sort_order, ItemGroup.name)]
+
+
+@router.post("/item-groups", response_model=GroupOut, status_code=status.HTTP_201_CREATED)
+def create_group(payload: GroupIn, db: Session = Depends(get_db), user=Depends(manage_groups)) -> GroupOut:
+    kind = db.query(ItemKind).filter(ItemKind.code == payload.kind_code).first()
+    if kind is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Вид номенклатуры не найден")
+    _check_parent(db, kind.id, payload.parent_id)
+    _check_name(db, kind.id, payload.parent_id, payload.name)
+    g = ItemGroup(kind_id=kind.id, parent_id=payload.parent_id, name=payload.name.strip(), sort_order=payload.sort_order)
+    db.add(g)
+    db.commit()
+    return _group_out(db, g, {k.id: k for k in db.query(ItemKind)})
+
+
+@router.put("/item-groups/{group_id}", response_model=GroupOut)
+def update_group(group_id: int, payload: GroupUpdate, db: Session = Depends(get_db), user=Depends(manage_groups)) -> GroupOut:
+    g = db.get(ItemGroup, group_id)
+    if g is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Группа не найдена")
+    _check_parent(db, g.kind_id, payload.parent_id, self_id=g.id)
+    _check_name(db, g.kind_id, payload.parent_id, payload.name, self_id=g.id)
+    g.parent_id, g.name, g.sort_order = payload.parent_id, payload.name.strip(), payload.sort_order
+    db.commit()
+    return _group_out(db, g, {k.id: k for k in db.query(ItemKind)})
+
+
+@router.delete("/item-groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_group(group_id: int, db: Session = Depends(get_db), user=Depends(manage_groups)) -> None:
+    """Удалить можно только пустую группу — без позиций и подгрупп."""
+    g = db.get(ItemGroup, group_id)
+    if g is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Группа не найдена")
+    if db.query(ItemGroup.id).filter(ItemGroup.parent_id == g.id).first():
+        raise HTTPException(status.HTTP_409_CONFLICT, f"В группе «{g.name}» есть подгруппы — сначала удалите или перенесите их")
+    n = db.query(func.count(Item.id)).filter(Item.group_id == g.id).scalar() or 0
+    if n:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"В группе «{g.name}» позиций: {n} — сначала перенесите их")
+    db.delete(g)
+    db.commit()
+
+
+@router.post("/items/set-group")
+def set_items_group(payload: SetGroupIn, db: Session = Depends(get_db), user=Depends(manage_groups)) -> dict:
+    """Перенести позиции в группу (group_id = null — убрать из групп). Все
+    позиции должны быть того же вида, что и группа."""
+    group = db.get(ItemGroup, payload.group_id) if payload.group_id is not None else None
+    if payload.group_id is not None and group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Группа не найдена")
+    items = db.query(Item).filter(Item.id.in_(payload.item_ids)).all() if payload.item_ids else []
+    if group is not None:
+        alien = [i for i in items if i.kind_id != group.kind_id]
+        if alien:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, f"Позиции другого вида в эту группу не переносятся (например, «{alien[0].name}»)"
+            )
+    for i in items:
+        i.group_id = group.id if group else None
+    db.commit()
+    return {"moved": len(items)}
 
 
 def _suggest(name: str, parts: list[Part]) -> list[PartSuggestion]:

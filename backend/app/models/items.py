@@ -24,6 +24,20 @@ class ItemKind(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class ItemGroup(Base):
+    """Группа номенклатуры — папка, как «Группа номенклатуры» в 1С: П/ф →
+    МК → Стоевые… Вложенность любая (parent_id), внутри одного вида. Только
+    для навигации и отборов: тип изделия (свойства, правила) — отдельно."""
+
+    __tablename__ = "item_groups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind_id: Mapped[int] = mapped_column(ForeignKey("item_kinds.id"), index=True)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("item_groups.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Item(Base):
     """Номенклатура — одна запись на любую позицию, независимо от вида.
 
@@ -45,6 +59,9 @@ class Item(Base):
     # Тип изделия внутри вида (ГП → «Щитовая дверь»…): задаёт набор свойств
     # позиции. NULL — тип не назначен (плёнка, п/ф пока без типов).
     type_id: Mapped[int | None] = mapped_column(ForeignKey("item_types.id"), nullable=True, index=True)
+    # Группа (папка) номенклатуры — для навигации, как группы в 1С; NULL —
+    # вне групп. На учёт и правила не влияет.
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("item_groups.id"), nullable=True, index=True)
 
     kind: Mapped[ItemKind] = relationship()
     type: Mapped["ItemType | None"] = relationship()

@@ -1,16 +1,22 @@
 import { useMemo, useState } from "react";
 import { isAxiosError } from "axios";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Card, Checkbox, Input, Modal, Popconfirm, Segmented, Select, Space, Tabs, Tag, Typography, message } from "antd";
+import { Button, Card, Checkbox, Input, Modal, Popconfirm, Segmented, Select, Space, Tabs, Tag, TreeSelect, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import TypesTab from "./nomenclature/TypesTab";
+import GroupsModal from "./nomenclature/GroupsModal";
 import PartsAdmin from "./PartsAdmin";
 import ProductModels from "./ProductModels";
 import { useAuth } from "../../auth/AuthContext";
 import { listParts } from "../../api/dictionaries";
 import {
   createSizeParts,
+  groupPath,
+  groupTree,
+  groupWithDescendants,
+  listItemGroups,
+  setItemsGroup,
   linkLines,
   listItemKinds,
   listItems,
@@ -55,11 +61,22 @@ export default function Nomenclature() {
   return <Tabs activeKey={active} onChange={(k) => setParams(k === "items" ? {} : { tab: k })} items={tabs} destroyOnHidden />;
 }
 
+const NO_GROUP = -1;
+
 function ItemsTab() {
+  const { user } = useAuth();
+  const canGroup = !!user?.is_superuser || !!user?.permissions.some((c) => c === "production_tasks.manage" || c === "materials.manage");
+  const qc = useQueryClient();
   const [kind, setKind] = useState<string>("all");
   const [q, setQ] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
+  const [group, setGroup] = useState<number | undefined>();
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [moveTo, setMoveTo] = useState<number | undefined>();
+  const [groupsOpen, setGroupsOpen] = useState(false);
   const kindsQuery = useQuery({ queryKey: ["item-kinds"], queryFn: listItemKinds });
+  const groupsQuery = useQuery({ queryKey: ["item-groups"], queryFn: listItemGroups });
+  const groups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data]);
   const itemsQuery = useQuery({
     queryKey: ["items", includeInactive],
     queryFn: () => listItems({ include_inactive: includeInactive }),
@@ -67,12 +84,26 @@ function ItemsTab() {
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase().replace(/ё/g, "е");
+    const inGroup = group != null && group !== NO_GROUP ? groupWithDescendants(groups, group) : null;
     return (itemsQuery.data ?? []).filter(
       (i) =>
         (kind === "all" || i.kind_code === kind) &&
+        (group == null || (group === NO_GROUP ? i.group_id == null : i.group_id != null && inGroup!.has(i.group_id))) &&
         (!needle || i.name.toLowerCase().replace(/ё/g, "е").includes(needle) || (i.code_1c ?? "").toLowerCase().includes(needle)),
     );
-  }, [itemsQuery.data, kind, q]);
+  }, [itemsQuery.data, kind, q, group, groups]);
+
+  const moveMutation = useMutation({
+    mutationFn: (groupId: number | null) => setItemsGroup({ item_ids: selectedIds, group_id: groupId }),
+    onSuccess: (r, groupId) => {
+      qc.invalidateQueries({ queryKey: ["items"] });
+      qc.invalidateQueries({ queryKey: ["item-groups"] });
+      setSelectedIds([]);
+      message.success(groupId == null ? `Убрано из групп: ${r.moved}` : `Перенесено в «${groupPath(groups, groupId)}»: ${r.moved}`);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось перенести")),
+  });
+  const kindName = kindsQuery.data?.find((k) => k.code === kind)?.name ?? "";
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -92,18 +123,60 @@ function ItemsTab() {
         <Space wrap size={[12, 12]}>
           <Segmented
             value={kind}
-            onChange={(v) => setKind(v as string)}
+            onChange={(v) => {
+              setKind(v as string);
+              setGroup(undefined);
+              setSelectedIds([]);
+              setMoveTo(undefined);
+            }}
             options={[
               { label: `Все (${itemsQuery.data?.length ?? 0})`, value: "all" },
               ...(kindsQuery.data ?? []).map((k) => ({ label: `${k.name} (${counts[k.code] ?? 0})`, value: k.code })),
             ]}
           />
           <Input.Search allowClear placeholder="Поиск по названию или коду 1С" style={{ width: 320 }} value={q} onChange={(e) => setQ(e.target.value)} />
+          {kind !== "all" && (
+            <TreeSelect
+              allowClear
+              showSearch
+              treeNodeFilterProp="title"
+              placeholder="Группа (с подгруппами)"
+              style={{ width: 260 }}
+              value={group}
+              onChange={(v) => setGroup(v ?? undefined)}
+              treeData={[...groupTree(groups, kind), { value: NO_GROUP, title: "— без группы —", children: [] }]}
+              treeDefaultExpandAll
+            />
+          )}
           <Checkbox checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)}>
             С архивными
           </Checkbox>
+          {canGroup && kind !== "all" && <Button onClick={() => setGroupsOpen(true)}>Группы…</Button>}
         </Space>
+        {canGroup && selectedIds.length > 0 && (
+          <Space wrap style={{ marginTop: 12 }}>
+            <Typography.Text>Выбрано: {selectedIds.length}</Typography.Text>
+            <TreeSelect
+              placeholder="В группу…"
+              style={{ width: 260 }}
+              value={moveTo}
+              onChange={setMoveTo}
+              treeData={groupTree(groups, kind)}
+              treeDefaultExpandAll
+            />
+            <Button type="primary" disabled={moveTo == null} loading={moveMutation.isPending} onClick={() => moveTo != null && moveMutation.mutate(moveTo)}>
+              Перенести
+            </Button>
+            <Button onClick={() => moveMutation.mutate(null)}>Убрать из группы</Button>
+            <Button type="link" onClick={() => setSelectedIds([])}>
+              Снять выбор
+            </Button>
+          </Space>
+        )}
       </Card>
+      {kind !== "all" && (
+        <GroupsModal open={groupsOpen} onClose={() => setGroupsOpen(false)} kind={kind} kindName={kindName} groups={groups} />
+      )}
       <ResponsiveTable<Item>
         tableKey="nomenclature"
         lockedColumns={["Наименование"]}
@@ -114,9 +187,18 @@ function ItemsTab() {
         pagination={{ pageSize: 50 }}
         scroll={{ x: "max-content" }}
         onRow={(i) => ({ onClick: () => navigate(`/item/${i.id}`), style: { cursor: "pointer" } })}
+        rowSelection={
+          canGroup && kind !== "all"
+            ? { selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as number[]), columnWidth: 40 }
+            : undefined
+        }
         columns={[
           { title: "Наименование", dataIndex: "name" },
           { title: "Вид", render: (_, i) => <Tag color={KIND_COLOR[i.kind_code]}>{i.kind_name}</Tag> },
+          {
+            title: "Группа",
+            render: (_, i) => (i.group_id != null ? groupPath(groups, i.group_id) : <Typography.Text type="secondary">—</Typography.Text>),
+          },
           { title: "Ед.", dataIndex: "unit" },
           { title: "Код 1С", render: (_, i) => i.code_1c ?? <Typography.Text type="secondary">—</Typography.Text> },
           { title: "Статус", render: (_, i) => (i.is_active ? <Tag color="green">активна</Tag> : <Tag>архив</Tag>) },
