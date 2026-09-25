@@ -139,3 +139,100 @@ def code_taken_anywhere(db: Session, code: str, *, exclude_film_id: int | None =
     if db.query(PartRack.id).filter(func.lower(PartRack.code) == code.strip().lower()).first():
         return "п/ф"
     return None
+
+
+class PlaceUpdate(BaseModel):
+    is_active: bool
+
+
+def _get_place(db: Session, kind: str, place_id: int, user: User):
+    """Стеллаж и право на правку его вида (плёнка — storage.manage, п/ф —
+    part_storage.manage)."""
+    perms = get_permission_codes(user)
+    if kind == KIND_FILM:
+        rack, need = db.get(Rack, place_id), "storage.manage"
+    elif kind == KIND_PF:
+        rack, need = db.get(PartRack, place_id), "part_storage.manage"
+    else:
+        rack, need = None, ""
+    if rack is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Стеллаж не найден")
+    if not user.is_superuser and need not in perms:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет прав на стеллажи этого вида")
+    return rack
+
+
+def _addresses_used(db: Session, kind: str, code: str, *, current_only: bool) -> int:
+    """Сколько партий на полках стеллажа (current_only — только лежащих сейчас;
+    иначе — когда-либо) плюс, для «когда-либо», события с его адресами."""
+    from app.models.events import MaterialEvent
+    from app.models.part_units import PartUnit, PartUnitEvent, PartUnitStatus
+    from app.models.units import MaterialUnit, UnitStatus
+
+    def on_rack(values) -> int:
+        return sum(1 for v in values if v and _rack_of(v) == code)
+
+    prefix = f"{code}-%"
+    if kind == KIND_FILM:
+        q = db.query(MaterialUnit.location_code).filter(MaterialUnit.location_code.like(prefix))
+        if current_only:
+            q = q.filter(MaterialUnit.status != UnitStatus.SPISAN)
+        n = on_rack(v for (v,) in q)
+        if not current_only:
+            for col in (MaterialEvent.from_cell, MaterialEvent.to_cell):
+                n += on_rack(v for (v,) in db.query(col).filter(col.like(prefix)))
+        return n
+    q = db.query(PartUnit.location_code).filter(PartUnit.location_code.like(prefix))
+    if current_only:
+        q = q.filter(PartUnit.status != PartUnitStatus.SPISAN)
+    n = on_rack(v for (v,) in q)
+    if not current_only:
+        for col in (PartUnitEvent.from_cell, PartUnitEvent.to_cell):
+            n += on_rack(v for (v,) in db.query(col).filter(col.like(prefix)))
+    return n
+
+
+@router.patch("/{kind}/{place_id}", response_model=PlaceOut)
+def update_place(
+    kind: str, place_id: int, payload: PlaceUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> PlaceOut:
+    """В архив / из архива. В архив — только пустой стеллаж: архивный не
+    предлагается для размещения, а лежащие на нём партии «потерялись» бы."""
+    rack = _get_place(db, kind, place_id, user)
+    if not payload.is_active:
+        busy = _addresses_used(db, kind, rack.code, current_only=True)
+        if busy:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, f"На стеллаже «{rack.code}» лежит партий: {busy} — сначала переместите их"
+            )
+    rack.is_active = payload.is_active
+    db.commit()
+    return next(p for p in list_places(db, user) if p.kind == kind and p.id == place_id)
+
+
+@router.delete("/{kind}/{place_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_place(kind: str, place_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> None:
+    """Удалить можно только стеллаж, которым никогда не пользовались (заведён
+    по ошибке): ни партий на его полках когда-либо, ни перемещений с его
+    адресами, ни инвентаризаций по нему. Иначе — архив, чтобы история и
+    журнал не потеряли адреса."""
+    from app.models.inventory import InventoryScopeType, InventorySession
+    from app.models.storage import MacroZoneRule
+
+    rack = _get_place(db, kind, place_id, user)
+    used = _addresses_used(db, kind, rack.code, current_only=False)
+    if kind == KIND_FILM:
+        used += (
+            db.query(InventorySession.id)
+            .filter(InventorySession.scope_type == InventoryScopeType.RACK, InventorySession.scope_ref_id == rack.id)
+            .count()
+        )
+    if used:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Стеллажом «{rack.code}» уже пользовались (записей в истории: {used}) — удалить нельзя, отправьте в архив",
+        )
+    if kind == KIND_FILM:
+        db.query(MacroZoneRule).filter(MacroZoneRule.rack_id == rack.id).delete()
+    db.delete(rack)
+    db.commit()

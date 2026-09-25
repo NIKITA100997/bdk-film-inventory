@@ -1,7 +1,25 @@
 import { useMemo, useState } from "react";
 import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Checkbox, Empty, Form, Input, InputNumber, Modal, Segmented, Select, Space, Spin, Tag, Tooltip, Typography, message } from "antd";
+import {
+  Button,
+  Card,
+  Checkbox,
+  Empty,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Popconfirm,
+  Segmented,
+  Select,
+  Space,
+  Spin,
+  Tag,
+  Tooltip,
+  Typography,
+  message,
+} from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { useAuth } from "../../auth/AuthContext";
@@ -30,6 +48,11 @@ interface Cell {
 }
 
 const listPlaces = async (): Promise<Place[]> => (await apiClient.get<Place[]>("/storage-places")).data;
+const setPlaceActive = async (kind: string, id: number, isActive: boolean): Promise<Place> =>
+  (await apiClient.patch<Place>(`/storage-places/${kind}/${id}`, { is_active: isActive })).data;
+const deletePlace = async (kind: string, id: number): Promise<void> => {
+  await apiClient.delete(`/storage-places/${kind}/${id}`);
+};
 const listCells = async (kind: string, id: number): Promise<Cell[]> => (await apiClient.get<Cell[]>(`/storage-places/${kind}/${id}/cells`)).data;
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -53,6 +76,29 @@ export default function StoragePlaces() {
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const placesQuery = useQuery({ queryKey: ["storage-places"], queryFn: listPlaces });
+  const qc = useQueryClient();
+  const canEdit = (p: Place) => (p.kind === "plenka" ? canFilm : canPf);
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["storage-places"] });
+    qc.invalidateQueries({ queryKey: ["racks"] });
+    qc.invalidateQueries({ queryKey: ["part-racks"] });
+  };
+  const activeMutation = useMutation({
+    mutationFn: (v: { p: Place; active: boolean }) => setPlaceActive(v.p.kind, v.p.id, v.active),
+    onSuccess: (_, v) => {
+      invalidate();
+      message.success(v.active ? `«${v.p.code}» восстановлен` : `«${v.p.code}» в архиве`);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить стеллаж")),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (p: Place) => deletePlace(p.kind, p.id),
+    onSuccess: (_, p) => {
+      invalidate();
+      message.success(`«${p.code}» удалён`);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить стеллаж")),
+  });
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return (placesQuery.data ?? []).filter(
@@ -117,6 +163,36 @@ export default function StoragePlaces() {
           },
           { title: "Партий", dataIndex: "lots" },
           { title: "Статус", render: (_, p) => (p.is_active ? <Tag color="green">активен</Tag> : <Tag>архив</Tag>) },
+          {
+            title: "",
+            render: (_, p) =>
+              canEdit(p) && (
+                <Space size={4} onClick={(e) => e.stopPropagation()}>
+                  {p.is_active ? (
+                    <Tooltip title={p.lots > 0 ? "Сначала переместите партии с этого стеллажа" : undefined}>
+                      <Button size="small" disabled={p.lots > 0} onClick={() => activeMutation.mutate({ p, active: false })}>
+                        В архив
+                      </Button>
+                    </Tooltip>
+                  ) : (
+                    <Button size="small" onClick={() => activeMutation.mutate({ p, active: true })}>
+                      Восстановить
+                    </Button>
+                  )}
+                  <Popconfirm
+                    title={`Удалить стеллаж «${p.code}»?`}
+                    description="Можно только если им никогда не пользовались; иначе — архив."
+                    okText="Удалить"
+                    cancelText="Отмена"
+                    onConfirm={() => deleteMutation.mutate(p)}
+                  >
+                    <Button size="small" danger disabled={p.lots > 0}>
+                      Удалить
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              ),
+          },
         ]}
       />
       {createOpen && <CreatePlaceModal canFilm={canFilm} canPf={canPf} onClose={() => setCreateOpen(false)} />}
