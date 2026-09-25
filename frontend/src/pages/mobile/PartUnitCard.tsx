@@ -232,7 +232,7 @@ export default function PartUnitCard() {
               {(makeSourcesQuery.data ?? []).includes(unit.part_id) &&
                 (unit.status === "Выдан_участку" || unit.status === "На_хранении") && (
                   <Button size="large" type="primary" onClick={() => setMakeOpen(true)}>
-                    Сделать деталь
+                    Выпуск детали
                   </Button>
                 )}
               {unit.status !== "Списан" && (

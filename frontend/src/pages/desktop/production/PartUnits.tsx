@@ -194,7 +194,7 @@ export default function PartUnits() {
 
   const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
   // Детали, из которых делаются другие (заготовка до фрезеровки) — у их
-  // партий кнопка «Сделать деталь».
+  // партий кнопка «Выпуск детали».
   const makeSourcesQuery = useQuery({ queryKey: ["part-unit-make-sources"], queryFn: listMakeSourceParts });
   const makeSources = new Set(makeSourcesQuery.data ?? []);
   const [makeTarget, setMakeTarget] = useState<PartUnit | null>(null);
@@ -277,7 +277,7 @@ export default function PartUnits() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
-      message.success("Партия зарегистрирована");
+      message.success("Партия оприходована");
       form.resetFields();
       setSelectedPart(null);
     },
@@ -418,7 +418,7 @@ export default function PartUnits() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       {canManage && (
-        <Card title="Зарегистрировать партию">
+        <Card title="Оприходовать партию" extra={<Typography.Text type="secondary">без списания заготовки</Typography.Text>}>
           <Form
             layout="vertical"
             form={form}
@@ -471,7 +471,7 @@ export default function PartUnits() {
               <Input />
             </Form.Item>
             <Button type="primary" htmlType="submit" block loading={mintMutation.isPending}>
-              Зарегистрировать
+              Оприходовать
             </Button>
           </Form>
         </Card>
@@ -665,7 +665,7 @@ export default function PartUnits() {
                     </ActionIcon>
                   )}
                   {canManage && makeSources.has(u.part_id) && (u.status === "Выдан_участку" || u.status === "На_хранении") && (
-                    <ActionIcon tone="filled" tip="Сделать деталь (фрезеровка заготовки)" onClick={() => setMakeTarget(u)}>
+                    <ActionIcon tone="filled" tip="Выпуск детали из заготовки (заготовка спишется)" onClick={() => setMakeTarget(u)}>
                       ⚙️
                     </ActionIcon>
                   )}

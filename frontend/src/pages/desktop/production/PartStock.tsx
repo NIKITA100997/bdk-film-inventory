@@ -128,7 +128,7 @@ export default function PartStock() {
         <Space size={8}>
           {canManage && (
             <Button size="small" type="primary" onClick={() => setRegisterOpen(true)}>
-              + Зарегистрировать партию
+              + Оприходовать партию
             </Button>
           )}
           <Button size="small" onClick={exportRows}>
@@ -267,14 +267,14 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
-      message.success("Партия зарегистрирована");
+      message.success("Партия оприходована");
       onClose();
     },
     onError: () => message.error("Не удалось зарегистрировать партию — у детали настроены этапы?"),
   });
 
   return (
-    <Modal title="Зарегистрировать партию" open onCancel={onClose} footer={null} destroyOnHidden width={480}>
+    <Modal title="Оприходовать партию (без списания заготовки)" open onCancel={onClose} footer={null} destroyOnHidden width={480}>
       <Form
         layout="vertical"
         form={form}
@@ -311,7 +311,7 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
           <Input />
         </Form.Item>
         <Button type="primary" htmlType="submit" block loading={mintMutation.isPending}>
-          Зарегистрировать
+          Оприходовать
         </Button>
       </Form>
     </Modal>

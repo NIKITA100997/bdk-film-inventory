@@ -9,7 +9,7 @@ function apiErrorMessage(e: unknown, fallback: string): string {
   return fallback;
 }
 
-/** «Сделать деталь из заготовки» — общая заготовка до фрезеровки становится
+/** «Выпуск детали из заготовки» — общая заготовка до фрезеровки становится
  * деталью с пазом: выбрать деталь и сколько штук; заготовка списывается в
  * производство по норме состава, партия детали появляется на этапе
  * операции, на её участке (у МК — отфрезерована, на участке п/ф). Для
@@ -48,14 +48,14 @@ export default function MakeFromUnitModal({
       onDone?.(made);
       onClose();
     },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось сделать деталь")),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось выпустить деталь")),
   });
 
   return (
     <Modal
       open
-      title={`Сделать деталь из партии №${unit.id}`}
-      okText="Сделать"
+      title={`Выпуск детали из партии №${unit.id}`}
+      okText="Выпустить"
       cancelText="Отмена"
       okButtonProps={{ disabled: !target || !qty || qty <= 0, loading: mutation.isPending, size }}
       cancelButtonProps={{ size }}
