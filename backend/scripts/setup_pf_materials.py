@@ -1,9 +1,9 @@
 """Вид «Материал» и нормы п/ф МК/панелей (25.09.2026).
 
-Решение пользователя: склеиваются только изделия из техкарты склеенных
-заготовок (стоевая 36×108×2035, поперечная/планка 30×110×1840, планка
-26×30×1800, порог Нео 34×200×1840, поперечная/планка Нео 34×120 и
-34×90×1840) — у них общая заготовка того же размера с нормами листов;
+Решения пользователя: из склеенного щита — все стоевые, поперечные и пороги
+МК и планки из техкарты склеенных заготовок; у них общая заготовка того же
+размера (нормы листов — у изделий техкарты: стоевая 36×108×2035,
+поперечная/планка 30×110×1840, планка 26×30×1800, Нео 34×200/120/90×1840);
 остальные детали фрезеруются прямо из МДФ своей толщины (состав — МДФ, м²
 по размеру детали, расход на фрезеровке), заготовка им не нужна.
 
@@ -41,6 +41,9 @@ DRY = "--dry-run" in sys.argv
 FACTORY, GLUE_AREA = "fabrika", "skleyka_mdf_s_zagotovkoy"
 SANDWICH, GLUE, READY = "Склейка сэндвича", "Склейка МДФ с заготовкой", "Готово"
 GLUED = {"36х108х2035", "30х110х1840", "26х30х1800", "34х200х1840", "34х120х1840", "34х90х1840"}
+# Решение пользователя 25.09: все стоевые, поперечные и пороги МК — из
+# склеенного щита (любого размера; «… МДФ» — щит из МДФ, своя заготовка).
+GLUED_PROFILES = ("Стоевая", "Поперечная", "Порог")
 SHEET = 1.2 * 1.84  # лист 929(1200)… — закладка поперечных/Нео: 929×1840 мм
 # Состав склеенной заготовки на 1 шт: (материал, м² на 1 шт, операция).
 NEO16 = 8 * 0.929 * 1.84 / 40  # 2 закладки по 4 листа МДФ 16 на 40 деталей
@@ -106,7 +109,10 @@ glued_of = {}
 thicknesses = set()
 for item in details:
     ctx = ctx_of(item)
-    glued = ctx["линия"] == "МК" and size_key(ctx) in GLUED and "МДФ" not in (ctx.get("исполнение") or "")
+    glued = ctx["линия"] == "МК" and (
+        str(ctx["профиль"]).startswith(GLUED_PROFILES)
+        or (size_key(ctx) in GLUED and "МДФ" not in (ctx.get("исполнение") or ""))
+    )
     glued_of[item.id] = glued
     if not glued:
         thicknesses.add(ctx["толщина"])
@@ -164,7 +170,9 @@ for item in details:
     sp.commit()
     comps_after = sorted((x.component_item_id, float(x.qty_per_unit)) for x in db.query(ItemComponent).filter(ItemComponent.parent_item_id == item.id))
     changed += comps_before != comps_after
-new_parts = db.query(Part).count() - parts_before
+# Новыми могут быть только заготовки (размеры щита вне техкарты — без норм).
+new_blanks = [p.name for p in db.query(Part).order_by(Part.id.desc()).limit(db.query(Part).count() - parts_before)]
+new_parts = sum(1 for n in new_blanks if not n.startswith("Заготовка"))
 
 # --- склеенные заготовки: маршрут типа и состав из техкарты ---
 blank_items = db.query(Item).filter(Item.type_id == blank_type.id).all()
@@ -209,6 +217,7 @@ db.flush()
 glued_n = sum(glued_of.values())
 print(f"деталей: из склеенной заготовки {glued_n}, из МДФ {len(glued_of) - glued_n}; состав изменился у {changed}; новых деталей п/ф: {new_parts}")
 print("состав склеенных заготовок из техкарты:", blanks_done)
+print("новые заготовки (без норм — размера нет в техкарте):", [n for n in new_blanks if n.startswith("Заготовка")])
 print(f"удалено ненужных заготовок: {len(removed)}")
 if errors:
     print("ошибки:", *errors, sep="\n  ")
