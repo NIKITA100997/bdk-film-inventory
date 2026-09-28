@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Button, Card, Checkbox, Form, InputNumber, Modal, Select, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import PanelFilmTable from "../../../components/PanelFilmTable";
 import { useAuth } from "../../../auth/AuthContext";
 import { listAreas } from "../../../api/areas";
 import { updatePart } from "../../../api/dictionaries";
@@ -242,6 +243,10 @@ export default function PfDemand() {
           },
         ]}
       />
+
+      <Card title="Плёнка под ламинацию панелей заказанных дверей" size="small">
+        <PanelFilmTable />
+      </Card>
 
       {editTarget && <MinValuesModal row={editTarget} onClose={() => setEditTarget(null)} />}
     </Space>

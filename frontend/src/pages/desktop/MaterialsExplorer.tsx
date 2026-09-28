@@ -556,8 +556,20 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                 ? [
                     {
                       title: "Резерв на задания, м²",
-                      render: (_: unknown, r: StockSummaryLine) =>
-                        overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`)?.reserved_area_m2 ?? 0,
+                      render: (_: unknown, r: StockSummaryLine) => {
+                        const o = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
+                        return (
+                          <>
+                            {o?.reserved_area_m2 ?? 0}
+                            {(o?.panel_demand_m2 ?? 0) > 0 && (
+                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                {" "}
+                                (в т.ч. под двери {o?.panel_demand_m2})
+                              </Typography.Text>
+                            )}
+                          </>
+                        );
+                      },
                     },
                     {
                       title: "Доступно, м²",

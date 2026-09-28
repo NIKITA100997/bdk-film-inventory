@@ -27,6 +27,7 @@ import {
 } from "../../api/purchasing";
 import { getSupplierStats, type SupplierStats } from "../../api/suppliers";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import PanelFilmTable from "../../components/PanelFilmTable";
 import { useAuth } from "../../auth/AuthContext";
 
 interface EditingPriceTarget {
@@ -513,6 +514,11 @@ export default function Purchasing() {
                 )}
               </Card>
             ),
+          },
+          {
+            key: "panel-film",
+            label: "Плёнка под двери",
+            children: <PanelFilmTable />,
           },
           {
             key: "suppliers",

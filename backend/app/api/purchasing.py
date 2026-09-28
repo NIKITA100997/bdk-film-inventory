@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -26,6 +27,7 @@ from app.schemas.purchasing import (
 )
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import current_stock_m2, find_or_create_material_color_thickness, find_or_create_supplier
+from app.services.panel_film import panel_film_by_group, panel_film_demand
 from app.services.production import TaskLineForReserve, calc_default_strip_width, reserved_area_m2_by_group
 from app.services.purchasing import ReorderInput, compute_reorder_signal
 from app.services.suppliers import ClosedRequestRecord, compute_supplier_stats
@@ -126,6 +128,9 @@ def _stock_and_reserve_by_group(
         if line.material_id is not None
     ]
     reserved_by_group = reserved_area_m2_by_group(reserve_input)
+    # Плёнка под ламинацию панелей заказанных дверей — тоже резерв.
+    for group, area in panel_film_by_group(panel_film_demand(db)).items():
+        reserved_by_group[group] = round(reserved_by_group.get(group, 0.0) + area, 3)
     return stock_by_group, reserved_by_group
 
 
@@ -138,6 +143,7 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
     (production_tasks.*) — расчёт резерва идёт под её же правом
     purchasing.manage, без обращения к производственным эндпоинтам."""
     stock_by_group, reserved_by_group = _stock_and_reserve_by_group(db)
+    panel_by_group = panel_film_by_group(panel_film_demand(db))
 
     open_requested_rows = (
         db.query(
@@ -230,6 +236,7 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
                 thickness=float(db.get(Thickness, thickness_id).value_mm),
                 total_area_m2=stock_by_group.get((material_id, color_id, thickness_id), 0.0),
                 reserved_area_m2=reserved_by_group.get((material_id, color_id, thickness_id), 0.0),
+                panel_demand_m2=panel_by_group.get((material_id, color_id, thickness_id), 0.0),
                 open_requested_area_m2=open_requested_by_group.get((material_id, color_id, thickness_id), 0.0),
                 usual_supplier=db.get(Supplier, supplier_id).name if supplier_id else None,
                 days_of_stock_remaining=reorder.days_of_stock_remaining,
@@ -238,6 +245,36 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
         )
     result.sort(key=lambda r: (r.material, r.color, r.thickness))
     return result
+
+
+class PanelFilmOut(BaseModel):
+    part_id: int
+    part_name: str
+    need_pieces: float
+    laminated: float
+    to_laminate: float
+    film_width_mm: float
+    film_width_from_part: bool
+    length_m: float
+    area_m2: float
+    film: str | None
+
+
+view_panel_film = require_permission(
+    "purchasing.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"
+)
+
+
+@router.get("/panel-film", response_model=list[PanelFilmOut])
+def panel_film(db: Session = Depends(get_db), user: User = Depends(view_panel_film)) -> list[PanelFilmOut]:
+    """Плёнка под ламинацию панелей заказанных дверей: по каждой панели —
+    сколько нужно, уже ламинировано, осталось и сколько плёнки; без
+    закреплённой плёнки — отдельно (в резерв не идёт)."""
+    return [
+        PanelFilmOut(**{k: v for k, v in r.__dict__.items() if k != "group"})
+        for r in panel_film_demand(db)
+        if r.to_laminate > 0
+    ]
 
 
 @router.post("/stock-for-skus", response_model=list[StockForSkuOut])

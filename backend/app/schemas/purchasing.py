@@ -109,6 +109,8 @@ class StockOverviewLine(BaseModel):
     thickness: float
     total_area_m2: float
     reserved_area_m2: float
+    # из резерва — под ламинацию панелей заказанных дверей (services/panel_film.py)
+    panel_demand_m2: float = 0.0
     open_requested_area_m2: float
     usual_supplier: str | None
     # Точка дозаказа по расходу (раздел про закупки на опережение) —

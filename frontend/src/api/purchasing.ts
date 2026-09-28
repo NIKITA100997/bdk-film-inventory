@@ -52,6 +52,8 @@ export interface StockOverviewLine {
   thickness: number;
   total_area_m2: number;
   reserved_area_m2: number;
+  /** Из резерва — под ламинацию панелей заказанных дверей. */
+  panel_demand_m2?: number;
   open_requested_area_m2: number;
   usual_supplier: string | null;
   days_of_stock_remaining: number | null;
@@ -166,5 +168,25 @@ export async function listSupplierOrders(): Promise<SupplierOrder[]> {
 // остаются отдельными записями, только получают общий order_id.
 export async function createSupplierOrder(payload: SupplierOrderCreate): Promise<SupplierOrder> {
   const { data } = await apiClient.post<SupplierOrder>("/supplier-orders", payload);
+  return data;
+}
+
+/** Плёнка под ламинацию панелей заказанных дверей (по панели). */
+export interface PanelFilmRow {
+  part_id: number;
+  part_name: string;
+  need_pieces: number;
+  laminated: number;
+  to_laminate: number;
+  film_width_mm: number;
+  film_width_from_part: boolean;
+  length_m: number;
+  area_m2: number;
+  /** Закреплённая плёнка; null — не выбрана (в резерв не идёт). */
+  film: string | null;
+}
+
+export async function getPanelFilm(): Promise<PanelFilmRow[]> {
+  const { data } = await apiClient.get<PanelFilmRow[]>("/purchase-requests/panel-film");
   return data;
 }
