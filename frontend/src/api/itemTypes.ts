@@ -120,6 +120,16 @@ export const replacePropertyOptions = async (
   options: { id?: number | null; value: string; params: Record<string, number | string | null>; is_active: boolean }[],
 ): Promise<ItemProperty> => (await apiClient.put<ItemProperty>(`/item-properties/${id}/options`, options)).data;
 
+/** Один новый вариант списка (цвет двери из плёнки); такой уже есть — вернёт его. */
+export const addPropertyOption = async (
+  propertyId: number,
+  payload: { value: string; params: Record<string, number | string | null> },
+): Promise<{ option_id: number; value: string }> =>
+  (await apiClient.post(`/item-properties/${propertyId}/options/add`, payload)).data;
+
+/** Свойство-цвет с привязкой к плёнке (варианты несут материал и цвет плёнки). */
+export const isFilmColorProperty = (p: ItemProperty) => p.option_fields.some((f) => f.code === "цвет_плёнки");
+
 export interface ItemPropertiesState {
   item_id: number;
   kind_code: string;

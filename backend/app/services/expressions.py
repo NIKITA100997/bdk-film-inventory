@@ -67,6 +67,10 @@ class OptionRef:
     def __str__(self) -> str:
         return self.value
 
+    def __contains__(self, item: object) -> bool:
+        # «"ПЭТ" in цвет» — как у текста, когда свойство стало списком.
+        return str(item).lower() in self.value.lower()
+
 
 def _parse(expr: str) -> ast.Expression:
     try:

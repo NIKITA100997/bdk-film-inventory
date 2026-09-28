@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { isAxiosError } from "axios";
 import { Alert, AutoComplete, Checkbox, Form, InputNumber, Modal, Select, Space, Spin, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getItemProperties, listItemTypes, type PropertyValue } from "../api/itemTypes";
+import { getItemProperties, isFilmColorProperty, listItemTypes, type PropertyValue } from "../api/itemTypes";
+import NewFilmColorButton from "./NewFilmColorButton";
 import { getTypeHints, variantsBatch } from "../api/modelBuilder";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -44,7 +45,9 @@ export default function VariantPicker({
       for (const p of type.properties) {
         if (p.id === modelProp?.id || next[p.id] !== undefined) continue;
         if (p.value_type === "bool") next[p.id] = false;
-        else if (p.value_type === "list" && p.is_required) next[p.id] = hintsQuery.data.properties[p.id]?.[0]?.value ?? null;
+        // Цвет — выбирают сами, не подставляем самый частый.
+        else if (p.value_type === "list" && p.is_required && !isFilmColorProperty(p))
+          next[p.id] = hintsQuery.data.properties[p.id]?.[0]?.value ?? null;
       }
       return next;
     });
@@ -108,13 +111,18 @@ export default function VariantPicker({
                   {p.value_type === "bool" ? (
                     <Checkbox checked={!!v} onChange={(e) => set(e.target.checked)} />
                   ) : p.value_type === "list" ? (
-                    <Select
-                      allowClear
-                      style={{ width: 280 }}
-                      value={(v as number | null) ?? undefined}
-                      onChange={(nv) => set(nv ?? null)}
-                      options={p.options.filter((o) => o.is_active).map((o) => ({ value: o.id, label: o.value }))}
-                    />
+                    <Space size={4} wrap>
+                      <Select
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        style={{ width: 320 }}
+                        value={(v as number | null) ?? undefined}
+                        onChange={(nv) => set(nv ?? null)}
+                        options={p.options.filter((o) => o.is_active).map((o) => ({ value: o.id, label: o.value }))}
+                      />
+                      {isFilmColorProperty(p) && <NewFilmColorButton property={p} onCreated={(id) => set(id)} />}
+                    </Space>
                   ) : p.value_type === "number" ? (
                     <InputNumber style={{ width: 180 }} value={(v as number | null) ?? null} onChange={(nv) => set(nv)} />
                   ) : (

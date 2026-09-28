@@ -23,7 +23,8 @@ import {
   message,
 } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listItemTypes, type ItemProperty, type ItemType, type PropertyValue } from "../../../api/itemTypes";
+import { isFilmColorProperty, listItemTypes, type ItemProperty, type ItemType, type PropertyValue } from "../../../api/itemTypes";
+import NewFilmColorButton from "../../../components/NewFilmColorButton";
 import { createModel, getTypeHints, previewTree, variantsBatch, type Hint, type VariantRow } from "../../../api/modelBuilder";
 import TechTree from "../../../components/TechTree";
 
@@ -77,7 +78,7 @@ export default function NewModelWizard({
       for (const p of type.properties) {
         if (p.id === modelProp?.id || next[p.id]?.length) continue;
         if (p.value_type === "bool") next[p.id] = [false];
-        else if (p.value_type === "list" && p.is_required) {
+        else if (p.value_type === "list" && p.is_required && !isFilmColorProperty(p)) {
           const top = hints.properties[p.id]?.[0]?.value;
           next[p.id] = top != null ? [top] : [];
         }
@@ -481,14 +482,19 @@ function VariantChoices({
                     ]}
                   />
                 ) : p.value_type === "list" ? (
-                  <Select
-                    mode="multiple"
-                    style={{ width: "100%" }}
-                    value={vals as number[]}
-                    onChange={(v) => set(p.id, v)}
-                    options={p.options.filter((o) => o.is_active).map((o) => ({ value: o.id, label: o.value }))}
-                    placeholder="Выберите"
-                  />
+                  <>
+                    <Select
+                      mode="multiple"
+                      showSearch
+                      optionFilterProp="label"
+                      style={{ width: "100%" }}
+                      value={vals as number[]}
+                      onChange={(v) => set(p.id, v)}
+                      options={p.options.filter((o) => o.is_active).map((o) => ({ value: o.id, label: o.value }))}
+                      placeholder="Выберите"
+                    />
+                    {isFilmColorProperty(p) && <NewFilmColorButton property={p} onCreated={(id) => add(p.id, id)} />}
+                  </>
                 ) : (
                   <Select
                     mode="tags"

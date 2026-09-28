@@ -16,6 +16,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.areas import Area
+from app.models.dictionaries import Part
 from app.models.items import Item, ItemComponent, ItemProperty, ItemPropertyOption, ItemPropertyValue, ItemType
 from app.services import type_rules
 from app.services.components import live_item_names
@@ -194,6 +195,7 @@ class TreeNode:
     operations: list["TreeOperation"] = field(default_factory=list)
     loose: list["TreeNode"] = field(default_factory=list)  # состав без маршрута
     warnings: list[str] = field(default_factory=list)
+    film: str | None = None  # закреплённая плёнка детали
 
 
 @dataclass
@@ -245,6 +247,17 @@ def item_tree(db: Session, item: Item, *, qty: float | None = None, depth: int =
     for op in ops:
         if op.area is None and op is not ops[-1]:
             node.warnings.append(f"у операции «{op.name}» не указан участок")
+    # Деталь с цветом — какая плёнка на неё закреплена.
+    part = db.query(Part).filter(Part.item_id == item.id).first()
+    if part is not None and item.type is not None and any(p.code == type_rules.COLOR_CODE for p in item.type.properties):
+        sku = part.default_material_sku
+        if sku is not None:
+            node.film = f"{sku.material.name}, {sku.color.name}, {float(sku.thickness.value_mm):g} мм, {sku.manufacturer.name}"
+        elif any(s.name in ("Ламинация", "Окутка") for s in stages):
+            n = len(type_rules.film_candidates(db, type_rules.item_values_color(db, item) or ""))
+            node.warnings.append(
+                "плёнка не закреплена — выберите у детали" + (f" (подходит {n})" if n > 1 else " (по цвету не нашлась)")
+            )
     return node
 
 

@@ -65,6 +65,8 @@ export interface TreeNode {
   operations: TreeOperation[];
   loose: TreeNode[];
   warnings: string[];
+  /** Закреплённая плёнка детали (панели), если есть. */
+  film?: string | null;
 }
 
 export const getItemTree = async (itemId: number): Promise<TreeNode> =>

@@ -288,6 +288,7 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
                 if sub.errors:
                     res.errors.extend(f"«{c.name}»: {e}" for e in sub.errors)
                     return res
+                pin_film(db, child)
             db.add(
                 ItemComponent(
                     parent_item_id=item.id, component_item_id=comp_item_id, qty_per_unit=c.qty,
@@ -297,6 +298,75 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
             )
         db.flush()
     return res
+
+
+COLOR_CODE = "цвет"
+FILM_MATERIAL = "материал_плёнки"
+FILM_COLOR = "цвет_плёнки"
+
+
+def _norm(s: str) -> str:
+    return " ".join(s.lower().replace("ё", "е").split())
+
+
+def film_candidates(db: Session, color_value: str):
+    """Позиции плёнки для коммерческого цвета («ПЭТ Бежевый (cream silk)»):
+    по привязке варианта цвета (материал и цвет плёнки). Материал «ПЭТ» —
+    любой ПЭТ (2Д/3Д решается у детали)."""
+    from app.models.dictionaries import Color, Material, MaterialSku
+    from app.models.items import ItemProperty
+
+    opt = next(
+        (
+            o
+            for o in db.query(ItemPropertyOption).join(ItemProperty).filter(ItemProperty.code == COLOR_CODE)
+            if _norm(o.value) == _norm(color_value) and (o.params or {}).get(FILM_COLOR)
+        ),
+        None,
+    )
+    if opt is None:
+        return []
+    material, color = str(opt.params.get(FILM_MATERIAL) or ""), str(opt.params[FILM_COLOR])
+    skus = (
+        db.query(MaterialSku)
+        .join(Color, Color.id == MaterialSku.color_id)
+        .join(Material, Material.id == MaterialSku.material_id)
+        .filter(MaterialSku.is_active.is_(True))
+        .all()
+    )
+    return [
+        s
+        for s in skus
+        if _norm(s.color.name) == _norm(color)
+        and (not material or _norm(s.material.name) == _norm(material) or _norm(s.material.name).startswith(_norm(material) + " "))
+    ]
+
+
+def item_values_color(db: Session, item: Item) -> str | None:
+    """Цвет позиции подписью (у списка — значение варианта)."""
+    prop = next((p for p in item.type.properties if p.code == COLOR_CODE), None) if item.type else None
+    if prop is None:
+        return None
+    raw = item_values(db, item).get(prop.id)
+    if prop.value_type == "list":
+        return db.get(ItemPropertyOption, raw).value if raw else None
+    return str(raw) if raw else None
+
+
+def pin_film(db: Session, item: Item) -> None:
+    """Детали п/ф с цветом — закрепить плёнку, если по цвету она одна
+    (Эмалит белый → ПВХ Эмалит Белый 0.18). Несколько (ПЭТ 2Д/3Д, разная
+    толщина) — не трогаем: выбирается у детали. Уже закреплённую — не
+    меняем."""
+    part = db.query(Part).filter(Part.item_id == item.id).first()
+    if part is None or part.default_material_sku_id is not None or item.type is None:
+        return
+    value = item_values_color(db, item)
+    if not value:
+        return
+    cands = film_candidates(db, value)
+    if len(cands) == 1:
+        part.default_material_sku_id = cands[0].id
 
 
 def link_model(db: Session, item: Item) -> Item | None:

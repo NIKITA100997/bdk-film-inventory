@@ -86,6 +86,7 @@ function Branch({
           )}
           {hasChildren && !open && <span style={{ marginLeft: 6 }}>▸ {node.operations.length} оп., {childCount} комп.</span>}
         </div>
+        {node.film && <div className="tt-node-meta">плёнка: {node.film}</div>}
         {node.warnings.map((w) => (
           <div key={w} className="tt-warn">
             ⚠ {w}

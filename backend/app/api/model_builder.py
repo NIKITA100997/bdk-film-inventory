@@ -142,6 +142,7 @@ class TreeNodeOut(BaseModel):
     operations: list[TreeOperationOut]
     loose: list["TreeNodeOut"]
     warnings: list[str]
+    film: str | None = None
 
 
 TreeOperationOut.model_rebuild()
@@ -204,3 +205,36 @@ def get_model_summary(item_id: int, db: Session = Depends(get_db), user=Depends(
     if model is None or not model.is_model:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Модель не найдена")
     return ModelSummaryOut(**asdict(model_summary(db, model)))
+
+
+class OptionAddIn(BaseModel):
+    value: str
+    params: dict[str, float | str | None] = {}
+
+
+class OptionAddOut(BaseModel):
+    option_id: int
+    value: str
+
+
+@router.post("/item-properties/{property_id}/options/add", response_model=OptionAddOut, status_code=status.HTTP_201_CREATED)
+def add_option(property_id: int, payload: OptionAddIn, db: Session = Depends(get_db), user=Depends(manage_types)) -> OptionAddOut:
+    """Один новый вариант списка (цвет двери из плёнки) — без правки всего
+    списка; такое значение уже есть — вернуть его."""
+    from app.api.item_types import _get_property
+
+    p = _get_property(db, property_id)
+    if p.value_type != "list":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Варианты — только у свойства-списка")
+    value = " ".join(payload.value.split())
+    if not value:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите название")
+    existing = next((o for o in p.options if o.value.strip().lower() == value.lower()), None)
+    if existing is not None:
+        return OptionAddOut(option_id=existing.id, value=existing.value)
+    codes = {f["code"] for f in (p.option_fields or [])}
+    params = {k: v for k, v in (payload.params or {}).items() if k in codes and v not in (None, "")}
+    opt = ItemPropertyOption(value=value, params=params, is_active=True, sort_order=len(p.options) + 1)
+    p.options.append(opt)
+    db.commit()
+    return OptionAddOut(option_id=opt.id, value=opt.value)
