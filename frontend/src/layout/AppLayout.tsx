@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch } from "antd";
 import type { MenuProps } from "antd";
 import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined, QuestionCircleOutlined } from "@ant-design/icons";
@@ -12,10 +12,11 @@ import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
 import NotificationBell from "../components/NotificationBell";
 import PhoneTabBar from "./PhoneTabBar";
+import WorkspaceTabs from "./WorkspaceTabs";
 
 const { Header, Content } = Layout;
 
-export default function AppLayout() {
+export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -244,9 +245,18 @@ export default function AppLayout() {
           вместо прокрутки в своих рамках. overflow: auto (не только X) —
           именно Content, а не вся страница, отвечает за вертикальную
           прокрутку экрана. */}
-      <Content style={{ padding: 24, minWidth: 0, overflow: "auto", flex: "1 1 auto", minHeight: 0 }}>
-        <Outlet />
-      </Content>
+      {isPhone ? (
+        <Content style={{ padding: 24, minWidth: 0, overflow: "auto", flex: "1 1 auto", minHeight: 0 }}>
+          <Outlet />
+        </Content>
+      ) : (
+        // Планшет и компьютер — рабочие вкладки, как в 1С (WorkspaceTabs):
+        // карточка открывается своей вкладкой, список остаётся со своими
+        // фильтрами; прокрутка — у каждой вкладки своя.
+        <Content style={{ padding: 0, minWidth: 0, overflow: "hidden", flex: "1 1 auto", minHeight: 0 }}>
+          <WorkspaceTabs pageRoutes={pageRoutes} />
+        </Content>
+      )}
       {/* Нижняя панель вкладок на телефоне — ещё один flexShrink:0 сосед
           внутри уже существующей рамки height:100vh/overflow:hidden, тем
           же приёмом, что Header/Menu/OfflineBanner выше: естественно

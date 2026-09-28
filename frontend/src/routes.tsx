@@ -38,6 +38,200 @@ import { ITEM_VIEW_PERMISSIONS } from "./api/items";
 import AreaAdmin from "./pages/desktop/AreaAdmin";
 import DeletionRequests from "./pages/desktop/DeletionRequests";
 
+/** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
+ * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
+ * своему адресу, а открытые вкладки не пересоздавались при переключении. */
+const appPageRoutes = (
+  <>
+    <Route path="/" element={<Home />} />
+
+    <Route path="/m/receive" element={<RequirePermission permissions={["units.receive"]}><Receive /></RequirePermission>} />
+    <Route path="/m/initial-stock" element={<RequirePermission permissions={["units.receive"]}><InitialStock /></RequirePermission>} />
+    <Route path="/m/issue" element={<RequirePermission permissions={["units.issue", "units.return"]}><Issue /></RequirePermission>} />
+    <Route path="/blanks" element={<RequirePermission permissions={["units.issue"]}><Blanks /></RequirePermission>} />
+    <Route
+      path="/m/unit-card"
+      element={
+        <RequirePermission
+          permissions={["units.place", "units.writeoff", "units.split", "units.issue", "units.cut", "units.return"]}
+        >
+          <UnitCard />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/m/part-unit-card"
+      element={
+        <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
+          <PartUnitCard />
+        </RequirePermission>
+      }
+    />
+    {/* "Остатки"/"Карточка материала" видны любому аутентифицированному
+    пользователю (как раньше ALL_ROLES) — /materials не пункт меню (8.1
+    раздел бэклога доработок), вход только кликом по строке или сканом QR,
+    поэтому доступ держим таким же широким, как у самого /stock. */}
+    <Route path="/stock" element={<MaterialInventory defaultView="list" />} />
+    <Route path="/materials" element={<MaterialCardRedirect />} />
+    {/* Раздел 6 плана «Детали/П/ф остатки» — сквозной ERP-справочник
+    по всем доменам сразу, виден так же широко, как сам /stock (сам
+    экран внутри уже сужает п/ф-часть по part_units.view/manage). */}
+    <Route path="/general-stock" element={<UnifiedStock />} />
+    <Route path="/storage-places" element={<StoragePlaces />} />
+
+    <Route
+      path="/reports"
+      element={<RequirePermission permissions={["reports.view"]}><Reports /></RequirePermission>}
+    />
+    <Route
+      path="/defects"
+      element={<RequirePermission permissions={["reports.view"]}><Defects /></RequirePermission>}
+    />
+    <Route
+      path="/action-log"
+      element={<RequirePermission permissions={["reports.view"]}><ActionLog /></RequirePermission>}
+    />
+    {/* "Стеллажи" видны всем (как "Остатки") — вкладка "Управление" внутри
+    сама решает, показываться ли, по storage.manage. */}
+    <Route path="/storage" element={<MaterialInventory defaultView="map" />} />
+    <Route
+      path="/warehouse-transfers"
+      element={
+        <RequirePermission permissions={["warehouse_transfers.manage"]}>
+          <WarehouseTransfers />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/calc-settings"
+      element={<RequirePermission permissions={["calc_settings.manage"]}><CalcSettingsAdmin /></RequirePermission>}
+    />
+    <Route
+      path="/dictionaries"
+      element={<RequirePermission permissions={["materials.manage"]}><DictionaryAdmin /></RequirePermission>}
+    />
+    <Route
+      path="/users"
+      element={<RequirePermission permissions={["users.manage"]}><UserAdmin /></RequirePermission>}
+    />
+    <Route
+      path="/roles"
+      element={<RequirePermission permissions={["users.manage"]}><RoleAdmin /></RequirePermission>}
+    />
+    <Route
+      path="/areas"
+      element={<RequirePermission permissions={["users.manage"]}><AreaAdmin /></RequirePermission>}
+    />
+    <Route
+      path="/deletion-requests"
+      element={<RequirePermission permissions={["users.manage"]}><DeletionRequests /></RequirePermission>}
+    />
+    <Route
+      path="/label-template"
+      element={<RequirePermission permissions={["labels.manage"]}><LabelTemplateAdmin /></RequirePermission>}
+    />
+    <Route
+      path="/inventory"
+      element={<RequirePermission permissions={["inventory.manage"]}><InventoryDesktop /></RequirePermission>}
+    />
+    <Route
+      path="/production-tasks"
+      element={
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report"]}>
+          <ProductionTasks />
+        </RequirePermission>
+      }
+    />
+    <Route path="/product-models" element={<Navigate to="/nomenclature?tab=models" replace />} />
+    <Route path="/parts" element={<Navigate to="/nomenclature?tab=parts" replace />} />
+    <Route
+      path="/production-lines"
+      element={
+        <RequirePermission permissions={["production_tasks.manage"]}>
+          <ProductionLines />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/nomenclature"
+      element={
+        <RequirePermission permissions={["materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"]}>
+          <Nomenclature />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/production-orders"
+      element={
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report"]}>
+          <ProductionOrders />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/pf-demand"
+      element={
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"]}>
+          <PfDemand />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/area-tasks"
+      element={<Navigate to="/production-tasks" replace />}
+    />
+    <Route path="/door-series" element={<Navigate to="/nomenclature?tab=types" replace />} />
+    <Route
+      path="/part-units"
+      element={
+        <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
+          <PartUnits />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/item/:id"
+      element={
+        <RequirePermission permissions={ITEM_VIEW_PERMISSIONS}>
+          <ItemCard />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/part-card"
+      element={
+        <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
+          <PartCardRedirect />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/part-stock"
+      element={
+        <RequirePermission permissions={["part_units.manage", "part_units.view", "part_storage.manage"]}>
+          <PartInventory defaultView="list" />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/part-storage"
+      element={
+        <RequirePermission permissions={["part_units.manage", "part_units.view", "part_storage.manage"]}>
+          <PartInventory defaultView="map" />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/purchasing"
+      element={<RequirePermission permissions={["purchasing.manage"]}><Purchasing /></RequirePermission>}
+    />
+    <Route
+      path="/sales-calculator"
+      element={<RequirePermission permissions={["sales_calculator.view"]}><SalesCalculator /></RequirePermission>}
+    />
+  </>
+);
+
 export default function AppRoutes() {
   return (
     <Routes>
@@ -46,196 +240,11 @@ export default function AppRoutes() {
       <Route
         element={
           <RequireAuth>
-            <AppLayout />
+            <AppLayout pageRoutes={appPageRoutes} />
           </RequireAuth>
         }
       >
-        <Route path="/" element={<Home />} />
-
-        <Route path="/m/receive" element={<RequirePermission permissions={["units.receive"]}><Receive /></RequirePermission>} />
-        <Route path="/m/initial-stock" element={<RequirePermission permissions={["units.receive"]}><InitialStock /></RequirePermission>} />
-        <Route path="/m/issue" element={<RequirePermission permissions={["units.issue", "units.return"]}><Issue /></RequirePermission>} />
-        <Route path="/blanks" element={<RequirePermission permissions={["units.issue"]}><Blanks /></RequirePermission>} />
-        <Route
-          path="/m/unit-card"
-          element={
-            <RequirePermission
-              permissions={["units.place", "units.writeoff", "units.split", "units.issue", "units.cut", "units.return"]}
-            >
-              <UnitCard />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/m/part-unit-card"
-          element={
-            <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
-              <PartUnitCard />
-            </RequirePermission>
-          }
-        />
-        {/* "Остатки"/"Карточка материала" видны любому аутентифицированному
-        пользователю (как раньше ALL_ROLES) — /materials не пункт меню (8.1
-        раздел бэклога доработок), вход только кликом по строке или сканом QR,
-        поэтому доступ держим таким же широким, как у самого /stock. */}
-        <Route path="/stock" element={<MaterialInventory defaultView="list" />} />
-        <Route path="/materials" element={<MaterialCardRedirect />} />
-        {/* Раздел 6 плана «Детали/П/ф остатки» — сквозной ERP-справочник
-        по всем доменам сразу, виден так же широко, как сам /stock (сам
-        экран внутри уже сужает п/ф-часть по part_units.view/manage). */}
-        <Route path="/general-stock" element={<UnifiedStock />} />
-        <Route path="/storage-places" element={<StoragePlaces />} />
-
-        <Route
-          path="/reports"
-          element={<RequirePermission permissions={["reports.view"]}><Reports /></RequirePermission>}
-        />
-        <Route
-          path="/defects"
-          element={<RequirePermission permissions={["reports.view"]}><Defects /></RequirePermission>}
-        />
-        <Route
-          path="/action-log"
-          element={<RequirePermission permissions={["reports.view"]}><ActionLog /></RequirePermission>}
-        />
-        {/* "Стеллажи" видны всем (как "Остатки") — вкладка "Управление" внутри
-        сама решает, показываться ли, по storage.manage. */}
-        <Route path="/storage" element={<MaterialInventory defaultView="map" />} />
-        <Route
-          path="/warehouse-transfers"
-          element={
-            <RequirePermission permissions={["warehouse_transfers.manage"]}>
-              <WarehouseTransfers />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/calc-settings"
-          element={<RequirePermission permissions={["calc_settings.manage"]}><CalcSettingsAdmin /></RequirePermission>}
-        />
-        <Route
-          path="/dictionaries"
-          element={<RequirePermission permissions={["materials.manage"]}><DictionaryAdmin /></RequirePermission>}
-        />
-        <Route
-          path="/users"
-          element={<RequirePermission permissions={["users.manage"]}><UserAdmin /></RequirePermission>}
-        />
-        <Route
-          path="/roles"
-          element={<RequirePermission permissions={["users.manage"]}><RoleAdmin /></RequirePermission>}
-        />
-        <Route
-          path="/areas"
-          element={<RequirePermission permissions={["users.manage"]}><AreaAdmin /></RequirePermission>}
-        />
-        <Route
-          path="/deletion-requests"
-          element={<RequirePermission permissions={["users.manage"]}><DeletionRequests /></RequirePermission>}
-        />
-        <Route
-          path="/label-template"
-          element={<RequirePermission permissions={["labels.manage"]}><LabelTemplateAdmin /></RequirePermission>}
-        />
-        <Route
-          path="/inventory"
-          element={<RequirePermission permissions={["inventory.manage"]}><InventoryDesktop /></RequirePermission>}
-        />
-        <Route
-          path="/production-tasks"
-          element={
-            <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report"]}>
-              <ProductionTasks />
-            </RequirePermission>
-          }
-        />
-        <Route path="/product-models" element={<Navigate to="/nomenclature?tab=models" replace />} />
-        <Route path="/parts" element={<Navigate to="/nomenclature?tab=parts" replace />} />
-        <Route
-          path="/production-lines"
-          element={
-            <RequirePermission permissions={["production_tasks.manage"]}>
-              <ProductionLines />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/nomenclature"
-          element={
-            <RequirePermission permissions={["materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"]}>
-              <Nomenclature />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/production-orders"
-          element={
-            <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report"]}>
-              <ProductionOrders />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/pf-demand"
-          element={
-            <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"]}>
-              <PfDemand />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/area-tasks"
-          element={<Navigate to="/production-tasks" replace />}
-        />
-        <Route path="/door-series" element={<Navigate to="/nomenclature?tab=types" replace />} />
-        <Route
-          path="/part-units"
-          element={
-            <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
-              <PartUnits />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/item/:id"
-          element={
-            <RequirePermission permissions={ITEM_VIEW_PERMISSIONS}>
-              <ItemCard />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/part-card"
-          element={
-            <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
-              <PartCardRedirect />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/part-stock"
-          element={
-            <RequirePermission permissions={["part_units.manage", "part_units.view", "part_storage.manage"]}>
-              <PartInventory defaultView="list" />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/part-storage"
-          element={
-            <RequirePermission permissions={["part_units.manage", "part_units.view", "part_storage.manage"]}>
-              <PartInventory defaultView="map" />
-            </RequirePermission>
-          }
-        />
-        <Route
-          path="/purchasing"
-          element={<RequirePermission permissions={["purchasing.manage"]}><Purchasing /></RequirePermission>}
-        />
-        <Route
-          path="/sales-calculator"
-          element={<RequirePermission permissions={["sales_calculator.view"]}><SalesCalculator /></RequirePermission>}
-        />
+        {appPageRoutes}
       </Route>
     </Routes>
   );

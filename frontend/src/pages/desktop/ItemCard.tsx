@@ -8,6 +8,7 @@ import { ITEM_VIEW_PERMISSIONS, getTechCard, lookupItem } from "../../api/items"
 import { ORDER_STATUS_LABEL, listProductionOrders, type ProductionOrder } from "../../api/productionOrders";
 import TechCardView from "./nomenclature/TechCardView";
 import ModelVariants from "./nomenclature/ModelVariants";
+import { useTabTitle } from "../../layout/tabTitle";
 import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
 import PartCard from "./production/PartCard";
 import { MovementsPanel } from "./UnifiedStock";
@@ -36,6 +37,7 @@ export default function ItemCard() {
     enabled: itemId > 0 && canSeeOrders && !!cardQuery.data && cardQuery.data.kind_code !== "plenka",
   });
   const card = cardQuery.data;
+  useTabTitle(card?.name);
 
   if (cardQuery.isLoading) return <Spin style={{ display: "block", margin: 48 }} />;
   if (!card) return <Result status="404" title="Позиция не найдена" extra={<Button onClick={() => navigate("/nomenclature")}>К номенклатуре</Button>} />;
