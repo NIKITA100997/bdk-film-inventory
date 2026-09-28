@@ -66,6 +66,9 @@ class Item(Base):
     # серия («Щитовая дверь В-9»), вариант — сочетание размера, цвета… со
     # своей техкартой по правилам типа. is_model — это сама модель (правила
     # к ней не применяются, в заказы не берётся); model_id — у варианта.
+    # Своя единица позиции (у материалов: клей — кг, кромка — м.п., стекло —
+    # м²…); пусто — единица вида.
+    unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
     is_model: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     model_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)
 
@@ -244,6 +247,38 @@ class ItemPropertyValue(Base):
 KIND_FILM = "plenka"
 KIND_PF = "pf"
 KIND_PRODUCT = "izdelie"
+
+
+MOVE_RECEIPT = "receipt"  # приход
+MOVE_CONSUMPTION = "consumption"  # расход в производство по отчёту операции
+MOVE_WRITEOFF = "writeoff"  # списание (брак, потери)
+MOVE_ADJUST = "adjust"  # инвентаризация: подгонка под факт
+MOVE_KINDS = (MOVE_RECEIPT, MOVE_CONSUMPTION, MOVE_WRITEOFF, MOVE_ADJUST)
+
+
+class MaterialMove(Base):
+    """Движение материала (вид «Материал»: МДФ, клей, кромка, пенопласт…) —
+    без партий и мест: остаток — сумма движений по позиции, одним числом
+    на склад (решение 28.09). Расход по отчёту операции пишется всегда, даже
+    в минус: производство не встаёт, если приход не успели провести."""
+
+    __tablename__ = "material_moves"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    qty: Mapped[float] = mapped_column(Numeric(14, 4))  # со знаком: приход +, расход −
+    task_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("production_task_lines.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    doc: Mapped[str | None] = mapped_column(String(64), nullable=True)  # УПД / накладная
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+def item_unit(item: "Item") -> str:
+    return item.unit or item.kind.unit
 
 
 def normalize_name(name: str) -> str:

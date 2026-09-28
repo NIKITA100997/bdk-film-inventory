@@ -10,6 +10,7 @@
 
 from datetime import datetime, timezone
 
+from sqlalchemy import false
 from sqlalchemy.orm import Session
 
 from app.core.constants import PART_UNIT_AUTO_WRITE_OFF_REASON_CODE
@@ -21,6 +22,8 @@ from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.production_orders import ORDER_CLOSED, ORDER_DRAFT, ORDER_RELEASED, ProductionOrder
 from app.services.components import live_item_names
 from app.services.part_units import mint_part_unit, write_off_part_unit
+from app.services.materials import KIND_MATERIAL
+from app.services.materials import consume as consume_material
 from app.services.pf_demand import check_foreign_reserve
 
 
@@ -191,7 +194,7 @@ def make_detail_from_unit(
 
 def consume_components_at_operation(
     db: Session, *, stage: PartStage, area: str, quantity: float, user_id: int, note: str | None = None,
-    task_id: int | None = None,
+    task_id: int | None = None, task_line_id: int | None = None,
 ) -> list[tuple[PartUnit, float]]:
     """Списать в производство комплектующие п/ф, которые по составу позиции
     расходуются на этой операции: состав × quantity, FIFO по дате
@@ -202,13 +205,28 @@ def consume_components_at_operation(
     if quantity <= 0:
         return []
     written: list[tuple[PartUnit, float]] = []
+    # Компонент без операции — на первой операции позиции (как и в
+    # «Потребности п/ф», services/pf_demand.py).
+    first = min(stage.item.stages, key=lambda s: s.sequence_order) if stage.item and stage.item.stages else stage
     comps = (
         db.query(ItemComponent)
-        .filter(ItemComponent.parent_item_id == stage.item_id, ItemComponent.stage_id == stage.id)
+        .filter(
+            ItemComponent.parent_item_id == stage.item_id,
+            (ItemComponent.stage_id == stage.id)
+            | (ItemComponent.stage_id.is_(None) if first.id == stage.id else false()),
+        )
         .order_by(ItemComponent.sort_order, ItemComponent.id)
         .all()
     )
     for comp in comps:
+        comp_item = db.get(Item, comp.component_item_id)
+        if comp_item is not None and comp_item.kind.code == KIND_MATERIAL:
+            # Материал — без партий: расход пишется всегда, в минус тоже.
+            consume_material(
+                db, item=comp_item, qty=round(float(comp.qty_per_unit) * quantity, 4), user_id=user_id,
+                task_line_id=task_line_id, note=note or f"В производство: {stage.name}",
+            )
+            continue
         part = db.query(Part).filter(Part.item_id == comp.component_item_id).first()
         if part is None:
             continue

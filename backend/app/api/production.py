@@ -1003,7 +1003,7 @@ def _build_operation_report(
             # (единая модель, п.4): и на годные, и на брак.
             consume_components_at_operation(
                 db, stage=stage, area=line.task.area, quantity=payload.good_pieces + payload.defect_pieces,
-                user_id=user.id, task_id=line.task_id,
+                user_id=user.id, task_id=line.task_id, task_line_id=line.id,
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e

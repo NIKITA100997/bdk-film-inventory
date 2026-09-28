@@ -214,7 +214,7 @@ def item_tree(db: Session, item: Item, *, qty: float | None = None, depth: int =
     names = live_item_names(db, {item.id})
     node = TreeNode(
         name=names.get(item.id, item.name), kind_code=item.kind.code, item_id=item.id, exists=True, qty=qty,
-        unit=item.kind.unit,
+        unit=item.unit or item.kind.unit,
     )
     if depth >= MAX_DEPTH:
         node.warnings.append("дальше не раскрыто — слишком глубоко")

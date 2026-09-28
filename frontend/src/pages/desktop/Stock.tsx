@@ -9,11 +9,12 @@ import PartStock from "./production/PartStock";
 import PartUnits from "./production/PartUnits";
 import GeneralStock from "./GeneralStock";
 import { LotsTab, MovementsPanel } from "./StockLotsMovements";
+import { MaterialMovesTab, MaterialsStockTab } from "./MaterialsStock";
 
-export type StockKind = "film" | "pf" | "all";
+export type StockKind = "film" | "pf" | "materials" | "all";
 export type StockTab = "items" | "lots" | "free" | "movements" | "map";
 
-/** Остатки — один экран на плёнку и п/ф вместо четырёх («Остатки плёнки»,
+/** Остатки — один экран на плёнку, п/ф и материалы вместо четырёх («Остатки плёнки»,
  * «Остатки и стеллажи п/ф», «Партии п/ф», «Остатки и движения»). Вид
  * (плёнка / п/ф / всё) и вкладка — в адресе (?kind=&tab=). Во вкладках —
  * те же рабочие экраны со всеми их действиями, поэтому кладовщику и мастеру
@@ -33,7 +34,10 @@ export default function Stock() {
 
   const kinds: { value: StockKind; label: string }[] = [
     { value: "film", label: "Плёнка" },
-    ...(canPf ? [{ value: "pf" as const, label: "П/ф" }, { value: "all" as const, label: "Всё" }] : []),
+    ...(canPf ? [{ value: "pf" as const, label: "П/ф" }] : []),
+    // Материалы (МДФ, пенопласт, клей, кромка…) — остаток одним числом.
+    { value: "materials", label: "Материалы" },
+    ...(canPf ? [{ value: "all" as const, label: "Всё" }] : []),
   ];
   // По умолчанию — свой вид: у кого нет работы с плёнкой, но есть п/ф, — п/ф.
   // Поиск из шапки и переход из «Закупок» — всегда про плёнку.
@@ -56,6 +60,10 @@ export default function Stock() {
       ...(canPfLots ? [{ key: "lots" as const, label: "Партии" }] : []),
       { key: "movements", label: "Движения" },
       { key: "map", label: "Стеллажи" },
+    ],
+    materials: [
+      { key: "items", label: "Остатки" },
+      { key: "movements", label: "Движения" },
     ],
     all: [
       { key: "items", label: "По позициям" },
@@ -102,6 +110,8 @@ export default function Stock() {
       ) : (
         <PartStorage />
       );
+  } else if (kind === "materials") {
+    content = tab === "movements" ? <MaterialMovesTab /> : <MaterialsStockTab />;
   } else {
     content = tab === "items" ? <GeneralStock /> : tab === "lots" ? <LotsTab /> : <MovementsPanel />;
   }

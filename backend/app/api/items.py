@@ -107,7 +107,7 @@ def list_items(
         seen.add(item.id)
         out.append(
             ItemOut(
-                id=item.id, kind_code=kind.code, kind_name=kind.name, unit=kind.unit, name=name,
+                id=item.id, kind_code=kind.code, kind_name=kind.name, unit=item.unit or kind.unit, name=name,
                 code_1c=item.code_1c, is_active=active, source_type=source_type, source_id=source_id,
                 group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, **extra,
             )
@@ -137,7 +137,7 @@ def list_items(
             item_kind = kinds[item.kind_id]
             out.append(
                 ItemOut(
-                    id=item.id, kind_code=item_kind.code, kind_name=item_kind.name, unit=item_kind.unit, name=item.name,
+                    id=item.id, kind_code=item_kind.code, kind_name=item_kind.name, unit=item.unit or item_kind.unit, name=item.name,
                     code_1c=item.code_1c, is_active=item.is_active, source_type=None, source_id=None,
                     group_id=item.group_id, is_model=item.is_model, model_id=item.model_id,
                 )
@@ -710,7 +710,7 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
         inputs.append(
             TechInput(
                 name=names.get(c.component_item_id, "—"), part_id=cp.id if cp else None,
-                qty_per_unit=float(c.qty_per_unit), unit=kinds[ci.kind_id].unit if ci else "шт",
+                qty_per_unit=float(c.qty_per_unit), unit=(ci.unit or kinds[ci.kind_id].unit) if ci else "шт",
                 note=f"{_fmt(cp.width_mm)}×{_fmt(round(float(cp.length_m) * 1000, 1))} мм" if cp else None,
                 component_item_id=c.component_item_id, source=c.source, stage_id=c.stage_id,
                 operation_name=stage_names.get(c.stage_id) if c.stage_id else None,
