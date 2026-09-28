@@ -563,6 +563,12 @@ def set_type_component_rules(
             _check_template(t, tpl, where)
         for expr in (r.qty_expr, r.condition, r.width_expr, r.length_expr, r.strip_width_expr):
             _check_expr(t, expr, where)
+        op_name = (r.operation_name or "").strip()
+        if op_name and op_name not in {o.name for o in t.operations}:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"{where}: операции «{op_name}» нет в маршруте типа — операции: {', '.join(o.name for o in t.operations) or 'нет'}",
+            )
         if r.route_part_id is not None and db.get(Part, r.route_part_id) is None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{where}: деталь-образец маршрута не найдена")
     # Строки состава "по правилу" ссылаются на правило (rule_id) — при замене

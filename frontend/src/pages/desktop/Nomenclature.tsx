@@ -94,10 +94,14 @@ function ItemsTab() {
     const variants = new Map<number, Item[]>();
     for (const i of all) if (i.model_id != null && models.has(i.model_id)) variants.set(i.model_id, [...(variants.get(i.model_id) ?? []), i]);
     const out: ItemRow[] = [];
+    const inSelectedGroup = (x: Item) =>
+      group == null || (group === NO_GROUP ? x.group_id == null : x.group_id != null && inGroup!.has(x.group_id));
     for (const i of all) {
       if (i.model_id != null && models.has(i.model_id)) continue;
       if (kind !== "all" && i.kind_code !== kind) continue;
-      if (group != null && (group === NO_GROUP ? i.group_id != null : i.group_id == null || !inGroup!.has(i.group_id))) continue;
+      // Модель в группе, если в ней она сама или хоть один её вариант —
+      // у модели своей группы обычно нет, группы ведутся по вариантам.
+      if (!inSelectedGroup(i) && !(i.is_model && (variants.get(i.id) ?? []).some(inSelectedGroup))) continue;
       if (i.is_model) {
         const own = variants.get(i.id) ?? [];
         const kids = matches(i) ? own : own.filter(matches);

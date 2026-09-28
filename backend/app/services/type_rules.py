@@ -32,7 +32,7 @@ from app.services.expressions import (
     evaluate_number,
     render_template,
 )
-from app.services.routes import RouteStep, apply_route
+from app.services.routes import RouteInUseError, RouteStep, apply_route
 
 
 @dataclass
@@ -174,6 +174,13 @@ def compute(db: Session, type_: ItemType, ctx: dict) -> RulesResult:
             continue
         if qty <= 0:
             continue
+        if rule.operation_name and rule.operation_name not in {n for n, _ in res.operations}:
+            # Иначе расход молча ушёл бы на первую операцию.
+            res.errors.append(
+                f"Состав «{name}»: расходуется на операции «{rule.operation_name}», а её нет в маршруте этой позиции "
+                "(условие операции не выполнено) — поправьте условие правила или операции"
+            )
+            continue
         part = _find_part(db, name)
         existing_item = None
         if part is None:
@@ -238,7 +245,13 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
     if has_rules:
         # Маршрут: code = название операции — ключ сопоставления, партии и
         # история остаются на своих операциях (services/routes.py).
-        apply_route(db, part_owner or item, [RouteStep(code=n, name=n, area=a) for n, a in res.operations])
+        try:
+            apply_route(db, part_owner or item, [RouteStep(code=n, name=n, area=a) for n, a in res.operations])
+        except RouteInUseError as e:
+            # Партии/история на этапе, которого по правилам больше нет, — как
+            # ошибка данных: вызывающий код откатит savepoint.
+            res.errors.append(str(e))
+            return res
         db.flush()
         stage_by_name = {s.name: s.id for s in item.stages}
 
@@ -260,6 +273,7 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
                 if rule.route_part_id:
                     template = db.get(Part, rule.route_part_id)
                     if template is not None:
+                        # Новая деталь — этапов ещё нет, убирать нечего.
                         apply_route(db, part, [RouteStep(code=s.code, name=s.name, area=s.area) for s in template.stages])
                         part.area = template.area
                 db.flush()
@@ -371,6 +385,12 @@ def ensure_item(db: Session, type_: ItemType, values: dict[int, object]) -> tupl
         return None, False, res.errors
     existing = db.query(Item).filter(Item.kind_id == type_.kind_id, _func.lower(Item.name) == res.name.lower()).first()
     if existing is not None:
+        if existing.type_id not in (None, type_.id):
+            other = db.get(ItemType, existing.type_id)
+            return None, False, [
+                f"«{existing.name}» уже есть, но это позиция типа «{other.name if other else existing.type_id}» — "
+                "добавьте в шаблон названия то, что их различает"
+            ]
         return existing, False, []
     sp = db.begin_nested()
     if type_.kind.code == KIND_PF:
