@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { FormInstance } from "antd";
-import { Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, Tag, message } from "antd";
+import { Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, Tag, message, Alert } from "antd";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,9 +9,11 @@ import {
   parseNaryadFile,
   parseBlankPlan,
   type BlankPlanBlock,
+  type ProductionTask,
   type ProductionTaskLineManualCreate,
   type SkuCandidate,
 } from "../../../api/production";
+import { previewPfDemand, type PfDemandRow } from "../../../api/pfDemand";
 import { listMaterialSkus } from "../../../api/dictionaries";
 import { skuLabel, type AreaValue, type MaterialSku } from "../../../api/units";
 import { listAreas } from "../../../api/areas";
@@ -137,7 +139,16 @@ function ManualLineFields({
  * ~160 строк) — самодостаточен, сам тянет модели/участки/номенклатуру по
  * своим query-ключам (тот же кэш React Query, что и у остального
  * приложения, лишних запросов не добавляет). */
-export default function CreateTaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function CreateTaskModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** needsPf — в задании есть детали п/ф, учитываемые партиями. */
+  onCreated?: (task: ProductionTask, needsPf: boolean) => void;
+}) {
   const qc = useQueryClient();
   const [manualLines, setManualLines] = useState<ManualLine[]>([]);
   const [manualForm] = Form.useForm<{ name: string; area: AreaValue; external_order_ref?: number }>();
@@ -213,12 +224,31 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
     !!l.material && !!l.color && l.thickness > 0 && l.width_mm > 0 && l.length_m > 0 && l.quantity_pieces > 0;
   const hasIncompleteLines = manualLines.some((l) => !isLineComplete(l));
 
+  // Остатки и потребность п/ф по строкам составляемого задания (окутка):
+  // свободный остаток — без резервов других заданий.
+  const pfItems = useMemo(
+    () =>
+      manualLines
+        .filter((l) => l.part_name && l.quantity_pieces > 0)
+        .map((l) => ({ part_name: l.part_name!, width_mm: l.width_mm || undefined, length_m: l.length_m || undefined, quantity_pieces: l.quantity_pieces })),
+    [manualLines],
+  );
+  const pfPreviewQuery = useQuery({
+    queryKey: ["pf-demand-preview", pfItems],
+    queryFn: () => previewPfDemand(pfItems),
+    enabled: open && pfItems.length > 0,
+  });
+  const pfRows = pfItems.length > 0 ? (pfPreviewQuery.data ?? []) : [];
+
   const manualCreateMutation = useMutation({
     mutationFn: createProductionTaskManual,
-    onSuccess: () => {
+    onSuccess: (task) => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      qc.invalidateQueries({ queryKey: ["pf-demand"] });
+      const needsPf = pfRows.length > 0;
       resetAndClose();
-      message.success("Задание создано");
+      message.success(needsPf ? "Задание создано — проверьте обеспечение п/ф" : "Задание создано");
+      onCreated?.(task, needsPf);
     },
     onError: () => message.error("Не удалось создать задание"),
   });
@@ -783,6 +813,8 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
         </>
       )}
 
+      {pfRows.length > 0 && <PfPreview rows={pfRows} loading={pfPreviewQuery.isFetching} />}
+
       <Button
         type="primary"
         block
@@ -809,5 +841,47 @@ export default function CreateTaskModal({ open, onClose }: { open: boolean; onCl
         Создать задание ({manualLines.length} строк(и))
       </Button>
     </Modal>
+  );
+}
+
+const fmt = (n: number) => Math.round(n * 100) / 100;
+
+/** Остатки и потребность п/ф по строкам составляемого задания. */
+function PfPreview({ rows, loading }: { rows: PfDemandRow[]; loading: boolean }) {
+  const short = rows.filter((r) => r.shortage > 0).length;
+  return (
+    <div style={{ marginTop: 16 }}>
+      <Typography.Title level={5}>П/ф по заданию: остатки и потребность</Typography.Title>
+      <Alert
+        type={short > 0 ? "warning" : "success"}
+        showIcon
+        style={{ marginBottom: 8 }}
+        message={
+          short > 0
+            ? `Не хватает п/ф по ${short} дет. — после создания задания откроется окно обеспечения: резерв остатка и задания на п/ф под это задание`
+            : "Свободного остатка п/ф хватает — после создания задания откроется окно обеспечения, чтобы зарезервировать его"
+        }
+      />
+      <Table<PfDemandRow>
+        rowKey="part_id"
+        size="small"
+        pagination={false}
+        loading={loading}
+        dataSource={rows}
+        scroll={{ x: "max-content" }}
+        columns={[
+          { title: "Деталь", dataIndex: "part_name" },
+          { title: "Нужно по заданию", render: (_, r) => fmt(r.task_demand) },
+          { title: "Остаток всего", render: (_, r) => fmt(r.free + r.reserved) },
+          { title: "В резерве других заданий", render: (_, r) => fmt(r.reserved) },
+          { title: "Свободно", render: (_, r) => fmt(r.free) },
+          { title: "В работе (без привязки)", render: (_, r) => fmt(r.in_work) },
+          {
+            title: "Не хватает",
+            render: (_, r) => (r.shortage > 0 ? <Tag color="red">{fmt(r.shortage)}</Tag> : <Tag color="green">хватает</Tag>),
+          },
+        ]}
+      />
+    </div>
   );
 }

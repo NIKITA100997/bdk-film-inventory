@@ -273,6 +273,27 @@ def sku_item_name(material: str, color: str, thickness_mm: float, manufacturer: 
     return f"{material}, {color}, {float(thickness_mm):g} мм, {manufacturer}"
 
 
+def match_part_id(session: Session, part_name: str, width_mm: float | None, length_m: float | None) -> int | None:
+    """Деталь по названию строки; не нашлось — позиция на этот размер под
+    общим названием («Поперечная (МежКомн)» 110×404 → «… 110х404»)."""
+    from app.models.dictionaries import Part
+
+    keys = [normalize_name(part_name)]
+    if width_mm is not None and length_m is not None:
+        keys.append(normalize_name(size_part_name(part_name, width_mm, length_m)))
+    for key in dict.fromkeys(keys):
+        part_id = (
+            session.query(Part.id)
+            .filter(func.replace(func.lower(func.trim(Part.name)), "ё", "е") == key)
+            .order_by(Part.id)
+            .limit(1)
+            .scalar()
+        )
+        if part_id is not None:
+            return part_id
+    return None
+
+
 @event.listens_for(Session, "before_flush")
 def _link_items_and_parts(session: Session, flush_context, instances) -> None:
     """Единая точка связей номенклатуры — ловит ЛЮБОЙ путь создания/правки
@@ -333,21 +354,6 @@ def _link_items_and_parts(session: Session, flush_context, instances) -> None:
             renamed = attributes.get_history(obj, "part_name").has_changes() and obj not in session.new
             if obj.part_id is not None and not renamed:
                 continue
-            # По названию; не нашлось — позиция на этот размер под общим
-            # названием («Поперечная (МежКомн)» 110×404 → «… 110х404»).
-            keys = [normalize_name(obj.part_name)]
-            if obj.width_mm is not None and obj.length_m is not None:
-                keys.append(normalize_name(size_part_name(obj.part_name, obj.width_mm, obj.length_m)))
-            part_id = None
-            for key in dict.fromkeys(keys):
-                part_id = (
-                    session.query(Part.id)
-                    .filter(func.replace(func.lower(func.trim(Part.name)), "ё", "е") == key)
-                    .order_by(Part.id)
-                    .limit(1)
-                    .scalar()
-                )
-                if part_id is not None:
-                    break
+            part_id = match_part_id(session, obj.part_name, obj.width_mm, obj.length_m)
             if part_id is not None or renamed:
                 obj.part_id = part_id

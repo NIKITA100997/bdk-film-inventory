@@ -1,4 +1,22 @@
-from app.services.pf_demand import compute_suggestion, task_part_remaining
+from app.services.pf_demand import allocate_reserves, compute_suggestion, task_part_remaining
+
+
+def test_reserve_capped_by_task_remaining():
+    # резерв 100 на задание, которому осталось 60, — действует 60
+    assert allocate_reserves(500, [(60, 100, 0)]) == [(60, 0, 0)]
+
+
+def test_older_task_reserved_first_when_stock_short():
+    assert allocate_reserves(70, [(50, 50, 0), (40, 40, 0)]) == [(50, 0, 0), (20, 0, 20)]
+
+
+def test_work_under_task_covers_rest_of_shortage():
+    # 30 в резерве, 50 делается под задание, не хватает 20
+    assert allocate_reserves(30, [(100, 30, 50)]) == [(30, 50, 20)]
+
+
+def test_no_reserve_means_nothing_allocated():
+    assert allocate_reserves(500, [(40, 0, 0)]) == [(0, 0, 40)]
 
 
 def test_below_min_stock_suggests_at_least_min_batch():

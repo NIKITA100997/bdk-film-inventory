@@ -94,7 +94,8 @@ export default function PfDemand() {
       >
         <Typography.Paragraph type="secondary">
           Нужно = остаток плана по открытым заданиям цеха и заказам на производство (комплектующие по составу) +
-          минимальный остаток. Есть = все живые партии детали + уже запущенное в работу. К производству — нехватка, но
+          минимальный остаток. Есть = все живые партии детали + уже запущенное в работу. В резерве — остаток,
+          закреплённый за заданиями цеха (кнопка «Обеспечение п/ф» у задания), свободно — остальное. К производству — нехватка, но
           не меньше минимальной партии. Задания уходят на участки всех операций маршрута детали.
         </Typography.Paragraph>
         <Space wrap size={[12, 12]}>
@@ -116,8 +117,8 @@ export default function PfDemand() {
         </Space>
         {taskFilter.length > 0 && (
           <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-            Только выбранные задания: «Нужно» — их остаток без минимального остатка детали. «Есть» и «В работе» — общие
-            по детали, они же покрывают и другие задания.
+            Только выбранные задания: «Нужно» — их остаток без минимального остатка детали. «Есть» — свободный остаток
+            плюс резерв этих заданий, «В работе» — производимое под эти задания плюс запущенное без привязки.
           </Typography.Paragraph>
         )}
       </Card>
@@ -143,7 +144,7 @@ export default function PfDemand() {
               <table style={{ marginTop: 8, borderCollapse: "collapse", width: "auto" }}>
                 <thead>
                   <tr>
-                    {["Задание цеха", "План", "Сделано", "Остаток"].map((h) => (
+                    {["Задание цеха", "План", "Сделано", "Остаток", "Резерв", "Делается под задание", "Не хватает"].map((h) => (
                       <th key={h} style={{ textAlign: "left", padding: "2px 16px 2px 0", fontWeight: 500 }}>
                         {h}
                       </th>
@@ -160,6 +161,11 @@ export default function PfDemand() {
                       <td style={{ padding: "2px 16px 2px 0" }}>{fmt(s.done)}</td>
                       <td style={{ padding: "2px 16px 2px 0" }}>
                         <b>{fmt(s.remaining)}</b>
+                      </td>
+                      <td style={{ padding: "2px 16px 2px 0" }}>{s.reserved > 0 ? fmt(s.reserved) : "—"}</td>
+                      <td style={{ padding: "2px 16px 2px 0" }}>{s.in_work > 0 ? fmt(s.in_work) : "—"}</td>
+                      <td style={{ padding: "2px 16px 2px 0" }}>
+                        {s.shortage > 0 ? <Tag color="red">{fmt(s.shortage)}</Tag> : <Tag color="green">обеспечено</Tag>}
                       </td>
                     </tr>
                   ))}
@@ -197,6 +203,14 @@ export default function PfDemand() {
           { title: "По заданиям цеха", render: (_, r) => fmt(r.task_demand) },
           { title: "Нужно", render: (_, r) => fmt(r.need) },
           { title: "Есть", render: (_, r) => fmt(r.stock) },
+          {
+            title: "В резерве / свободно",
+            render: (_, r) => (
+              <span>
+                {fmt(r.reserved)} / <b>{fmt(r.free)}</b>
+              </span>
+            ),
+          },
           { title: "В работе", render: (_, r) => fmt(r.in_work) },
           {
             title: "Не хватает",

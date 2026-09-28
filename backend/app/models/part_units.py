@@ -1,7 +1,7 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -88,6 +88,28 @@ class PartUnit(Base):
     )
 
     parent: Mapped["PartUnit | None"] = relationship(remote_side=[id])
+
+
+class PartReservation(Base):
+    """Резерв п/ф на задание цеха — количество, не конкретные партии (как
+    резерв на заказ в 1С): партии расходуются по FIFO на участке, а резерв
+    лишь закрепляет штуки остатка за заданием в расчёте потребности, чтобы
+    их не считали свободными другие задания. Действует не больше остатка
+    задания по детали и снимается сам по мере отчётов; резерв закрытого
+    задания не учитывается (services/pf_demand.py)."""
+
+    __tablename__ = "part_reservations"
+    __table_args__ = (UniqueConstraint("task_id", "part_id", name="uq_part_reservations_task_part"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("production_tasks.id", ondelete="CASCADE"), index=True)
+    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id"), index=True)
+    quantity_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class PartEventType(str, enum.Enum):

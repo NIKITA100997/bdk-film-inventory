@@ -155,6 +155,8 @@ export interface ProductionTask {
   area: AreaValue;
   quantity: number | null;
   external_order_ref: number | null;
+  /** Задание п/ф под другое задание цеха. */
+  for_task_id?: number | null;
   created_by: number;
   created_at: string;
   is_active: boolean;

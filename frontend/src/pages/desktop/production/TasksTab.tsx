@@ -31,6 +31,7 @@ import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import AssignmentModal from "./AssignmentModal";
 import ReportModal from "./ReportModal";
+import PfSupplyModal from "./PfSupplyModal";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -60,6 +61,8 @@ export default function TasksTab() {
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const canReport = canManage || !!user?.permissions.includes("production_tasks.report");
   const [taskModalOpen, setTaskModalOpen] = useState(false);
+  // Обеспечение п/ф задания: резерв и задания на п/ф «под это задание».
+  const [supplyTarget, setSupplyTarget] = useState<{ id: number; name: string } | null>(null);
   const [operationModalOpen, setOperationModalOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine; area: string } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
@@ -386,7 +389,18 @@ export default function TasksTab() {
             // строки), не пытаясь втиснуть все колонки на узкий экран.
             columns={(
               [
-                { key: "model", title: "Модель", width: wideScreen ? 320 : undefined, ellipsis: true, render: (_, t) => t.product_model_name ?? t.name ?? "—" },
+                {
+                  key: "model",
+                  title: "Модель",
+                  width: wideScreen ? 320 : undefined,
+                  ellipsis: true,
+                  render: (_, t) => (
+                    <>
+                      {t.product_model_name ?? t.name ?? "—"}
+                      {t.for_task_id && <Tag color="geekblue" style={{ marginLeft: 6 }}>под задание №{t.for_task_id}</Tag>}
+                    </>
+                  ),
+                },
                 { key: "area", title: "Участок", width: wideScreen ? 140 : undefined, dataIndex: "area", render: (v: string) => areaLabel(v) },
                 { key: "quantity", title: "Количество", width: wideScreen ? 110 : undefined, render: (_, t) => t.quantity ?? "—" },
                 {
@@ -434,6 +448,11 @@ export default function TasksTab() {
                   render: (_, t) =>
                     canManage && (
                       <Space onClick={(e) => e.stopPropagation()} wrap>
+                        {t.is_active && t.lines.some((l) => l.part_name && !l.operation_name) && (
+                          <Button size="small" onClick={() => setSupplyTarget({ id: t.id, name: t.product_model_name ?? t.name ?? "" })}>
+                            Обеспечение п/ф
+                          </Button>
+                        )}
                         <Button
                           size="small"
                           onClick={() => archiveTaskMutation.mutate({ id: t.id, isActive: !t.is_active })}
@@ -453,7 +472,19 @@ export default function TasksTab() {
         )}
       </Card>
 
-      <CreateTaskModal open={taskModalOpen} onClose={() => setTaskModalOpen(false)} />
+      <CreateTaskModal
+        open={taskModalOpen}
+        onClose={() => setTaskModalOpen(false)}
+        onCreated={(t, needsPf) => needsPf && setSupplyTarget({ id: t.id, name: t.product_model_name ?? t.name ?? "" })}
+      />
+      {supplyTarget && (
+        <PfSupplyModal
+          taskId={supplyTarget.id}
+          taskName={supplyTarget.name}
+          canManage={canManage}
+          onClose={() => setSupplyTarget(null)}
+        />
+      )}
       <OperationTaskModal open={operationModalOpen} onClose={() => setOperationModalOpen(false)} />
 
       {reportTarget && (

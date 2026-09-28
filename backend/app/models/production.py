@@ -96,6 +96,11 @@ class ProductionTask(Base):
     area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
     # Задание участку из заказа на производство (единая модель, пункт 4).
     production_order_id: Mapped[int | None] = mapped_column(ForeignKey("production_orders.id"), nullable=True, index=True)
+    # Задание на производство п/ф под конкретное задание цеха (окутка):
+    # сделанное по нему идёт в резерв того задания (services/pf_demand.py).
+    for_task_id: Mapped[int | None] = mapped_column(
+        ForeignKey("production_tasks.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Раздел про удаление сущностей — задание с историей выдачи нельзя

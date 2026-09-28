@@ -487,6 +487,7 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
         area=task.area,
         quantity=task.quantity,
         external_order_ref=task.external_order_ref,
+        for_task_id=task.for_task_id,
         created_by=task.created_by,
         created_at=task.created_at,
         is_active=task.is_active,

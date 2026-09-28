@@ -408,6 +408,8 @@ class ProductionTaskOut(BaseModel):
     created_at: datetime
     is_active: bool
     lines: list[ProductionTaskLineOut]
+    # Задание п/ф под другое задание цеха (services/pf_demand.py).
+    for_task_id: int | None = None
     # Раздел про план/факт по расходу плёнки — сумма planned_length_m/
     # issued_length_m по всем строкам задания, чтобы видеть прогресс по
     # заданию в целом, не только по каждой строке отдельно.

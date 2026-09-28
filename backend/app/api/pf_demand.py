@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.core.security import require_permission
 from app.db.session import get_db
-from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.dictionaries import Part
+from app.models.items import match_part_id
+from app.models.part_units import PartReservation
+from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.users import User
-from app.services.pf_demand import compute_pf_demand
+from app.services.pf_demand import PfDemandRow, compute_pf_demand, compute_pf_preview
 
 router = APIRouter(prefix="/pf-demand", tags=["pf-demand"])
 
@@ -24,6 +26,10 @@ class PfDemandSourceOut(BaseModel):
     open_plan: float
     done: float
     remaining: float
+    reserve_set: float
+    reserved: float
+    in_work: float
+    shortage: float
 
 
 class PfDemandOut(BaseModel):
@@ -41,6 +47,8 @@ class PfDemandOut(BaseModel):
     first_stage_name: str
     first_stage_area: str | None
     sources: list[PfDemandSourceOut]
+    reserved: float
+    free: float
 
 
 class PfDemandTaskItem(BaseModel):
@@ -51,6 +59,27 @@ class PfDemandTaskItem(BaseModel):
 class PfDemandTasksCreate(BaseModel):
     items: list[PfDemandTaskItem] = Field(min_length=1)
     ship_date: date | None = None
+    # Задание цеха, под которое производятся п/ф: сделанное уходит в его резерв.
+    for_task_id: int | None = None
+
+
+class PfPreviewItem(BaseModel):
+    part_id: int | None = None
+    part_name: str | None = None
+    width_mm: float | None = None
+    length_m: float | None = None
+    quantity_pieces: float = Field(gt=0)
+
+
+class PfPreviewIn(BaseModel):
+    items: list[PfPreviewItem] = Field(min_length=1)
+
+
+class PfReservationIn(BaseModel):
+    task_id: int
+    part_id: int
+    # 0 — снять резерв.
+    quantity_pieces: float = Field(ge=0)
 
 
 class PfDemandTasksOut(BaseModel):
@@ -63,10 +92,49 @@ def list_pf_demand(
     db: Session = Depends(get_db),
     user: User = Depends(view),
 ) -> list[PfDemandOut]:
-    return [
-        PfDemandOut(**{**row.__dict__, "sources": [PfDemandSourceOut(**s.__dict__) for s in row.sources]})
-        for row in compute_pf_demand(db, task_ids)
-    ]
+    return [_out(row) for row in compute_pf_demand(db, task_ids)]
+
+
+def _out(row: PfDemandRow) -> PfDemandOut:
+    return PfDemandOut(**{**row.__dict__, "sources": [PfDemandSourceOut(**s.__dict__) for s in row.sources]})
+
+
+@router.post("/preview", response_model=list[PfDemandOut])
+def preview_pf_demand(payload: PfPreviewIn, db: Session = Depends(get_db), user: User = Depends(view)) -> list[PfDemandOut]:
+    """Обеспечение п/ф для задания, которое ещё только составляют: строки
+    с деталью по ссылке или по названию (как при сохранении задания)."""
+    items = []
+    for it in payload.items:
+        part_id = it.part_id
+        if part_id is None and it.part_name:
+            part_id = match_part_id(db, it.part_name, it.width_mm, it.length_m)
+        if part_id is not None:
+            items.append((part_id, it.quantity_pieces))
+    return [_out(row) for row in compute_pf_preview(db, items)] if items else []
+
+
+@router.put("/reservations", status_code=status.HTTP_204_NO_CONTENT)
+def set_reservation(payload: PfReservationIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> None:
+    """Резерв детали на задание цеха (штуки; 0 — снять). Больше остатка
+    задания по детали в расчёте не действует — лишнее просто не учитывается."""
+    task = db.get(ProductionTask, payload.task_id)
+    if task is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание не найдено")
+    if not task.is_active:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Задание в архиве — резерв не нужен")
+    if db.get(Part, payload.part_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Деталь не найдена")
+    res = db.query(PartReservation).filter_by(task_id=payload.task_id, part_id=payload.part_id).one_or_none()
+    if payload.quantity_pieces <= 0:
+        if res is not None:
+            db.delete(res)
+    elif res is None:
+        db.add(PartReservation(
+            task_id=payload.task_id, part_id=payload.part_id, quantity_pieces=payload.quantity_pieces, created_by=user.id
+        ))
+    else:
+        res.quantity_pieces = payload.quantity_pieces
+    db.commit()
 
 
 @router.post("/tasks", response_model=PfDemandTasksOut, status_code=status.HTTP_201_CREATED)
@@ -95,11 +163,23 @@ def create_pf_tasks(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "У этапов не указан участок: " + ", ".join(missing_area) + " — настройте маршрут детали",
         )
+    for_task = None
+    if payload.for_task_id is not None:
+        for_task = db.get(ProductionTask, payload.for_task_id)
+        if for_task is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание, под которое делаются п/ф, не найдено")
     today = date.today().strftime("%d.%m.%Y")
     task_ids = []
     for area, items in by_area.items():
         ship = f", отгрузка {payload.ship_date.strftime('%d.%m.%Y')}" if payload.ship_date else ""
-        task = ProductionTask(area=area, name=f"Производство п/ф от {today}{ship}", is_active=True, created_by=user.id)
+        name = f"Производство п/ф от {today}{ship}"
+        if for_task is not None:
+            label = for_task.name or (for_task.product_model.name if for_task.product_model else "")
+            name = f"П/ф под задание №{for_task.id} «{label}»"[:255]
+        task = ProductionTask(
+            area=area, name=name, is_active=True, created_by=user.id,
+            for_task_id=for_task.id if for_task is not None else None,
+        )
         for part, qty, stage_id in items:
             task.lines.append(
                 ProductionTaskLine(

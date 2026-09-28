@@ -8,16 +8,23 @@
   не хватает = нужно − есть;
   произвести = не хватает, но не меньше минимальной партии.
 
-Задание участку создаёт начальник кнопкой — предложение, не автоматика."""
+Задание участку создаёт начальник кнопкой — предложение, не автоматика.
+
+Резерв на задание (как обеспечение заказа в 1С): часть остатка закреплена
+за заданием цеха — явный резерв (PartReservation) плюс сделанное по
+заданиям п/ф «под это задание» (ProductionTask.for_task_id), не больше
+остатка задания по детали. Остаток распределяется по резервам от старых
+заданий к новым; «свободно» = остаток − обеспеченные резервы. Отчёты
+мастеров резерв не блокирует — он влияет на расчёт и виден всем."""
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.dictionaries import Part, PartStage
-from app.models.part_units import PartUnit, PartUnitStatus
+from app.models.part_units import PartReservation, PartUnit, PartUnitStatus
 from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.services.part_units import reported_good_pieces_by_unit
 
@@ -31,6 +38,10 @@ class PfDemandSource:
     open_plan: float
     done: float
     remaining: float
+    reserve_set: float = 0.0  # явный резерв, как его ввели
+    reserved: float = 0.0  # обеспечено остатком (резерв + сделанное под задание)
+    in_work: float = 0.0  # производится под задание
+    shortage: float = 0.0  # не обеспечено ни резервом, ни производством
 
 
 @dataclass(frozen=True)
@@ -49,6 +60,8 @@ class PfDemandRow:
     first_stage_name: str
     first_stage_area: str | None
     sources: list[PfDemandSource]
+    reserved: float = 0.0  # остатка в резерве под задания
+    free: float = 0.0  # остаток без резервов
 
 
 def compute_suggestion(
@@ -74,7 +87,7 @@ def task_part_remaining(lines: list[tuple[float, float, bool]]) -> float:
     return max(0.0, open_plan - credited)
 
 
-def _task_demand_by_part(db: Session, task_ids: list[int] | None = None) -> dict[int, list[PfDemandSource]]:
+def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     query = (
         db.query(ProductionTaskLine)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
@@ -86,8 +99,6 @@ def _task_demand_by_part(db: Session, task_ids: list[int] | None = None) -> dict
             ProductionTaskLine.part_stage_id.is_(None),
         )
     )
-    if task_ids:
-        query = query.filter(ProductionTaskLine.task_id.in_(task_ids))
     lines = query.all()
     if not lines:
         return {}
@@ -142,17 +153,25 @@ def _stock_by_part(db: Session) -> dict[int, float]:
     return stock
 
 
-def _in_work_by_first_stage(db: Session, first_stage_ids: set[int]) -> dict[int, float]:
+def _first_stage_work(
+    db: Session, first_stage_ids: set[int]
+) -> tuple[dict[int, float], dict[tuple[int, int], list[float]]]:
+    """(в работе по первому этапу — всё; {(задание-получатель, деталь):
+    [сделано, в работе]} — по заданиям п/ф «под задание»). Сделанное
+    считается и у архивного задания п/ф: детали уже родились под задание."""
     if not first_stage_ids:
-        return {}
+        return {}, {}
     lines = (
         db.query(ProductionTaskLine)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
-        .filter(ProductionTask.is_active.is_(True), ProductionTaskLine.part_stage_id.in_(first_stage_ids))
+        .filter(
+            or_(ProductionTask.is_active.is_(True), ProductionTask.for_task_id.isnot(None)),
+            ProductionTaskLine.part_stage_id.in_(first_stage_ids),
+        )
         .all()
     )
     if not lines:
-        return {}
+        return {}, {}
     good = dict(
         db.query(ProductionTaskLineReport.task_line_id, func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
         .filter(
@@ -163,12 +182,117 @@ def _in_work_by_first_stage(db: Session, first_stage_ids: set[int]) -> dict[int,
         .all()
     )
     in_work: dict[int, float] = defaultdict(float)
+    linked: dict[tuple[int, int], list[float]] = defaultdict(lambda: [0.0, 0.0])
     for line in lines:
-        in_work[line.part_stage_id] += max(0.0, float(line.quantity_pieces) - float(good.get(line.id, 0)))
-    return in_work
+        made = float(good.get(line.id, 0))
+        left = max(0.0, float(line.quantity_pieces) - made) if line.task.is_active else 0.0
+        in_work[line.part_stage_id] += left
+        if line.task.for_task_id is not None and line.part_id is not None:
+            acc = linked[(line.task.for_task_id, line.part_id)]
+            acc[0] += made
+            acc[1] += left
+    return in_work, linked
 
 
-def _operation_demand_by_part(db: Session, task_ids: list[int] | None = None) -> dict[int, list[PfDemandSource]]:
+def allocate_reserves(
+    stock: float, wants: list[tuple[float, float, float]]
+) -> list[tuple[float, float, float]]:
+    """Распределить остаток детали по заданиям (в порядке списка — от
+    старых к новым). wants — (остаток задания, хочет в резерв, производится
+    под задание); результат — (обеспечено остатком, в работе под задание,
+    не хватает). Резерв не больше остатка задания и не больше того, что
+    осталось на складе после более старых заданий."""
+    left = stock
+    out = []
+    for remaining, want, work in wants:
+        got = max(0.0, min(remaining, want, left))
+        left -= got
+        in_work = max(0.0, min(work, remaining - got))
+        out.append((round(got, 2), round(in_work, 2), round(max(0.0, remaining - got - in_work), 2)))
+    return out
+
+
+def _merge_by_task(sources: list[PfDemandSource]) -> list[PfDemandSource]:
+    """Одна строка на задание: у задания может быть несколько операций с
+    той же деталью — резерв и нехватка считаются на задание целиком."""
+    by_task: dict[int, PfDemandSource] = {}
+    for s in sources:
+        cur = by_task.get(s.task_id)
+        by_task[s.task_id] = (
+            s
+            if cur is None
+            else replace(
+                cur, open_plan=cur.open_plan + s.open_plan, done=cur.done + s.done, remaining=cur.remaining + s.remaining
+            )
+        )
+    return sorted(by_task.values(), key=lambda s: s.task_id)
+
+
+@dataclass
+class _State:
+    parts: list[Part]
+    first_stage: dict[int, PartStage]
+    demand: dict[int, list[PfDemandSource]]  # по детали, с резервами
+    stock: dict[int, float]
+    reserved: dict[int, float]
+    in_work: dict[int, float]  # по детали, всё
+    unlinked_in_work: dict[int, float]  # по детали, не под конкретное задание
+
+
+def _state(db: Session) -> _State:
+    parts = [p for p in db.query(Part).filter(Part.is_active.is_(True)).all() if p.stages]
+    first_stage = {p.id: min(p.stages, key=lambda s: s.sequence_order) for p in parts}
+    raw = _task_demand_by_part(db)
+    for part_id, sources in _operation_demand_by_part(db).items():
+        raw.setdefault(part_id, []).extend(sources)
+    stock = _stock_by_part(db)
+    in_work_by_stage, linked = _first_stage_work(db, {s.id for s in first_stage.values()})
+    reserve_set = {(r.task_id, r.part_id): float(r.quantity_pieces) for r in db.query(PartReservation)}
+
+    demand: dict[int, list[PfDemandSource]] = {}
+    reserved: dict[int, float] = defaultdict(float)
+    for part_id, sources in raw.items():
+        merged = _merge_by_task(sources)
+        wants = []
+        for s in merged:
+            made, work = linked.get((s.task_id, part_id), (0.0, 0.0))
+            wants.append((s.remaining, reserve_set.get((s.task_id, part_id), 0.0) + made, work))
+        out = []
+        for s, (got, in_work, short) in zip(merged, allocate_reserves(stock.get(part_id, 0.0), wants)):
+            reserved[part_id] += got
+            out.append(
+                replace(s, reserve_set=reserve_set.get((s.task_id, part_id), 0.0), reserved=got, in_work=in_work, shortage=short)
+            )
+        demand[part_id] = out
+
+    in_work: dict[int, float] = {}
+    unlinked: dict[int, float] = {}
+    for p in parts:
+        w = in_work_by_stage.get(first_stage[p.id].id, 0.0)
+        in_work[p.id] = w
+        linked_work = sum(v[1] for (_, pid), v in linked.items() if pid == p.id)
+        unlinked[p.id] = max(0.0, w - linked_work)
+    return _State(parts, first_stage, demand, stock, reserved, in_work, unlinked)
+
+
+def _row(st: _State, p: Part, *, sources, task_demand, stock, in_work, min_stock) -> PfDemandRow:
+    fs = st.first_stage[p.id]
+    min_batch = float(p.min_batch_pieces) if p.min_batch_pieces is not None else None
+    need, shortage, suggested = compute_suggestion(
+        task_demand=task_demand, min_stock=min_stock, stock=stock, in_work=in_work, min_batch=min_batch
+    )
+    total = st.stock.get(p.id, 0.0)
+    reserved = st.reserved.get(p.id, 0.0)
+    return PfDemandRow(
+        part_id=p.id, part_name=p.name,
+        min_stock=float(p.min_stock_pieces) if p.min_stock_pieces is not None else None, min_batch=min_batch,
+        task_demand=task_demand, stock=stock, in_work=in_work, need=need, shortage=shortage, suggested=suggested,
+        first_stage_id=fs.id, first_stage_name=fs.name, first_stage_area=fs.area, sources=sources,
+        reserved=round(reserved, 2), free=round(max(0.0, total - reserved), 2),
+    )
+
+
+def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     """Потребность в комплектующих п/ф от открытых строк-операций (единая
     модель): заказов на производство (дверь → каркас, цветная панель) и
     заданий на сами п/ф (цветная панель → сырая панель) — многоуровневый
@@ -185,8 +309,6 @@ def _operation_demand_by_part(db: Session, task_ids: list[int] | None = None) ->
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
         .filter(ProductionTask.is_active.is_(True), ProductionTaskLine.part_stage_id.isnot(None))
     )
-    if task_ids:
-        q = q.filter(ProductionTaskLine.task_id.in_(task_ids))
     rows = q.all()
     if not rows:
         return out
@@ -237,6 +359,7 @@ def _operation_demand_by_part(db: Session, task_ids: list[int] | None = None) ->
             )
     return out
 
+
 def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[PfDemandRow]:
     """Детали с этапами, у которых задан минимальный остаток, есть
     потребность по заданиям цеха или заказам на производство, или что-то в
@@ -244,38 +367,52 @@ def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[Pf
 
     task_ids — только выбранные задания цеха: «что произвести, чтобы
     закрыть именно их». Минимальный остаток тогда не добавляется (запас —
-    не про конкретное задание), остаток и «в работе» вычитаются как
-    обычно; в список попадают только детали этих заданий."""
-    parts = db.query(Part).filter(Part.is_active.is_(True)).all()
-    parts = [p for p in parts if p.stages]
-    first_stage: dict[int, PartStage] = {p.id: min(p.stages, key=lambda s: s.sequence_order) for p in parts}
-    demand = _task_demand_by_part(db, task_ids)
-    for part_id, sources in _operation_demand_by_part(db, task_ids).items():
-        demand.setdefault(part_id, []).extend(sources)
-    stock = _stock_by_part(db)
-    in_work = _in_work_by_first_stage(db, {s.id for s in first_stage.values()})
+    не про конкретное задание); «есть» — свободный остаток плюс резерв этих
+    заданий (резервы других заданий не в счёт), «в работе» — производимое
+    под эти задания плюс запущенное без привязки к заданию; в список
+    попадают только детали этих заданий."""
+    st = _state(db)
+    selected = set(task_ids or [])
     rows = []
-    for p in parts:
-        fs = first_stage[p.id]
-        sources = sorted(demand.get(p.id, []), key=lambda s: s.task_id)
-        d = sum(s.remaining for s in sources)
-        w = in_work.get(fs.id, 0.0)
-        min_stock = float(p.min_stock_pieces) if p.min_stock_pieces is not None else None
-        min_batch = float(p.min_batch_pieces) if p.min_batch_pieces is not None else None
-        if task_ids:
+    for p in st.parts:
+        sources = st.demand.get(p.id, [])
+        if selected:
+            sources = [s for s in sources if s.task_id in selected]
+            d = sum(s.remaining for s in sources)
             if d <= 0:
                 continue
-        elif min_stock is None and d <= 0 and w <= 0:
+            free = max(0.0, st.stock.get(p.id, 0.0) - st.reserved.get(p.id, 0.0))
+            stock = free + sum(s.reserved for s in sources)
+            in_work = st.unlinked_in_work.get(p.id, 0.0) + sum(s.in_work for s in sources)
+            rows.append(_row(st, p, sources=sources, task_demand=d, stock=stock, in_work=in_work, min_stock=None))
             continue
-        s = stock.get(p.id, 0.0)
-        need, shortage, suggested = compute_suggestion(
-            task_demand=d, min_stock=None if task_ids else min_stock, stock=s, in_work=w, min_batch=min_batch
-        )
+        d = sum(s.remaining for s in sources)
+        w = st.in_work.get(p.id, 0.0)
+        min_stock = float(p.min_stock_pieces) if p.min_stock_pieces is not None else None
+        if min_stock is None and d <= 0 and w <= 0:
+            continue
         rows.append(
-            PfDemandRow(
-                part_id=p.id, part_name=p.name, min_stock=min_stock, min_batch=min_batch, task_demand=d,
-                stock=s, in_work=w, need=need, shortage=shortage, suggested=suggested,
-                first_stage_id=fs.id, first_stage_name=fs.name, first_stage_area=fs.area, sources=sources,
-            )
+            _row(st, p, sources=sources, task_demand=d, stock=st.stock.get(p.id, 0.0), in_work=w, min_stock=min_stock)
+        )
+    return sorted(rows, key=lambda r: (-r.shortage, r.part_name))
+
+
+def compute_pf_preview(db: Session, items: list[tuple[int, float]]) -> list[PfDemandRow]:
+    """Обеспечение п/ф ещё не созданного задания: сколько нужно по его
+    строкам (деталь, шт) против свободного остатка (без резервов других
+    заданий) и запущенного без привязки к заданию. Детали без этапов (п/ф не
+    учитывается партиями) пропускаются."""
+    st = _state(db)
+    need: dict[int, float] = defaultdict(float)
+    for part_id, qty in items:
+        need[part_id] += qty
+    rows = []
+    for p in st.parts:
+        if need.get(p.id, 0) <= 0:
+            continue
+        free = max(0.0, st.stock.get(p.id, 0.0) - st.reserved.get(p.id, 0.0))
+        rows.append(
+            _row(st, p, sources=[], task_demand=need[p.id], stock=free,
+                 in_work=st.unlinked_in_work.get(p.id, 0.0), min_stock=None)
         )
     return sorted(rows, key=lambda r: (-r.shortage, r.part_name))
