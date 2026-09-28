@@ -14,8 +14,9 @@
 за заданием цеха — явный резерв (PartReservation) плюс сделанное по
 заданиям п/ф «под это задание» (ProductionTask.for_task_id), не больше
 остатка задания по детали. Остаток распределяется по резервам от старых
-заданий к новым; «свободно» = остаток − обеспеченные резервы. Отчёты
-мастеров резерв не блокирует — он влияет на расчёт и виден всем."""
+заданий к новым; «свободно» = остаток − обеспеченные резервы. Чужой
+резерв расходовать нельзя (check_foreign_reserve): отчёт другого задания
+или расход без задания, который залезает в него, не принимается."""
 
 from collections import defaultdict
 from dataclasses import dataclass, replace
@@ -358,6 +359,40 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
                 )
             )
     return out
+
+
+def check_foreign_reserve(db: Session, *, part_id: int, quantity: float, task_id: int | None) -> None:
+    """Запрет расходовать чужой резерв: задание task_id (None — расход без
+    задания) может взять не больше остатка детали за вычетом обеспеченных
+    резервов других заданий. ValueError — ничего не расходуется. Детали без
+    резервов и без заданий п/ф «под задание» не проверяются вовсе."""
+    if quantity <= 0:
+        return
+    has_reserve = db.query(PartReservation.id).filter(PartReservation.part_id == part_id).first() is not None
+    has_linked = (
+        db.query(ProductionTaskLine.id)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(ProductionTaskLine.part_id == part_id, ProductionTask.for_task_id.isnot(None))
+        .first()
+        is not None
+    )
+    if not has_reserve and not has_linked:
+        return
+    db.flush()  # autoflush выключен: отчёты этой же транзакции должны быть видны
+    st = _state(db)
+    others = [s for s in st.demand.get(part_id, []) if s.task_id != task_id and s.reserved > 0]
+    reserved = sum(s.reserved for s in others)
+    if reserved <= 0:
+        return
+    available = st.stock.get(part_id, 0.0) - reserved
+    if quantity > available + 1e-9:
+        part = db.get(Part, part_id)
+        tasks = ", ".join(f"№{s.task_id} ({s.reserved:g} шт)" for s in others)
+        raise ValueError(
+            f"«{part.name if part else part_id}»: {reserved:g} шт в резерве под задания {tasks}. "
+            f"{'Этому заданию' if task_id else 'Без задания'} доступно {max(0.0, available):g} шт, нужно {quantity:g} шт — "
+            f"снимите или уменьшите резерв в «Обеспечение п/ф» того задания"
+        )
 
 
 def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[PfDemandRow]:

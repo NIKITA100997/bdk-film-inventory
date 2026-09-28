@@ -21,6 +21,7 @@ from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.production_orders import ORDER_CLOSED, ORDER_DRAFT, ORDER_RELEASED, ProductionOrder
 from app.services.components import live_item_names
 from app.services.part_units import mint_part_unit, write_off_part_unit
+from app.services.pf_demand import check_foreign_reserve
 
 
 class OrderError(ValueError):
@@ -127,6 +128,8 @@ def make_detail_from_unit(
     need = round(per_unit * quantity_pieces, 4)
     if need > float(unit.quantity_pieces) + 1e-9:
         raise ValueError(f"В партии №{unit.id} {float(unit.quantity_pieces):g} шт, а на {quantity_pieces:g} шт детали нужно {need:g}")
+    # Без задания — зарезервированное под задания цеха не трогаем.
+    check_foreign_reserve(db, part_id=unit.part_id, quantity=need, task_id=None)
     when = occurred_at or datetime.now(timezone.utc)
     write_off_part_unit(
         db, unit=unit, quantity_pieces=need, reason=PART_UNIT_AUTO_WRITE_OFF_REASON_CODE, user_id=user_id,
@@ -141,7 +144,8 @@ def make_detail_from_unit(
 
 
 def consume_components_at_operation(
-    db: Session, *, stage: PartStage, area: str, quantity: float, user_id: int, note: str | None = None
+    db: Session, *, stage: PartStage, area: str, quantity: float, user_id: int, note: str | None = None,
+    task_id: int | None = None,
 ) -> list[tuple[PartUnit, float]]:
     """Списать в производство комплектующие п/ф, которые по составу позиции
     расходуются на этой операции: состав × quantity, FIFO по дате
@@ -165,6 +169,8 @@ def consume_components_at_operation(
         if db.query(PartUnit.id).filter(PartUnit.part_id == part.id).first() is None:
             continue  # партии по детали не ведутся
         need = round(float(comp.qty_per_unit) * quantity, 4)
+        # Резерв этой детали под другие задания цеха не расходуется.
+        check_foreign_reserve(db, part_id=part.id, quantity=need, task_id=task_id)
         q = db.query(PartUnit).filter(
             PartUnit.part_id == part.id,
             PartUnit.status.in_([PartUnitStatus.VYDAN_UCHASTKU, PartUnitStatus.NA_KHRANENII]),

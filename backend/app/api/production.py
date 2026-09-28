@@ -52,6 +52,7 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.components import sync_bom_components
 from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
+from app.services.pf_demand import check_foreign_reserve
 from app.services.production_orders import consume_components_at_operation
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness, task_lines_with_progress
@@ -988,7 +989,7 @@ def _build_operation_report(
             # (единая модель, п.4): и на годные, и на брак.
             consume_components_at_operation(
                 db, stage=stage, area=line.task.area, quantity=payload.good_pieces + payload.defect_pieces,
-                user_id=user.id,
+                user_id=user.id, task_id=line.task_id,
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
@@ -1142,6 +1143,14 @@ def _build_task_line_report(
     # расходовал бы партию п/ф ЕЩЁ РАЗ на те же самые физические детали
     # (задвоение расхода партии вплоть до "недостаточно партий").
     fifo_results: list[tuple[PartUnit, bool, float]] = []
+    # Резерв п/ф под другие задания цеха не расходуется (годные и брак).
+    if has_part_unit_stock and payload.counts_toward_line:
+        try:
+            check_foreign_reserve(
+                db, part_id=part.id, quantity=payload.good_pieces + payload.defect_pieces, task_id=line.task_id
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
     if payload.good_pieces > 0 and has_part_unit_stock and payload.counts_toward_line:
         try:
             fifo_results = consume_part_units_fifo(
