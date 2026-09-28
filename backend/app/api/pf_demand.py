@@ -12,12 +12,16 @@ from app.models.items import match_part_id
 from app.models.part_units import PartReservation
 from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.users import User
-from app.services.pf_demand import PfDemandRow, compute_pf_demand, compute_pf_preview
+from app.services.pf_demand import PfDemandRow, compute_pf_demand, compute_pf_preview, reserves_by_part
 
 router = APIRouter(prefix="/pf-demand", tags=["pf-demand"])
 
 manage = require_permission("production_tasks.manage")
 view = require_permission("production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view")
+# Резерв виден и на остатках п/ф — там же, где их видит кладовщик п/ф.
+view_stock = require_permission(
+    "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view", "part_storage.manage"
+)
 
 
 class PfDemandSourceOut(BaseModel):
@@ -97,6 +101,23 @@ def list_pf_demand(
 
 def _out(row: PfDemandRow) -> PfDemandOut:
     return PfDemandOut(**{**row.__dict__, "sources": [PfDemandSourceOut(**s.__dict__) for s in row.sources]})
+
+
+class PartReserveOut(BaseModel):
+    part_id: int
+    stock: float
+    reserved: float
+    free: float
+    tasks: list[PfDemandSourceOut]
+
+
+@router.get("/reserves", response_model=list[PartReserveOut])
+def list_reserves(db: Session = Depends(get_db), user: User = Depends(view_stock)) -> list[PartReserveOut]:
+    """Резерв п/ф по деталям — для экранов остатков (только детали с резервом)."""
+    return [
+        PartReserveOut(**{**r.__dict__, "tasks": [PfDemandSourceOut(**s.__dict__) for s in r.tasks]})
+        for r in reserves_by_part(db)
+    ]
 
 
 @router.post("/preview", response_model=list[PfDemandOut])

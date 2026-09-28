@@ -361,6 +361,30 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     return out
 
 
+@dataclass(frozen=True)
+class PartReserve:
+    part_id: int
+    stock: float
+    reserved: float
+    free: float
+    tasks: list[PfDemandSource]  # задания с обеспеченным резервом
+
+
+def reserves_by_part(db: Session) -> list[PartReserve]:
+    """Резерв п/ф по деталям для экранов остатков: сколько из остатка
+    закреплено за заданиями цеха (обеспечено) и сколько свободно."""
+    st = _state(db)
+    out = []
+    for part_id, sources in st.demand.items():
+        tasks = [s for s in sources if s.reserved > 0]
+        if not tasks:
+            continue
+        stock = st.stock.get(part_id, 0.0)
+        reserved = st.reserved.get(part_id, 0.0)
+        out.append(PartReserve(part_id, round(stock, 2), round(reserved, 2), round(max(0.0, stock - reserved), 2), tasks))
+    return out
+
+
 def check_foreign_reserve(db: Session, *, part_id: int, quantity: float, task_id: int | None) -> None:
     """Запрет расходовать чужой резерв: задание task_id (None — расход без
     задания) может взять не больше остатка детали за вычетом обеспеченных

@@ -11,6 +11,8 @@ import { exportToExcel } from "../../../utils/excel";
 import { useAuth } from "../../../auth/AuthContext";
 import PartSelect from "../../../components/PartSelect";
 import type { Part } from "../../../api/dictionaries";
+import PfReserveCell from "../../../components/PfReserveCell";
+import { usePfReserves } from "../../../components/usePfReserves";
 
 interface PartStockGroup {
   partId: number;
@@ -55,6 +57,7 @@ export default function PartStock() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
 
   const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
+  const reserves = usePfReserves();
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : "—");
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
@@ -111,6 +114,8 @@ export default function PartStock() {
         stages: g.byStage.map((s) => `${s.stageName}: ${Math.round(s.qty * 100) / 100}`).join(", "),
         areas: g.byArea.map((a) => `${a.area ? areaLabel(a.area) : "склад"}: ${Math.round(a.qty * 100) / 100}`).join(", "),
         unplaced: g.unplacedCount,
+        reserved: reserves.get(g.partId)?.reserved ?? 0,
+        free: reserves.get(g.partId)?.free ?? Math.round(g.available * 100) / 100,
       })),
       [
         { key: "part", header: "Деталь" },
@@ -118,6 +123,8 @@ export default function PartStock() {
         { key: "stages", header: "По этапам" },
         { key: "areas", header: "По участкам" },
         { key: "unplaced", header: "Без адреса" },
+        { key: "reserved", header: "В резерве, шт" },
+        { key: "free", header: "Свободно, шт" },
       ],
     );
 
@@ -190,7 +197,7 @@ export default function PartStock() {
             <Table.Summary.Cell index={1}>
               <Typography.Text strong>{Math.round(totalAvailable)} шт</Typography.Text>
             </Table.Summary.Cell>
-            <Table.Summary.Cell index={2} colSpan={3} />
+            <Table.Summary.Cell index={2} colSpan={4} />
           </Table.Summary.Row>
         )}
         columns={[
@@ -200,6 +207,11 @@ export default function PartStock() {
             width: 110,
             render: (_, g) => <Typography.Text strong>{Math.round(g.available * 100) / 100}</Typography.Text>,
             sorter: (a, b) => a.available - b.available,
+          },
+          {
+            title: "Резерв под задания",
+            width: 230,
+            render: (_, g) => <PfReserveCell reserve={reserves.get(g.partId)} />,
           },
           {
             title: "По этапам",

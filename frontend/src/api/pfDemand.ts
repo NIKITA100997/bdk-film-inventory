@@ -67,3 +67,15 @@ export const createPfTasks = async (payload: {
   ship_date?: string | null;
   for_task_id?: number | null;
 }): Promise<{ task_ids: number[] }> => (await apiClient.post<{ task_ids: number[] }>("/pf-demand/tasks", payload)).data;
+
+export interface PartReserve {
+  part_id: number;
+  stock: number;
+  reserved: number;
+  free: number;
+  tasks: PfDemandSource[];
+}
+
+/** Резерв п/ф по деталям (только детали, у которых он есть). */
+export const listPfReserves = async (): Promise<PartReserve[]> =>
+  (await apiClient.get<PartReserve[]>("/pf-demand/reserves")).data;

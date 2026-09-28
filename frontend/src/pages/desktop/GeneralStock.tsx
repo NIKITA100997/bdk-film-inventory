@@ -8,6 +8,8 @@ import { listPartUnits } from "../../api/partUnits";
 import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
 import { exportToExcel } from "../../utils/excel";
+import PfReserveCell from "../../components/PfReserveCell";
+import { usePfReserves } from "../../components/usePfReserves";
 
 type Domain = "film" | "part";
 
@@ -37,6 +39,7 @@ interface GeneralRow {
   // По этапам — только у п/ф (раздел про недостающие столбцы, тот же
   // смысл, что уже показывает "Остатки п/ф").
   byStage?: { stageName: string; qty: number }[];
+  partId?: number;
   onOpen: () => void;
 }
 
@@ -78,6 +81,7 @@ export default function GeneralStock() {
     queryFn: () => listPartUnits(),
     enabled: canViewParts,
   });
+  const reserves = usePfReserves(canViewParts);
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
@@ -145,6 +149,7 @@ export default function GeneralStock() {
       areas: [...g.areas],
       unitCount: g.unitCount,
       byStage: [...g.stageQty.entries()].map(([stageName, qty]) => ({ stageName, qty })),
+      partId,
       onOpen: () => navigate("/part-card", { state: { partId } }),
     }));
   }, [partUnitsQuery.data, canViewParts, navigate]);
@@ -264,6 +269,10 @@ export default function GeneralStock() {
           },
           { title: "Позиция", dataIndex: "label" },
           { title: "Остаток", render: (_, r) => `${Math.round(r.qty * 100) / 100} ${r.unit}` },
+          {
+            title: "Резерв под задания",
+            render: (_, r) => (r.partId != null ? <PfReserveCell reserve={reserves.get(r.partId)} /> : "—"),
+          },
           { title: "Единиц/партий", width: 110, render: (_, r) => r.unitCount },
           {
             title: "Рулонов",
