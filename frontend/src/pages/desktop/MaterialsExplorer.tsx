@@ -28,6 +28,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { isAxiosError } from "axios";
 import {
   searchUnits,
+  UNIT_SEARCH_LIMIT,
   receiveAndAutoPlace,
   placeUnit,
   printLabel,
@@ -208,8 +209,11 @@ export default function MaterialsExplorer() {
     return map;
   }, [rollsVsStripsQuery.data]);
   const unitsQuery = useQuery({
-    queryKey: ["materials-explorer", "units", filters, warehouseId],
-    queryFn: () => searchUnits({ ...filters, warehouse_id: warehouseId }),
+    queryKey: ["materials-explorer", "units", filters, warehouseId, unitKind],
+    // Рулон/штрипс — отбор на сервере: иначе он работал бы только по
+    // пришедшей части списка.
+    queryFn: () =>
+      searchUnits({ ...filters, warehouse_id: warehouseId, is_strip: unitKind === "all" ? undefined : unitKind === "strip" }),
     enabled: viewMode === "units",
   });
   const classesQuery = useQuery({ queryKey: ["abc-classes", "all"], queryFn: () => listAbcClasses() });
@@ -359,7 +363,6 @@ export default function MaterialsExplorer() {
   });
 
   const displayedUnits = (unitsQuery.data ?? []).filter((u) => {
-    if (unitKind !== "all" && u.is_strip !== (unitKind === "strip")) return false;
     if (donorOnly) {
       const key = `${u.material_sku.material.name}|${u.material_sku.color.name}|${u.material_sku.thickness.value_mm}|${u.width_mm}`;
       if (!(u.status === "На_хранении" && classCKeys.has(key))) return false;
@@ -636,6 +639,14 @@ export default function MaterialsExplorer() {
             </Button>
           }
         >
+          {(unitsQuery.data?.length ?? 0) >= UNIT_SEARCH_LIMIT && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={`Показаны первые ${UNIT_SEARCH_LIMIT} единиц — сузьте отбор (материал, ширина, статус…), чтобы увидеть остальные.`}
+            />
+          )}
           {selectedUnitIds.length > 0 && (
             <Space wrap style={{ marginBottom: 12 }}>
               <Typography.Text>Выбрано: {selectedUnitIds.length}</Typography.Text>

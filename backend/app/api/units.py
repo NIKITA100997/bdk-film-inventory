@@ -1783,6 +1783,9 @@ def adjust_unit(
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 
+SEARCH_LIMIT = 5000
+
+
 @router.get("/search/available", response_model=list[MaterialUnitOut])
 def search_units(
     material: str | None = None,
@@ -1795,6 +1798,7 @@ def search_units(
     area: str | None = None,
     unplaced: bool | None = None,
     warehouse_id: int | None = None,
+    is_strip: bool | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[MaterialUnitOut]:
@@ -1840,8 +1844,13 @@ def search_units(
         query = query.filter(MaterialUnit.width_mm == width_mm)
     if min_length_m is not None:
         query = query.filter(MaterialUnit.length_m >= min_length_m)
+    if is_strip is not None:
+        query = query.filter(MaterialUnit.is_strip.is_(is_strip))
     query = filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
-    units = query.order_by(MaterialUnit.width_mm.asc(), MaterialUnit.length_m.desc()).limit(200).all()
+    # Было 200: при сортировке по ширине список молча обрезался до 200 самых
+    # узких штрипсов — рулонов в «По физическим единицам» не было видно
+    # вовсе (28.09). Запас с большим отрывом от числа единиц на складе.
+    units = query.order_by(MaterialUnit.width_mm.asc(), MaterialUnit.length_m.desc()).limit(SEARCH_LIMIT).all()
 
     # Название склада — не прямое поле единицы (только префикс location_code
     # относительно Rack.code), разрешаем один раз для всех стеллажей и

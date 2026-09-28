@@ -465,7 +465,11 @@ export interface SearchParams {
   area?: AreaValue;
   unplaced?: boolean;
   warehouse_id?: number;
+  is_strip?: boolean;
 }
+
+// Сервер отдаёт не больше стольких единиц (см. SEARCH_LIMIT в api/units.py).
+export const UNIT_SEARCH_LIMIT = 5000;
 
 export async function searchUnits(params: SearchParams): Promise<MaterialUnit[]> {
   const { data } = await apiClient.get<MaterialUnit[]>("/units/search/available", { params });
