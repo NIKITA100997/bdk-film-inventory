@@ -1,23 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Card,
-  Radio,
-  Switch,
-  Checkbox,
-  Button,
-  Space,
-  Select,
-  InputNumber,
-  Input,
-  DatePicker,
-  Typography,
-  Dropdown,
-  Modal,
-  Form,
-  List,
   Alert,
+  Button,
+  Card,
+  Checkbox,
+  DatePicker,
+  Dropdown,
+  Form,
+  Input,
+  InputNumber,
+  List,
+  Modal,
+  Radio,
+  Segmented,
+  Select,
+  Space,
+  Switch,
   Table,
   Tag,
+  Typography,
   message,
 } from "antd";
 import { DownOutlined, SearchOutlined } from "@ant-design/icons";
@@ -31,7 +32,6 @@ import {
   placeUnit,
   printLabel,
   printLabelsBatch,
-  reassignUnitSku,
   writeOffUnit,
   deleteUnit,
   getUnit,
@@ -54,6 +54,7 @@ import OccurredAtField from "../../components/OccurredAtField";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { useAuth } from "../../auth/AuthContext";
 import { exportToExcel } from "../../utils/excel";
+import { UnitBulkEditModal, UnitEditModal } from "./UnitEditModals";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 
@@ -92,6 +93,10 @@ export default function MaterialsExplorer() {
   const canCut = !!user?.is_superuser || !!user?.permissions.includes("units.cut");
   const canPlace = !!user?.is_superuser || !!user?.permissions.includes("units.place");
   const canEditSku = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
+  const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("units.correct");
+  // Правка единицы и массовые действия — у кого есть право хоть на одно из них.
+  const canEditUnit = canEditSku || canCorrect || canPlace;
+  const canSelect = canWriteOff || canEditUnit;
   // Раздел про аудит прав — "+ Новое" показывалось всем на этой намеренно
   // открытой всем странице (/stock), хотя оба пункта — мутирующие действия
   // с реальной проверкой на бэкенде (dictionaries.py:378, units.py:116).
@@ -107,6 +112,8 @@ export default function MaterialsExplorer() {
 
   const [viewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
   const [donorOnly, setDonorOnly] = useState(false);
+  // Отбор по виду единицы в «По физическим единицам»: рулон / штрипс.
+  const [unitKind, setUnitKind] = useState<"all" | "roll" | "strip">("all");
   // Раздел про архивные позиции в "Остатках" — без группировки по
   // производителю остаток архивной позиции молча подмешивался в сумму
   // активной с тем же материалом/цветом/толщиной; по умолчанию скрыт, тот
@@ -142,6 +149,7 @@ export default function MaterialsExplorer() {
   const [writeOffOpen, setWriteOffOpen] = useState(false);
   const [bulkCutOpen, setBulkCutOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<MaterialUnit | null>(null);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
   const [positionForm] = Form.useForm<MaterialSkuCreate>();
   const [unitForm] = Form.useForm<UnitLineValues>();
@@ -320,6 +328,7 @@ export default function MaterialsExplorer() {
   });
 
   const displayedUnits = (unitsQuery.data ?? []).filter((u) => {
+    if (unitKind !== "all" && u.is_strip !== (unitKind === "strip")) return false;
     if (donorOnly) {
       const key = `${u.material_sku.material.name}|${u.material_sku.color.name}|${u.material_sku.thickness.value_mm}|${u.width_mm}`;
       if (!(u.status === "На_хранении" && classCKeys.has(key))) return false;
@@ -406,6 +415,15 @@ export default function MaterialsExplorer() {
             <DictAutoComplete kind="manufacturers" placeholder="Производитель" value={filters.manufacturer} onChange={(v) => setFilter("manufacturer", v || undefined)} allowCreate={false} />
             {viewMode === "units" && (
               <>
+                <Segmented
+                  value={unitKind}
+                  onChange={(v) => setUnitKind(v as "all" | "roll" | "strip")}
+                  options={[
+                    { label: "Все", value: "all" },
+                    { label: "Рулоны", value: "roll" },
+                    { label: "Штрипсы", value: "strip" },
+                  ]}
+                />
                 <InputNumber placeholder="Ширина, мм" min={1} value={filters.width_mm} onChange={(v) => setFilter("width_mm", v ?? undefined)} />
                 <InputNumber placeholder="Мин. длина, м" min={0} step={0.1} value={filters.min_length_m} onChange={(v) => setFilter("min_length_m", v ?? undefined)} />
                 <Select placeholder="Статус" allowClear style={{ width: 160 }} options={statusOptions} value={filters.status} onChange={(v) => setFilter("status", v)} />
@@ -587,11 +605,47 @@ export default function MaterialsExplorer() {
             </Button>
           }
         >
-          {canWriteOff && selectedUnitIds.length > 0 && (
-            <Space style={{ marginBottom: 12 }}>
+          {canSelect && selectedUnitIds.length > 0 && (
+            <Space wrap style={{ marginBottom: 12 }}>
               <Typography.Text>Выбрано: {selectedUnitIds.length}</Typography.Text>
-              <Button danger onClick={() => setWriteOffOpen(true)}>
-                Списать выбранные ({selectedUnitIds.length})
+              {canEditUnit && <Button onClick={() => setBulkEditOpen(true)}>Изменить выбранные…</Button>}
+              <Button
+                onClick={() => {
+                  const chosen = new Set(selectedUnitIds);
+                  exportToExcel(
+                    "vybrannye-edinitsy.xlsx",
+                    (unitsQuery.data ?? [])
+                      .filter((u) => chosen.has(u.id))
+                      .map((u) => ({
+                        id: u.id,
+                        kind: u.is_strip ? "штрипс" : "рулон",
+                        material: skuLabel(u.material_sku),
+                        width_mm: u.width_mm,
+                        length_m: u.length_m,
+                        status: u.status.replace(/_/g, " "),
+                        location: u.location_code ?? (u.area ? areaLabel(u.area) : "") ?? "",
+                      })),
+                    [
+                      { key: "id", header: "ID" },
+                      { key: "kind", header: "Тип" },
+                      { key: "material", header: "Материал" },
+                      { key: "width_mm", header: "Ширина, мм" },
+                      { key: "length_m", header: "Длина, м" },
+                      { key: "status", header: "Статус" },
+                      { key: "location", header: "Адрес/участок" },
+                    ],
+                  );
+                }}
+              >
+                Экспорт выбранных
+              </Button>
+              {canWriteOff && (
+                <Button danger onClick={() => setWriteOffOpen(true)}>
+                  Списать выбранные ({selectedUnitIds.length})
+                </Button>
+              )}
+              <Button type="link" onClick={() => setSelectedUnitIds([])}>
+                Снять выбор
               </Button>
             </Space>
           )}
@@ -605,7 +659,7 @@ export default function MaterialsExplorer() {
             pagination={{ pageSize: 20 }}
             scroll={{ x: "max-content" }}
             rowSelection={
-              canWriteOff
+              canSelect
                 ? { selectedRowKeys: selectedUnitIds, onChange: (keys) => setSelectedUnitIds(keys as number[]) }
                 : undefined
             }
@@ -618,6 +672,7 @@ export default function MaterialsExplorer() {
             columns={[
               { title: "ID", dataIndex: "id", sorter: (a, b) => a.id - b.id },
               { title: "Материал", render: (_, u) => skuLabel(u.material_sku) },
+              { title: "Тип", render: (_, u) => (u.is_strip ? "штрипс" : "рулон") },
               { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м`, sorter: (a, b) => a.width_mm - b.width_mm },
               { title: "Статус", render: (_, u) => u.status.replace(/_/g, " ") },
               { title: "Склад", render: (_, u) => u.warehouse_name ?? "—" },
@@ -648,7 +703,7 @@ export default function MaterialsExplorer() {
                 title: "",
                 render: (_, u) => (
                   <Space size={4} onClick={(e) => e.stopPropagation()}>
-                    {canEditSku && (
+                    {canEditUnit && (
                       <Button size="small" onClick={() => setReassignTarget(u)}>
                         Изменить
                       </Button>
@@ -821,7 +876,10 @@ export default function MaterialsExplorer() {
         </Form>
       </Modal>
 
-      {reassignTarget && <ReassignSkuModal unit={reassignTarget} onClose={() => setReassignTarget(null)} />}
+      {reassignTarget && <UnitEditModal unit={reassignTarget} onClose={() => setReassignTarget(null)} />}
+      {bulkEditOpen && (
+        <UnitBulkEditModal unitIds={selectedUnitIds} onClose={() => setBulkEditOpen(false)} onDone={() => setSelectedUnitIds([])} />
+      )}
       {bulkCutOpen && <BulkCutModal onClose={() => setBulkCutOpen(false)} />}
     </Space>
   );
@@ -863,63 +921,6 @@ function SuggestPlaceButton({ unit }: { unit: MaterialUnit }) {
     >
       Подставить {suggestion.data}
     </Button>
-  );
-}
-
-/** Исправление ошибки ввода прямо из "Остатков" (раздел про карточку
- * материала) — та же форма, что и в "Карточке материала", но здесь, где
- * оператор реально видит единицу и её ошибочную номенклатуру в общем
- * списке, а не только на отдельном админском экране. */
-function ReassignSkuModal({ unit, onClose }: { unit: MaterialUnit; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [form] = Form.useForm<{ material: string; color: string; thickness: number; manufacturer: string }>();
-
-  const reassignMutation = useMutation({
-    mutationFn: (v: { material: string; color: string; thickness: number; manufacturer: string }) =>
-      reassignUnitSku(unit.id, v),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["materials-explorer"] });
-      qc.invalidateQueries({ queryKey: ["material-card"] });
-      message.success(`Номенклатура единицы №${unit.id} изменена`);
-      onClose();
-    },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить номенклатуру")),
-  });
-
-  return (
-    <Modal title={`Изменить номенклатуру — единица №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
-      <Typography.Paragraph type="secondary">
-        Исправление ошибки ввода — единица остаётся той же (id, история движений, адрес не меняются), меняется только
-        привязка к материалу/цвету/толщине/производителю.
-      </Typography.Paragraph>
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={{
-          material: unit.material_sku.material.name,
-          color: unit.material_sku.color.name,
-          thickness: unit.material_sku.thickness.value_mm,
-          manufacturer: unit.material_sku.manufacturer.name,
-        }}
-        onFinish={(v) => reassignMutation.mutate(v)}
-      >
-        <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
-          <DictAutoComplete kind="materials" />
-        </Form.Item>
-        <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
-          <DictAutoComplete kind="colors" />
-        </Form.Item>
-        <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
-          <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
-          <DictAutoComplete kind="manufacturers" />
-        </Form.Item>
-        <Button type="primary" htmlType="submit" block loading={reassignMutation.isPending}>
-          Сохранить
-        </Button>
-      </Form>
-    </Modal>
   );
 }
 

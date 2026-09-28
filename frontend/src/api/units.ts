@@ -418,6 +418,24 @@ export interface UnitAdjustRequest {
   width_mm?: number;
 }
 
+// Массовая правка выбранных единиц (тип рулон/штрипс, номенклатура, место) —
+// одной транзакцией на сервере; не заданное не трогается.
+export interface UnitBulkEditRequest {
+  unit_ids: number[];
+  is_strip?: boolean;
+  material?: string;
+  color?: string;
+  thickness?: number;
+  manufacturer?: string;
+  location_code?: string;
+  reason?: string;
+}
+
+export async function bulkEditUnits(payload: UnitBulkEditRequest): Promise<{ updated: number }> {
+  const { data } = await apiClient.post<{ updated: number }>("/units/bulk-edit", payload);
+  return data;
+}
+
 export async function adjustUnit(unitId: number, payload: UnitAdjustRequest): Promise<MaterialUnit> {
   const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/adjust`, payload);
   return data;

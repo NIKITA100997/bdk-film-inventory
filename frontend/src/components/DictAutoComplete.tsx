@@ -51,6 +51,7 @@ interface Props {
   // упадёт "не найдено в справочнике". По умолчанию true — как в приёмке/
   // начальных остатках, где отправка формы действительно заводит значение.
   allowCreate?: boolean;
+  disabled?: boolean;
 }
 
 /** Автокомплит по справочнику (2.1a/5.6 ТЗ) — подсказывает существующие
@@ -59,7 +60,7 @@ interface Props {
  * введённое не совпадает ни с чем — явно предлагает "Создать «…»"
  * (9.2 раздел бэклога доработок), а если похоже, но не совпадает точно —
  * предупреждает и предлагает использовать существующее. */
-export default function DictAutoComplete({ kind, value, onChange, placeholder, autoFocus, allowCreate = true, id }: Props) {
+export default function DictAutoComplete({ kind, value, onChange, placeholder, autoFocus, allowCreate = true, id, disabled }: Props) {
   // Свой префикс ключа кэша, не голое [kind] — иначе React Query совмещает
   // кэш с любым другим useQuery на тот же ключ (например, StorageMap.tsx
   // уже кэширует "толщины" под ключом ["thicknesses"], но в сыром виде
@@ -98,6 +99,7 @@ export default function DictAutoComplete({ kind, value, onChange, placeholder, a
     <div>
       <AutoComplete
         id={id}
+        disabled={disabled}
         options={options}
         value={value}
         onChange={onChange}

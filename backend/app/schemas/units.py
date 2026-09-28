@@ -103,6 +103,28 @@ class PlaceRequest(BaseModel):
     occurred_at: OccurredAt = None
 
 
+class UnitBulkEditRequest(BaseModel):
+    """Массовая правка выбранных единиц в «Остатках» (по физическим
+    единицам) — одной транзакцией, всё или ничего. Не заданное поле не
+    трогается. Права — как у одиночных действий: тип — units.correct
+    (корректировка с причиной и событием), номенклатура — materials.manage,
+    место — units.place (только Принят/На хранении)."""
+
+    unit_ids: list[int] = Field(min_length=1)
+    is_strip: bool | None = None
+    material: str | None = None
+    color: str | None = None
+    thickness: float | None = None
+    manufacturer: str | None = None
+    location_code: str | None = None
+    reason: str | None = None
+    occurred_at: datetime | None = None
+
+
+class UnitBulkEditOut(BaseModel):
+    updated: int
+
+
 class ReassignSkuRequest(BaseModel):
     """Исправление ошибки ввода (раздел про карточку материала) — сменить
     номенклатуру уже существующей единицы, когда при вводе (например,

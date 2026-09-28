@@ -47,6 +47,8 @@ from app.schemas.units import (
     ReturnPreviewOut,
     ReturnRequest,
     UnitAdjustRequest,
+    UnitBulkEditOut,
+    UnitBulkEditRequest,
     UnitEventOut,
     WriteOffRequest,
 )
@@ -709,6 +711,92 @@ def reassign_unit_sku(
     unit.material_sku_id = sku.id
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+
+
+@router.post("/bulk-edit", response_model=UnitBulkEditOut)
+def bulk_edit_units(
+    payload: UnitBulkEditRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> UnitBulkEditOut:
+    """Массовая правка выбранных единиц (тип рулон/штрипс, номенклатура,
+    место) — одной транзакцией: сначала проверяются все единицы, потом
+    меняются; хоть одна не проходит — не меняется ничего."""
+    perms = set() if user.is_superuser else get_permission_codes(user)
+
+    def need(code: str, what: str) -> None:
+        if not user.is_superuser and code not in perms:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Нет права менять {what}")
+
+    sku_fields = (payload.material, payload.color, payload.thickness, payload.manufacturer)
+    change_sku = any(v not in (None, "") for v in sku_fields)
+    location = (payload.location_code or "").strip() or None
+    if payload.is_strip is None and not change_sku and location is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не выбрано, что менять")
+    if payload.is_strip is not None:
+        need("units.correct", "тип рулон/штрипс")
+        if not (payload.reason or "").strip():
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Укажите причину смены типа")
+    if change_sku:
+        need("materials.manage", "номенклатуру")
+        if any(v in (None, "") for v in sku_fields):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Для смены номенклатуры укажите материал, цвет, толщину и производителя",
+            )
+    if location is not None:
+        need("units.place", "место хранения")
+
+    units = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
+    missing = sorted(set(payload.unit_ids) - {u.id for u in units})
+    if missing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Не найдены единицы: {missing}")
+    if location is not None:
+        bad = [u.id for u in units if u.status not in (UnitStatus.PRINYAT, UnitStatus.NA_KHRANENII)]
+        if bad:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Разместить можно только принятые или на хранении — не подходят №{', №'.join(map(str, bad))}",
+            )
+    sku = (
+        find_or_create_sku(
+            db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
+        )
+        if change_sku
+        else None
+    )
+    if location is not None:
+        for u in units:
+            _validate_zone_rule(db, location, sku or u.material_sku)
+
+    updated = 0
+    for u in units:
+        changed = False
+        if sku is not None and u.material_sku_id != sku.id:
+            u.material_sku_id = sku.id
+            changed = True
+        if payload.is_strip is not None and payload.is_strip != u.is_strip:
+            was, now = ("штрипс" if u.is_strip else "рулон"), ("штрипс" if payload.is_strip else "рулон")
+            u.is_strip = payload.is_strip
+            length = float(u.length_m)
+            record_event(
+                db, unit=u, event_type=EventType.KORREKTIROVKA, user_id=user.id, quantity_delta_m=0,
+                from_length=length, to_length=length, write_off_note=f"{payload.reason.strip()} (тип: {was} → {now})",
+                occurred_at=payload.occurred_at,
+            )
+            changed = True
+        if location is not None and u.location_code != location:
+            from_cell = u.location_code
+            u.status = UnitStatus.NA_KHRANENII
+            u.location_code = location
+            record_event(
+                db, unit=u, event_type=EventType.PRIHOD, user_id=user.id, from_cell=from_cell, to_cell=location,
+                occurred_at=payload.occurred_at,
+            )
+            changed = True
+        updated += changed
+    db.commit()
+    return UnitBulkEditOut(updated=updated)
 
 
 @router.post("/{unit_id}/issue", response_model=MaterialUnitOut)
