@@ -143,9 +143,12 @@ export default function CreateTaskModal({
   open,
   onClose,
   onCreated,
+  orderId,
 }: {
   open: boolean;
   onClose: () => void;
+  /** Добавить задание в этот заказ; без него — новый заказ. */
+  orderId?: number;
   /** needsPf — в задании есть детали п/ф, учитываемые партиями. */
   onCreated?: (task: ProductionTask, needsPf: boolean) => void;
 }) {
@@ -245,6 +248,7 @@ export default function CreateTaskModal({
     onSuccess: (task) => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       qc.invalidateQueries({ queryKey: ["pf-demand"] });
+      qc.invalidateQueries({ queryKey: ["production-orders"] });
       const needsPf = pfRows.length > 0;
       resetAndClose();
       message.success(needsPf ? "Задание создано — проверьте обеспечение п/ф" : "Задание создано");
@@ -442,7 +446,7 @@ export default function CreateTaskModal({
 
   return (
     <Modal
-      title="Новое производственное задание"
+      title={orderId ? `Задание с плёнкой в заказ №${orderId}` : "Новый заказ: задание с плёнкой (окутка, ламинация…)"}
       open={open}
       onCancel={resetAndClose}
       footer={null}
@@ -827,6 +831,7 @@ export default function CreateTaskModal({
             .then((v) =>
               manualCreateMutation.mutate({
                 ...v,
+                production_order_id: orderId,
                 product_model_id: bomProductModelId || undefined,
                 quantity: bomForm.getFieldValue("quantity") || undefined,
                 // _skuCandidates/_materialLocked/_stockAreaM2 — только
@@ -838,7 +843,7 @@ export default function CreateTaskModal({
             .catch(() => {});
         }}
       >
-        Создать задание ({manualLines.length} строк(и))
+        {orderId ? "Добавить задание в заказ" : "Создать заказ"} ({manualLines.length} строк(и))
       </Button>
     </Modal>
   );

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid, Modal, InputNumber, Form, Select } from "antd";
 // Раздел про широкую таблицу строк задания — ResponsiveTable только для
 // внутренней таблицы строк (плоский список, без expandable). Внешняя
@@ -27,8 +27,6 @@ import { skuLabel } from "../../../api/units";
 import { listUsers } from "../../../api/users";
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
-import CreateTaskModal from "./CreateTaskModal";
-import OperationTaskModal from "./OperationTaskModal";
 import AssignmentModal from "./AssignmentModal";
 import ReportModal from "./ReportModal";
 import PfSupplyModal from "./PfSupplyModal";
@@ -60,10 +58,9 @@ export default function TasksTab() {
   const wideScreen = screens.md ?? true;
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const canReport = canManage || !!user?.permissions.includes("production_tasks.report");
-  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const navigate = useNavigate();
   // Обеспечение п/ф задания: резерв и задания на п/ф «под это задание».
   const [supplyTarget, setSupplyTarget] = useState<{ id: number; name: string } | null>(null);
-  const [operationModalOpen, setOperationModalOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine; area: string } | null>(null);
   const [assignTarget, setAssignTarget] = useState<{ task: ProductionTask; line: ProductionTaskLine } | null>(null);
   // ?task=ID — задание из сквозного поиска: раскрыто, архивные показаны.
@@ -152,14 +149,8 @@ export default function TasksTab() {
             <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
               Показывать архивные
             </Checkbox>
-            {canManage && (
-              <>
-                <Button onClick={() => setOperationModalOpen(true)}>Задание без плёнки</Button>
-                <Button type="primary" onClick={() => setTaskModalOpen(true)}>
-                  Создать задание
-                </Button>
-              </>
-            )}
+            {/* Задания заводятся заказом на производство — здесь исполнение. */}
+            {canManage && <Button onClick={() => navigate("/production-orders")}>Заказы на производство →</Button>}
           </Space>
         }
       >
@@ -168,7 +159,7 @@ export default function TasksTab() {
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={
               canManage
-                ? "Заданий пока нет — создайте первое кнопкой выше"
+                ? "Заданий пока нет — они появляются из заказов на производство"
                 : "Заданий для вашего участка пока нет"
             }
           />
@@ -401,6 +392,25 @@ export default function TasksTab() {
                     </>
                   ),
                 },
+                {
+                  key: "order",
+                  title: "Заказ",
+                  width: wideScreen ? 220 : undefined,
+                  ellipsis: true,
+                  render: (_, t) =>
+                    t.production_order_id ? (
+                      <a
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/production-orders?order=${t.production_order_id}`);
+                        }}
+                      >
+                        №{t.production_order_id} «{t.production_order_name}»
+                      </a>
+                    ) : (
+                      "—"
+                    ),
+                },
                 { key: "area", title: "Участок", width: wideScreen ? 140 : undefined, dataIndex: "area", render: (v: string) => areaLabel(v) },
                 { key: "quantity", title: "Количество", width: wideScreen ? 110 : undefined, render: (_, t) => t.quantity ?? "—" },
                 {
@@ -472,11 +482,6 @@ export default function TasksTab() {
         )}
       </Card>
 
-      <CreateTaskModal
-        open={taskModalOpen}
-        onClose={() => setTaskModalOpen(false)}
-        onCreated={(t, needsPf) => needsPf && setSupplyTarget({ id: t.id, name: t.product_model_name ?? t.name ?? "" })}
-      />
       {supplyTarget && (
         <PfSupplyModal
           taskId={supplyTarget.id}
@@ -485,7 +490,6 @@ export default function TasksTab() {
           onClose={() => setSupplyTarget(null)}
         />
       )}
-      <OperationTaskModal open={operationModalOpen} onClose={() => setOperationModalOpen(false)} />
 
       {reportTarget && (
         <ReportModal

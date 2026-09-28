@@ -175,6 +175,8 @@ class ProductionTaskManualCreate(BaseModel):
     product_model_id: int | None = None
     quantity: int | None = None
     external_order_ref: int | None = None
+    # Заказ на производство, в который добавить задание; пусто — новый заказ.
+    production_order_id: int | None = None
     lines: list[ProductionTaskLineManualCreate] = Field(min_length=1)
 
 
@@ -410,6 +412,9 @@ class ProductionTaskOut(BaseModel):
     lines: list[ProductionTaskLineOut]
     # Задание п/ф под другое задание цеха (services/pf_demand.py).
     for_task_id: int | None = None
+    # Заказ на производство, в который входит задание.
+    production_order_id: int | None = None
+    production_order_name: str | None = None
     # Раздел про план/факт по расходу плёнки — сумма planned_length_m/
     # issued_length_m по всем строкам задания, чтобы видеть прогресс по
     # заданию в целом, не только по каждой строке отдельно.
@@ -450,6 +455,7 @@ class OperationLineCreate(BaseModel):
 class OperationTaskCreate(BaseModel):
     name: str
     area: str
+    production_order_id: int | None = None
     lines: list[OperationLineCreate] = Field(min_length=1)
 
 

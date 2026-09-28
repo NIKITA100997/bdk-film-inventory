@@ -12,6 +12,7 @@ from app.models.items import match_part_id
 from app.models.part_units import PartReservation
 from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.users import User
+from app.services.production_orders import OrderError, attach_tasks_to_order
 from app.services.pf_demand import PfDemandRow, compute_pf_demand, compute_pf_preview, reserves_by_part
 
 router = APIRouter(prefix="/pf-demand", tags=["pf-demand"])
@@ -191,6 +192,7 @@ def create_pf_tasks(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание, под которое делаются п/ф, не найдено")
     today = date.today().strftime("%d.%m.%Y")
     task_ids = []
+    tasks: list[ProductionTask] = []
     for area, items in by_area.items():
         ship = f", отгрузка {payload.ship_date.strftime('%d.%m.%Y')}" if payload.ship_date else ""
         name = f"Производство п/ф от {today}{ship}"
@@ -210,6 +212,15 @@ def create_pf_tasks(
             )
         db.add(task)
         db.flush()
+        tasks.append(task)
         task_ids.append(task.id)
+    # Задания на п/ф — внутри заказа: под задание — в его заказ, иначе новый.
+    order_id = for_task.production_order_id if for_task is not None else None
+    order_name = tasks[0].name if tasks else "Производство п/ф"
+    try:
+        attach_tasks_to_order(db, tasks, name=order_name, user_id=user.id, order_id=order_id)
+    except OrderError:
+        # Заказ того задания уже закрыт — свой заказ под п/ф.
+        attach_tasks_to_order(db, tasks, name=order_name, user_id=user.id)
     db.commit()
     return PfDemandTasksOut(task_ids=task_ids)

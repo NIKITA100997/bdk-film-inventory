@@ -8,6 +8,7 @@ import {
   Checkbox,
   DatePicker,
   Drawer,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -25,6 +26,9 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import ScheduleImportModal from "./ScheduleImportModal";
+import CreateTaskModal from "./CreateTaskModal";
+import OperationTaskModal from "./OperationTaskModal";
+import PfSupplyModal from "./PfSupplyModal";
 import { useAuth } from "../../../auth/AuthContext";
 import { listItems } from "../../../api/items";
 import {
@@ -37,6 +41,7 @@ import {
   updateProductionOrder,
   type OrderInput,
   type OrderStatus,
+  type OrderTask,
   type ProductionOrder,
 } from "../../../api/productionOrders";
 
@@ -47,16 +52,27 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 
 const STATUS_COLOR: Record<OrderStatus, string> = { draft: "default", released: "blue", closed: "green" };
 
+// Заказ с позициями — готовность по последней операции позиций; заказ
+// из заданий (окутка из наряда, операции участка, п/ф) — по строкам заданий.
 const orderTotals = (o: ProductionOrder) => {
+  if (o.lines.length === 0) {
+    const tasks = o.tasks ?? [];
+    return { qty: tasks.reduce((s, t) => s + t.planned, 0), done: tasks.reduce((s, t) => s + t.done, 0) };
+  }
   const qty = o.lines.reduce((s, l) => s + l.quantity, 0);
   const done = o.lines.reduce((s, l) => s + Math.min(l.done, l.quantity), 0);
   return { qty, done };
 };
 
-/** Заказы на производство (единая модель, пункт 4): что и сколько сделать —
- * позиции любого вида. «Запустить» раскладывает заказ по маршрутам позиций
- * на задания участкам («Задания цеха»); комплектующие — через «Потребность
- * п/ф»; прогресс — по отчётам участков. */
+/** Как в заказе создаётся задание участку: с плёнкой или без. */
+type TaskCreate = { kind: "film" | "ops"; orderId?: number };
+
+/** Заказы на производство — единственное место, где заводится работа
+ * цеху (как в ERP: заказ → задания на участки). Заказ из позиций
+ * номенклатуры «Запустить» раскладывает по маршрутам; окутка/ламинация из
+ * наряда или плана заготовок и работы участка без плёнки — сразу заказ с
+ * заданием. «Задания цеха» — только исполнение. Комплектующие п/ф — через
+ * «Обеспечение п/ф» задания и «Потребность п/ф». */
 export default function ProductionOrders() {
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
@@ -66,6 +82,8 @@ export default function ProductionOrders() {
   const [openId, setOpenId] = useState<number | null>(Number(params.get("order")) || null);
   const [editing, setEditing] = useState<ProductionOrder | "new" | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [taskCreate, setTaskCreate] = useState<TaskCreate | null>(null);
+  const [supplyTarget, setSupplyTarget] = useState<{ id: number; name: string } | null>(null);
   const [includeClosedDefault] = useState(!!params.get("order"));
   const ordersQuery = useQuery({
     queryKey: ["production-orders", includeClosed || includeClosedDefault],
@@ -82,19 +100,33 @@ export default function ProductionOrders() {
             <Checkbox checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)}>
               С закрытыми
             </Checkbox>
-            {canManage && <Button onClick={() => setImportOpen(true)}>Из графика…</Button>}
             {canManage && (
-              <Button type="primary" onClick={() => setEditing("new")}>
-                Новый заказ
-              </Button>
+              <Dropdown
+                trigger={["click"]}
+                menu={{
+                  items: [
+                    { key: "film", label: "Окутка / ламинация — из наряда, плана заготовок или вручную" },
+                    { key: "ops", label: "Работы участка без плёнки (операции техкарт)" },
+                    { key: "items", label: "Из позиций номенклатуры (по маршрутам)" },
+                    { key: "schedule", label: "Из графика запуска…" },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "film" || key === "ops") setTaskCreate({ kind: key });
+                    else if (key === "items") setEditing("new");
+                    else setImportOpen(true);
+                  },
+                }}
+              >
+                <Button type="primary">Новый заказ ▾</Button>
+              </Dropdown>
             )}
           </Space>
         }
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          Что и сколько сделать — любые позиции номенклатуры. «Запустить» раскладывает заказ по маршрутам позиций на
-          задания участкам; комплектующие п/ф попадают в «Потребность п/ф»; отчёт по операции списывает комплектующие,
-          которые на ней расходуются.
+          Вся работа цеху заводится здесь. Заказ из позиций номенклатуры «Запустить» раскладывает по маршрутам на
+          задания участкам; окутка из наряда или плана заготовок и работы без плёнки — сразу заказ с заданием. Участки
+          выполняют задания в «Заданиях цеха».
         </Typography.Paragraph>
       </Card>
       <ResponsiveTable<ProductionOrder>
@@ -117,8 +149,14 @@ export default function ProductionOrders() {
                   №{o.id} «{o.name}»
                 </span>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {o.lines.length} поз.: {o.lines.slice(0, 2).map((l) => l.item_name).join(", ")}
-                  {o.lines.length > 2 ? " …" : ""}
+                  {o.lines.length > 0 ? (
+                    <>
+                      {o.lines.length} поз.: {o.lines.slice(0, 2).map((l) => l.item_name).join(", ")}
+                      {o.lines.length > 2 ? " …" : ""}
+                    </>
+                  ) : (
+                    `заданий: ${(o.tasks ?? []).length} · ${[...new Set((o.tasks ?? []).map((t) => t.area_name ?? t.area))].join(", ")}`
+                  )}
                 </Typography.Text>
               </Space>
             ),
@@ -144,7 +182,32 @@ export default function ProductionOrders() {
           { title: "Создал", render: (_, o) => `${o.created_by_name}, ${dayjs(o.created_at).format("DD.MM.YYYY")}` },
         ]}
       />
-      <OrderDrawer order={opened} onClose={() => setOpenId(null)} onEdit={(o) => setEditing(o)} canManage={canManage} />
+      <OrderDrawer
+        order={opened}
+        onClose={() => setOpenId(null)}
+        onEdit={(o) => setEditing(o)}
+        canManage={canManage}
+        onAddTask={(kind, orderId) => setTaskCreate({ kind, orderId })}
+        onSupply={(t) => setSupplyTarget({ id: t.id, name: t.name })}
+      />
+      <CreateTaskModal
+        open={taskCreate?.kind === "film"}
+        orderId={taskCreate?.orderId}
+        onClose={() => setTaskCreate(null)}
+        onCreated={(t, needsPf) => {
+          if (t.production_order_id) setOpenId(t.production_order_id);
+          if (needsPf) setSupplyTarget({ id: t.id, name: t.name ?? "" });
+        }}
+      />
+      <OperationTaskModal open={taskCreate?.kind === "ops"} orderId={taskCreate?.orderId} onClose={() => setTaskCreate(null)} />
+      {supplyTarget && (
+        <PfSupplyModal
+          taskId={supplyTarget.id}
+          taskName={supplyTarget.name}
+          canManage={canManage}
+          onClose={() => setSupplyTarget(null)}
+        />
+      )}
       {importOpen && (
         <ScheduleImportModal
           onClose={() => setImportOpen(false)}
@@ -173,11 +236,15 @@ function OrderDrawer({
   onClose,
   onEdit,
   canManage,
+  onAddTask,
+  onSupply,
 }: {
   order: ProductionOrder | null;
   onClose: () => void;
   onEdit: (o: ProductionOrder) => void;
   canManage: boolean;
+  onAddTask: (kind: "film" | "ops", orderId: number) => void;
+  onSupply: (t: OrderTask) => void;
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -252,7 +319,18 @@ function OrderDrawer({
             )}
             {order.status === "released" && (
               <>
-                <Button onClick={() => navigate("/production-tasks")}>Задания цеха →</Button>
+                <Dropdown
+                  trigger={["click"]}
+                  menu={{
+                    items: [
+                      { key: "film", label: "Задание с плёнкой (окутка, ламинация)" },
+                      { key: "ops", label: "Задание без плёнки (операции участка)" },
+                    ],
+                    onClick: ({ key }) => onAddTask(key as "film" | "ops", order.id),
+                  }}
+                >
+                  <Button>+ Задание ▾</Button>
+                </Dropdown>
                 <Button onClick={() => navigate("/pf-demand")}>Потребность п/ф →</Button>
                 <Popconfirm
                   title="Закрыть заказ?"
@@ -275,6 +353,53 @@ function OrderDrawer({
             {order.ship_date ? `Отгрузка ${dayjs(order.ship_date).format("DD.MM.YYYY")}. ` : ""}
             {order.note ?? ""}
           </Typography.Text>
+          {(order.tasks ?? []).length > 0 && (
+            <Card size="small" title="Задания участкам">
+              <Table<OrderTask>
+                size="small"
+                rowKey="id"
+                pagination={false}
+                dataSource={order.tasks}
+                scroll={{ x: "max-content" }}
+                columns={[
+                  {
+                    title: "Задание",
+                    render: (_, t) => (
+                      <Space size={4} wrap>
+                        <a onClick={() => navigate(`/production-tasks?task=${t.id}`)}>
+                          №{t.id} · {t.name}
+                        </a>
+                        {t.with_film && <Tag color="blue">плёнка</Tag>}
+                        {t.for_task_id && <Tag color="geekblue">п/ф под №{t.for_task_id}</Tag>}
+                        {!t.is_active && <Tag>в архиве</Tag>}
+                      </Space>
+                    ),
+                  },
+                  { title: "Участок", render: (_, t) => t.area_name ?? t.area },
+                  {
+                    title: "Сделано",
+                    render: (_, t) => (
+                      <Space size={8}>
+                        <Progress percent={t.planned ? Math.round((t.done / t.planned) * 100) : 0} size="small" style={{ width: 100 }} />
+                        <span>
+                          {t.done} из {t.planned}
+                        </span>
+                      </Space>
+                    ),
+                  },
+                  {
+                    title: "",
+                    render: (_, t) =>
+                      canManage && t.is_active && t.with_parts ? (
+                        <Button size="small" onClick={() => onSupply(t)}>
+                          Обеспечение п/ф
+                        </Button>
+                      ) : null,
+                  },
+                ]}
+              />
+            </Card>
+          )}
           {order.lines.map((l) => (
             <Card
               key={l.id}

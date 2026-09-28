@@ -73,6 +73,52 @@ def release_order(db: Session, order: ProductionOrder, user_id: int) -> list[Pro
     return list(tasks.values())
 
 
+def attach_tasks_to_order(
+    db: Session, tasks: list[ProductionTask], *, name: str, user_id: int, order_id: int | None = None
+) -> ProductionOrder:
+    """Любое задание цеха — внутри заказа на производство (как в ERP: заказ
+    → этапы на участки). order_id — добавить к запущенному заказу; без него
+    — новый заказ под это задание: без строк позиций (работу задают строки
+    самих заданий — плёнка, операции), сразу запущенный. Без commit."""
+    if order_id is not None:
+        order = db.get(ProductionOrder, order_id)
+        if order is None:
+            raise OrderError("Заказ не найден")
+        if order.status != ORDER_RELEASED:
+            raise OrderError("Добавить задание можно только в запущенный заказ")
+    else:
+        order = ProductionOrder(
+            name=(" ".join(name.split()) or "Заказ")[:255], status=ORDER_RELEASED,
+            released_at=datetime.now(timezone.utc), created_by=user_id,
+        )
+        db.add(order)
+        db.flush()
+    for task in tasks:
+        task.production_order_id = order.id
+    db.flush()
+    return order
+
+
+def sync_task_order(db: Session, order_id: int | None) -> None:
+    """Заказ без строк позиций живёт своими заданиями: все в архиве — заказ
+    закрыт, есть активное — запущен, заданий не осталось — заказ удаляется.
+    Заказы с позициями ведут себя как раньше (закрывает начальник)."""
+    if order_id is None:
+        return
+    db.flush()
+    order = db.get(ProductionOrder, order_id)
+    if order is None or order.lines:
+        return
+    tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order_id).all()
+    if not tasks:
+        db.delete(order)
+    elif any(t.is_active for t in tasks):
+        order.status = ORDER_RELEASED
+    else:
+        order.status = ORDER_CLOSED
+    db.flush()
+
+
 def close_order(db: Session, order: ProductionOrder) -> None:
     if order.status != ORDER_RELEASED:
         raise OrderError("Закрыть можно только запущенный заказ")

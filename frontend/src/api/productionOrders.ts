@@ -55,6 +55,22 @@ export interface ProductionOrder {
   released_at: string | null;
   task_ids: number[];
   lines: OrderLine[];
+  /** Задания участкам внутри заказа. */
+  tasks: OrderTask[];
+}
+
+export interface OrderTask {
+  id: number;
+  name: string;
+  area: string;
+  area_name: string | null;
+  is_active: boolean;
+  for_task_id: number | null;
+  lines_count: number;
+  planned: number;
+  done: number;
+  with_film: boolean;
+  with_parts: boolean;
 }
 
 export interface OrderInput {

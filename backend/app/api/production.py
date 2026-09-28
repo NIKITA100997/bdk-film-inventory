@@ -52,8 +52,9 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.components import sync_bom_components
 from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
+from app.models.production_orders import ProductionOrder
 from app.services.pf_demand import check_foreign_reserve
-from app.services.production_orders import consume_components_at_operation
+from app.services.production_orders import OrderError, attach_tasks_to_order, consume_components_at_operation, sync_task_order
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness, task_lines_with_progress
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
@@ -456,6 +457,7 @@ def _task_borrowable_and_shortfall(
 
 def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
     model = db.get(ProductModel, task.product_model_id) if task.product_model_id else None
+    order = db.get(ProductionOrder, task.production_order_id) if task.production_order_id else None
     line_ids = [l.id for l in task.lines]
     report_aggregates = _line_report_aggregates(db, line_ids)
     assignment_aggregates = _line_assignment_aggregates(db, line_ids)
@@ -489,6 +491,8 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
         quantity=task.quantity,
         external_order_ref=task.external_order_ref,
         for_task_id=task.for_task_id,
+        production_order_id=task.production_order_id,
+        production_order_name=order.name if order else None,
         created_by=task.created_by,
         created_at=task.created_at,
         is_active=task.is_active,
@@ -782,6 +786,11 @@ def create_production_task_manual(
                 part_name=line_payload.part_name,
             )
         )
+    try:
+        attach_tasks_to_order(db, [task], name=payload.name, user_id=user.id, order_id=payload.production_order_id)
+    except OrderError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
     db.commit()
     db.refresh(task)
     return _task_out(db, task)
@@ -848,6 +857,11 @@ def create_operation_task(
             )
         else:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Строка: выберите операцию или впишите работу")
+    try:
+        attach_tasks_to_order(db, [task], name=payload.name, user_id=user.id, order_id=payload.production_order_id)
+    except OrderError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
     db.commit()
     db.refresh(task)
     return _task_out(db, task)
@@ -1621,7 +1635,9 @@ def delete_production_task_impl(db: Session, task: ProductionTask) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail="Нельзя удалить задание — по нему уже выдавалась плёнка. Такое задание остаётся в истории склада.",
         )
+    order_id = task.production_order_id
     db.delete(task)
+    sync_task_order(db, order_id)
 
 
 @router.delete("/production-tasks/{task_id}", response_model=DeleteResultOut)
@@ -1649,6 +1665,7 @@ def archive_production_task(
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
     task.is_active = is_active
+    sync_task_order(db, task.production_order_id)
     db.commit()
     db.refresh(task)
     return _task_out(db, task)

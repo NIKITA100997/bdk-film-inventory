@@ -74,6 +74,22 @@ class OrderLineOut(BaseModel):
     components: list[ComponentNeed]
 
 
+class OrderTaskOut(BaseModel):
+    """Задание участку внутри заказа — для карточки заказа."""
+
+    id: int
+    name: str
+    area: str
+    area_name: str | None
+    is_active: bool
+    for_task_id: int | None
+    lines_count: int
+    planned: float  # шт по всем строкам
+    done: float  # годных по отчётам
+    with_film: bool  # есть строки с плёнкой (окутка/ламинация)
+    with_parts: bool  # есть строки, расходующие детали п/ф
+
+
 class OrderOut(BaseModel):
     id: int
     name: str
@@ -85,6 +101,7 @@ class OrderOut(BaseModel):
     released_at: datetime | None
     task_ids: list[int]
     lines: list[OrderLineOut]
+    tasks: list[OrderTaskOut] = []
 
 
 def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
@@ -151,12 +168,42 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
             )
         )
     author = db.get(User, order.created_by)
-    task_ids = [t.id for t in db.query(ProductionTask.id).filter(ProductionTask.production_order_id == order.id)]
+    tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).order_by(ProductionTask.id).all()
     return OrderOut(
         id=order.id, name=order.name, ship_date=order.ship_date, note=order.note, status=order.status,
         created_by_name=(author.full_name or author.username) if author else "—", created_at=order.created_at,
-        released_at=order.released_at, task_ids=task_ids, lines=out_lines,
+        released_at=order.released_at, task_ids=[t.id for t in tasks], lines=out_lines,
+        tasks=_tasks_out(db, tasks, area_names),
     )
+
+
+def _tasks_out(db: Session, tasks: list[ProductionTask], area_names: dict[str, str]) -> list[OrderTaskOut]:
+    if not tasks:
+        return []
+    line_ids = [ln.id for t in tasks for ln in t.lines]
+    good = (
+        dict(
+            db.query(ProductionTaskLineReport.task_line_id, func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
+            .filter(
+                ProductionTaskLineReport.task_line_id.in_(line_ids),
+                ProductionTaskLineReport.counts_toward_line.is_(True),
+            )
+            .group_by(ProductionTaskLineReport.task_line_id)
+        )
+        if line_ids
+        else {}
+    )
+    return [
+        OrderTaskOut(
+            id=t.id, name=t.name or (t.product_model.name if t.product_model else f"Задание №{t.id}"), area=t.area,
+            area_name=area_names.get(t.area), is_active=t.is_active, for_task_id=t.for_task_id, lines_count=len(t.lines),
+            planned=round(sum(float(ln.quantity_pieces) for ln in t.lines), 2),
+            done=round(sum(min(float(good.get(ln.id, 0)), float(ln.quantity_pieces)) for ln in t.lines), 2),
+            with_film=any(ln.material_id is not None for ln in t.lines),
+            with_parts=any(ln.part_id is not None and ln.part_stage_id is None for ln in t.lines),
+        )
+        for t in tasks
+    ]
 
 
 def _get_order(db: Session, order_id: int) -> ProductionOrder:

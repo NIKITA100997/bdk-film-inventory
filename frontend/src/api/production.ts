@@ -157,6 +157,9 @@ export interface ProductionTask {
   external_order_ref: number | null;
   /** Задание п/ф под другое задание цеха. */
   for_task_id?: number | null;
+  /** Заказ на производство, в который входит задание. */
+  production_order_id?: number | null;
+  production_order_name?: string | null;
   created_by: number;
   created_at: string;
   is_active: boolean;
@@ -190,6 +193,8 @@ export interface ProductionTaskManualCreate {
   product_model_id?: number;
   quantity?: number;
   external_order_ref?: number;
+  /** Заказ, в который добавить задание; пусто — новый заказ. */
+  production_order_id?: number;
   lines: ProductionTaskLineManualCreate[];
 }
 
@@ -542,5 +547,6 @@ export const listAreaOperations = async (area: string): Promise<AreaOperation[]>
 export const createOperationTask = async (payload: {
   name: string;
   area: string;
+  production_order_id?: number;
   lines: { part_stage_id: number | null; name: string | null; quantity_pieces: number }[];
 }): Promise<ProductionTask> => (await apiClient.post<ProductionTask>("/production-tasks/operations", payload)).data;

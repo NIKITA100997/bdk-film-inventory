@@ -17,7 +17,8 @@ function apiErrorMessage(e: unknown, fallback: string): string {
  * задание): строка — операция техкарты (этап детали на этом участке; отчёт
  * двигает партии детали по маршруту) или просто работа, которую считают
  * штуками (упаковка и т.п.). */
-export default function OperationTaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** orderId — добавить задание в этот заказ; без него — новый заказ. */
+export default function OperationTaskModal({ open, onClose, orderId }: { open: boolean; onClose: () => void; orderId?: number }) {
   const qc = useQueryClient();
   const [form] = Form.useForm<FormValues>();
   const [area, setArea] = useState<string | undefined>();
@@ -38,6 +39,7 @@ export default function OperationTaskModal({ open, onClose }: { open: boolean; o
       createOperationTask({
         name: v.name.trim(),
         area: v.area,
+        production_order_id: orderId,
         lines: v.lines.map((l) => ({
           part_stage_id: l.part_stage_id ?? null,
           name: l.part_stage_id ? null : (l.name ?? "").trim() || null,
@@ -47,7 +49,8 @@ export default function OperationTaskModal({ open, onClose }: { open: boolean; o
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       qc.invalidateQueries({ queryKey: ["pf-demand"] });
-      message.success("Задание создано");
+      qc.invalidateQueries({ queryKey: ["production-orders"] });
+      message.success(orderId ? `Задание добавлено в заказ №${orderId}` : "Заказ с заданием создан");
       form.resetFields();
       setArea(undefined);
       onClose();
@@ -56,7 +59,7 @@ export default function OperationTaskModal({ open, onClose }: { open: boolean; o
   });
 
   return (
-    <Modal title="Задание без плёнки" open={open} onCancel={onClose} footer={null} destroyOnHidden width={780}>
+    <Modal title={orderId ? `Задание без плёнки в заказ №${orderId}` : "Новый заказ: работы без плёнки"} open={open} onCancel={onClose} footer={null} destroyOnHidden width={780}>
       <Typography.Paragraph type="secondary">
         Для работ без плёнки: сборка, склейка, фрезеровка, упаковка… Строка — операция детали п/ф (отчёт по ней
         двигает партии детали дальше по маршруту) или просто работа, которую считают штуками.
