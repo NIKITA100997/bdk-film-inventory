@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import TypesTab from "./nomenclature/TypesTab";
 import GroupsModal from "./nomenclature/GroupsModal";
+import NewModelWizard from "./nomenclature/NewModelWizard";
 import PartsAdmin from "./PartsAdmin";
 import ProductModels from "./ProductModels";
 import { useAuth } from "../../auth/AuthContext";
@@ -74,6 +75,7 @@ function ItemsTab() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [moveTo, setMoveTo] = useState<number | undefined>();
   const [groupsOpen, setGroupsOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const kindsQuery = useQuery({ queryKey: ["item-kinds"], queryFn: listItemKinds });
   const groupsQuery = useQuery({ queryKey: ["item-groups"], queryFn: listItemGroups });
   const groups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data]);
@@ -139,7 +141,8 @@ function ItemsTab() {
       <Card>
         <Typography.Paragraph type="secondary">
           Все позиции в одном списке: плёнка, п/ф, изделия. Вид задаёт, в чём позиция учитывается. Клик по строке —
-          техкарта: маршрут, состав и где используется. Правка — пока в привычных справочниках. Код 1С заполним при сопоставлении с 1С.
+          техкарта: маршрут, состав и где используется (есть схема деревом). «+ Новая модель» — мастер с подсказками:
+          тип, модель, варианты и схема до создания. Код 1С заполним при сопоставлении с 1С.
         </Typography.Paragraph>
         <Space wrap size={[12, 12]}>
           <Segmented
@@ -173,6 +176,11 @@ function ItemsTab() {
             С архивными
           </Checkbox>
           {canGroup && kind !== "all" && <Button onClick={() => setGroupsOpen(true)}>Группы…</Button>}
+          {canGroup && (
+            <Button type="primary" onClick={() => setWizardOpen(true)}>
+              + Новая модель
+            </Button>
+          )}
         </Space>
         {canGroup && selectedIds.length > 0 && (
           <Space wrap style={{ marginTop: 12 }}>
@@ -195,6 +203,7 @@ function ItemsTab() {
           </Space>
         )}
       </Card>
+      {wizardOpen && <NewModelWizard onClose={() => setWizardOpen(false)} />}
       {kind !== "all" && (
         <GroupsModal open={groupsOpen} onClose={() => setGroupsOpen(false)} kind={kind} kindName={kindName} groups={groups} />
       )}

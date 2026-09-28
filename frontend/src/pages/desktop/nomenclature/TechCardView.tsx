@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Space, Table, Tag, Typography } from "antd";
+import { Button, Segmented, Space, Spin, Table, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../../auth/AuthContext";
 import { getTechCard } from "../../../api/items";
 import ItemPropertiesSection from "./ItemPropertiesSection";
 import RouteEditorModal from "./RouteEditorModal";
 import ComponentsEditorModal from "./ComponentsEditorModal";
+import TechTree from "../../../components/TechTree";
+import { getItemTree } from "../../../api/modelBuilder";
 
 /** Техкарта позиции — одна на любой вид: тип и свойства, маршрут по
  * участкам, состав на 1 шт и где используется (единая модель). Часть
@@ -23,6 +25,14 @@ export default function TechCardView({ itemId }: { itemId: number }) {
   const [componentsOpen, setComponentsOpen] = useState(false);
   const cardQuery = useQuery({ queryKey: ["techcard", itemId], queryFn: () => getTechCard(itemId) });
   const card = cardQuery.data;
+  // «Схема» — та же техкарта деревом вглубь (mindmap): операции → что на них
+  // расходуется → у компонента свои операции и состав.
+  const [view, setView] = useState<"card" | "tree">("card");
+  const treeQuery = useQuery({
+    queryKey: ["item-tree", itemId],
+    queryFn: () => getItemTree(itemId),
+    enabled: view === "tree",
+  });
   const qty = (v: number | null, unit: string) => (v == null ? "—" : `${Number(v.toFixed(3))} ${unit}`);
 
   return (
@@ -31,6 +41,24 @@ export default function TechCardView({ itemId }: { itemId: number }) {
         <Typography.Text type="secondary">Загрузка…</Typography.Text>
       ) : (
         <Space direction="vertical" size="large" style={{ width: "100%" }}>
+          {card.source_type !== "sku" && (
+            <Segmented
+              value={view}
+              onChange={(v) => setView(v as "card" | "tree")}
+              options={[
+                { label: "Карточка", value: "card" },
+                { label: "Схема (дерево)", value: "tree" },
+              ]}
+            />
+          )}
+          {view === "tree" &&
+            (treeQuery.isLoading || !treeQuery.data ? (
+              <Spin />
+            ) : (
+              <TechTree root={treeQuery.data} expandDepth={2} onOpen={(id) => navigate(`/item/${id}?tab=techcard`)} />
+            ))}
+          {view === "card" && (
+          <>
           <section>
             <Typography.Title level={5}>Тип и свойства</Typography.Title>
             <ItemPropertiesSection itemId={card.item_id} kindCode={card.kind_code} canEdit={canEditTypes} />
@@ -126,6 +154,8 @@ export default function TechCardView({ itemId }: { itemId: number }) {
               </ul>
             )}
           </section>
+          </>
+          )}
         </Space>
       )}
       {routeOpen && card && <RouteEditorModal card={card} onClose={() => setRouteOpen(false)} />}
