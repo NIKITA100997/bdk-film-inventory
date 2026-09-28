@@ -55,6 +55,7 @@ import ResponsiveTable from "../../components/ResponsiveTable";
 import { useAuth } from "../../auth/AuthContext";
 import { exportToExcel } from "../../utils/excel";
 import { UnitBulkEditModal, UnitEditModal } from "./UnitEditModals";
+import UnitBulkActionModal, { type BulkAction } from "./UnitBulkActions";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 
@@ -96,7 +97,9 @@ export default function MaterialsExplorer() {
   const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("units.correct");
   // Правка единицы и массовые действия — у кого есть право хоть на одно из них.
   const canEditUnit = canEditSku || canCorrect || canPlace;
-  const canSelect = canWriteOff || canEditUnit;
+  const canIssue = !!user?.is_superuser || !!user?.permissions.includes("units.issue");
+  const canReturn = !!user?.is_superuser || !!user?.permissions.includes("units.return");
+  const canTransfer = !!user?.is_superuser || !!user?.permissions.includes("warehouse_transfers.manage");
   // Раздел про аудит прав — "+ Новое" показывалось всем на этой намеренно
   // открытой всем странице (/stock), хотя оба пункта — мутирующие действия
   // с реальной проверкой на бэкенде (dictionaries.py:378, units.py:116).
@@ -150,6 +153,7 @@ export default function MaterialsExplorer() {
   const [bulkCutOpen, setBulkCutOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<MaterialUnit | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkAction, setBulkAction] = useState<BulkAction | null>(null);
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
   const [positionForm] = Form.useForm<MaterialSkuCreate>();
   const [unitForm] = Form.useForm<UnitLineValues>();
@@ -307,6 +311,33 @@ export default function MaterialsExplorer() {
 
   const setFilter = <K extends keyof SearchParams>(key: K, value: SearchParams[K] | undefined) =>
     setFilters((f) => ({ ...f, [key]: value }));
+
+  const exportSelected = () => {
+                  const chosen = new Set(selectedUnitIds);
+                  exportToExcel(
+                    "vybrannye-edinitsy.xlsx",
+                    (unitsQuery.data ?? [])
+                      .filter((u) => chosen.has(u.id))
+                      .map((u) => ({
+                        id: u.id,
+                        kind: u.is_strip ? "штрипс" : "рулон",
+                        material: skuLabel(u.material_sku),
+                        width_mm: u.width_mm,
+                        length_m: u.length_m,
+                        status: u.status.replace(/_/g, " "),
+                        location: u.location_code ?? (u.area ? areaLabel(u.area) : "") ?? "",
+                      })),
+                    [
+                      { key: "id", header: "ID" },
+                      { key: "kind", header: "Тип" },
+                      { key: "material", header: "Материал" },
+                      { key: "width_mm", header: "Ширина, мм" },
+                      { key: "length_m", header: "Длина, м" },
+                      { key: "status", header: "Статус" },
+                      { key: "location", header: "Адрес/участок" },
+                    ],
+                  );
+                };
 
   const trimmedQuery = globalQuery.trim();
   const isNumericQuery = /^\d+$/.test(trimmedQuery);
@@ -605,45 +636,38 @@ export default function MaterialsExplorer() {
             </Button>
           }
         >
-          {canSelect && selectedUnitIds.length > 0 && (
+          {selectedUnitIds.length > 0 && (
             <Space wrap style={{ marginBottom: 12 }}>
               <Typography.Text>Выбрано: {selectedUnitIds.length}</Typography.Text>
               {canEditUnit && <Button onClick={() => setBulkEditOpen(true)}>Изменить выбранные…</Button>}
-              <Button
-                onClick={() => {
-                  const chosen = new Set(selectedUnitIds);
-                  exportToExcel(
-                    "vybrannye-edinitsy.xlsx",
-                    (unitsQuery.data ?? [])
-                      .filter((u) => chosen.has(u.id))
-                      .map((u) => ({
-                        id: u.id,
-                        kind: u.is_strip ? "штрипс" : "рулон",
-                        material: skuLabel(u.material_sku),
-                        width_mm: u.width_mm,
-                        length_m: u.length_m,
-                        status: u.status.replace(/_/g, " "),
-                        location: u.location_code ?? (u.area ? areaLabel(u.area) : "") ?? "",
-                      })),
-                    [
-                      { key: "id", header: "ID" },
-                      { key: "kind", header: "Тип" },
-                      { key: "material", header: "Материал" },
-                      { key: "width_mm", header: "Ширина, мм" },
-                      { key: "length_m", header: "Длина, м" },
-                      { key: "status", header: "Статус" },
-                      { key: "location", header: "Адрес/участок" },
-                    ],
-                  );
+              <Button onClick={() => printLabelsBatch(selectedUnitIds)}>Печать этикеток</Button>
+              <Dropdown
+                menu={{
+                  items: [
+                    ...(canIssue ? [{ key: "issue", label: "Выдать участку…" }] : []),
+                    ...(canReturn ? [{ key: "return", label: "Вернуть на склад…" }] : []),
+                    ...(canTransfer ? [{ key: "transfer", label: "Переместить на другой склад…" }] : []),
+                    ...(canIssue ? [{ key: "link", label: "Привязать к строке задания…" }] : []),
+                    { key: "export", label: "Экспорт выбранных в Excel" },
+                    ...(canWriteOff
+                      ? [
+                          { type: "divider" as const },
+                          { key: "writeoff", label: "Списать выбранные…", danger: true },
+                          { key: "delete", label: user?.is_superuser ? "Удалить выбранные…" : "Запросить удаление…", danger: true },
+                        ]
+                      : []),
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "export") exportSelected();
+                    else if (key === "writeoff") setWriteOffOpen(true);
+                    else setBulkAction(key as BulkAction);
+                  },
                 }}
               >
-                Экспорт выбранных
-              </Button>
-              {canWriteOff && (
-                <Button danger onClick={() => setWriteOffOpen(true)}>
-                  Списать выбранные ({selectedUnitIds.length})
+                <Button>
+                  Ещё действия <DownOutlined />
                 </Button>
-              )}
+              </Dropdown>
               <Button type="link" onClick={() => setSelectedUnitIds([])}>
                 Снять выбор
               </Button>
@@ -658,11 +682,8 @@ export default function MaterialsExplorer() {
             dataSource={displayedUnits}
             pagination={{ pageSize: 20 }}
             scroll={{ x: "max-content" }}
-            rowSelection={
-              canSelect
-                ? { selectedRowKeys: selectedUnitIds, onChange: (keys) => setSelectedUnitIds(keys as number[]) }
-                : undefined
-            }
+            // Выбор строк — всем: печать и экспорт доступны любому, кто видит остатки.
+            rowSelection={{ selectedRowKeys: selectedUnitIds, onChange: (keys) => setSelectedUnitIds(keys as number[]) }}
             onRow={(u) => ({
               onClick: (e) => {
                 if ((e.target as HTMLElement).closest(".ant-checkbox-wrapper")) return;
@@ -877,6 +898,15 @@ export default function MaterialsExplorer() {
       </Modal>
 
       {reassignTarget && <UnitEditModal unit={reassignTarget} onClose={() => setReassignTarget(null)} />}
+      {bulkAction && (
+        <UnitBulkActionModal
+          action={bulkAction}
+          units={(unitsQuery.data ?? []).filter((u) => selectedUnitIds.includes(u.id))}
+          isSuperuser={!!user?.is_superuser}
+          onClose={() => setBulkAction(null)}
+          onDone={() => setSelectedUnitIds([])}
+        />
+      )}
       {bulkEditOpen && (
         <UnitBulkEditModal unitIds={selectedUnitIds} onClose={() => setBulkEditOpen(false)} onDone={() => setSelectedUnitIds([])} />
       )}
