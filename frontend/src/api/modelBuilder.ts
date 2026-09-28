@@ -72,3 +72,29 @@ export const getItemTree = async (itemId: number): Promise<TreeNode> =>
 
 export const previewTree = async (typeId: number, values: Record<number, PropertyValue>): Promise<TreeNode> =>
   (await apiClient.post<TreeNode>(`/item-types/${typeId}/tree`, { values })).data;
+
+export interface VariantStat {
+  item_id: number;
+  name: string;
+  is_active: boolean;
+  /** свойство → значение подписью */
+  values: Record<string, string>;
+  ordered: number;
+  done: number;
+  defect: number;
+  in_work: number;
+  draft: number;
+  orders: number;
+  last_order_at: string | null;
+}
+
+export interface ModelSummary {
+  model_id: number;
+  variants: VariantStat[];
+  totals: Record<"variants" | "ordered" | "done" | "defect" | "in_work" | "draft" | "orders", number>;
+  by_property: Record<string, { value: string; variants: number; ordered: number }[]>;
+  order_ids: number[];
+}
+
+export const getModelSummary = async (modelId: number): Promise<ModelSummary> =>
+  (await apiClient.get<ModelSummary>(`/items/${modelId}/model-summary`)).data;

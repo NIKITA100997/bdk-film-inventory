@@ -22,6 +22,7 @@ export interface Item {
   /** Модель (серия) — варианты ссылаются на неё через model_id. */
   is_model: boolean;
   model_id: number | null;
+  type_id?: number | null;
   material: string | null;
   color: string | null;
   thickness: number | null;

@@ -29,8 +29,9 @@ import ScheduleImportModal from "./ScheduleImportModal";
 import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
+import VariantPicker from "../../../components/VariantPicker";
 import { useAuth } from "../../../auth/AuthContext";
-import { listItems } from "../../../api/items";
+import { listItems, type Item } from "../../../api/items";
 import {
   ORDER_STATUS_LABEL,
   closeProductionOrder,
@@ -493,9 +494,24 @@ function OrderModal({
     order ? order.lines.map((l) => ({ item_id: l.item_id, quantity: l.quantity, note: l.note ?? "" })) : [{ item_id: null, quantity: null, note: "" }],
   );
   const patch = (i: number, p: Partial<LineDraft>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...p } : l)));
-  const itemOptions = (itemsQuery.data ?? [])
-    .filter((i) => i.kind_code !== "plenka" && !i.is_model) // модель — не в заказ, берётся её вариант
-    .map((i) => ({ value: i.id, label: `${i.name} · ${i.kind_name}` }));
+  // Модель в заказ не идёт — по ней выбирается вариант (размер, цвет,
+  // кромка): есть — берётся, нет — заводится сам (VariantPicker).
+  const [picking, setPicking] = useState<{ line: number; model: Item } | null>(null);
+  const items = itemsQuery.data ?? [];
+  const itemOptions = [
+    {
+      label: "Модели — выбрать размер и цвет",
+      options: items
+        .filter((i) => i.is_model && i.type_id)
+        .map((i) => ({ value: i.id, label: `${i.name} — выбрать вариант…` })),
+    },
+    {
+      label: "Позиции",
+      options: items
+        .filter((i) => i.kind_code !== "plenka" && i.kind_code !== "material" && !i.is_model)
+        .map((i) => ({ value: i.id, label: `${i.name} · ${i.kind_name}` })),
+    },
+  ];
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -540,7 +556,7 @@ function OrderModal({
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Form.Item>
         <Typography.Text strong>Позиции</Typography.Text>
-        {itemOptions.length === 0 && !itemsQuery.isLoading ? (
+        {items.length === 0 && !itemsQuery.isLoading ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Нет позиций" />
         ) : (
           <Space direction="vertical" style={{ width: "100%", marginTop: 8 }}>
@@ -554,7 +570,11 @@ function OrderModal({
                   loading={itemsQuery.isLoading}
                   value={l.item_id ?? undefined}
                   options={itemOptions}
-                  onChange={(v) => patch(i, { item_id: v })}
+                  onChange={(v) => {
+                    const picked = items.find((x) => x.id === v);
+                    if (picked?.is_model) setPicking({ line: i, model: picked });
+                    else patch(i, { item_id: v });
+                  }}
                 />
                 <InputNumber min={1} placeholder="шт" style={{ width: 100 }} value={l.quantity} onChange={(v) => patch(i, { quantity: v })} />
                 <Input placeholder="примечание" style={{ width: 160 }} value={l.note} onChange={(e) => patch(i, { note: e.target.value })} />
@@ -569,6 +589,18 @@ function OrderModal({
           </Space>
         )}
       </Form>
+      {picking && (
+        <VariantPicker
+          modelId={picking.model.id}
+          modelName={picking.model.name}
+          typeId={picking.model.type_id as number}
+          onClose={() => setPicking(null)}
+          onPicked={(itemId) => {
+            patch(picking.line, { item_id: itemId });
+            setPicking(null);
+          }}
+        />
+      )}
     </Modal>
   );
 }

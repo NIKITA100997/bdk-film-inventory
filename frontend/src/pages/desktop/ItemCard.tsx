@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button, Card, Empty, Progress, Result, Space, Spin, Table, Tabs, Tag, Typography } from "antd";
+import TechTree from "../../components/TechTree";
+import { getItemTree, getModelSummary } from "../../api/modelBuilder";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
 import { ITEM_VIEW_PERMISSIONS, getTechCard, lookupItem } from "../../api/items";
@@ -31,12 +33,26 @@ export default function ItemCard() {
   const has = (code: string) => !!user?.is_superuser || !!user?.permissions.includes(code);
   // Заказы — только не у плёнки и тем, кто видит заказы на производство.
   const canSeeOrders = has("production_tasks.manage") || has("production_tasks.view") || has("production_tasks.report");
-  const ordersQuery = useQuery({
-    queryKey: ["production-orders", "item", itemId],
-    queryFn: () => listProductionOrders(true, itemId),
-    enabled: itemId > 0 && canSeeOrders && !!cardQuery.data && cardQuery.data.kind_code !== "plenka",
-  });
   const card = cardQuery.data;
+  // У модели — заказы по всем её вариантам и схема самого заказываемого.
+  const isModel = !!card?.is_model;
+  const ordersQuery = useQuery({
+    queryKey: ["production-orders", isModel ? "model" : "item", itemId],
+    queryFn: () => (isModel ? listProductionOrders(true, undefined, itemId) : listProductionOrders(true, itemId)),
+    enabled: itemId > 0 && canSeeOrders && !!card && card.kind_code !== "plenka",
+  });
+  const summaryQuery = useQuery({
+    queryKey: ["model-summary", itemId],
+    queryFn: () => getModelSummary(itemId),
+    enabled: isModel,
+  });
+  const sampleVariant = summaryQuery.data?.variants[0]?.item_id;
+  const treeQuery = useQuery({
+    queryKey: ["item-tree", sampleVariant],
+    queryFn: () => getItemTree(sampleVariant as number),
+    enabled: isModel && !!sampleVariant && params.get("tab") === "scheme",
+  });
+  const variantIds = new Set((summaryQuery.data?.variants ?? []).map((v) => v.item_id));
   useTabTitle(card?.name);
 
   if (cardQuery.isLoading) return <Spin style={{ display: "block", margin: 48 }} />;
@@ -51,7 +67,35 @@ export default function ItemCard() {
   const orders = ordersQuery.data ?? [];
   // Модель (серия) — только её варианты: маршрут, состав и остатки — у вариантов.
   const tabs = card.is_model
-    ? [{ key: "variants", label: "Варианты", children: <ModelVariants modelId={itemId} typeId={card.type_id} /> }]
+    ? [
+        { key: "variants", label: "Варианты и история", children: <ModelVariants modelId={itemId} typeId={card.type_id} /> },
+        ...(canSeeOrders
+          ? [
+              {
+                key: "orders",
+                label: `Заказы${orders.length ? ` (${orders.length})` : ""}`,
+                children: <OrdersOfItem itemIds={variantIds} orders={orders} loading={ordersQuery.isLoading} />,
+              },
+            ]
+          : []),
+        {
+          key: "scheme",
+          label: "Схема",
+          children: !sampleVariant ? (
+            <Empty description="Вариантов пока нет — схема появится с первым" />
+          ) : treeQuery.data ? (
+            <Space direction="vertical" style={{ width: "100%" }}>
+              <Typography.Text type="secondary">
+                Схема варианта «{summaryQuery.data?.variants[0]?.name}» — у остальных цветов и размеров та же, меняются только
+                размеры и цвет панелей и кромки.
+              </Typography.Text>
+              <TechTree root={treeQuery.data} expandDepth={2} onOpen={(id) => navigate(`/item/${id}?tab=techcard`)} />
+            </Space>
+          ) : (
+            <Spin />
+          ),
+        },
+      ]
     : [
         ...(stockTab ? [stockTab] : []),
         { key: "techcard", label: "Техкарта", children: <TechCardView itemId={itemId} /> },
@@ -59,7 +103,7 @@ export default function ItemCard() {
           ? [{ key: "movements", label: "Движение", children: <MovementsPanel itemId={itemId} /> }]
           : []),
         ...(card.kind_code !== "plenka" && canSeeOrders
-          ? [{ key: "orders", label: `Заказы${orders.length ? ` (${orders.length})` : ""}`, children: <OrdersOfItem itemId={itemId} orders={orders} loading={ordersQuery.isLoading} /> }]
+          ? [{ key: "orders", label: `Заказы${orders.length ? ` (${orders.length})` : ""}`, children: <OrdersOfItem itemIds={new Set([itemId])} orders={orders} loading={ordersQuery.isLoading} /> }]
           : []),
       ];
   const active = tabs.some((t) => t.key === params.get("tab")) ? (params.get("tab") as string) : tabs[0].key;
@@ -92,7 +136,7 @@ export default function ItemCard() {
   );
 }
 
-function OrdersOfItem({ itemId, orders, loading }: { itemId: number; orders: ProductionOrder[]; loading: boolean }) {
+function OrdersOfItem({ itemIds, orders, loading }: { itemIds: Set<number>; orders: ProductionOrder[]; loading: boolean }) {
   const navigate = useNavigate();
   if (!loading && orders.length === 0) return <Empty description="В заказах на производство позиции пока нет" />;
   return (
@@ -102,7 +146,7 @@ function OrdersOfItem({ itemId, orders, loading }: { itemId: number; orders: Pro
       loading={loading}
       pagination={false}
       dataSource={orders}
-      onRow={() => ({ onClick: () => navigate("/production-orders"), style: { cursor: "pointer" } })}
+      onRow={(o) => ({ onClick: () => navigate(`/production-orders?order=${o.id}`), style: { cursor: "pointer" } })}
       columns={[
         { title: "Заказ", render: (_, o) => `№${o.id} «${o.name}»` },
         { title: "Статус", render: (_, o) => <Tag>{ORDER_STATUS_LABEL[o.status]}</Tag> },
@@ -110,7 +154,7 @@ function OrdersOfItem({ itemId, orders, loading }: { itemId: number; orders: Pro
         {
           title: "Этой позиции",
           render: (_, o) => {
-            const lines = o.lines.filter((l) => l.item_id === itemId);
+            const lines = o.lines.filter((l) => itemIds.has(l.item_id));
             const qty = lines.reduce((s, l) => s + l.quantity, 0);
             const done = lines.reduce((s, l) => s + Math.min(l.done, l.quantity), 0);
             return o.status === "draft" ? (

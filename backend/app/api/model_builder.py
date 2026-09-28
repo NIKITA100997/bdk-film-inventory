@@ -2,6 +2,7 @@
 техкарты (services/model_builder.py)."""
 
 from dataclasses import asdict
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -12,6 +13,7 @@ from app.api.items import view_items
 from app.db.session import get_db
 from app.models.items import Item, ItemPropertyOption
 from app.services import model_builder
+from app.services.model_summary import model_summary
 
 router = APIRouter(tags=["model-builder"])
 
@@ -164,3 +166,41 @@ def preview_tree(type_id: int, payload: TreePreviewIn, db: Session = Depends(get
     t = _get_type(db, type_id)
     values = {int(k): v for k, v in payload.values.items() if v not in (None, "")}
     return TreeNodeOut(**asdict(model_builder.preview_tree(db, t, values)))
+
+
+class VariantStatOut(BaseModel):
+    item_id: int
+    name: str
+    is_active: bool
+    values: dict[str, str]
+    ordered: float
+    done: float
+    defect: float
+    in_work: float
+    draft: float
+    orders: int
+    last_order_at: datetime | None
+
+
+class ValueStatOut(BaseModel):
+    value: str
+    variants: int
+    ordered: float
+
+
+class ModelSummaryOut(BaseModel):
+    model_id: int
+    variants: list[VariantStatOut]
+    totals: dict[str, float]
+    by_property: dict[str, list[ValueStatOut]]
+    order_ids: list[int]
+
+
+@router.get("/items/{item_id}/model-summary", response_model=ModelSummaryOut)
+def get_model_summary(item_id: int, db: Session = Depends(get_db), user=Depends(view_items)) -> ModelSummaryOut:
+    """Общая история модели: варианты вместе — заказано, сделано, брак, в
+    работе; какие цвета и размеры заказывают чаще."""
+    model = db.get(Item, item_id)
+    if model is None or not model.is_model:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Модель не найдена")
+    return ModelSummaryOut(**asdict(model_summary(db, model)))

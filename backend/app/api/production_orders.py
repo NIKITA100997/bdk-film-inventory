@@ -233,10 +233,15 @@ def _write_lines(db: Session, order: ProductionOrder, lines: list[OrderLineIn]) 
 def list_orders(
     include_closed: bool = Query(default=False),
     item_id: int | None = Query(default=None),
+    model_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     user: User = Depends(view_orders),
 ) -> list[OrderOut]:
     q = db.query(ProductionOrder)
+    if model_id is not None:
+        # Заказы по любому варианту модели (общая история модели).
+        variant_ids = [i for (i,) in db.query(Item.id).filter(Item.model_id == model_id)]
+        q = q.filter(ProductionOrder.lines.any(ProductionOrderLine.item_id.in_(variant_ids or [-1])))
     if item_id is not None:
         # Заказы, где есть позиция (для вкладки «Заказы» карточки позиции).
         q = q.filter(ProductionOrder.lines.any(ProductionOrderLine.item_id == item_id))
