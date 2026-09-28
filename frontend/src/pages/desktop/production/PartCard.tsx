@@ -209,7 +209,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
           <Typography.Title level={4} style={{ margin: 0 }}>
             {part ? `Деталь «${part.name}»` : "Деталь"}
           </Typography.Title>
-          <Button onClick={() => navigate("/part-stock")}>← К остаткам</Button>
+          <Button onClick={() => navigate("/stock?kind=pf&tab=items")}>← К остаткам</Button>
         </div>
         {part && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, fontSize: 13 }}>

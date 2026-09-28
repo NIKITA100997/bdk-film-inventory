@@ -85,7 +85,9 @@ function apiErrorMessage(e: unknown, fallback: string): string {
   return fallback;
 }
 
-export default function MaterialsExplorer() {
+/** mode — режим задаёт экран «Остатки» своими вкладками (тогда свой
+ * переключатель не показывается); без него — как раньше, сам по себе. */
+export default function MaterialsExplorer({ mode }: { mode?: "positions" | "units" } = {}) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -114,7 +116,8 @@ export default function MaterialsExplorer() {
   const canViewPurchasing = !!user?.is_superuser || !!user?.permissions.includes("purchasing.manage");
   const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
 
-  const [viewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
+  const [ownViewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
+  const viewMode = mode ?? ownViewMode;
   const [donorOnly, setDonorOnly] = useState(false);
   // Отбор по виду единицы в «По физическим единицам»: рулон / штрипс.
   const [unitKind, setUnitKind] = useState<"all" | "roll" | "strip">("all");
@@ -418,10 +421,12 @@ export default function MaterialsExplorer() {
           />
 
           <Space wrap>
-            <Radio.Group value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
-              <Radio.Button value="positions">По позициям материала</Radio.Button>
-              <Radio.Button value="units">По физическим единицам</Radio.Button>
-            </Radio.Group>
+            {!mode && (
+              <Radio.Group value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+                <Radio.Button value="positions">По позициям материала</Radio.Button>
+                <Radio.Button value="units">По физическим единицам</Radio.Button>
+              </Radio.Group>
+            )}
             {viewMode === "positions" && (
               <>
                 <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>

@@ -223,9 +223,8 @@ export default function GeneralStock() {
       }
     >
       <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-        Сквозная справка «что и сколько у нас есть вообще» по всем доменам сразу — для повседневной работы
-        (приёмка/списание/размещение) используйте «Остатки плёнки» и «Остатки и стеллажи п/ф», здесь те же остатки,
-        с той же глубиной данных, просто в одном месте для планирования по расходу.
+        Плёнка и п/ф в одном списке — для планирования. Приёмка, выдача, списание и размещение — в видах «Плёнка» и
+        «П/ф» вверху экрана.
       </Typography.Paragraph>
       <Space wrap style={{ marginBottom: 16 }}>
         <Segmented options={domainOptions} value={domainFilter} onChange={(v) => setDomainFilter(v as "all" | Domain)} />

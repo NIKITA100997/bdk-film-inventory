@@ -10,13 +10,11 @@ import UnitCard from "./pages/mobile/UnitCard";
 import PartUnitCard from "./pages/mobile/PartUnitCard";
 import InitialStock from "./pages/mobile/InitialStock";
 
-import MaterialInventory from "./pages/desktop/MaterialInventory";
-import UnifiedStock from "./pages/desktop/UnifiedStock";
+import Stock, { StockRedirect } from "./pages/desktop/Stock";
 import StoragePlaces from "./pages/desktop/StoragePlaces";
 import Reports from "./pages/desktop/Reports";
 import Defects from "./pages/desktop/Defects";
 import ActionLog from "./pages/desktop/ActionLog";
-import Blanks from "./pages/desktop/Blanks";
 import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
 import CalcSettingsAdmin from "./pages/desktop/CalcSettingsAdmin";
 import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
@@ -31,8 +29,6 @@ import ProductionLines from "./pages/desktop/ProductionLines";
 import PfDemand from "./pages/desktop/production/PfDemand";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
 import Nomenclature from "./pages/desktop/Nomenclature";
-import PartUnits from "./pages/desktop/production/PartUnits";
-import PartInventory from "./pages/desktop/production/PartInventory";
 import ItemCard, { MaterialCardRedirect, PartCardRedirect } from "./pages/desktop/ItemCard";
 import { ITEM_VIEW_PERMISSIONS } from "./api/items";
 import AreaAdmin from "./pages/desktop/AreaAdmin";
@@ -48,7 +44,7 @@ const appPageRoutes = (
     <Route path="/m/receive" element={<RequirePermission permissions={["units.receive"]}><Receive /></RequirePermission>} />
     <Route path="/m/initial-stock" element={<RequirePermission permissions={["units.receive"]}><InitialStock /></RequirePermission>} />
     <Route path="/m/issue" element={<RequirePermission permissions={["units.issue", "units.return"]}><Issue /></RequirePermission>} />
-    <Route path="/blanks" element={<RequirePermission permissions={["units.issue"]}><Blanks /></RequirePermission>} />
+    <Route path="/blanks" element={<StockRedirect kind="film" tab="free" />} />
     <Route
       path="/m/unit-card"
       element={
@@ -71,12 +67,13 @@ const appPageRoutes = (
     пользователю (как раньше ALL_ROLES) — /materials не пункт меню (8.1
     раздел бэклога доработок), вход только кликом по строке или сканом QR,
     поэтому доступ держим таким же широким, как у самого /stock. */}
-    <Route path="/stock" element={<MaterialInventory defaultView="list" />} />
+    {/* Единые «Остатки» (плёнка и п/ф); старые адреса ведут сюда же. */}
+    <Route path="/stock" element={<Stock />} />
     <Route path="/materials" element={<MaterialCardRedirect />} />
     {/* Раздел 6 плана «Детали/П/ф остатки» — сквозной ERP-справочник
     по всем доменам сразу, виден так же широко, как сам /stock (сам
     экран внутри уже сужает п/ф-часть по part_units.view/manage). */}
-    <Route path="/general-stock" element={<UnifiedStock />} />
+    <Route path="/general-stock" element={<StockRedirect kind="all" tab="items" />} />
     <Route path="/storage-places" element={<StoragePlaces />} />
 
     <Route
@@ -93,7 +90,7 @@ const appPageRoutes = (
     />
     {/* "Стеллажи" видны всем (как "Остатки") — вкладка "Управление" внутри
     сама решает, показываться ли, по storage.manage. */}
-    <Route path="/storage" element={<MaterialInventory defaultView="map" />} />
+    <Route path="/storage" element={<StockRedirect kind="film" tab="map" />} />
     <Route
       path="/warehouse-transfers"
       element={
@@ -181,14 +178,7 @@ const appPageRoutes = (
       element={<Navigate to="/production-tasks" replace />}
     />
     <Route path="/door-series" element={<Navigate to="/nomenclature?tab=types" replace />} />
-    <Route
-      path="/part-units"
-      element={
-        <RequirePermission permissions={["part_units.manage", "part_units.view"]}>
-          <PartUnits />
-        </RequirePermission>
-      }
-    />
+    <Route path="/part-units" element={<StockRedirect kind="pf" tab="lots" />} />
     <Route
       path="/item/:id"
       element={
@@ -205,22 +195,8 @@ const appPageRoutes = (
         </RequirePermission>
       }
     />
-    <Route
-      path="/part-stock"
-      element={
-        <RequirePermission permissions={["part_units.manage", "part_units.view", "part_storage.manage"]}>
-          <PartInventory defaultView="list" />
-        </RequirePermission>
-      }
-    />
-    <Route
-      path="/part-storage"
-      element={
-        <RequirePermission permissions={["part_units.manage", "part_units.view", "part_storage.manage"]}>
-          <PartInventory defaultView="map" />
-        </RequirePermission>
-      }
-    />
+    <Route path="/part-stock" element={<StockRedirect kind="pf" tab="items" />} />
+    <Route path="/part-storage" element={<StockRedirect kind="pf" tab="map" />} />
     <Route
       path="/purchasing"
       element={<RequirePermission permissions={["purchasing.manage"]}><Purchasing /></RequirePermission>}

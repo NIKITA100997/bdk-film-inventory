@@ -111,6 +111,11 @@ export default function WorkspaceTabs({ pageRoutes }: { pageRoutes: ReactNode })
       let next: Tab[];
       if (existing) {
         next = prev.map((t) => (t.key === activeKey ? { ...t, location, lastUsed: now, mounted: true } : t));
+        // Старый адрес перенаправил на уже открытую вкладку (/part-units →
+        // /stock) — вкладка самого перенаправления больше не нужна.
+        if (navigationType === "REPLACE" && prevKey.current && prevKey.current !== activeKey) {
+          next = next.filter((t) => t.key !== prevKey.current);
+        }
       } else if (navigationType === "REPLACE" && prevKey.current && prev.some((t) => t.key === prevKey.current)) {
         next = prev.map((t) =>
           t.key === prevKey.current ? { key: activeKey, location, title: null, lastUsed: now, mounted: true } : t,

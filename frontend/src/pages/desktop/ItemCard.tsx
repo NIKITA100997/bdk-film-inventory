@@ -11,7 +11,7 @@ import ModelVariants from "./nomenclature/ModelVariants";
 import { useTabTitle } from "../../layout/tabTitle";
 import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
 import PartCard from "./production/PartCard";
-import { MovementsPanel } from "./UnifiedStock";
+import { MovementsPanel } from "./StockLotsMovements";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
 

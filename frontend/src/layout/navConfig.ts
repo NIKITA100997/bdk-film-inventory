@@ -74,21 +74,13 @@ export const navTree: NavBlock[] = [
     key: "warehouse",
     label: "Склад",
     items: [
-      { key: "general-stock", path: "/general-stock", label: "Остатки и движения (все)" },
       { key: "receive", path: "/m/receive", label: "Приёмка плёнки", permissions: ["units.receive"] },
       { key: "initial-stock", path: "/m/initial-stock", label: "Начальные остатки", permissions: ["units.receive"] },
       { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue", "units.return"] },
-      // /storage — отдельный роут без пункта меню (скан «Р-…/СШ…» открывает
-      // его с видом «Карта»); в меню — только /stock.
-      { key: "stock", path: "/stock", label: "Остатки плёнки" },
-      { key: "blanks", path: "/blanks", label: "Свободный остаток плёнки", permissions: ["units.issue"] },
-      {
-        key: "part-stock",
-        path: "/part-stock",
-        label: "Остатки и стеллажи п/ф",
-        permissions: ["part_units.manage", "part_units.view", "part_storage.manage"],
-      },
-      { key: "part-units", path: "/part-units", label: "Партии п/ф", permissions: ["part_units.manage", "part_units.view"] },
+      // Единые «Остатки»: плёнка и п/ф, позиции, партии, движения, стеллажи
+      // и свободный остаток плёнки — вкладками (pages/desktop/Stock.tsx);
+      // старые адреса (/blanks, /part-units, /storage…) ведут туда же.
+      { key: "stock", path: "/stock", label: "Остатки" },
       { key: "storage-places", path: "/storage-places", label: "Места хранения (все стеллажи)" },
       {
         key: "warehouse-transfers",

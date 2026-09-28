@@ -48,7 +48,7 @@ export default function PhoneTabBar({ onManualSearchRequest }: PhoneTabBarProps)
 
   const isPartsArea = !!user.area && (partsQuery.data ?? []).some((p) => p.stages.some((s) => s.area === user.area));
   const stockTab: PhoneTab = isPartsArea
-    ? { key: "stock", path: "/part-stock", label: "Остатки", icon: <InboxOutlined />, permissions: ["part_units.manage", "part_units.view", "part_storage.manage"] }
+    ? { key: "stock", path: "/stock?kind=pf&tab=items", label: "Остатки", icon: <InboxOutlined />, permissions: ["part_units.manage", "part_units.view", "part_storage.manage"] }
     : { key: "stock", path: "/stock", label: "Остатки", icon: <InboxOutlined /> };
   const pinnedTabs = [PINNED_TABS_BASE[0], stockTab, PINNED_TABS_BASE[1]];
   const pinnedPaths = new Set(pinnedTabs.map((t) => t.path));
@@ -81,7 +81,7 @@ export default function PhoneTabBar({ onManualSearchRequest }: PhoneTabBarProps)
         }}
       >
         {visibleTabs.map((tab) => {
-          const active = location.pathname === tab.path;
+          const active = location.pathname === tab.path.split("?")[0];
           return (
             <button
               key={tab.path}

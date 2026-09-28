@@ -145,7 +145,7 @@ export default function PartStock() {
       }
     >
       <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-        Сводка «сколько всего доступно» по каждой детали — для отдельных партий и журнала событий см. «Учёт п/ф».
+        Сводка «сколько всего доступно» по каждой детали — отдельные партии и все действия с ними на вкладке «Партии».
       </Typography.Paragraph>
       <Space wrap size={[12, 12]} style={{ marginBottom: 16, width: "100%" }}>
         <Input.Search
@@ -163,6 +163,7 @@ export default function PartStock() {
           value={areaFilter}
           onChange={setAreaFilter}
         />
+        <div style={{ maxWidth: "100%", overflowX: "auto" }}>
         <Segmented
           value={statusFilter ?? "all"}
           onChange={(v) => setStatusFilter(v === "all" ? undefined : (v as string))}
@@ -173,6 +174,7 @@ export default function PartStock() {
             { label: "В переработку", value: "В_переработку" },
           ]}
         />
+        </div>
         <Checkbox checked={showEmpty} onChange={(e) => setShowEmpty(e.target.checked)}>
           Показывать без остатка
         </Checkbox>

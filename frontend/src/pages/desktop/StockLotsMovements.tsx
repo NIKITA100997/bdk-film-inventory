@@ -1,13 +1,12 @@
 import { useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Card, Checkbox, DatePicker, Input, Segmented, Select, Space, Tabs, Tag, Typography } from "antd";
+import { useNavigate } from "react-router-dom";
+import { Button, Card, Checkbox, DatePicker, Input, Segmented, Select, Space, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { exportToExcel } from "../../utils/excel";
 import { listAreas } from "../../api/areas";
 import { KIND_LABEL, listLots, listMovements, type Lot, type Movement } from "../../api/unifiedStock";
-import GeneralStock from "./GeneralStock";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange" };
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
@@ -19,22 +18,8 @@ function exportRecords(records: Record<string, string | number>[], filename: str
   exportToExcel(filename, records, columns);
 }
 
-/** Остатки (этап 5 единой модели) — плёнка и п/ф в одном месте:
- * «По позициям» (свод по позиции), «По партиям» (каждый рулон, штрипс,
- * партия п/ф) и «Движения» (единый журнал). Клик — карточка позиции.
- * Вкладка — в адресе (?tab=). */
-export default function UnifiedStock() {
-  const [params, setParams] = useSearchParams();
-  const tabs = [
-    { key: "items", label: "По позициям", children: <GeneralStock /> },
-    { key: "lots", label: "По партиям", children: <LotsTab /> },
-    { key: "movements", label: "Движения", children: <MovementsPanel /> },
-  ];
-  const active = tabs.some((t) => t.key === params.get("tab")) ? (params.get("tab") as string) : "items";
-  return <Tabs activeKey={active} onChange={(k) => setParams(k === "items" ? {} : { tab: k })} items={tabs} destroyOnHidden />;
-}
-
-function LotsTab() {
+/** Все партии и единицы (плёнка и п/ф) — только просмотр, клик — карточка. */
+export function LotsTab() {
   const navigate = useNavigate();
   const [kind, setKind] = useState<string>("all");
   const [area, setArea] = useState<string | undefined>();
@@ -158,9 +143,10 @@ function LotsTab() {
 }
 
 /** Единый журнал движений; itemId — только по одной позиции (карточка позиции). */
-export function MovementsPanel({ itemId }: { itemId?: number }) {
+export function MovementsPanel({ itemId, fixedKind }: { itemId?: number; fixedKind?: "plenka" | "pf" }) {
   const navigate = useNavigate();
-  const [kind, setKind] = useState<string>("all");
+  const [ownKind, setKind] = useState<string>("all");
+  const kind = fixedKind ?? ownKind;
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(itemId ? null : [dayjs().subtract(7, "day"), dayjs()]);
   const [q, setQ] = useState("");
   const movesQuery = useQuery({
@@ -185,7 +171,7 @@ export function MovementsPanel({ itemId }: { itemId?: number }) {
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap size={[12, 12]}>
-        {!itemId && (
+        {!itemId && !fixedKind && (
           <Segmented
             value={kind}
             onChange={(v) => setKind(v as string)}
