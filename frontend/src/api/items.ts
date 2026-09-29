@@ -222,3 +222,19 @@ export const lookupItem = async (params: {
   thickness?: number;
 }): Promise<number> =>
   (await apiClient.get<{ item_id: number }>("/items/lookup", { params })).data.item_id;
+
+/** Деталь в плёнке: у детали — её позиции «деталь · декор», у позиции в плёнке — деталь без плёнки. */
+export interface LaminatedRef {
+  item_id: number;
+  name: string;
+  stock: number;
+}
+export interface ItemLaminated {
+  base: LaminatedRef | null;
+  variants: LaminatedRef[];
+  can_laminate: boolean;
+}
+export const getItemLaminated = async (itemId: number): Promise<ItemLaminated> =>
+  (await apiClient.get<ItemLaminated>(`/items/${itemId}/laminated`)).data;
+export const createItemLaminated = async (itemId: number, payload: { material_id?: number; color_id: number }): Promise<LaminatedRef> =>
+  (await apiClient.post<LaminatedRef>(`/items/${itemId}/laminated`, payload)).data;

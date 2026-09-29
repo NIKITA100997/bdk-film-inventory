@@ -10,6 +10,7 @@ import { ITEM_VIEW_PERMISSIONS, getTechCard, lookupItem } from "../../api/items"
 import { ORDER_STATUS_LABEL, listProductionOrders, type ProductionOrder } from "../../api/productionOrders";
 import TechCardView from "./nomenclature/TechCardView";
 import ModelVariants from "./nomenclature/ModelVariants";
+import LaminatedBar from "./nomenclature/LaminatedBar";
 import { useTabTitle } from "../../layout/tabTitle";
 import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
 import PartCard from "./production/PartCard";
@@ -124,6 +125,9 @@ export default function ItemCard() {
             {card.is_model && <Tag color="gold">модель</Tag>}
             {!card.is_active && <Tag>архив</Tag>}
           </Space>
+          {card.kind_code === "pf" && !card.is_model && (
+            <LaminatedBar itemId={itemId} canManage={has("production_tasks.manage") || has("materials.manage")} />
+          )}
           {card.model_id != null && (
             <Typography.Text type="secondary">
               Вариант модели <a onClick={() => navigate(`/item/${card.model_id}`)}>{card.model_name}</a>

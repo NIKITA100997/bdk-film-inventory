@@ -13,6 +13,7 @@ from app.models.dictionaries import Color, Material, MaterialSku, Part
 from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, ItemType, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
 from app.services import item_attrs
+from app.services.laminated import can_laminate, laminated_part
 from app.services.components import live_item_names, sync_bom_components
 from app.services.routes import RouteInUseError, RouteStep, apply_route
 
@@ -332,6 +333,69 @@ def set_items_attrs(payload: SetAttrsIn, db: Session = Depends(get_db), user=Dep
             setattr(i, f, None if v == AUTO else v)
     db.commit()
     return {"updated": len(items)}
+
+
+class LaminatedRef(BaseModel):
+    item_id: int
+    name: str
+    stock: float = 0  # на хранении и на участках, шт
+
+
+class LaminatedOut(BaseModel):
+    base: LaminatedRef | None  # у позиции в плёнке — деталь без плёнки
+    variants: list[LaminatedRef]  # у детали без плёнки — её позиции в плёнке
+    can_laminate: bool
+
+
+class LaminatedIn(BaseModel):
+    material_id: int | None = None
+    color_id: int
+
+
+def _stock_of_item(db: Session, item_id: int) -> float:
+    from app.models.part_units import PartUnit, PartUnitStatus
+
+    part = db.query(Part).filter(Part.item_id == item_id).first()
+    if part is None:
+        return 0.0
+    return float(
+        db.query(func.coalesce(func.sum(PartUnit.quantity_pieces), 0))
+        .filter(PartUnit.part_id == part.id, PartUnit.status.in_([PartUnitStatus.NA_KHRANENII, PartUnitStatus.VYDAN_UCHASTKU]))
+        .scalar()
+    )
+
+
+@router.get("/items/{item_id}/laminated", response_model=LaminatedOut)
+def item_laminated(item_id: int, db: Session = Depends(get_db), user=Depends(view_items)) -> LaminatedOut:
+    """Деталь в плёнке: у детали — её позиции «деталь · декор», у позиции в
+    плёнке — деталь без плёнки."""
+    item = db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    base = db.get(Item, item.base_item_id) if item.base_item_id else None
+    part = db.query(Part).filter(Part.item_id == item.id).first()
+    variants = db.query(Item).filter(Item.base_item_id == item.id).order_by(Item.name).all()
+    return LaminatedOut(
+        base=LaminatedRef(item_id=base.id, name=base.name, stock=_stock_of_item(db, base.id)) if base else None,
+        variants=[LaminatedRef(item_id=v.id, name=v.name, stock=_stock_of_item(db, v.id)) for v in variants],
+        can_laminate=can_laminate(db, part),
+    )
+
+
+@router.post("/items/{item_id}/laminated", response_model=LaminatedRef)
+def create_item_laminated(
+    item_id: int, payload: LaminatedIn, db: Session = Depends(get_db), user=Depends(manage_groups)
+) -> LaminatedRef:
+    """Завести позицию «деталь · декор» вручную (например, чтобы внести
+    остаток склада ламинированных). Есть такая — вернёт её."""
+    part = db.query(Part).filter(Part.item_id == item_id).first()
+    if not can_laminate(db, part):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Позицию в плёнке можно завести только от детали п/ф без плёнки")
+    if db.get(Color, payload.color_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Цвет не найден")
+    lam = laminated_part(db, part, payload.material_id, payload.color_id)
+    db.commit()
+    return LaminatedRef(item_id=lam.item_id, name=lam.name, stock=_stock_of_item(db, lam.item_id))
 
 
 PET_TYPES = ("2d", "3d")
