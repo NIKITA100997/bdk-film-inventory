@@ -74,7 +74,7 @@ export const navTree: NavBlock[] = [
     label: "Склад",
     items: [
       { key: "receive", path: "/m/receive", label: "Приёмка плёнки", permissions: ["units.receive"] },
-      { key: "initial-stock", path: "/m/initial-stock", label: "Начальные остатки", permissions: ["units.receive"] },
+      // «Начальные остатки» — режим «Без документа» в Приёмке (объединение экранов, 29.09).
       { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue", "units.return"] },
       // Единые «Остатки»: плёнка и п/ф, позиции, партии, движения, стеллажи
       // и свободный остаток плёнки — вкладками (pages/desktop/Stock.tsx);

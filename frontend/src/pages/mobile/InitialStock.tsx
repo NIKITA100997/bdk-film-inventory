@@ -35,7 +35,7 @@ const NO_DOCUMENT_PALLET = "-";
  * встаёт на нужную полку без отдельного вызова автоподбора места), та
  * же печать этикеток пачкой в конце (printLabelsBatch), что в
  * Receive.tsx — просто организовано вокруг стеллажа, а не вокруг УПД. */
-export default function InitialStock() {
+export default function InitialStock({ embedded = false }: { embedded?: boolean }) {
   const qc = useQueryClient();
   const [rackId, setRackId] = useState<number | null>(null);
   const [sessionUnits, setSessionUnits] = useState<MaterialUnit[]>([]);
@@ -101,15 +101,17 @@ export default function InitialStock() {
     lineForm.resetFields();
   };
 
+  const Wrap = embedded ? "div" : Card;
   return (
-    <Card>
-      <Typography.Title level={4}>Начальные остатки</Typography.Title>
+    <Wrap>
+      {!embedded && <Typography.Title level={4}>Начальные остатки</Typography.Title>}
 
       {!rackId && (
         <>
           <Typography.Paragraph type="secondary">
-            Выберите стеллаж, который сейчас пересчитываете — дальше можно быстро внести всё, что на нём физически
-            стоит, по полкам, и сразу распечатать этикетки.
+            Для плёнки, которая уже стоит на складе без документа поставки (например, законсервированная на дальнем
+            складе). Выберите стеллаж — дальше можно быстро внести всё, что на нём стоит, по полкам, и сразу
+            распечатать этикетки.
           </Typography.Paragraph>
           <Select
             size="large"
@@ -270,6 +272,6 @@ export default function InitialStock() {
           </Button>
         </>
       )}
-    </Card>
+    </Wrap>
   );
 }

@@ -8,7 +8,6 @@ import Receive from "./pages/mobile/Receive";
 import Issue from "./pages/mobile/Issue";
 import UnitCard from "./pages/mobile/UnitCard";
 import PartUnitCard from "./pages/mobile/PartUnitCard";
-import InitialStock from "./pages/mobile/InitialStock";
 
 import Stock, { StockRedirect } from "./pages/desktop/Stock";
 import Reports from "./pages/desktop/Reports";
@@ -43,7 +42,7 @@ const appPageRoutes = (
     <Route path="/" element={<Home />} />
 
     <Route path="/m/receive" element={<RequirePermission permissions={["units.receive"]}><Receive /></RequirePermission>} />
-    <Route path="/m/initial-stock" element={<RequirePermission permissions={["units.receive"]}><InitialStock /></RequirePermission>} />
+    <Route path="/m/initial-stock" element={<Navigate to="/m/receive?mode=nodoc" replace />} />
     <Route path="/m/issue" element={<RequirePermission permissions={["units.issue", "units.return"]}><Issue /></RequirePermission>} />
     <Route path="/blanks" element={<StockRedirect kind="film" tab="free" />} />
     <Route
