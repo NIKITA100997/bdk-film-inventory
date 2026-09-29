@@ -23,6 +23,7 @@ import { useAuth } from "../../../auth/AuthContext";
 import {
   getPlanBoard,
   listPlanSlots,
+  movePlanCell,
   movePlanSlot,
   planLine,
   splitPlanSlot,
@@ -51,6 +52,21 @@ type Target = { area: PlanArea; date: string | null; first: boolean; unplanned: 
  * Мощность участков пока не задаётся — видно загрузку в штуках. */
 export default function Planner() {
   const { token } = theme.useToken();
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  // Перетаскивание клетки на другой день той же строки (участка).
+  const [drag, setDrag] = useState<{ area: string; date: string; first: boolean } | null>(null);
+  const [dropOver, setDropOver] = useState<string | null>(null);
+  const moveCell = useMutation({
+    mutationFn: (v: { area: string; from: string; to: string; first: boolean }) =>
+      movePlanCell({ area: v.area, from_date: v.from, to_date: v.to, include_earlier: v.first }),
+    onSuccess: (r, v) => {
+      for (const k of [["plan-board"], ["plan-slots"], ["production-orders"]]) qc.invalidateQueries({ queryKey: k });
+      message.success(`Перенесено на ${dayjs(v.to).format("DD.MM")}: ${r.moved}`);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось перенести")),
+  });
   const [start, setStart] = useState<Dayjs>(dayjs().startOf("day"));
   const [site, setSite] = useState("all");
   const [target, setTarget] = useState<Target | null>(null);
@@ -85,9 +101,10 @@ export default function Planner() {
       >
         <Space direction="vertical" size={8} style={{ width: "100%" }}>
           <Typography.Text type="secondary">
-            Сроки ставятся при запуске заказа — назад от отгрузки по рабочим дням. Нажмите на клетку, чтобы перенести
-            операцию на другой день или разделить её. Красное — запланировано на прошедшие дни и не сделано. «Без плана» —
-            открытые строки заданий, у которых нет срока.
+            Сроки ставятся при запуске заказа — назад от отгрузки по рабочим дням. Перетащите клетку на другой день, чтобы
+            перенести всё, что в ней; нажмите на клетку, чтобы перенести или разделить отдельную операцию. Красное —
+            запланировано на прошедшие дни и не сделано, оранжевое — больше мощности участка (где она задана). «Без плана» —
+            открытые строки заданий без срока.
           </Typography.Text>
           <Segmented value={site} onChange={(v) => setSite(v as string)} options={SITES.map(({ value, label }) => ({ value, label }))} />
         </Space>
@@ -118,7 +135,9 @@ export default function Planner() {
                     <tr key={a.code}>
                       <td style={tdStyle(token, true)}>
                         <div style={{ fontWeight: 500 }}>{a.name}</div>
-                        {a.site && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{a.site}</Typography.Text>}
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {[a.site, a.capacity ? `мощн. ${fmt(a.capacity)} шт/день` : null].filter(Boolean).join(" · ")}
+                        </Typography.Text>
                       </td>
                       <td style={tdStyle(token)}>
                         {b ? (
@@ -132,21 +151,61 @@ export default function Planner() {
                       </td>
                       {(board?.days ?? []).map((d, i) => {
                         const c = cell.get(`${a.code}|${d}`);
+                        const over = !!(c && a.capacity && c.quantity > a.capacity);
+                        const dropKey = `${a.code}|${d}`;
+                        const canDrop = !!drag && drag.area === a.code && drag.date !== d;
+                        let bg: string | undefined = undefined;
+                        if (dropOver === dropKey) bg = token.colorSuccessBg;
+                        else if (c?.overdue) bg = token.colorErrorBg;
+                        else if (over) bg = token.colorWarningBg;
+                        else if (c) bg = token.colorPrimaryBg;
                         return (
                           <td
                             key={d}
+                            draggable={canManage && !!c}
+                            onDragStart={(e) => {
+                              e.dataTransfer.effectAllowed = "move";
+                              setDrag({ area: a.code, date: d, first: i === 0 });
+                            }}
+                            onDragEnd={() => {
+                              setDrag(null);
+                              setDropOver(null);
+                            }}
+                            onDragOver={(e) => {
+                              if (!canDrop) return;
+                              e.preventDefault();
+                              setDropOver(dropKey);
+                            }}
+                            onDragLeave={() => setDropOver((k) => (k === dropKey ? null : k))}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              if (drag && canDrop) moveCell.mutate({ area: a.code, from: drag.date, to: d, first: drag.first });
+                              setDrag(null);
+                              setDropOver(null);
+                            }}
                             onClick={() => c && setTarget({ area: a, date: d, first: i === 0, unplanned: false })}
                             style={{
                               ...tdStyle(token),
-                              cursor: c ? "pointer" : undefined,
-                              background: c?.overdue ? token.colorErrorBg : c ? token.colorPrimaryBg : undefined,
+                              cursor: c ? (canManage ? "grab" : "pointer") : undefined,
+                              background: bg,
+                              outline: canDrop ? `1px dashed ${token.colorBorder}` : undefined,
                             }}
                           >
                             {c ? (
                               <>
-                                <div style={{ fontWeight: 600 }}>{fmt(c.quantity)}</div>
-                                <div style={{ fontSize: 11, color: c.overdue ? token.colorError : token.colorTextSecondary }}>
-                                  {c.overdue ? `просрочено ${fmt(c.overdue)}` : `${c.lines} стр.`}
+                                <div style={{ fontWeight: 600 }}>
+                                  {fmt(c.quantity)}
+                                  {a.capacity ? (
+                                    <span style={{ fontWeight: 400, color: token.colorTextSecondary }}> / {fmt(a.capacity)}</span>
+                                  ) : null}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: c.overdue ? token.colorError : over ? token.colorWarningText : token.colorTextSecondary,
+                                  }}
+                                >
+                                  {c.overdue ? `просрочено ${fmt(c.overdue)}` : over ? "перегруз" : `${c.lines} стр.`}
                                 </div>
                               </>
                             ) : null}

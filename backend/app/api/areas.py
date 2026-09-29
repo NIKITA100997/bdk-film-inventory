@@ -73,6 +73,14 @@ def update_area(code: str, payload: AreaUpdate, db: Session = Depends(get_db), u
         if not 0 <= payload.lead_days <= 30:
             raise HTTPException(status_code=422, detail="Срок операции — от 0 до 30 рабочих дней")
         area.lead_days = payload.lead_days
+    if payload.capacity_per_shift is not None:
+        if payload.capacity_per_shift < 0:
+            raise HTTPException(status_code=422, detail="Мощность — не меньше нуля")
+        area.capacity_per_shift = payload.capacity_per_shift or None
+    if payload.shifts_per_day is not None:
+        if not 1 <= payload.shifts_per_day <= 4:
+            raise HTTPException(status_code=422, detail="Смен в день — от 1 до 4")
+        area.shifts_per_day = payload.shifts_per_day
     db.commit()
     db.refresh(area)
     return area

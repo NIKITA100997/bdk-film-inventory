@@ -15,6 +15,9 @@ export interface Area {
   requires_roll_on_report: boolean;
   /** Планирование: сколько рабочих дней занимает операция участка. */
   lead_days: number;
+  /** Мощность (задел): штук в смену (null — не задана) и смен в день. */
+  capacity_per_shift: number | null;
+  shifts_per_day: number;
 }
 
 /** Нужен ли рулон в отчёте на этом участке (настройка участка, не код). */
@@ -51,6 +54,8 @@ export async function updateArea(
     requires_daily_plan?: boolean;
     requires_roll_on_report?: boolean;
     lead_days?: number;
+    capacity_per_shift?: number | null;
+    shifts_per_day?: number;
   },
 ): Promise<Area> {
   const { data } = await apiClient.patch<Area>(`/areas/${code}`, payload);

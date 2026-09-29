@@ -35,6 +35,8 @@ export default function AreaAdmin() {
     requires_daily_plan?: boolean;
     requires_roll_on_report?: boolean;
     lead_days?: number;
+    capacity_per_shift?: number | null;
+    shifts_per_day?: number;
   }>();
   const [showArchived, setShowArchived] = useState(false);
 
@@ -71,9 +73,20 @@ export default function AreaAdmin() {
   });
 
   const editMutation = useMutation({
-    mutationFn: (v: { name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean; lead_days?: number }) =>
+    mutationFn: (v: {
+      name: string;
+      site_id?: number;
+      requires_daily_plan?: boolean;
+      requires_roll_on_report?: boolean;
+      lead_days?: number;
+      capacity_per_shift?: number | null;
+      shifts_per_day?: number;
+    }) =>
       updateArea(editing!.code, {
         lead_days: v.lead_days,
+        // пусто — снять мощность (0 на сервере — «не задана»)
+        capacity_per_shift: v.capacity_per_shift ?? 0,
+        shifts_per_day: v.shifts_per_day,
         name: v.name,
         site_id: v.site_id ?? null,
         requires_daily_plan: v.requires_daily_plan,
@@ -204,6 +217,15 @@ export default function AreaAdmin() {
               render: (_, a) => `${a.lead_days} раб. дн.`,
             },
             {
+              title: "Мощность",
+              render: (_, a) =>
+                a.capacity_per_shift ? (
+                  `${a.capacity_per_shift} шт × ${a.shifts_per_day} см.`
+                ) : (
+                  <Typography.Text type="secondary">не задана</Typography.Text>
+                ),
+            },
+            {
               title: "Рулон в отчёте",
               dataIndex: "requires_roll_on_report",
               render: (v: boolean) => (v ? <Tag color="orange">Обязателен</Tag> : <Typography.Text type="secondary">—</Typography.Text>),
@@ -227,6 +249,8 @@ export default function AreaAdmin() {
                         requires_daily_plan: a.requires_daily_plan,
                         requires_roll_on_report: a.requires_roll_on_report,
                         lead_days: a.lead_days,
+                        capacity_per_shift: a.capacity_per_shift,
+                        shifts_per_day: a.shifts_per_day,
                       });
                     }}
                   >
@@ -312,6 +336,18 @@ export default function AreaAdmin() {
           >
             <InputNumber min={0} max={30} style={{ width: 160 }} />
           </Form.Item>
+          <Space size={12} wrap>
+            <Form.Item name="capacity_per_shift" label="Мощность, шт в смену">
+              <InputNumber min={0} style={{ width: 160 }} placeholder="не задана" />
+            </Form.Item>
+            <Form.Item name="shifts_per_day" label="Смен в день">
+              <InputNumber min={1} max={4} style={{ width: 120 }} />
+            </Form.Item>
+          </Space>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+            Пока для планировщика: загрузка дня против мощности, перегруз подсвечивается. Сроки заказов мощность пока не
+            учитывают.
+          </Typography.Paragraph>
           <Button type="primary" htmlType="submit" block loading={editMutation.isPending}>
             Сохранить
           </Button>

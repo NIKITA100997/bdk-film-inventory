@@ -161,3 +161,21 @@ export const importOrderFromSchedule = async (payload: {
   dry_run: boolean;
 }): Promise<{ rows: ScheduleImportRow[]; parse_errors: string[]; order: ProductionOrder | null }> =>
   (await apiClient.post("/production-orders/from-schedule", payload)).data;
+
+/** Готовность заказа для продажника (без заданий и участков). */
+export interface OrderReadiness {
+  id: number;
+  name: string;
+  status: string;
+  ship_date: string | null;
+  plan_finish: string | null;
+  plan_late: boolean;
+  plan_overdue: number;
+  planned: boolean;
+  quantity: number;
+  done: number;
+  lines: { item_name: string; quantity: number; done: number }[];
+}
+
+export const getOrdersReadiness = async (includeClosed = false): Promise<OrderReadiness[]> =>
+  (await apiClient.get<OrderReadiness[]>("/production-orders/readiness", { params: { include_closed: includeClosed } })).data;

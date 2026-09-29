@@ -132,6 +132,12 @@ export const navTree: NavBlock[] = [
     label: "Продажи и заказы",
     items: [
       { key: "sales-calculator", path: "/sales-calculator", label: "Калькулятор заказа", permissions: ["sales_calculator.view"] },
+      {
+        key: "order-readiness",
+        path: "/order-readiness",
+        label: "Готовность заказов",
+        permissions: ["sales_calculator.view", "production_tasks.manage", "production_tasks.view", "production_tasks.report"],
+      },
     ],
   },
   {

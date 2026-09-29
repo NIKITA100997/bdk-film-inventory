@@ -18,6 +18,9 @@ class AreaOut(BaseModel):
     requires_roll_on_report: bool = False
     # Планирование: сколько рабочих дней занимает операция участка.
     lead_days: int = 1
+    # Мощность (задел): штук в смену и смен в день; пусто — не задана.
+    capacity_per_shift: float | None = None
+    shifts_per_day: int = 1
 
 
 class AreaCreate(BaseModel):
@@ -34,3 +37,6 @@ class AreaUpdate(BaseModel):
     requires_daily_plan: bool | None = None
     requires_roll_on_report: bool | None = None
     lead_days: int | None = None
+    # 0 — снять мощность (не задана).
+    capacity_per_shift: float | None = None
+    shifts_per_day: int | None = None

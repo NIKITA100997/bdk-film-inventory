@@ -10,7 +10,7 @@
 где `code` есть только у 7 системных ролей, здесь `code` заполнен всегда:
 он и есть значение, которое хранится во всех таблицах-потребителях."""
 
-from sqlalchemy import Integer, Boolean, ForeignKey, String
+from sqlalchemy import Integer, Boolean, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -37,6 +37,11 @@ class Area(Base):
     # на столько раньше ставится предыдущая операция при расчёте сроков
     # заказа назад от отгрузки. Мощность участков пока не задаётся.
     lead_days: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # Мощность (задел, 29.09): сколько штук участок делает за смену и смен
+    # в день. Пусто — мощность не задана; планировщик показывает загрузку
+    # против мощности там, где она есть. Расчёт сроков её пока не учитывает.
+    capacity_per_shift: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    shifts_per_day: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     # Единая модель, пункт 5 — участок как рабочий центр: отчёт о
     # производстве по строке с плёнкой обязан указать рулон, а рулон нельзя
     # вернуть без отчёта (раньше — хардкод кода окутки царговых).

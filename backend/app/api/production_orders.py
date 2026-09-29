@@ -271,6 +271,57 @@ def list_orders(
     return [_order_out(db, o) for o in q.order_by(ProductionOrder.id.desc())]
 
 
+view_readiness = require_permission(
+    "production_tasks.manage", "production_tasks.view", "production_tasks.report", "sales_calculator.view"
+)
+
+
+class ReadinessLineOut(BaseModel):
+    item_name: str
+    quantity: float
+    done: float
+
+
+class ReadinessOut(BaseModel):
+    id: int
+    name: str
+    status: str
+    ship_date: date | None
+    plan_finish: date | None
+    plan_late: bool
+    plan_overdue: float
+    planned: bool
+    quantity: float
+    done: float
+    lines: list[ReadinessLineOut]
+
+
+@router.get("/production-orders/readiness", response_model=list[ReadinessOut])
+def orders_readiness(
+    include_closed: bool = False, db: Session = Depends(get_db), user: User = Depends(view_readiness)
+) -> list[ReadinessOut]:
+    """Готовность заказов для продажника: когда будет готово по плану,
+    успевает ли к отгрузке, сколько сделано по позициям — без заданий и
+    участков."""
+    q = db.query(ProductionOrder).filter(ProductionOrder.status != ORDER_DRAFT)
+    if not include_closed:
+        q = q.filter(ProductionOrder.status != ORDER_CLOSED)
+    out = []
+    for order in q.order_by(ProductionOrder.ship_date.asc().nullslast(), ProductionOrder.id.desc()):
+        full = _order_out(db, order)
+        lines = [ReadinessLineOut(item_name=ln.item_name, quantity=ln.quantity, done=min(ln.done, ln.quantity)) for ln in full.lines]
+        if not lines:  # заказ из заданий — по строкам заданий
+            lines = [ReadinessLineOut(item_name=t.name, quantity=t.planned, done=t.done) for t in full.tasks]
+        out.append(
+            ReadinessOut(
+                id=order.id, name=order.name, status=order.status, ship_date=order.ship_date,
+                plan_finish=full.plan_finish, plan_late=full.plan_late, plan_overdue=full.plan_overdue, planned=full.planned,
+                quantity=round(sum(ln.quantity for ln in lines), 2), done=round(sum(ln.done for ln in lines), 2), lines=lines,
+            )
+        )
+    return out
+
+
 @router.get("/production-orders/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: Session = Depends(get_db), user: User = Depends(view_orders)) -> OrderOut:
     return _order_out(db, _get_order(db, order_id))
@@ -444,3 +495,4 @@ def order_from_schedule(
         parse_errors=parse_errors,
         order=_order_out(db, order) if order is not None else None,
     )
+

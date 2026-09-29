@@ -43,6 +43,8 @@ class AreaOut(BaseModel):
     code: str
     name: str
     site: str | None
+    # Мощность в день (штук в смену × смен); None — не задана.
+    capacity: float | None = None
 
 
 class CellOut(BaseModel):
@@ -133,7 +135,10 @@ def board(
         backlog[t.area] = b
     used = {a for a, _ in cells} | set(backlog)
     areas = [
-        AreaOut(code=a.code, name=a.name, site=sites.get(a.site_id))
+        AreaOut(
+            code=a.code, name=a.name, site=sites.get(a.site_id),
+            capacity=round(float(a.capacity_per_shift) * (a.shifts_per_day or 1), 2) if a.capacity_per_shift else None,
+        )
         for a in sorted(areas_all.values(), key=lambda a: (sites.get(a.site_id) or "я", a.name))
         if a.code in used and (site_id is None or a.site_id == site_id)
     ]
@@ -271,3 +276,29 @@ def plan_line(line_id: int, payload: LinePlanIn, db: Session = Depends(get_db), 
     db.add(s)
     db.commit()
     return {"id": s.id}
+
+
+class CellMoveIn(BaseModel):
+    area: str
+    from_date: Day
+    to_date: Day
+    include_earlier: bool = False  # первая колонка сетки — с просроченными
+
+
+@router.post("/cells/move")
+def move_cell(payload: CellMoveIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> dict:
+    """Перетащили клетку «участок × день» на другой день: все её слоты туда
+    (становятся ручными). Сделанное не трогаем — двигаем план."""
+    to = to_workday(payload.to_date)
+    line_ids = [ln.id for ln, t in _active_lines(db) if t.area == payload.area]
+    if not line_ids:
+        return {"moved": 0}
+    q = db.query(PlanSlot).filter(PlanSlot.task_line_id.in_(line_ids))
+    q = q.filter(PlanSlot.date <= payload.from_date) if payload.include_earlier else q.filter(PlanSlot.date == payload.from_date)
+    moved = 0
+    for s in q:
+        s.date = to
+        s.auto = False
+        moved += 1
+    db.commit()
+    return {"moved": moved}

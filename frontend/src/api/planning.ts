@@ -7,6 +7,8 @@ export interface PlanArea {
   code: string;
   name: string;
   site: string | null;
+  /** Мощность в день (штук в смену × смен); null — не задана. */
+  capacity: number | null;
 }
 
 export interface PlanCell {
@@ -73,3 +75,11 @@ export const splitPlanSlot = async (id: number, payload: { date: string; quantit
 export const planLine = async (lineId: number, payload: { date: string; quantity: number }): Promise<void> => {
   await apiClient.post(`/planning/lines/${lineId}/slots`, payload);
 };
+
+/** Перетащили клетку «участок × день» на другой день: все её слоты туда. */
+export const movePlanCell = async (payload: {
+  area: string;
+  from_date: string;
+  to_date: string;
+  include_earlier?: boolean;
+}): Promise<{ moved: number }> => (await apiClient.post("/planning/cells/move", payload)).data;

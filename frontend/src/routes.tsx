@@ -24,6 +24,7 @@ import RoleAdmin from "./pages/desktop/RoleAdmin";
 import LabelTemplateAdmin from "./pages/desktop/LabelTemplateAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
 import SalesCalculator from "./pages/desktop/SalesCalculator";
+import OrderReadiness from "./pages/desktop/OrderReadiness";
 import ProductionTasks from "./pages/desktop/ProductionTasks";
 import ProductionLines from "./pages/desktop/ProductionLines";
 import PfDemand from "./pages/desktop/production/PfDemand";
@@ -209,6 +210,16 @@ const appPageRoutes = (
     <Route
       path="/purchasing"
       element={<RequirePermission permissions={["purchasing.manage"]}><Purchasing /></RequirePermission>}
+    />
+    <Route
+      path="/order-readiness"
+      element={
+        <RequirePermission
+          permissions={["sales_calculator.view", "production_tasks.manage", "production_tasks.view", "production_tasks.report"]}
+        >
+          <OrderReadiness />
+        </RequirePermission>
+      }
     />
     <Route
       path="/sales-calculator"
