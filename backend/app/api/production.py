@@ -788,7 +788,9 @@ def create_production_task_manual(
             )
         )
     try:
-        attach_tasks_to_order(db, [task], name=payload.name, user_id=user.id, order_id=payload.production_order_id)
+        attach_tasks_to_order(
+            db, [task], name=payload.name, user_id=user.id, order_id=payload.production_order_id, ship_date=payload.ship_date
+        )
     except OrderError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
@@ -859,7 +861,9 @@ def create_operation_task(
         else:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Строка: выберите операцию или впишите работу")
     try:
-        attach_tasks_to_order(db, [task], name=payload.name, user_id=user.id, order_id=payload.production_order_id)
+        attach_tasks_to_order(
+            db, [task], name=payload.name, user_id=user.id, order_id=payload.production_order_id, ship_date=payload.ship_date
+        )
     except OrderError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e

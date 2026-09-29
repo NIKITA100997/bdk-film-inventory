@@ -560,7 +560,8 @@ function OrderModal({
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить заказ")),
   });
-  const invalid = !name.trim() || lines.length === 0 || lines.some((l) => !l.item_id || !l.quantity || l.quantity <= 0);
+  const invalid =
+    !name.trim() || !shipDate || lines.length === 0 || lines.some((l) => !l.item_id || !l.quantity || l.quantity <= 0);
 
   return (
     <Modal
@@ -578,7 +579,7 @@ function OrderModal({
           <Form.Item label="Название" required style={{ width: 360 }}>
             <Input value={name} placeholder="Например: Запуск 16.09" onChange={(e) => setName(e.target.value)} />
           </Form.Item>
-          <Form.Item label="Отгрузка">
+          <Form.Item label="Отгрузка" required extra="От неё считаются сроки операций">
             <DatePicker format="DD.MM.YYYY" value={shipDate} onChange={setShipDate} />
           </Form.Item>
         </Space>

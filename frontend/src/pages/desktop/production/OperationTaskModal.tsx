@@ -1,12 +1,13 @@
 import { useState } from "react";
+import dayjs, { type Dayjs } from "dayjs";
 import { isAxiosError } from "axios";
-import { Button, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from "antd";
+import { DatePicker, Button, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas } from "../../../api/areas";
 import { createOperationTask, listAreaOperations } from "../../../api/production";
 
 type LineDraft = { part_stage_id?: number | null; name?: string; quantity_pieces?: number };
-type FormValues = { name: string; area: string; lines: LineDraft[] };
+type FormValues = { name: string; area: string; ship_date?: Dayjs; lines: LineDraft[] };
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -40,6 +41,7 @@ export default function OperationTaskModal({ open, onClose, orderId }: { open: b
         name: v.name.trim(),
         area: v.area,
         production_order_id: orderId,
+        ship_date: v.ship_date ? v.ship_date.format("YYYY-MM-DD") : null,
         lines: v.lines.map((l) => ({
           part_stage_id: l.part_stage_id ?? null,
           name: l.part_stage_id ? null : (l.name ?? "").trim() || null,
@@ -79,6 +81,16 @@ export default function OperationTaskModal({ open, onClose, orderId }: { open: b
               }}
             />
           </Form.Item>
+          {!orderId && (
+            <Form.Item
+              name="ship_date"
+              label="Срок"
+              rules={[{ required: true, message: "Укажите срок" }]}
+              style={{ width: 170 }}
+            >
+              <DatePicker format="DD.MM.YYYY" style={{ width: "100%" }} disabledDate={(d) => d.isBefore(dayjs(), "day")} />
+            </Form.Item>
+          )}
           <Form.Item name="name" label="Название" rules={[{ required: true, whitespace: true }]} style={{ flex: 1, minWidth: 260 }}>
             <Input placeholder="Например: Каркасы на запуск 16.09" />
           </Form.Item>

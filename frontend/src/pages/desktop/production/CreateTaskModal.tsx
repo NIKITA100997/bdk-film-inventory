@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
+import dayjs, { type Dayjs } from "dayjs";
 import type { FormInstance } from "antd";
-import { Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, Tag, message, Alert } from "antd";
+import { DatePicker, Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, Tag, message, Alert } from "antd";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -154,7 +155,7 @@ export default function CreateTaskModal({
 }) {
   const qc = useQueryClient();
   const [manualLines, setManualLines] = useState<ManualLine[]>([]);
-  const [manualForm] = Form.useForm<{ name: string; area: AreaValue; external_order_ref?: number }>();
+  const [manualForm] = Form.useForm<{ name: string; area: AreaValue; external_order_ref?: number; ship_date?: Dayjs }>();
   const [manualRowForm] = Form.useForm<ManualRowFormValues>();
   // Отдельная форма и стейт для правки уже добавленной строки (см.
   // editManualLine/editingIndex ниже) — правится прямо в ячейках таблицы
@@ -469,6 +470,15 @@ export default function CreateTaskModal({
         <Form.Item name="external_order_ref" label="№ заказа">
           <InputNumber style={{ width: "100%" }} placeholder="Заполняется автоматически из наряда, можно поправить" />
         </Form.Item>
+        {!orderId && (
+          <Form.Item
+            name="ship_date"
+            label="Срок — к какому дню сделать"
+            rules={[{ required: true, message: "Укажите срок — от него считаются сроки операций" }]}
+          >
+            <DatePicker format="DD.MM.YYYY" style={{ width: 200 }} disabledDate={(d) => d.isBefore(dayjs(), "day")} />
+          </Form.Item>
+        )}
         <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
           <Select options={areaOptions} />
         </Form.Item>
@@ -831,6 +841,7 @@ export default function CreateTaskModal({
             .then((v) =>
               manualCreateMutation.mutate({
                 ...v,
+                ship_date: v.ship_date ? v.ship_date.format("YYYY-MM-DD") : null,
                 production_order_id: orderId,
                 product_model_id: bomProductModelId || undefined,
                 quantity: bomForm.getFieldValue("quantity") || undefined,

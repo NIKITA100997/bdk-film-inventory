@@ -14,6 +14,7 @@ from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.users import User
 from app.models.areas import Area
 from app.services.panel_film import FACTORY_AREA, FACTORY_MIN_PANELS, LAMINATION_STAGE
+from app.models.production_orders import ProductionOrder
 from app.services.production_orders import OrderError, attach_tasks_to_order
 from app.services.pf_demand import PfDemandRow, compute_pf_demand, compute_pf_preview, reserves_by_part
 
@@ -238,9 +239,18 @@ def create_pf_tasks(
     order_id = for_task.production_order_id if for_task is not None else None
     order_name = tasks[0].name if tasks else "Производство п/ф"
     try:
-        attach_tasks_to_order(db, tasks, name=order_name, user_id=user.id, order_id=order_id)
-    except OrderError:
-        # Заказ того задания уже закрыт — свой заказ под п/ф.
-        attach_tasks_to_order(db, tasks, name=order_name, user_id=user.id)
+        attach_tasks_to_order(
+            db, tasks, name=order_name, user_id=user.id, order_id=order_id,
+            ship_date=payload.ship_date or (db.get(ProductionOrder, order_id).ship_date if order_id else None),
+        )
+    except OrderError as e:
+        if order_id is None:
+            db.rollback()
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+        # Заказ того задания уже закрыт — свой заказ под п/ф, срок — как у него.
+        attach_tasks_to_order(
+            db, tasks, name=order_name, user_id=user.id,
+            ship_date=payload.ship_date or db.get(ProductionOrder, order_id).ship_date or date.today(),
+        )
     db.commit()
     return PfDemandTasksOut(task_ids=task_ids)

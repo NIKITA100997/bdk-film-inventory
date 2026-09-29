@@ -77,7 +77,8 @@ def release_order(db: Session, order: ProductionOrder, user_id: int) -> list[Pro
 
 
 def attach_tasks_to_order(
-    db: Session, tasks: list[ProductionTask], *, name: str, user_id: int, order_id: int | None = None
+    db: Session, tasks: list[ProductionTask], *, name: str, user_id: int, order_id: int | None = None,
+    ship_date=None,
 ) -> ProductionOrder:
     """Любое задание цеха — внутри заказа на производство (как в ERP: заказ
     → этапы на участки). order_id — добавить к запущенному заказу; без него
@@ -90,9 +91,11 @@ def attach_tasks_to_order(
         if order.status != ORDER_RELEASED:
             raise OrderError("Добавить задание можно только в запущенный заказ")
     else:
+        if ship_date is None:
+            raise OrderError("Укажите срок — дату, к которой нужно сделать (от неё считаются сроки операций)")
         order = ProductionOrder(
             name=(" ".join(name.split()) or "Заказ")[:255], status=ORDER_RELEASED,
-            released_at=datetime.now(timezone.utc), created_by=user_id,
+            released_at=datetime.now(timezone.utc), created_by=user_id, ship_date=ship_date,
         )
         db.add(order)
         db.flush()

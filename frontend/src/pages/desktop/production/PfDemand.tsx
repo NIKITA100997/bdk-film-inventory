@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import dayjs, { type Dayjs } from "dayjs";
 import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Checkbox, Form, InputNumber, Modal, Select, Space, Tag, Typography, message } from "antd";
+import { DatePicker, Button, Card, Checkbox, Form, InputNumber, Modal, Select, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import PanelFilmTable from "../../../components/PanelFilmTable";
@@ -29,6 +30,8 @@ export default function PfDemand() {
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const [onlyShortage, setOnlyShortage] = useState(true);
   const [qty, setQty] = useState<Record<number, number | null>>({});
+  // Срок нового заказа на п/ф — от него считаются сроки операций.
+  const [dueDate, setDueDate] = useState<Dayjs | null>(null);
   // Площадка ламинации панели, выбранная вручную (иначе — по размеру партии).
   const [lamArea, setLamArea] = useState<Record<number, string>>({});
   const [selected, setSelected] = useState<number[]>([]);
@@ -61,6 +64,7 @@ export default function PfDemand() {
   const createMutation = useMutation({
     mutationFn: () =>
       createPfTasks({
+        ship_date: dueDate ? dueDate.format("YYYY-MM-DD") : null,
         items: selected
           .filter((id) => (qty[id] ?? 0) > 0)
           .map((id) => {
@@ -91,7 +95,7 @@ export default function PfDemand() {
           canManage && (
             <Button
               type="primary"
-              disabled={toCreate.length === 0}
+              disabled={toCreate.length === 0 || !dueDate}
               loading={createMutation.isPending}
               onClick={() => createMutation.mutate()}
             >
@@ -119,6 +123,16 @@ export default function PfDemand() {
             onChange={setTaskFilter}
             loading={allQuery.isLoading}
           />
+          {canManage && (
+            <DatePicker
+              value={dueDate}
+              onChange={setDueDate}
+              format="DD.MM.YYYY"
+              placeholder="Срок для новых заданий"
+              disabledDate={(d) => d.isBefore(dayjs(), "day")}
+              status={toCreate.length > 0 && !dueDate ? "warning" : undefined}
+            />
+          )}
           <Checkbox checked={onlyShortage} onChange={(e) => setOnlyShortage(e.target.checked)}>
             Только с нехваткой
           </Checkbox>

@@ -195,6 +195,8 @@ export interface ProductionTaskManualCreate {
   external_order_ref?: number;
   /** Заказ, в который добавить задание; пусто — новый заказ. */
   production_order_id?: number;
+  /** Срок нового заказа (к какому дню сделать). */
+  ship_date?: string | null;
   lines: ProductionTaskLineManualCreate[];
 }
 
@@ -548,5 +550,6 @@ export const createOperationTask = async (payload: {
   name: string;
   area: string;
   production_order_id?: number;
+  ship_date?: string | null;
   lines: { part_stage_id: number | null; name: string | null; quantity_pieces: number }[];
 }): Promise<ProductionTask> => (await apiClient.post<ProductionTask>("/production-tasks/operations", payload)).data;

@@ -177,6 +177,8 @@ class ProductionTaskManualCreate(BaseModel):
     external_order_ref: int | None = None
     # Заказ на производство, в который добавить задание; пусто — новый заказ.
     production_order_id: int | None = None
+    # Срок нового заказа (к какому дню сделать) — обязателен без production_order_id.
+    ship_date: date | None = None
     lines: list[ProductionTaskLineManualCreate] = Field(min_length=1)
 
 
@@ -456,6 +458,7 @@ class OperationTaskCreate(BaseModel):
     name: str
     area: str
     production_order_id: int | None = None
+    ship_date: date | None = None
     lines: list[OperationLineCreate] = Field(min_length=1)
 
 

@@ -332,6 +332,8 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db), user: User = D
     name = " ".join(payload.name.split())
     if not name:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите название заказа")
+    if payload.ship_date is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите дату отгрузки — от неё считаются сроки операций")
     order = ProductionOrder(
         name=name, ship_date=payload.ship_date, note=(payload.note or "").strip() or None, status=ORDER_DRAFT, created_by=user.id
     )
