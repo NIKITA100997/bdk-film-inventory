@@ -64,9 +64,8 @@ export const navTree: NavBlock[] = [
     label: "Номенклатура",
     items: [
       { key: "nomenclature", path: "/nomenclature", label: "Номенклатура и техкарты", permissions: ["materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"] },
-      { key: "item-types", path: "/nomenclature?tab=types", label: "Типы изделий и правила", permissions: ["materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"] },
-      { key: "parts", path: "/nomenclature?tab=parts", label: "Детали п/ф", permissions: ["production_tasks.manage"] },
-      { key: "product-models", path: "/nomenclature?tab=models", label: "Модели продукции (BOM)", permissions: ["production_tasks.manage"] },
+      // Типы и правила, детали п/ф, модели (BOM) — вкладки этого же экрана,
+      // отдельными пунктами меню не дублируются (объединение экранов, 29.09).
       { key: "dictionaries", path: "/dictionaries", label: "Материалы, цвета, толщины", permissions: ["materials.manage"] },
     ],
   },
@@ -81,7 +80,7 @@ export const navTree: NavBlock[] = [
       // и свободный остаток плёнки — вкладками (pages/desktop/Stock.tsx);
       // старые адреса (/blanks, /part-units, /storage…) ведут туда же.
       { key: "stock", path: "/stock", label: "Остатки" },
-      { key: "storage-places", path: "/storage-places", label: "Места хранения (все стеллажи)" },
+      // «Места хранения» (все стеллажи) — вкладка «Стеллажи» у вида «Всё» в Остатках.
       {
         key: "warehouse-transfers",
         path: "/warehouse-transfers",

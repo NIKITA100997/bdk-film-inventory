@@ -8,6 +8,7 @@ import PartStorage from "./PartStorage";
 import PartStock from "./production/PartStock";
 import PartUnits from "./production/PartUnits";
 import GeneralStock from "./GeneralStock";
+import StoragePlaces from "./StoragePlaces";
 import { LotsTab, MovementsPanel } from "./StockLotsMovements";
 import { MaterialMovesTab, MaterialsStockTab } from "./MaterialsStock";
 
@@ -69,6 +70,8 @@ export default function Stock() {
       { key: "items", label: "По позициям" },
       { key: "lots", label: "По партиям" },
       { key: "movements", label: "Движения" },
+      // Все стеллажи плёнки и п/ф одним справочником (бывшие «Места хранения»).
+      { key: "map", label: "Стеллажи" },
     ],
   };
   const tabs = tabsByKind[kind];
@@ -113,7 +116,8 @@ export default function Stock() {
   } else if (kind === "materials") {
     content = tab === "movements" ? <MaterialMovesTab /> : <MaterialsStockTab />;
   } else {
-    content = tab === "items" ? <GeneralStock /> : tab === "lots" ? <LotsTab /> : <MovementsPanel />;
+    content =
+      tab === "items" ? <GeneralStock /> : tab === "lots" ? <LotsTab /> : tab === "map" ? <StoragePlaces /> : <MovementsPanel />;
   }
 
   const kindSwitch =

@@ -11,7 +11,6 @@ import PartUnitCard from "./pages/mobile/PartUnitCard";
 import InitialStock from "./pages/mobile/InitialStock";
 
 import Stock, { StockRedirect } from "./pages/desktop/Stock";
-import StoragePlaces from "./pages/desktop/StoragePlaces";
 import Reports from "./pages/desktop/Reports";
 import Defects from "./pages/desktop/Defects";
 import ActionLog from "./pages/desktop/ActionLog";
@@ -76,7 +75,7 @@ const appPageRoutes = (
     по всем доменам сразу, виден так же широко, как сам /stock (сам
     экран внутри уже сужает п/ф-часть по part_units.view/manage). */}
     <Route path="/general-stock" element={<StockRedirect kind="all" tab="items" />} />
-    <Route path="/storage-places" element={<StoragePlaces />} />
+    <Route path="/storage-places" element={<StockRedirect kind="all" tab="map" />} />
 
     <Route
       path="/reports"
