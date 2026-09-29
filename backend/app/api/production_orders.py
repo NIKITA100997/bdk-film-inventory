@@ -456,6 +456,9 @@ class PfNeedOut(BaseModel):
     consumer_part_id: int | None
     depth: int
     free_stock: float
+    from_stock: float = 0
+    launch: float = 0
+    mode: str | None = None
     lamination_area: str | None
     factory_area: str | None
     factory_min_pieces: float | None
@@ -472,9 +475,10 @@ def release_preview(order_id: int, db: Session = Depends(get_db), user: User = D
 class PfPickIn(BaseModel):
     order_line_id: int
     part_id: int
-    quantity: float = Field(ge=0)
+    quantity: float = Field(ge=0)  # запустить в производство
     consumer_part_id: int | None = None
     lamination_area: str | None = None
+    from_stock: float = Field(default=0, ge=0)  # взять со склада — в резерв под заказ
 
 
 class ReleaseIn(BaseModel):

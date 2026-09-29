@@ -76,6 +76,10 @@ export interface PfNeed {
   lamination_area: string | null;
   factory_area: string | null;
   factory_min_pieces: number | null;
+  /** Предложено взять со склада (в резерв под заказ) и запустить; режим детали. */
+  from_stock?: number;
+  launch?: number;
+  mode?: string | null;
 }
 
 export interface PfPick {
@@ -84,6 +88,8 @@ export interface PfPick {
   quantity: number;
   consumer_part_id: number | null;
   lamination_area?: string | null;
+  /** Взять со склада — в резерв под задание, где деталь расходуется. */
+  from_stock?: number;
 }
 
 export const getReleasePreview = async (orderId: number): Promise<PfNeed[]> =>

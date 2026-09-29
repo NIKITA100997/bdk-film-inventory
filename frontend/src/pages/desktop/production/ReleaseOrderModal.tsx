@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { isAxiosError } from "axios";
-import { Alert, Checkbox, InputNumber, Modal, Space, Table, Typography, message } from "antd";
+import { Alert, Checkbox, InputNumber, Modal, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas } from "../../../api/areas";
 import {
@@ -32,11 +32,13 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
   const needs = useMemo(() => previewQuery.data ?? [], [previewQuery.data]);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [qty, setQty] = useState<Record<string, number | null>>({});
+  const [stock, setStock] = useState<Record<string, number | null>>({});
   const [lam, setLam] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setPicked(Object.fromEntries(needs.map((n) => [keyOf(n), true])));
-    setQty(Object.fromEntries(needs.map((n) => [keyOf(n), n.quantity])));
+    setQty(Object.fromEntries(needs.map((n) => [keyOf(n), n.launch ?? n.quantity])));
+    setStock(Object.fromEntries(needs.map((n) => [keyOf(n), n.from_stock ?? 0])));
   }, [needs]);
 
   const lineName = (id: number) => order.lines.find((l) => l.id === id)?.item_name ?? "";
@@ -52,11 +54,12 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
       releaseProductionOrder(
         order.id,
         needs
-          .filter((n) => picked[keyOf(n)] && (qty[keyOf(n)] ?? 0) > 0)
+          .filter((n) => picked[keyOf(n)] && ((qty[keyOf(n)] ?? 0) > 0 || (stock[keyOf(n)] ?? 0) > 0))
           .map((n) => ({
             order_line_id: n.order_line_id,
             part_id: n.part_id,
-            quantity: qty[keyOf(n)] as number,
+            quantity: qty[keyOf(n)] ?? 0,
+            from_stock: stock[keyOf(n)] ?? 0,
             consumer_part_id: n.consumer_part_id,
             lamination_area: n.lamination_area ? lamValue(n) ?? null : null,
           })),
@@ -74,13 +77,14 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
   });
 
   const count = needs.filter((n) => picked[keyOf(n)] && (qty[keyOf(n)] ?? 0) > 0).length;
+  const fromStockTotal = needs.filter((n) => picked[keyOf(n)] && (stock[keyOf(n)] ?? 0) > 0).length;
   return (
     <Modal
       open
       width="95vw"
       style={{ maxWidth: 1100, top: 24 }}
       title={`Запуск заказа №${order.id} «${order.name}»`}
-      okText={count ? `Запустить + п/ф: ${count}` : "Запустить"}
+      okText={count || fromStockTotal ? `Запустить (п/ф в работу: ${count}, со склада: ${fromStockTotal})` : "Запустить"}
       cancelText="Отмена"
       onCancel={onClose}
       okButtonProps={{ loading: mutation.isPending }}
@@ -97,8 +101,8 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
             <Alert
               type="info"
               showIcon
-              message="П/ф под заказ"
-              description="Панели и каркасы щитовых делаются под заказ — отмеченное запустится вместе с заказом, сделанное пойдёт в резерв его заданий. Есть свободный остаток — можно уменьшить количество."
+              message="П/ф для заказа"
+              description="«Со склада» — свободный остаток сразу уходит в резерв этого заказа (другие задания его не возьмут). «Запустить» — задания на п/ф, сделанное тоже уйдёт в резерв. Детали «на склад» по умолчанию берутся со склада, «под заказ» (щиты, панели, детали в плёнке) — запускаются; числа можно поправить. Вложенные п/ф посчитаны от того, что запускается."
             />
             <Table<PfNeed>
               size="small"
@@ -122,7 +126,10 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
                   title: "П/ф",
                   render: (_, n) => (
                     <Space direction="vertical" size={0} style={{ paddingLeft: n.depth * 18 }}>
-                      <span>{n.part_name}</span>
+                      <span>
+                        {n.part_name}{" "}
+                        {n.mode && <Tag color={n.mode === "stock" ? "green" : "orange"}>{n.mode === "stock" ? "на склад" : "под заказ"}</Tag>}
+                      </span>
                       {n.depth === 0 && (
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                           для: {lineName(n.order_line_id)}
@@ -135,6 +142,27 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
                 {
                   title: "Свободно",
                   render: (_, n) => (n.free_stock > 0 ? <b>{n.free_stock}</b> : <Typography.Text type="secondary">0</Typography.Text>),
+                },
+                {
+                  title: "Со склада, шт",
+                  render: (_, n) =>
+                    n.free_stock > 0 ? (
+                      <InputNumber
+                        size="small"
+                        min={0}
+                        max={Math.min(n.free_stock, n.quantity)}
+                        style={{ width: 90 }}
+                        disabled={!picked[keyOf(n)]}
+                        value={stock[keyOf(n)] ?? null}
+                        onChange={(v) => {
+                          const take = v ?? 0;
+                          setStock((p) => ({ ...p, [keyOf(n)]: take }));
+                          setQty((p) => ({ ...p, [keyOf(n)]: Math.max(0, Math.round((n.quantity - take) * 100) / 100) }));
+                        }}
+                      />
+                    ) : (
+                      <Typography.Text type="secondary">—</Typography.Text>
+                    ),
                 },
                 {
                   title: "Запустить, шт",

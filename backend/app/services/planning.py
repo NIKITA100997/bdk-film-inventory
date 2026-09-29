@@ -82,7 +82,10 @@ class PfNeed:
     consumer_stage_id: int  # операция, на которой расходуется
     consumer_part_id: int | None  # None — расходуется дверью (строкой заказа)
     depth: int
-    free_stock: float = 0.0
+    free_stock: float = 0.0  # свободно (остаток минус чужие резервы) на момент этой строки
+    from_stock: float = 0.0  # предложено взять со склада (в резерв под заказ)
+    launch: float = 0.0  # предложено запустить в производство
+    mode: str | None = None  # под заказ / на склад (services/item_attrs.py)
     lamination_area: str | None = None
     factory_area: str | None = None
     factory_min_pieces: float | None = None
@@ -104,13 +107,28 @@ def _pf_components(db: Session, item: Item) -> list[tuple[Part, float, int]]:
 
 
 def order_pf_needs(db: Session, order: ProductionOrder) -> list[PfNeed]:
-    """Что из п/ф запустить под заказ — по составу вглубь, на полное
-    количество заказа (п/ф щитовых делаются под заказ)."""
+    """Что из п/ф нужно заказу — по составу вглубь (как MRP). Свободный
+    остаток (минус резервы других заданий) — общий на весь заказ: деталь
+    «на склад» по умолчанию берётся со склада, недостающее — в запуск;
+    «под заказ» (щиты, панели, детали в плёнке) — по умолчанию запуск на всё.
+    Вложенные п/ф считаются от запускаемого количества: что взяли со склада
+    готовым, заново из комплектующих не делается."""
+    from app.models.items import ItemKind, ItemType
+    from app.services import item_attrs
     from app.services.panel_film import FACTORY_AREA, FACTORY_MIN_PANELS, LAMINATION_STAGE
-    from app.services.pf_demand import _stock_by_part  # noqa: PLC2701 — тот же расчёт остатка
+    from app.services.pf_demand import _state  # noqa: PLC2701 — остаток и резервы, как на экранах
 
-    stock = _stock_by_part(db)
+    st = _state(db)
+    pool = {pid: max(0.0, qty - st.reserved.get(pid, 0.0)) for pid, qty in st.stock.items()}
+    kind_code = {k.id: k.code for k in db.query(ItemKind)}
     out: list[PfNeed] = []
+
+    def mode_of(part: Part) -> str | None:
+        it = db.get(Item, part.item_id) if part.item_id else None
+        if it is None:
+            return None
+        t = db.get(ItemType, it.type_id) if it.type_id else None
+        return item_attrs.effective_mode(it, kind_code.get(it.kind_id, ""), t)
 
     def walk(order_line_id: int, item: Item, qty: float, consumer_part_id: int | None, depth: int) -> None:
         if depth > MAX_DEPTH:
@@ -119,19 +137,24 @@ def order_pf_needs(db: Session, order: ProductionOrder) -> list[PfNeed]:
             need = round(qty * per, 2)
             if need <= 0:
                 continue
+            mode = mode_of(part)
+            free = pool.get(part.id, 0.0)
+            take = round(min(need, free), 2) if mode == "stock" else 0.0
+            pool[part.id] = free - take
+            launch = round(need - take, 2)
             lam = next((s for s in part.stages if s.name == LAMINATION_STAGE), None)
             out.append(
                 PfNeed(
                     order_line_id=order_line_id, part_id=part.id, part_name=part.name, quantity=need,
                     consumer_stage_id=stage_id, consumer_part_id=consumer_part_id, depth=depth,
-                    free_stock=round(stock.get(part.id, 0.0), 2),
+                    free_stock=round(free, 2), from_stock=take, launch=launch, mode=mode,
                     lamination_area=lam.area if lam else None,
                     factory_area=FACTORY_AREA if lam else None,
                     factory_min_pieces=FACTORY_MIN_PANELS if lam else None,
                 )
             )
-            if part.item_id:
-                walk(order_line_id, db.get(Item, part.item_id), need, part.id, depth + 1)
+            if part.item_id and launch > 0:
+                walk(order_line_id, db.get(Item, part.item_id), launch, part.id, depth + 1)
 
     for ln in order.lines:
         walk(ln.id, db.get(Item, ln.item_id), float(ln.quantity), None, 0)
@@ -142,9 +165,10 @@ def order_pf_needs(db: Session, order: ProductionOrder) -> list[PfNeed]:
 class PfPick:
     order_line_id: int
     part_id: int
-    quantity: float
+    quantity: float  # запустить в производство
     consumer_part_id: int | None = None
     lamination_area: str | None = None
+    from_stock: float = 0.0  # взять со склада — резерв под задание, где деталь расходуется
 
 
 def release_pf(
@@ -169,15 +193,17 @@ def release_pf(
     }
     # Сначала верхний уровень — чтобы у вложенных было «под» какое задание.
     for pick in sorted(picks, key=lambda p: 0 if p.consumer_part_id is None else 1):
-        if pick.quantity <= 0:
-            continue
         part = db.get(Part, pick.part_id)
         if part is None or not part.stages:
             continue
-        stages = sorted(part.stages, key=lambda s: s.sequence_order)
-        ops = stages[:-1] if len(stages) > 1 else stages
         cs = consumer_stage.get((pick.order_line_id, pick.part_id, pick.consumer_part_id))
         for_task = stage_task.get((pick.order_line_id, cs)) if cs else None
+        if pick.from_stock > 0 and for_task is not None:
+            _reserve(db, task_id=for_task.id, part_id=part.id, quantity=pick.from_stock, user_id=user_id)
+        if pick.quantity <= 0:
+            continue
+        stages = sorted(part.stages, key=lambda s: s.sequence_order)
+        ops = stages[:-1] if len(stages) > 1 else stages
         for stage in ops:
             area = stage.area
             if pick.lamination_area and stage.name == LAMINATION_STAGE:
@@ -203,6 +229,19 @@ def release_pf(
             stage_task[(pick.order_line_id, stage.id)] = task
     db.flush()
     return list(tasks.values())
+
+
+def _reserve(db: Session, *, task_id: int, part_id: int, quantity: float, user_id: int) -> None:
+    """Со склада — в резерв под задание, где деталь расходуется (тот же
+    резерв, что «Обеспечение п/ф»: чужой резерв расходовать нельзя)."""
+    from app.models.part_units import PartReservation
+
+    r = db.query(PartReservation).filter(PartReservation.task_id == task_id, PartReservation.part_id == part_id).first()
+    if r is None:
+        db.add(PartReservation(task_id=task_id, part_id=part_id, quantity_pieces=quantity, created_by=user_id))
+    else:
+        r.quantity_pieces = float(r.quantity_pieces) + quantity
+    db.flush()
 
 
 # ─── сроки ────────────────────────────────────────────────────────────────
