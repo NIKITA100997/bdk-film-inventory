@@ -145,6 +145,11 @@ class MovementRow:
     to_place: str | None
     user_id: int | None
     note: str | None
+    # Для журнала действий (объединение «Движения» + «Журнал действий», 29.09).
+    event_code: str = ""  # значение enum как есть — для фильтра
+    task_line_id: int | None = None
+    reason_code: str | None = None
+    to_length: float | None = None  # плёнка: длина после события
 
 
 def list_movements(
@@ -175,7 +180,9 @@ def list_movements(
                     item_name=sku_item_name(sku.material.name, sku.color.name, sku.thickness.value_mm, sku.manufacturer.name),
                     qty_delta=float(e.quantity_delta_m) if e.quantity_delta_m is not None else None, unit="м",
                     area=e.area, from_place=e.from_cell, to_place=e.to_cell, user_id=e.user_id,
-                    note=e.write_off_note,
+                    note=e.write_off_note, event_code=e.event_type.value, task_line_id=e.production_task_line_id,
+                    reason_code=e.write_off_reason,
+                    to_length=float(e.to_length) if e.to_length is not None else None,
                 )
             )
     if kind in (None, KIND_PF):
@@ -197,7 +204,8 @@ def list_movements(
                     kind=KIND_PF, at=e.occurred_at, event=_label(e.event_type.value), lot_id=u.id, item_id=p.item_id,
                     item_name=p.name, qty_delta=float(e.quantity_delta) if e.quantity_delta is not None else None,
                     unit="шт", area=e.area, from_place=from_place, to_place=to_place, user_id=e.user_id,
-                    note=e.note or e.write_off_note,
+                    note=e.note or e.write_off_note, event_code=e.event_type.value,
+                    task_line_id=e.production_task_line_id, reason_code=e.write_off_reason,
                 )
             )
     out.sort(key=lambda r: r.at, reverse=True)

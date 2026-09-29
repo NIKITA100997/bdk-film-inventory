@@ -36,6 +36,12 @@ export interface Movement {
   to_place: string | null;
   user_name: string | null;
   note: string | null;
+  /** Журнал действий: код события и участка (фильтры), задание, причина, длина после события. */
+  event_code?: string;
+  area?: string | null;
+  task_name?: string | null;
+  reason_name?: string | null;
+  to_length?: number | null;
 }
 
 export const listLots = async (params: {
