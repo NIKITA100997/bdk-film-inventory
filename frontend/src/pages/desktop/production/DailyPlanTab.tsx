@@ -8,6 +8,7 @@ import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import ReportModal from "./ReportModal";
 import MasterQuickReportPanel from "./MasterQuickReportPanel";
+import { listPlanSlots } from "../../../api/planning";
 
 /** План на день (мастер) — суточный срез уже распределённых по линиям
  * строк заданий, с отчётом о браке прямо из строки. Раздел про
@@ -58,6 +59,7 @@ export default function DailyPlanTab() {
     return (
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         {areaPicker}
+        <PlanForDay area={effectiveArea} canReport={canReport} />
         <MasterQuickReportPanel area={effectiveArea} />
       </Space>
     );
@@ -80,6 +82,7 @@ export default function DailyPlanTab() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       {areaPicker}
+      {effectiveArea && <PlanForDay area={effectiveArea} canReport={canReport} />}
       <Card
         title={`📅 Суточный план участка на ${selectedDate.format("DD.MM.YYYY")}`}
         extra={
@@ -169,5 +172,83 @@ export default function DailyPlanTab() {
         />
       )}
     </Space>
+  );
+}
+
+/** План участка на день из планировщика (сроки заказов): что сделать
+ * сегодня, включая просроченное с прошлых дней, и отчёт прямо из строки. */
+function PlanForDay({ area, canReport }: { area: string; canReport: boolean }) {
+  const [day, setDay] = useState<dayjs.Dayjs>(dayjs());
+  const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
+  const isToday = day.isSame(dayjs(), "day");
+  const slotsQuery = useQuery({
+    queryKey: ["plan-slots", area, day.format("YYYY-MM-DD"), "master"],
+    queryFn: () =>
+      listPlanSlots({ area, date_from: day.format("YYYY-MM-DD"), date_to: day.format("YYYY-MM-DD"), include_earlier: isToday }),
+  });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const lineById = new Map((tasksQuery.data ?? []).flatMap((t) => t.lines.map((l) => [l.id, { task: t, line: l }] as const)));
+  const rows = slotsQuery.data ?? [];
+  return (
+    <Card
+      size="small"
+      title={`🗓 По плану на ${day.format("DD.MM.YYYY")}${isToday ? " (с просроченным)" : ""}`}
+      extra={<DatePicker value={day} onChange={(d) => d && setDay(d)} format="DD.MM.YYYY" allowClear={false} />}
+    >
+      {rows.length === 0 ? (
+        <Typography.Text type="secondary">На этот день по планировщику ничего не стоит.</Typography.Text>
+      ) : (
+        <ResponsiveTable
+          tableKey="plan-for-day"
+          lockedColumns={["Что"]}
+          rowKey={(r) => `${r.id}`}
+          dataSource={rows}
+          pagination={false}
+          size="small"
+          scroll={{ x: "max-content" }}
+          columns={[
+            {
+              title: "Что",
+              render: (_, r) => (
+                <span>
+                  {r.what}
+                  {r.operation && <Typography.Text type="secondary"> · {r.operation}</Typography.Text>}
+                  {r.overdue && <Tag color="red" style={{ marginLeft: 6 }}>просрочено</Tag>}
+                </span>
+              ),
+            },
+            { title: "Заказ", render: (_, r) => (r.order_id ? `№${r.order_id} «${r.order_name}»` : r.task_name) },
+            { title: "План, шт", render: (_, r) => <b>{r.quantity}</b> },
+            { title: "Сделано по строке", render: (_, r) => `${r.line_done} из ${r.line_plan}` },
+            {
+              title: "",
+              render: (_, r) => {
+                const hit = lineById.get(r.task_line_id);
+                return (
+                  canReport &&
+                  hit && (
+                    <Button size="small" type="primary" ghost onClick={() => setReportTarget({ taskId: hit.task.id, line: hit.line })}>
+                      Отчитаться
+                    </Button>
+                  )
+                );
+              },
+            },
+          ]}
+        />
+      )}
+      {reportTarget && (
+        <ReportModal
+          taskId={reportTarget.taskId}
+          line={reportTarget.line}
+          // Строка в плане на день — распределение по линиям не обязательно.
+          requiresDailyPlan={false}
+          requiresRoll={areaRequiresRoll(areasQuery.data, area) && reportTarget.line.material !== null}
+          area={area}
+          onClose={() => setReportTarget(null)}
+        />
+      )}
+    </Card>
   );
 }

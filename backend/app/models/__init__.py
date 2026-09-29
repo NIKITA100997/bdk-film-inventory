@@ -23,6 +23,7 @@ from app.models.production import (
     ProductionTaskLine,
     ProductionTaskLineAssignment,
     ProductionTaskLineReport,
+    PlanSlot,
 )
 from app.models.part_units import PartUnit, PartUnitStatus, PartUnitEvent, PartEventType
 from app.models.part_film_restrictions import PartFilmRestriction

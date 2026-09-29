@@ -28,6 +28,7 @@ import ProductionTasks from "./pages/desktop/ProductionTasks";
 import ProductionLines from "./pages/desktop/ProductionLines";
 import PfDemand from "./pages/desktop/production/PfDemand";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
+import Planner from "./pages/desktop/production/Planner";
 import Nomenclature from "./pages/desktop/Nomenclature";
 import ItemCard, { MaterialCardRedirect, PartCardRedirect } from "./pages/desktop/ItemCard";
 import { ITEM_VIEW_PERMISSIONS } from "./api/items";
@@ -162,6 +163,14 @@ const appPageRoutes = (
       element={
         <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report"]}>
           <ProductionOrders />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/planner"
+      element={
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report"]}>
+          <Planner />
         </RequirePermission>
       }
     />

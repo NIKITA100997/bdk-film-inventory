@@ -285,3 +285,22 @@ class ProductionTaskLineAssignment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     task_line: Mapped[ProductionTaskLine] = relationship(back_populates="assignments")
+
+
+class PlanSlot(Base):
+    """План производства (29.09): сколько штук строки задания делать в какой
+    день. Расчёт сроков заказа ставит по слоту на строку (auto=True) назад
+    от отгрузки; планировщик переносит и делит их по дням (auto=False —
+    ручная правка, пересчёт её не трогает)."""
+
+    __tablename__ = "production_plan_slots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_line_id: Mapped[int] = mapped_column(
+        ForeignKey("production_task_lines.id", ondelete="CASCADE"), index=True
+    )
+    date: Mapped[date] = mapped_column(Date, index=True)
+    quantity: Mapped[float] = mapped_column(Numeric(12, 2))
+    auto: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

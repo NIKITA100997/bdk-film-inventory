@@ -52,6 +52,7 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.components import sync_bom_components
 from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
+from app.models.production import PlanSlot
 from app.models.production_orders import ProductionOrder
 from app.services.pf_demand import check_foreign_reserve
 from app.services.production_orders import OrderError, attach_tasks_to_order, consume_components_at_operation, sync_task_order
@@ -1052,7 +1053,8 @@ def _build_task_line_report(
         assignment = db.get(ProductionTaskLineAssignment, payload.assignment_id)
         if assignment is None or assignment.task_line_id != line_id:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Распределение не найдено для этой строки задания")
-    elif requires_daily_plan:
+    elif requires_daily_plan and db.query(PlanSlot.id).filter(PlanSlot.task_line_id == line.id).first() is None:
+        # Строка в планировщике уже разложена по дням — план и есть распределение.
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к распределению по дням")
     if line.part_stage_id is not None:
         return _build_operation_report(line, payload, db, user)

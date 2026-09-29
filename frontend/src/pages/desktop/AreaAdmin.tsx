@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tag, Button, Modal, Form, Input, Select, Space, Typography, Checkbox, message } from "antd";
+import { InputNumber, Card, Tag, Button, Modal, Form, Input, Select, Space, Typography, Checkbox, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { listAreas, createArea, updateArea, type Area } from "../../api/areas";
@@ -29,7 +29,13 @@ export default function AreaAdmin() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm<{ name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean }>();
   const [editing, setEditing] = useState<Area | null>(null);
-  const [editForm] = Form.useForm<{ name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean }>();
+  const [editForm] = Form.useForm<{
+    name: string;
+    site_id?: number;
+    requires_daily_plan?: boolean;
+    requires_roll_on_report?: boolean;
+    lead_days?: number;
+  }>();
   const [showArchived, setShowArchived] = useState(false);
 
   const [siteCreateOpen, setSiteCreateOpen] = useState(false);
@@ -65,8 +71,9 @@ export default function AreaAdmin() {
   });
 
   const editMutation = useMutation({
-    mutationFn: (v: { name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean }) =>
+    mutationFn: (v: { name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean; lead_days?: number }) =>
       updateArea(editing!.code, {
+        lead_days: v.lead_days,
         name: v.name,
         site_id: v.site_id ?? null,
         requires_daily_plan: v.requires_daily_plan,
@@ -193,6 +200,10 @@ export default function AreaAdmin() {
               render: (v: boolean) => (v ? <Tag color="blue">По дням</Tag> : <Tag>Просто на участок</Tag>),
             },
             {
+              title: "Срок операции",
+              render: (_, a) => `${a.lead_days} раб. дн.`,
+            },
+            {
               title: "Рулон в отчёте",
               dataIndex: "requires_roll_on_report",
               render: (v: boolean) => (v ? <Tag color="orange">Обязателен</Tag> : <Typography.Text type="secondary">—</Typography.Text>),
@@ -215,6 +226,7 @@ export default function AreaAdmin() {
                         site_id: a.site_id ?? undefined,
                         requires_daily_plan: a.requires_daily_plan,
                         requires_roll_on_report: a.requires_roll_on_report,
+                        lead_days: a.lead_days,
                       });
                     }}
                   >
@@ -293,6 +305,13 @@ export default function AreaAdmin() {
             Отчёт по строке с плёнкой — только с указанием рулона, а рулон нельзя вернуть без отчёта (как на окутке
             царговых). Строк без плёнки не касается.
           </Typography.Paragraph>
+          <Form.Item
+            name="lead_days"
+            label="Срок операции, рабочих дней"
+            extra="Планирование: на столько рабочих дней раньше ставится предыдущая операция заказа при расчёте сроков назад от отгрузки."
+          >
+            <InputNumber min={0} max={30} style={{ width: 160 }} />
+          </Form.Item>
           <Button type="primary" htmlType="submit" block loading={editMutation.isPending}>
             Сохранить
           </Button>

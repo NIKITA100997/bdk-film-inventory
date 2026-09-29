@@ -14,10 +14,11 @@ from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.models.items import Item, ItemComponent, ItemKind
-from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.production_orders import ORDER_CLOSED, ORDER_DRAFT, ProductionOrder, ProductionOrderLine
 from app.models.users import User
 from app.services.components import live_item_names
+from app.services.planning import PfPick, order_pf_needs, order_plan_status, release_pf, schedule_order
 from app.services.production_orders import OrderError, close_order, release_order
 from app.services.schedule_import import import_schedule
 from app.models.items import ItemType
@@ -88,6 +89,8 @@ class OrderTaskOut(BaseModel):
     done: float  # годных по отчётам
     with_film: bool  # есть строки с плёнкой (окутка/ламинация)
     with_parts: bool  # есть строки, расходующие детали п/ф
+    plan_from: date | None = None  # первый и последний день плана задания
+    plan_to: date | None = None
 
 
 class OrderOut(BaseModel):
@@ -102,6 +105,11 @@ class OrderOut(BaseModel):
     task_ids: list[int]
     lines: list[OrderLineOut]
     tasks: list[OrderTaskOut] = []
+    # План: последний день плана, не успевает к отгрузке, просрочено штук.
+    plan_finish: date | None = None
+    plan_late: bool = False
+    plan_overdue: float = 0.0
+    planned: bool = False
 
 
 def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
@@ -174,7 +182,13 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
         created_by_name=(author.full_name or author.username) if author else "—", created_at=order.created_at,
         released_at=order.released_at, task_ids=[t.id for t in tasks], lines=out_lines,
         tasks=_tasks_out(db, tasks, area_names),
+        **_plan_fields(db, order),
     )
+
+
+def _plan_fields(db: Session, order: ProductionOrder) -> dict:
+    ps = order_plan_status(db, order)
+    return {"plan_finish": ps.finish, "plan_late": ps.late, "plan_overdue": ps.overdue, "planned": ps.planned}
 
 
 def _tasks_out(db: Session, tasks: list[ProductionTask], area_names: dict[str, str]) -> list[OrderTaskOut]:
@@ -193,8 +207,15 @@ def _tasks_out(db: Session, tasks: list[ProductionTask], area_names: dict[str, s
         if line_ids
         else {}
     )
+    slot_days: dict[int, list[date]] = defaultdict(list)
+    line_task = {ln.id: t.id for t in tasks for ln in t.lines}
+    if line_task:
+        for s in db.query(PlanSlot).filter(PlanSlot.task_line_id.in_(list(line_task))):
+            slot_days[line_task[s.task_line_id]].append(s.date)
     return [
         OrderTaskOut(
+            plan_from=min(slot_days[t.id]) if slot_days.get(t.id) else None,
+            plan_to=max(slot_days[t.id]) if slot_days.get(t.id) else None,
             id=t.id, name=t.name or (t.product_model.name if t.product_model else f"Задание №{t.id}"), area=t.area,
             area_name=area_names.get(t.area), is_active=t.is_active, for_task_id=t.for_task_id, lines_count=len(t.lines),
             planned=round(sum(float(ln.quantity_pieces) for ln in t.lines), 2),
@@ -295,14 +316,66 @@ def delete_order(order_id: int, db: Session = Depends(get_db), user: User = Depe
     db.commit()
 
 
+class PfNeedOut(BaseModel):
+    order_line_id: int
+    part_id: int
+    part_name: str
+    quantity: float
+    consumer_part_id: int | None
+    depth: int
+    free_stock: float
+    lamination_area: str | None
+    factory_area: str | None
+    factory_min_pieces: float | None
+
+
+@router.get("/production-orders/{order_id}/release-preview", response_model=list[PfNeedOut])
+def release_preview(order_id: int, db: Session = Depends(get_db), user: User = Depends(view_orders)) -> list[PfNeedOut]:
+    """Что из п/ф запустить вместе с заказом — по составу вглубь, на полное
+    количество (п/ф щитовых делаются под заказ)."""
+    order = _get_order(db, order_id)
+    return [PfNeedOut(**{k: v for k, v in n.__dict__.items() if k != "consumer_stage_id"}) for n in order_pf_needs(db, order)]
+
+
+class PfPickIn(BaseModel):
+    order_line_id: int
+    part_id: int
+    quantity: float = Field(ge=0)
+    consumer_part_id: int | None = None
+    lamination_area: str | None = None
+
+
+class ReleaseIn(BaseModel):
+    pf: list[PfPickIn] = []
+
+
 @router.post("/production-orders/{order_id}/release", response_model=OrderOut)
-def release(order_id: int, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderOut:
+def release(
+    order_id: int, payload: ReleaseIn | None = None, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+) -> OrderOut:
+    """Запуск: задания участкам по маршрутам, п/ф под заказ (что выбрано в
+    окне запуска) и сроки операций назад от отгрузки."""
     order = _get_order(db, order_id)
     try:
-        release_order(db, order, user.id)
+        tasks = release_order(db, order, user.id)
+        if payload and payload.pf:
+            release_pf(db, order, tasks, [PfPick(**p.model_dump()) for p in payload.pf], user.id)
+        schedule_order(db, order, user.id)
     except OrderError as e:
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    db.commit()
+    db.refresh(order)
+    return _order_out(db, order)
+
+
+@router.post("/production-orders/{order_id}/schedule", response_model=OrderOut)
+def reschedule(order_id: int, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderOut:
+    """Пересчитать сроки: автоматические слоты заново, ручные — как есть."""
+    order = _get_order(db, order_id)
+    if order.status == ORDER_DRAFT:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Черновик ещё не запущен — сроков нет")
+    schedule_order(db, order, user.id)
     db.commit()
     db.refresh(order)
     return _order_out(db, order)

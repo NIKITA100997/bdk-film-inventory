@@ -13,6 +13,8 @@ export interface Area {
   // Участок как рабочий центр (единая модель, п.5): отчёт по строке с
   // плёнкой — только с рулоном, возврат рулона — только после отчёта.
   requires_roll_on_report: boolean;
+  /** Планирование: сколько рабочих дней занимает операция участка. */
+  lead_days: number;
 }
 
 /** Нужен ли рулон в отчёте на этом участке (настройка участка, не код). */
@@ -48,6 +50,7 @@ export async function updateArea(
     site_id?: number | null;
     requires_daily_plan?: boolean;
     requires_roll_on_report?: boolean;
+    lead_days?: number;
   },
 ): Promise<Area> {
   const { data } = await apiClient.patch<Area>(`/areas/${code}`, payload);

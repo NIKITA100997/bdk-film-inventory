@@ -16,6 +16,8 @@ class AreaOut(BaseModel):
     # Отчёт по строке с плёнкой — только с рулоном; возврат рулона — только
     # после отчёта.
     requires_roll_on_report: bool = False
+    # Планирование: сколько рабочих дней занимает операция участка.
+    lead_days: int = 1
 
 
 class AreaCreate(BaseModel):
@@ -31,3 +33,4 @@ class AreaUpdate(BaseModel):
     site_id: int | None = None
     requires_daily_plan: bool | None = None
     requires_roll_on_report: bool | None = None
+    lead_days: int | None = None

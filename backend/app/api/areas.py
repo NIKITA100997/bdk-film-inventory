@@ -69,6 +69,10 @@ def update_area(code: str, payload: AreaUpdate, db: Session = Depends(get_db), u
         area.requires_daily_plan = payload.requires_daily_plan
     if payload.requires_roll_on_report is not None:
         area.requires_roll_on_report = payload.requires_roll_on_report
+    if payload.lead_days is not None:
+        if not 0 <= payload.lead_days <= 30:
+            raise HTTPException(status_code=422, detail="Срок операции — от 0 до 30 рабочих дней")
+        area.lead_days = payload.lead_days
     db.commit()
     db.refresh(area)
     return area

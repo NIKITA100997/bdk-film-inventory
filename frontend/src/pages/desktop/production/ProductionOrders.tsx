@@ -29,6 +29,7 @@ import ScheduleImportModal from "./ScheduleImportModal";
 import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
+import ReleaseOrderModal from "./ReleaseOrderModal";
 import VariantPicker from "../../../components/VariantPicker";
 import { useAuth } from "../../../auth/AuthContext";
 import { listItems, type Item } from "../../../api/items";
@@ -38,7 +39,7 @@ import {
   createProductionOrder,
   deleteProductionOrder,
   listProductionOrders,
-  releaseProductionOrder,
+  rescheduleOrder,
   updateProductionOrder,
   type OrderInput,
   type OrderStatus,
@@ -164,6 +165,7 @@ export default function ProductionOrders() {
           },
           { title: "Статус", render: (_, o) => <Tag color={STATUS_COLOR[o.status]}>{ORDER_STATUS_LABEL[o.status]}</Tag> },
           { title: "Отгрузка", render: (_, o) => (o.ship_date ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—") },
+          { title: "Срок по плану", render: (_, o) => <PlanTag order={o} /> },
           {
             title: "Готово",
             render: (_, o) => {
@@ -254,13 +256,15 @@ function OrderDrawer({
     qc.invalidateQueries({ queryKey: ["production-tasks"] });
     qc.invalidateQueries({ queryKey: ["pf-demand"] });
   };
-  const releaseMutation = useMutation({
-    mutationFn: (id: number) => releaseProductionOrder(id),
+  const [releasing, setReleasing] = useState(false);
+  const rescheduleMutation = useMutation({
+    mutationFn: (id: number) => rescheduleOrder(id),
     onSuccess: (o) => {
       invalidate();
-      message.success(`Заказ запущен: заданий участкам — ${o.task_ids.length}`);
+      qc.invalidateQueries({ queryKey: ["plan-board"] });
+      message.success(o.plan_finish ? `Сроки пересчитаны: готово к ${dayjs(o.plan_finish).format("DD.MM")}` : "Сроки пересчитаны");
     },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось запустить заказ")),
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось пересчитать сроки")),
   });
   const closeMutation = useMutation({
     mutationFn: (id: number) => closeProductionOrder(id),
@@ -305,17 +309,10 @@ function OrderDrawer({
                 <Popconfirm title="Удалить черновик?" okText="Удалить" cancelText="Отмена" onConfirm={() => deleteMutation.mutate(order.id)}>
                   <Button danger>Удалить</Button>
                 </Popconfirm>
-                <Popconfirm
-                  title="Запустить заказ?"
-                  description="Появятся задания участкам по маршрутам позиций; после запуска заказ не правится."
-                  okText="Запустить"
-                  cancelText="Отмена"
-                  onConfirm={() => releaseMutation.mutate(order.id)}
-                >
-                  <Button type="primary" loading={releaseMutation.isPending}>
-                    Запустить
-                  </Button>
-                </Popconfirm>
+                <Button type="primary" onClick={() => setReleasing(true)}>
+                  Запустить…
+                </Button>
+                
               </>
             )}
             {order.status === "released" && (
@@ -332,7 +329,10 @@ function OrderDrawer({
                 >
                   <Button>+ Задание ▾</Button>
                 </Dropdown>
-                <Button onClick={() => navigate("/pf-demand")}>Потребность п/ф →</Button>
+                <Button loading={rescheduleMutation.isPending} onClick={() => rescheduleMutation.mutate(order.id)}>
+                  Пересчитать сроки
+                </Button>
+                <Button onClick={() => navigate("/planner")}>Планировщик →</Button>
                 <Popconfirm
                   title="Закрыть заказ?"
                   description="Задания заказа уйдут в архив."
@@ -350,10 +350,13 @@ function OrderDrawer({
     >
       {order && (
         <Space direction="vertical" size="large" style={{ width: "100%" }}>
-          <Typography.Text type="secondary">
-            {order.ship_date ? `Отгрузка ${dayjs(order.ship_date).format("DD.MM.YYYY")}. ` : ""}
-            {order.note ?? ""}
-          </Typography.Text>
+          <Space wrap>
+            <Typography.Text type="secondary">
+              {order.ship_date ? `Отгрузка ${dayjs(order.ship_date).format("DD.MM.YYYY")}. ` : ""}
+              {order.note ?? ""}
+            </Typography.Text>
+            {order.status !== "draft" && <PlanTag order={order} />}
+          </Space>
           {(order.tasks ?? []).length > 0 && (
             <Card size="small" title="Задания участкам">
               <Table<OrderTask>
@@ -377,6 +380,15 @@ function OrderDrawer({
                     ),
                   },
                   { title: "Участок", render: (_, t) => t.area_name ?? t.area },
+                  {
+                    title: "План",
+                    render: (_, t) =>
+                      t.plan_from
+                        ? t.plan_from === t.plan_to
+                          ? dayjs(t.plan_from).format("DD.MM")
+                          : `${dayjs(t.plan_from).format("DD.MM")}–${dayjs(t.plan_to).format("DD.MM")}`
+                        : "—",
+                  },
                   {
                     title: "Сделано",
                     render: (_, t) => (
@@ -470,7 +482,25 @@ function OrderDrawer({
           ))}
         </Space>
       )}
+      {releasing && order && <ReleaseOrderModal order={order} onClose={() => setReleasing(false)} />}
     </Drawer>
+  );
+}
+
+/** Срок по плану: успевает к отгрузке / не успевает / просрочено / без плана. */
+function PlanTag({ order }: { order: ProductionOrder }) {
+  if (order.status === "draft") return <Typography.Text type="secondary">—</Typography.Text>;
+  if (!order.planned) return <Tag>без плана</Tag>;
+  const finish = order.plan_finish ? dayjs(order.plan_finish).format("DD.MM") : "";
+  return (
+    <Space size={4} wrap>
+      {order.plan_late ? (
+        <Tag color="red">не успевает: готово {finish}</Tag>
+      ) : (
+        <Tag color="green">успевает: готово {finish}</Tag>
+      )}
+      {(order.plan_overdue ?? 0) > 0 && <Tag color="orange">просрочено {order.plan_overdue} шт</Tag>}
+    </Space>
   );
 }
 

@@ -10,7 +10,7 @@
 где `code` есть только у 7 системных ролей, здесь `code` заполнен всегда:
 он и есть значение, которое хранится во всех таблицах-потребителях."""
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Integer, Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -33,6 +33,10 @@ class Area(Base):
     # а на выдаче такие строки не помечаются как "не распределено"
     # (это нормальное для них состояние, а не сигнал "забыли спланировать").
     requires_daily_plan: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # Планирование (29.09): сколько рабочих дней занимает операция участка —
+    # на столько раньше ставится предыдущая операция при расчёте сроков
+    # заказа назад от отгрузки. Мощность участков пока не задаётся.
+    lead_days: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     # Единая модель, пункт 5 — участок как рабочий центр: отчёт о
     # производстве по строке с плёнкой обязан указать рулон, а рулон нельзя
     # вернуть без отчёта (раньше — хардкод кода окутки царговых).

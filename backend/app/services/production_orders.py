@@ -99,6 +99,10 @@ def attach_tasks_to_order(
     for task in tasks:
         task.production_order_id = order.id
     db.flush()
+    # Сроки нового задания — в плане сразу (п/ф щитовых и работы участка).
+    from app.services.planning import schedule_order
+
+    schedule_order(db, order, user_id)
     return order
 
 

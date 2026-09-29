@@ -57,7 +57,40 @@ export interface ProductionOrder {
   lines: OrderLine[];
   /** Задания участкам внутри заказа. */
   tasks: OrderTask[];
+  /** План: последний день плана, не успевает к отгрузке, просрочено штук. */
+  plan_finish?: string | null;
+  plan_late?: boolean;
+  plan_overdue?: number;
+  planned?: boolean;
 }
+
+/** П/ф под заказ — что запустить вместе с ним (по составу вглубь). */
+export interface PfNeed {
+  order_line_id: number;
+  part_id: number;
+  part_name: string;
+  quantity: number;
+  consumer_part_id: number | null;
+  depth: number;
+  free_stock: number;
+  lamination_area: string | null;
+  factory_area: string | null;
+  factory_min_pieces: number | null;
+}
+
+export interface PfPick {
+  order_line_id: number;
+  part_id: number;
+  quantity: number;
+  consumer_part_id: number | null;
+  lamination_area?: string | null;
+}
+
+export const getReleasePreview = async (orderId: number): Promise<PfNeed[]> =>
+  (await apiClient.get<PfNeed[]>(`/production-orders/${orderId}/release-preview`)).data;
+
+export const rescheduleOrder = async (orderId: number): Promise<ProductionOrder> =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${orderId}/schedule`)).data;
 
 export interface OrderTask {
   id: number;
@@ -71,6 +104,8 @@ export interface OrderTask {
   done: number;
   with_film: boolean;
   with_parts: boolean;
+  plan_from?: string | null;
+  plan_to?: string | null;
 }
 
 export interface OrderInput {
@@ -98,8 +133,9 @@ export const deleteProductionOrder = async (id: number): Promise<void> => {
   await apiClient.delete(`/production-orders/${id}`);
 };
 
-export const releaseProductionOrder = async (id: number): Promise<ProductionOrder> =>
-  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/release`)).data;
+/** Запуск: задания участкам, п/ф под заказ (pf) и сроки назад от отгрузки. */
+export const releaseProductionOrder = async (id: number, pf: PfPick[] = []): Promise<ProductionOrder> =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/release`, { pf })).data;
 
 export const closeProductionOrder = async (id: number): Promise<ProductionOrder> =>
   (await apiClient.post<ProductionOrder>(`/production-orders/${id}/close`)).data;
