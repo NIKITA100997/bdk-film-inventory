@@ -433,6 +433,29 @@ def _suggest(name: str, parts: list[Part]) -> list[PartSuggestion]:
     return [PartSuggestion(part_id=p.id, part_name=p.name, score=round(r, 2)) for r, p in scored[:3] if r >= 0.5]
 
 
+def strip_decor(name: str) -> str:
+    """«Добор телескоп 10х100х2070 (ПЭТ Бежевый (cream silk))» → «Добор
+    телескоп 10х100х2070»: у строки задания с плёнкой последняя скобка —
+    декор (он и так есть в плёнке строки), деталь — без неё."""
+    name = name.rstrip()
+    if not name.endswith(")"):
+        return name
+    depth = 0
+    for i in range(len(name) - 1, -1, -1):
+        if name[i] == ")":
+            depth += 1
+        elif name[i] == "(":
+            depth -= 1
+            if depth == 0:
+                base = name[:i].rstrip()
+                return base or name
+    return name
+
+
+def _task_line_key(name: str, has_film: bool) -> str:
+    return normalize_name(strip_decor(name) if has_film else name)
+
+
 @router.get("/items/unlinked-lines", response_model=list[UnlinkedLineGroup])
 def list_unlinked_lines(db: Session = Depends(get_db), user=Depends(view_items)) -> list[UnlinkedLineGroup]:
     """Строки BOM моделей и заданий цеха с названием детали, которой нет в
@@ -446,15 +469,17 @@ def list_unlinked_lines(db: Session = Depends(get_db), user=Depends(view_items))
         g["bom"] += 1
         g["name"] = g["name"] or name
     rows = (
-        db.query(ProductionTaskLine.part_name, ProductionTask.is_active)
+        db.query(ProductionTaskLine.part_name, ProductionTaskLine.color_id, ProductionTask.is_active)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
         .filter(ProductionTaskLine.part_name.isnot(None), ProductionTaskLine.part_id.is_(None))
     )
-    for name, active in rows:
-        g = groups[normalize_name(name)]
+    # Строки с плёнкой — без декора в конце названия: все декоры одной
+    # детали (погонаж «… (Бьянко)», «… (Аляска)») — одна группа.
+    for name, color_id, active in rows:
+        g = groups[_task_line_key(name, color_id is not None)]
         g["task"] += 1
         g["active"] += 1 if active else 0
-        g["name"] = g["name"] or name
+        g["name"] = g["name"] or (strip_decor(name) if color_id is not None else name)
     parts = db.query(Part).filter(Part.is_active.is_(True)).all()
     out = [
         UnlinkedLineGroup(
@@ -478,7 +503,8 @@ def link_unlinked_lines(payload: LinkLinesIn, db: Session = Depends(get_db), use
     touched_models: set[int] = set()
     for model, label in ((ProductModelPart, "bom"), (ProductionTaskLine, "task")):
         for line in db.query(model).filter(model.part_name.isnot(None), model.part_id.is_(None)):
-            if normalize_name(line.part_name) == key:
+            has_film = label == "task" and line.color_id is not None
+            if normalize_name(line.part_name) == key or (has_film and _task_line_key(line.part_name, True) == key):
                 line.part_id = part.id
                 counts[label] += 1
                 if label == "bom":
