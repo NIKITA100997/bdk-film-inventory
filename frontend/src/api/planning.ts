@@ -64,11 +64,17 @@ export const listPlanSlots = async (params: {
   include_earlier?: boolean;
 }): Promise<PlanSlot[]> => (await apiClient.get<PlanSlot[]>("/planning/slots", { params })).data;
 
-export const movePlanSlot = async (id: number, payload: { date?: string; quantity?: number }): Promise<void> => {
+export const movePlanSlot = async (
+  id: number,
+  payload: { date?: string; quantity?: number; shift_next?: boolean },
+): Promise<void> => {
   await apiClient.patch(`/planning/slots/${id}`, payload);
 };
 
-export const splitPlanSlot = async (id: number, payload: { date: string; quantity: number }): Promise<void> => {
+export const splitPlanSlot = async (
+  id: number,
+  payload: { date: string; quantity: number; shift_next?: boolean },
+): Promise<void> => {
   await apiClient.post(`/planning/slots/${id}/split`, payload);
 };
 
@@ -82,4 +88,21 @@ export const movePlanCell = async (payload: {
   from_date: string;
   to_date: string;
   include_earlier?: boolean;
+  shift_next?: boolean;
 }): Promise<{ moved: number }> => (await apiClient.post("/planning/cells/move", payload)).data;
+
+export interface MoveCheckIn {
+  to_date: string;
+  slot_id?: number;
+  split?: boolean;
+  cell?: { area: string; from_date: string; to_date: string; include_earlier?: boolean };
+}
+
+export interface MoveCheck {
+  conflicts: { what: string; operation: string | null; area_name: string; relation: "next" | "prev"; start: string; need: string }[];
+  will_shift: { what: string; operation: string | null; area_name: string; before: string; after: string }[];
+}
+
+/** Проверка переноса: не нарушится ли порядок связанных этапов. */
+export const checkPlanMove = async (payload: MoveCheckIn): Promise<MoveCheck> =>
+  (await apiClient.post<MoveCheck>("/planning/check-move", payload)).data;

@@ -227,29 +227,82 @@ def _good_by_line(db: Session, line_ids: list[int]) -> dict[int, float]:
     }
 
 
+ChainKey = tuple[int | None, int | None]  # (строка заказа, деталь п/ф или None — сама позиция заказа)
+
+
+@dataclass
+class OrderChains:
+    """Связи операций заказа: цепочки операций по порядку маршрута и для
+    цепочки п/ф — строки, где эта деталь расходуется (её «следующий этап»)."""
+
+    lines: list[ProductionTaskLine]
+    task_of: dict[int, ProductionTask]
+    stage_of: dict[int, PartStage]
+    chains: dict[ChainKey, list[ProductionTaskLine]]
+    consumers: dict[ChainKey, list[int]]
+
+
+def order_chains(db: Session, order: ProductionOrder) -> OrderChains:
+    tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).all()
+    lines = [ln for t in tasks for ln in t.lines]
+    stage_of = {
+        s.id: s for s in db.query(PartStage).filter(PartStage.id.in_({ln.part_stage_id for ln in lines if ln.part_stage_id}))
+    } if lines else {}
+    task_of = {ln.id: t for t in tasks for ln in t.lines}
+    chains: dict[ChainKey, list[ProductionTaskLine]] = defaultdict(list)
+    for ln in lines:
+        stage = stage_of.get(ln.part_stage_id) if ln.part_stage_id else None
+        owner = stage.part_id if stage is not None and stage.part_id else None
+        chains[(ln.order_line_id, owner)].append(ln)
+    for chain in chains.values():
+        chain.sort(key=lambda ln: stage_of[ln.part_stage_id].sequence_order if ln.part_stage_id in stage_of else 0)
+    parts = {p.id: p for p in db.query(Part).filter(Part.id.in_({o for _, o in chains if o}))} if chains else {}
+    consumers: dict[ChainKey, list[int]] = {}
+    for (ol, owner) in chains:
+        if owner is None:
+            continue
+        part = parts.get(owner)
+        comps = db.query(ItemComponent).filter(ItemComponent.component_item_id == part.item_id).all() if part and part.item_id else []
+        found = []
+        for c in comps:
+            for ln in lines:
+                if ln.order_line_id != ol:
+                    continue
+                st = stage_of.get(ln.part_stage_id)
+                if st is None or st.item_id != c.parent_item_id:
+                    continue
+                first = min(st.item.stages, key=lambda x: x.sequence_order).id if st.item and st.item.stages else st.id
+                if (c.stage_id or first) == st.id:
+                    found.append(ln.id)
+        consumers[(ol, owner)] = found
+    return OrderChains(lines=lines, task_of=task_of, stage_of=stage_of, chains=dict(chains), consumers=consumers)
+
+
+def order_edges(oc: OrderChains) -> list[tuple[int, int]]:
+    """(предыдущая строка, следующая строка): соседние операции цепочки и
+    последняя операция п/ф → операция, где деталь расходуется."""
+    edges = []
+    for key, chain in oc.chains.items():
+        for a, b in zip(chain, chain[1:]):
+            edges.append((a.id, b.id))
+        if chain and key[1] is not None:
+            edges.extend((chain[-1].id, c) for c in oc.consumers.get(key, []))
+    return edges
+
+
 def schedule_order(db: Session, order: ProductionOrder, user_id: int, today: date | None = None) -> ScheduleResult:
     """Расставить сроки строк заданий заказа (без commit) и записать
     автоматические слоты плана на невыполненный остаток."""
     today = to_workday(today or date.today())
-    tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).all()
-    lines = [ln for t in tasks for ln in t.lines]
+    oc = order_chains(db, order)
+    lines, stage_of, task_of, chains = oc.lines, oc.stage_of, oc.task_of, oc.chains
     if not lines:
         return ScheduleResult(finish=None, late=False)
     lead = {a.code: max(0, int(a.lead_days or 0)) for a in db.query(Area)}
-    stage_of = {s.id: s for s in db.query(PartStage).filter(PartStage.id.in_({ln.part_stage_id for ln in lines if ln.part_stage_id}))}
-    task_of = {ln.id: t for t in tasks for ln in t.lines}
     anchor = order.ship_date and add_workdays(to_workday(order.ship_date, forward=False), 0)
     last_day = add_workdays(anchor, -1) if anchor else add_workdays(today, FAR_AHEAD_WORKDAYS)
 
     dates: dict[int, date] = {}
-    # Строки по (строка заказа, деталь или дверь) — цепочки операций.
-    chains: dict[tuple[int | None, int | None], list[ProductionTaskLine]] = defaultdict(list)
-    for ln in lines:
-        stage = stage_of.get(ln.part_stage_id) if ln.part_stage_id else None
-        owner = stage.part_id if stage is not None and stage.part_id else None  # None — дверь (позиция заказа)
-        chains[(ln.order_line_id, owner)].append(ln)
-    for chain in chains.values():
-        chain.sort(key=lambda ln: stage_of[ln.part_stage_id].sequence_order if ln.part_stage_id in stage_of else 0)
 
     def place_chain(chain: list[ProductionTaskLine], end: date) -> None:
         d = end
@@ -263,26 +316,11 @@ def schedule_order(db: Session, order: ProductionOrder, user_id: int, today: dat
         if owner is None:
             place_chain(chain, last_day)
     # П/ф — к операции, на которой расходуются; вложенные — после своих родителей.
-    parts = {p.id: p for p in db.query(Part).filter(Part.id.in_({o for _, o in chains if o}))}
     pending = [(ol, owner) for ol, owner in chains if owner is not None]
     for _ in range(MAX_DEPTH + 1):
         rest = []
         for ol, owner in pending:
-            part = parts.get(owner)
-            comp = (
-                db.query(ItemComponent).filter(ItemComponent.component_item_id == part.item_id).all() if part and part.item_id else []
-            )
-            consumer_dates = []
-            for c in comp:
-                for ln in lines:
-                    if ln.order_line_id != ol or ln.id not in dates:
-                        continue
-                    st = stage_of.get(ln.part_stage_id)
-                    if st is None or st.item_id != c.parent_item_id:
-                        continue
-                    first = min(st.item.stages, key=lambda s: s.sequence_order).id if st.item and st.item.stages else st.id
-                    if (c.stage_id or first) == st.id:
-                        consumer_dates.append(dates[ln.id])
+            consumer_dates = [dates[x] for x in oc.consumers.get((ol, owner), []) if x in dates]
             if consumer_dates:
                 chain = chains[(ol, owner)]
                 end = add_workdays(min(consumer_dates), -max(1, lead.get(task_of[chain[-1].id].area, 1)))
@@ -348,3 +386,118 @@ def order_plan_status(db: Session, order: ProductionOrder, today: date | None = 
     return OrderPlanStatus(
         finish=finish, late=bool(order.ship_date and finish >= order.ship_date), overdue=round(overdue, 2), planned=True
     )
+
+
+# ─── связанные этапы при переносе ─────────────────────────────────────────
+
+
+@dataclass
+class MoveConflict:
+    line_id: int
+    what: str
+    operation: str | None
+    area: str
+    relation: str  # "next" — следующий этап окажется не позже; "prev" — предыдущий не раньше
+    start: date
+    end: date
+    need: date  # следующий — не раньше этого дня; предыдущий — не позже
+
+
+def _windows(slots: list[PlanSlot]) -> dict[int, tuple[date, date]]:
+    w: dict[int, tuple[date, date]] = {}
+    for sl in slots:
+        a, b = w.get(sl.task_line_id, (sl.date, sl.date))
+        w[sl.task_line_id] = (min(a, sl.date), max(b, sl.date))
+    return w
+
+
+def _orders_of_lines(db: Session, line_ids: set[int]) -> list[ProductionOrder]:
+    ids = {
+        t.production_order_id
+        for t in db.query(ProductionTask).join(ProductionTaskLine, ProductionTaskLine.task_id == ProductionTask.id)
+        .filter(ProductionTaskLine.id.in_(line_ids))
+        if t.production_order_id
+    }
+    return db.query(ProductionOrder).filter(ProductionOrder.id.in_(ids)).all() if ids else []
+
+
+def check_move(db: Session, changes: list[tuple[int, int | None, date]]) -> list[MoveConflict]:
+    """Проверить перенос без записи. changes — (строка, слот или None для
+    нового слота при делении, новый день). Правило: следующий этап — не
+    раньше следующего рабочего дня после конца предыдущего."""
+    line_ids = {ln for ln, _, _ in changes}
+    conflicts: list[MoveConflict] = []
+    for order in _orders_of_lines(db, line_ids):
+        oc = order_chains(db, order)
+        all_ids = [ln.id for ln in oc.lines]
+        slots = db.query(PlanSlot).filter(PlanSlot.task_line_id.in_(all_ids)).all()
+        virtual = [PlanSlot(task_line_id=sl.task_line_id, date=sl.date, quantity=sl.quantity) for sl in slots]
+        by_id = {sl.id: v for sl, v in zip(slots, virtual)}
+        for ln, slot_id, d in changes:
+            if slot_id is not None and slot_id in by_id:
+                by_id[slot_id].date = d
+            elif slot_id is None:
+                virtual.append(PlanSlot(task_line_id=ln, date=d, quantity=0))
+        w = _windows(virtual)
+        names = {ln.id: ln for ln in oc.lines}
+        seen = set()
+        for a, b in order_edges(oc):
+            if a not in w or b not in w or (a not in line_ids and b not in line_ids):
+                continue
+            if w[b][0] > w[a][1]:
+                continue
+            if a in line_ids and b not in line_ids:  # сдвинули предыдущий — страдает следующий
+                other, rel, need = b, "next", add_workdays(w[a][1], 1)
+            elif b in line_ids and a not in line_ids:  # сдвинули следующий раньше предыдущего
+                other, rel, need = a, "prev", add_workdays(w[b][0], -1)
+            else:
+                continue
+            if (other, rel) in seen:
+                continue
+            seen.add((other, rel))
+            ln = names[other]
+            st = oc.stage_of.get(ln.part_stage_id)
+            conflicts.append(
+                MoveConflict(
+                    line_id=other, what=ln.part_name or "—", operation=st.name if st else None,
+                    area=oc.task_of[other].area, relation=rel, start=w[other][0], end=w[other][1], need=need,
+                )
+            )
+    return conflicts
+
+
+def shift_following(db: Session, moved_line_ids: set[int]) -> int:
+    """После переноса сдвинуть следующие этапы (и дальше по цепочке) так,
+    чтобы каждый шёл не раньше следующего рабочего дня после предыдущего.
+    Сдвинутые слоты становятся ручными. Возвращает число сдвинутых строк."""
+    shifted = 0
+    for order in _orders_of_lines(db, moved_line_ids):
+        oc = order_chains(db, order)
+        slots = db.query(PlanSlot).filter(PlanSlot.task_line_id.in_([ln.id for ln in oc.lines])).all()
+        by_line: dict[int, list[PlanSlot]] = defaultdict(list)
+        for sl in slots:
+            by_line[sl.task_line_id].append(sl)
+        succ: dict[int, list[int]] = defaultdict(list)
+        for a, b in order_edges(oc):
+            succ[a].append(b)
+        queue = [ln for ln in moved_line_ids if ln in by_line]
+        guard = 0
+        while queue and guard < 500:
+            guard += 1
+            a = queue.pop(0)
+            end_a = max(sl.date for sl in by_line[a])
+            for b in succ.get(a, []):
+                if not by_line.get(b):
+                    continue
+                start_b = min(sl.date for sl in by_line[b])
+                need = add_workdays(end_a, 1)
+                if start_b >= need:
+                    continue
+                delta = workdays_between(start_b, need)
+                for sl in by_line[b]:
+                    sl.date = add_workdays(sl.date, delta)
+                    sl.auto = False
+                shifted += 1
+                queue.append(b)
+    db.flush()
+    return shifted

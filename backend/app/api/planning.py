@@ -17,7 +17,7 @@ from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, 
 from app.models.production_orders import ProductionOrder
 from app.models.sites import Site
 from app.models.users import User
-from app.services.planning import is_workday, to_workday
+from app.services.planning import check_move, is_workday, shift_following, to_workday
 
 # Поле моделей называется date — тип под другим именем, чтобы не перекрывать.
 Day = date
@@ -222,6 +222,7 @@ def slots(
 class SlotPatch(BaseModel):
     date: Day | None = None
     quantity: float | None = Field(default=None, gt=0)
+    shift_next: bool = False  # сдвинуть следующие этапы, если встали раньше
 
 
 def _get_slot(db: Session, slot_id: int) -> PlanSlot:
@@ -241,12 +242,16 @@ def patch_slot(slot_id: int, payload: SlotPatch, db: Session = Depends(get_db), 
     if payload.quantity is not None:
         s.quantity = payload.quantity
     s.auto = False
+    db.flush()
+    if payload.shift_next:
+        shift_following(db, {s.task_line_id})
     db.commit()
 
 
 class SlotSplit(BaseModel):
     date: Day
     quantity: float = Field(gt=0)
+    shift_next: bool = False
 
 
 @router.post("/slots/{slot_id}/split", status_code=status.HTTP_204_NO_CONTENT)
@@ -258,6 +263,9 @@ def split_slot(slot_id: int, payload: SlotSplit, db: Session = Depends(get_db), 
     s.quantity = round(float(s.quantity) - payload.quantity, 2)
     s.auto = False
     db.add(PlanSlot(task_line_id=s.task_line_id, date=to_workday(payload.date), quantity=payload.quantity, auto=False, created_by=user.id))
+    db.flush()
+    if payload.shift_next:
+        shift_following(db, {s.task_line_id})
     db.commit()
 
 
@@ -283,6 +291,7 @@ class CellMoveIn(BaseModel):
     from_date: Day
     to_date: Day
     include_earlier: bool = False  # первая колонка сетки — с просроченными
+    shift_next: bool = False
 
 
 @router.post("/cells/move")
@@ -295,10 +304,104 @@ def move_cell(payload: CellMoveIn, db: Session = Depends(get_db), user: User = D
         return {"moved": 0}
     q = db.query(PlanSlot).filter(PlanSlot.task_line_id.in_(line_ids))
     q = q.filter(PlanSlot.date <= payload.from_date) if payload.include_earlier else q.filter(PlanSlot.date == payload.from_date)
-    moved = 0
+    moved, lines = 0, set()
     for s in q:
         s.date = to
         s.auto = False
         moved += 1
+        lines.add(s.task_line_id)
+    db.flush()
+    if payload.shift_next and lines:
+        shift_following(db, lines)
     db.commit()
     return {"moved": moved}
+
+
+class MoveCheckIn(BaseModel):
+    to_date: Day
+    slot_id: int | None = None  # перенос одного слота
+    split: bool = False  # деление: часть слота slot_id — на to_date
+    cell: CellMoveIn | None = None  # перенос клетки целиком
+
+
+class ConflictOut(BaseModel):
+    what: str
+    operation: str | None
+    area_name: str
+    relation: str  # next | prev
+    start: Day
+    need: Day
+
+
+class ShiftOut(BaseModel):
+    what: str
+    operation: str | None
+    area_name: str
+    before: Day
+    after: Day
+
+
+class MoveCheckOut(BaseModel):
+    conflicts: list[ConflictOut]
+    will_shift: list[ShiftOut]  # что сдвинется при «сдвинуть следующие этапы»
+
+
+@router.post("/check-move", response_model=MoveCheckOut)
+def check_move_endpoint(payload: MoveCheckIn, db: Session = Depends(get_db), user: User = Depends(view)) -> MoveCheckOut:
+    """Перед переносом: не встанет ли этап раньше предыдущего или позже
+    следующего, и что сдвинется, если сдвигать следующие этапы."""
+    to = to_workday(payload.to_date)
+    changes: list[tuple[int, int | None, date]] = []
+    if payload.cell is not None:
+        c = payload.cell
+        line_ids = [ln.id for ln, t in _active_lines(db) if t.area == c.area]
+        q = db.query(PlanSlot).filter(PlanSlot.task_line_id.in_(line_ids or [-1]))
+        q = q.filter(PlanSlot.date <= c.from_date) if c.include_earlier else q.filter(PlanSlot.date == c.from_date)
+        changes = [(sl.task_line_id, sl.id, to) for sl in q]
+    elif payload.slot_id is not None:
+        sl = _get_slot(db, payload.slot_id)
+        changes = [(sl.task_line_id, None if payload.split else sl.id, to)]
+    if not changes:
+        return MoveCheckOut(conflicts=[], will_shift=[])
+    areas = {a.code: a.name for a in db.query(Area)}
+    stages = {st.id: st.name for st in db.query(PartStage)}
+    conflicts = check_move(db, changes)
+    # Что сдвинется: прогон в savepoint и откат.
+    will: list[ShiftOut] = []
+    if any(c.relation == "next" for c in conflicts):
+        sp = db.begin_nested()
+        moved_lines = set()
+        for line_id, slot_id, d in changes:
+            if slot_id is not None:
+                db.get(PlanSlot, slot_id).date = d
+            else:
+                db.add(PlanSlot(task_line_id=line_id, date=d, quantity=0, auto=False, created_by=user.id))
+            moved_lines.add(line_id)
+        db.flush()
+        before = {}
+        all_slots = db.query(PlanSlot).all()
+        for sl in all_slots:
+            before.setdefault(sl.task_line_id, []).append(sl.date)
+        before_min = {k: min(v) for k, v in before.items()}
+        shift_following(db, moved_lines)
+        after_min: dict[int, date] = {}
+        for sl in db.query(PlanSlot).all():
+            after_min[sl.task_line_id] = min(after_min.get(sl.task_line_id, sl.date), sl.date)
+        for lid, d_before in before_min.items():
+            d_after = after_min.get(lid)
+            if d_after and d_after != d_before and lid not in moved_lines:
+                ln = db.get(ProductionTaskLine, lid)
+                will.append(
+                    ShiftOut(
+                        what=ln.part_name or "—", operation=stages.get(ln.part_stage_id), area_name=areas.get(ln.task.area, ln.task.area),
+                        before=d_before, after=d_after,
+                    )
+                )
+        sp.rollback()
+    return MoveCheckOut(
+        conflicts=[
+            ConflictOut(what=c.what, operation=c.operation, area_name=areas.get(c.area, c.area), relation=c.relation, start=c.start, need=c.need)
+            for c in conflicts
+        ],
+        will_shift=sorted(will, key=lambda x: x.after),
+    )

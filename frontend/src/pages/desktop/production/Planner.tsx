@@ -30,6 +30,7 @@ import {
   type PlanArea,
   type PlanSlot,
 } from "../../../api/planning";
+import { useMoveGuard } from "./MoveGuard";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -58,9 +59,10 @@ export default function Planner() {
   // Перетаскивание клетки на другой день той же строки (участка).
   const [drag, setDrag] = useState<{ area: string; date: string; first: boolean } | null>(null);
   const [dropOver, setDropOver] = useState<string | null>(null);
+  const { guard, modal: guardModal } = useMoveGuard();
   const moveCell = useMutation({
-    mutationFn: (v: { area: string; from: string; to: string; first: boolean }) =>
-      movePlanCell({ area: v.area, from_date: v.from, to_date: v.to, include_earlier: v.first }),
+    mutationFn: (v: { area: string; from: string; to: string; first: boolean; shift: boolean }) =>
+      movePlanCell({ area: v.area, from_date: v.from, to_date: v.to, include_earlier: v.first, shift_next: v.shift }),
     onSuccess: (r, v) => {
       for (const k of [["plan-board"], ["plan-slots"], ["production-orders"]]) qc.invalidateQueries({ queryKey: k });
       message.success(`Перенесено на ${dayjs(v.to).format("DD.MM")}: ${r.moved}`);
@@ -179,7 +181,13 @@ export default function Planner() {
                             onDragLeave={() => setDropOver((k) => (k === dropKey ? null : k))}
                             onDrop={(e) => {
                               e.preventDefault();
-                              if (drag && canDrop) moveCell.mutate({ area: a.code, from: drag.date, to: d, first: drag.first });
+                              if (drag && canDrop) {
+                                const dr = drag;
+                                void guard(
+                                  { to_date: d, cell: { area: a.code, from_date: dr.date, to_date: d, include_earlier: dr.first } },
+                                  (shift) => moveCell.mutate({ area: a.code, from: dr.date, to: d, first: dr.first, shift }),
+                                );
+                              }
                               setDrag(null);
                               setDropOver(null);
                             }}
@@ -232,6 +240,7 @@ export default function Planner() {
         )}
       </Card>
       {target && <SlotsDrawer target={target} onClose={() => setTarget(null)} />}
+      {guardModal}
     </Space>
   );
 }
@@ -279,8 +288,9 @@ function SlotsDrawer({ target, onClose }: { target: Target; onClose: () => void 
   const refresh = () => {
     for (const k of [["plan-board"], ["plan-slots"], ["production-orders"]]) qc.invalidateQueries({ queryKey: k });
   };
+  const { guard, modal: guardModal } = useMoveGuard();
   const moveMutation = useMutation({
-    mutationFn: ({ id, date }: { id: number; date: string }) => movePlanSlot(id, { date }),
+    mutationFn: ({ id, date, shift }: { id: number; date: string; shift: boolean }) => movePlanSlot(id, { date, shift_next: shift }),
     onSuccess: () => {
       refresh();
       message.success("Перенесено");
@@ -288,7 +298,8 @@ function SlotsDrawer({ target, onClose }: { target: Target; onClose: () => void 
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось перенести")),
   });
   const splitMutation = useMutation({
-    mutationFn: ({ id, date, quantity }: { id: number; date: string; quantity: number }) => splitPlanSlot(id, { date, quantity }),
+    mutationFn: ({ id, date, quantity, shift }: { id: number; date: string; quantity: number; shift: boolean }) =>
+      splitPlanSlot(id, { date, quantity, shift_next: shift }),
     onSuccess: () => {
       refresh();
       message.success("Разделено");
@@ -373,13 +384,23 @@ function SlotsDrawer({ target, onClose }: { target: Target; onClose: () => void 
                         placeholder="Перенести на…"
                         format="DD.MM"
                         disabledDate={noWeekend}
-                        onChange={(d) => d && moveMutation.mutate({ id: s.id as number, date: d.format("YYYY-MM-DD") })}
+                        onChange={(d) => {
+                          if (!d) return;
+                          const date = d.format("YYYY-MM-DD");
+                          void guard({ to_date: date, slot_id: s.id as number }, (shift) =>
+                            moveMutation.mutate({ id: s.id as number, date, shift }),
+                          );
+                        }}
                       />
                       {s.quantity > 1 && (
                         <SplitPopover
                           slot={s}
                           disabledDate={noWeekend}
-                          onSplit={(date, quantity) => splitMutation.mutate({ id: s.id as number, date, quantity })}
+                          onSplit={(date, quantity) =>
+                            void guard({ to_date: date, slot_id: s.id as number, split: true }, (shift) =>
+                              splitMutation.mutate({ id: s.id as number, date, quantity, shift }),
+                            )
+                          }
                         />
                       )}
                     </>
@@ -389,6 +410,7 @@ function SlotsDrawer({ target, onClose }: { target: Target; onClose: () => void 
           },
         ]}
       />
+      {guardModal}
     </Drawer>
   );
 }
