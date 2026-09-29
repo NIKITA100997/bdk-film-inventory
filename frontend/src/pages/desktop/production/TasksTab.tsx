@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid, Modal, InputNumber, Form, Select } from "antd";
+import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid, Modal, InputNumber, Form, Select, Tooltip } from "antd";
 // Раздел про широкую таблицу строк задания — ResponsiveTable только для
 // внутренней таблицы строк (плоский список, без expandable). Внешняя
 // таблица заданий использует expandable (клик-разворот строки задания)
@@ -239,6 +239,11 @@ export default function TasksTab() {
                               {l.operation_name && <Tag color="purple">{l.operation_name}</Tag>}
                               {l.is_closed && <Tag>Закрыто</Tag>}
                               {l.production_closed && <Tag color="blue">Производство завершено</Tag>}
+                              {(l.film_warnings ?? []).length > 0 && (
+                                <Tooltip title={(l.film_warnings ?? []).join(". ")}>
+                                  <Tag color="warning">⚠ плёнка</Tag>
+                                </Tooltip>
+                              )}
                             </Space>
                           ),
                         },

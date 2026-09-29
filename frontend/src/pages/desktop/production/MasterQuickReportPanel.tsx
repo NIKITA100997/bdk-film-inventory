@@ -31,7 +31,7 @@ interface DefectEntry {
   // насовсем, как раньше); "pererabotka" резервирует брак вместо
   // необратимого списания, забрать в готовую деталь можно позже
   // действием "Переработать в деталь" ("Учёт п/ф").
-  disposition?: "spisat" | "pererabotka";
+  disposition?: "spisat" | "pererabotka" | "snyat";
 }
 
 interface ReportRow {
@@ -128,7 +128,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [defectRowKey, setDefectRowKey] = useState<string | null>(null);
-  const [defectForm] = Form.useForm<{ reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" }>();
+  const [defectForm] = Form.useForm<{ reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" | "snyat" }>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons", "production"], queryFn: () => listWriteOffReasons("production") });
@@ -603,7 +603,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                   <Space direction="vertical" size={4}>
                     {r.defects.map((d, i) => (
                       <Tag key={i} closable onClose={() => removeDefectEntry(r.key, i)} style={{ marginRight: 0 }}>
-                        {reasonName(d.reason)}: {d.qty} шт{d.disposition === "pererabotka" && " ♻️"}
+                        {reasonName(d.reason)}: {d.qty} шт{d.disposition === "pererabotka" && " ♻️"}{d.disposition === "snyat" && " 🔁"}
                       </Tag>
                     ))}
                     <Button
@@ -696,6 +696,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                     <span>
                       {reasonName(d.reason)}: <strong>{d.qty} шт</strong>
                       {d.disposition === "pererabotka" && <Tag color="blue" style={{ marginLeft: 4 }}>♻️ в переработку</Tag>}
+                      {d.disposition === "snyat" && <Tag color="magenta" style={{ marginLeft: 4 }}>🔁 снять плёнку</Tag>}
                       {d.note && <Typography.Text type="secondary"> — {d.note}</Typography.Text>}
                     </span>
                     <Button size="small" danger onClick={() => removeDefectEntry(defectRow.key, i)}>
@@ -731,12 +732,13 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                 <Form.Item
                   name="disposition"
                   label="Что с браком"
-                  extra="«В переработку» резервирует материал (не списывает насовсем) — из него потом можно сделать партию другой детали («Учёт п/ф» → «Переработать в деталь»)."
+                  extra="«В переработку» резервирует материал — из него потом можно сделать партию другой детали («Учёт п/ф» → «Переработать в деталь»). «Снять плёнку» — деталь цела, плёнку содрали: она остаётся на окутке с пометкой «Ламис» и переклеивается только декором этой коллекции."
                 >
                   <Radio.Group
                     options={[
                       { label: "Списать насовсем", value: "spisat" },
                       { label: "♻️ В переработку", value: "pererabotka" },
+                      { label: "🔁 Снять плёнку (под «Ламис»)", value: "snyat" },
                     ]}
                     optionType="button"
                   />

@@ -145,6 +145,8 @@ export interface ProductionTaskLine {
   // может списать в отчёте по этой строке. Пусто, если ширина уникальна
   // в задании или соседям ничего не выдано.
   borrowable_units: BorrowableUnit[];
+  /** Предупреждения о плёнке: ПЭТ 2Д/3Д не совпадает, партии «после снятия» ждут декор «Ламис». */
+  film_warnings?: string[];
 }
 
 export interface ProductionTask {
@@ -231,7 +233,7 @@ export interface ProductionTaskLineReportCreate {
   // получает статус В_переработку) вместо необратимого списания —
   // забрать резерв в готовую деталь можно позже действием "Переработать
   // в деталь" ("Учёт п/ф"). Не указано — бэкенд сам подставляет "spisat".
-  defect_disposition?: "spisat" | "pererabotka";
+  defect_disposition?: "spisat" | "pererabotka" | "snyat";
   note?: string;
   // Раздел про доп. рулон на ту же строку (двусторонние детали — один и
   // тот же комплект деталей физически расходует несколько рулонов

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message, Radio, Tag, Space } from "antd";
+import { Alert, Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message, Radio, Tag, Space } from "antd";
 import dayjs from "dayjs";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -67,7 +67,7 @@ export default function ReportModal({
   // (см. app/services/part_units.py::consume_defect_fifo), выбор партии
   // вручную убран целиком.
   const [defectRows, setDefectRows] = useState<
-    { reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" }[]
+    { reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" | "snyat" }[]
   >([]);
   // Раздел про второй рулон на ту же строку — двусторонние детали часто
   // расходуют НЕСКОЛЬКО разных рулонов ОДНОВРЕМЕННО на ОДИН и тот же
@@ -89,7 +89,7 @@ export default function ReportModal({
     material_unit_id: number | null;
     good_pieces: number;
   }>();
-  const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" }>();
+  const [defectRowForm] = Form.useForm<{ reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" | "snyat" }>();
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "production"],
     queryFn: () => listWriteOffReasons("production"),
@@ -107,7 +107,7 @@ export default function ReportModal({
   );
   const reasonName = (code: string) => reasonOptions.find((r) => r.code === code)?.name ?? code;
 
-  const addDefectRow = (v: { reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" }) => {
+  const addDefectRow = (v: { reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" | "snyat" }) => {
     setDefectRows((rows) => [...rows, v]);
     defectRowForm.resetFields();
   };
@@ -244,6 +244,9 @@ export default function ReportModal({
 
   return (
     <Modal title={`Отчёт по линии «${line.part_name ?? line.line_name}»`} open onCancel={onClose} footer={null} destroyOnHidden>
+      {(line.film_warnings ?? []).map((w) => (
+        <Alert key={w} type="warning" showIcon message={w} style={{ marginBottom: 8 }} />
+      ))}
       <Typography.Paragraph type="secondary">
         Нужно: {line.quantity_pieces} шт, уже произведено: {line.produced_good_pieces} шт, остаток: {line.remaining_pieces} шт.
         {requiresRoll && (
@@ -346,7 +349,14 @@ export default function ReportModal({
             { title: "Кол-во, шт", dataIndex: "qty" },
             {
               title: "Судьба",
-              render: (_, r) => (r.disposition === "pererabotka" ? <Tag color="blue">♻️ в переработку</Tag> : "списан"),
+              render: (_, r) =>
+                r.disposition === "pererabotka" ? (
+                  <Tag color="blue">♻️ в переработку</Tag>
+                ) : r.disposition === "snyat" ? (
+                  <Tag color="magenta">🔁 снять плёнку</Tag>
+                ) : (
+                  "списан"
+                ),
             },
             { title: "Заметка", render: (_, r) => r.note ?? "—" },
             {
@@ -380,12 +390,13 @@ export default function ReportModal({
           <Form.Item
             name="disposition"
             label="Что с браком"
-            extra="«В переработку» резервирует материал (не списывает насовсем) — из него потом можно сделать партию другой детали («Учёт п/ф» → «Переработать в деталь»)."
+            extra="«В переработку» резервирует материал — из него потом можно сделать партию другой детали («Учёт п/ф» → «Переработать в деталь»). «Снять плёнку» — деталь цела, плёнку содрали: она остаётся на окутке с пометкой «Ламис» и переклеивается только декором этой коллекции."
           >
             <Radio.Group
               options={[
                 { label: "Списать насовсем", value: "spisat" },
                 { label: "♻️ В переработку", value: "pererabotka" },
+                { label: "🔁 Снять плёнку (под «Ламис»)", value: "snyat" },
               ]}
               optionType="button"
             />

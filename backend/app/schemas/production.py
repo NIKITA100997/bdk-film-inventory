@@ -208,6 +208,8 @@ class ProductionTaskLineReportCreate(BaseModel):
     # (POST /part-units/recycle). Значимо только при FIFO-пути
     # (has_part_unit_stock — см. create_task_line_report), для детали без
     # физического учёта резерва нет смысла — там как обычно списывается.
+    # "snyat" — плёнку сняли: деталь остаётся на окутке с пометкой «Ламис»
+    # (переклеить только декором этой коллекции), тоже только при FIFO-пути.
     defect_disposition: str = "spisat"
     note: str | None = None
     # Раздел про доп. рулон на ту же строку (двусторонние детали — один и
@@ -398,6 +400,8 @@ class ProductionTaskLineOut(BaseModel):
     # метража хватает), не возвращая на склад. Пусто, если ширина
     # уникальна в задании или соседям ничего не выдано.
     borrowable_units: list[BorrowableUnitOut] = []
+    # Предупреждения о плёнке (services/film_check.py): ПЭТ 2Д/3Д, «Ламис».
+    film_warnings: list[str] = []
 
 
 class ProductionTaskOut(BaseModel):

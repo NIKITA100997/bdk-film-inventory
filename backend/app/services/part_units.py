@@ -279,8 +279,94 @@ def advance_part_unit(
     return target, False
 
 
+# Брак окутки «снять плёнку» (см. strip_film_defect_fifo): деталь остаётся на
+# окутке с пометкой «Ламис» — переклеить её можно только декором этой
+# коллекции. Такие партии идут только в строки с декором «Ламис» (и там —
+# первыми), в обычный декор FIFO их не берёт.
+LAMIS_RESTRICTION = "lamis"
+LAMIS_COLLECTION = "ламис"
+
+
+def _fifo_candidates(
+    db: Session, *, part_id: int, area: str, lamis_ok: bool | None
+) -> tuple[list[PartUnit], float]:
+    """Партии детали на участке (выданные) по FIFO. lamis_ok=None — все, как
+    раньше; False — без партий «Ламис» (их количество — вторым значением,
+    для понятной ошибки); True — сначала «Ламис», потом остальные."""
+    units = (
+        db.query(PartUnit)
+        .filter(PartUnit.part_id == part_id, PartUnit.area == area, PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU)
+        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+        .all()
+    )
+    if lamis_ok is None:
+        return units, 0.0
+    lamis = [u for u in units if u.film_restriction == LAMIS_RESTRICTION]
+    other = [u for u in units if u.film_restriction != LAMIS_RESTRICTION]
+    if lamis_ok:
+        return lamis + other, 0.0
+    return other, sum(float(u.quantity_pieces) for u in lamis)
+
+
+def _held_note(held: float) -> str:
+    return f" (ещё {held:g} шт после снятия плёнки — на них только декор коллекции «Ламис»)" if held > 0 else ""
+
+
+def strip_film_defect_fifo(
+    db: Session,
+    *,
+    part_id: int,
+    area: str,
+    quantity_pieces: float,
+    user_id: int,
+    reason: str,
+    note: str | None = None,
+    lamis_ok: bool | None = None,
+) -> list[tuple[PartUnit, float]]:
+    """Брак окутки → «снять плёнку»: N бракованных штук остаются на участке
+    той же деталью на том же этапе (Окутка), но с пометкой «Ламис». Снимать
+    можно сколько угодно раз, пока деталь цела — пометка просто остаётся."""
+    candidates, held = _fifo_candidates(db, part_id=part_id, area=area, lamis_ok=lamis_ok)
+    reported_by_unit = reported_good_pieces_by_unit(db, [c.id for c in candidates])
+    free_by_id = {c.id: float(c.quantity_pieces) - reported_by_unit.get(c.id, 0.0) for c in candidates}
+    available = sum(v for v in free_by_id.values() if v > 0)
+    if available < quantity_pieces:
+        part_name = candidates[0].part.name if candidates else db.get(Part, part_id).name
+        raise ValueError(
+            f"Недостаточно партий детали «{part_name}» на участке, чтобы снять плёнку — доступно {available} шт, "
+            f"нужно {quantity_pieces} шт" + _held_note(held)
+        )
+    results: list[tuple[PartUnit, float]] = []
+    remaining = quantity_pieces
+    for candidate in candidates:
+        if remaining <= 0:
+            break
+        free = free_by_id[candidate.id]
+        if free <= 0:
+            continue
+        take = min(remaining, free)
+        target = _split_or_reuse(db, candidate, take)
+        target.film_restriction = LAMIS_RESTRICTION
+        record_part_event(
+            db,
+            unit=target,
+            event_type=PartEventType.SNYATIE_PLENKI,
+            user_id=user_id,
+            quantity_delta=0,
+            from_stage_id=target.stage_id,
+            write_off_reason=reason,
+            write_off_note=note,
+            note="Плёнка снята — переклеить только декором коллекции «Ламис»" + (f". {note}" if note else ""),
+        )
+        results.append((target, take))
+        remaining -= take
+    return results
+
+
+
 def consume_part_units_fifo(
-    db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int
+    db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int,
+    lamis_ok: bool | None = None,
 ) -> list[tuple[PartUnit, bool, float]]:
     """Оприходовать N готовых штук партий детали part_id, выданных этому
     участку — от самой старой по manufactured_at (раздел про учёт п/ф по
@@ -311,19 +397,14 @@ def consume_part_units_fifo(
     что и остаток рулона (compute_unit_consumed_length_m) — иначе
     автоматический FIFO рано или поздно повторно "нашёл" бы уже
     полностью отчитанную партию и задвоил бы её штуки."""
-    candidates = (
-        db.query(PartUnit)
-        .filter(PartUnit.part_id == part_id, PartUnit.area == area, PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU)
-        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
-        .all()
-    )
+    candidates, held = _fifo_candidates(db, part_id=part_id, area=area, lamis_ok=lamis_ok)
     reported_by_unit = reported_good_pieces_by_unit(db, [c.id for c in candidates])
     free_by_id = {c.id: float(c.quantity_pieces) - reported_by_unit.get(c.id, 0.0) for c in candidates}
     available = sum(v for v in free_by_id.values() if v > 0)
     if available < quantity_pieces:
         part_name = candidates[0].part.name if candidates else db.get(Part, part_id).name
         raise ValueError(
-            f"Недостаточно партий детали «{part_name}» на участке — доступно {available} шт, нужно {quantity_pieces} шт"
+            f"Недостаточно партий детали «{part_name}» на участке — доступно {available} шт, нужно {quantity_pieces} шт" + _held_note(held)
         )
     results: list[tuple[PartUnit, bool, float]] = []
     remaining = quantity_pieces
@@ -341,7 +422,8 @@ def consume_part_units_fifo(
 
 
 def consume_defect_fifo(
-    db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int, reason: str, note: str | None = None
+    db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int, reason: str, note: str | None = None,
+    lamis_ok: bool | None = None,
 ) -> list[tuple[PartUnit, float]]:
     """Списать N бракованных штук партий детали part_id, выданных этому
     участку — от самой старой по manufactured_at, тот же принцип FIFO, что
@@ -361,19 +443,14 @@ def consume_defect_fifo(
     Возвращает список (партия, взято_шт) — одна запись на каждую
     затронутую партию. ValueError, если суммарно не хватает — ничего не
     меняется (откат снаружи)."""
-    candidates = (
-        db.query(PartUnit)
-        .filter(PartUnit.part_id == part_id, PartUnit.area == area, PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU)
-        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
-        .all()
-    )
+    candidates, held = _fifo_candidates(db, part_id=part_id, area=area, lamis_ok=lamis_ok)
     reported_by_unit = reported_good_pieces_by_unit(db, [c.id for c in candidates])
     free_by_id = {c.id: float(c.quantity_pieces) - reported_by_unit.get(c.id, 0.0) for c in candidates}
     available = sum(v for v in free_by_id.values() if v > 0)
     if available < quantity_pieces:
         part_name = candidates[0].part.name if candidates else db.get(Part, part_id).name
         raise ValueError(
-            f"Недостаточно партий детали «{part_name}» на участке для списания брака — доступно {available} шт, нужно {quantity_pieces} шт"
+            f"Недостаточно партий детали «{part_name}» на участке для списания брака — доступно {available} шт, нужно {quantity_pieces} шт" + _held_note(held)
         )
     results: list[tuple[PartUnit, float]] = []
     remaining = quantity_pieces
@@ -419,7 +496,8 @@ def reserve_part_unit_for_recycle(
 
 
 def reserve_defect_for_recycle_fifo(
-    db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int, reason: str, note: str | None = None
+    db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int, reason: str, note: str | None = None,
+    lamis_ok: bool | None = None,
 ) -> list[tuple[PartUnit, float]]:
     """Зарезервировать N бракованных штук партий детали part_id под
     переработку — альтернатива consume_defect_fifo для случая "В
@@ -428,19 +506,14 @@ def reserve_defect_for_recycle_fifo(
     отчитанное (reported_good_pieces_by_unit), только вместо
     write_off_part_unit — reserve_part_unit_for_recycle (статус
     V_PERERABOTKU, не SPISAN)."""
-    candidates = (
-        db.query(PartUnit)
-        .filter(PartUnit.part_id == part_id, PartUnit.area == area, PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU)
-        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
-        .all()
-    )
+    candidates, held = _fifo_candidates(db, part_id=part_id, area=area, lamis_ok=lamis_ok)
     reported_by_unit = reported_good_pieces_by_unit(db, [c.id for c in candidates])
     free_by_id = {c.id: float(c.quantity_pieces) - reported_by_unit.get(c.id, 0.0) for c in candidates}
     available = sum(v for v in free_by_id.values() if v > 0)
     if available < quantity_pieces:
         part_name = candidates[0].part.name if candidates else db.get(Part, part_id).name
         raise ValueError(
-            f"Недостаточно партий детали «{part_name}» на участке для переработки — доступно {available} шт, нужно {quantity_pieces} шт"
+            f"Недостаточно партий детали «{part_name}» на участке для переработки — доступно {available} шт, нужно {quantity_pieces} шт" + _held_note(held)
         )
     results: list[tuple[PartUnit, float]] = []
     remaining = quantity_pieces

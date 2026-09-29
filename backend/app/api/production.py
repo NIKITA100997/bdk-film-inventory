@@ -52,6 +52,7 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.components import sync_bom_components
 from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
+from app.services.film_check import film_warnings
 from app.services.laminated import can_laminate, laminated_excess
 from app.models.production import PlanSlot
 from app.models.production_orders import ProductionOrder
@@ -63,11 +64,13 @@ from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank
 from app.services.naryad_import import enrich_naryad_lines, parse_naryad_xls_bytes
 from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.part_units import (
+    LAMIS_COLLECTION,
     advance_part_unit,
     consume_defect_fifo,
     consume_part_units_fifo,
     reserve_defect_for_recycle_fifo,
     settle_excess_part_unit_at_area,
+    strip_film_defect_fifo,
     write_off_part_unit,
 )
 from app.services.production import (
@@ -252,6 +255,7 @@ def _task_line_out(
             )
             for u, src_line in (borrowable_units or [])
         ],
+        film_warnings=film_warnings(db, line),
     )
 
 
@@ -987,10 +991,10 @@ def _build_operation_report(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="У строки без плёнки рулон не указывается")
     if payload.defect_pieces > 0 and not payload.defect_reason:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Укажите причину брака")
-    if payload.defect_pieces > 0 and payload.defect_disposition == "pererabotka":
+    if payload.defect_pieces > 0 and payload.defect_disposition in ("pererabotka", "snyat"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Переработка брака пока только на окутке — здесь брак списывается",
+            detail="Переработка брака и снятие плёнки — только на окутке, здесь брак списывается",
         )
     stage = db.get(PartStage, line.part_stage_id)
     if stage is None:
@@ -1164,6 +1168,17 @@ def _build_task_line_report(
     # расходовал бы партию п/ф ЕЩЁ РАЗ на те же самые физические детали
     # (задвоение расхода партии вплоть до "недостаточно партий").
     fifo_results: list[tuple[PartUnit, bool, float]] = []
+    # Партии «после снятия плёнки» (пометка «Ламис») — только в строки с
+    # декором коллекции «Ламис», и там первыми; у строки без плёнки — как раньше.
+    lamis_ok: bool | None = None
+    if line.color_id is not None:
+        decor = db.get(Color, line.color_id)
+        lamis_ok = (decor.collection or "").strip().lower() == LAMIS_COLLECTION if decor else False
+    if payload.defect_pieces > 0 and payload.defect_disposition == "snyat" and not has_part_unit_stock:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Снять плёнку можно у детали, которая учитывается партиями на участке — здесь брак только списать",
+        )
     # Резерв п/ф под другие задания цеха не расходуется (годные и брак).
     if has_part_unit_stock and payload.counts_toward_line:
         try:
@@ -1175,7 +1190,8 @@ def _build_task_line_report(
     if payload.good_pieces > 0 and has_part_unit_stock and payload.counts_toward_line:
         try:
             fifo_results = consume_part_units_fifo(
-                db, part_id=part.id, area=line.task.area, quantity_pieces=payload.good_pieces, user_id=user.id
+                db, part_id=part.id, area=line.task.area, quantity_pieces=payload.good_pieces, user_id=user.id,
+                lamis_ok=lamis_ok,
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
@@ -1344,9 +1360,11 @@ def _build_task_line_report(
         # резерв в готовую деталь можно позже отдельным действием
         # "Переработать в деталь". Обе ветки — тот же FIFO по
         # manufactured_at, отличается только конечный статус партии.
-        consume_fn = (
-            reserve_defect_for_recycle_fifo if payload.defect_disposition == "pererabotka" else consume_defect_fifo
-        )
+        # «snyat» — плёнку сняли: деталь остаётся на окутке с пометкой «Ламис».
+        consume_fn = {
+            "pererabotka": reserve_defect_for_recycle_fifo,
+            "snyat": strip_film_defect_fifo,
+        }.get(payload.defect_disposition, consume_defect_fifo)
         try:
             defect_fifo_results = consume_fn(
                 db,
@@ -1356,6 +1374,7 @@ def _build_task_line_report(
                 user_id=user.id,
                 reason=payload.defect_reason,
                 note=payload.note,
+                lamis_ok=lamis_ok,
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e

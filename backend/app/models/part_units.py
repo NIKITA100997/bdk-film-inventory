@@ -136,6 +136,9 @@ class PartEventType(str, enum.Enum):
     # этапе "Окутка").
     V_PERERABOTKU = "В_переработку"
     PERERABOTKA = "Переработка"
+    # Брак окутки: плёнку сняли, деталь осталась на окутке с пометкой
+    # «Ламис» — переклеить можно только декором этой коллекции.
+    SNYATIE_PLENKI = "Снятие_плёнки"
 
 
 class PartUnitEvent(Base):
