@@ -64,6 +64,9 @@ export interface ItemType {
   model_count: number;
   /** Свойство-список, задающее модель («серия»); null — без моделей. */
   model_property_code: string | null;
+  /** Направление и стадия позиций типа (utils/itemAttrs.ts). */
+  direction?: string | null;
+  stage?: string | null;
   // Правила типа (пункт 3): шаблон названия позиции, операции с условиями, правила состава.
   name_template: string | null;
   properties: ItemProperty[];
@@ -97,7 +100,7 @@ export const createItemType = async (payload: { kind_code: string; name: string 
 
 export const updateItemType = async (
   id: number,
-  payload: { name?: string; is_active?: boolean; name_template?: string },
+  payload: { name?: string; is_active?: boolean; name_template?: string; direction?: string; stage?: string },
 ): Promise<ItemType> =>
   (await apiClient.put<ItemType>(`/item-types/${id}`, payload)).data;
 

@@ -73,6 +73,10 @@ class Item(Base):
     model_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)
     # Если декор ПЭТ — какой идёт на деталь: "3d"; пусто — 2Д (основа).
     pet_type: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    # Признаки (services/item_attrs.py): пусто — как у типа / по правилу.
+    direction: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    make_mode: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
     kind: Mapped[ItemKind] = relationship()
     type: Mapped["ItemType | None"] = relationship()
@@ -123,6 +127,9 @@ class ItemType(Base):
     model_property_id: Mapped[int | None] = mapped_column(
         ForeignKey("item_properties.id", ondelete="SET NULL", use_alter=True), nullable=True
     )
+    # Направление и стадия позиций этого типа (services/item_attrs.py).
+    direction: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     kind: Mapped[ItemKind] = relationship()
     properties: Mapped[list["ItemProperty"]] = relationship(

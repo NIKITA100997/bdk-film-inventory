@@ -10,8 +10,9 @@ from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import Color, Material, MaterialSku, Part
-from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
+from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, ItemType, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
+from app.services import item_attrs
 from app.services.components import live_item_names, sync_bom_components
 from app.services.routes import RouteInUseError, RouteStep, apply_route
 
@@ -55,6 +56,12 @@ class ItemOut(BaseModel):
     color: str | None = None
     thickness: float | None = None
     pet_type: str | None = None  # "3d"; пусто — ПЭТ 2Д
+    # Признаки (services/item_attrs.py) — действующие: своё или как у типа.
+    direction: str | None = None
+    stage: str | None = None
+    make_mode: str | None = None
+    # Задано у самой позиции (а не взято у типа / по правилу).
+    own_attrs: list[str] = []
 
 
 class PartSuggestion(BaseModel):
@@ -98,6 +105,7 @@ def list_items(
     (там оно правится), а не снимок в items.name."""
     kinds = {k.id: k for k in db.query(ItemKind)}
     items = {i.id: i for i in db.query(Item)}
+    types = {t.id: t for t in db.query(ItemType)}
     out: list[ItemOut] = []
     seen: set[int] = set()
 
@@ -111,7 +119,7 @@ def list_items(
             ItemOut(
                 id=item.id, kind_code=kind.code, kind_name=kind.name, unit=item.unit or kind.unit, name=name,
                 code_1c=item.code_1c, is_active=active, source_type=source_type, source_id=source_id,
-                group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id, pet_type=item.pet_type, **extra,
+                group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id, pet_type=item.pet_type, **_attrs(item, kind.code, types), **extra,
             )
         )
 
@@ -142,7 +150,7 @@ def list_items(
                     id=item.id, kind_code=item_kind.code, kind_name=item_kind.name, unit=item.unit or item_kind.unit, name=item.name,
                     code_1c=item.code_1c, is_active=item.is_active, source_type=None, source_id=None,
                     group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id,
-                    pet_type=item.pet_type,
+                    pet_type=item.pet_type, **_attrs(item, item_kind.code, types),
                 )
             )
 
@@ -280,6 +288,50 @@ def set_items_group(payload: SetGroupIn, db: Session = Depends(get_db), user=Dep
         i.group_id = group.id if group else None
     db.commit()
     return {"moved": len(items)}
+
+
+def _attrs(item: Item, kind_code: str, types: dict[int, ItemType]) -> dict:
+    t = types.get(item.type_id) if item.type_id else None
+    return {
+        "direction": item_attrs.effective_direction(item, t),
+        "stage": item_attrs.effective_stage(item, t),
+        "make_mode": item_attrs.effective_mode(item, kind_code, t),
+        "own_attrs": [f for f in ("direction", "stage", "make_mode") if getattr(item, f)],
+    }
+
+
+AUTO = "auto"  # в массовом изменении: убрать своё значение, брать у типа / по правилу
+
+
+class SetAttrsIn(BaseModel):
+    item_ids: list[int]
+    # None — не менять; "auto" — как у типа / по правилу; иначе код.
+    direction: str | None = None
+    stage: str | None = None
+    make_mode: str | None = None
+
+
+@router.post("/items/set-attrs")
+def set_items_attrs(payload: SetAttrsIn, db: Session = Depends(get_db), user=Depends(manage_groups)) -> dict:
+    """Массово: направление, стадия, режим. Стадия и режим — только у п/ф."""
+    allowed = {"direction": item_attrs.DIRECTIONS, "stage": item_attrs.STAGES, "make_mode": item_attrs.MODES}
+    changes = {f: getattr(payload, f) for f in allowed if getattr(payload, f) is not None}
+    for f, v in changes.items():
+        if v != AUTO and v not in allowed[f]:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Неизвестное значение: {v}")
+    items = db.query(Item).filter(Item.id.in_(payload.item_ids)).all() if payload.item_ids else []
+    kinds = {k.id: k.code for k in db.query(ItemKind)}
+    if "stage" in changes or "make_mode" in changes:
+        alien = [i for i in items if kinds.get(i.kind_id) != "pf"]
+        if alien:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, f"Стадия и режим — только у п/ф (например, не у «{alien[0].name}»)"
+            )
+    for i in items:
+        for f, v in changes.items():
+            setattr(i, f, None if v == AUTO else v)
+    db.commit()
+    return {"updated": len(items)}
 
 
 PET_TYPES = ("2d", "3d")

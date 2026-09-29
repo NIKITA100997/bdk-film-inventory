@@ -28,6 +28,12 @@ export interface Item {
   thickness: number | null;
   /** Если декор ПЭТ: "3d"; пусто — 2Д (основа). Только п/ф. */
   pet_type?: string | null;
+  /** Признаки (utils/itemAttrs.ts) — действующие: своё или как у типа / по правилу. */
+  direction?: string | null;
+  stage?: string | null;
+  make_mode?: string | null;
+  /** Какие признаки заданы у самой позиции. */
+  own_attrs?: string[];
 }
 
 export interface UnlinkedLineGroup {
@@ -63,6 +69,13 @@ export const deleteItemGroup = async (id: number): Promise<void> => {
 };
 export const setItemsGroup = async (payload: { item_ids: number[]; group_id: number | null }): Promise<{ moved: number }> =>
   (await apiClient.post<{ moved: number }>("/items/set-group", payload)).data;
+/** Массово: направление / стадия / режим. undefined — не менять, "auto" — как у типа. */
+export const setItemsAttrs = async (payload: {
+  item_ids: number[];
+  direction?: string;
+  stage?: string;
+  make_mode?: string;
+}): Promise<{ updated: number }> => (await apiClient.post<{ updated: number }>("/items/set-attrs", payload)).data;
 /** Массово: какой ПЭТ идёт на детали, если декор ПЭТ. */
 export const setItemsPet = async (payload: { item_ids: number[]; pet_type: "2d" | "3d" }): Promise<{ updated: number }> =>
   (await apiClient.post<{ updated: number }>("/items/set-pet", payload)).data;

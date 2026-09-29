@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { DIRECTIONS, MODES, STAGES, STAGE_COLOR, toOptions } from "../../utils/itemAttrs";
 import { isAxiosError } from "axios";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button, Card, Checkbox, Input, Modal, Popconfirm, Segmented, Select, Space, Tabs, Tag, TreeSelect, Typography, message } from "antd";
@@ -17,7 +18,7 @@ import {
   groupTree,
   groupWithDescendants,
   listItemGroups,
-  setItemsGroup, setItemsPet,
+  setItemsGroup, setItemsPet, setItemsAttrs,
   linkLines,
   listItemKinds,
   listItems,
@@ -75,6 +76,9 @@ function ItemsTab() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [moveTo, setMoveTo] = useState<number | undefined>();
   const [groupsOpen, setGroupsOpen] = useState(false);
+  const [direction, setDirection] = useState<string | undefined>();
+  const [stage, setStage] = useState<string | undefined>();
+  const [attrsOpen, setAttrsOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const kindsQuery = useQuery({ queryKey: ["item-kinds"], queryFn: listItemKinds });
   const groupsQuery = useQuery({ queryKey: ["item-groups"], queryFn: listItemGroups });
@@ -101,6 +105,8 @@ function ItemsTab() {
     for (const i of all) {
       if (i.model_id != null && models.has(i.model_id)) continue;
       if (kind !== "all" && i.kind_code !== kind) continue;
+      if (direction && (direction === "__none" ? i.direction : i.direction !== direction)) continue;
+      if (stage && i.stage !== stage) continue;
       // Модель в группе, если в ней она сама или хоть один её вариант —
       // у модели своей группы обычно нет, группы ведутся по вариантам.
       if (!inSelectedGroup(i) && !(i.is_model && (variants.get(i.id) ?? []).some(inSelectedGroup))) continue;
@@ -114,7 +120,7 @@ function ItemsTab() {
       }
     }
     return out;
-  }, [itemsQuery.data, kind, q, group, groups]);
+  }, [itemsQuery.data, kind, q, group, groups, direction, stage]);
 
   const petMutation = useMutation({
     mutationFn: (pet: "2d" | "3d") => setItemsPet({ item_ids: selectedIds, pet_type: pet }),
@@ -181,6 +187,19 @@ function ItemsTab() {
               treeDefaultExpandAll
             />
           )}
+          {(kind === "all" || kind === "pf" || kind === "izdelie") && (
+            <Select
+              allowClear
+              placeholder="Направление"
+              style={{ width: 190 }}
+              value={direction}
+              onChange={setDirection}
+              options={[...toOptions(DIRECTIONS), { value: "__none", label: "— не задано —" }]}
+            />
+          )}
+          {kind === "pf" && (
+            <Select allowClear placeholder="Стадия" style={{ width: 190 }} value={stage} onChange={setStage} options={toOptions(STAGES)} />
+          )}
           <Checkbox checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)}>
             С архивными
           </Checkbox>
@@ -206,6 +225,7 @@ function ItemsTab() {
               Перенести
             </Button>
             <Button onClick={() => moveMutation.mutate(null)}>Убрать из группы</Button>
+            {(kind === "pf" || kind === "izdelie") && <Button onClick={() => setAttrsOpen(true)}>Признаки…</Button>}
             {kind === "pf" && (
               <Space.Compact>
                 <Button disabled title="Если декор ПЭТ — какой клеить на выбранные детали">
@@ -226,6 +246,16 @@ function ItemsTab() {
         )}
       </Card>
       {wizardOpen && <NewModelWizard onClose={() => setWizardOpen(false)} />}
+      {attrsOpen && (
+        <AttrsModal
+          itemIds={selectedIds}
+          pf={kind === "pf"}
+          onClose={(done) => {
+            setAttrsOpen(false);
+            if (done) setSelectedIds([]);
+          }}
+        />
+      )}
       {kind !== "all" && (
         <GroupsModal open={groupsOpen} onClose={() => setGroupsOpen(false)} kind={kind} kindName={kindName} groups={groups} />
       )}
@@ -258,6 +288,33 @@ function ItemsTab() {
               ),
           },
           { title: "Вид", render: (_, i) => <Tag color={KIND_COLOR[i.kind_code]}>{i.kind_name}</Tag> },
+          ...(kind === "all" || kind === "pf" || kind === "izdelie"
+            ? [
+                {
+                  title: "Направление",
+                  render: (_: unknown, i: ItemRow) => <AttrText value={i.direction} labels={DIRECTIONS} own={i.own_attrs?.includes("direction")} />,
+                },
+              ]
+            : []),
+          ...(kind === "pf"
+            ? [
+                {
+                  title: "Стадия",
+                  render: (_: unknown, i: ItemRow) =>
+                    i.stage ? (
+                      <Tag color={STAGE_COLOR[i.stage]} style={i.own_attrs?.includes("stage") ? { fontWeight: 700 } : undefined}>
+                        {STAGES[i.stage] ?? i.stage}
+                      </Tag>
+                    ) : (
+                      <Typography.Text type="secondary">—</Typography.Text>
+                    ),
+                },
+                {
+                  title: "Режим",
+                  render: (_: unknown, i: ItemRow) => <AttrText value={i.make_mode} labels={MODES} own={i.own_attrs?.includes("make_mode")} />,
+                },
+              ]
+            : []),
           {
             title: "Группа",
             render: (_, i) => (i.group_id != null ? groupPath(groups, i.group_id) : <Typography.Text type="secondary">—</Typography.Text>),
@@ -281,6 +338,70 @@ function ItemsTab() {
 }
 
 type ItemRow = Item & { variant_count?: number; children?: Item[] };
+
+/** Своё значение — жирным, взятое у типа / по правилу — обычным. */
+function AttrText({ value, labels, own }: { value?: string | null; labels: Record<string, string>; own?: boolean }) {
+  if (!value) return <Typography.Text type="secondary">—</Typography.Text>;
+  return <span style={own ? { fontWeight: 700 } : undefined} title={own ? "задано у позиции" : "как у типа / по правилу"}>{labels[value] ?? value}</span>;
+}
+
+const KEEP = "__keep";
+const AUTO = "auto";
+
+/** Массово: направление, стадия, режим выбранных позиций. */
+function AttrsModal({ itemIds, pf, onClose }: { itemIds: number[]; pf: boolean; onClose: (done: boolean) => void }) {
+  const qc = useQueryClient();
+  const [v, setV] = useState<{ direction: string; stage: string; make_mode: string }>({ direction: KEEP, stage: KEEP, make_mode: KEEP });
+  const opts = (m: Record<string, string>, autoLabel: string) => [
+    { value: KEEP, label: "— не менять —" },
+    { value: AUTO, label: autoLabel },
+    ...toOptions(m),
+  ];
+  const mutation = useMutation({
+    mutationFn: () =>
+      setItemsAttrs({
+        item_ids: itemIds,
+        ...(v.direction !== KEEP ? { direction: v.direction } : {}),
+        ...(pf && v.stage !== KEEP ? { stage: v.stage } : {}),
+        ...(pf && v.make_mode !== KEEP ? { make_mode: v.make_mode } : {}),
+      }),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["items"] });
+      message.success(`Признаки изменены: ${r.updated}`);
+      onClose(true);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить признаки")),
+  });
+  const nothing = v.direction === KEEP && (!pf || (v.stage === KEEP && v.make_mode === KEEP));
+  const row = (label: string, key: "direction" | "stage" | "make_mode", m: Record<string, string>, autoLabel: string) => (
+    <Space style={{ width: "100%", justifyContent: "space-between" }}>
+      <Typography.Text>{label}</Typography.Text>
+      <Select style={{ width: 260 }} value={v[key]} onChange={(x) => setV((s) => ({ ...s, [key]: x }))} options={opts(m, autoLabel)} />
+    </Space>
+  );
+  return (
+    <Modal
+      open
+      title={`Признаки — выбрано ${itemIds.length}`}
+      okText="Применить"
+      cancelText="Отмена"
+      okButtonProps={{ disabled: nothing }}
+      confirmLoading={mutation.isPending}
+      onOk={() => mutation.mutate()}
+      onCancel={() => onClose(false)}
+    >
+      <Space direction="vertical" style={{ width: "100%" }} size="middle">
+        {row("Направление", "direction", DIRECTIONS, "как у типа")}
+        {pf && row("Стадия", "stage", STAGES, "как у типа")}
+        {pf && row("Режим", "make_mode", MODES, "по правилу")}
+        <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+          Режим по правилу: щиты и панели — под заказ; деталь в плёнке — под заказ (излишки уходят в остаток); заготовки,
+          детали без плёнки и после снятия — на склад.
+        </Typography.Text>
+      </Space>
+    </Modal>
+  );
+}
 
 function UnlinkedTab() {
   const qc = useQueryClient();

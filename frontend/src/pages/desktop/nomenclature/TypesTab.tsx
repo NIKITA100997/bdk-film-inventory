@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DIRECTIONS, STAGES, toOptions } from "../../../utils/itemAttrs";
 import { isAxiosError } from "axios";
 import {
   Button,
@@ -79,7 +80,7 @@ export default function TypesTab() {
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось создать тип")),
   });
   const updateTypeMutation = useMutation({
-    mutationFn: (v: { id: number; name?: string; is_active?: boolean }) => updateItemType(v.id, v),
+    mutationFn: (v: { id: number; name?: string; is_active?: boolean; direction?: string; stage?: string }) => updateItemType(v.id, v),
     onSuccess: () => {
       invalidate();
       setRenaming(null);
@@ -214,6 +215,34 @@ export default function TypesTab() {
             }
           >
             <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+              {(selected.kind_code === "pf" || selected.kind_code === "izdelie") && (
+                <Space wrap>
+                  <Typography.Text type="secondary">Направление:</Typography.Text>
+                  <Select
+                    allowClear
+                    placeholder="по позициям"
+                    style={{ width: 200 }}
+                    disabled={!canManage}
+                    value={selected.direction ?? undefined}
+                    options={toOptions(DIRECTIONS)}
+                    onChange={(v) => updateTypeMutation.mutate({ id: selected.id, direction: v ?? "" })}
+                  />
+                  {selected.kind_code === "pf" && (
+                    <>
+                      <Typography.Text type="secondary">Стадия:</Typography.Text>
+                      <Select
+                        allowClear
+                        placeholder="по позициям"
+                        style={{ width: 200 }}
+                        disabled={!canManage}
+                        value={selected.stage ?? undefined}
+                        options={toOptions(STAGES)}
+                        onChange={(v) => updateTypeMutation.mutate({ id: selected.id, stage: v ?? "" })}
+                      />
+                    </>
+                  )}
+                </Space>
+              )}
               <Space style={{ justifyContent: "space-between", width: "100%" }}>
                 <Typography.Title level={5} style={{ margin: 0 }}>
                   Свойства

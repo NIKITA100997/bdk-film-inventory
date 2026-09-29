@@ -29,6 +29,7 @@ from app.models.items import (
     ItemTypeComponent,
     ItemTypeOperation,
 )
+from app.services import item_attrs
 from app.services import type_rules
 from app.services.expressions import ExpressionError, names_in, names_in_template
 
@@ -90,6 +91,9 @@ class ItemTypeUpdate(BaseModel):
     name_template: str | None = None
     # Код свойства-списка, задающего модель («серия»); "" — без моделей.
     model_property_code: str | None = None
+    # Направление и стадия позиций типа; "" — снять.
+    direction: str | None = None
+    stage: str | None = None
 
 
 class TypeOperationIO(BaseModel):
@@ -122,6 +126,8 @@ class ItemTypeOut(BaseModel):
     model_count: int = 0
     name_template: str | None = None
     model_property_code: str | None = None
+    direction: str | None = None
+    stage: str | None = None
     properties: list[PropertyOut]
     operations: list[TypeOperationIO] = []
     component_rules: list[TypeComponentIO] = []
@@ -163,6 +169,7 @@ def _type_out(db: Session, t: ItemType) -> ItemTypeOut:
         id=t.id, kind_code=t.kind.code, kind_name=t.kind.name, name=t.name, is_active=t.is_active,
         item_count=count or 0, model_count=models or 0, name_template=t.name_template,
         model_property_code=model_prop.code if model_prop else None,
+        direction=t.direction, stage=t.stage,
         properties=[_property_out(db, p) for p in t.properties],
         operations=[TypeOperationIO(name=o.name, area=o.area, condition=o.condition) for o in t.operations],
         component_rules=[
@@ -254,6 +261,16 @@ def update_item_type(
         if tpl:
             _check_template(t, tpl, "Название позиции")
         t.name_template = tpl
+    if payload.direction is not None:
+        if payload.direction and payload.direction not in item_attrs.DIRECTIONS:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Неизвестное направление")
+        t.direction = payload.direction or None
+    if payload.stage is not None:
+        if payload.stage and payload.stage not in item_attrs.STAGES:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Неизвестная стадия")
+        if payload.stage and t.kind.code != "pf":
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Стадия — только у типов п/ф")
+        t.stage = payload.stage or None
     if payload.model_property_code is not None:
         code = payload.model_property_code.strip()
         prop = next((p for p in t.properties if p.code == code), None) if code else None
