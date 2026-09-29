@@ -52,6 +52,7 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.components import sync_bom_components
 from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
+from app.services.laminated import can_laminate, laminated_excess
 from app.models.production import PlanSlot
 from app.models.production_orders import ProductionOrder
 from app.services.pf_demand import check_foreign_reserve
@@ -1228,6 +1229,8 @@ def _build_task_line_report(
     # заметке), иначе reported_good_pieces_by_unit вычитал бы её и излишек
     # выглядел бы израсходованным (доступно 0 — ошибка до 25.09).
     excess_unit_ids: set[int] = set()
+    # Строка с плёнкой по детали без плёнки: излишек уходит в «деталь · декор».
+    to_laminated = bool(line.material_id and line.color_id and payload.counts_toward_line and can_laminate(db, part))
     if fifo_results:
         already_counted = float(
             db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
@@ -1257,10 +1260,34 @@ def _build_task_line_report(
                     note=f"Автосписание по строке задания №{line_id}",
                 )
                 processed_fifo_results.append((wo_unit, True, write_off_amount))
-            if excess_amount > 0:
+            if excess_amount > 0 and to_laminated:
+                # Окутанный излишек — в остаток позицией «деталь · декор»,
+                # а не той же деталью без цвета (services/laminated.py).
+                lam_unit = laminated_excess(
+                    db, base_part=part, material_id=line.material_id, color_id=line.color_id, area=line.task.area,
+                    quantity_pieces=excess_amount, user_id=user.id, task_line_id=line_id, bare_unit=pu,
+                )
+                processed_fifo_results.append((lam_unit, True, excess_amount))
+                excess_unit_ids.add(lam_unit.id)
+            elif excess_amount > 0:
                 settle_excess_part_unit_at_area(db, unit=pu, user_id=user.id)
                 processed_fifo_results.append((pu, True, excess_amount))
                 excess_unit_ids.add(pu.id)
+    elif to_laminated and payload.good_pieces > 0:
+        # Деталь без плёнки партиями тут не учитывается (погонаж и т.п.) —
+        # излишек сверх плана строки рождается сразу партией «деталь · декор».
+        already = float(
+            db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
+            .filter(ProductionTaskLineReport.task_line_id == line_id, ProductionTaskLineReport.counts_toward_line.is_(True))
+            .scalar()
+        )
+        plan = float(line.quantity_pieces)
+        excess = max(0.0, already + payload.good_pieces - plan) - max(0.0, already - plan)
+        if excess > 0:
+            laminated_excess(
+                db, base_part=part, material_id=line.material_id, color_id=line.color_id, area=line.task.area,
+                quantity_pieces=excess, user_id=user.id, task_line_id=line_id,
+            )
 
     # Раздел про строки отчёта для "хороших" — собираются и добавляются в
     # сессию ЗДЕСЬ, сразу после расхода "хороших" и ДО обработки брака

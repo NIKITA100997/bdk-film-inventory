@@ -77,6 +77,11 @@ class Item(Base):
     direction: Mapped[str | None] = mapped_column(String(16), nullable=True)
     stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
     make_mode: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # Деталь в плёнке («деталь · декор», services/laminated.py): от какой
+    # детали без плёнки и в каком декоре (материал + цвет плёнки).
+    base_item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)
+    decor_material_id: Mapped[int | None] = mapped_column(ForeignKey("materials.id"), nullable=True)
+    decor_color_id: Mapped[int | None] = mapped_column(ForeignKey("colors.id"), nullable=True)
 
     kind: Mapped[ItemKind] = relationship()
     type: Mapped["ItemType | None"] = relationship()
