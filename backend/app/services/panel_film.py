@@ -27,6 +27,16 @@ LAMINATION = ("Ламинация", "Окутка")
 # панели, пока не решено иначе.
 FACTORY_SITE = "Фабрика"
 FACTORY_WRAP_ALLOWANCE_MM = 7
+# Площадка ламинации панелей (решение пользователя 29.09): крупная партия —
+# от 100 дверей одного цвета и размера, т.е. от 200 панелей — окутка на
+# Фабрике, меньше — мембранно-вакуумные прессы; в задании можно поменять.
+LAMINATION_STAGE = "Ламинация"
+FACTORY_AREA = "fabrika"
+FACTORY_MIN_PANELS = 200
+
+
+def suggest_lamination_area(stage_area: str | None, pieces: float) -> str | None:
+    return FACTORY_AREA if pieces >= FACTORY_MIN_PANELS else stage_area
 
 
 @dataclass
@@ -45,7 +55,33 @@ class PanelFilmRow:
     group: tuple[int, int, int] | None  # материал, цвет, толщина
 
 
-def _film_width(db: Session, part: Part, stage) -> tuple[float, str]:
+def _planned_area(db: Session, stage, to_laminate: float) -> str | None:
+    """Где будут ламинировать: по открытым заданиям на эту операцию (больше
+    штук — та площадка), а если заданий нет — по размеру партии."""
+    from sqlalchemy import func
+
+    from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+
+    lines = (
+        db.query(ProductionTaskLine, ProductionTask.area)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(ProductionTask.is_active.is_(True), ProductionTaskLine.part_stage_id == stage.id)
+        .all()
+    )
+    by_area: dict[str, float] = defaultdict(float)
+    for line, area in lines:
+        good = float(
+            db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
+            .filter(ProductionTaskLineReport.task_line_id == line.id)
+            .scalar()
+        )
+        by_area[area] += max(0.0, float(line.quantity_pieces) - good)
+    if by_area and max(by_area.values()) > 0:
+        return max(by_area.items(), key=lambda kv: kv[1])[0]
+    return suggest_lamination_area(stage.area, to_laminate)
+
+
+def _film_width(db: Session, part: Part, stage, area_code: str | None = None) -> tuple[float, str]:
     """Ширина плёнки на панель: штрипс детали; иначе по площадке операции —
     Фабрика (широкоформатная окутка) +7 мм, прессы — в размер панели."""
     from app.models.areas import Area
@@ -54,7 +90,8 @@ def _film_width(db: Session, part: Part, stage) -> tuple[float, str]:
     if part.strip_width_mm:
         return float(part.strip_width_mm), "штрипс детали"
     width = float(part.width_mm or 0)
-    area = db.get(Area, stage.area) if stage.area else None
+    code = area_code or stage.area
+    area = db.get(Area, code) if code else None
     site = db.get(Site, area.site_id) if area is not None and area.site_id else None
     if site is not None and site.name == FACTORY_SITE:
         return width + FACTORY_WRAP_ALLOWANCE_MM, f"ширина панели + {FACTORY_WRAP_ALLOWANCE_MM} мм (окутка, Фабрика)"
@@ -118,7 +155,7 @@ def panel_film_demand(db: Session) -> list[PanelFilmRow]:
         reported = reported_good_pieces_by_unit(db, [u.id for u in units])
         laminated = sum(max(0.0, float(u.quantity_pieces) - reported.get(u.id, 0.0)) for u in units)
         to_laminate = max(0.0, demand[part.id] - laminated)
-        width, rule = _film_width(db, part, lam)
+        width, rule = _film_width(db, part, lam, _planned_area(db, lam, to_laminate))
         length = float(part.length_m or 0)
         sku = part.default_material_sku
         out.append(

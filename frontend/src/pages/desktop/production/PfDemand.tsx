@@ -8,7 +8,8 @@ import PanelFilmTable from "../../../components/PanelFilmTable";
 import { useAuth } from "../../../auth/AuthContext";
 import { listAreas } from "../../../api/areas";
 import { updatePart } from "../../../api/dictionaries";
-import { createPfTasks, listPfDemand, type PfDemandRow } from "../../../api/pfDemand";
+import { createPfTasks, listPfDemand, suggestLaminationArea, type PfDemandRow } from "../../../api/pfDemand";
+import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -28,6 +29,8 @@ export default function PfDemand() {
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const [onlyShortage, setOnlyShortage] = useState(true);
   const [qty, setQty] = useState<Record<number, number | null>>({});
+  // Площадка ламинации панели, выбранная вручную (иначе — по размеру партии).
+  const [lamArea, setLamArea] = useState<Record<number, string>>({});
   const [selected, setSelected] = useState<number[]>([]);
   const [editTarget, setEditTarget] = useState<PfDemandRow | null>(null);
   const [taskFilter, setTaskFilter] = useState<number[]>([]);
@@ -60,7 +63,11 @@ export default function PfDemand() {
       createPfTasks({
         items: selected
           .filter((id) => (qty[id] ?? 0) > 0)
-          .map((id) => ({ part_id: id, quantity_pieces: qty[id] as number })),
+          .map((id) => {
+            const row = (demandQuery.data ?? []).find((r) => r.part_id === id);
+            const area = lamArea[id] ?? (row ? suggestLaminationArea(row, qty[id]) : undefined);
+            return { part_id: id, quantity_pieces: qty[id] as number, lamination_area: area ?? null };
+          }),
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["pf-demand"] });
@@ -227,6 +234,18 @@ export default function PfDemand() {
                 disabled={!canManage}
                 value={qty[r.part_id] ?? null}
                 onChange={(v) => setQty((prev) => ({ ...prev, [r.part_id]: v }))}
+              />
+            ),
+          },
+          {
+            title: "Ламинация",
+            render: (_, r) => (
+              <LaminationAreaSelect
+                row={r}
+                disabled={!canManage}
+                areaName={areaName}
+                value={lamArea[r.part_id] ?? suggestLaminationArea(r, qty[r.part_id])}
+                onChange={(v) => setLamArea((prev) => ({ ...prev, [r.part_id]: v }))}
               />
             ),
           },

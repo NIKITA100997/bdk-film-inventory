@@ -34,7 +34,15 @@ export interface PfDemandRow {
   reserved: number;
   /** Остаток без резервов. */
   free: number;
+  /** Ламинация панели: участок по маршруту (прессы), альтернатива — окутка на Фабрике. */
+  lamination_area?: string | null;
+  factory_area?: string | null;
+  factory_min_pieces?: number | null;
 }
+
+/** Площадка ламинации по умолчанию: крупная партия — Фабрика, иначе по маршруту. */
+export const suggestLaminationArea = (r: PfDemandRow, qty: number | null | undefined): string | undefined =>
+  !r.lamination_area ? undefined : r.factory_area && r.factory_min_pieces && (qty ?? 0) >= r.factory_min_pieces ? r.factory_area : r.lamination_area;
 
 // indexes: null — task_ids=1&task_ids=2, как ждёт FastAPI, а не task_ids[]=1.
 export const listPfDemand = async (taskIds: number[] = []): Promise<PfDemandRow[]> =>
@@ -63,7 +71,7 @@ export const setPfReservation = async (payload: { task_id: number; part_id: numb
 };
 
 export const createPfTasks = async (payload: {
-  items: { part_id: number; quantity_pieces: number }[];
+  items: { part_id: number; quantity_pieces: number; lamination_area?: string | null }[];
   ship_date?: string | null;
   for_task_id?: number | null;
 }): Promise<{ task_ids: number[] }> => (await apiClient.post<{ task_ids: number[] }>("/pf-demand/tasks", payload)).data;

@@ -12,6 +12,8 @@ from app.models.items import match_part_id
 from app.models.part_units import PartReservation
 from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.users import User
+from app.models.areas import Area
+from app.services.panel_film import FACTORY_AREA, FACTORY_MIN_PANELS, LAMINATION_STAGE
 from app.services.production_orders import OrderError, attach_tasks_to_order
 from app.services.pf_demand import PfDemandRow, compute_pf_demand, compute_pf_preview, reserves_by_part
 
@@ -54,11 +56,18 @@ class PfDemandOut(BaseModel):
     sources: list[PfDemandSourceOut]
     reserved: float
     free: float
+    # Ламинация панели: участок по маршруту (прессы) и альтернатива — окутка
+    # на Фабрике для крупной партии (от factory_min_pieces).
+    lamination_area: str | None = None
+    factory_area: str | None = None
+    factory_min_pieces: float | None = None
 
 
 class PfDemandTaskItem(BaseModel):
     part_id: int
     quantity_pieces: float = Field(gt=0)
+    # Участок ламинации панели для этого задания (прессы / Фабрика); пусто — по маршруту.
+    lamination_area: str | None = None
 
 
 class PfDemandTasksCreate(BaseModel):
@@ -97,11 +106,17 @@ def list_pf_demand(
     db: Session = Depends(get_db),
     user: User = Depends(view),
 ) -> list[PfDemandOut]:
-    return [_out(row) for row in compute_pf_demand(db, task_ids)]
+    return [_out(row, db) for row in compute_pf_demand(db, task_ids)]
 
 
-def _out(row: PfDemandRow) -> PfDemandOut:
-    return PfDemandOut(**{**row.__dict__, "sources": [PfDemandSourceOut(**s.__dict__) for s in row.sources]})
+def _out(row: PfDemandRow, db: Session | None = None) -> PfDemandOut:
+    extra = {}
+    if db is not None:
+        part = db.get(Part, row.part_id)
+        lam = next((s for s in (part.stages if part else []) if s.name == LAMINATION_STAGE), None)
+        if lam is not None:
+            extra = {"lamination_area": lam.area, "factory_area": FACTORY_AREA, "factory_min_pieces": FACTORY_MIN_PANELS}
+    return PfDemandOut(**{**row.__dict__, "sources": [PfDemandSourceOut(**s.__dict__) for s in row.sources], **extra})
 
 
 class PartReserveOut(BaseModel):
@@ -179,7 +194,12 @@ def create_pf_tasks(
             if stage.area is None:
                 missing_area.append(f"{part.name} ({stage.name})")
                 continue
-            by_area[stage.area].append((part, item.quantity_pieces, stage.id))
+            area = stage.area
+            if item.lamination_area and stage.name == LAMINATION_STAGE:
+                if db.get(Area, item.lamination_area) is None:
+                    raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Участок ламинации не найден")
+                area = item.lamination_area
+            by_area[area].append((part, item.quantity_pieces, stage.id))
     if missing_area:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,

@@ -52,12 +52,16 @@ def validate_line_stage(db: Session, *, task_area: str, part_stage_id: int) -> P
 
 
 def _units_at_stage(db: Session, stage: PartStage, area: str) -> list[tuple[PartUnit, float]]:
+    # Операция на другой площадке, чем у этапа по маршруту (ламинация панелей
+    # крупной партией — окутка на Фабрике вместо прессов): партии этапа
+    # лежат на участке этапа — их и берём, физически их туда и везут.
+    areas = {area, stage.area} - {None}
     candidates = (
         db.query(PartUnit)
         .filter(
             PartUnit.part_id == stage.part_id,
             PartUnit.stage_id == stage.id,
-            PartUnit.area == area,
+            PartUnit.area.in_(areas),
             PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU,
         )
         .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())

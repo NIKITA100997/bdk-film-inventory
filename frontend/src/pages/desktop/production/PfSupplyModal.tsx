@@ -4,7 +4,8 @@ import { Alert, Button, InputNumber, Modal, Space, Tag, Typography, message } fr
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { listAreas } from "../../../api/areas";
-import { createPfTasks, listPfDemand, setPfReservation, type PfDemandRow } from "../../../api/pfDemand";
+import { createPfTasks, listPfDemand, setPfReservation, suggestLaminationArea, type PfDemandRow } from "../../../api/pfDemand";
+import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -43,6 +44,7 @@ export default function PfSupplyModal({
   const rows = useMemo(() => query.data ?? [], [query.data]);
   const [reserve, setReserve] = useState<Record<number, number | null>>({});
   const [make, setMake] = useState<Record<number, number | null>>({});
+  const [lamArea, setLamArea] = useState<Record<number, string>>({});
 
   useEffect(() => {
     setReserve(Object.fromEntries(rows.map((r) => [r.part_id, r.sources[0]?.reserve_set || null])));
@@ -70,7 +72,11 @@ export default function PfSupplyModal({
     mutationFn: () =>
       createPfTasks({
         for_task_id: taskId,
-        items: toMake.map((r) => ({ part_id: r.part_id, quantity_pieces: make[r.part_id] as number })),
+        items: toMake.map((r) => ({
+          part_id: r.part_id,
+          quantity_pieces: make[r.part_id] as number,
+          lamination_area: lamArea[r.part_id] ?? suggestLaminationArea(r, make[r.part_id]) ?? null,
+        })),
       }),
     onSuccess: (res) => {
       refresh();
@@ -214,6 +220,18 @@ export default function PfSupplyModal({
                   ) : (
                     <Tag color="orange">участок первого этапа не указан</Tag>
                   ),
+              },
+              {
+                title: "Ламинация",
+                render: (_, r) => (
+                  <LaminationAreaSelect
+                    row={r}
+                    disabled={!canManage}
+                    areaName={areaName}
+                    value={lamArea[r.part_id] ?? suggestLaminationArea(r, make[r.part_id])}
+                    onChange={(v) => setLamArea((prev) => ({ ...prev, [r.part_id]: v }))}
+                  />
+                ),
               },
               {
                 title: "Первый этап",
