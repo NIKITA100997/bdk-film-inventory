@@ -106,3 +106,14 @@ export interface MoveCheck {
 /** Проверка переноса: не нарушится ли порядок связанных этапов. */
 export const checkPlanMove = async (payload: MoveCheckIn): Promise<MoveCheck> =>
   (await apiClient.post<MoveCheck>("/planning/check-move", payload)).data;
+
+/** День строки задания в планировщике: план и уже распределено по линиям. */
+export interface LineDay {
+  date: string;
+  quantity: number;
+  assigned: number;
+}
+
+/** Дни строки в планировщике; пусто — строка не в плане. */
+export const getLineDays = async (lineId: number): Promise<LineDay[]> =>
+  (await apiClient.get<LineDay[]>(`/planning/lines/${lineId}/days`)).data;

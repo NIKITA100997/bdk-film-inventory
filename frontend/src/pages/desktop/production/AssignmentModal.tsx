@@ -11,6 +11,7 @@ import {
   type ProductionTaskLineAssignmentCreate,
 } from "../../../api/production";
 import EmployeesTagSelect from "../../../components/EmployeesTagSelect";
+import { getLineDays } from "../../../api/planning";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -42,12 +43,20 @@ export default function AssignmentModal({
     queryFn: () => listTaskLineAssignments(task.id, line.id),
   });
   const assignedSoFar = (assignmentsQuery.data ?? []).reduce((sum, a) => sum + a.quantity_pieces, 0);
+  // День работы задаётся в планировщике: если строка там стоит — выбор
+  // только из её дней; нет в плане — день выбирается здесь, как раньше.
+  const daysQuery = useQuery({ queryKey: ["line-days", line.id], queryFn: () => getLineDays(line.id) });
+  const planDays = daysQuery.data ?? [];
+  const inPlan = planDays.length > 0;
+  const today = dayjs().format("YYYY-MM-DD");
+  const defaultDay = (planDays.find((d) => d.date >= today && d.assigned < d.quantity) ?? planDays.find((d) => d.assigned < d.quantity) ?? planDays[0])?.date;
 
   const assignMutation = useMutation({
     mutationFn: (v: ProductionTaskLineAssignmentCreate) => createTaskLineAssignment(task.id, line.id, v),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       qc.invalidateQueries({ queryKey: ["task-line-assignments", task.id, line.id] });
+      qc.invalidateQueries({ queryKey: ["line-days", line.id] });
       assignForm.resetFields();
       message.success("Распределение сохранено");
     },
@@ -79,13 +88,34 @@ export default function AssignmentModal({
       />
 
       <Typography.Title level={5}>Добавить распределение</Typography.Title>
-      <Form layout="vertical" form={assignForm} onFinish={(v) => assignMutation.mutate({ ...v, date: v.date.format("YYYY-MM-DD") })}>
+      <Form
+        layout="vertical"
+        form={assignForm}
+        onFinish={(v) => assignMutation.mutate({ ...v, date: inPlan ? String(v.date) : v.date.format("YYYY-MM-DD") })}
+      >
         <Form.Item name="line_id" label="Линия" rules={[{ required: true }]}>
           <Select options={linesForTask.map((l) => ({ value: l.id, label: l.name }))} />
         </Form.Item>
-        <Form.Item name="date" label="Дата" rules={[{ required: true }]} initialValue={dayjs()}>
-          <DatePicker style={{ width: "100%" }} format="DD.MM.YYYY" />
-        </Form.Item>
+        {daysQuery.isLoading ? null : inPlan ? (
+          <Form.Item
+            name="date"
+            label="День (из планировщика)"
+            rules={[{ required: true }]}
+            initialValue={defaultDay}
+            extra="Другой день — перенесите строку в планировщике."
+          >
+            <Select
+              options={planDays.map((d) => ({
+                value: d.date,
+                label: `${dayjs(d.date).format("DD.MM.YYYY")} — план ${d.quantity} шт, распределено ${d.assigned}`,
+              }))}
+            />
+          </Form.Item>
+        ) : (
+          <Form.Item name="date" label="Дата" rules={[{ required: true }]} initialValue={dayjs()} extra="Строки нет в планировщике — день выбирается здесь.">
+            <DatePicker style={{ width: "100%" }} format="DD.MM.YYYY" />
+          </Form.Item>
+        )}
         <Form.Item name="employee_names" label="Сотрудники" rules={[{ required: true }]}>
           <EmployeesTagSelect placeholder="Иванов, Петров" />
         </Form.Item>

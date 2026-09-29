@@ -1561,6 +1561,15 @@ def create_task_line_assignment(
                 f"нельзя добавить ещё {payload.quantity_pieces:g}"
             ),
         )
+    # День работы задаётся в планировщике: если строка там стоит,
+    # распределять можно только на её дни (объединение экранов, 29.09).
+    plan_days = sorted({d for (d,) in db.query(PlanSlot.date).filter(PlanSlot.task_line_id == line_id)})
+    if plan_days and payload.date not in plan_days:
+        days = ", ".join(d.strftime("%d.%m") for d in plan_days)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"В планировщике строка стоит на {days}. Другой день — перенесите строку в планировщике.",
+        )
     find_or_create_employees(db, payload.employee_names.split(","))
     assignment = ProductionTaskLineAssignment(
         task_line_id=line_id,

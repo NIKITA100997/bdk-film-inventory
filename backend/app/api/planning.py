@@ -13,7 +13,13 @@ from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import PartStage
-from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+from app.models.production import (
+    PlanSlot,
+    ProductionTask,
+    ProductionTaskLine,
+    ProductionTaskLineAssignment,
+    ProductionTaskLineReport,
+)
 from app.models.production_orders import ProductionOrder
 from app.models.sites import Site
 from app.models.users import User
@@ -272,6 +278,26 @@ def split_slot(slot_id: int, payload: SlotSplit, db: Session = Depends(get_db), 
 class LinePlanIn(BaseModel):
     date: Day
     quantity: float = Field(gt=0)
+
+
+class LineDayOut(BaseModel):
+    date: Day
+    quantity: float  # по плану на этот день
+    assigned: float  # уже распределено по линиям на этот день
+
+
+@router.get("/lines/{line_id}/days", response_model=list[LineDayOut])
+def line_days(line_id: int, db: Session = Depends(get_db), user: User = Depends(view)) -> list[LineDayOut]:
+    """Дни строки задания в планировщике — из них мастер выбирает день при
+    распределении по линиям (день работы задаётся только в планировщике).
+    Пусто — строка не в плане."""
+    plan: dict[date, float] = defaultdict(float)
+    for s in db.query(PlanSlot).filter(PlanSlot.task_line_id == line_id):
+        plan[s.date] += float(s.quantity)
+    assigned: dict[date, float] = defaultdict(float)
+    for a in db.query(ProductionTaskLineAssignment).filter(ProductionTaskLineAssignment.task_line_id == line_id):
+        assigned[a.date] += float(a.quantity_pieces)
+    return [LineDayOut(date=d, quantity=round(q, 2), assigned=round(assigned.get(d, 0.0), 2)) for d, q in sorted(plan.items())]
 
 
 @router.post("/lines/{line_id}/slots", status_code=status.HTTP_201_CREATED)
