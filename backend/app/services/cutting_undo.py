@@ -26,12 +26,13 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_permission_codes
 from app.models.cutting_operations import CuttingOperation
-from app.models.events import MaterialEvent
+from app.models.events import EventType, MaterialEvent
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
 from app.models.warehouse_transfers import STATUS_SOBIRAETSYA, WarehouseTransfer, WarehouseTransferLine
 
 UNDO_WINDOW = timedelta(hours=2)
+HARMLESS_AFTER_CUT = (EventType.PRIHOD, EventType.PEREMESHCHENIE_NACHATO)
 
 
 def _resulting_pieces(db: Session, op: CuttingOperation) -> list[MaterialUnit]:
@@ -46,9 +47,17 @@ def _touched_since(db: Session, unit_id: int, op: CuttingOperation) -> bool:
     )
     if watermark is None:
         return False
+    # Раскладка кусков на полку после резки (Приход) и добавление в ещё
+    # собираемое перемещение (его проверяет check_undo_eligibility отдельно,
+    # строку снимает сама отмена) — обычный порядок работы, а не «кусок
+    # тронули»: без этого после любой раскладки отмена была невозможна.
     return (
         db.query(MaterialEvent.event_id)
-        .filter(MaterialEvent.unit_id == unit_id, MaterialEvent.event_id > watermark)
+        .filter(
+            MaterialEvent.unit_id == unit_id,
+            MaterialEvent.event_id > watermark,
+            MaterialEvent.event_type.notin_(HARMLESS_AFTER_CUT),
+        )
         .first()
         is not None
     )
