@@ -8,7 +8,13 @@ export interface DictEntry {
   is_active: boolean;
   in_use?: boolean;
   sku_count?: number;
+  /** Только у цветов: коллекция декоров («Ламис»). */
+  collection?: string | null;
 }
+
+/** Массово отнести декоры к коллекции; collection = null — убрать. */
+export const setColorsCollection = async (colorIds: number[], collection: string | null): Promise<{ updated: number }> =>
+  (await apiClient.post<{ updated: number }>("/colors/set-collection", { color_ids: colorIds, collection })).data;
 
 export interface ThicknessEntry {
   id: number;

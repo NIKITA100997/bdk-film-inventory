@@ -183,10 +183,26 @@ def list_all_colors(db: Session = Depends(get_db), user=Depends(manage_dicts)) -
     return [
         ColorOut(
             id=c.id, name=c.name, is_active=c.is_active, in_use=color_in_use(db, c.id),
-            sku_count=_sku_count(db, MaterialSku.color_id, c.id),
+            sku_count=_sku_count(db, MaterialSku.color_id, c.id), collection=c.collection,
         )
         for c in db.query(Color).order_by(Color.name).all()
     ]
+
+
+class SetCollectionIn(BaseModel):
+    color_ids: list[int]
+    collection: str | None = None  # пусто — убрать из коллекции
+
+
+@router.post("/colors/set-collection")
+def set_colors_collection(payload: SetCollectionIn, db: Session = Depends(get_db), user=Depends(manage_dicts)) -> dict:
+    """Массово отнести декоры к коллекции («Ламис») или убрать из неё."""
+    name = (payload.collection or "").strip() or None
+    colors = db.query(Color).filter(Color.id.in_(payload.color_ids)).all() if payload.color_ids else []
+    for c in colors:
+        c.collection = name
+    db.commit()
+    return {"updated": len(colors)}
 
 
 @router.get("/colors/duplicates", response_model=list[DuplicateCandidateOut])

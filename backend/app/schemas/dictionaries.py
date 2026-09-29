@@ -27,6 +27,7 @@ class ColorOut(BaseModel):
     # WidthAbcClass/ProductionTaskLine/PurchaseRequest) — sku_count=0 не
     # означает in_use=false.
     sku_count: int = 0
+    collection: str | None = None
 
 
 class ThicknessOut(BaseModel):

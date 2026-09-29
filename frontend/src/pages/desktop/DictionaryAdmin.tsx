@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tabs, Button, Input, InputNumber, Select, Tag, Space, Popconfirm, Typography, Empty, Checkbox, Modal, Form, message } from "antd";
+import { AutoComplete, Card, Tabs, Button, Input, InputNumber, Select, Tag, Space, Popconfirm, Typography, Empty, Checkbox, Modal, Form, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import ResponsiveTable from "../../components/ResponsiveTable";
@@ -13,6 +13,7 @@ import {
   createThicknessEntry,
   updateThicknessEntry,
   deleteThicknessEntry,
+  setColorsCollection,
   type NameDictKind,
   type DictEntry,
   type DuplicateCandidate,
@@ -60,6 +61,23 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
   // задним числом пар-кандидатов может быть десятки, архивировать по
   // одной неудобно (тот же приём выбора строк, что уже есть в "Деталях").
   const [selectedDuplicateKeys, setSelectedDuplicateKeys] = useState<(string | number)[]>([]);
+  // Коллекции декоров («Ламис») — только у цветов: выбор строк + назначить.
+  const isColors = kind === "colors";
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [collection, setCollection] = useState("");
+  const [collectionFilter, setCollectionFilter] = useState<string | undefined>();
+  const [q, setQ] = useState("");
+  const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
+  const collections = [...new Set((entriesQuery.data ?? []).map((e) => e.collection).filter((c): c is string => !!c))].sort();
+  const collectionMutation = useMutation({
+    mutationFn: (value: string | null) => setColorsCollection(selectedIds, value),
+    onSuccess: (r, value) => {
+      invalidateDictCaches();
+      setSelectedIds([]);
+      message.success(value ? `В коллекцию «${value}»: ${r.updated}` : `Убрано из коллекций: ${r.updated}`);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось назначить коллекцию")),
+  });
 
   // ["dict-autocomplete", kind] — отдельный неймспейс ключа кэша автокомплита
   // (DictAutoComplete.tsx, разведён с сырыми списками вроде этого, когда
@@ -142,12 +160,58 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
           </Button>
         </Form>
       </Modal>
+      {isColors && (
+        <Space wrap>
+          <Input.Search allowClear placeholder="Поиск декора" style={{ width: 220 }} value={q} onChange={(e) => setQ(e.target.value)} />
+          <Select
+            allowClear
+            placeholder="Все коллекции"
+            style={{ width: 220 }}
+            value={collectionFilter}
+            onChange={setCollectionFilter}
+            options={[{ value: "__none", label: "— без коллекции —" }, ...collections.map((c) => ({ value: c, label: c }))]}
+          />
+          {selectedIds.length > 0 && (
+            <>
+              <Typography.Text>Выбрано: {selectedIds.length}</Typography.Text>
+              <AutoComplete
+                style={{ width: 200 }}
+                placeholder="Коллекция, например Ламис"
+                value={collection}
+                onChange={setCollection}
+                options={collections.map((c) => ({ value: c }))}
+                filterOption={(input, o) => (o?.value ?? "").toLowerCase().includes(input.toLowerCase())}
+              />
+              <Button
+                type="primary"
+                disabled={!collection.trim()}
+                loading={collectionMutation.isPending}
+                onClick={() => collectionMutation.mutate(collection.trim())}
+              >
+                В коллекцию
+              </Button>
+              <Button onClick={() => collectionMutation.mutate(null)}>Убрать из коллекции</Button>
+              <Button type="link" onClick={() => setSelectedIds([])}>
+                Снять выбор
+              </Button>
+            </>
+          )}
+        </Space>
+      )}
       <ResponsiveTable<DictEntry>
         rowKey="id"
         loading={entriesQuery.isLoading}
-        dataSource={(entriesQuery.data ?? []).filter((e) => showArchived || e.is_active)}
+        dataSource={(entriesQuery.data ?? []).filter(
+          (e) =>
+            (showArchived || e.is_active) &&
+            (!isColors || !q.trim() || norm(e.name).includes(norm(q.trim()))) &&
+            (!isColors || !collectionFilter || (collectionFilter === "__none" ? !e.collection : e.collection === collectionFilter)),
+        )}
         pagination={false}
         scroll={{ x: "max-content" }}
+        rowSelection={
+          isColors ? { selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as number[]), columnWidth: 40 } : undefined
+        }
         columns={[
           {
             title: label,
@@ -161,6 +225,16 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
               />
             ),
           },
+          ...(isColors
+            ? [
+                {
+                  title: "Коллекция",
+                  width: 140,
+                  render: (_: unknown, entry: DictEntry) =>
+                    entry.collection ? <Tag color="cyan">{entry.collection}</Tag> : <Typography.Text type="secondary">—</Typography.Text>,
+                },
+              ]
+            : []),
           {
             title: "Статус",
             dataIndex: "is_active",

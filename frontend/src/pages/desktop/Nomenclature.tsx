@@ -17,7 +17,7 @@ import {
   groupTree,
   groupWithDescendants,
   listItemGroups,
-  setItemsGroup,
+  setItemsGroup, setItemsPet,
   linkLines,
   listItemKinds,
   listItems,
@@ -116,6 +116,15 @@ function ItemsTab() {
     return out;
   }, [itemsQuery.data, kind, q, group, groups]);
 
+  const petMutation = useMutation({
+    mutationFn: (pet: "2d" | "3d") => setItemsPet({ item_ids: selectedIds, pet_type: pet }),
+    onSuccess: (r, pet) => {
+      qc.invalidateQueries({ queryKey: ["items"] });
+      setSelectedIds([]);
+      message.success(`ПЭТ ${pet === "3d" ? "3Д" : "2Д"}: ${r.updated}`);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось проставить ПЭТ")),
+  });
   const moveMutation = useMutation({
     mutationFn: (groupId: number | null) => setItemsGroup({ item_ids: selectedIds, group_id: groupId }),
     onSuccess: (r, groupId) => {
@@ -197,6 +206,19 @@ function ItemsTab() {
               Перенести
             </Button>
             <Button onClick={() => moveMutation.mutate(null)}>Убрать из группы</Button>
+            {kind === "pf" && (
+              <Space.Compact>
+                <Button disabled title="Если декор ПЭТ — какой клеить на выбранные детали">
+                  ПЭТ:
+                </Button>
+                <Button loading={petMutation.isPending} onClick={() => petMutation.mutate("2d")}>
+                  2Д
+                </Button>
+                <Button loading={petMutation.isPending} onClick={() => petMutation.mutate("3d")}>
+                  3Д
+                </Button>
+              </Space.Compact>
+            )}
             <Button type="link" onClick={() => setSelectedIds([])}>
               Снять выбор
             </Button>
@@ -240,6 +262,15 @@ function ItemsTab() {
             title: "Группа",
             render: (_, i) => (i.group_id != null ? groupPath(groups, i.group_id) : <Typography.Text type="secondary">—</Typography.Text>),
           },
+          ...(kind === "pf"
+            ? [
+                {
+                  title: "ПЭТ",
+                  render: (_: unknown, i: ItemRow) =>
+                    i.is_model ? null : i.pet_type === "3d" ? <Tag color="purple">3Д</Tag> : <Typography.Text type="secondary">2Д</Typography.Text>,
+                },
+              ]
+            : []),
           { title: "Ед.", dataIndex: "unit" },
           { title: "Код 1С", render: (_, i) => i.code_1c ?? <Typography.Text type="secondary">—</Typography.Text> },
           { title: "Статус", render: (_, i) => (i.is_active ? <Tag color="green">активна</Tag> : <Tag>архив</Tag>) },

@@ -54,6 +54,7 @@ class ItemOut(BaseModel):
     material: str | None = None
     color: str | None = None
     thickness: float | None = None
+    pet_type: str | None = None  # "3d"; пусто — ПЭТ 2Д
 
 
 class PartSuggestion(BaseModel):
@@ -110,7 +111,7 @@ def list_items(
             ItemOut(
                 id=item.id, kind_code=kind.code, kind_name=kind.name, unit=item.unit or kind.unit, name=name,
                 code_1c=item.code_1c, is_active=active, source_type=source_type, source_id=source_id,
-                group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id, **extra,
+                group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id, pet_type=item.pet_type, **extra,
             )
         )
 
@@ -141,6 +142,7 @@ def list_items(
                     id=item.id, kind_code=item_kind.code, kind_name=item_kind.name, unit=item.unit or item_kind.unit, name=item.name,
                     code_1c=item.code_1c, is_active=item.is_active, source_type=None, source_id=None,
                     group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id,
+                    pet_type=item.pet_type,
                 )
             )
 
@@ -278,6 +280,31 @@ def set_items_group(payload: SetGroupIn, db: Session = Depends(get_db), user=Dep
         i.group_id = group.id if group else None
     db.commit()
     return {"moved": len(items)}
+
+
+PET_TYPES = ("2d", "3d")
+
+
+class SetPetIn(BaseModel):
+    item_ids: list[int]
+    pet_type: str  # "2d" | "3d"
+
+
+@router.post("/items/set-pet")
+def set_items_pet(payload: SetPetIn, db: Session = Depends(get_db), user=Depends(manage_groups)) -> dict:
+    """Массово: какой ПЭТ идёт на детали, если декор ПЭТ. 2Д — основа
+    (хранится пусто), 3Д — отмечается. Только п/ф."""
+    if payload.pet_type not in PET_TYPES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "ПЭТ — 2Д или 3Д")
+    items = db.query(Item).filter(Item.id.in_(payload.item_ids)).all() if payload.item_ids else []
+    pf = db.query(ItemKind).filter(ItemKind.code == "pf").first()
+    alien = [i for i in items if pf is None or i.kind_id != pf.id]
+    if alien:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"ПЭТ задаётся только у п/ф (например, не у «{alien[0].name}»)")
+    for i in items:
+        i.pet_type = "3d" if payload.pet_type == "3d" else None
+    db.commit()
+    return {"updated": len(items)}
 
 
 def _suggest(name: str, parts: list[Part]) -> list[PartSuggestion]:

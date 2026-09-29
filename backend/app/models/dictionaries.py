@@ -28,6 +28,8 @@ class Color(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Коллекция декоров («Ламис» — ими переклеивают деталь после снятия плёнки).
+    collection: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class Thickness(Base):

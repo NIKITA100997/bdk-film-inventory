@@ -26,6 +26,8 @@ export interface Item {
   material: string | null;
   color: string | null;
   thickness: number | null;
+  /** Если декор ПЭТ: "3d"; пусто — 2Д (основа). Только п/ф. */
+  pet_type?: string | null;
 }
 
 export interface UnlinkedLineGroup {
@@ -61,6 +63,9 @@ export const deleteItemGroup = async (id: number): Promise<void> => {
 };
 export const setItemsGroup = async (payload: { item_ids: number[]; group_id: number | null }): Promise<{ moved: number }> =>
   (await apiClient.post<{ moved: number }>("/items/set-group", payload)).data;
+/** Массово: какой ПЭТ идёт на детали, если декор ПЭТ. */
+export const setItemsPet = async (payload: { item_ids: number[]; pet_type: "2d" | "3d" }): Promise<{ updated: number }> =>
+  (await apiClient.post<{ updated: number }>("/items/set-pet", payload)).data;
 
 /** Путь группы «МК / Стоевые» и все её потомки (для отбора с подгруппами). */
 export function groupPath(groups: ItemGroup[], id: number | null): string {

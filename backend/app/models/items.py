@@ -71,6 +71,8 @@ class Item(Base):
     unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
     is_model: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     model_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)
+    # Если декор ПЭТ — какой идёт на деталь: "3d"; пусто — 2Д (основа).
+    pet_type: Mapped[str | None] = mapped_column(String(2), nullable=True)
 
     kind: Mapped[ItemKind] = relationship()
     type: Mapped["ItemType | None"] = relationship()
