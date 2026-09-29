@@ -1,4 +1,6 @@
 import RegistrationStageField from "../../../components/RegistrationStageSelect";
+import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
+import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Tag, DatePicker } from "antd";
@@ -160,6 +162,9 @@ export default function PartUnits() {
   const [placeTarget, setPlaceTarget] = useState<PartUnit | null>(null);
   const [placeLocationCode, setPlaceLocationCode] = useState("");
   const [cardTarget, setCardTarget] = useState<PartUnit | null>(null);
+  // Направление / группа / стадия из номенклатуры и разбивка по группам.
+  const [pf, setPf] = usePfFilter();
+  const { byPart: pfAttrs, groups: itemGroups } = usePfIndex();
   // Раздел про ревизию путей плёнки/п/ф — возврат на склад (партия
   // выдана участку, но физически не использована/использована лишь
   // частично) и формальная корректировка количества (вместо правки
@@ -396,7 +401,7 @@ export default function PartUnits() {
         .reduce((sum, u) => sum + u.quantity_pieces, 0)
     : 0;
   const stageOptions = [...new Set(allUnits.map((u) => u.stage_name))].map((s) => ({ value: s, label: s }));
-  const filteredUnits = allUnits.filter((u) => {
+  const baseFiltered = allUnits.filter((u) => {
     // Раздел про физический учёт деталей — пока формального адресного
     // хранения нет (одна деталь может лежать "на 3 стеллаже" неформально,
     // без заведённой ячейки), поиск по названию детали заодно ищет и по
@@ -414,6 +419,8 @@ export default function PartUnits() {
     if (hideFullyUsed && u.quantity_available <= 0 && u.status !== "Списан") return false;
     return true;
   });
+  const filteredUnits = filterPf(baseFiltered, (u) => u.part_id, pf, pfAttrs, itemGroups);
+  const unitSections = sectionsPf(filteredUnits, (u) => u.part_id, pf, pfAttrs, itemGroups);
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -550,9 +557,15 @@ export default function PartUnits() {
           <Checkbox checked={hideFullyUsed} onChange={(e) => setHideFullyUsed(e.target.checked)}>
             Скрыть полностью использованные (0 доступно)
           </Checkbox>
+          <PfFilterBar value={pf} onChange={setPf} groups={itemGroups} />
         </Space>
 
+        <PfSections
+          sections={unitSections}
+          total={(rows) => `${Math.round(rows.reduce((s, u) => s + u.quantity_available, 0))} шт доступно`}
+          render={(rows, key) => (
         <ResponsiveTable<PartUnit>
+          key={key}
           tableKey="part-units"
           lockedColumns={["Деталь", "Действия"]}
           cardBreakpoint="lg"
@@ -560,8 +573,8 @@ export default function PartUnits() {
           tableLayout="fixed"
           rowKey="id"
           loading={unitsQuery.isLoading}
-          dataSource={filteredUnits}
-          pagination={{ pageSize: 20 }}
+          dataSource={rows}
+          pagination={{ pageSize: 20, hideOnSinglePage: true }}
           scroll={{ x: 1270 }}
           locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
           onRow={(u) => ({ onClick: () => setCardTarget(u), style: { cursor: "pointer" } })}
@@ -715,6 +728,8 @@ export default function PartUnits() {
               ),
             },
           ]}
+        />
+          )}
         />
       </Card>
 

@@ -140,7 +140,7 @@ const appPageRoutes = (
       }
     />
     <Route path="/product-models" element={<Navigate to="/nomenclature?tab=models" replace />} />
-    <Route path="/parts" element={<Navigate to="/nomenclature?tab=parts" replace />} />
+    <Route path="/parts" element={<Navigate to="/nomenclature?kind=pf" replace />} />
     <Route
       path="/production-lines"
       element={

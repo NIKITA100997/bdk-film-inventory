@@ -84,7 +84,7 @@ export default function ProductionLines() {
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Линии цеха — здесь. Рядом: <a onClick={() => navigate("/product-models")}>Модели продукции (BOM)</a> ·{" "}
-        <a onClick={() => navigate("/parts")}>Справочник деталей</a>
+        <a onClick={() => navigate("/nomenclature?kind=pf")}>Детали п/ф в номенклатуре</a>
       </Typography.Paragraph>
       <Card
         title="Производственные линии"

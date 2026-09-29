@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
+import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
 import dayjs, { type Dayjs } from "dayjs";
 import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
@@ -37,6 +39,9 @@ export default function PfDemand() {
   const [selected, setSelected] = useState<number[]>([]);
   const [editTarget, setEditTarget] = useState<PfDemandRow | null>(null);
   const [taskFilter, setTaskFilter] = useState<number[]>([]);
+  // Направление / группа / стадия из номенклатуры и разбивка по группам.
+  const [pf, setPf] = usePfFilter();
+  const { byPart: pfAttrs, groups: itemGroups } = usePfIndex();
 
   // Варианты фильтра — задания цеха из общего расчёта (без фильтра); при
   // пустом фильтре это тот же запрос, что и таблица.
@@ -51,9 +56,17 @@ export default function PfDemand() {
   const areaName = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : null);
 
   const rows = useMemo(
-    () => (demandQuery.data ?? []).filter((r) => !onlyShortage || r.shortage > 0),
-    [demandQuery.data, onlyShortage],
+    () =>
+      filterPf(
+        (demandQuery.data ?? []).filter((r) => !onlyShortage || r.shortage > 0),
+        (r) => r.part_id,
+        pf,
+        pfAttrs,
+        itemGroups,
+      ),
+    [demandQuery.data, onlyShortage, pf, pfAttrs, itemGroups],
   );
+  const sections = sectionsPf(rows, (r) => r.part_id, pf, pfAttrs, itemGroups);
 
   useEffect(() => {
     const data = demandQuery.data ?? [];
@@ -65,8 +78,7 @@ export default function PfDemand() {
     mutationFn: () =>
       createPfTasks({
         ship_date: dueDate ? dueDate.format("YYYY-MM-DD") : null,
-        items: selected
-          .filter((id) => (qty[id] ?? 0) > 0)
+        items: toCreate
           .map((id) => {
             const row = (demandQuery.data ?? []).find((r) => r.part_id === id);
             const area = lamArea[id] ?? (row ? suggestLaminationArea(row, qty[id]) : undefined);
@@ -85,7 +97,9 @@ export default function PfDemand() {
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось создать задания")),
   });
 
-  const toCreate = selected.filter((id) => (qty[id] ?? 0) > 0);
+  // Только отмеченное среди видимого (отборы могли скрыть часть строк).
+  const visible = new Set(rows.map((r) => r.part_id));
+  const toCreate = selected.filter((id) => visible.has(id) && (qty[id] ?? 0) > 0);
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -136,6 +150,7 @@ export default function PfDemand() {
           <Checkbox checked={onlyShortage} onChange={(e) => setOnlyShortage(e.target.checked)}>
             Только с нехваткой
           </Checkbox>
+          <PfFilterBar value={pf} onChange={setPf} groups={itemGroups} />
         </Space>
         {taskFilter.length > 0 && (
           <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
@@ -145,14 +160,19 @@ export default function PfDemand() {
         )}
       </Card>
 
+      <PfSections
+        sections={sections}
+        total={(rs) => `не хватает ${fmt(rs.reduce((s, r) => s + r.shortage, 0))}`}
+        render={(sectionRows, key) => (
       <ResponsiveTable<PfDemandRow>
+        key={key}
         tableKey="pf-demand"
         lockedColumns={["Деталь"]}
         size="small"
         rowKey="part_id"
         loading={demandQuery.isLoading}
-        dataSource={rows}
-        pagination={{ pageSize: 50 }}
+        dataSource={sectionRows}
+        pagination={{ pageSize: 50, hideOnSinglePage: true }}
         scroll={{ x: "max-content" }}
         locale={{ emptyText: onlyShortage ? "Нехватки нет" : "Нет деталей с минимальным остатком или потребностью" }}
         expandable={{
@@ -200,7 +220,12 @@ export default function PfDemand() {
           canManage
             ? {
                 selectedRowKeys: selected,
-                onChange: (keys) => setSelected(keys as number[]),
+                // В секции — только её строки: отметки других групп не сбрасываются.
+                onChange: (keys) =>
+                  setSelected((prev) => [
+                    ...prev.filter((id) => !sectionRows.some((r) => r.part_id === id)),
+                    ...(keys as number[]),
+                  ]),
                 getCheckboxProps: (r) => ({ disabled: !r.first_stage_area }),
               }
             : undefined
@@ -275,6 +300,8 @@ export default function PfDemand() {
               ),
           },
         ]}
+      />
+        )}
       />
 
       <Card title="Плёнка под ламинацию панелей заказанных дверей" size="small">

@@ -13,6 +13,8 @@ import PartSelect from "../../../components/PartSelect";
 import type { Part } from "../../../api/dictionaries";
 import PfReserveCell from "../../../components/PfReserveCell";
 import { usePfReserves } from "../../../components/usePfReserves";
+import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
+import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
 
 interface PartStockGroup {
   partId: number;
@@ -55,6 +57,9 @@ export default function PartStock() {
   // выдано, а сколько просто лежит. Явный фильтр по статусу — тот же
   // переключатель, что уже есть в карточке детали (PartCard.tsx).
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  // Направление / группа / стадия из номенклатуры и разбивка по группам.
+  const [pf, setPf] = usePfFilter();
+  const { byPart: pfAttrs, groups: itemGroups } = usePfIndex();
 
   const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
   const reserves = usePfReserves();
@@ -97,11 +102,18 @@ export default function PartStock() {
     return result.sort((a, b) => a.partName.localeCompare(b.partName, "ru"));
   }, [unitsQuery.data, showEmpty, statusFilter]);
 
-  const filtered = groups.filter((g) => {
-    if (search.trim() && !g.partName.toLowerCase().includes(search.trim().toLowerCase())) return false;
-    if (areaFilter && !g.byArea.some((a) => a.area === areaFilter)) return false;
-    return true;
-  });
+  const filtered = filterPf(
+    groups.filter((g) => {
+      if (search.trim() && !g.partName.toLowerCase().includes(search.trim().toLowerCase())) return false;
+      if (areaFilter && !g.byArea.some((a) => a.area === areaFilter)) return false;
+      return true;
+    }),
+    (g) => g.partId,
+    pf,
+    pfAttrs,
+    itemGroups,
+  );
+  const sections = sectionsPf(filtered, (g) => g.partId, pf, pfAttrs, itemGroups);
 
   const totalAvailable = filtered.reduce((sum, g) => sum + g.available, 0);
 
@@ -178,26 +190,32 @@ export default function PartStock() {
         <Checkbox checked={showEmpty} onChange={(e) => setShowEmpty(e.target.checked)}>
           Показывать без остатка
         </Checkbox>
+        <PfFilterBar value={pf} onChange={setPf} groups={itemGroups} />
       </Space>
 
+      <PfSections
+        sections={sections}
+        total={(rows) => `${Math.round(rows.reduce((s, g) => s + g.available, 0))} шт`}
+        render={(rows, key) => (
       <ResponsiveTable<PartStockGroup>
+        key={key}
         tableKey="part-stock"
         lockedColumns={["Деталь"]}
         size="small"
         tableLayout="fixed"
         rowKey="partId"
         loading={unitsQuery.isLoading}
-        dataSource={filtered}
-        pagination={{ pageSize: 30 }}
+        dataSource={rows}
+        pagination={{ pageSize: 30, hideOnSinglePage: true }}
         scroll={{ x: "max-content" }}
         onRow={(g) => ({ onClick: () => navigate("/part-card", { state: { partId: g.partId } }), style: { cursor: "pointer" } })}
         summary={() => (
           <Table.Summary.Row>
             <Table.Summary.Cell index={0}>
-              <Typography.Text strong>Итого позиций: {filtered.length}</Typography.Text>
+              <Typography.Text strong>Итого позиций: {rows.length}</Typography.Text>
             </Table.Summary.Cell>
             <Table.Summary.Cell index={1}>
-              <Typography.Text strong>{Math.round(totalAvailable)} шт</Typography.Text>
+              <Typography.Text strong>{Math.round(rows.reduce((s, g) => s + g.available, 0))} шт</Typography.Text>
             </Table.Summary.Cell>
             <Table.Summary.Cell index={2} colSpan={4} />
           </Table.Summary.Row>
@@ -250,6 +268,13 @@ export default function PartStock() {
           },
         ]}
       />
+        )}
+      />
+      {sections.length > 1 && (
+        <Typography.Text strong style={{ display: "block", marginTop: 12 }}>
+          Всего: {filtered.length} поз., {Math.round(totalAvailable)} шт
+        </Typography.Text>
+      )}
 
       {registerOpen && <RegisterPartUnitModal onClose={() => setRegisterOpen(false)} />}
     </Card>

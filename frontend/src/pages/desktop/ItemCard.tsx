@@ -11,6 +11,8 @@ import { ORDER_STATUS_LABEL, listProductionOrders, type ProductionOrder } from "
 import TechCardView from "./nomenclature/TechCardView";
 import ModelVariants from "./nomenclature/ModelVariants";
 import LaminatedBar from "./nomenclature/LaminatedBar";
+import PartParamsModal from "./nomenclature/PartParamsModal";
+import { listAllParts } from "../../api/dictionaries";
 import { useTabTitle } from "../../layout/tabTitle";
 import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
 import PartCard from "./production/PartCard";
@@ -54,6 +56,16 @@ export default function ItemCard() {
     enabled: isModel && !!sampleVariant && params.get("tab") === "scheme",
   });
   const variantIds = new Set((summaryQuery.data?.variants ?? []).map((v) => v.item_id));
+  // Параметры детали п/ф (бывшая вкладка «Детали п/ф»): размеры, штрипс,
+  // участок, закреплённая плёнка, мин. остаток и партия, архив.
+  const canEditPart = has("production_tasks.manage");
+  const [paramsOpen, setParamsOpen] = useState(false);
+  const partsQuery = useQuery({
+    queryKey: ["parts", "all"],
+    queryFn: listAllParts,
+    enabled: canEditPart && card?.source_type === "part",
+  });
+  const part = card?.source_type === "part" ? (partsQuery.data ?? []).find((p) => p.id === card.source_id) ?? null : null;
   useTabTitle(card?.name);
 
   if (cardQuery.isLoading) return <Spin style={{ display: "block", margin: 48 }} />;
@@ -124,7 +136,13 @@ export default function ItemCard() {
             {card.type_name && <Tag color="purple">{card.type_name}</Tag>}
             {card.is_model && <Tag color="gold">модель</Tag>}
             {!card.is_active && <Tag>архив</Tag>}
+            {canEditPart && part && (
+              <Button size="small" onClick={() => setParamsOpen(true)}>
+                Параметры детали
+              </Button>
+            )}
           </Space>
+          {paramsOpen && part && <PartParamsModal part={part} onClose={() => setParamsOpen(false)} />}
           {card.kind_code === "pf" && !card.is_model && (
             <LaminatedBar itemId={itemId} canManage={has("production_tasks.manage") || has("materials.manage")} />
           )}

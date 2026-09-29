@@ -8,7 +8,8 @@ import ResponsiveTable from "../../components/ResponsiveTable";
 import TypesTab from "./nomenclature/TypesTab";
 import GroupsModal from "./nomenclature/GroupsModal";
 import NewModelWizard from "./nomenclature/NewModelWizard";
-import PartsAdmin from "./PartsAdmin";
+import PartParamsModal from "./nomenclature/PartParamsModal";
+import { BulkStagesModal, PartDuplicatesModal } from "./nomenclature/PartBulkModals";
 import ProductModels from "./ProductModels";
 import { useAuth } from "../../auth/AuthContext";
 import { listParts } from "../../api/dictionaries";
@@ -52,7 +53,6 @@ export default function Nomenclature() {
     { key: "types", label: "Типы и правила", children: <TypesTab /> },
     ...(canConfigure
       ? [
-          { key: "parts", label: "Детали п/ф", children: <PartsAdmin /> },
           { key: "models", label: "Модели продукции (BOM)", children: <ProductModels /> },
         ]
       : []),
@@ -69,7 +69,12 @@ function ItemsTab() {
   const { user } = useAuth();
   const canGroup = !!user?.is_superuser || !!user?.permissions.some((c) => c === "production_tasks.manage" || c === "materials.manage");
   const qc = useQueryClient();
-  const [kind, setKind] = useState<string>("all");
+  // ?kind=pf — старый адрес /parts (бывшая вкладка «Детали п/ф») ведёт сюда.
+  const [urlParams] = useSearchParams();
+  const [kind, setKind] = useState<string>(urlParams.get("kind") ?? "all");
+  const [newPartOpen, setNewPartOpen] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
+  const [bulkStagesOpen, setBulkStagesOpen] = useState(false);
   const [q, setQ] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
   const [group, setGroup] = useState<number | undefined>();
@@ -209,6 +214,8 @@ function ItemsTab() {
               + Новая модель
             </Button>
           )}
+          {canGroup && kind === "pf" && <Button onClick={() => setNewPartOpen(true)}>+ Новая деталь</Button>}
+          {canGroup && kind === "pf" && <Button onClick={() => setDupOpen(true)}>Дубликаты…</Button>}
         </Space>
         {canGroup && selectedIds.length > 0 && (
           <Space wrap style={{ marginTop: 12 }}>
@@ -226,6 +233,7 @@ function ItemsTab() {
             </Button>
             <Button onClick={() => moveMutation.mutate(null)}>Убрать из группы</Button>
             {(kind === "pf" || kind === "izdelie") && <Button onClick={() => setAttrsOpen(true)}>Признаки…</Button>}
+            {kind === "pf" && <Button onClick={() => setBulkStagesOpen(true)}>Этапы…</Button>}
             {kind === "pf" && (
               <Space.Compact>
                 <Button disabled title="Если декор ПЭТ — какой клеить на выбранные детали">
@@ -246,6 +254,19 @@ function ItemsTab() {
         )}
       </Card>
       {wizardOpen && <NewModelWizard onClose={() => setWizardOpen(false)} />}
+      {newPartOpen && <PartParamsModal part={null} onClose={() => setNewPartOpen(false)} />}
+      {dupOpen && <PartDuplicatesModal onClose={() => setDupOpen(false)} />}
+      {bulkStagesOpen && (
+        <BulkStagesModal
+          partIds={(itemsQuery.data ?? [])
+            .filter((i) => selectedIds.includes(i.id) && i.source_type === "part" && i.source_id != null)
+            .map((i) => i.source_id as number)}
+          onClose={(done) => {
+            setBulkStagesOpen(false);
+            if (done) setSelectedIds([]);
+          }}
+        />
+      )}
       {attrsOpen && (
         <AttrsModal
           itemIds={selectedIds}
