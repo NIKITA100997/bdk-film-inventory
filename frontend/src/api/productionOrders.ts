@@ -175,6 +175,17 @@ export interface OrderReadiness {
   quantity: number;
   done: number;
   lines: { item_name: string; quantity: number; done: number }[];
+  /** Этапы заказа: операции изделия, «П/ф» одной колонкой. */
+  stages: ReadinessStage[];
+}
+
+export interface ReadinessStage {
+  name: string;
+  seq: number;
+  plan: number;
+  done: number;
+  plan_date: string | null;
+  status: "done" | "progress" | "planned" | "overdue" | "none";
 }
 
 export const getOrdersReadiness = async (includeClosed = false): Promise<OrderReadiness[]> =>

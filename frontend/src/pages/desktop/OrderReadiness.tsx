@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { Card, Checkbox, Input, Progress, Space, Table, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { getOrdersReadiness, type OrderReadiness } from "../../api/productionOrders";
+import { getOrdersReadiness, type OrderReadiness, type ReadinessStage } from "../../api/productionOrders";
 
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
@@ -24,14 +24,21 @@ export default function OrderReadiness() {
     );
   }, [query.data, q, onlyRisk]);
   const risky = (query.data ?? []).filter((o) => o.plan_late || o.plan_overdue > 0).length;
+  // Колонки этапов — общие для показанных заказов, по порядку маршрута.
+  const stageCols = useMemo(() => {
+    const seq = new Map<string, number>();
+    for (const o of rows) for (const st of o.stages) seq.set(st.name, Math.min(seq.get(st.name) ?? Infinity, st.seq));
+    return [...seq.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0], "ru")).map(([name]) => name);
+  }, [rows]);
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Card title="Готовность заказов">
         <Space direction="vertical" size={8} style={{ width: "100%" }}>
           <Typography.Text type="secondary">
-            Для каждого заказа в производстве: дата отгрузки, когда будет готово по плану цеха, успевает ли и сколько уже
-            сделано. Раскройте строку — готовность по позициям.
+            Заказ — строка, этапы — колонки: готово, в работе (сколько из скольких и до какого дня), запланировано на
+            день или просрочено. Справа — когда заказ будет готов по плану и успевает ли к отгрузке. Раскройте строку —
+            готовность по позициям.
           </Typography.Text>
           <Space wrap>
             <Input.Search allowClear placeholder="Заказ, № или позиция" style={{ width: 300 }} value={q} onChange={(e) => setQ(e.target.value)} />
@@ -74,12 +81,16 @@ export default function OrderReadiness() {
           ),
         }}
         columns={[
-          { title: "Заказ", render: (_, o) => `№${o.id} «${o.name}»` },
+          { title: "Заказ", fixed: "left", render: (_, o) => `№${o.id} «${o.name}»` },
           {
             title: "Отгрузка",
             sorter: (a, b) => (a.ship_date ?? "9").localeCompare(b.ship_date ?? "9"),
             render: (_, o) => (o.ship_date ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—"),
           },
+          ...stageCols.map((name) => ({
+            title: name,
+            render: (_: unknown, o: OrderReadiness) => <StageCell stage={o.stages.find((s) => s.name === name)} />,
+          })),
           {
             title: "Готово по плану",
             render: (_, o) =>
@@ -109,4 +120,27 @@ export default function OrderReadiness() {
       />
     </Space>
   );
+}
+
+/** Статус этапа: готово / в работе N из M до дня / на день / просрочено. */
+function StageCell({ stage }: { stage: ReadinessStage | undefined }) {
+  if (!stage) return <Typography.Text type="secondary">—</Typography.Text>;
+  const d = stage.plan_date ? dayjs(stage.plan_date).format("DD.MM") : null;
+  const part = `${fmt(stage.done)}/${fmt(stage.plan)}`;
+  if (stage.status === "done") return <Tag color="green">✓ готово</Tag>;
+  if (stage.status === "overdue")
+    return (
+      <Tag color="red">
+        просрочено{d ? ` · ${d}` : ""} · {part}
+      </Tag>
+    );
+  if (stage.status === "progress")
+    return (
+      <Tag color="blue">
+        {part}
+        {d ? ` · до ${d}` : ""}
+      </Tag>
+    );
+  if (stage.status === "planned") return <Tag>{d ?? "в плане"}</Tag>;
+  return <Typography.Text type="secondary">без плана</Typography.Text>;
 }

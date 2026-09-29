@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
+from app.models.dictionaries import PartStage
 from app.models.items import Item, ItemComponent, ItemKind
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.production_orders import ORDER_CLOSED, ORDER_DRAFT, ProductionOrder, ProductionOrderLine
@@ -282,6 +283,15 @@ class ReadinessLineOut(BaseModel):
     done: float
 
 
+class ReadinessStageOut(BaseModel):
+    name: str
+    seq: float  # порядок колонки
+    plan: float
+    done: float
+    plan_date: date | None  # последний день плана этапа
+    status: str  # done | progress | planned | overdue | none
+
+
 class ReadinessOut(BaseModel):
     id: int
     name: str
@@ -294,6 +304,74 @@ class ReadinessOut(BaseModel):
     quantity: float
     done: float
     lines: list[ReadinessLineOut]
+    stages: list[ReadinessStageOut] = []
+
+
+PF_STAGE = "П/ф"
+
+
+def _readiness_stages(db: Session, order: ProductionOrder) -> list[ReadinessStageOut]:
+    """Этапы заказа для продажника: операции изделия (по названию, в порядке
+    маршрута), п/ф — одной колонкой; у заказа из заданий — по участкам."""
+    from collections import defaultdict as _dd
+    from datetime import date as _date
+
+    tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).all()
+    lines = [(ln, t) for t in tasks for ln in t.lines]
+    if not lines:
+        return []
+    area_names = {a.code: a.name for a in db.query(Area)}
+    stage_of = {
+        st.id: st for st in db.query(PartStage).filter(PartStage.id.in_({ln.part_stage_id for ln, _ in lines if ln.part_stage_id}))
+    }
+    good = {
+        lid: float(g)
+        for lid, g in db.query(ProductionTaskLineReport.task_line_id, func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
+        .filter(ProductionTaskLineReport.task_line_id.in_([ln.id for ln, _ in lines]), ProductionTaskLineReport.counts_toward_line.is_(True))
+        .group_by(ProductionTaskLineReport.task_line_id)
+    }
+    last_slot: dict[int, _date] = {}
+    for sl in db.query(PlanSlot).filter(PlanSlot.task_line_id.in_([ln.id for ln, _ in lines])):
+        last_slot[sl.task_line_id] = max(last_slot.get(sl.task_line_id, sl.date), sl.date)
+    acc: dict[str, dict] = _dd(lambda: {"seq": 0.0, "plan": 0.0, "done": 0.0, "date": None, "overdue": False})
+    today = _date.today()
+    for ln, t in lines:
+        st = stage_of.get(ln.part_stage_id) if ln.part_stage_id else None
+        if st is not None and st.part_id is not None:
+            key, seq = PF_STAGE, -1.0  # п/ф — перед операциями изделия
+        elif st is not None:
+            key, seq = st.name, float(st.sequence_order)
+        else:
+            key, seq = area_names.get(t.area, t.area), 100.0
+        a = acc[key]
+        a["seq"] = seq
+        plan = float(ln.quantity_pieces)
+        done = min(good.get(ln.id, 0.0), plan)
+        a["plan"] += plan
+        a["done"] += done
+        d = last_slot.get(ln.id)
+        if d is not None:
+            a["date"] = max(a["date"], d) if a["date"] else d
+            if d < today and done < plan:
+                a["overdue"] = True
+    out = []
+    for name, a in acc.items():
+        if a["plan"] > 0 and a["done"] >= a["plan"]:
+            st_ = "done"
+        elif a["overdue"]:
+            st_ = "overdue"
+        elif a["done"] > 0:
+            st_ = "progress"
+        elif a["date"]:
+            st_ = "planned"
+        else:
+            st_ = "none"
+        out.append(
+            ReadinessStageOut(
+                name=name, seq=a["seq"], plan=round(a["plan"], 2), done=round(a["done"], 2), plan_date=a["date"], status=st_
+            )
+        )
+    return sorted(out, key=lambda x: (x.seq, x.name))
 
 
 @router.get("/production-orders/readiness", response_model=list[ReadinessOut])
@@ -317,6 +395,7 @@ def orders_readiness(
                 id=order.id, name=order.name, status=order.status, ship_date=order.ship_date,
                 plan_finish=full.plan_finish, plan_late=full.plan_late, plan_overdue=full.plan_overdue, planned=full.planned,
                 quantity=round(sum(ln.quantity for ln in lines), 2), done=round(sum(ln.done for ln in lines), 2), lines=lines,
+                stages=_readiness_stages(db, order),
             )
         )
     return out
