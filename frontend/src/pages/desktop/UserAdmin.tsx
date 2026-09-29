@@ -9,6 +9,7 @@ import {
   createUser,
   updateUser,
   resetUserPassword,
+  setUserPassword,
   type UserCreatePayload,
   type UserUpdatePayload,
 } from "../../api/users";
@@ -16,6 +17,7 @@ import type { UserSummary } from "../../api/users";
 import { listRoles, createRole } from "../../api/roles";
 import { listAreas } from "../../api/areas";
 import type { Area } from "../../auth/types";
+import { useAuth } from "../../auth/AuthContext";
 
 type UserFormValues = {
   full_name: string;
@@ -85,6 +87,22 @@ export default function UserAdmin() {
       setTempPassword({ username: target?.username ?? "", password: result.temporary_password });
     },
     onError: () => message.error("Не удалось сбросить пароль"),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["users", "all"] }),
+  });
+
+  // «Задать пароль» — администратор вводит пароль сам.
+  const [pwTarget, setPwTarget] = useState<UserSummary | null>(null);
+  const [pwForm] = Form.useForm<{ password: string; must_change: boolean }>();
+  const { user: currentUser } = useAuth();
+  const setPasswordMutation = useMutation({
+    mutationFn: (v: { id: number; password: string; mustChange: boolean }) => setUserPassword(v.id, v.password, v.mustChange),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["users", "all"] });
+      message.success(`Пароль для ${pwTarget?.username ?? ""} задан`);
+      setPwTarget(null);
+    },
+    onError: (e: { response?: { data?: { detail?: string } } }) =>
+      message.error(e.response?.data?.detail ?? "Не удалось задать пароль"),
   });
 
   // "+ Создать роль" прямо из формы пользователя (раздел разбора — раньше
@@ -221,6 +239,15 @@ export default function UserAdmin() {
                 </Popconfirm>
                 <Button
                   size="small"
+                  onClick={() => {
+                    setPwTarget(u);
+                    pwForm.setFieldsValue({ password: "", must_change: true });
+                  }}
+                >
+                  Задать пароль
+                </Button>
+                <Button
+                  size="small"
                   danger={u.is_active}
                   onClick={() => updateMutation.mutate({ id: u.id, payload: { is_active: !u.is_active } })}
                 >
@@ -231,6 +258,40 @@ export default function UserAdmin() {
           },
         ]}
       />
+
+      <Modal
+        title={pwTarget ? `Задать пароль — ${pwTarget.full_name} (${pwTarget.username})` : ""}
+        open={!!pwTarget}
+        okText="Задать"
+        cancelText="Отмена"
+        confirmLoading={setPasswordMutation.isPending}
+        onOk={() => pwForm.submit()}
+        onCancel={() => setPwTarget(null)}
+        destroyOnHidden
+      >
+        <Form
+          form={pwForm}
+          layout="vertical"
+          initialValues={{ must_change: true }}
+          onFinish={(v) => pwTarget && setPasswordMutation.mutate({ id: pwTarget.id, password: v.password, mustChange: v.must_change })}
+        >
+          <Form.Item
+            name="password"
+            label="Новый пароль"
+            rules={[
+              { required: true, message: "Введите пароль" },
+              { min: 6, message: "Не короче 6 символов" },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" autoFocus />
+          </Form.Item>
+          {pwTarget?.id !== currentUser?.id && (
+            <Form.Item name="must_change" valuePropName="checked" style={{ marginBottom: 0 }}>
+              <Checkbox>Попросить сменить при первом входе</Checkbox>
+            </Form.Item>
+          )}
+        </Form>
+      </Modal>
 
       <Modal title="Новый пользователь" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
         <Form

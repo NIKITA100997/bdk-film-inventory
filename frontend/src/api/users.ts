@@ -56,6 +56,11 @@ export async function updateUser(id: number, payload: UserUpdatePayload): Promis
   return data;
 }
 
+/** Администратор задаёт пароль сам; mustChange — сменить при первом входе. */
+export async function setUserPassword(id: number, password: string, mustChange: boolean): Promise<void> {
+  await apiClient.post(`/users/${id}/set-password`, { password, must_change: mustChange });
+}
+
 export async function resetUserPassword(id: number): Promise<{ temporary_password: string }> {
   const { data } = await apiClient.post<{ temporary_password: string }>(`/users/${id}/reset-password`);
   return data;

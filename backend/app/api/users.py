@@ -2,8 +2,10 @@ import secrets
 import string
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
+from app.api.auth import MIN_PASSWORD_LEN
 from app.core.security import hash_password, require_permission
 from app.db.session import get_db
 from app.models.roles import Role
@@ -125,3 +127,25 @@ def reset_password(
     target.password_reset_requested_at = None
     db.commit()
     return ResetPasswordResult(temporary_password=temp_password)
+
+
+class SetPasswordIn(BaseModel):
+    password: str
+    must_change: bool = True  # попросить сменить при первом входе
+
+
+@router.post("/{user_id}/set-password", status_code=status.HTTP_204_NO_CONTENT)
+def set_password(
+    user_id: int, payload: SetPasswordIn, db: Session = Depends(get_db), user: User = Depends(manage_users)
+) -> None:
+    """Администратор задаёт пароль сам (а не случайный временный)."""
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Пользователь не найден")
+    if len(payload.password) < MIN_PASSWORD_LEN:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Пароль — не короче {MIN_PASSWORD_LEN} символов")
+    target.password_hash = hash_password(payload.password)
+    # Свой собственный пароль менять при входе незачем.
+    target.must_change_password = payload.must_change and target.id != user.id
+    target.password_reset_requested_at = None
+    db.commit()
