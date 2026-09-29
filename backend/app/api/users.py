@@ -67,6 +67,8 @@ def create_user(
         is_superuser=payload.is_superuser,
         area=resolved_area,
         is_active=True,
+        # Временный пароль, выданный системой, — при первом входе свой.
+        must_change_password=payload.password is None,
     )
     db.add(new_user)
     db.commit()
@@ -119,5 +121,7 @@ def reset_password(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Пользователь не найден")
     temp_password = _generate_temp_password()
     target.password_hash = hash_password(temp_password)
+    target.must_change_password = True
+    target.password_reset_requested_at = None
     db.commit()
     return ResetPasswordResult(temporary_password=temp_password)

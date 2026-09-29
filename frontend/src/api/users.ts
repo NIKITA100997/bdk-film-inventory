@@ -9,6 +9,9 @@ export interface UserSummary {
   is_superuser: boolean;
   area: Area | null;
   is_active: boolean;
+  must_change_password?: boolean;
+  /** «Забыл пароль» на экране входа — ждёт сброса администратором. */
+  password_reset_requested_at?: string | null;
 }
 
 export async function listUsers(): Promise<UserSummary[]> {

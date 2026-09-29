@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Card, Tag, Button, Modal, Form, Input, Select, Checkbox, Space, Popconfirm, Typography, message } from "antd";
+import dayjs from "dayjs";
+import { Alert, Card, Tag, Button, Modal, Form, Input, Select, Checkbox, Space, Popconfirm, Typography, message } from "antd";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -125,6 +126,7 @@ export default function UserAdmin() {
   const filtered = (usersQuery.data ?? [])
     .filter((u) => !roleFilter || u.roles.some((r) => r.id === roleFilter))
     .filter((u) => showDisabled || u.is_active);
+  const resetRequests = (usersQuery.data ?? []).filter((u) => u.password_reset_requested_at);
 
   return (
     <Card>
@@ -135,6 +137,15 @@ export default function UserAdmin() {
         <Link to="/roles">Роли и права →</Link>
       </Space>
       <div style={{ marginBottom: 12 }} />
+      {resetRequests.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`Просят сбросить пароль: ${resetRequests.map((u) => `${u.full_name} (${u.username})`).join(", ")}`}
+          description="Убедитесь, что просит сам сотрудник, нажмите «Сбросить пароль» в его строке и передайте временный пароль лично. При входе он задаст свой."
+        />
+      )}
       <Space style={{ marginBottom: 16 }} wrap>
         <Select
           allowClear
@@ -177,7 +188,15 @@ export default function UserAdmin() {
           { title: "Участок", render: (_, u) => (u.area ? areaLabel(u.area) : "—") },
           {
             title: "Статус",
-            render: (_, u) => (u.is_active ? <Tag color="green">Активен</Tag> : <Tag>Отключён</Tag>),
+            render: (_, u) => (
+              <Space size={4} wrap>
+                {u.is_active ? <Tag color="green">Активен</Tag> : <Tag>Отключён</Tag>}
+                {u.password_reset_requested_at && (
+                  <Tag color="orange">просит сброс с {dayjs(u.password_reset_requested_at).format("DD.MM HH:mm")}</Tag>
+                )}
+                {u.must_change_password && !u.password_reset_requested_at && <Tag>временный пароль</Tag>}
+              </Space>
+            ),
           },
           {
             title: "",

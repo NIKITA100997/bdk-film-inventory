@@ -1,8 +1,11 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.security import create_access_token, get_current_user, get_permission_codes, verify_password
+from app.core.security import create_access_token, get_current_user, get_permission_codes, hash_password, verify_password
 from app.db.session import get_db
 from app.models.roles import Permission
 from app.models.users import User
@@ -39,6 +42,62 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     return Token(access_token=create_access_token(subject=user.username))
 
 
+MIN_PASSWORD_LEN = 6
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: ChangePasswordIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> None:
+    """Смена своего пароля. Неверный текущий — 400, не 401: на 401 фронт
+    выкидывает на вход. Попытки считаются тем же ограничителем, что и вход."""
+    key = f"user:{user.username}"
+    wait = seconds_until_unlocked(key)
+    if wait is not None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Слишком много неудачных попыток — попробуйте через {int(wait // 60) + 1} мин.",
+        )
+    if not verify_password(payload.current_password, user.password_hash):
+        register_failure(key)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Текущий пароль указан неверно")
+    new = payload.new_password
+    if len(new) < MIN_PASSWORD_LEN:
+        raise HTTPException(status_code=400, detail=f"Новый пароль — не короче {MIN_PASSWORD_LEN} символов")
+    if new == payload.current_password:
+        raise HTTPException(status_code=400, detail="Новый пароль совпадает с текущим")
+    register_success(key)
+    user.password_hash = hash_password(new)
+    user.must_change_password = False
+    user.password_reset_requested_at = None
+    db.commit()
+
+
+class ForgotPasswordIn(BaseModel):
+    username: str
+
+
+@router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
+def forgot_password(payload: ForgotPasswordIn, request: Request, db: Session = Depends(get_db)) -> None:
+    """«Забыл пароль» — заявка администратору (писем система не шлёт).
+    Ответ один и тот же, есть такой логин или нет — чтобы по нему нельзя
+    было перебирать логины; частота ограничена по IP."""
+    ip = request.client.host if request.client else "unknown"
+    key = f"forgot:{ip}"
+    if seconds_until_unlocked(key) is not None:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Слишком много заявок — попробуйте позже")
+    register_failure(key)  # каждая заявка — «попытка»: не больше нескольких подряд
+    user = db.query(User).filter(User.username == payload.username.strip()).first()
+    if user is not None and user.is_active:
+        user.password_reset_requested_at = datetime.now(timezone.utc)
+        db.commit()
+
+
 @router.get("/me", response_model=CurrentUserOut)
 def me(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> CurrentUserOut:
     """Эффективные права (8.3 раздел бэклога доработок) — суперпользователь
@@ -58,6 +117,7 @@ def me(db: Session = Depends(get_db), user: User = Depends(get_current_user)) ->
         permissions=permissions,
         area=user.area,
         is_active=user.is_active,
+        must_change_password=user.must_change_password,
     )
 
 

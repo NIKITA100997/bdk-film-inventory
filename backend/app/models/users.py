@@ -1,6 +1,7 @@
 import enum
+from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -44,3 +45,8 @@ class User(Base):
     # раскрою на цельнолистовых, см. 2.4/6.4 ТЗ).
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # После сброса администратором (временный пароль) — при входе сразу
+    # просим задать свой; снимается сменой пароля.
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # «Забыл пароль» на экране входа — заявка администратору; снимается сбросом.
+    password_reset_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

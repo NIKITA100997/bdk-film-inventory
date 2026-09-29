@@ -32,4 +32,6 @@ export interface CurrentUser {
   permissions: string[];
   area: Area | null;
   is_active: boolean;
+  /** После сброса пароля — при входе сразу задать свой. */
+  must_change_password?: boolean;
 }

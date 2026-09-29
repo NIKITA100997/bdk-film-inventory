@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict
 
 from app.schemas.roles import RoleOut
@@ -13,6 +15,8 @@ class UserOut(BaseModel):
     is_superuser: bool
     area: str | None
     is_active: bool
+    must_change_password: bool = False
+    password_reset_requested_at: datetime | None = None
 
 
 class Token(BaseModel):
@@ -36,6 +40,7 @@ class CurrentUserOut(BaseModel):
     permissions: list[str]
     area: str | None
     is_active: bool
+    must_change_password: bool = False
 
 
 class UserCreate(BaseModel):

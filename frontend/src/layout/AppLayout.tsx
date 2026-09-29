@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch } from "antd";
 import type { MenuProps } from "antd";
-import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined, QuestionCircleOutlined } from "@ant-design/icons";
+import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined, QuestionCircleOutlined, KeyOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { navTree, isNavItemVisible, type NavItem } from "./navConfig";
@@ -13,6 +13,7 @@ import OfflineBanner from "../components/OfflineBanner";
 import NotificationBell from "../components/NotificationBell";
 import PhoneTabBar from "./PhoneTabBar";
 import WorkspaceTabs from "./WorkspaceTabs";
+import ChangePasswordModal from "../components/ChangePasswordModal";
 
 const { Header, Content } = Layout;
 
@@ -29,6 +30,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   // тапу на лупу и сворачивается обратно.
   const [searchOpen, setSearchOpen] = useState(false);
   const [verticalPrint, setVerticalPrintState] = useState(isVerticalPrint());
+  const [passwordOpen, setPasswordOpen] = useState(false);
   // Раздел про телефонную версию — единственная уже используемая в
   // проекте конвенция "мобильный/десктоп" (ResponsiveTable.tsx). !sm —
   // именно телефон (<576px), не портретный планшет — тот должен остаться
@@ -121,6 +123,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
       ),
     },
     { type: "divider" },
+    { key: "password", label: "Сменить пароль", icon: <KeyOutlined />, onClick: () => setPasswordOpen(true) },
     {
       key: "logout",
       label: "Выйти",
@@ -263,6 +266,9 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
           прижимается к низу без position:fixed и без компенсирующих
           отступов у Content. */}
       {isPhone && <PhoneTabBar onManualSearchRequest={() => setSearchOpen(true)} />}
+      <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
+      {/* После сброса администратором — сразу задать свой, окно не закрыть. */}
+      <ChangePasswordModal open={!!user.must_change_password} onClose={() => undefined} forced />
     </Layout>
   );
 }
