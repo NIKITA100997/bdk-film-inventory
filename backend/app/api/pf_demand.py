@@ -215,8 +215,9 @@ def create_pf_tasks(
     task_ids = []
     tasks: list[ProductionTask] = []
     for area, items in by_area.items():
-        ship = f", отгрузка {payload.ship_date.strftime('%d.%m.%Y')}" if payload.ship_date else ""
-        name = f"Производство п/ф от {today}{ship}"
+        # Без задания-получателя это пополнение склада — срок «готово к».
+        ship = f", готово к {payload.ship_date.strftime('%d.%m.%Y')}" if payload.ship_date else ""
+        name = f"П/ф на склад от {today}{ship}"
         if for_task is not None:
             label = for_task.name or (for_task.product_model.name if for_task.product_model else "")
             name = f"П/ф под задание №{for_task.id} «{label}»"[:255]
@@ -242,6 +243,8 @@ def create_pf_tasks(
         attach_tasks_to_order(
             db, tasks, name=order_name, user_id=user.id, order_id=order_id,
             ship_date=payload.ship_date or (db.get(ProductionOrder, order_id).ship_date if order_id else None),
+            # Не под чужое задание — пополнение остатка: заказ «на склад».
+            kind="stock" if order_id is None else "customer",
         )
     except OrderError as e:
         if order_id is None:

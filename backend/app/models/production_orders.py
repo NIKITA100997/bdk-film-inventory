@@ -8,6 +8,10 @@ from app.db.base import Base
 ORDER_DRAFT = "draft"
 ORDER_RELEASED = "released"
 ORDER_CLOSED = "closed"
+# Вид заказа: клиенту (срок — отгрузка) или на склад — пополнение остатка
+# без клиента (срок — «готово к»), продажникам в «Готовности» не показывается.
+ORDER_KIND_CUSTOMER = "customer"
+ORDER_KIND_STOCK = "stock"
 
 
 class ProductionOrder(Base):
@@ -26,6 +30,7 @@ class ProductionOrder(Base):
     ship_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default=ORDER_DRAFT)
+    kind: Mapped[str] = mapped_column(String(16), default=ORDER_KIND_CUSTOMER, server_default=ORDER_KIND_CUSTOMER)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

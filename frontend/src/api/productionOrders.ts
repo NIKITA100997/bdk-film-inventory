@@ -50,6 +50,8 @@ export interface ProductionOrder {
   ship_date: string | null;
   note: string | null;
   status: OrderStatus;
+  /** Клиенту (срок — отгрузка) или на склад (пополнение остатка, срок — «готово к»). */
+  kind?: OrderKind;
   created_by_name: string;
   created_at: string;
   released_at: string | null;
@@ -114,10 +116,13 @@ export interface OrderTask {
   plan_to?: string | null;
 }
 
+export type OrderKind = "customer" | "stock";
+
 export interface OrderInput {
   name: string;
   ship_date: string | null;
   note: string | null;
+  kind?: OrderKind;
   lines: { item_id: number; quantity: number; note: string | null }[];
 }
 

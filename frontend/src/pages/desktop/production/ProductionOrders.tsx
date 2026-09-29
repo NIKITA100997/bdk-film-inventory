@@ -16,6 +16,7 @@ import {
   Modal,
   Popconfirm,
   Progress,
+  Segmented,
   Select,
   Space,
   Table,
@@ -41,6 +42,7 @@ import {
   listProductionOrders,
   rescheduleOrder,
   updateProductionOrder,
+  type OrderKind,
   type OrderInput,
   type OrderStatus,
   type OrderTask,
@@ -148,7 +150,7 @@ export default function ProductionOrders() {
             render: (_, o) => (
               <Space direction="vertical" size={0}>
                 <span>
-                  №{o.id} «{o.name}»
+                  №{o.id} «{o.name}» {o.kind === "stock" && <Tag color="green">на склад</Tag>}
                 </span>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {o.lines.length > 0 ? (
@@ -164,7 +166,10 @@ export default function ProductionOrders() {
             ),
           },
           { title: "Статус", render: (_, o) => <Tag color={STATUS_COLOR[o.status]}>{ORDER_STATUS_LABEL[o.status]}</Tag> },
-          { title: "Отгрузка", render: (_, o) => (o.ship_date ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—") },
+          {
+            title: "Отгрузка / готово к",
+            render: (_, o) => (o.ship_date ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—"),
+          },
           { title: "Срок по плану", render: (_, o) => <PlanTag order={o} /> },
           {
             title: "Готово",
@@ -520,6 +525,7 @@ function OrderModal({
   const [name, setName] = useState(order?.name ?? "");
   const [shipDate, setShipDate] = useState<Dayjs | null>(order?.ship_date ? dayjs(order.ship_date) : null);
   const [note, setNote] = useState(order?.note ?? "");
+  const [kind, setKind] = useState<OrderKind>(order?.kind ?? "customer");
   const [lines, setLines] = useState<LineDraft[]>(
     order ? order.lines.map((l) => ({ item_id: l.item_id, quantity: l.quantity, note: l.note ?? "" })) : [{ item_id: null, quantity: null, note: "" }],
   );
@@ -549,6 +555,7 @@ function OrderModal({
         name: name.trim(),
         ship_date: shipDate ? shipDate.format("YYYY-MM-DD") : null,
         note: note.trim() || null,
+        kind,
         lines: lines.map((l) => ({ item_id: l.item_id as number, quantity: l.quantity as number, note: l.note.trim() || null })),
       };
       return order ? updateProductionOrder(order.id, payload) : createProductionOrder(payload);
@@ -579,7 +586,21 @@ function OrderModal({
           <Form.Item label="Название" required style={{ width: 360 }}>
             <Input value={name} placeholder="Например: Запуск 16.09" onChange={(e) => setName(e.target.value)} />
           </Form.Item>
-          <Form.Item label="Отгрузка" required extra="От неё считаются сроки операций">
+          <Form.Item label="Для кого">
+            <Segmented
+              value={kind}
+              onChange={(v) => setKind(v as OrderKind)}
+              options={[
+                { value: "customer", label: "Клиенту" },
+                { value: "stock", label: "На склад" },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item
+            label={kind === "stock" ? "Готово к" : "Отгрузка"}
+            required
+            extra={kind === "stock" ? "Пополнение остатка — продажникам не показывается; от даты считаются сроки" : "От неё считаются сроки операций"}
+          >
             <DatePicker format="DD.MM.YYYY" value={shipDate} onChange={setShipDate} />
           </Form.Item>
         </Space>

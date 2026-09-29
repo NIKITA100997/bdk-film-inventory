@@ -16,7 +16,14 @@ from app.models.areas import Area
 from app.models.dictionaries import PartStage
 from app.models.items import Item, ItemComponent, ItemKind
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
-from app.models.production_orders import ORDER_CLOSED, ORDER_DRAFT, ProductionOrder, ProductionOrderLine
+from app.models.production_orders import (
+    ORDER_CLOSED,
+    ORDER_DRAFT,
+    ORDER_KIND_CUSTOMER,
+    ORDER_KIND_STOCK,
+    ProductionOrder,
+    ProductionOrderLine,
+)
 from app.models.users import User
 from app.services.components import live_item_names
 from app.services.planning import PfPick, order_pf_needs, order_plan_status, release_pf, schedule_order
@@ -40,6 +47,7 @@ class OrderIn(BaseModel):
     name: str
     ship_date: date | None = None
     note: str | None = None
+    kind: str = ORDER_KIND_CUSTOMER  # customer | stock
     lines: list[OrderLineIn] = Field(min_length=1)
 
 
@@ -100,6 +108,7 @@ class OrderOut(BaseModel):
     ship_date: date | None
     note: str | None
     status: str
+    kind: str = ORDER_KIND_CUSTOMER
     created_by_name: str
     created_at: datetime
     released_at: datetime | None
@@ -179,7 +188,7 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
     author = db.get(User, order.created_by)
     tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).order_by(ProductionTask.id).all()
     return OrderOut(
-        id=order.id, name=order.name, ship_date=order.ship_date, note=order.note, status=order.status,
+        id=order.id, name=order.name, ship_date=order.ship_date, note=order.note, status=order.status, kind=order.kind,
         created_by_name=(author.full_name or author.username) if author else "—", created_at=order.created_at,
         released_at=order.released_at, task_ids=[t.id for t in tasks], lines=out_lines,
         tasks=_tasks_out(db, tasks, area_names),
@@ -381,7 +390,8 @@ def orders_readiness(
     """Готовность заказов для продажника: когда будет готово по плану,
     успевает ли к отгрузке, сколько сделано по позициям — без заданий и
     участков."""
-    q = db.query(ProductionOrder).filter(ProductionOrder.status != ORDER_DRAFT)
+    # Заказы «на склад» — пополнение остатка, продажнику не нужны.
+    q = db.query(ProductionOrder).filter(ProductionOrder.status != ORDER_DRAFT, ProductionOrder.kind != ORDER_KIND_STOCK)
     if not include_closed:
         q = q.filter(ProductionOrder.status != ORDER_CLOSED)
     out = []
@@ -406,6 +416,12 @@ def get_order(order_id: int, db: Session = Depends(get_db), user: User = Depends
     return _order_out(db, _get_order(db, order_id))
 
 
+def _kind(value: str) -> str:
+    if value not in (ORDER_KIND_CUSTOMER, ORDER_KIND_STOCK):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Вид заказа — клиенту или на склад")
+    return value
+
+
 @router.post("/production-orders", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
 def create_order(payload: OrderIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderOut:
     name = " ".join(payload.name.split())
@@ -414,7 +430,8 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db), user: User = D
     if payload.ship_date is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите дату отгрузки — от неё считаются сроки операций")
     order = ProductionOrder(
-        name=name, ship_date=payload.ship_date, note=(payload.note or "").strip() or None, status=ORDER_DRAFT, created_by=user.id
+        name=name, ship_date=payload.ship_date, note=(payload.note or "").strip() or None, status=ORDER_DRAFT, created_by=user.id,
+        kind=_kind(payload.kind),
     )
     db.add(order)
     db.flush()
@@ -433,6 +450,7 @@ def update_order(order_id: int, payload: OrderIn, db: Session = Depends(get_db),
     if not name:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите название заказа")
     order.name, order.ship_date, order.note = name, payload.ship_date, (payload.note or "").strip() or None
+    order.kind = _kind(payload.kind)
     _write_lines(db, order, payload.lines)
     db.commit()
     db.refresh(order)
