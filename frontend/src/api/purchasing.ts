@@ -180,6 +180,8 @@ export interface PanelFilmRow {
   to_laminate: number;
   film_width_mm: number;
   film_width_from_part: boolean;
+  /** Откуда ширина плёнки (штрипс детали / +7 мм на Фабрике / ширина панели). */
+  width_rule: string;
   length_m: number;
   area_m2: number;
   /** Закреплённая плёнка; null — не выбрана (в резерв не идёт). */

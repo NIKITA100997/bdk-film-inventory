@@ -28,7 +28,8 @@ export default function PanelFilmTable() {
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
         Ламинация панелей щитовых дверей: панелей к ламинации = нужно по открытым заказам и заданиям − уже ламинированные;
-        плёнки = панелей × длина × ширина плёнки (штрипс детали, если не задан — ширина панели). Это уже входит в
+        плёнки = панелей × длина × ширина плёнки: штрипс детали, если задан; на широкоформатной окутке (Фабрика) — ширина
+        панели + 7 мм; на прессах режут в размер — ширина панели. Это уже входит в
         «Резерв на задания» по плёнке.
       </Typography.Paragraph>
       {unpinned.length > 0 && (
@@ -71,12 +72,10 @@ export default function PanelFilmTable() {
             render: (_, r) => (
               <span>
                 {r.film_width_mm} мм × {r.length_m} м
-                {!r.film_width_from_part && (
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {" "}
-                    (ширина панели)
-                  </Typography.Text>
-                )}
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {" "}
+                  ({r.width_rule})
+                </Typography.Text>
               </span>
             ),
           },

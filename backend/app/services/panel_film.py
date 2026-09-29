@@ -20,7 +20,13 @@ from app.models.part_units import PartUnit, PartUnitStatus
 from app.services.part_units import reported_good_pieces_by_unit
 from app.services.pf_demand import compute_pf_demand
 
-LAMINATION = ("Ламинация",)
+LAMINATION = ("Ламинация", "Окутка")
+# Широкоформатная окутка панелей на Фабрике — плёнка шире панели на 7 мм
+# (617 / 817 / 917 при панели 610 / 810 / 910), решение пользователя 29.09.
+# На мембранно-вакуумных прессах плёнку режут в размер вручную — по ширине
+# панели, пока не решено иначе.
+FACTORY_SITE = "Фабрика"
+FACTORY_WRAP_ALLOWANCE_MM = 7
 
 
 @dataclass
@@ -32,10 +38,27 @@ class PanelFilmRow:
     to_laminate: float
     film_width_mm: float
     film_width_from_part: bool  # задан штрипс у детали
+    width_rule: str  # откуда ширина плёнки — для подписи
     length_m: float
     area_m2: float
     film: str | None  # закреплённая плёнка
     group: tuple[int, int, int] | None  # материал, цвет, толщина
+
+
+def _film_width(db: Session, part: Part, stage) -> tuple[float, str]:
+    """Ширина плёнки на панель: штрипс детали; иначе по площадке операции —
+    Фабрика (широкоформатная окутка) +7 мм, прессы — в размер панели."""
+    from app.models.areas import Area
+    from app.models.sites import Site
+
+    if part.strip_width_mm:
+        return float(part.strip_width_mm), "штрипс детали"
+    width = float(part.width_mm or 0)
+    area = db.get(Area, stage.area) if stage.area else None
+    site = db.get(Site, area.site_id) if area is not None and area.site_id else None
+    if site is not None and site.name == FACTORY_SITE:
+        return width + FACTORY_WRAP_ALLOWANCE_MM, f"ширина панели + {FACTORY_WRAP_ALLOWANCE_MM} мм (окутка, Фабрика)"
+    return width, "ширина панели (прессы — режут в размер)"
 
 
 def _exploded_demand(db: Session) -> dict[int, float]:
@@ -95,13 +118,14 @@ def panel_film_demand(db: Session) -> list[PanelFilmRow]:
         reported = reported_good_pieces_by_unit(db, [u.id for u in units])
         laminated = sum(max(0.0, float(u.quantity_pieces) - reported.get(u.id, 0.0)) for u in units)
         to_laminate = max(0.0, demand[part.id] - laminated)
-        width = float(part.strip_width_mm) if part.strip_width_mm else float(part.width_mm or 0)
+        width, rule = _film_width(db, part, lam)
         length = float(part.length_m or 0)
         sku = part.default_material_sku
         out.append(
             PanelFilmRow(
                 part_id=part.id, part_name=part.name, need_pieces=round(demand[part.id], 2), laminated=round(laminated, 2),
                 to_laminate=round(to_laminate, 2), film_width_mm=width, film_width_from_part=bool(part.strip_width_mm),
+                width_rule=rule,
                 length_m=length, area_m2=round(to_laminate * length * width / 1000, 3),
                 film=(
                     f"{sku.material.name}, {sku.color.name}, {float(sku.thickness.value_mm):g} мм, {sku.manufacturer.name}"

@@ -255,6 +255,7 @@ class PanelFilmOut(BaseModel):
     to_laminate: float
     film_width_mm: float
     film_width_from_part: bool
+    width_rule: str
     length_m: float
     area_m2: float
     film: str | None
