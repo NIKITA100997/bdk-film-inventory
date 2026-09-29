@@ -318,6 +318,8 @@ export interface NaryadParsedLine {
   // Раздел про закрепление плёнки за деталью — см. одноимённое поле у
   // BlankPlanParsedLine.
   material_locked: boolean;
+  /** ПЭТ 2Д/3Д выбран по признаку детали. */
+  pet_auto?: boolean;
   // Раздел про проверку остатка при загрузке задания — см. одноимённое
   // поле у BlankPlanParsedLine.
   stock_area_m2: number | null;
@@ -369,6 +371,8 @@ export interface BlankPlanParsedLine {
   // пришли от Part.default_material_sku_id, текст цвета из файла не
   // смотрелся вовсе.
   material_locked: boolean;
+  /** ПЭТ 2Д/3Д выбран по признаку детали. */
+  pet_auto?: boolean;
   // Раздел про проверку остатка при загрузке задания — суммарный остаток
   // (м², любой производитель) по материалу+цвету+толщине подобранной
   // позиции; null — материал не подобрался вовсе (нечего проверять).

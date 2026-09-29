@@ -34,7 +34,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.dictionaries import Color, MaterialSku, Part, Thickness
-from app.services.sku_matching import build_stock_cache, group_stock_area_m2
+from app.services.sku_matching import build_stock_cache, group_stock_area_m2, narrow_by_pet, part_pet
 
 HEADER_NOMENKLATURA = "номенклатура"
 HEADER_CVET = "цвет"
@@ -95,6 +95,8 @@ class EnrichedBlankPlanLine:
     # в этом случае вообще не смотрели, некоторые детали (ПЭТ 2Д/3Д)
     # пишут в файле один и тот же текст цвета для разной по факту плёнки.
     material_locked: bool = False
+    # ПЭТ 2Д/3Д выбран по признаку детали (текст цвета неоднозначен).
+    pet_auto: bool = False
     # Раздел про проверку остатка при загрузке задания — суммарный остаток
     # (м², любой производитель) по материалу+цвету+толщине подобранной
     # позиции; None — материал вообще не подобрался (нечего проверять).
@@ -327,6 +329,7 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
                 material_locked = sku is not None
 
             sku_candidates: list[dict] = []
+            pet_auto = False
             if sku is None:
                 color_key = re.sub(r"\s+", " ", line.color_raw.strip().lower())
                 color = color_by_normalized.get(color_key)
@@ -356,7 +359,11 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
                     if ratios[0] >= 0.92 or ratios[0] - ratios[1] >= 0.08:
                         sku = fuzzy_skus[0]
                     else:
-                        sku_candidates = [{"sku_id": s.id, "label": _sku_label(s)} for s in fuzzy_skus]
+                        picked = narrow_by_pet(fuzzy_skus, part_pet(db, part), line.color_raw)
+                        if picked is not None:
+                            sku, pet_auto = picked, True
+                        else:
+                            sku_candidates = [{"sku_id": s.id, "label": _sku_label(s)} for s in fuzzy_skus]
 
             stock_area_m2 = (
                 group_stock_area_m2(db, stock_cache, sku.material_id, sku.color_id, sku.thickness_id)
@@ -378,6 +385,7 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
                     quantity_pieces=line.quantity_pieces,
                     sku_candidates=sku_candidates,
                     material_locked=material_locked,
+                    pet_auto=pet_auto,
                     stock_area_m2=stock_area_m2,
                 )
             )

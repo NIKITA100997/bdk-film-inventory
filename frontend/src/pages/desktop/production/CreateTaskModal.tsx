@@ -36,6 +36,8 @@ type ManualLine = ProductionTaskLineManualCreate & {
   // Part.default_material_sku_id, не от подбора по тексту файла; чисто
   // для подсказки на экране (не отправляется на сервер).
   _materialLocked?: boolean;
+  // ПЭТ 2Д/3Д выбран по признаку детали — текст цвета был неоднозначен.
+  _petAuto?: boolean;
   // Раздел про проверку остатка при загрузке задания — суммарный остаток
   // (м², любой производитель) по материалу+цвету+толщине на момент
   // загрузки файла; null/undefined — материал не подобрался, 0 — подобрался,
@@ -318,6 +320,7 @@ export default function CreateTaskModal({
           part_name: l.part_name,
           _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
           _materialLocked: l.material_locked,
+          _petAuto: l.pet_auto,
           _stockAreaM2: l.stock_area_m2,
         };
       });
@@ -377,6 +380,7 @@ export default function CreateTaskModal({
         // прод-версия: не должно валить весь экран из-за одного нового поля.
         _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
         _materialLocked: l.material_locked,
+        _petAuto: l.pet_auto,
         _stockAreaM2: l.stock_area_m2,
       };
     });
@@ -721,6 +725,11 @@ export default function CreateTaskModal({
                             🔒 закреплено за деталью
                           </Tag>
                         )}
+                        {l._petAuto && (
+                          <Tag color="cyan" style={{ marginLeft: 6 }} title="В файле не сказано 2Д или 3Д — взят ПЭТ, указанный у детали">
+                            ПЭТ по детали
+                          </Tag>
+                        )}
                         {/* Раздел про проверку остатка при загрузке задания —
                             0 значит подобранная позиция физически пуста на
                             складе; null/undefined (материал не подобрался)
@@ -848,7 +857,7 @@ export default function CreateTaskModal({
                 // _skuCandidates/_materialLocked/_stockAreaM2 — только
                 // подсказка для экрана (см. тип ManualLine выше), в
                 // ProductionTaskLineManualCreate таких полей нет.
-                lines: manualLines.map(({ _skuCandidates, _materialLocked, _stockAreaM2, ...rest }) => rest),
+                lines: manualLines.map(({ _skuCandidates, _materialLocked, _petAuto, _stockAreaM2, ...rest }) => rest),
               }),
             )
             .catch(() => {});

@@ -32,7 +32,14 @@ import xlrd
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.dictionaries import MaterialSku, Part
-from app.services.sku_matching import build_sku_match_index, build_stock_cache, group_stock_area_m2, match_sku_by_color_text
+from app.services.sku_matching import (
+    build_sku_match_index,
+    build_stock_cache,
+    group_stock_area_m2,
+    match_sku_by_color_text,
+    narrow_by_pet,
+    part_pet,
+)
 
 RASKLADKA_MARKER = "раскладка"
 STOP_MARKERS = ("ведомость", "#оттискктокогда#")
@@ -95,6 +102,8 @@ class ParsedNaryadLine:
     # Раздел про закрепление плёнки за деталью — см. одноимённое поле в
     # EnrichedBlankPlanLine (services/blank_plan_import.py).
     material_locked: bool = False
+    # ПЭТ 2Д/3Д выбран по признаку детали (текст цвета неоднозначен).
+    pet_auto: bool = False
     # Раздел про проверку остатка при загрузке задания — см. одноимённое
     # поле в EnrichedBlankPlanLine.
     stock_area_m2: float | None = None
@@ -456,7 +465,18 @@ def enrich_naryad_lines(db: Session, result: NaryadParseResult) -> NaryadParseRe
                     line, suggested_sku_id=sku.id, material=sku.material.name, thickness=float(sku.thickness.value_mm)
                 )
             elif candidates:
-                line = replace(line, sku_candidates=candidates)
+                picked = narrow_by_pet(
+                    [sku_index.sku_by_id[c["sku_id"]] for c in candidates if c["sku_id"] in sku_index.sku_by_id],
+                    part_pet(db, part), line.color_raw,
+                )
+                if picked is not None:
+                    resolved_sku = picked
+                    line = replace(
+                        line, suggested_sku_id=picked.id, material=picked.material.name,
+                        thickness=float(picked.thickness.value_mm), pet_auto=True,
+                    )
+                else:
+                    line = replace(line, sku_candidates=candidates)
         # Раздел про проверку остатка при загрузке задания — см.
         # одноимённый раздел в enrich_blank_plan_blocks.
         if resolved_sku is not None:

@@ -18,8 +18,10 @@ from dataclasses import dataclass
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.dictionaries import Color, MaterialSku, Thickness
+from app.models.dictionaries import Color, MaterialSku, Part, Thickness
+from app.models.items import Item
 from app.models.units import MaterialUnit, UnitStatus
+from app.services.film_check import pet_of_material
 
 _SKU_MATCH_CUTOFF = 0.45
 _SKU_CANDIDATES_MAX = 5
@@ -34,6 +36,7 @@ class SkuMatchIndex:
     color_by_normalized: dict[str, Color]
     skus_by_color_id: dict[int, list[MaterialSku]]
     combined_label_to_sku: dict[str, MaterialSku]
+    sku_by_id: dict[int, MaterialSku]
 
 
 def build_sku_match_index(db: Session) -> SkuMatchIndex:
@@ -59,7 +62,48 @@ def build_sku_match_index(db: Session) -> SkuMatchIndex:
         skus_by_color_id.setdefault(s.color_id, []).append(s)
         combined = re.sub(r"\s+", " ", f"{s.material.name} {s.color.name}".strip().lower())
         combined_label_to_sku[combined] = s
-    return SkuMatchIndex(color_by_normalized, skus_by_color_id, combined_label_to_sku)
+    return SkuMatchIndex(color_by_normalized, skus_by_color_id, combined_label_to_sku, {s.id: s for s in skus})
+
+
+def part_pet(db: Session, part: Part | None) -> str | None:
+    """Какой ПЭТ идёт на деталь (признак позиции; пусто — 2Д). None —
+    деталь не найдена или не связана с номенклатурой."""
+    if part is None or part.item_id is None:
+        return None
+    item = db.get(Item, part.item_id)
+    return (item.pet_type or "2d") if item is not None else None
+
+
+def narrow_by_pet(candidates: list[MaterialSku], pet: str | None, color_text: str) -> MaterialSku | None:
+    """Текст цвета неоднозначен («ПЭТ Бежевый (cream silk)» — и 2Д, и 3Д):
+    оставить ПЭТ того типа, что у детали. Если в тексте сказано «ПЭТ» —
+    остальные материалы тоже отбрасываются. Одна позиция — она, иначе None
+    (выбирает человек)."""
+    if pet is None or not candidates:
+        return None
+    pets = [pet_of_material(s.material.name) for s in candidates]
+    if not any(p is not None for p in pets):
+        return None
+    text_says_pet = "пэт" in color_text.lower()
+    keep = [s for s, p in zip(candidates, pets) if p == pet or (p is None and not text_says_pet)]
+    if len(keep) <= 1:
+        return keep[0] if keep else None
+    # Нечёткий подбор цепляет соседние цвета («Белый» → и «Бежевый»):
+    # сравниваем само название цвета — без «ПЭТ», «2Д/3Д» и пояснения в скобках.
+    key = _bare_color(color_text)
+    same = [s for s in keep if _bare_color(s.color.name) == key]
+    if len(same) == 1:
+        return same[0]
+    scored = sorted(((difflib.SequenceMatcher(None, key, _bare_color(s.color.name)).ratio(), s) for s in keep), key=lambda x: -x[0])
+    if scored[0][0] >= 0.92 or scored[0][0] - scored[1][0] >= 0.08:
+        return scored[0][1]
+    return None
+
+
+def _bare_color(text: str) -> str:
+    t = re.sub(r"\([^)]*\)", " ", text.lower())
+    t = re.sub(r"\bпэт\b|\b[23]д\b", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
 
 
 def match_sku_by_color_text(index: SkuMatchIndex, color_text: str) -> tuple[MaterialSku | None, list[dict]]:
