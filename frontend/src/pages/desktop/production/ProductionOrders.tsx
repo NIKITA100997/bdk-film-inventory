@@ -346,28 +346,41 @@ function OrderDrawer({
                 >
                   <Button>+ Задание ▾</Button>
                 </Dropdown>
-                <Button loading={rescheduleMutation.isPending} onClick={() => rescheduleMutation.mutate(order.id)}>
-                  Пересчитать сроки
-                </Button>
-                <Button onClick={() => navigate("/planner")}>Планировщик →</Button>
-                <Popconfirm
-                  title="Закрыть: всё сделано?"
-                  description="Все строки будут отмечены сделанными полностью — без отчёта и без списания плёнки (она списывается метражом отдельно). Задания уйдут в архив."
-                  okText="Закрыть"
-                  cancelText="Отмена"
-                  onConfirm={() => completeMutation.mutate(order.id)}
+                <Dropdown
+                  trigger={["click"]}
+                  menu={{
+                    items: [
+                      { key: "reschedule", label: "Пересчитать сроки" },
+                      { key: "planner", label: "Открыть в планировщике →" },
+                      { type: "divider" },
+                      { key: "complete", label: "Закрыть: всё сделано" },
+                      { key: "close", label: "Закрыть заказ" },
+                    ],
+                    onClick: ({ key }) => {
+                      if (key === "reschedule") rescheduleMutation.mutate(order.id);
+                      else if (key === "planner") navigate("/planner");
+                      else if (key === "complete")
+                        Modal.confirm({
+                          title: "Закрыть: всё сделано?",
+                          content:
+                            "Все строки будут отмечены сделанными полностью — без отчёта и без списания плёнки (она списывается метражом отдельно). Задания уйдут в архив.",
+                          okText: "Закрыть",
+                          cancelText: "Отмена",
+                          onOk: () => completeMutation.mutateAsync(order.id),
+                        });
+                      else if (key === "close")
+                        Modal.confirm({
+                          title: "Закрыть заказ?",
+                          content: "Задания заказа уйдут в архив.",
+                          okText: "Закрыть",
+                          cancelText: "Отмена",
+                          onOk: () => closeMutation.mutateAsync(order.id),
+                        });
+                    },
+                  }}
                 >
-                  <Button loading={completeMutation.isPending}>Закрыть: всё сделано</Button>
-                </Popconfirm>
-                <Popconfirm
-                  title="Закрыть заказ?"
-                  description="Задания заказа уйдут в архив."
-                  okText="Закрыть"
-                  cancelText="Отмена"
-                  onConfirm={() => closeMutation.mutate(order.id)}
-                >
-                  <Button loading={closeMutation.isPending}>Закрыть</Button>
-                </Popconfirm>
+                  <Button loading={rescheduleMutation.isPending || completeMutation.isPending || closeMutation.isPending}>Ещё ▾</Button>
+                </Dropdown>
               </>
             )}
           </Space>
