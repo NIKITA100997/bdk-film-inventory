@@ -40,8 +40,8 @@ export default function ProductionTasks() {
     <Card>
       <Typography.Title level={4}>Задания цеха</Typography.Title>
       <Tabs
-        key={params.get("task") ?? "default"}
-        defaultActiveKey={params.get("task") || !user?.area ? "tasks" : "daily-plan"}
+        key={`${params.get("task") ?? ""}:${params.get("tab") ?? ""}`}
+        defaultActiveKey={params.get("task") || params.get("tab") === "tasks" || !user?.area ? "tasks" : "daily-plan"}
         items={[
           { key: "daily-plan", label: "Мой участок", children: <DailyPlanTab /> },
           {

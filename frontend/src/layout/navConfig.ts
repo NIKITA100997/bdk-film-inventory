@@ -176,3 +176,23 @@ export function isNavItemVisible(item: NavItem, user: CurrentUser): boolean {
   if (item.areas && !(user.area && item.areas.includes(user.area))) return false;
   return true;
 }
+
+/** Мастер участка: участок закреплён, отчитывается о производстве, но не
+ * управляет цехом. Ему — короткое меню (30.09, проверка с планшета):
+ * полное дерево можно включить в меню пользователя. */
+export function isMasterUser(user: CurrentUser): boolean {
+  return (
+    !user.is_superuser &&
+    !!user.area &&
+    user.permissions.includes("production_tasks.report") &&
+    !user.permissions.includes("production_tasks.manage")
+  );
+}
+
+export const masterNav: NavItem[] = [
+  { key: "my-area", path: "/production-tasks", label: "Мой участок" },
+  { key: "my-tasks", path: "/production-tasks?tab=tasks", label: "Задания" },
+  { key: "scan-roll", path: "/m/unit-card", label: "Скан рулона", permissions: ["units.cut", "units.return", "units.issue"] },
+  { key: "scan-pf", path: "/m/part-unit-card", label: "Скан партии п/ф", permissions: ["part_units.manage", "part_units.view", "part_units.correct"] },
+  { key: "pf-stock", path: "/stock?kind=pf", label: "Остатки п/ф", permissions: ["part_units.manage", "part_units.view"] },
+];

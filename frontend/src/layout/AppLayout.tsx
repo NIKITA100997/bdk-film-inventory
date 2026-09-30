@@ -4,7 +4,7 @@ import type { MenuProps } from "antd";
 import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined, QuestionCircleOutlined, KeyOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { navTree, isNavItemVisible, type NavItem } from "./navConfig";
+import { navTree, isNavItemVisible, isMasterUser, masterNav, type NavItem } from "./navConfig";
 import { fontHeading } from "../theme";
 import { runUnitOrMaterialSearch } from "../utils/unitSearch";
 import { isVerticalPrint, setVerticalPrint } from "../utils/printLabel";
@@ -31,6 +31,14 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [verticalPrint, setVerticalPrintState] = useState(isVerticalPrint());
   const [passwordOpen, setPasswordOpen] = useState(false);
+  // Короткое меню мастера: «Полное меню» в меню пользователя (запоминается на устройстве).
+  const [fullMenu, setFullMenu] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("full-menu") === "1";
+    } catch {
+      return false;
+    }
+  });
   // Раздел про телефонную версию — единственная уже используемая в
   // проекте конвенция "мобильный/десктоп" (ResponsiveTable.tsx). !sm —
   // именно телефон (<576px), не портретный планшет — тот должен остаться
@@ -53,7 +61,12 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   // заменена на горизонтальное меню под шапкой — children без явного type
   // в mode="horizontal" antd сам рисует как подменю, и сам же схлопывает
   // то, что не влезло по ширине, в пункт "…").
-  const items = navTree
+  // Короткое меню мастера — по умолчанию включено, выключается в меню пользователя.
+  const master = isMasterUser(user);
+  const shortMenu = master && !fullMenu;
+  const items = shortMenu
+    ? masterNav.filter(isVisible).map((item) => ({ key: item.path, label: item.label }))
+    : navTree
     .map((block) => ({ block, visibleItems: block.items.filter(isVisible) }))
     .filter(({ visibleItems }) => visibleItems.length > 0)
     .flatMap(({ block, visibleItems }) =>
@@ -69,7 +82,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
     );
 
   // Пункты с вкладкой в адресе (/nomenclature?tab=types) подсвечиваются точно.
-  const navPaths = new Set(navTree.flatMap((b) => b.items.map((i) => i.path)));
+  const navPaths = new Set([...navTree.flatMap((b) => b.items.map((i) => i.path)), ...masterNav.map((i) => i.path)]);
 
   const userMenuItems: MenuProps["items"] = [
     {
@@ -122,6 +135,34 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
         </div>
       ),
     },
+    ...(master
+      ? [
+          { type: "divider" as const },
+          {
+            key: "full-menu",
+            label: (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, minWidth: 220 }}
+              >
+                <span>Полное меню</span>
+                <Switch
+                  size="small"
+                  checked={fullMenu}
+                  onChange={(checked) => {
+                    setFullMenu(checked);
+                    try {
+                      localStorage.setItem("full-menu", checked ? "1" : "0");
+                    } catch {
+                      /* не запоминаем */
+                    }
+                  }}
+                />
+              </div>
+            ),
+          },
+        ]
+      : []),
     { type: "divider" },
     { key: "password", label: "Сменить пароль", icon: <KeyOutlined />, onClick: () => setPasswordOpen(true) },
     {
