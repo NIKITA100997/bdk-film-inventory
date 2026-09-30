@@ -18,6 +18,7 @@ import { listPlanSlots } from "../../../api/planning";
 import { ORDER_STATUS_LABEL } from "../../../api/productionOrders";
 import { isAxiosError } from "axios";
 import FastReportPanel from "./fastReport/FastReportPanel";
+import { rollChoices } from "./fastReport/useFastReport";
 
 const FABRIKA = "fabrika";
 
@@ -293,12 +294,12 @@ function LinesTab({ t, fabrika }: { t: ProductionTask; fabrika: boolean }) {
           {
             title: "Рулон",
             render: (_, l) => {
-              const rolls = l.issued_units.filter((u) => u.status === "Выдан_участку");
+              const rolls = rollChoices(l);
               if (!l.material) return "—";
               if (!rolls.length) return fabrika ? "—" : <Tag color="warning">не выдан</Tag>;
               return rolls.map((u) => (
-                <Tag key={u.id} color="blue">
-                  №{u.id} · {Math.round((u.remaining_length_m ?? u.length_m) * 10) / 10} м
+                <Tag key={u.id} color={u.from ? "cyan" : "blue"} title={u.from ? `Общий рулон участка, выдан под «${u.from}»` : undefined}>
+                  №{u.id} · {Math.round(u.left * 10) / 10} м{u.from ? " · общий" : ""}
                 </Tag>
               ));
             },

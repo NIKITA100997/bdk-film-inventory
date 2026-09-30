@@ -409,19 +409,65 @@ def _line_issued_units_map(db: Session, line_ids: list[int]) -> dict[int, list[M
     return result
 
 
+def _area_roll_pool(db: Session, area: str) -> dict:
+    """Общий рулон участка: рулон стоит у станка и режется под всё, что идёт
+    в этой плёнке, — не только под строку, на которую его выдали. Участок
+    рулоны друг другу не передаёт (только через возврат на склад), поэтому
+    пул — рулоны, физически находящиеся на участке, по строкам любых
+    заданий участка (в т.ч. закрытых: остаток после задания не возвращают,
+    если следующее задание в той же плёнке)."""
+    active_lines = (
+        db.query(ProductionTaskLine)
+        .join(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+        .filter(ProductionTask.area == area, ProductionTask.is_active.is_(True), ProductionTaskLine.material_id.isnot(None))
+        .all()
+    )
+    rows = (
+        db.query(MaterialUnit, ProductionTaskLine, ProductionTask.is_active)
+        .join(ProductionTaskLine, MaterialUnit.production_task_line_id == ProductionTaskLine.id)
+        .join(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+        .filter(
+            ProductionTask.area == area,
+            or_(
+                MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU,
+                and_(MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.area.isnot(None)),
+            ),
+        )
+        .all()
+    )
+    units = []
+    for u, src, src_active in rows:
+        remaining = _issued_unit_remaining_m(db, u)
+        if remaining > 0:
+            units.append((u, src, bool(src_active), remaining))
+    ids = [l.id for l in active_lines]
+    return {
+        "active_lines": active_lines,
+        "units": units,
+        "reports": _line_report_aggregates(db, ids),
+        "issued": fetch_issued_length_by_task_line(db, ids),
+    }
+
+
 def _task_borrowable_and_shortfall(
     db: Session,
     task: ProductionTask,
     report_aggregates: dict[int, tuple[float, float]],
     issued_length_by_line: dict[int, float],
     issued_units_by_line: dict[int, list[MaterialUnit]],
+    pool_cache: dict | None = None,
 ) -> tuple[dict[int, float], dict[int, list[tuple[MaterialUnit, ProductionTaskLine]]]]:
-    """Раздел про общий штрипс на детали одного задания — считает разом
-    для всех строк задания: (1) нехватку плёнки по ГРУППЕ ширины штрипса
-    (один рулон закрывает потребность всех строк той же ширины),
-    (2) какие рулоны соседних строк можно списать в отчёте по этой строке
-    (та же плёнка, взаимозаменяемая ширина, метраж ещё есть)."""
-    lines = list(task.lines)
+    """Общий рулон участка (см. _area_roll_pool): (1) нехватка плёнки — по
+    группе «плёнка + ширина штрипса» сразу по всем открытым заданиям
+    участка, остаток рулонов закрытых заданий идёт в зачёт; (2) какие рулоны
+    участка можно указать в отчёте по строке (та же плёнка, подходящая
+    ширина, метраж ещё есть), с какого бы задания они ни были выданы."""
+    if pool_cache is not None and task.area in pool_cache:
+        pool = pool_cache[task.area]
+    else:
+        pool = _area_roll_pool(db, task.area)
+        if pool_cache is not None:
+            pool_cache[task.area] = pool
     equiv_cache: dict[float, list[float]] = {}
 
     def equiv(sw: float) -> list[float]:
@@ -429,48 +475,57 @@ def _task_borrowable_and_shortfall(
             equiv_cache[sw] = equivalent_widths(db, sw)
         return equiv_cache[sw]
 
-    sw_by_line = {l.id: _line_effective_strip_width(l) for l in lines}
+    spec = lambda l: (l.material_id, l.color_id, l.thickness_id)  # noqa: E731
+    reports = {**pool["reports"], **report_aggregates}
+    issued = {**pool["issued"], **issued_length_by_line}
 
-    gs_lines: list[GroupShortfallLine] = []
-    for l in lines:
-        _good, defect = report_aggregates.get(l.id, (0.0, 0.0))
-        gs_lines.append(
-            GroupShortfallLine(
-                line_id=l.id,
-                width_key=min(equiv(sw_by_line[l.id])),
-                needed_length_m=(float(l.quantity_pieces) + defect) * float(l.length_m),
-                issued_length_m=issued_length_by_line.get(l.id, 0.0),
-                is_closed=l.is_closed,
-            )
+    # Нехватка: открытые строки участка + строки этого задания; строки
+    # закрытых заданий с рулоном на участке — только как запас (остаток м).
+    by_spec: dict[tuple, dict[int, GroupShortfallLine]] = {}
+    lines_all = {l.id: l for l in pool["active_lines"]}
+    for l in task.lines:
+        lines_all[l.id] = l
+    for l in lines_all.values():
+        _good, defect = reports.get(l.id, (0.0, 0.0))
+        by_spec.setdefault(spec(l), {})[l.id] = GroupShortfallLine(
+            line_id=l.id,
+            width_key=min(equiv(_line_effective_strip_width(l))),
+            needed_length_m=(float(l.quantity_pieces) + defect) * float(l.length_m),
+            issued_length_m=issued.get(l.id, 0.0),
+            is_closed=l.is_closed,
         )
-    group_shortfall_by_line = distribute_group_shortfall(gs_lines)
+    for u, src, src_active, remaining in pool["units"]:
+        if src_active or src.id in lines_all:
+            continue
+        group = by_spec.setdefault(spec(src), {})
+        prev = group.get(src.id)
+        group[src.id] = GroupShortfallLine(
+            line_id=src.id,
+            width_key=min(equiv(_line_effective_strip_width(src))),
+            needed_length_m=0.0,
+            issued_length_m=(prev.issued_length_m if prev else 0.0) + remaining,
+            is_closed=True,
+        )
+    group_shortfall_by_line: dict[int, float] = {}
+    for group in by_spec.values():
+        group_shortfall_by_line.update(distribute_group_shortfall(list(group.values())))
 
     borrowable_by_line: dict[int, list[tuple[MaterialUnit, ProductionTaskLine]]] = {}
-    for l in lines:
-        want_widths = set(equiv(sw_by_line[l.id]))
-        spec = (l.material_id, l.color_id, l.thickness_id)
-        found: list[tuple[MaterialUnit, ProductionTaskLine]] = []
-        for src in lines:
-            if src.id == l.id or src.is_closed:
-                continue
-            if (src.material_id, src.color_id, src.thickness_id) != spec:
-                continue
-            for u in issued_units_by_line.get(src.id, []):
-                if float(u.width_mm) not in want_widths:
-                    continue
-                # физически доступен участку: выдан участку, либо уже на
-                # домашнем складе участка ждёт локальной довыдачи
-                physically_at_area = u.status == UnitStatus.VYDAN_UCHASTKU or (
-                    u.status == UnitStatus.NA_KHRANENII and u.area is not None
-                )
-                if physically_at_area and _issued_unit_remaining_m(db, u) > 0:
-                    found.append((u, src))
+    for l in task.lines:
+        if l.material_id is None:
+            continue
+        want_widths = set(equiv(_line_effective_strip_width(l)))
+        found = [
+            (u, src)
+            for u, src, _a, _r in pool["units"]
+            if src.id != l.id and spec(src) == spec(l) and float(u.width_mm) in want_widths
+        ]
         if found:
             borrowable_by_line[l.id] = found
-    return group_shortfall_by_line, borrowable_by_line
+    return {k: v for k, v in group_shortfall_by_line.items() if k in {l.id for l in task.lines}}, borrowable_by_line
 
 
-def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
+def _task_out(db: Session, task: ProductionTask, pool_cache: dict | None = None) -> ProductionTaskOut:
     model = db.get(ProductModel, task.product_model_id) if task.product_model_id else None
     order = db.get(ProductionOrder, task.production_order_id) if task.production_order_id else None
     line_ids = [l.id for l in task.lines]
@@ -481,7 +536,7 @@ def _task_out(db: Session, task: ProductionTask) -> ProductionTaskOut:
     issued_length_by_line = fetch_issued_length_by_task_line(db, line_ids)
     issued_units_by_line = _line_issued_units_map(db, line_ids)
     group_shortfall_by_line, borrowable_by_line = _task_borrowable_and_shortfall(
-        db, task, report_aggregates, issued_length_by_line, issued_units_by_line
+        db, task, report_aggregates, issued_length_by_line, issued_units_by_line, pool_cache
     )
     line_outs = [
         _task_line_out(
@@ -682,7 +737,8 @@ def list_production_tasks(db: Session = Depends(get_db), user: User = Depends(vi
     if not _can_see_all_areas(user):
         query = query.filter(ProductionTask.area == user.area)
     tasks = query.order_by(ProductionTask.created_at.desc()).all()
-    return [_task_out(db, t) for t in tasks]
+    pool_cache: dict = {}
+    return [_task_out(db, t, pool_cache) for t in tasks]
 
 
 @router.get("/blanks-demand", response_model=list[BlankDemandLineOut])
@@ -1086,8 +1142,8 @@ def _build_task_line_report(
         # выданных" — рулон-то физически давно на складе, отчёт всё равно
         # нужно занести.
         status_ok = unit is not None and unit.status in (UnitStatus.VYDAN_UCHASTKU, UnitStatus.NA_KHRANENII)
-        # Раздел про общий штрипс на детали одного задания — рулон, выданный
-        # ДРУГОЙ строке ТОГО ЖЕ задания, годится, если это та же плёнка и
+        # Общий рулон участка — рулон, выданный ДРУГОЙ строке любого
+        # задания ЭТОГО ЖЕ участка, годится, если это та же плёнка и
         # взаимозаменяемая ширина штрипса (equivalent_widths). Мастер решает,
         # хватает ли метража. Признака "новый" у рулона нет — работает и с
         # рулонами, выданными до этой доработки.
@@ -1097,9 +1153,12 @@ def _build_task_line_report(
                 line_ok = True
             elif unit.production_task_line_id is not None:
                 src_line = db.get(ProductionTaskLine, unit.production_task_line_id)
+                src_task = db.get(ProductionTask, src_line.task_id) if src_line is not None else None
                 line_ok = (
                     src_line is not None
-                    and src_line.task_id == line.task_id
+                    and src_task is not None
+                    # Общий рулон участка: любое задание того же участка.
+                    and src_task.area == db.get(ProductionTask, line.task_id).area
                     and (src_line.material_id, src_line.color_id, src_line.thickness_id)
                     == (line.material_id, line.color_id, line.thickness_id)
                     and float(unit.width_mm) in set(equivalent_widths(db, _line_effective_strip_width(line)))

@@ -30,11 +30,28 @@ const EMPTY: Entry = { good: "", pusk: 0, defects: [], rollId: null };
 export const filmLabel = (l: ProductionTaskLine) =>
   l.material ? `${l.material} ${l.color ?? ""} ${l.thickness ?? ""}`.replace(/\s+/g, " ").trim() : "без плёнки";
 
-/** Рулон по умолчанию: единственный выданный — он; несколько — последний выданный. */
+export type RollChoice = { id: number; width_mm: number; left: number; from: string | null };
+
+/** Рулоны, которые можно указать в отчёте по строке: выданные на неё и
+ * общие рулоны участка (выданы под другое задание в той же плёнке и
+ * подходящей ширине — backend: borrowable_units). */
+export const rollChoices = (l: ProductionTaskLine): RollChoice[] => [
+  ...l.issued_units
+    .filter((u) => u.status === "Выдан_участку")
+    .map((u) => ({ id: u.id, width_mm: u.width_mm, left: u.remaining_length_m ?? u.length_m, from: null })),
+  ...(l.borrowable_units ?? [])
+    .filter((u) => (u.remaining_length_m ?? 0) > 0)
+    .map((u) => ({ id: u.id, width_mm: u.width_mm, left: u.remaining_length_m ?? u.length_m, from: u.from_part_name ?? "другое задание" })),
+];
+
+/** Рулон по умолчанию: свой последний выданный, иначе общий рулон участка
+ * с наибольшим остатком. */
 export const defaultRoll = (l: ProductionTaskLine): number | null => {
-  const issued = l.issued_units.filter((u) => u.status === "Выдан_участку");
-  if (issued.length === 0) return null;
-  return issued.reduce((a, b) => (b.id > a.id ? b : a)).id;
+  const all = rollChoices(l);
+  const own = all.filter((r) => r.from === null);
+  if (own.length) return own.reduce((a, b) => (b.id > a.id ? b : a)).id;
+  if (all.length) return all.reduce((a, b) => (b.left > a.left ? b : a)).id;
+  return null;
 };
 
 export const isFilled = (e: Entry | undefined) => !!e && (+e.good > 0 || e.pusk > 0 || e.defects.length > 0);
@@ -89,7 +106,7 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
       if (taskId != null && task.id !== taskId) continue;
       for (const line of task.lines) {
         if (line.production_closed) continue;
-        const onMachine = line.issued_units.some((u) => u.status === "Выдан_участку");
+        const onMachine = rollChoices(line).length > 0;
         out.push({ task, line, onMachine, today: todayLines.has(line.id) });
       }
     }

@@ -3,7 +3,7 @@ import { Alert, Badge, Button, Card, Drawer, Empty, Form, Input, InputNumber, Mo
 import { isAxiosError } from "axios";
 import ReportModal from "../ReportModal";
 import MasterQuickReportPanel from "../MasterQuickReportPanel";
-import { PUSK_REASON, filmLabel, isFilled, useFastReport, type DefectDraft, type Disposition, type FastLine } from "./useFastReport";
+import { PUSK_REASON, filmLabel, isFilled, rollChoices, useFastReport, type DefectDraft, type Disposition, type FastLine } from "./useFastReport";
 import type { ProductionTaskLine } from "../../../../api/production";
 
 type View = "tiles" | "table" | "legacy";
@@ -272,7 +272,7 @@ function TableView({
           {lines.map((fl) => {
             const e = r.entryOf(fl.line);
             const defect = e.defects.reduce((s, d) => s + d.qty, 0);
-            const roll = fl.line.issued_units.find((u) => u.id === e.rollId);
+            const roll = rollChoices(fl.line).find((u) => u.id === e.rollId);
             return (
               <tr key={fl.line.id}>
                 <td style={cell}>
@@ -284,7 +284,9 @@ function TableView({
                 <td style={cell}>
                   <div style={{ fontSize: 13 }}>{filmLabel(fl.line)}</div>
                   {roll ? (
-                    <Tag color="blue">№{roll.id} · {fmt(roll.remaining_length_m ?? roll.length_m)} м</Tag>
+                    <Tag color={roll.from ? "cyan" : "blue"}>
+                      №{roll.id} · {fmt(roll.left)} м{roll.from ? " · общий" : ""}
+                    </Tag>
                   ) : r.needsRoll(fl) ? (
                     <Tag color="warning">нет рулона</Tag>
                   ) : null}
@@ -366,7 +368,7 @@ function LineSheet({
   onNext?: () => void;
 }) {
   const e = r.entryOf(fl.line);
-  const rolls = fl.line.issued_units.filter((u) => u.status === "Выдан_участку");
+  const rolls = rollChoices(fl.line);
   const defect = e.defects.reduce((s, d) => s + d.qty, 0);
   return (
     <Drawer open placement="bottom" height={430} onClose={onClose} title={fl.line.part_name ?? "Позиция"} destroyOnHidden>
@@ -387,7 +389,7 @@ function LineSheet({
               ) : (
                 rolls.map((u) => (
                   <Button key={u.id} type={e.rollId === u.id ? "primary" : "default"} onClick={() => r.setEntry(fl.line, { rollId: u.id })}>
-                    №{u.id} · {u.width_mm} мм · {fmt(u.remaining_length_m ?? u.length_m)} м
+                    №{u.id} · {u.width_mm} мм · {fmt(u.left)} м{u.from ? ` · с «${u.from}»` : ""}
                   </Button>
                 ))
               )}
