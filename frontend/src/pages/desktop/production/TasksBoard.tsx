@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Card, Checkbox, Col, Empty, Grid, Input, Progress, Row, Segmented, Select, Space, Tag, Typography } from "antd";
+import { Card, Checkbox, Col, Empty, Grid, Input, Progress, Row, Select, Space, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { listProductionTasks, type ProductionTask } from "../../../api/production";
@@ -90,13 +90,13 @@ export default function TasksBoard() {
             архив
           </Checkbox>
         </Space>
-        <Segmented
-          block={!wide}
-          value={filter}
-          onChange={(v) => setFilter(v as Filter)}
-          options={FILTERS.map(([k, label, fn]) => ({ value: k, label: `${label} ${base.filter(fn).length}` }))}
-          style={{ flexWrap: "wrap" }}
-        />
+        <Space wrap size={[4, 6]}>
+          {FILTERS.map(([k, label, fn]) => (
+            <Tag.CheckableTag key={k} checked={filter === k} onChange={() => setFilter(k)} style={{ fontSize: 13, padding: "2px 10px" }}>
+              {label} {base.filter(fn).length}
+            </Tag.CheckableTag>
+          ))}
+        </Space>
       </Space>
       <div style={{ maxHeight: wide ? "calc(100vh - 330px)" : undefined, overflowY: "auto", borderTop: "1px solid rgba(0,0,0,.06)" }}>
         {rows.length === 0 ? (
@@ -166,8 +166,10 @@ export default function TasksBoard() {
     );
   return (
     <Row gutter={16} align="top">
-      <Col span={9}>{list}</Col>
-      <Col span={15}>
+      <Col lg={8} xl={7} xxl={6}>
+        {list}
+      </Col>
+      <Col lg={16} xl={17} xxl={18}>
         <Card size="small" styles={{ body: { padding: 0 } }}>
           {current != null ? (
             <TaskCardPanel taskId={current} canManage={canManage} canReport={canReport} />
