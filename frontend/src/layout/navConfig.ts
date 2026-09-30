@@ -177,16 +177,12 @@ export function isNavItemVisible(item: NavItem, user: CurrentUser): boolean {
   return true;
 }
 
-/** Мастер участка: участок закреплён, отчитывается о производстве, но не
- * управляет цехом. Ему — короткое меню (30.09, проверка с планшета):
- * полное дерево можно включить в меню пользователя. */
+/** Мастер участка: участок закреплён и отчитывается о производстве. Ему —
+ * короткое меню (30.09, проверка с планшета); полное дерево включается в
+ * меню пользователя. Право управлять заданиями не учитываем: на проде у
+ * роли «Начальник участка» оно есть, а начальник цеха без участка. */
 export function isMasterUser(user: CurrentUser): boolean {
-  return (
-    !user.is_superuser &&
-    !!user.area &&
-    user.permissions.includes("production_tasks.report") &&
-    !user.permissions.includes("production_tasks.manage")
-  );
+  return !user.is_superuser && !!user.area && user.permissions.includes("production_tasks.report");
 }
 
 export const masterNav: NavItem[] = [
