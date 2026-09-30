@@ -109,7 +109,7 @@ export const navTree: NavBlock[] = [
       {
         key: "production-tasks",
         path: "/production-tasks",
-        label: "Задания цеха (План на день)",
+        label: "Задания цеха",
         permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report"],
       },
       {

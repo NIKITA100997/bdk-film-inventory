@@ -38,7 +38,7 @@ const HELP_BLOCKS: HelpBlock[] = [
   {
     test: (u) => u.permissions.includes("production_tasks.manage") || u.permissions.includes("production_tasks.view"),
     title: "Задания цеха",
-    body: "«Производство → Задания цеха» — вкладка «План на день» для мастера смены, «Все задания» — общий список заданий с распределением по линиям.",
+    body: "«Производство → Задания цеха» — вкладка «Мой участок» для мастера смены, «Задания» — список заданий с отборами и карточкой задания.",
     action: { label: "Открыть задания", path: "/production-tasks" },
   },
   {

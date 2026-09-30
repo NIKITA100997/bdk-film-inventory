@@ -42,7 +42,54 @@ const pfReady = (t: ProductionTask) => pfParts(t).every((p) => p.ready);
 
 /** Карточка задания участка: строки, отчёт по заданию, связанные задания
  * (окутка ↔ её п/ф), план по дням и история. Переходы по связанным
- * заданиям — внутри той же карточки, «← назад» возвращает. */
+ * заданиям — внутри той же карточки, «← назад» возвращает. Панель —
+ * встроенная («Задания цеха»: список слева, карточка справа), Drawer —
+ * поверх экрана (заказ, план на день, узкий экран). */
+export function TaskCardPanel({
+  taskId,
+  onClose,
+  canManage,
+  canReport,
+}: {
+  taskId: number;
+  onClose?: () => void;
+  canManage: boolean;
+  canReport: boolean;
+}) {
+  const [stack, setStack] = useState<number[]>([taskId]);
+  const [tab, setTab] = useState("lines");
+  const [openedFor, setOpenedFor] = useState(taskId);
+  // Новое задание снаружи — стек заново (без эффекта: сверяем при рендере).
+  if (taskId !== openedFor) {
+    setOpenedFor(taskId);
+    setStack([taskId]);
+    setTab("lines");
+  }
+  const current = stack.at(-1) ?? taskId;
+  const go = (id: number) => {
+    setStack((s) => [...s, id]);
+    setTab("lines");
+  };
+  const back = () => {
+    setStack((s) => s.slice(0, -1));
+    setTab("lines");
+  };
+  return (
+    <TaskCardBody
+      key={current}
+      id={current}
+      tab={tab}
+      setTab={setTab}
+      onBack={stack.length > 1 ? back : undefined}
+      backLabel={stack.length > 1 ? `№${stack.at(-2)}` : undefined}
+      onGo={go}
+      onClose={onClose}
+      canManage={canManage}
+      canReport={canReport}
+    />
+  );
+}
+
 export default function TaskCardDrawer({
   taskId,
   onClose,
@@ -54,41 +101,9 @@ export default function TaskCardDrawer({
   canManage: boolean;
   canReport: boolean;
 }) {
-  const [stack, setStack] = useState<number[]>([]);
-  const [tab, setTab] = useState("lines");
-  const [openedFor, setOpenedFor] = useState<number | null>(null);
-  // Новое открытие снаружи — стек заново (без эффекта: сверяем при рендере).
-  if (taskId !== openedFor) {
-    setOpenedFor(taskId);
-    setStack(taskId != null ? [taskId] : []);
-    setTab("lines");
-  }
-  const current = stack.at(-1) ?? null;
-  const go = (id: number) => {
-    setStack((s) => [...s, id]);
-    setTab("lines");
-  };
-  const back = () => {
-    setStack((s) => s.slice(0, -1));
-    setTab("lines");
-  };
-
   return (
     <Drawer open={taskId != null} onClose={onClose} width={960} destroyOnHidden title={null} closable={false} styles={{ body: { padding: 0 } }}>
-      {current != null && (
-        <TaskCardBody
-          key={current}
-          id={current}
-          tab={tab}
-          setTab={setTab}
-          onBack={stack.length > 1 ? back : undefined}
-          backLabel={stack.length > 1 ? `№${stack.at(-2)}` : undefined}
-          onGo={go}
-          onClose={onClose}
-          canManage={canManage}
-          canReport={canReport}
-        />
-      )}
+      {taskId != null && <TaskCardPanel taskId={taskId} onClose={onClose} canManage={canManage} canReport={canReport} />}
     </Drawer>
   );
 }
@@ -110,7 +125,7 @@ function TaskCardBody({
   onBack?: () => void;
   backLabel?: string;
   onGo: (id: number) => void;
-  onClose: () => void;
+  onClose?: () => void;
   canManage: boolean;
   canReport: boolean;
 }) {
@@ -153,7 +168,7 @@ function TaskCardBody({
   const moreItems = [
     ...(canManage && t.is_active ? [{ key: "complete", label: "Закрыть: всё сделано" }] : []),
     ...(canManage ? [{ key: "archive", label: t.is_active ? "В архив" : "Вернуть из архива" }] : []),
-    { key: "list", label: "Открыть в «Все задания»" },
+    { key: "list", label: "Открыть в «Задания цеха»" },
     { key: "planner", label: "Открыть в планировщике →" },
   ];
   const onMore = (key: string) => {
@@ -167,10 +182,10 @@ function TaskCardBody({
       });
     else if (key === "archive") archiveMutation.mutate(!t.is_active);
     else if (key === "list") {
-      onClose();
+      onClose?.();
       navigate(`/production-tasks?task=${t.id}`);
     } else if (key === "planner") {
-      onClose();
+      onClose?.();
       navigate("/planner");
     }
   };
@@ -233,7 +248,7 @@ function TaskCardBody({
               {card?.order && (
                 <a
                   onClick={() => {
-                    onClose();
+                    onClose?.();
                     navigate(`/production-orders?order=${card.order!.id}`);
                   }}
                 >
@@ -252,9 +267,11 @@ function TaskCardBody({
             <Dropdown trigger={["click"]} menu={{ items: moreItems, onClick: ({ key }) => onMore(key) }}>
               <Button loading={completeMutation.isPending || archiveMutation.isPending}>Ещё ▾</Button>
             </Dropdown>
-            <Button type="text" onClick={onClose} aria-label="Закрыть">
-              ✕
-            </Button>
+            {onClose && (
+              <Button type="text" onClick={onClose} aria-label="Закрыть">
+                ✕
+              </Button>
+            )}
           </Space>
         </Space>
       </div>
