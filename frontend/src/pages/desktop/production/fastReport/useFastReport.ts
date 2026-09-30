@@ -106,7 +106,8 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
       if (taskId != null && task.id !== taskId) continue;
       for (const line of task.lines) {
         if (line.production_closed) continue;
-        const onMachine = rollChoices(line).length > 0;
+        // Без плёнки (п/ф: распил, склейка, фрезеровка) рулонов нет — такая строка всегда «в работе».
+        const onMachine = line.material === null || rollChoices(line).length > 0;
         out.push({ task, line, onMachine, today: todayLines.has(line.id) });
       }
     }
