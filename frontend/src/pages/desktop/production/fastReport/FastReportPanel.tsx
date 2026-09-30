@@ -126,7 +126,19 @@ export default function FastReportPanel({
           ) : (
             <TableView lines={shown} r={r} onOpen={setOpen} onDefect={setDefectFor} onDetail={setDetailFor} />
           )}
-          <div style={{ position: "sticky", bottom: 0, background: "inherit", paddingTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div
+            style={{
+              position: "sticky",
+              bottom: 0,
+              zIndex: 5,
+              background: "inherit",
+              padding: "10px 0",
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              boxShadow: r.filled.length ? "0 -8px 16px -12px rgba(0,0,0,.35)" : undefined,
+            }}
+          >
             <Button type="primary" size="large" disabled={!r.filled.length} loading={r.save.isPending} onClick={onSave} style={{ minWidth: 240 }}>
               Сохранить отчёт{r.filled.length ? ` (${r.filled.length})` : ""}
             </Button>

@@ -140,6 +140,23 @@ def _require_task_access(user: User, task: ProductionTask) -> None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
 
 
+def _require_task_view(db: Session, user: User, task: ProductionTask) -> None:
+    """Просмотр задания: своё/любое (как _require_task_access) либо
+    связанное с заданием своего участка — окутка ↔ её п/ф (мастеру окутки
+    надо видеть, где его п/ф, мастеру п/ф — для какой окутки он делает).
+    Только просмотр: отчёты и правки проверяют _require_task_access."""
+    if _can_see_all_areas(user) or task.area == user.area:
+        return
+    if user.area:
+        if task.for_task_id is not None:
+            parent = db.get(ProductionTask, task.for_task_id)
+            if parent is not None and parent.area == user.area:
+                return
+        if db.query(ProductionTask.id).filter(ProductionTask.for_task_id == task.id, ProductionTask.area == user.area).first():
+            return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+
+
 def _line_out(line: ProductionLine) -> ProductionLineOut:
     return ProductionLineOut.model_validate(line)
 
@@ -1704,7 +1721,7 @@ def get_production_task(task_id: int, db: Session = Depends(get_db), user: User 
     task = db.get(ProductionTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
-    _require_task_access(user, task)
+    _require_task_view(db, user, task)
     return _task_out(db, task)
 
 
@@ -1718,7 +1735,7 @@ def get_task_card(task_id: int, db: Session = Depends(get_db), user: User = Depe
     task = db.get(ProductionTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
-    _require_task_access(user, task)
+    _require_task_view(db, user, task)
     order = db.get(ProductionOrder, task.production_order_id) if task.production_order_id else None
     for_task = db.get(ProductionTask, task.for_task_id) if task.for_task_id else None
     pf_tasks = db.query(ProductionTask).filter(ProductionTask.for_task_id == task.id).order_by(ProductionTask.id).all()

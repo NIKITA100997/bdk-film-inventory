@@ -24,6 +24,12 @@ export default function Reconciliation() {
   ];
   const wanted = params.get("tab");
   const active = tabs.some((t) => t.key === wanted) ? (wanted as string) : tabs[0]?.key;
+  if (tabs.length === 1)
+    return (
+      <Card title={`Сверка · ${tabs[0].label}`}>
+        {tabs[0].children}
+      </Card>
+    );
   return (
     <Card title="Сверка">
       <Tabs activeKey={active} onChange={(k) => setParams({ tab: k }, { replace: true })} items={tabs} destroyOnHidden />

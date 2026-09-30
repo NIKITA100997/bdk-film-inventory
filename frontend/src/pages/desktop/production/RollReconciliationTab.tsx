@@ -270,7 +270,9 @@ export default function RollReconciliationTab() {
               r.task_line_id == null ? (
                 "—"
               ) : r.reports_count === 0 ? (
-                <Typography.Text type="danger">нет отчётов</Typography.Text>
+                <Typography.Text type="danger" style={{ whiteSpace: "nowrap" }}>
+                  нет отчётов
+                </Typography.Text>
               ) : (
                 `${r.good_pieces_sum} годных / ${r.defect_pieces_sum} брака (${r.reports_count})`
               ),

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Space, Typography, DatePicker, Tag, Button, Empty, Select, Progress, Table } from "antd";
+import { Card, Collapse, Space, Typography, DatePicker, Tag, Button, Empty, Select, Progress, Table } from "antd";
 import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
@@ -61,9 +61,18 @@ export default function DailyPlanTab() {
     return (
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         {areaPicker}
-        <PlanForDay area={effectiveArea} canReport={canReport} />
-        <AreaTasks tasks={tasks} canManage={canManage} canReport={canReport} />
+        {/* Главное у станка — отчёт; план и задания участка — ниже, по запросу. */}
         <FastReportPanel area={effectiveArea} allowLegacy />
+        <Collapse
+          items={[
+            {
+              key: "tasks",
+              label: `Задания участка · ${tasks.length}`,
+              children: <AreaTasks tasks={tasks} canManage={canManage} canReport={canReport} />,
+            },
+            { key: "plan", label: "План на день из планировщика", children: <PlanForDay area={effectiveArea} canReport={canReport} /> },
+          ]}
+        />
       </Space>
     );
   }

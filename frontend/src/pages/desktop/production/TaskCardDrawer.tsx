@@ -156,7 +156,9 @@ function TaskCardBody({
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось закрыть задание")),
   });
   const [supplyOpen, setSupplyOpen] = useState(false);
-  const isSuper = !!useAuth().user?.is_superuser;
+  const authUser = useAuth().user;
+  const isSuper = !!authUser?.is_superuser;
+  const userArea = authUser?.area ?? null;
   const deleteMutation = useMutation({
     mutationFn: () => deleteProductionTask(id),
     onSuccess: (r) => {
@@ -183,7 +185,9 @@ function TaskCardBody({
   const done = t.lines.reduce((s, l) => s + Math.min(l.produced_good_pieces, l.quantity_pieces), 0);
   const pfTasks = card?.pf_tasks ?? [];
   const pfAllReady = pfTasks.every(pfReady);
-  const reportAllowed = canReport && t.is_active && !fabrika;
+  // Задание другого участка (связанное п/ф ↔ окутка) — только просмотр.
+  const foreign = !!userArea && t.area !== userArea;
+  const reportAllowed = canReport && t.is_active && !fabrika && !foreign;
 
   const moreItems = [
     ...(canManage && t.is_active && t.lines.some((l) => l.part_name && !l.operation_name)
@@ -233,7 +237,7 @@ function TaskCardBody({
           t={t}
           fabrika={fabrika}
           canManage={canManage}
-          canReport={canReport}
+          canReport={canReport && !foreign}
           dailyPlan={areasQuery.data?.find((a) => a.code === t.area)?.requires_daily_plan ?? true}
           requiresRoll={areaRequiresRoll(areasQuery.data, t.area)}
         />
