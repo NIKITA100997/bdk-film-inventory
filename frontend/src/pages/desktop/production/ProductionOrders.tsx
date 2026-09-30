@@ -20,6 +20,7 @@ import {
   Select,
   Space,
   Table,
+  Tabs,
   Tag,
   Typography,
   message,
@@ -34,6 +35,7 @@ import ReleaseOrderModal from "./ReleaseOrderModal";
 import FastReportPanel from "./fastReport/FastReportPanel";
 import OrderReadiness from "../OrderReadiness";
 import TaskCardDrawer from "./TaskCardDrawer";
+import { OrderHistory, OrderMaterials, OrderPlan } from "./OrderTabs";
 import VariantPicker from "../../../components/VariantPicker";
 import { useAuth } from "../../../auth/AuthContext";
 import { listItems, type Item } from "../../../api/items";
@@ -59,6 +61,17 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 }
 
 const STATUS_COLOR: Record<OrderStatus, string> = { draft: "default", released: "blue", closed: "green" };
+
+type ListFilter = "all" | "late" | "pf" | "fabrika" | "stock" | "draft";
+// Отборы списка заказов (30.09): что не успевает, что ждёт п/ф, Фабрика, на склад, черновики.
+const LIST_FILTERS: [ListFilter, string, (o: ProductionOrder) => boolean][] = [
+  ["all", "Все", () => true],
+  ["late", "Не успевает", (o) => !!o.plan_late],
+  ["pf", "Ждёт п/ф", (o) => (o.tasks ?? []).some((t) => t.for_task_id != null && t.is_active && t.done < t.planned)],
+  ["fabrika", "Фабрика", (o) => (o.tasks ?? []).some((t) => t.area === "fabrika")],
+  ["stock", "На склад", (o) => o.kind === "stock"],
+  ["draft", "Черновики", (o) => o.status === "draft"],
+];
 
 // Заказ с позициями — готовность по последней операции позиций; заказ
 // из заданий (окутка из наряда, операции участка, п/ф) — по строкам заданий.
@@ -124,6 +137,17 @@ function OrdersList() {
     queryFn: () => listProductionOrders(includeClosed || includeClosedDefault),
   });
   const opened = (ordersQuery.data ?? []).find((o) => o.id === openId) ?? null;
+  const [listFilter, setListFilter] = useState<ListFilter>("all");
+  const [q, setQ] = useState("");
+  const allOrders = ordersQuery.data ?? [];
+  const needle = q.trim().toLowerCase();
+  const shownOrders = allOrders
+    .filter(LIST_FILTERS.find((f) => f[0] === listFilter)![2])
+    .filter(
+      (o) =>
+        !needle ||
+        `${o.id} ${o.name} ${o.lines.map((l) => l.item_name).join(" ")} ${(o.tasks ?? []).map((t) => t.name).join(" ")}`.toLowerCase().includes(needle),
+    );
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -163,13 +187,21 @@ function OrdersList() {
           выполняют задания в «Заданиях цеха».
         </Typography.Paragraph>
       </Card>
+      <Space wrap size={[6, 6]}>
+        <Input.Search allowClear placeholder="№, название, позиция, задание" style={{ width: 280 }} value={q} onChange={(e) => setQ(e.target.value)} />
+        {LIST_FILTERS.map(([k, label, fn]) => (
+          <Tag.CheckableTag key={k} checked={listFilter === k} onChange={() => setListFilter(k)} style={{ fontSize: 13, padding: "3px 10px" }}>
+            {label} {allOrders.filter(fn).length}
+          </Tag.CheckableTag>
+        ))}
+      </Space>
       <ResponsiveTable<ProductionOrder>
         tableKey="production-orders"
         lockedColumns={["Заказ"]}
         size="small"
         rowKey="id"
         loading={ordersQuery.isLoading}
-        dataSource={ordersQuery.data ?? []}
+        dataSource={shownOrders}
         pagination={{ pageSize: 30 }}
         scroll={{ x: "max-content" }}
         locale={{ emptyText: "Заказов пока нет" }}
@@ -293,6 +325,13 @@ function OrderDrawer({
   };
   const [releasing, setReleasing] = useState(false);
   const [cardTask, setCardTask] = useState<number | null>(null);
+  const [orderTab, setOrderTab] = useState("flow");
+  // Открыли другой заказ — с вкладки «Ход».
+  const [tabFor, setTabFor] = useState<number | null>(order?.id ?? null);
+  if ((order?.id ?? null) !== tabFor) {
+    setTabFor(order?.id ?? null);
+    setOrderTab("flow");
+  }
   const rescheduleMutation = useMutation({
     mutationFn: (id: number) => rescheduleOrder(id),
     onSuccess: (o) => {
@@ -415,7 +454,15 @@ function OrderDrawer({
       }
     >
       {order && (
-        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+        <Tabs
+          activeKey={orderTab}
+          onChange={setOrderTab}
+          items={[
+            {
+              key: "flow",
+              label: "Ход",
+              children: (
+                <Space direction="vertical" size="large" style={{ width: "100%" }}>
           <Space wrap>
             <Typography.Text type="secondary">
               {order.ship_date ? `Отгрузка ${dayjs(order.ship_date).format("DD.MM.YYYY")}. ` : ""}
@@ -479,7 +526,6 @@ function OrderDrawer({
               />
             </Card>
           )}
-          {order.status === "released" && canManage && <OrderReport order={order} />}
           {order.lines.map((l) => (
             <Card
               key={l.id}
@@ -547,7 +593,19 @@ function OrderDrawer({
               </Space>
             </Card>
           ))}
-        </Space>
+                </Space>
+              ),
+            },
+            ...(order.status === "released" && canManage ? [{ key: "report", label: "Отчёт", children: <OrderReport order={order} /> }] : []),
+            ...(order.status !== "draft"
+              ? [
+                  { key: "materials", label: "Материалы", children: <OrderMaterials order={order} onOpenTask={setCardTask} /> },
+                  { key: "plan", label: "План", children: <OrderPlan order={order} /> },
+                ]
+              : []),
+            { key: "history", label: "История", children: <OrderHistory order={order} /> },
+          ]}
+        />
       )}
       {releasing && order && <ReleaseOrderModal order={order} onClose={() => setReleasing(false)} />}
       <TaskCardDrawer taskId={cardTask} onClose={() => setCardTask(null)} canManage={canManage} canReport={canManage} />
