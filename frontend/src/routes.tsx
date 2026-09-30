@@ -1,5 +1,4 @@
 import { Navigate, Routes, Route } from "react-router-dom";
-import { Card } from "antd";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import AppLayout from "./layout/AppLayout";
@@ -23,17 +22,15 @@ import RoleAdmin from "./pages/desktop/RoleAdmin";
 import LabelTemplateAdmin from "./pages/desktop/LabelTemplateAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
 import SalesCalculator from "./pages/desktop/SalesCalculator";
-import OrderReadiness from "./pages/desktop/OrderReadiness";
 import ProductionTasks from "./pages/desktop/ProductionTasks";
-import ProductionLines from "./pages/desktop/ProductionLines";
 import Demand from "./pages/desktop/production/Demand";
-import RollReconciliationTab from "./pages/desktop/production/RollReconciliationTab";
+import Reconciliation from "./pages/desktop/Reconciliation";
+import AreasAndLines from "./pages/desktop/AreasAndLines";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
 import Planner from "./pages/desktop/production/Planner";
 import Nomenclature from "./pages/desktop/Nomenclature";
 import ItemCard, { MaterialCardRedirect, PartCardRedirect } from "./pages/desktop/ItemCard";
 import { ITEM_VIEW_PERMISSIONS } from "./api/items";
-import AreaAdmin from "./pages/desktop/AreaAdmin";
 import DeletionRequests from "./pages/desktop/DeletionRequests";
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
@@ -119,7 +116,7 @@ const appPageRoutes = (
     />
     <Route
       path="/areas"
-      element={<RequirePermission permissions={["users.manage"]}><AreaAdmin /></RequirePermission>}
+      element={<RequirePermission permissions={["users.manage", "production_tasks.manage"]}><AreasAndLines /></RequirePermission>}
     />
     <Route
       path="/deletion-requests"
@@ -146,9 +143,7 @@ const appPageRoutes = (
     <Route
       path="/production-lines"
       element={
-        <RequirePermission permissions={["production_tasks.manage"]}>
-          <ProductionLines />
-        </RequirePermission>
+        <Navigate to="/areas?tab=lines" replace />
       }
     />
     <Route
@@ -162,7 +157,7 @@ const appPageRoutes = (
     <Route
       path="/production-orders"
       element={
-        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report"]}>
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "sales_calculator.view"]}>
           <ProductionOrders />
         </RequirePermission>
       }
@@ -187,10 +182,8 @@ const appPageRoutes = (
     <Route
       path="/roll-reconciliation"
       element={
-        <RequirePermission permissions={["units.issue", "units.return", "production_tasks.manage"]}>
-          <Card title="Сверка рулонов">
-            <RollReconciliationTab />
-          </Card>
+        <RequirePermission permissions={["units.issue", "units.return", "production_tasks.manage", "reports.view"]}>
+          <Reconciliation />
         </RequirePermission>
       }
     />
@@ -228,7 +221,7 @@ const appPageRoutes = (
         <RequirePermission
           permissions={["sales_calculator.view", "production_tasks.manage", "production_tasks.view", "production_tasks.report"]}
         >
-          <OrderReadiness />
+          <Navigate to="/production-orders?view=readiness" replace />
         </RequirePermission>
       }
     />

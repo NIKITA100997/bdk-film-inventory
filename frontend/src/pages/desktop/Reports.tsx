@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tabs, DatePicker, Space, Row, Col, Tag, InputNumber, Select } from "antd";
+import { Card, Tabs, DatePicker, Space, Row, Col, Tag, InputNumber, Select, Typography } from "antd";
 import Statistic from "../../components/Statistic";
 import { useQuery } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";
@@ -7,7 +7,6 @@ import {
   getStockSummary,
   getStockByWidth,
   getRollsVsStrips,
-  getMovement,
   getDonorAccuracy,
   getStaleUnits,
   getCuttingDiscrepancies,
@@ -20,7 +19,6 @@ import ReportTable, { type ReportColumn } from "../../components/ReportTable";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { listAreas } from "../../api/areas";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
-import { useAuth } from "../../auth/AuthContext";
 import { UnitLink, PartUnitLink } from "../../components/EntityLink";
 
 function StockSummaryTab() {
@@ -164,49 +162,6 @@ function RollsVsStripsTab() {
   );
 }
 
-function MovementTab() {
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(6, "day"), dayjs()]);
-  const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
-  const query = useQuery({
-    queryKey: ["report-movement", range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD"), warehouseId],
-    queryFn: () => getMovement(range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD"), undefined, warehouseId),
-  });
-
-  const rows = query.data ?? [];
-  const columns: ReportColumn<(typeof rows)[number]>[] = [
-    {
-      key: "timestamp",
-      header: "Когда",
-      render: (r) => new Date(r.timestamp).toLocaleString("ru-RU"),
-      printValue: (r) => new Date(r.timestamp).toLocaleString("ru-RU"),
-      sorter: (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-      defaultSortOrder: "descend",
-    },
-    { key: "material", header: "Материал", render: (r) => `${r.material}, ${r.color}, ${r.thickness} мм`, printValue: (r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
-    { key: "event_type", header: "Событие", render: (r) => r.event_type, printValue: (r) => r.event_type },
-    { key: "width_mm", header: "Ширина, мм", render: (r) => r.width_mm, printValue: (r) => r.width_mm, sorter: (a, b) => a.width_mm - b.width_mm },
-    { key: "quantity_delta_m", header: "Δ метры", render: (r) => r.quantity_delta_m, printValue: (r) => r.quantity_delta_m, sorter: (a, b) => a.quantity_delta_m - b.quantity_delta_m },
-    { key: "unit_id", header: "Ед.", render: (r) => <UnitLink id={r.unit_id} />, printValue: (r) => r.unit_id },
-  ];
-
-  return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Space wrap>
-        <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
-        {warehousePicker}
-      </Space>
-      <ReportTable
-        title="Движение за период"
-        filename="dvizhenie.csv"
-        rowKey="event_id"
-        columns={columns}
-        data={rows}
-        loading={query.isLoading}
-      />
-    </Space>
-  );
-}
-
 function DonorAccuracyTab() {
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(29, "day"), dayjs()]);
   const query = useQuery({
@@ -339,7 +294,7 @@ function CuttingDiscrepancyTab() {
 // не сходится с (расход по отчётам + списано + осталось). Находит сам
 // тот класс проблем, из-за которых в этой сессии вручную чинили
 // штрипсы №2115/№2324/партии строки «Багет Б-2/М».
-function UnitReconciliationTab() {
+export function UnitReconciliationTab() {
   const query = useQuery({ queryKey: ["report-unit-reconciliation"], queryFn: getUnitReconciliation });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string | null) => (code ? areasQuery.data?.find((a) => a.code === code)?.name ?? code : "—");
@@ -393,7 +348,7 @@ function UnitReconciliationTab() {
 // больше, чем в ней когда-либо было (тот же класс проблемы, что баг
 // "доп. рулон второй раз списывал партию п/ф", найденный и исправленный
 // при этой же ревизии).
-function PartUnitReconciliationTab() {
+export function PartUnitReconciliationTab() {
   const query = useQuery({ queryKey: ["report-part-unit-reconciliation"], queryFn: getPartUnitReconciliation });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string | null) => (code ? areasQuery.data?.find((a) => a.code === code)?.name ?? code : "—");
@@ -494,7 +449,7 @@ function PlanFactTab() {
   );
 }
 
-function ReorderTab() {
+export function ReorderTab() {
   const query = useQuery({ queryKey: ["report-reorder", "reorder"], queryFn: getStockOverview });
   const rows = (query.data ?? []).filter((r) => r.reorder_suggested);
   const columns: ReportColumn<StockOverviewLine>[] = [
@@ -532,23 +487,21 @@ function ReorderTab() {
 }
 
 export default function Reports() {
-  const { user } = useAuth();
-  const showReorder = !!user?.is_superuser || !!user?.permissions.includes("purchasing.manage");
   return (
     <Card title="Отчёты">
+      <Typography.Paragraph type="secondary">
+        Движения за период — «Склад → Остатки → Движения»; сверка рулонов и партий п/ф — «Склад → Сверка»; «Пора
+        заказывать» — «Закупки».
+      </Typography.Paragraph>
       <Tabs
         items={[
           { key: "summary", label: "Остатки по материалу", children: <StockSummaryTab /> },
           { key: "width", label: "Остатки по ширине", children: <StockByWidthTab /> },
           { key: "rolls-vs-strips", label: "Рулоны и штрипсы", children: <RollsVsStripsTab /> },
-          { key: "movement", label: "Движение за период", children: <MovementTab /> },
           { key: "donor", label: <>Точность донор-рекомендаций <Tag color="blue">2.9</Tag></>, children: <DonorAccuracyTab /> },
           { key: "stale", label: "Давно не двигались", children: <StaleUnitsTab /> },
           { key: "cutting-discrepancy", label: "Отклонения при резке", children: <CuttingDiscrepancyTab /> },
-          { key: "unit-reconciliation", label: "Сверка рулонов", children: <UnitReconciliationTab /> },
-          { key: "part-unit-reconciliation", label: "Сверка партий п/ф", children: <PartUnitReconciliationTab /> },
           { key: "plan-fact", label: "План/факт по заданиям", children: <PlanFactTab /> },
-          ...(showReorder ? [{ key: "reorder", label: "Пора заказывать", children: <ReorderTab /> }] : []),
         ]}
       />
     </Card>

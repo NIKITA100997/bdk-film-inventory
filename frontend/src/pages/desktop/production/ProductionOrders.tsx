@@ -32,6 +32,7 @@ import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
 import ReleaseOrderModal from "./ReleaseOrderModal";
 import FastReportPanel from "./fastReport/FastReportPanel";
+import OrderReadiness from "../OrderReadiness";
 import TaskCardDrawer from "./TaskCardDrawer";
 import VariantPicker from "../../../components/VariantPicker";
 import { useAuth } from "../../../auth/AuthContext";
@@ -80,7 +81,33 @@ type TaskCreate = { kind: "film" | "ops"; orderId?: number };
  * наряда или плана заготовок и работы участка без плёнки — сразу заказ с
  * заданием. «Задания цеха» — только исполнение. Комплектующие п/ф — через
  * «Обеспечение п/ф» задания и «Потребность п/ф». */
+/** Заказы на производство — два вида одного списка: «Заказы» (цех: задания,
+ * запуск, отчёт) и «Готовность» (для продаж: когда будет готово, успевает
+ * ли к отгрузке). Без прав цеха — только «Готовность». */
 export default function ProductionOrders() {
+  const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const shop =
+    !!user?.is_superuser || ["production_tasks.manage", "production_tasks.view", "production_tasks.report"].some((c) => user?.permissions.includes(c));
+  const view = !shop || params.get("view") === "readiness" ? "readiness" : "list";
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      {shop && (
+        <Segmented
+          value={view}
+          onChange={(v) => setParams(v === "readiness" ? { view: "readiness" } : {}, { replace: true })}
+          options={[
+            { value: "list", label: "Заказы" },
+            { value: "readiness", label: "Готовность к отгрузке" },
+          ]}
+        />
+      )}
+      {view === "readiness" ? <OrderReadiness /> : <OrdersList />}
+    </Space>
+  );
+}
+
+function OrdersList() {
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const [includeClosed, setIncludeClosed] = useState(false);

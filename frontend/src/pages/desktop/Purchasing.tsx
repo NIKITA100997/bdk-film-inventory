@@ -1,9 +1,10 @@
+import { ReorderTab } from "./Reports";
 import { useEffect, useState } from "react";
 import { Card, Tag, Button, Modal, Form, InputNumber, Input, DatePicker, Space, Typography, Empty, Tabs, Checkbox, Collapse, message } from "antd";
 import dayjs from "dayjs";
 import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { exportToExcel } from "../../utils/excel";
 
@@ -50,7 +51,8 @@ export default function Purchasing() {
   const qc = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState("requests");
+  const [tabParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(tabParams.get("tab") ?? "requests");
   const [createOpen, setCreateOpen] = useState(false);
   const [prefill, setPrefill] = useState<Partial<PurchaseRequestCreate> | null>(null);
   const [editingPrice, setEditingPrice] = useState<EditingPriceTarget | null>(null);
@@ -198,6 +200,8 @@ export default function Purchasing() {
         activeKey={activeTab}
         onChange={setActiveTab}
         items={[
+          // «Пора заказывать» — перенесено из «Отчётов» (30.09): сигнал для закупщика.
+          { key: "reorder", label: "Пора заказывать", children: <ReorderTab /> },
           {
             key: "requests",
             label: "Заявки поставщику",

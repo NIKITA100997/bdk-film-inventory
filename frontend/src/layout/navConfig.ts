@@ -77,7 +77,7 @@ export const navTree: NavBlock[] = [
       // «Начальные остатки» — режим «Без документа» в Приёмке (объединение экранов, 29.09).
       { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue", "units.return"] },
       // Сверка рулонов — работа кладовщика (перенесена из «Задания цеха», 30.09).
-      { key: "roll-reconciliation", path: "/roll-reconciliation", label: "Сверка рулонов", permissions: ["units.issue", "units.return", "production_tasks.manage"] },
+      { key: "roll-reconciliation", path: "/roll-reconciliation", label: "Сверка", permissions: ["units.issue", "units.return", "production_tasks.manage", "reports.view"] },
       // Единые «Остатки»: плёнка и п/ф, позиции, партии, движения, стеллажи
       // и свободный остаток плёнки — вкладками (pages/desktop/Stock.tsx);
       // старые адреса (/blanks, /part-units, /storage…) ведут туда же.
@@ -121,7 +121,8 @@ export const navTree: NavBlock[] = [
         label: "Потребность",
         permissions: ["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view", "units.issue"],
       },
-      { key: "production-lines", path: "/production-lines", label: "Линии цеха", permissions: ["production_tasks.manage"] },
+      // Участки и линии — один экран устройства цеха (30.09; участки раньше были в «Администрировании»).
+      { key: "areas", path: "/areas", label: "Участки и линии", permissions: ["users.manage", "production_tasks.manage"] },
     ],
   },
   {
@@ -157,7 +158,6 @@ export const navTree: NavBlock[] = [
     items: [
       { key: "users", path: "/users", label: "Пользователи", permissions: ["users.manage"] },
       { key: "roles", path: "/roles", label: "Роли и права", permissions: ["users.manage"] },
-      { key: "areas", path: "/areas", label: "Участки", permissions: ["users.manage"] },
       { key: "deletion-requests", path: "/deletion-requests", label: "Заявки на удаление", permissions: ["users.manage"] },
       { key: "label-template", path: "/label-template", label: "Макет этикетки (100×40)", permissions: ["labels.manage"] },
       { key: "calc-settings", path: "/calc-settings", label: "Параметры расчётов", permissions: ["calc_settings.manage"] },

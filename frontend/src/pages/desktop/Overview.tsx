@@ -198,7 +198,7 @@ export default function Overview() {
         )}
         {showPurchasing && tileSettings.isVisible("reorder") && (
           <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={reorderQuery.isLoading} {...clickableProps("/purchasing")}>
+            <Card loading={reorderQuery.isLoading} {...clickableProps("/purchasing?tab=reorder")}>
               <Statistic
                 title="Пора заказывать (по расходу)"
                 value={reorderCount}
