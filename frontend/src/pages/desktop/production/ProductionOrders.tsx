@@ -31,6 +31,7 @@ import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
 import ReleaseOrderModal from "./ReleaseOrderModal";
+import FastReportPanel from "./fastReport/FastReportPanel";
 import VariantPicker from "../../../components/VariantPicker";
 import { useAuth } from "../../../auth/AuthContext";
 import { listItems, type Item } from "../../../api/items";
@@ -436,6 +437,7 @@ function OrderDrawer({
               />
             </Card>
           )}
+          {order.status === "released" && canManage && <OrderReport order={order} />}
           {order.lines.map((l) => (
             <Card
               key={l.id}
@@ -507,6 +509,23 @@ function OrderDrawer({
       )}
       {releasing && order && <ReleaseOrderModal order={order} onClose={() => setReleasing(false)} />}
     </Drawer>
+  );
+}
+
+/** Отчёт по заказу прямо из карточки — быстрый отчёт видом «таблица»,
+ * только строки этого заказа, участок — из его открытых заданий. */
+function OrderReport({ order }: { order: ProductionOrder }) {
+  const areas = [...new Map((order.tasks ?? []).filter((t) => t.is_active).map((t) => [t.area, t.area_name ?? t.area])).entries()];
+  const [area, setArea] = useState<string | null>(null);
+  const current = area && areas.some(([code]) => code === area) ? area : areas[0]?.[0];
+  if (!current) return null;
+  return (
+    <Space direction="vertical" style={{ width: "100%" }}>
+      {areas.length > 1 && (
+        <Segmented value={current} onChange={(v) => setArea(v as string)} options={areas.map(([value, label]) => ({ value, label }))} />
+      )}
+      <FastReportPanel key={current} area={current} orderId={order.id} defaultView="table" title={`Отчёт по заказу · ${areas.find(([c]) => c === current)?.[1]}`} />
+    </Space>
   );
 }
 

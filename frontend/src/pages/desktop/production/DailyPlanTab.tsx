@@ -7,7 +7,7 @@ import { lineFilmLabel, listProductionTasks, type ProductionTaskLine } from "../
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import ReportModal from "./ReportModal";
-import MasterQuickReportPanel from "./MasterQuickReportPanel";
+import FastReportPanel from "./fastReport/FastReportPanel";
 import { listPlanSlots } from "../../../api/planning";
 
 /** План на день (мастер) — суточный срез уже распределённых по линиям
@@ -15,8 +15,8 @@ import { listPlanSlots } from "../../../api/planning";
  * отключение распределения по дням (Area.requires_daily_plan=false,
  * пилот: окутка царговых) — для такого участка распределений никогда
  * не будет, эта таблица для него пуста и бессмысленна, поэтому вместо
- * неё показываем MasterQuickReportPanel (набор нужных позиций через
- * поиск + один общий отчёт вместо модалки на каждую строку).
+ * неё показываем быстрый отчёт FastReportPanel (плитки/таблица; прежняя
+ * панель набора позиций — вид «Как раньше»).
  * Раздел про просмотр от лица админа/без своего участка — у реального
  * мастера участок закреплён на аккаунте (user.area), но администратор
  * обычно логинится без привязки к участку и иначе никогда не увидит
@@ -60,7 +60,7 @@ export default function DailyPlanTab() {
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         {areaPicker}
         <PlanForDay area={effectiveArea} canReport={canReport} />
-        <MasterQuickReportPanel area={effectiveArea} />
+        <FastReportPanel area={effectiveArea} allowLegacy />
       </Space>
     );
   }
