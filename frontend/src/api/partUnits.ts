@@ -115,6 +115,10 @@ export interface MakeTarget {
 export const listMakeSourceParts = async (): Promise<number[]> =>
   (await apiClient.get<number[]>("/part-units/make-source-parts")).data;
 
+/** Во что по составу идёт брак детали (строки состава «только брак»). */
+export const getRecycleTargets = async (partId: number): Promise<MakeTarget[]> =>
+  (await apiClient.get<MakeTarget[]>(`/part-units/recycle-targets/${partId}`)).data;
+
 export const getMakeTargets = async (unitId: number): Promise<MakeTarget[]> =>
   (await apiClient.get<MakeTarget[]>(`/part-units/${unitId}/make-targets`)).data;
 

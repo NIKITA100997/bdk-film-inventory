@@ -3,6 +3,7 @@ import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
 import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { isAxiosError } from "axios";
 import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Tag, DatePicker } from "antd";
 import type { Dayjs } from "dayjs";
 import MakeFromUnitModal from "../../../components/MakeFromUnitModal";
@@ -16,19 +17,7 @@ import OccurredAtField from "../../../components/OccurredAtField";
 import { printPartUnitLabel } from "../../../api/partLabels";
 import { exportToExcel } from "../../../utils/excel";
 import { toOccurredAtIso } from "../../../utils/occurredAt";
-import {
-  listPartUnits,
-  createPartUnit,
-  writeOffPartUnit,
-  advancePartUnit,
-  listMakeSourceParts,
-  returnPartUnit,
-  adjustPartUnit,
-  recyclePartUnits,
-  listPartUnitEvents,
-  type PartUnit,
-  type PartUnitStatus,
-} from "../../../api/partUnits";
+import { listPartUnits, createPartUnit, writeOffPartUnit, advancePartUnit, listMakeSourceParts, returnPartUnit, adjustPartUnit, recyclePartUnits, listPartUnitEvents, type PartUnit, type PartUnitStatus, getRecycleTargets, type MakeTarget } from "../../../api/partUnits";
 import { listProductionTasks } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
 import { listParts, type Part } from "../../../api/dictionaries";
@@ -181,6 +170,13 @@ export default function PartUnits() {
   // не только по кликнутой строке.
   const [recycleTarget, setRecycleTarget] = useState<PartUnit | null>(null);
   const [recycleTargetPart, setRecycleTargetPart] = useState<Part | null>(null);
+  // По составу: деталь, в составе которой этот брак отмечен «только брак».
+  const [recycleComp, setRecycleComp] = useState<MakeTarget | null>(null);
+  const recycleTargetsQuery = useQuery({
+    queryKey: ["recycle-targets", recycleTarget?.part_id],
+    queryFn: () => getRecycleTargets(recycleTarget!.part_id),
+    enabled: !!recycleTarget,
+  });
   const [recycleForm] = Form.useForm<{ quantity_pieces: number; note?: string }>();
 
   const [partFilter, setPartFilter] = useState("");
@@ -369,7 +365,7 @@ export default function PartUnits() {
         source_part_id: recycleTarget!.part_id,
         area: recycleTarget!.area!,
         quantity_pieces: v.quantity_pieces,
-        target_part_id: recycleTargetPart!.id,
+        target_part_id: recycleComp ? recycleComp.part_id : recycleTargetPart!.id,
         note: v.note,
       }),
     onSuccess: (newUnit) => {
@@ -377,9 +373,15 @@ export default function PartUnits() {
       message.success(`Партия №${newUnit.id} детали «${newUnit.part_name}» создана из переработки`);
       setRecycleTarget(null);
       setRecycleTargetPart(null);
+      setRecycleComp(null);
       recycleForm.resetFields();
     },
-    onError: () => message.error("Не удалось переработать — хватает ли резерва, есть ли у целевой детали этап «Окутка»?"),
+    onError: (e) =>
+      message.error(
+        isAxiosError(e) && typeof e.response?.data?.detail === "string"
+          ? e.response.data.detail
+          : "Не удалось переработать — хватает ли резерва, есть ли у целевой детали этап «Окутка»?",
+      ),
   });
 
   const nextStageName = (u: PartUnit): string | null => {
@@ -902,26 +904,73 @@ export default function PartUnits() {
         onCancel={() => {
           setRecycleTarget(null);
           setRecycleTargetPart(null);
+          setRecycleComp(null);
         }}
         footer={null}
         destroyOnHidden
       >
         <Typography.Paragraph type="secondary">
           Доступно в резерве «{recycleTarget?.part_name}» на участке «{areaLabel(recycleTarget?.area ?? null)}»:{" "}
-          <strong>{recycleAvailable} шт</strong>. Материал заберётся по FIFO (от самой старой партии) и станет новой
-          партией выбранной ниже детали сразу на её этапе «Окутка».
+          <strong>{recycleAvailable} шт</strong>. Материал заберётся по FIFO (от самой старой партии).
         </Typography.Paragraph>
+        {(recycleTargetsQuery.data ?? []).length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <Typography.Text strong>По составу из этого брака делают:</Typography.Text>
+            <Space direction="vertical" style={{ width: "100%", marginTop: 6 }}>
+              {(recycleTargetsQuery.data ?? []).map((t) => (
+                <Button
+                  key={t.part_id}
+                  block
+                  type={recycleComp?.part_id === t.part_id ? "primary" : "default"}
+                  style={{ height: "auto", textAlign: "left", whiteSpace: "normal", padding: "8px 12px" }}
+                  onClick={() => {
+                    setRecycleComp(t);
+                    setRecycleTargetPart(null);
+                    recycleForm.setFieldsValue({ quantity_pieces: Math.floor(recycleAvailable / t.per_unit) || undefined });
+                  }}
+                >
+                  {t.part_name}
+                  <Typography.Text type="secondary" style={{ display: "block", fontSize: 12 }}>
+                    на «{t.operation}» · {t.per_unit} шт брака на 1 шт · из резерва выйдет до {Math.floor(recycleAvailable / t.per_unit)} шт
+                  </Typography.Text>
+                </Button>
+              ))}
+            </Space>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              Партия детали появится на этой операции, брак спишется по норме состава.
+            </Typography.Text>
+          </div>
+        )}
         <Form
           layout="vertical"
           form={recycleForm}
           onFinish={(v) => recycleMutation.mutate(v)}
         >
-          <Form.Item label="Переработать в деталь" required>
-            <PartSelect area={recycleTarget?.area ?? undefined} onSelect={setRecycleTargetPart} placeholder="Найдите целевую деталь в справочнике" />
+          <Form.Item
+            label={(recycleTargetsQuery.data ?? []).length ? "Или другая деталь (через окутку)" : "Переработать в деталь"}
+            required={!recycleComp}
+            extra="Новая партия сразу на этапе «Окутка» выбранной детали."
+          >
+            <PartSelect
+              area={recycleTarget?.area ?? undefined}
+              onSelect={(p) => {
+                setRecycleTargetPart(p);
+                setRecycleComp(null);
+              }}
+              placeholder="Найдите целевую деталь в справочнике"
+            />
             {recycleTargetPart && <Typography.Text type="secondary">Выбрано: {recycleTargetPart.name}</Typography.Text>}
           </Form.Item>
-          <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
-            <InputNumber min={0.01} max={recycleAvailable} style={{ width: "100%" }} />
+          <Form.Item
+            name="quantity_pieces"
+            label={recycleComp ? `Сколько сделать «${recycleComp.part_name}», шт` : "Количество, шт"}
+            rules={[{ required: true }]}
+          >
+            <InputNumber
+              min={0.01}
+              max={recycleComp ? Math.floor(recycleAvailable / recycleComp.per_unit) : recycleAvailable}
+              style={{ width: "100%" }}
+            />
           </Form.Item>
           <Form.Item name="note" label="Заметка (опционально)">
             <Input />
@@ -930,7 +979,7 @@ export default function PartUnits() {
             type="primary"
             htmlType="submit"
             block
-            disabled={!recycleTargetPart || recycleTargetPart.id === recycleTarget?.part_id}
+            disabled={!recycleComp && (!recycleTargetPart || recycleTargetPart.id === recycleTarget?.part_id)}
             loading={recycleMutation.isPending}
           >
             Переработать

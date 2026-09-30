@@ -179,20 +179,87 @@ def _final_stage(part: Part) -> PartStage | None:
     return max(part.stages, key=lambda s: s.sequence_order) if part.stages else None
 
 
-def detail_targets(db: Session, part: Part) -> list[tuple[Part, PartStage, float]]:
+def detail_targets(db: Session, part: Part, from_defect: bool = False) -> list[tuple[Part, PartStage, float]]:
     """В какие детали по составу идёт деталь-комплектующее (заготовка до
-    фрезеровки → детали с пазом): (деталь, операция расхода, норма на 1 шт)."""
+    фрезеровки → детали с пазом): (деталь, операция расхода, норма на 1 шт).
+    from_defect — из брака этой детали (строки состава «только брак»):
+    операция не указана — первая операция детали."""
     if part.item_id is None:
         return []
+    q = db.query(ItemComponent).filter(ItemComponent.component_item_id == part.item_id, ItemComponent.from_defect.is_(from_defect))
+    if not from_defect:
+        q = q.filter(ItemComponent.stage_id.isnot(None))
     out = []
-    for comp in db.query(ItemComponent).filter(
-        ItemComponent.component_item_id == part.item_id, ItemComponent.stage_id.isnot(None)
-    ):
+    for comp in q:
         target = db.query(Part).filter(Part.item_id == comp.parent_item_id, Part.is_active.is_(True)).first()
-        stage = db.get(PartStage, comp.stage_id)
-        if target is not None and stage is not None:
+        if target is None:
+            continue
+        stage = db.get(PartStage, comp.stage_id) if comp.stage_id else None
+        if stage is None and from_defect and target.stages:
+            stage = min(target.stages, key=lambda s: s.sequence_order)
+        if stage is not None:
             out.append((target, stage, float(comp.qty_per_unit)))
     return sorted(out, key=lambda x: x[0].name)
+
+
+def recycle_to_detail(
+    db: Session, *, source_part_id: int, area: str, target_part_id: int, quantity_pieces: float, user_id: int,
+    note: str | None = None,
+) -> PartUnit:
+    """«Переработать в деталь» по составу: брак детали (В_переработку, на
+    участке area, FIFO) — в деталь, у которой в составе он отмечен «только
+    брак» (36х100 из брака 36х108). Партия детали рождается на операции,
+    где брак расходуется, брак списывается по норме состава событием
+    «Переработка». Без commit."""
+    from app.models.part_units import PartEventType
+    from app.services.part_units import _split_or_reuse, record_part_event
+
+    if quantity_pieces <= 0:
+        raise ValueError("Укажите количество деталей")
+    source = db.get(Part, source_part_id)
+    if source is None:
+        raise ValueError("Деталь-источник не найдена")
+    target = next(((t, s, q) for t, s, q in detail_targets(db, source, from_defect=True) if t.id == target_part_id), None)
+    if target is None:
+        raise ValueError(f"По составу брак «{source.name}» не идёт в выбранную деталь")
+    part, stage, per_unit = target
+    if not stage.area:
+        raise ValueError(f"У операции «{stage.name}» детали «{part.name}» не указан участок")
+    need = round(per_unit * quantity_pieces, 4)
+    candidates = (
+        db.query(PartUnit)
+        .filter(PartUnit.part_id == source.id, PartUnit.area == area, PartUnit.status == PartUnitStatus.V_PERERABOTKU)
+        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+        .all()
+    )
+    available = sum(float(c.quantity_pieces) for c in candidates)
+    if available + 1e-9 < need:
+        raise ValueError(f"В переработке «{source.name}» {available:g} шт, а на {quantity_pieces:g} шт «{part.name}» нужно {need:g}")
+    new_unit = mint_part_unit(
+        db, part=part, quantity_pieces=quantity_pieces, user_id=user_id, stage_id=stage.id,
+        note=(note or f"Из брака «{source.name}»")[:255],
+    )
+    db.flush()
+    remaining = need
+    labels = []
+    for c in candidates:
+        if remaining <= 1e-9:
+            break
+        take = min(remaining, float(c.quantity_pieces))
+        piece = _split_or_reuse(db, c, take)
+        piece.status = PartUnitStatus.SPISAN
+        record_part_event(
+            db, unit=piece, event_type=PartEventType.PERERABOTKA, user_id=user_id, quantity_delta=-take,
+            related_part_unit_id=new_unit.id, note=note,
+        )
+        labels.append(f"№{piece.id} ({take:g} шт)")
+        remaining -= take
+    record_part_event(
+        db, unit=new_unit, event_type=PartEventType.PERERABOTKA, user_id=user_id, quantity_delta=quantity_pieces,
+        to_stage_id=stage.id, note=f"Из брака: {', '.join(labels)}"[:255],
+    )
+    db.flush()
+    return new_unit
 
 
 def make_detail_from_unit(

@@ -33,7 +33,7 @@ from app.services.part_units import (
     return_part_unit,
     write_off_part_unit,
 )
-from app.services.production_orders import detail_targets, make_detail_from_unit
+from app.services.production_orders import detail_targets, make_detail_from_unit, recycle_to_detail
 
 router = APIRouter(prefix="/part-units", tags=["part-units"])
 
@@ -139,15 +139,26 @@ def recycle_part_units_endpoint(
     резерв (В_переработку) исходной детали по FIFO и заминтить новую
     партию другой детали сразу на этапе «Окутка»."""
     try:
-        new_unit = recycle_part_units_fifo(
-            db,
-            source_part_id=payload.source_part_id,
-            area=payload.area,
-            quantity_pieces=payload.quantity_pieces,
-            target_part_id=payload.target_part_id,
-            user_id=user.id,
-            note=payload.note,
+        source = db.get(Part, payload.source_part_id)
+        by_composition = source is not None and any(
+            p.id == payload.target_part_id for p, _s, _q in detail_targets(db, source, from_defect=True)
         )
+        if by_composition:
+            # По составу («только брак») — партия на операции расхода, брак по норме.
+            new_unit = recycle_to_detail(
+                db, source_part_id=payload.source_part_id, area=payload.area, target_part_id=payload.target_part_id,
+                quantity_pieces=payload.quantity_pieces, user_id=user.id, note=payload.note,
+            )
+        else:
+            new_unit = recycle_part_units_fifo(
+                db,
+                source_part_id=payload.source_part_id,
+                area=payload.area,
+                quantity_pieces=payload.quantity_pieces,
+                target_part_id=payload.target_part_id,
+                user_id=user.id,
+                note=payload.note,
+            )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     db.commit()
@@ -220,6 +231,18 @@ def make_targets(unit_id: int, db: Session = Depends(get_db), user: User = Depen
     return [
         MakeTargetOut(part_id=p.id, part_name=p.name, operation=s.name, per_unit=q)
         for p, s, q in detail_targets(db, unit.part)
+    ]
+
+
+@router.get("/recycle-targets/{part_id}", response_model=list[MakeTargetOut])
+def recycle_targets(part_id: int, db: Session = Depends(get_db), user: User = Depends(view_part_units)) -> list[MakeTargetOut]:
+    """Во что по составу идёт брак детали (строки состава «только брак»)."""
+    part = db.get(Part, part_id)
+    if part is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Деталь не найдена")
+    return [
+        MakeTargetOut(part_id=p.id, part_name=p.name, operation=s.name, per_unit=q)
+        for p, s, q in detail_targets(db, part, from_defect=True)
     ]
 
 
