@@ -735,6 +735,9 @@ class TechInput(BaseModel):
     source: str | None = None
     stage_id: int | None = None
     operation_name: str | None = None
+    # «Или»: строки с одним номером — варианты друг друга; только из брака.
+    alt_group: int | None = None
+    from_defect: bool = False
 
 
 class TechUsage(BaseModel):
@@ -884,6 +887,7 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
                 note=f"{_fmt(cp.width_mm)}×{_fmt(round(float(cp.length_m) * 1000, 1))} мм" if cp else None,
                 component_item_id=c.component_item_id, source=c.source, stage_id=c.stage_id,
                 operation_name=stage_names.get(c.stage_id) if c.stage_id else None,
+                alt_group=c.alt_group, from_defect=bool(c.from_defect),
             )
         )
     if model is not None:
@@ -929,6 +933,8 @@ class ComponentIn(BaseModel):
     component_item_id: int
     qty_per_unit: float = Field(gt=0)
     stage_id: int | None = None
+    alt_group: int | None = None
+    from_defect: bool = False
 
 
 def _descendants(db: Session, item_id: int) -> set[int]:
@@ -963,6 +969,11 @@ def set_item_components(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 f"«{live_item_names(db, {comp.id}).get(comp.id)}» сам состоит из этой позиции — так состав зациклится",
             )
+        if row.from_defect and db.query(Part.id).filter(Part.item_id == comp.id).first() is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"«{live_item_names(db, {comp.id}).get(comp.id)}» — не деталь п/ф: «только из брака» бывает только у деталей",
+            )
         if row.stage_id is not None and row.stage_id not in stage_ids:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Операция не из маршрута этой позиции")
     db.query(ItemComponent).filter(ItemComponent.parent_item_id == item.id, ItemComponent.source == "manual").delete()
@@ -972,6 +983,7 @@ def set_item_components(
             ItemComponent(
                 parent_item_id=item.id, component_item_id=row.component_item_id, qty_per_unit=row.qty_per_unit,
                 stage_id=row.stage_id, source="manual", sort_order=base + i,
+                alt_group=row.alt_group, from_defect=row.from_defect,
             )
         )
     db.commit()

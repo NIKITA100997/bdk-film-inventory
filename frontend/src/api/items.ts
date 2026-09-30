@@ -171,6 +171,9 @@ export interface TechCard {
     source: "bom" | "manual" | "rule" | null;
     stage_id: number | null;
     operation_name: string | null;
+    // «Или»: строки с одним номером — варианты друг друга; только из брака (переработка).
+    alt_group: number | null;
+    from_defect: boolean;
   }[];
   used_in: { name: string; source_type: "model" | "part" | "item"; source_id: number; qty_per_unit: number | null; item_id: number | null }[];
   // Плёнка: группа для складской части карточки.
@@ -197,7 +200,7 @@ export const setItemRoute = async (
 /** Ручной состав позиции (source=manual) целиком. */
 export const setItemComponents = async (
   itemId: number,
-  rows: { component_item_id: number; qty_per_unit: number; stage_id: number | null }[],
+  rows: { component_item_id: number; qty_per_unit: number; stage_id: number | null; alt_group?: number | null; from_defect?: boolean }[],
 ): Promise<TechCard> => (await apiClient.put<TechCard>(`/items/${itemId}/components`, rows)).data;
 
 /** Позиция номенклатуры за деталью / плёнкой / моделью — для перехода в карточку позиции. */

@@ -262,53 +262,98 @@ def consume_components_at_operation(
         .order_by(ItemComponent.sort_order, ItemComponent.id)
         .all()
     )
+    # Группы «или» (alt_group) — берётся по порядку, можно добрать из
+    # нескольких вариантов; строка без группы — сама себе группа.
+    groups: list[list[ItemComponent]] = []
+    by_alt: dict[int, list[ItemComponent]] = {}
     for comp in comps:
-        comp_item = db.get(Item, comp.component_item_id)
-        if comp_item is not None and comp_item.kind.code == KIND_MATERIAL:
+        if comp.alt_group is None:
+            groups.append([comp])
+        elif comp.alt_group in by_alt:
+            by_alt[comp.alt_group].append(comp)
+        else:
+            by_alt[comp.alt_group] = [comp]
+            groups.append(by_alt[comp.alt_group])
+    for group in groups:
+        first_item = db.get(Item, group[0].component_item_id)
+        if len(group) == 1 and first_item is not None and first_item.kind.code == KIND_MATERIAL:
             # Материал — без партий: расход пишется всегда, в минус тоже.
             consume_material(
-                db, item=comp_item, qty=round(float(comp.qty_per_unit) * quantity, 4), user_id=user_id,
+                db, item=first_item, qty=round(float(group[0].qty_per_unit) * quantity, 4), user_id=user_id,
                 task_line_id=task_line_id, note=note or f"В производство: {stage.name}",
             )
             continue
-        part = db.query(Part).filter(Part.item_id == comp.component_item_id).first()
-        if part is None:
-            continue
-        if db.query(PartUnit.id).filter(PartUnit.part_id == part.id).first() is None:
-            continue  # партии по детали не ведутся
-        need = round(float(comp.qty_per_unit) * quantity, 4)
-        # Резерв этой детали под другие задания цеха не расходуется.
-        check_foreign_reserve(db, part_id=part.id, quantity=need, task_id=task_id)
-        q = db.query(PartUnit).filter(
-            PartUnit.part_id == part.id,
-            PartUnit.status.in_([PartUnitStatus.VYDAN_UCHASTKU, PartUnitStatus.NA_KHRANENII]),
-        )
-        final = _final_stage(part)
-        if final is not None:
-            q = q.filter(PartUnit.stage_id == final.id)
-        # Последний этап без участка («Готово» — общий запас: заготовка МДФ
-        # щитовой панели идёт дальше то на ламинацию, то на фрезеровку) —
-        # партии берутся с любого участка; иначе — только с участка операции.
-        anywhere = final is not None and final.area is None
-        if not anywhere:
-            q = q.filter(PartUnit.area == area)
-        units = q.order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc()).all()
-        available = sum(float(u.quantity_pieces) for u in units)
-        if available + 1e-9 < need:
-            raise ValueError(
-                f"Не хватает «{part.name}» для операции «{stage.name}»: {'' if anywhere else 'на участке '}готовых {available:g} шт, "
-                f"нужно {need:g} шт"
+        # Варианты группы: (строка состава, деталь, партии FIFO, «откуда»).
+        options = []
+        for comp in group:
+            part = db.query(Part).filter(Part.item_id == comp.component_item_id).first()
+            if part is None:
+                continue
+            if comp.from_defect:
+                units = (
+                    db.query(PartUnit)
+                    .filter(PartUnit.part_id == part.id, PartUnit.status == PartUnitStatus.V_PERERABOTKU)
+                    .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+                    .all()
+                )
+                options.append((comp, part, units, "брака в переработке"))
+                continue
+            if db.query(PartUnit.id).filter(PartUnit.part_id == part.id).first() is None:
+                continue  # партии по детали не ведутся
+            q = db.query(PartUnit).filter(
+                PartUnit.part_id == part.id,
+                PartUnit.status.in_([PartUnitStatus.VYDAN_UCHASTKU, PartUnitStatus.NA_KHRANENII]),
             )
-        remaining = need
-        for unit in units:
-            if remaining <= 1e-9:
+            final = _final_stage(part)
+            if final is not None:
+                q = q.filter(PartUnit.stage_id == final.id)
+            # Последний этап без участка («Готово» — общий запас: заготовка МДФ
+            # щитовой панели идёт дальше то на ламинацию, то на фрезеровку) —
+            # партии берутся с любого участка; иначе — только с участка операции.
+            anywhere = final is not None and final.area is None
+            if not anywhere:
+                q = q.filter(PartUnit.area == area)
+            units = q.order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc()).all()
+            options.append((comp, part, units, "готовых" if anywhere else "готовых на участке"))
+        if not options:
+            continue  # ни по одному варианту партии не ведутся
+        # Сколько штук позиции покрывает каждый вариант; не хватает всего —
+        # отчёт не принимается, ничего не списано (решение 24.09).
+        left = quantity
+        plan: list[tuple] = []
+        for comp, part, units, where in options:
+            if left <= 1e-9:
                 break
-            take = min(remaining, float(unit.quantity_pieces))
-            write_off_part_unit(
-                db, unit=unit, quantity_pieces=take, reason=PART_UNIT_AUTO_WRITE_OFF_REASON_CODE, user_id=user_id,
-                note=note or f"В производство: {stage.name}",
+            per = float(comp.qty_per_unit)
+            available = sum(float(u.quantity_pieces) for u in units)
+            covers = min(left, available / per) if per > 0 else left
+            if covers > 1e-9:
+                plan.append((comp, part, units, round(covers * per, 4)))
+                left -= covers
+        if left > 1e-6:
+            variants = "; ".join(
+                f"«{part.name}»{' (брак)' if comp.from_defect else ''}: {where} {sum(float(u.quantity_pieces) for u in units):g} шт"
+                for comp, part, units, where in options
             )
-            written.append((unit, take))
-            remaining -= take
+            need_first = round(float(options[0][0].qty_per_unit) * quantity, 4)
+            raise ValueError(
+                f"Не хватает для операции «{stage.name}» (нужно {need_first:g} шт"
+                f"{' по основному варианту' if len(options) > 1 else ''}) — есть {variants}"
+            )
+        for comp, part, units, need in plan:
+            if not comp.from_defect:
+                # Резерв этой детали под другие задания цеха не расходуется.
+                check_foreign_reserve(db, part_id=part.id, quantity=need, task_id=task_id)
+            remaining = need
+            for unit in units:
+                if remaining <= 1e-9:
+                    break
+                take = min(remaining, float(unit.quantity_pieces))
+                write_off_part_unit(
+                    db, unit=unit, quantity_pieces=take, reason=PART_UNIT_AUTO_WRITE_OFF_REASON_CODE, user_id=user_id,
+                    note=note or (f"Из брака в производство: {stage.name}" if comp.from_defect else f"В производство: {stage.name}"),
+                )
+                written.append((unit, take))
+                remaining -= take
         db.flush()
     return written

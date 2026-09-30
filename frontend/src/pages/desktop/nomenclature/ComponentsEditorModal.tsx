@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { isAxiosError } from "axios";
-import { Button, InputNumber, Modal, Select, Space, Typography, message } from "antd";
+import { Button, Checkbox, InputNumber, Modal, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItems, setItemComponents, type TechCard } from "../../../api/items";
 
-type Row = { component_item_id: number | null; qty_per_unit: number | null; stage_id: number | null };
+type Row = { component_item_id: number | null; qty_per_unit: number | null; stage_id: number | null; alt_group: number | null; from_defect: boolean };
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -20,7 +20,7 @@ export default function ComponentsEditorModal({ card, onClose }: { card: TechCar
   const [rows, setRows] = useState<Row[]>(
     card.inputs
       .filter((i) => i.source === "manual" && i.component_item_id !== null)
-      .map((i) => ({ component_item_id: i.component_item_id, qty_per_unit: i.qty_per_unit, stage_id: i.stage_id })),
+      .map((i) => ({ component_item_id: i.component_item_id, qty_per_unit: i.qty_per_unit, stage_id: i.stage_id, alt_group: i.alt_group, from_defect: i.from_defect })),
   );
   const patch = (i: number, p: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const itemOptions = (itemsQuery.data ?? [])
@@ -33,7 +33,13 @@ export default function ComponentsEditorModal({ card, onClose }: { card: TechCar
     mutationFn: () =>
       setItemComponents(
         card.item_id,
-        rows.map((r) => ({ component_item_id: r.component_item_id as number, qty_per_unit: r.qty_per_unit as number, stage_id: r.stage_id })),
+        rows.map((r) => ({
+          component_item_id: r.component_item_id as number,
+          qty_per_unit: r.qty_per_unit as number,
+          stage_id: r.stage_id,
+          alt_group: r.alt_group,
+          from_defect: r.from_defect,
+        })),
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["techcard"] });
@@ -47,7 +53,7 @@ export default function ComponentsEditorModal({ card, onClose }: { card: TechCar
   return (
     <Modal
       open
-      width={860}
+      width={1120}
       title={`Состав — ${card.name}`}
       okText="Сохранить"
       cancelText="Отмена"
@@ -56,7 +62,9 @@ export default function ComponentsEditorModal({ card, onClose }: { card: TechCar
       onOk={() => mutation.mutate()}
     >
       <Typography.Paragraph type="secondary">
-        Из чего состоит позиция: компонент, сколько на 1 шт и на какой операции маршрута расходуется.
+        Из чего состоит позиция: компонент, сколько на 1 шт и на какой операции маршрута расходуется. «Вариант» — если
+        позицию можно сделать из разного: строки одной группы «или» взаимозаменяемы, расходуется первая по порядку, не хватает —
+        добирается из следующей. «Только брак» — компонент берётся из брака этой детали, отложенного в переработку.
         {bomRows.length > 0 && " Строки из BOM модели правятся на экране моделей изделий — здесь их нет."}
       </Typography.Paragraph>
       <Space direction="vertical" style={{ width: "100%" }}>
@@ -88,12 +96,26 @@ export default function ComponentsEditorModal({ card, onClose }: { card: TechCar
               options={opOptions}
               onChange={(v) => patch(i, { stage_id: v ?? null })}
             />
+            <Select
+              style={{ width: 150 }}
+              value={r.alt_group ?? 0}
+              onChange={(v) => patch(i, { alt_group: v || null })}
+              options={[
+                { value: 0, label: "обязательно" },
+                { value: 1, label: "или · группа 1" },
+                { value: 2, label: "или · группа 2" },
+                { value: 3, label: "или · группа 3" },
+              ]}
+            />
+            <Checkbox checked={r.from_defect} onChange={(e) => patch(i, { from_defect: e.target.checked })}>
+              только брак
+            </Checkbox>
             <Button size="small" danger onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>
               Убрать
             </Button>
           </Space>
         ))}
-        <Button block onClick={() => setRows((rs) => [...rs, { component_item_id: null, qty_per_unit: 1, stage_id: null }])}>
+        <Button block onClick={() => setRows((rs) => [...rs, { component_item_id: null, qty_per_unit: 1, stage_id: null, alt_group: null, from_defect: false }])}>
           + компонент
         </Button>
       </Space>

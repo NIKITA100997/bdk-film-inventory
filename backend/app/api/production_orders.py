@@ -25,7 +25,7 @@ from app.models.production_orders import (
     ProductionOrderLine,
 )
 from app.models.users import User
-from app.services.components import live_item_names
+from app.services.components import live_item_names, planned_components
 from app.services.planning import PfPick, order_pf_needs, order_plan_status, release_pf, schedule_order
 from app.services.production_orders import OrderError, close_order, complete_tasks, release_order
 from app.services.schedule_import import import_schedule
@@ -167,7 +167,7 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
                     task_line_id=tl.id if tl else None, good=good, defect=defect, remaining=max(0.0, float(ln.quantity) - good),
                 )
             )
-        comps = db.query(ItemComponent).filter(ItemComponent.parent_item_id == item.id).order_by(ItemComponent.sort_order).all()
+        comps = planned_components(db.query(ItemComponent).filter(ItemComponent.parent_item_id == item.id).all())
         comp_names = live_item_names(db, {c.component_item_id for c in comps})
         comp_items = {i.id: i for i in db.query(Item).filter(Item.id.in_([c.component_item_id for c in comps]))} if comps else {}
         out_lines.append(

@@ -334,8 +334,10 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
         if stage is None:
             continue
         first_id = min(stage.item.stages, key=lambda s: s.sequence_order).id if stage.item.stages else stage.id
+        from app.services.components import planned_components
+
         comps = [
-            c for c in db.query(ItemComponent).filter(ItemComponent.parent_item_id == stage.item_id)
+            c for c in planned_components(db.query(ItemComponent).filter(ItemComponent.parent_item_id == stage.item_id).all())
             if c.stage_id == stage.id or (c.stage_id is None and stage.id == first_id)
         ]
         if not comps:

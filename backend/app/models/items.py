@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, event, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, event, false, func
 from sqlalchemy.orm import Mapped, Session, attributes, mapped_column, relationship
 
 from app.db.base import Base
@@ -108,6 +108,11 @@ class ItemComponent(Base):
     source: Mapped[str] = mapped_column(String(16), default="manual")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     rule_id: Mapped[int | None] = mapped_column(ForeignKey("item_type_components.id", ondelete="SET NULL"), nullable=True)
+    # Альтернативы: строки с одним alt_group — «или» (берётся любая по
+    # порядку, можно добрать из нескольких). from_defect — только из брака
+    # этой детали, отложенного в переработку (В_переработку).
+    alt_group: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    from_defect: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 
 class ItemType(Base):

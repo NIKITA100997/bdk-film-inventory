@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Button, Card, Empty, Progress, Result, Space, Spin, Table, Tabs, Tag, Typography } from "antd";
+import { Button, Card, Dropdown, Empty, Progress, Result, Space, Spin, Table, Tabs, Tag, Typography } from "antd";
 import TechTree from "../../components/TechTree";
 import { getItemTree, getModelSummary } from "../../api/modelBuilder";
 import { useQuery } from "@tanstack/react-query";
@@ -12,6 +12,9 @@ import TechCardView from "./nomenclature/TechCardView";
 import ModelVariants from "./nomenclature/ModelVariants";
 import LaminatedBar from "./nomenclature/LaminatedBar";
 import PartParamsModal from "./nomenclature/PartParamsModal";
+import ItemMainTab from "./nomenclature/ItemMainTab";
+import ComponentsEditorModal from "./nomenclature/ComponentsEditorModal";
+import RouteEditorModal from "./nomenclature/RouteEditorModal";
 import { listAllParts } from "../../api/dictionaries";
 import { useTabTitle } from "../../layout/tabTitle";
 import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
@@ -60,6 +63,9 @@ export default function ItemCard() {
   // участок, закреплённая плёнка, мин. остаток и партия, архив.
   const canEditPart = has("production_tasks.manage");
   const [paramsOpen, setParamsOpen] = useState(false);
+  const [editing, setEditing] = useState<"components" | "route" | null>(null);
+  // Состав и маршрут правит тот же, кто и в техкарте (production_tasks.manage).
+  const canEditTech = has("production_tasks.manage");
   const partsQuery = useQuery({
     queryKey: ["parts", "all"],
     queryFn: listAllParts,
@@ -110,6 +116,22 @@ export default function ItemCard() {
         },
       ]
     : [
+        ...(card.source_type !== "sku"
+          ? [
+              {
+                key: "main",
+                label: "Главное",
+                children: (
+                  <ItemMainTab
+                    card={card}
+                    canEdit={canEditTech}
+                    onEditComponents={() => setEditing("components")}
+                    onEditRoute={() => setEditing("route")}
+                  />
+                ),
+              },
+            ]
+          : []),
         ...(stockTab ? [stockTab] : []),
         { key: "techcard", label: "Техкарта", children: <TechCardView itemId={itemId} /> },
         ...(card.source_type === "sku" || card.source_type === "part"
@@ -136,11 +158,28 @@ export default function ItemCard() {
             {card.type_name && <Tag color="purple">{card.type_name}</Tag>}
             {card.is_model && <Tag color="gold">модель</Tag>}
             {!card.is_active && <Tag>архив</Tag>}
-            {canEditPart && part && (
-              <Button size="small" onClick={() => setParamsOpen(true)}>
-                Параметры детали
-              </Button>
+            {canEditTech && !card.is_model && card.source_type !== "sku" && (
+              <Dropdown
+                trigger={["click"]}
+                menu={{
+                  items: [
+                    ...(canEditPart && part ? [{ key: "params", label: "Параметры детали (размер, участок, плёнка, мин. остаток)…" }] : []),
+                    { key: "components", label: "Из чего делается…" },
+                    { key: "route", label: "Маршрут…" },
+                    { key: "props", label: "Тип и свойства" },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "params") setParamsOpen(true);
+                    else if (key === "components" || key === "route") setEditing(key);
+                    else if (key === "props") setParams({ tab: "techcard" });
+                  },
+                }}
+              >
+                <Button size="small">Изменить ▾</Button>
+              </Dropdown>
             )}
+            {editing === "components" && <ComponentsEditorModal card={card} onClose={() => setEditing(null)} />}
+            {editing === "route" && <RouteEditorModal card={card} onClose={() => setEditing(null)} />}
           </Space>
           {paramsOpen && part && <PartParamsModal part={part} onClose={() => setParamsOpen(false)} />}
           {card.kind_code === "pf" && !card.is_model && (

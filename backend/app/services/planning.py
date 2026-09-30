@@ -95,7 +95,9 @@ def _pf_components(db: Session, item: Item) -> list[tuple[Part, float, int]]:
     """Комплектующие п/ф позиции: (деталь с маршрутом, норма, операция расхода)."""
     first = min(item.stages, key=lambda s: s.sequence_order) if item.stages else None
     out = []
-    for c in db.query(ItemComponent).filter(ItemComponent.parent_item_id == item.id).order_by(ItemComponent.sort_order):
+    from app.services.components import planned_components
+
+    for c in planned_components(db.query(ItemComponent).filter(ItemComponent.parent_item_id == item.id).all()):
         part = db.query(Part).filter(Part.item_id == c.component_item_id, Part.is_active.is_(True)).first()
         if part is None or not part.stages:
             continue  # материал или деталь без маршрута — не запускается заданием

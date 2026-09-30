@@ -1,0 +1,218 @@
+import { useState } from "react";
+import { Alert, Button, Checkbox, Modal, Select, Space, Tag, Typography, message } from "antd";
+import { isAxiosError } from "axios";
+import { useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { listItems, setItemComponents, type TechCard } from "../../../api/items";
+
+type Input = TechCard["inputs"][number];
+
+function apiErrorMessage(e: unknown, fallback: string): string {
+  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
+  return fallback;
+}
+
+/** Группы состава: строка без «или» — сама по себе, строки одной группы
+ * «или» — вместе (варианты друг друга). */
+function groupInputs(inputs: Input[]): Input[][] {
+  const out: Input[][] = [];
+  const byAlt = new Map<number, Input[]>();
+  for (const i of inputs) {
+    if (i.alt_group == null) out.push([i]);
+    else if (byAlt.has(i.alt_group)) byAlt.get(i.alt_group)!.push(i);
+    else {
+      const g = [i];
+      byAlt.set(i.alt_group, g);
+      out.push(g);
+    }
+  }
+  return out;
+}
+
+/** «Главное» карточки позиции: из чего делается (с вариантами «или» и
+ * браком), во что идёт, маршрут одной строкой. Заменить заготовку — прямо
+ * здесь, у строки состава. */
+export default function ItemMainTab({
+  card,
+  canEdit,
+  onEditComponents,
+  onEditRoute,
+}: {
+  card: TechCard;
+  canEdit: boolean;
+  onEditComponents: () => void;
+  onEditRoute: () => void;
+}) {
+  const navigate = useNavigate();
+  const [replacing, setReplacing] = useState<Input | null>(null);
+  const inputs = card.inputs.filter((i) => i.component_item_id != null || i.source === "bom");
+  const groups = groupInputs(inputs);
+
+  return (
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <section>
+        <Space style={{ justifyContent: "space-between", width: "100%" }}>
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            Из чего делается
+          </Typography.Title>
+          {canEdit && (
+            <Button size="small" onClick={onEditComponents}>
+              {inputs.length ? "Изменить состав…" : "Указать, из чего делается…"}
+            </Button>
+          )}
+        </Space>
+        {inputs.length === 0 ? (
+          <Typography.Text type="secondary">Не указано — позиция не расходует другие позиции (или состав ещё не заведён).</Typography.Text>
+        ) : (
+          <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+            {groups.map((g, gi) => (
+              <div key={gi} style={{ border: "1px solid rgba(0,0,0,.08)", borderRadius: 8, padding: "8px 12px", display: "grid", gap: 6 }}>
+                {g.length > 1 && (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    Любой из вариантов — по порядку, не хватает первого — добирается из следующего
+                  </Typography.Text>
+                )}
+                {g.map((i, k) => (
+                  <Space key={k} style={{ justifyContent: "space-between", width: "100%" }} wrap>
+                    <Space size={6} wrap>
+                      {g.length > 1 && <Tag>{k === 0 ? "основной" : "или"}</Tag>}
+                      {i.component_item_id ? (
+                        <a onClick={() => navigate(`/item/${i.component_item_id}`)}>{i.name}</a>
+                      ) : (
+                        <span>{i.name}</span>
+                      )}
+                      {i.from_defect && <Tag color="volcano">только брак</Tag>}
+                      <Typography.Text type="secondary">
+                        {i.qty_per_unit ?? "—"} {i.unit} на 1 шт{i.operation_name ? ` · на «${i.operation_name}»` : ""}
+                      </Typography.Text>
+                      {i.source === "bom" && <Tag>из BOM модели</Tag>}
+                    </Space>
+                    {canEdit && i.source === "manual" && (
+                      <Button size="small" onClick={() => setReplacing(i)}>
+                        Заменить…
+                      </Button>
+                    )}
+                  </Space>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <Space style={{ justifyContent: "space-between", width: "100%" }}>
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            Маршрут
+          </Typography.Title>
+          {canEdit && card.source_type !== "sku" && (
+            <Button size="small" onClick={onEditRoute}>
+              Изменить маршрут…
+            </Button>
+          )}
+        </Space>
+        <Typography.Text type={card.operations.length ? undefined : "secondary"}>
+          {card.operations.length
+            ? card.operations.map((o) => `${o.name}${o.area_name && o.area_name !== o.name ? ` (${o.area_name})` : ""}`).join(" → ")
+            : "Операции не заданы."}
+        </Typography.Text>
+      </section>
+
+      <section>
+        <Typography.Title level={5}>Во что идёт</Typography.Title>
+        {card.used_in.length === 0 ? (
+          <Typography.Text type="secondary">Ни в одном составе не используется.</Typography.Text>
+        ) : (
+          <Space wrap size={[6, 6]}>
+            {card.used_in.map((u, k) => (
+              <Tag key={k} style={{ cursor: u.item_id ? "pointer" : undefined }} onClick={() => u.item_id && navigate(`/item/${u.item_id}`)}>
+                {u.name}
+                {u.qty_per_unit != null ? ` · ${u.qty_per_unit}` : ""}
+              </Tag>
+            ))}
+          </Space>
+        )}
+      </section>
+      {replacing && <ReplaceModal card={card} target={replacing} onClose={() => setReplacing(null)} />}
+    </Space>
+  );
+}
+
+/** Заменить компонент состава: норма, операция, «или» и «брак» остаются
+ * как были. Галочка «оставить прежний вариантом» — новый становится
+ * основным, прежний — запасным «или». */
+function ReplaceModal({ card, target, onClose }: { card: TechCard; target: Input; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [newId, setNewId] = useState<number | null>(null);
+  const [keepOld, setKeepOld] = useState(false);
+  const itemsQuery = useQuery({ queryKey: ["items", false], queryFn: () => listItems({ include_inactive: false }) });
+  const options = (itemsQuery.data ?? [])
+    .filter((i) => i.id !== card.item_id && i.id !== target.component_item_id && !i.is_model)
+    .map((i) => ({ value: i.id, label: `${i.name} · ${i.kind_name}` }));
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const manual = card.inputs.filter((i) => i.source === "manual" && i.component_item_id != null);
+      const usedGroups = manual.map((i) => i.alt_group ?? 0);
+      const group = keepOld ? (target.alt_group ?? Math.max(0, ...usedGroups) + 1) : target.alt_group;
+      const rows = manual.flatMap((i) => {
+        const row = {
+          component_item_id: i.component_item_id as number,
+          qty_per_unit: i.qty_per_unit ?? 1,
+          stage_id: i.stage_id,
+          alt_group: i.alt_group,
+          from_defect: i.from_defect,
+        };
+        if (i !== target) return [row];
+        const fresh = { ...row, component_item_id: newId as number, alt_group: group, from_defect: keepOld ? false : i.from_defect };
+        return keepOld ? [fresh, { ...row, alt_group: group }] : [fresh];
+      });
+      return setItemComponents(card.item_id, rows);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["techcard"] });
+      qc.invalidateQueries({ queryKey: ["item-tree"] });
+      message.success("Состав изменён");
+      onClose();
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить состав")),
+  });
+
+  return (
+    <Modal
+      open
+      title={`Заменить «${target.name}»`}
+      okText="Заменить"
+      cancelText="Отмена"
+      onCancel={onClose}
+      okButtonProps={{ disabled: !newId, loading: mutation.isPending }}
+      onOk={() => mutation.mutate()}
+      destroyOnHidden
+    >
+      <Space direction="vertical" style={{ width: "100%" }}>
+        <Typography.Text>
+          {card.name}: {target.qty_per_unit} {target.unit} на 1 шт{target.operation_name ? `, на «${target.operation_name}»` : ""}.
+        </Typography.Text>
+        <Select
+          showSearch
+          optionFilterProp="label"
+          placeholder="Из чего делать теперь"
+          style={{ width: "100%" }}
+          loading={itemsQuery.isLoading}
+          value={newId ?? undefined}
+          options={options}
+          onChange={setNewId}
+        />
+        <Checkbox checked={keepOld} onChange={(e) => setKeepOld(e.target.checked)}>
+          Оставить «{target.name}» запасным вариантом («или»)
+        </Checkbox>
+        <Alert
+          type="info"
+          showIcon
+          message="Новые задания и расчёт потребности пойдут по новому составу. Уже запущенные задания и детали на складе не меняются."
+        />
+      </Space>
+    </Modal>
+  );
+}
+

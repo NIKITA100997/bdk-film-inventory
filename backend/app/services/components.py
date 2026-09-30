@@ -85,3 +85,20 @@ def live_item_names(db: Session, item_ids: set[int]) -> dict[int, str]:
         names[sku.item_id] = sku_item_name(sku.material.name, sku.color.name, sku.thickness.value_mm, sku.manufacturer.name)
     return names
 
+
+
+def planned_components(comps: list[ItemComponent]) -> list[ItemComponent]:
+    """Состав для планирования и потребности: брак (from_defect) не
+    планируется — его не заказывают, он появляется сам; из группы «или»
+    (alt_group) в расчёт идёт основной вариант — первый по порядку."""
+    out: list[ItemComponent] = []
+    seen_groups: set[int] = set()
+    for c in sorted(comps, key=lambda c: (c.sort_order, c.id or 0)):
+        if c.from_defect:
+            continue
+        if c.alt_group is not None:
+            if c.alt_group in seen_groups:
+                continue
+            seen_groups.add(c.alt_group)
+        out.append(c)
+    return out
