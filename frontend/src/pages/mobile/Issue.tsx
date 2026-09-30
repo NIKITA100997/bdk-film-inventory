@@ -13,6 +13,7 @@ import {
   Modal,
   Popover,
   Row,
+  Segmented,
   Select,
   Space,
   Tag,
@@ -466,6 +467,27 @@ export default function Issue() {
   // конкретного состояния (например, только «нет донора» на смену).
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue | undefined>(undefined);
   const [search, setSearch] = useState("");
+  // Вид очереди: карточки (планшет) или таблица (компьютер); запоминается на устройстве.
+  const [queueView, setQueueView] = useState<"cards" | "table">(() => {
+    try {
+      const saved = localStorage.getItem("issue-view");
+      if (saved === "cards" || saved === "table") return saved;
+    } catch {
+      /* нет хранилища */
+    }
+    return typeof window !== "undefined" && window.innerWidth < 992 ? "cards" : "table";
+  });
+  const pickQueueView = (v: "cards" | "table") => {
+    setQueueView(v);
+    try {
+      localStorage.setItem("issue-view", v);
+    } catch {
+      /* не запоминаем */
+    }
+  };
+  const [cardTab, setCardTab] = useState<"need" | "decided" | "issued">("need");
+  const [cardGroup, setCardGroup] = useState<"task" | "film">("task");
+  const [manualOpen, setManualOpen] = useState(false);
   const [result, setResult] = useState<IssueResult | null>(null);
   const [lastIssued, setLastIssued] = useState<IssuedResult | null>(null);
   // Раздел про единую форму резки — один общий модальный CuttingForm для
@@ -794,8 +816,24 @@ export default function Issue() {
     if (areaFilter && task.area !== areaFilter) return false;
     if (taskFilter && task.id !== taskFilter) return false;
     if (search.trim()) {
-      const haystack = `${line.part_name ?? ""} ${task.product_model_name ?? task.name ?? ""} ${line.material} ${line.color}`.toLowerCase();
-      if (!haystack.includes(search.trim().toLowerCase())) return false;
+      // По словам, в любом порядке: «бьянко 150», «эталон», «2054» (№ штрипса/донора).
+      const info = lineInfoMap.get(line.id);
+      const haystack = [
+        line.part_name ?? "",
+        task.product_model_name ?? task.name ?? "",
+        task.production_order_name ?? "",
+        line.material,
+        line.color,
+        `${line.strip_width_mm || line.width_mm} мм`,
+        ...(line.issued_units ?? []).map((u) => u.id),
+        info?.status.kind === "stock" ? info.status.match.unit_id : "",
+        info?.donorUnitId ?? "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .replace(/ё/g, "е");
+      const words = search.trim().toLowerCase().replace(/ё/g, "е").replace(/№/g, " ").split(/\s+/).filter(Boolean);
+      if (!words.every((w) => haystack.includes(w))) return false;
     }
     return true;
   };
@@ -1830,6 +1868,376 @@ export default function Issue() {
     return renderSelectedRowPanel();
   };
 
+  // ── Вид карточками (планшет кладовщика, 30.09) ───────────────────────
+  // Та же очередь и те же действия, что в таблице: карточка — задание окутки
+  // (или плёнка+ширина штрипса на участке), внутри его детали со статусом и
+  // одной крупной кнопкой. Решения копятся внизу экрана.
+  const whenLabel = (row: NeedTableRow): { text: string; color: string } =>
+    row.variant === "today"
+      ? row.overdue
+        ? { text: `просрочено ${dayjs(row.assignment!.date).format("DD.MM")}`, color: "error" }
+        : { text: "сегодня", color: "orange" }
+      : areaRequiresDailyPlan(row.task.area)
+        ? { text: "не распределено по дням", color: "default" }
+        : { text: "весь участок", color: "blue" };
+  const inCardTab = (row: TableRow) => {
+    const k = rowStatusKind(row);
+    if (cardTab === "issued") return k === "issued" || k === "manual";
+    if (cardTab === "decided") return k === "decided";
+    return k !== "issued" && k !== "manual" && k !== "decided";
+  };
+  const acceptRow = (row: NeedTableRow) => {
+    const info = lineInfoMap.get(row.line.id);
+    if (info?.status.kind === "stock" && info.acceptStock) info.acceptStock();
+    else if (info?.acceptCut) void info.acceptCut();
+  };
+  const readyRow = (row: NeedTableRow) => {
+    if (decidedLineIds.has(row.line.id) || issuedNoteForLine(row.line)) return false;
+    const info = lineInfoMap.get(row.line.id);
+    return (info?.status.kind === "stock" && !!info.acceptStock) || !!info?.acceptCut;
+  };
+  const cardLine = (row: NeedTableRow, showTask: boolean) => {
+    const info = lineInfoMap.get(row.line.id);
+    const issuedNote = issuedNoteForLine(row.line);
+    const decided = decidedLineIds.has(row.line.id);
+    const when = whenLabel(row);
+    const groupRows = groupRowsByRowKey.get(row.key);
+    const sku = findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness);
+    const need = row.assignment ? `${row.assignment.quantity_pieces} шт · ${neededLengthM(row).toFixed(1)} м` : `${row.line.shortfall_length_m} м`;
+    let state: ReactNode = null;
+    let action: ReactNode = null;
+    if (issuedNote) {
+      const { stillOut } = lineActuals(row.line);
+      state = <Tag color="green">{issuedNote}{stillOut > 0 ? ` · к сдаче ${stillOut} м` : ""}</Tag>;
+      action = (
+        <Space size={4} wrap>
+          {row.line.issued_units.length > 0 && (
+            <Button onClick={() => printLabelsBatch(row.line.issued_units.map((u) => u.id), { kind: "cutting_issue" })}>🖨</Button>
+          )}
+          {canReturn && row.line.issued_units.map((u) => <AcceptReturnButton key={u.id} unit={u} />)}
+          {canManage && (
+            <Button loading={closeLineMutation.isPending} onClick={() => closeLineMutation.mutate({ taskId: row.task.id, lineId: row.line.id, isClosed: true })}>
+              Закрыть
+            </Button>
+          )}
+        </Space>
+      );
+    } else if (decided) {
+      state = <Tag color="processing">🕒 в решениях</Tag>;
+    } else if (info?.status.kind === "stock") {
+      state = <Tag color="green">✅ штрипс №{info.status.match.unit_id}</Tag>;
+      if (canIssue && info.acceptStock)
+        action = (
+          <Button type="primary" size="large" style={{ background: "#1D8F68" }} onClick={info.acceptStock}>
+            Выдать №{info.status.match.unit_id}
+          </Button>
+        );
+    } else if (info?.status.kind === "cut_planned") {
+      state = <Tag color="gold">✂ резать из №{info.donorUnitId}</Tag>;
+      if (canIssue && info.acceptCut)
+        action = (
+          <Button type="primary" size="large" onClick={() => void info.acceptCut!()}>
+            В резку
+          </Button>
+        );
+    } else if (info?.status.kind === "no_donor") {
+      state = <Tag color="red">✖ нет донора</Tag>;
+      if (canIssue && groupRows && sku)
+        action = (
+          <Button size="large" onClick={() => setManualPickerTarget({ sku, rows: groupRows })}>
+            Подобрать…
+          </Button>
+        );
+    }
+    return (
+      <div
+        key={row.key}
+        style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "10px 14px", borderTop: "1px solid rgba(0,0,0,.06)", alignItems: "center", flexWrap: "wrap" }}
+      >
+        <div style={{ minWidth: 220, flex: 1 }}>
+          <Typography.Text strong>{row.line.part_name ?? "Деталь без названия"}</Typography.Text>
+          <div style={{ fontSize: 13, color: "#6E6A61" }}>
+            {showTask
+              ? `${row.task.product_model_name ?? row.task.name ?? `Задание №${row.task.id}`} · `
+              : `${row.line.material}, ${row.line.color}, ${row.line.thickness} мм · штрипс ${row.line.strip_width_mm || row.line.width_mm} мм · `}
+            {issuedNote ? `выдано ${row.line.issued_length_m} м` : `нужно ${need}`}
+            {row.assignment ? ` · ${row.assignment.line_name}` : ""}
+          </div>
+        </div>
+        <Space size={6} wrap style={{ justifyContent: "flex-end" }}>
+          <Tag color={when.color} style={{ marginInlineEnd: 0 }}>{when.text}</Tag>
+          {state}
+          {action}
+          <Button type="text" onClick={() => openDetail(row)} aria-label="Подробнее">
+            ⋯
+          </Button>
+        </Space>
+      </div>
+    );
+  };
+  const renderCards = () => {
+    const rows = tableRows.filter(inCardTab);
+    const need = rows.filter((r): r is NeedTableRow => r.kind === "need");
+    const manual = rows.filter((r): r is ManualTableRow => r.kind === "manual");
+    const groups = new Map<string, { title: ReactNode; area: string; rows: NeedTableRow[]; taskId?: number }>();
+    for (const r of need) {
+      const key =
+        cardGroup === "task"
+          ? `t${r.task.id}`
+          : `f${r.task.area}|${r.line.material}|${r.line.color}|${r.line.thickness}|${r.line.strip_width_mm || r.line.width_mm}`;
+      if (!groups.has(key))
+        groups.set(key, {
+          area: r.task.area,
+          taskId: cardGroup === "task" ? r.task.id : undefined,
+          title:
+            cardGroup === "task" ? (
+              <>
+                {r.task.product_model_name ?? r.task.name ?? `Задание №${r.task.id}`}
+                <Typography.Text type="secondary" style={{ fontWeight: 400 }}>
+                  {" "}
+                  · №{r.task.id}
+                </Typography.Text>
+              </>
+            ) : (
+              <>
+                {r.line.material}, {r.line.color}, {r.line.thickness} мм
+                <Typography.Text type="secondary" style={{ fontWeight: 400 }}>
+                  {" "}
+                  · штрипс {r.line.strip_width_mm || r.line.width_mm} мм
+                </Typography.Text>
+              </>
+            ),
+          rows: [],
+        });
+      groups.get(key)!.rows.push(r);
+    }
+    const byArea = new Map<string, typeof groups extends Map<string, infer V> ? V[] : never>();
+    for (const g of groups.values()) byArea.set(g.area, [...(byArea.get(g.area) ?? []), g]);
+    if (!groups.size && !manual.length)
+      return (
+        <Typography.Paragraph type="secondary" style={{ textAlign: "center", padding: 32 }}>
+          {search.trim() ? "Ничего не нашлось — проверьте вкладки «Решено» и «Выдано»" : "Здесь пусто"}
+        </Typography.Paragraph>
+      );
+    return (
+      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        {[...byArea.entries()].map(([area, list]) => (
+          <div key={area}>
+            <Typography.Text type="secondary" style={{ fontSize: 12, letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 700 }}>
+              {areaLabel(area)}
+            </Typography.Text>
+            <Space direction="vertical" size="middle" style={{ width: "100%", marginTop: 6 }}>
+              {list.map((g, gi) => {
+                const ready = g.rows.filter(readyRow);
+                const totalM = g.rows.reduce((sum, r) => sum + (issuedNoteForLine(r.line) ? 0 : neededLengthM(r)), 0);
+                return (
+                  <Card key={gi} size="small" styles={{ body: { padding: 0 } }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "12px 14px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div>
+                        <Typography.Text strong style={{ fontSize: 16 }}>
+                          {g.title}
+                        </Typography.Text>
+                        <div style={{ fontSize: 13, color: "#6E6A61" }}>
+                          {g.rows.length} {g.rows.length === 1 ? "деталь" : g.rows.length < 5 ? "детали" : "деталей"}
+                          {totalM > 0 ? ` · нужно ${Math.round(totalM * 10) / 10} м` : ""}
+                        </div>
+                      </div>
+                      <Space wrap>
+                        {canIssue && cardTab === "need" && ready.length > 0 && (
+                          <Button type="primary" size="large" style={{ background: "#1D8F68" }} onClick={() => ready.forEach(acceptRow)}>
+                            Всё готовое ({ready.length} из {g.rows.length})
+                          </Button>
+                        )}
+                        {g.taskId != null && (
+                          <Button
+                            onClick={() => {
+                              setSlipTaskId(g.taskId);
+                              setSlipModalOpen(true);
+                            }}
+                          >
+                            📋 Лист
+                          </Button>
+                        )}
+                      </Space>
+                    </div>
+                    {g.rows.map((r) => cardLine(r, cardGroup === "film"))}
+                  </Card>
+                );
+              })}
+            </Space>
+          </div>
+        ))}
+        {manual.length > 0 && (
+          <Card size="small" title="✋ Выдано без задания">
+            {manual.map((r) => (
+              <div key={r.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", flexWrap: "wrap" }}>
+                <span>
+                  <UnitLink id={r.unit.id} /> · {skuLabel(r.unit.material_sku)} · {r.unit.width_mm} мм × {r.unit.length_m} м ·{" "}
+                  {r.unit.area ? areaLabel(r.unit.area) : "—"}
+                </span>
+                <Space size={4}>
+                  <Button onClick={() => printLabel(r.unit.id, { kind: "cutting_issue" })}>🖨</Button>
+                  {canReturn && (
+                    <AcceptReturnButton
+                      unit={{
+                        id: r.unit.id,
+                        width_mm: r.unit.width_mm,
+                        length_m: r.unit.length_m,
+                        material_sku_id: r.unit.material_sku.id,
+                        parent_id: r.unit.parent_id,
+                        is_strip: r.unit.is_strip,
+                        status: r.unit.status,
+                        area: r.unit.area,
+                      }}
+                    />
+                  )}
+                </Space>
+              </div>
+            ))}
+          </Card>
+        )}
+      </Space>
+    );
+  };
+  const decisionsCount = cuttingBatch.length + stockDecisions.length;
+
+  const manualPanel = (
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                  Для случаев, когда плёнка не относится ни к одному заданию — проба, списание и т.п. Строгая
+                  проверка соответствия здесь не действует.
+                </Typography.Text>
+                <Select
+                  showSearch
+                  style={{ width: "100%" }}
+                  placeholder="Позиция материала"
+                  loading={manualSkusQuery.isLoading}
+                  options={(manualSkusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
+                  filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+                  value={manualSkuId ?? undefined}
+                  onChange={(v) => {
+                    setManualSkuId(v);
+                    setManualDonor(null);
+                  }}
+                />
+                <Select
+                  style={{ width: "100%" }}
+                  placeholder="Участок выдачи"
+                  options={areaOptions}
+                  value={manualArea ?? undefined}
+                  onChange={(v) => setManualArea(v)}
+                />
+                {manualSku && (
+                  <>
+                    <ResponsiveTable<MaterialUnit>
+                      size="small"
+                      rowKey="id"
+                      loading={manualAvailableQuery.isLoading}
+                      dataSource={manualAvailableQuery.data ?? []}
+                      pagination={false}
+                      scroll={{ x: "max-content" }}
+                      locale={{ emptyText: "Ничего нет на хранении" }}
+                      columns={[
+                        { title: "№", dataIndex: "id" },
+                        { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
+                        { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
+                        {
+                          title: "",
+                          render: (_, u) => (
+                            <Button
+                              size="small"
+                              type="primary"
+                              disabled={!manualArea}
+                              loading={manualDirectMutation.isPending}
+                              onClick={() =>
+                                confirmIfWrongWarehouse(u.warehouse_name, manualArea, () => manualDirectMutation.mutate(u.id))
+                              }
+                            >
+                              Выдать целиком
+                            </Button>
+                          ),
+                        },
+                      ]}
+                    />
+                    <Form form={manualForm} layout="inline" onFinish={(v) => manualFindMutation.mutate(v)}>
+                      <Form.Item name="width_mm" rules={[{ required: true }]}>
+                        <InputNumber placeholder="Ширина, мм" min={1} style={{ width: 120 }} />
+                      </Form.Item>
+                      <Form.Item name="length_m" rules={[{ required: true }]}>
+                        <InputNumber placeholder="Длина, м" min={0.1} step={0.1} style={{ width: 120 }} />
+                      </Form.Item>
+                      <Button htmlType="submit" disabled={!manualArea} loading={manualFindMutation.isPending}>
+                        Найти и выдать
+                      </Button>
+                    </Form>
+                    {manualElsewhere && (
+                      <div style={{ background: "#FBEAE7", border: "1px solid #E3B5AC", borderRadius: 10, padding: 12 }}>
+                        <div style={{ fontWeight: 700, color: "#B8483C" }}>Материал есть на другом складе</div>
+                        <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>
+                          Есть на складе «{manualElsewhere}» — подготовьте (нарежьте) там и отправьте через «Перемещения
+                          между складами», затем выдайте уже с домашнего склада.
+                        </div>
+                        <Button size="small" style={{ marginTop: 8 }} onClick={() => navigate("/warehouse-transfers")}>
+                          Перейти к перемещениям
+                        </Button>
+                      </div>
+                    )}
+                    {manualDonor && (
+                      <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12 }}>
+                        <div style={{ fontWeight: 700, color: "#A8631E" }}>
+                          ⚡ Точного совпадения нет — есть донор №{manualDonor.unit_id}
+                        </div>
+                        <div style={{ fontSize: 12.5, marginTop: 4 }}>
+                          {manualDonor.width_mm} мм, класс{" "}
+                          <Tooltip title="ABC по расходу: A — самые ходовые ширины (80% расхода), B — следующие до 95%, C — редкие, донор режут в первую очередь именно из C/B">
+                            <span style={{ textDecoration: "underline dotted" }}>{manualDonor.width_class}</span>
+                          </Tooltip>
+                          {manualDonor.days_in_storage !== undefined && manualDonor.days_in_storage > 0 && (
+                            <Tag color="volcano" style={{ marginLeft: 6 }}>лежалый {manualDonor.days_in_storage} дн.</Tag>
+                          )}
+                          <br />
+                          Отрежем {manualDonor.recommended_cut_mm} мм, отход {manualDonor.waste_mm} мм.
+                        </div>
+                        <Button
+                          type="primary"
+                          block
+                          style={{ marginTop: 10 }}
+                          disabled={!manualArea}
+                          onClick={() => {
+                            if (!manualSku || !manualArea) return;
+                            setCuttingSession({
+                              donor: makeDonorUnit(
+                                manualDonor.unit_id,
+                                manualDonor.width_mm,
+                                manualDonor.length_m,
+                                manualDonor.warehouse_name,
+                                manualSku,
+                              ),
+                              widthCuts: [
+                                {
+                                  width_mm: manualDonor.recommended_cut_mm,
+                                  area: manualArea,
+                                  label: "Ручной подбор",
+                                  locked: false,
+                                },
+                              ],
+                              onDone: (res) => {
+                                finishSingleCut(res);
+                                setManualDonor(null);
+                                qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
+                              },
+                            });
+                          }}
+                        >
+                          ⚡ Разрезать и выдать
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </Space>
+  );
+
   return (
     <div>
       <Space align="center" style={{ marginBottom: 8 }} wrap>
@@ -1844,6 +2252,20 @@ export default function Issue() {
         <Button size="small" onClick={() => setSlipModalOpen(true)}>
           📋 Сопроводительный лист
         </Button>
+        {canIssue && (
+          <Button size="small" type="primary" ghost onClick={() => setManualOpen(true)}>
+            ✋ Выдать без задания
+          </Button>
+        )}
+        <Segmented
+          size="small"
+          value={queueView}
+          onChange={(v) => pickQueueView(v as "cards" | "table")}
+          options={[
+            { value: "cards", label: "Карточки" },
+            { value: "table", label: "Таблица" },
+          ]}
+        />
       </Space>
 
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
@@ -1944,6 +2366,7 @@ export default function Issue() {
           value={taskFilter}
           onChange={setTaskFilter}
         />
+        {queueView === "table" && (
         <Select
           allowClear
           placeholder="Все статусы"
@@ -1952,8 +2375,9 @@ export default function Issue() {
           value={statusFilter}
           onChange={setStatusFilter}
         />
+        )}
         <Input.Search
-          placeholder="Поиск по детали, заданию, плёнке…"
+          placeholder="Деталь, задание, плёнка, ширина или № рулона"
           style={{ width: 320, maxWidth: "100%" }}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -1986,6 +2410,61 @@ export default function Issue() {
         />
       ))}
 
+      {queueView === "cards" && (
+        <Space direction="vertical" size="middle" style={{ width: "100%", paddingBottom: decisionsCount ? 72 : 0 }}>
+          <Segmented
+            block
+            size="large"
+            value={cardTab}
+            onChange={(v) => setCardTab(v as "need" | "decided" | "issued")}
+            options={[
+              { value: "need", label: "Нужно выдать" },
+              { value: "decided", label: `Решено${decidedLineIds.size ? ` (${decidedLineIds.size})` : ""}` },
+              { value: "issued", label: "Выдано" },
+            ]}
+          />
+          <Space wrap>
+            <Typography.Text type="secondary">Группировать:</Typography.Text>
+            <Segmented
+              value={cardGroup}
+              onChange={(v) => setCardGroup(v as "task" | "film")}
+              options={[
+                { value: "task", label: "По заданию" },
+                { value: "film", label: "По плёнке" },
+              ]}
+            />
+          </Space>
+          {renderCards()}
+          {decisionsCount > 0 && (
+            <div
+              style={{
+                position: "fixed",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 20,
+                background: "#fff",
+                borderTop: "1px solid rgba(0,0,0,.08)",
+                boxShadow: "0 -8px 20px -14px rgba(0,0,0,.5)",
+                padding: "10px 16px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <Typography.Text strong>
+                Решения: {decisionsCount} — выдать {stockDecisions.length}, резать {cuttingBatch.length}
+              </Typography.Text>
+              <Button type="primary" size="large" onClick={() => setCuttingBatchOpen(true)}>
+                Открыть и выполнить
+              </Button>
+            </div>
+          )}
+        </Space>
+      )}
+
+      {queueView === "table" && (
       <ResponsiveTable<TableRow>
         tableKey="issue-queue"
         lockedColumns={["actions"]}
@@ -2245,6 +2724,7 @@ export default function Issue() {
           },
         ]}
       />
+      )}
 
       {manualPickerTarget && (
         <ManualCuttingPlanModal
@@ -2268,6 +2748,18 @@ export default function Issue() {
       </Modal>
 
       {canIssue && (
+        <Modal
+          title="✋ Выдать без задания"
+          open={manualOpen}
+          onCancel={() => setManualOpen(false)}
+          footer={null}
+          width={680}
+          destroyOnHidden
+        >
+          {manualPanel}
+        </Modal>
+      )}
+      {canIssue && queueView === "table" && (
       <Collapse
         ghost
         style={{ marginTop: 16 }}
@@ -2276,140 +2768,7 @@ export default function Issue() {
             key: "manual",
             label: "Без привязки к заданию (ручной подбор)",
             children: (
-              <Space direction="vertical" style={{ width: "100%" }}>
-                <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
-                  Для случаев, когда плёнка не относится ни к одному заданию — проба, списание и т.п. Строгая
-                  проверка соответствия здесь не действует.
-                </Typography.Text>
-                <Select
-                  showSearch
-                  style={{ width: "100%" }}
-                  placeholder="Позиция материала"
-                  loading={manualSkusQuery.isLoading}
-                  options={(manualSkusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }))}
-                  filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-                  value={manualSkuId ?? undefined}
-                  onChange={(v) => {
-                    setManualSkuId(v);
-                    setManualDonor(null);
-                  }}
-                />
-                <Select
-                  style={{ width: "100%" }}
-                  placeholder="Участок выдачи"
-                  options={areaOptions}
-                  value={manualArea ?? undefined}
-                  onChange={(v) => setManualArea(v)}
-                />
-                {manualSku && (
-                  <>
-                    <ResponsiveTable<MaterialUnit>
-                      size="small"
-                      rowKey="id"
-                      loading={manualAvailableQuery.isLoading}
-                      dataSource={manualAvailableQuery.data ?? []}
-                      pagination={false}
-                      scroll={{ x: "max-content" }}
-                      locale={{ emptyText: "Ничего нет на хранении" }}
-                      columns={[
-                        { title: "№", dataIndex: "id" },
-                        { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
-                        { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
-                        {
-                          title: "",
-                          render: (_, u) => (
-                            <Button
-                              size="small"
-                              type="primary"
-                              disabled={!manualArea}
-                              loading={manualDirectMutation.isPending}
-                              onClick={() =>
-                                confirmIfWrongWarehouse(u.warehouse_name, manualArea, () => manualDirectMutation.mutate(u.id))
-                              }
-                            >
-                              Выдать целиком
-                            </Button>
-                          ),
-                        },
-                      ]}
-                    />
-                    <Form form={manualForm} layout="inline" onFinish={(v) => manualFindMutation.mutate(v)}>
-                      <Form.Item name="width_mm" rules={[{ required: true }]}>
-                        <InputNumber placeholder="Ширина, мм" min={1} style={{ width: 120 }} />
-                      </Form.Item>
-                      <Form.Item name="length_m" rules={[{ required: true }]}>
-                        <InputNumber placeholder="Длина, м" min={0.1} step={0.1} style={{ width: 120 }} />
-                      </Form.Item>
-                      <Button htmlType="submit" disabled={!manualArea} loading={manualFindMutation.isPending}>
-                        Найти и выдать
-                      </Button>
-                    </Form>
-                    {manualElsewhere && (
-                      <div style={{ background: "#FBEAE7", border: "1px solid #E3B5AC", borderRadius: 10, padding: 12 }}>
-                        <div style={{ fontWeight: 700, color: "#B8483C" }}>Материал есть на другом складе</div>
-                        <div style={{ fontSize: 12.5, color: "#8C4238", marginTop: 4 }}>
-                          Есть на складе «{manualElsewhere}» — подготовьте (нарежьте) там и отправьте через «Перемещения
-                          между складами», затем выдайте уже с домашнего склада.
-                        </div>
-                        <Button size="small" style={{ marginTop: 8 }} onClick={() => navigate("/warehouse-transfers")}>
-                          Перейти к перемещениям
-                        </Button>
-                      </div>
-                    )}
-                    {manualDonor && (
-                      <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12 }}>
-                        <div style={{ fontWeight: 700, color: "#A8631E" }}>
-                          ⚡ Точного совпадения нет — есть донор №{manualDonor.unit_id}
-                        </div>
-                        <div style={{ fontSize: 12.5, marginTop: 4 }}>
-                          {manualDonor.width_mm} мм, класс{" "}
-                          <Tooltip title="ABC по расходу: A — самые ходовые ширины (80% расхода), B — следующие до 95%, C — редкие, донор режут в первую очередь именно из C/B">
-                            <span style={{ textDecoration: "underline dotted" }}>{manualDonor.width_class}</span>
-                          </Tooltip>
-                          {manualDonor.days_in_storage !== undefined && manualDonor.days_in_storage > 0 && (
-                            <Tag color="volcano" style={{ marginLeft: 6 }}>лежалый {manualDonor.days_in_storage} дн.</Tag>
-                          )}
-                          <br />
-                          Отрежем {manualDonor.recommended_cut_mm} мм, отход {manualDonor.waste_mm} мм.
-                        </div>
-                        <Button
-                          type="primary"
-                          block
-                          style={{ marginTop: 10 }}
-                          disabled={!manualArea}
-                          onClick={() => {
-                            if (!manualSku || !manualArea) return;
-                            setCuttingSession({
-                              donor: makeDonorUnit(
-                                manualDonor.unit_id,
-                                manualDonor.width_mm,
-                                manualDonor.length_m,
-                                manualDonor.warehouse_name,
-                                manualSku,
-                              ),
-                              widthCuts: [
-                                {
-                                  width_mm: manualDonor.recommended_cut_mm,
-                                  area: manualArea,
-                                  label: "Ручной подбор",
-                                  locked: false,
-                                },
-                              ],
-                              onDone: (res) => {
-                                finishSingleCut(res);
-                                setManualDonor(null);
-                                qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
-                              },
-                            });
-                          }}
-                        >
-                          ⚡ Разрезать и выдать
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </Space>
+              manualPanel
             ),
           },
         ]}
