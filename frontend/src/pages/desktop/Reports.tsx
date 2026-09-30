@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Card, Tabs, DatePicker, Space, Row, Col, Tag, InputNumber, Select, Typography } from "antd";
+import Defects from "./Defects";
+import { useSearchParams } from "react-router-dom";
+import { Card, Tabs, DatePicker, Space, Row, Col, Tag, InputNumber, Select, Typography, Segmented } from "antd";
 import Statistic from "../../components/Statistic";
 import { useQuery } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";
@@ -486,24 +488,59 @@ export function ReorderTab() {
   );
 }
 
+type Group = "stock" | "cutting" | "production" | "defects";
+
+/** Отчёты по группам: склад, резка, производство, брак и списания (брак —
+ * бывший отдельный пункт меню, 30.09). Группа и вкладка — в адресе. */
 export default function Reports() {
+  const [params, setParams] = useSearchParams();
+  const groups: { key: Group; label: string; tabs: { key: string; label: string; children: React.ReactNode }[] }[] = [
+    {
+      key: "stock",
+      label: "Склад",
+      tabs: [
+        { key: "summary", label: "Остатки по материалу", children: <StockSummaryTab /> },
+        { key: "width", label: "Остатки по ширине", children: <StockByWidthTab /> },
+        { key: "rolls-vs-strips", label: "Рулоны и штрипсы", children: <RollsVsStripsTab /> },
+        { key: "stale", label: "Давно не двигались", children: <StaleUnitsTab /> },
+      ],
+    },
+    {
+      key: "cutting",
+      label: "Резка",
+      tabs: [
+        { key: "cutting-discrepancy", label: "Отклонения при резке", children: <CuttingDiscrepancyTab /> },
+        { key: "donor", label: "Точность донор-рекомендаций", children: <DonorAccuracyTab /> },
+      ],
+    },
+    { key: "production", label: "Производство", tabs: [{ key: "plan-fact", label: "План/факт по заданиям", children: <PlanFactTab /> }] },
+    { key: "defects", label: "Брак и списания", tabs: [] },
+  ];
+  const group = groups.find((g) => g.key === params.get("group")) ?? groups[0];
+  const tab = group.tabs.find((t) => t.key === params.get("tab")) ?? group.tabs[0];
   return (
     <Card title="Отчёты">
-      <Typography.Paragraph type="secondary">
-        Движения за период — «Склад → Остатки → Движения»; сверка рулонов и партий п/ф — «Склад → Сверка»; «Пора
-        заказывать» — «Закупки».
-      </Typography.Paragraph>
-      <Tabs
-        items={[
-          { key: "summary", label: "Остатки по материалу", children: <StockSummaryTab /> },
-          { key: "width", label: "Остатки по ширине", children: <StockByWidthTab /> },
-          { key: "rolls-vs-strips", label: "Рулоны и штрипсы", children: <RollsVsStripsTab /> },
-          { key: "donor", label: <>Точность донор-рекомендаций <Tag color="blue">2.9</Tag></>, children: <DonorAccuracyTab /> },
-          { key: "stale", label: "Давно не двигались", children: <StaleUnitsTab /> },
-          { key: "cutting-discrepancy", label: "Отклонения при резке", children: <CuttingDiscrepancyTab /> },
-          { key: "plan-fact", label: "План/факт по заданиям", children: <PlanFactTab /> },
-        ]}
-      />
+      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Segmented
+          value={group.key}
+          onChange={(v) => setParams({ group: v as string }, { replace: true })}
+          options={groups.map((g) => ({ value: g.key, label: g.label }))}
+        />
+        {group.key === "defects" ? (
+          <Defects />
+        ) : (
+          <Tabs
+            activeKey={tab?.key}
+            onChange={(k) => setParams({ group: group.key, tab: k }, { replace: true })}
+            items={group.tabs}
+            destroyOnHidden
+          />
+        )}
+        <Typography.Text type="secondary">
+          Движения за период — «Склад → Остатки → Движения»; сверка рулонов и партий п/ф — «Склад → Сверка»; «Пора
+          заказывать» — «Закупки».
+        </Typography.Text>
+      </Space>
     </Card>
   );
 }

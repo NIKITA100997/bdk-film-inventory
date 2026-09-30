@@ -66,7 +66,6 @@ export const navTree: NavBlock[] = [
       { key: "nomenclature", path: "/nomenclature", label: "Номенклатура и техкарты", permissions: ["materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"] },
       // Типы и правила, детали п/ф, модели (BOM) — вкладки этого же экрана,
       // отдельными пунктами меню не дублируются (объединение экранов, 29.09).
-      { key: "dictionaries", path: "/dictionaries", label: "Материалы, цвета, толщины", permissions: ["materials.manage"] },
     ],
   },
   {
@@ -148,7 +147,6 @@ export const navTree: NavBlock[] = [
     label: "Аналитика",
     items: [
       { key: "reports", path: "/reports", label: "Отчёты", permissions: ["reports.view"] },
-      { key: "defects", path: "/defects", label: "Брак и списания", permissions: ["reports.view"] },
       { key: "action-log", path: "/action-log", label: "Журнал действий", permissions: ["reports.view"] },
     ],
   },
@@ -159,8 +157,8 @@ export const navTree: NavBlock[] = [
       { key: "users", path: "/users", label: "Пользователи", permissions: ["users.manage"] },
       { key: "roles", path: "/roles", label: "Роли и права", permissions: ["users.manage"] },
       { key: "deletion-requests", path: "/deletion-requests", label: "Заявки на удаление", permissions: ["users.manage"] },
-      { key: "label-template", path: "/label-template", label: "Макет этикетки (100×40)", permissions: ["labels.manage"] },
-      { key: "calc-settings", path: "/calc-settings", label: "Параметры расчётов", permissions: ["calc_settings.manage"] },
+      // Настройки: параметры расчётов и макет этикетки — вкладками (30.09).
+      { key: "settings", path: "/settings", label: "Настройки", permissions: ["calc_settings.manage", "labels.manage"] },
     ],
   },
 ];

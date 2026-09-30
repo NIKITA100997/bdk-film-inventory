@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import DictionaryAdmin from "./DictionaryAdmin";
 import { DIRECTIONS, MODES, STAGES, STAGE_COLOR, toOptions } from "../../utils/itemAttrs";
 import { isAxiosError } from "axios";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -48,6 +49,7 @@ export default function Nomenclature() {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const canConfigure = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canDicts = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
   const tabs = [
     { key: "items", label: "Номенклатура", children: <ItemsTab /> },
     { key: "types", label: "Типы и правила", children: <TypesTab /> },
@@ -58,6 +60,8 @@ export default function Nomenclature() {
       : []),
     { key: "unlinked", label: "Строки без детали", children: <UnlinkedTab /> },
     { key: "manual", label: "Связанные вручную", children: <ManualLinksTab /> },
+    // Справочники (материалы, цвета, толщины, причины брака…) — вкладкой, не пунктом меню (30.09).
+    ...(canDicts ? [{ key: "dicts", label: "Справочники", children: <DictionaryAdmin /> }] : []),
   ];
   const active = tabs.some((t) => t.key === params.get("tab")) ? (params.get("tab") as string) : "items";
   return <Tabs activeKey={active} onChange={(k) => setParams(k === "items" ? {} : { tab: k })} items={tabs} destroyOnHidden />;

@@ -11,19 +11,16 @@ import PartUnitCard from "./pages/mobile/PartUnitCard";
 
 import Stock, { StockRedirect } from "./pages/desktop/Stock";
 import Reports from "./pages/desktop/Reports";
-import Defects from "./pages/desktop/Defects";
 import ActionLog from "./pages/desktop/ActionLog";
 import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
-import CalcSettingsAdmin from "./pages/desktop/CalcSettingsAdmin";
-import DictionaryAdmin from "./pages/desktop/DictionaryAdmin";
 import InventoryDesktop from "./pages/desktop/InventoryDesktop";
 import UserAdmin from "./pages/desktop/UserAdmin";
 import RoleAdmin from "./pages/desktop/RoleAdmin";
-import LabelTemplateAdmin from "./pages/desktop/LabelTemplateAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
 import SalesCalculator from "./pages/desktop/SalesCalculator";
 import ProductionTasks from "./pages/desktop/ProductionTasks";
 import Demand from "./pages/desktop/production/Demand";
+import Settings from "./pages/desktop/Settings";
 import Reconciliation from "./pages/desktop/Reconciliation";
 import AreasAndLines from "./pages/desktop/AreasAndLines";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
@@ -81,7 +78,7 @@ const appPageRoutes = (
     />
     <Route
       path="/defects"
-      element={<RequirePermission permissions={["reports.view"]}><Defects /></RequirePermission>}
+      element={<Navigate to="/reports?group=defects" replace />}
     />
     <Route
       path="/action-log"
@@ -100,11 +97,11 @@ const appPageRoutes = (
     />
     <Route
       path="/calc-settings"
-      element={<RequirePermission permissions={["calc_settings.manage"]}><CalcSettingsAdmin /></RequirePermission>}
+      element={<Navigate to="/settings?tab=calc" replace />}
     />
     <Route
       path="/dictionaries"
-      element={<RequirePermission permissions={["materials.manage"]}><DictionaryAdmin /></RequirePermission>}
+      element={<Navigate to="/nomenclature?tab=dicts" replace />}
     />
     <Route
       path="/users"
@@ -124,7 +121,11 @@ const appPageRoutes = (
     />
     <Route
       path="/label-template"
-      element={<RequirePermission permissions={["labels.manage"]}><LabelTemplateAdmin /></RequirePermission>}
+      element={<Navigate to="/settings?tab=label" replace />}
+    />
+    <Route
+      path="/settings"
+      element={<RequirePermission permissions={["labels.manage", "calc_settings.manage"]}><Settings /></RequirePermission>}
     />
     <Route
       path="/inventory"

@@ -880,7 +880,6 @@ export function WriteOffReasonsTab() {
 export default function DictionaryAdmin() {
   return (
     <Card>
-      <Typography.Title level={4}>Справочники</Typography.Title>
       <Typography.Paragraph type="secondary">
         Архивные значения пропадают из подсказок при вводе, но не удаляются — старые записи, где они уже
         использованы, остаются читаемыми. Саму номенклатуру (позиции материала) редактируйте в карточке материала —
