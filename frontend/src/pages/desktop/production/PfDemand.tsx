@@ -104,7 +104,7 @@ export default function PfDemand() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Card
-        title="Потребность п/ф"
+        title="Детали п/ф: сколько произвести"
         extra={
           canManage && (
             <Button

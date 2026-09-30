@@ -5,7 +5,6 @@ import DailyPlanTab from "./production/DailyPlanTab";
 import TasksTab from "./production/TasksTab";
 import TasksBoard from "./production/TasksBoard";
 import { useAuth } from "../../auth/AuthContext";
-import RollReconciliationTab from "./production/RollReconciliationTab";
 
 /** Задания — разбор «N штук модели X» на строки по производственным
  * линиям (пилот: окутка царговых). Начальник участка (есть свой user.area)
@@ -62,7 +61,6 @@ export default function ProductionTasks() {
               </Space>
             ),
           },
-          { key: "reconciliation", label: "Сверка рулонов", children: <RollReconciliationTab /> },
         ]}
       />
     </Card>

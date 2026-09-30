@@ -76,6 +76,8 @@ export const navTree: NavBlock[] = [
       { key: "receive", path: "/m/receive", label: "Приёмка плёнки", permissions: ["units.receive"] },
       // «Начальные остатки» — режим «Без документа» в Приёмке (объединение экранов, 29.09).
       { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue", "units.return"] },
+      // Сверка рулонов — работа кладовщика (перенесена из «Задания цеха», 30.09).
+      { key: "roll-reconciliation", path: "/roll-reconciliation", label: "Сверка рулонов", permissions: ["units.issue", "units.return", "production_tasks.manage"] },
       // Единые «Остатки»: плёнка и п/ф, позиции, партии, движения, стеллажи
       // и свободный остаток плёнки — вкладками (pages/desktop/Stock.tsx);
       // старые адреса (/blanks, /part-units, /storage…) ведут туда же.
@@ -112,11 +114,12 @@ export const navTree: NavBlock[] = [
         label: "Задания цеха",
         permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report"],
       },
+      // «Потребность»: п/ф, плёнка, комплектующие — вкладками одного экрана (30.09).
       {
-        key: "pf-demand",
-        path: "/pf-demand",
-        label: "Потребность п/ф",
-        permissions: ["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"],
+        key: "demand",
+        path: "/demand",
+        label: "Потребность",
+        permissions: ["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view", "units.issue"],
       },
       { key: "production-lines", path: "/production-lines", label: "Линии цеха", permissions: ["production_tasks.manage"] },
     ],

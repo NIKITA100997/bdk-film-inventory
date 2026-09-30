@@ -19,7 +19,7 @@ function DeficitTag({ value }: { value: number }) {
  * свободный остаток). Резать по-прежнему через карточку единицы
  * («Разделить») — этот экран только показывает, где резать в первую
  * очередь. */
-function BlanksDemandTab() {
+export function BlanksDemandTab() {
   const query = useQuery({ queryKey: ["blanks-demand"], queryFn: getBlanksDemand });
   const rows = query.data ?? [];
 

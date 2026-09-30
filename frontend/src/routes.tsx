@@ -1,4 +1,5 @@
 import { Navigate, Routes, Route } from "react-router-dom";
+import { Card } from "antd";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import AppLayout from "./layout/AppLayout";
@@ -25,7 +26,8 @@ import SalesCalculator from "./pages/desktop/SalesCalculator";
 import OrderReadiness from "./pages/desktop/OrderReadiness";
 import ProductionTasks from "./pages/desktop/ProductionTasks";
 import ProductionLines from "./pages/desktop/ProductionLines";
-import PfDemand from "./pages/desktop/production/PfDemand";
+import Demand from "./pages/desktop/production/Demand";
+import RollReconciliationTab from "./pages/desktop/production/RollReconciliationTab";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
 import Planner from "./pages/desktop/production/Planner";
 import Nomenclature from "./pages/desktop/Nomenclature";
@@ -174,10 +176,21 @@ const appPageRoutes = (
       }
     />
     <Route
-      path="/pf-demand"
+      path="/demand"
       element={
-        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view"]}>
-          <PfDemand />
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view", "units.issue"]}>
+          <Demand />
+        </RequirePermission>
+      }
+    />
+    <Route path="/pf-demand" element={<Navigate to="/demand?tab=pf" replace />} />
+    <Route
+      path="/roll-reconciliation"
+      element={
+        <RequirePermission permissions={["units.issue", "units.return", "production_tasks.manage"]}>
+          <Card title="Сверка рулонов">
+            <RollReconciliationTab />
+          </Card>
         </RequirePermission>
       }
     />
