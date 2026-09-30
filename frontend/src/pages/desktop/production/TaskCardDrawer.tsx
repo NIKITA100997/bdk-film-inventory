@@ -5,6 +5,9 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   archiveProductionTask,
+  closeProductionLine,
+  closeTaskLine,
+  deleteProductionTask,
   completeProductionTask,
   getProductionTask,
   getTaskCard,
@@ -17,7 +20,13 @@ import { listAreas } from "../../../api/areas";
 import { listPlanSlots } from "../../../api/planning";
 import { ORDER_STATUS_LABEL } from "../../../api/productionOrders";
 import { isAxiosError } from "axios";
+import { useAuth } from "../../../auth/AuthContext";
 import FastReportPanel from "./fastReport/FastReportPanel";
+import ReportModal from "./ReportModal";
+import AssignmentModal from "./AssignmentModal";
+import PfSupplyModal from "./PfSupplyModal";
+import LineSpecModal from "./LineSpecModal";
+import { areaRequiresRoll } from "../../../api/areas";
 import { rollChoices } from "./fastReport/useFastReport";
 
 const FABRIKA = "fabrika";
@@ -146,6 +155,17 @@ function TaskCardBody({
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось закрыть задание")),
   });
+  const [supplyOpen, setSupplyOpen] = useState(false);
+  const isSuper = !!useAuth().user?.is_superuser;
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteProductionTask(id),
+    onSuccess: (r) => {
+      invalidate();
+      message.success(r.requested ? "Заявка на удаление отправлена администратору" : "Задание удалено");
+      if (r.deleted) onClose?.();
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось удалить задание")),
+  });
   const archiveMutation = useMutation({
     mutationFn: (active: boolean) => archiveProductionTask(id, active),
     onSuccess: invalidate,
@@ -166,10 +186,14 @@ function TaskCardBody({
   const reportAllowed = canReport && t.is_active && !fabrika;
 
   const moreItems = [
+    ...(canManage && t.is_active && t.lines.some((l) => l.part_name && !l.operation_name)
+      ? [{ key: "supply", label: "Обеспечение п/ф…" }]
+      : []),
     ...(canManage && t.is_active ? [{ key: "complete", label: "Закрыть: всё сделано" }] : []),
     ...(canManage ? [{ key: "archive", label: t.is_active ? "В архив" : "Вернуть из архива" }] : []),
     { key: "list", label: "Открыть в «Задания цеха»" },
     { key: "planner", label: "Открыть в планировщике →" },
+    ...(canManage ? [{ type: "divider" as const }, { key: "delete", label: isSuper ? "Удалить задание" : "Запросить удаление", danger: true }] : []),
   ];
   const onMore = (key: string) => {
     if (key === "complete")
@@ -181,6 +205,16 @@ function TaskCardBody({
         onOk: () => completeMutation.mutateAsync(),
       });
     else if (key === "archive") archiveMutation.mutate(!t.is_active);
+    else if (key === "supply") setSupplyOpen(true);
+    else if (key === "delete")
+      Modal.confirm({
+        title: isSuper ? "Удалить задание?" : "Запросить удаление задания?",
+        content: isSuper ? "Задание будет удалено." : "Заявка уйдёт администратору.",
+        okText: isSuper ? "Удалить" : "Отправить",
+        okButtonProps: { danger: true },
+        cancelText: "Отмена",
+        onOk: () => deleteMutation.mutateAsync(),
+      });
     else if (key === "list") {
       onClose?.();
       navigate(`/production-tasks?task=${t.id}`);
@@ -191,7 +225,20 @@ function TaskCardBody({
   };
 
   const tabs = [
-    { key: "lines", label: "Строки", children: <LinesTab t={t} fabrika={fabrika} /> },
+    {
+      key: "lines",
+      label: "Строки",
+      children: (
+        <LinesTab
+          t={t}
+          fabrika={fabrika}
+          canManage={canManage}
+          canReport={canReport}
+          dailyPlan={areasQuery.data?.find((a) => a.code === t.area)?.requires_daily_plan ?? true}
+          requiresRoll={areaRequiresRoll(areasQuery.data, t.area)}
+        />
+      ),
+    },
     ...(reportAllowed
       ? [{ key: "report", label: "Отчёт", children: <FastReportPanel area={t.area} taskId={t.id} defaultView="table" title="Отчёт по заданию" /> }]
       : []),
@@ -276,11 +323,55 @@ function TaskCardBody({
         </Space>
       </div>
       <Tabs activeKey={tabs.some((x) => x.key === tab) ? tab : "lines"} onChange={setTab} items={tabs} style={{ padding: "0 20px 20px" }} />
+      {supplyOpen && (
+        <PfSupplyModal taskId={t.id} taskName={t.product_model_name ?? t.name ?? ""} canManage={canManage} onClose={() => setSupplyOpen(false)} />
+      )}
     </div>
   );
 }
 
-function LinesTab({ t, fabrika }: { t: ProductionTask; fabrika: boolean }) {
+type LineAction = "report" | "assign" | "spec" | "issue-close" | "prod-close";
+
+function LinesTab({
+  t,
+  fabrika,
+  canManage,
+  canReport,
+  dailyPlan,
+  requiresRoll,
+}: {
+  t: ProductionTask;
+  fabrika: boolean;
+  canManage: boolean;
+  canReport: boolean;
+  dailyPlan: boolean;
+  requiresRoll: boolean;
+}) {
+  const qc = useQueryClient();
+  const [target, setTarget] = useState<{ action: LineAction; line: ProductionTaskLine } | null>(null);
+  const done = () => {
+    qc.invalidateQueries({ queryKey: ["production-tasks"] });
+    message.success("Сохранено");
+  };
+  const fail = (e: unknown) => message.error(apiErrorMessage(e, "Не удалось изменить строку"));
+  const issueClose = useMutation({ mutationFn: (l: ProductionTaskLine) => closeTaskLine(t.id, l.id, !l.is_closed), onSuccess: done, onError: fail });
+  const prodClose = useMutation({
+    mutationFn: (l: ProductionTaskLine) => closeProductionLine(t.id, l.id, !l.production_closed),
+    onSuccess: done,
+    onError: fail,
+  });
+  const actionsOf = (l: ProductionTaskLine) => [
+    ...(canReport && t.is_active && !l.production_closed ? [{ key: "report", label: "Отчитаться (подробно)…" }] : []),
+    ...(canReport && t.is_active && !l.production_closed && dailyPlan ? [{ key: "assign", label: "Распределить по дням…" }] : []),
+    ...(canManage && l.material !== null ? [{ key: "spec", label: "Изменить размер/материал…" }] : []),
+    ...(canManage && l.material !== null ? [{ key: "issue-close", label: l.is_closed ? "Открыть выдачу заново" : "Закрыть по выдаче (больше не выдавать)" }] : []),
+    ...(canManage ? [{ key: "prod-close", label: l.production_closed ? "Возобновить производство" : "Завершить производство по строке" }] : []),
+  ];
+  const onAction = (key: LineAction, l: ProductionTaskLine) => {
+    if (key === "issue-close") issueClose.mutate(l);
+    else if (key === "prod-close") prodClose.mutate(l);
+    else setTarget({ action: key, line: l });
+  };
   return (
     <Space direction="vertical" style={{ width: "100%" }}>
       {fabrika && t.is_active && (
@@ -334,8 +425,33 @@ function LinesTab({ t, fabrika }: { t: ProductionTask; fabrika: boolean }) {
             ),
           },
           { title: "Брак", render: (_, l) => (l.defect_pieces ? <Typography.Text type="danger">{l.defect_pieces}</Typography.Text> : "—") },
+          {
+            title: "",
+            render: (_, l) => {
+              const items = actionsOf(l);
+              return items.length ? (
+                <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => onAction(key as LineAction, l) }}>
+                  <Button size="small" loading={issueClose.isPending || prodClose.isPending} aria-label="Действия со строкой">
+                    ⋯
+                  </Button>
+                </Dropdown>
+              ) : null;
+            },
+          },
         ]}
       />
+      {target?.action === "report" && (
+        <ReportModal
+          taskId={t.id}
+          line={target.line}
+          requiresDailyPlan={dailyPlan}
+          requiresRoll={requiresRoll && target.line.material !== null}
+          area={t.area}
+          onClose={() => setTarget(null)}
+        />
+      )}
+      {target?.action === "assign" && <AssignmentModal task={t} line={target.line} onClose={() => setTarget(null)} />}
+      {target?.action === "spec" && <LineSpecModal taskId={t.id} line={target.line} onClose={() => setTarget(null)} />}
     </Space>
   );
 }
