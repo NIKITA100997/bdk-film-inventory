@@ -378,7 +378,7 @@ function LinesTab({
   };
   return (
     <Space direction="vertical" style={{ width: "100%" }}>
-      {fabrika && t.is_active && (
+      {fabrika && t.is_active && canManage && (
         <Alert
           type="info"
           showIcon
