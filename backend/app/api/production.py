@@ -57,7 +57,13 @@ from app.services.laminated import can_laminate, laminated_excess
 from app.models.production import PlanSlot
 from app.models.production_orders import ProductionOrder
 from app.services.pf_demand import check_foreign_reserve
-from app.services.production_orders import OrderError, attach_tasks_to_order, consume_components_at_operation, sync_task_order
+from app.services.production_orders import (
+    OrderError,
+    attach_tasks_to_order,
+    complete_tasks,
+    consume_components_at_operation,
+    sync_task_order,
+)
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness, task_lines_with_progress
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
@@ -1726,6 +1732,22 @@ def archive_production_task(
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
     task.is_active = is_active
+    sync_task_order(db, task.production_order_id)
+    db.commit()
+    db.refresh(task)
+    return _task_out(db, task)
+
+
+@router.post("/production-tasks/{task_id}/complete", response_model=ProductionTaskOut)
+def complete_production_task(
+    task_id: int, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductionTaskOut:
+    """«Закрыть: всё сделано» для одного задания (см. complete_tasks):
+    остаток строк засчитывается без рулона, задание в архив."""
+    task = db.get(ProductionTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+    complete_tasks(db, [task], user.id)
     sync_task_order(db, task.production_order_id)
     db.commit()
     db.refresh(task)

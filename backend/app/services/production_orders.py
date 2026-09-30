@@ -129,6 +129,43 @@ def sync_task_order(db: Session, order_id: int | None) -> None:
     db.flush()
 
 
+COMPLETE_NOTE = "Закрыто: сделано полностью, без отчёта (плёнка списывается метражом)"
+
+
+def complete_tasks(db: Session, tasks: list[ProductionTask], user_id: int) -> int:
+    """«Закрыть: всё сделано» — там, где по заданию не отчитываются
+    (Фабрика: плёнку списывают метражом): остаток плана каждой строки
+    засчитывается служебным отчётом без рулона — плёнку и партии п/ф он не
+    трогает, — строки закрываются, задания уходят в архив. Без commit.
+    Возвращает, сколько строк досчитано."""
+    from sqlalchemy import func
+
+    from app.models.production import ProductionTaskLineReport
+
+    completed = 0
+    for task in tasks:
+        for line in task.lines:
+            done = float(
+                db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces + ProductionTaskLineReport.defect_pieces), 0))
+                .filter(ProductionTaskLineReport.task_line_id == line.id, ProductionTaskLineReport.counts_toward_line.is_(True))
+                .scalar()
+            )
+            left = round(float(line.quantity_pieces) - done, 2)
+            if left > 0:
+                db.add(
+                    ProductionTaskLineReport(
+                        task_line_id=line.id, good_pieces=left, defect_pieces=0, material_unit_id=None,
+                        counts_toward_line=True, note=COMPLETE_NOTE, reported_by=user_id,
+                    )
+                )
+                completed += 1
+            line.production_closed = True
+            line.is_closed = True
+        task.is_active = False
+    db.flush()
+    return completed
+
+
 def close_order(db: Session, order: ProductionOrder) -> None:
     if order.status != ORDER_RELEASED:
         raise OrderError("Закрыть можно только запущенный заказ")

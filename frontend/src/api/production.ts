@@ -472,6 +472,10 @@ export const createTaskLineAssignment = async (
 export const deleteProductionTask = async (taskId: number): Promise<DeleteResult> =>
   (await apiClient.delete<DeleteResult>(`/production-tasks/${taskId}`)).data;
 
+/** «Закрыть: всё сделано» — остаток строк засчитывается без рулона, задание в архив. */
+export const completeProductionTask = async (taskId: number): Promise<ProductionTask> =>
+  (await apiClient.post<ProductionTask>(`/production-tasks/${taskId}/complete`)).data;
+
 export const archiveProductionTask = async (taskId: number, isActive: boolean): Promise<ProductionTask> =>
   (await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/archive`, null, { params: { is_active: isActive } })).data;
 

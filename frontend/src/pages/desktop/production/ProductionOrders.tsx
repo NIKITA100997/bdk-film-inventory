@@ -37,6 +37,7 @@ import { listItems, type Item } from "../../../api/items";
 import {
   ORDER_STATUS_LABEL,
   closeProductionOrder,
+  completeProductionOrder,
   createProductionOrder,
   deleteProductionOrder,
   listProductionOrders,
@@ -279,6 +280,14 @@ function OrderDrawer({
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось закрыть заказ")),
   });
+  const completeMutation = useMutation({
+    mutationFn: (id: number) => completeProductionOrder(id),
+    onSuccess: () => {
+      invalidate();
+      message.success("Заказ закрыт: всё сделано");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось закрыть заказ")),
+  });
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteProductionOrder(id),
     onSuccess: () => {
@@ -338,6 +347,15 @@ function OrderDrawer({
                   Пересчитать сроки
                 </Button>
                 <Button onClick={() => navigate("/planner")}>Планировщик →</Button>
+                <Popconfirm
+                  title="Закрыть: всё сделано?"
+                  description="Все строки будут отмечены сделанными полностью — без отчёта и без списания плёнки (она списывается метражом отдельно). Задания уйдут в архив."
+                  okText="Закрыть"
+                  cancelText="Отмена"
+                  onConfirm={() => completeMutation.mutate(order.id)}
+                >
+                  <Button loading={completeMutation.isPending}>Закрыть: всё сделано</Button>
+                </Popconfirm>
                 <Popconfirm
                   title="Закрыть заказ?"
                   description="Задания заказа уйдут в архив."

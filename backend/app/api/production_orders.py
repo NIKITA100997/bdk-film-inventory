@@ -27,7 +27,7 @@ from app.models.production_orders import (
 from app.models.users import User
 from app.services.components import live_item_names
 from app.services.planning import PfPick, order_pf_needs, order_plan_status, release_pf, schedule_order
-from app.services.production_orders import OrderError, close_order, release_order
+from app.services.production_orders import OrderError, close_order, complete_tasks, release_order
 from app.services.schedule_import import import_schedule
 from app.models.items import ItemType
 
@@ -530,6 +530,23 @@ def reschedule(order_id: int, db: Session = Depends(get_db), user: User = Depend
     if order.status == ORDER_DRAFT:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Черновик ещё не запущен — сроков нет")
     schedule_order(db, order, user.id)
+    db.commit()
+    db.refresh(order)
+    return _order_out(db, order)
+
+
+@router.post("/production-orders/{order_id}/complete", response_model=OrderOut)
+def complete(order_id: int, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderOut:
+    """Закрыть заказ как сделанный полностью, без отчётов: остаток всех строк
+    его заданий засчитывается без рулона (плёнку не трогает), заказ закрыт."""
+    order = _get_order(db, order_id)
+    try:
+        tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).all()
+        complete_tasks(db, tasks, user.id)
+        close_order(db, order)
+    except OrderError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     db.commit()
     db.refresh(order)
     return _order_out(db, order)

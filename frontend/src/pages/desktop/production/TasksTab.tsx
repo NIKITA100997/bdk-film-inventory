@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid, Modal, InputNumber, Form, Select, Tooltip } from "antd";
+import { Card, Table, Button, Tag, Space, Typography, Empty, Checkbox, message, Grid, Modal, InputNumber, Form, Select, Tooltip, Popconfirm } from "antd";
 // Раздел про широкую таблицу строк задания — ResponsiveTable только для
 // внутренней таблицы строк (плоский список, без expandable). Внешняя
 // таблица заданий использует expandable (клик-разворот строки задания)
@@ -15,6 +15,7 @@ import {
   listProductionTasks,
   deleteProductionTask,
   archiveProductionTask,
+  completeProductionTask,
   closeTaskLine,
   closeProductionLine,
   updateTaskLineSpec,
@@ -92,6 +93,15 @@ export default function TasksTab() {
     .filter((t) => !user?.area || t.area === user.area)
     .filter((t) => showArchived || t.is_active);
 
+  const completeTaskMutation = useMutation({
+    mutationFn: (id: number) => completeProductionTask(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      qc.invalidateQueries({ queryKey: ["production-orders"] });
+      message.success("Задание закрыто: всё сделано");
+    },
+    onError: () => message.error("Не удалось закрыть задание"),
+  });
   const deleteTaskMutation = useMutation({
     mutationFn: (id: number) => deleteProductionTask(id),
     onSuccess: (result) => {
@@ -467,6 +477,19 @@ export default function TasksTab() {
                           <Button size="small" onClick={() => setSupplyTarget({ id: t.id, name: t.product_model_name ?? t.name ?? "" })}>
                             Обеспечение п/ф
                           </Button>
+                        )}
+                        {t.is_active && (
+                          <Popconfirm
+                            title="Закрыть: всё сделано?"
+                            description="Все строки будут отмечены сделанными полностью — без отчёта и без списания плёнки (она списывается метражом отдельно). Задания уйдут в архив."
+                            okText="Закрыть"
+                            cancelText="Отмена"
+                            onConfirm={() => completeTaskMutation.mutate(t.id)}
+                          >
+                            <Button size="small" loading={completeTaskMutation.isPending}>
+                              Закрыть: всё сделано
+                            </Button>
+                          </Popconfirm>
                         )}
                         <Button
                           size="small"

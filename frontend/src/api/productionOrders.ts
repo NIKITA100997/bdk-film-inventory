@@ -148,6 +148,10 @@ export const deleteProductionOrder = async (id: number): Promise<void> => {
 export const releaseProductionOrder = async (id: number, pf: PfPick[] = []): Promise<ProductionOrder> =>
   (await apiClient.post<ProductionOrder>(`/production-orders/${id}/release`, { pf })).data;
 
+/** Закрыть как сделанный полностью, без отчётов (плёнку не трогает). */
+export const completeProductionOrder = async (id: number): Promise<ProductionOrder> =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/complete`)).data;
+
 export const closeProductionOrder = async (id: number): Promise<ProductionOrder> =>
   (await apiClient.post<ProductionOrder>(`/production-orders/${id}/close`)).data;
 
