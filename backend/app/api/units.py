@@ -1054,7 +1054,40 @@ def get_cutting_plan(
     claimed_unit_ids: set[int] = set()
     remaining_widths: list[float] = []
     remaining_to_original: list[int] = []
+    # Общий штрипс участка (30.09): несколько потребностей одной ширины
+    # (с аналогами) — сначала ищем ОДИН штрипс, которого хватит по длине
+    # на все сразу; группа всегда с одного участка, так что остальные
+    # строки возьмут его как общий рулон участка (см. _area_roll_pool).
+    by_width: dict[float, list[int]] = {}
+    for i, w in enumerate(payload.needed_widths_mm):
+        by_width.setdefault(min(equivalent_widths(db, w)), []).append(i)
+    shared_done: set[int] = set()
+    for idxs in by_width.values():
+        if len(idxs) < 2:
+            continue
+        total = round(sum(payload.needed_lengths_m[i] for i in idxs), 3)
+        match = find_exact_stock_match(
+            db,
+            material_sku_id=sku.id,
+            width_mm=payload.needed_widths_mm[idxs[0]],
+            length_m=total,
+            home_warehouse_id=home_id,
+            exclude_unit_ids=claimed_unit_ids,
+        )
+        if match is None:
+            continue
+        claimed_unit_ids.add(match.id)
+        for i in idxs:
+            shared_done.add(i)
+            stock_matches.append(
+                CuttingPlanStockMatch(
+                    index=i, unit_id=match.id, width_mm=float(match.width_mm), length_m=float(match.length_m),
+                    location_code=match.location_code, shared=True,
+                )
+            )
     for i, (width_mm, length_m) in enumerate(zip(payload.needed_widths_mm, payload.needed_lengths_m)):
+        if i in shared_done:
+            continue
         match = find_exact_stock_match(
             db,
             material_sku_id=sku.id,

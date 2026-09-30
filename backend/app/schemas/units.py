@@ -273,6 +273,10 @@ class CuttingPlanStockMatch(BaseModel):
     unit_id: int
     width_mm: float
     length_m: float
+    # Общий штрипс участка: один штрипс на несколько потребностей одной
+    # ширины (хватает по длине на всех) — выдаётся один раз, остальные
+    # строки берут его как общий рулон участка.
+    shared: bool = False
     location_code: str | None = None
 
 

@@ -252,6 +252,8 @@ export interface CuttingPlanStockMatch {
   width_mm: number;
   length_m: number;
   location_code: string | null;
+  // Один штрипс на несколько строк одной ширины (общий рулон участка).
+  shared?: boolean;
 }
 
 export interface CuttingPlan {

@@ -572,9 +572,15 @@ export default function Issue() {
     setExecutingAll(true);
     const failed: { label: string; error: string }[] = [];
     let okCount = 0;
+    // Общий штрипс (одна единица на несколько строк) выдаётся один раз —
+    // под первую строку; остальные берут его как общий рулон участка.
+    const issuedUnits = new Set<number>();
     for (const d of stockDecisions) {
       try {
-        await issueUnitDirect(d.unitId, d.area, d.lineId, toOccurredAtIso(occurredAt));
+        if (!issuedUnits.has(d.unitId)) {
+          await issueUnitDirect(d.unitId, d.area, d.lineId, toOccurredAtIso(occurredAt));
+          issuedUnits.add(d.unitId);
+        }
         removeStockDecision(d.lineId);
         okCount++;
       } catch (e) {
@@ -1247,7 +1253,7 @@ export default function Issue() {
     if (!status) return null;
     switch (status.kind) {
       case "stock":
-        return <Tag color="green">✅ №{status.match.unit_id}</Tag>;
+        return <Tag color="green">✅ №{status.match.unit_id}{status.match.shared ? " · общий" : ""}</Tag>;
       case "cut_planned":
         return <Tag color="gold">✂️ резка</Tag>;
       case "no_donor":
@@ -1925,7 +1931,12 @@ export default function Issue() {
     } else if (decided) {
       state = <Tag color="processing">🕒 в решениях</Tag>;
     } else if (info?.status.kind === "stock") {
-      state = <Tag color="green">✅ штрипс №{info.status.match.unit_id}</Tag>;
+      state = (
+        <Tag color="green" title={info.status.match.shared ? "Один штрипс на несколько деталей — выдаётся один раз" : undefined}>
+          ✅ штрипс №{info.status.match.unit_id}
+          {info.status.match.shared ? " · общий" : ""}
+        </Tag>
+      );
       if (canIssue && info.acceptStock)
         action = (
           <Button type="primary" size="large" style={{ background: "#1D8F68" }} onClick={info.acceptStock}>
