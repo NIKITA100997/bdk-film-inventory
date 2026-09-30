@@ -28,6 +28,7 @@ import { skuLabel } from "../../../api/units";
 import { listUsers } from "../../../api/users";
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
+import TaskCardDrawer from "./TaskCardDrawer";
 import AssignmentModal from "./AssignmentModal";
 import ReportModal from "./ReportModal";
 import PfSupplyModal from "./PfSupplyModal";
@@ -60,6 +61,7 @@ export default function TasksTab() {
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const canReport = canManage || !!user?.permissions.includes("production_tasks.report");
   const navigate = useNavigate();
+  const [cardTask, setCardTask] = useState<number | null>(null);
   // Обеспечение п/ф задания: резерв и задания на п/ф «под это задание».
   const [supplyTarget, setSupplyTarget] = useState<{ id: number; name: string } | null>(null);
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine; area: string } | null>(null);
@@ -402,7 +404,14 @@ export default function TasksTab() {
                   ellipsis: true,
                   render: (_, t) => (
                     <>
-                      {t.product_model_name ?? t.name ?? "—"}
+                      <a
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCardTask(t.id);
+                        }}
+                      >
+                        {t.product_model_name ?? t.name ?? "—"}
+                      </a>
                       {t.for_task_id && <Tag color="geekblue" style={{ marginLeft: 6 }}>под задание №{t.for_task_id}</Tag>}
                     </>
                   ),
@@ -561,6 +570,7 @@ export default function TasksTab() {
           </Form.Item>
         </Form>
       </Modal>
+      <TaskCardDrawer taskId={cardTask} onClose={() => setCardTask(null)} canManage={canManage} canReport={canReport} />
     </Space>
   );
 }

@@ -1,13 +1,14 @@
 import { useState } from "react";
-import { Card, Space, Typography, DatePicker, Tag, Button, Empty, Select } from "antd";
+import { Card, Space, Typography, DatePicker, Tag, Button, Empty, Select, Progress, Table } from "antd";
 import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
-import { lineFilmLabel, listProductionTasks, type ProductionTaskLine } from "../../../api/production";
+import { lineFilmLabel, listProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import ReportModal from "./ReportModal";
 import FastReportPanel from "./fastReport/FastReportPanel";
+import TaskCardDrawer from "./TaskCardDrawer";
 import { listPlanSlots } from "../../../api/planning";
 
 /** План на день (мастер) — суточный срез уже распределённых по линиям
@@ -28,6 +29,7 @@ export default function DailyPlanTab() {
     !!user?.is_superuser ||
     !!user?.permissions.includes("production_tasks.manage") ||
     !!user?.permissions.includes("production_tasks.report");
+  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
   const [viewArea, setViewArea] = useState<string | null>(null);
   const [reportTarget, setReportTarget] = useState<
@@ -60,6 +62,7 @@ export default function DailyPlanTab() {
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         {areaPicker}
         <PlanForDay area={effectiveArea} canReport={canReport} />
+        <AreaTasks tasks={tasks} canManage={canManage} canReport={canReport} />
         <FastReportPanel area={effectiveArea} allowLegacy />
       </Space>
     );
@@ -83,6 +86,7 @@ export default function DailyPlanTab() {
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       {areaPicker}
       {effectiveArea && <PlanForDay area={effectiveArea} canReport={canReport} />}
+      {effectiveArea && <AreaTasks tasks={tasks} canManage={canManage} canReport={canReport} />}
       <Card
         title={`📅 Суточный план участка на ${selectedDate.format("DD.MM.YYYY")}`}
         extra={
@@ -249,6 +253,59 @@ function PlanForDay({ area, canReport }: { area: string; canReport: boolean }) {
           onClose={() => setReportTarget(null)}
         />
       )}
+    </Card>
+  );
+}
+
+/** Задания участка — открытые задания списком, клик открывает карточку
+ * задания (строки, отчёт по заданию, п/ф под него, план, история). */
+function AreaTasks({ tasks, canManage, canReport }: { tasks: ProductionTask[]; canManage: boolean; canReport: boolean }) {
+  const [cardTask, setCardTask] = useState<number | null>(null);
+  const rows = tasks.map((t) => {
+    const plan = t.lines.reduce((s, l) => s + l.quantity_pieces, 0);
+    const done = t.lines.reduce((s, l) => s + Math.min(l.produced_good_pieces, l.quantity_pieces), 0);
+    return { t, plan, done };
+  });
+  return (
+    <Card size="small" title={`Задания участка · ${rows.length}`}>
+      {rows.length === 0 ? (
+        <Typography.Text type="secondary">Открытых заданий нет.</Typography.Text>
+      ) : (
+        <Table
+          size="small"
+          rowKey={(r) => r.t.id}
+          pagination={rows.length > 10 ? { pageSize: 10, size: "small" } : false}
+          dataSource={rows}
+          scroll={{ x: "max-content" }}
+          onRow={(r) => ({ onClick: () => setCardTask(r.t.id), style: { cursor: "pointer" } })}
+          columns={[
+            {
+              title: "Задание",
+              render: (_, r) => (
+                <Space size={4} wrap>
+                  <a>
+                    №{r.t.id} «{r.t.name ?? r.t.product_model_name ?? "Задание"}»
+                  </a>
+                  {r.t.for_task_id && <Tag color="geekblue">п/ф под №{r.t.for_task_id}</Tag>}
+                </Space>
+              ),
+            },
+            { title: "Заказ", render: (_, r) => (r.t.production_order_id ? `№${r.t.production_order_id}` : "—") },
+            {
+              title: "Сделано",
+              render: (_, r) => (
+                <Space size={8}>
+                  <Progress percent={r.plan ? Math.round((r.done / r.plan) * 100) : 0} size="small" style={{ width: 100, margin: 0 }} />
+                  <span>
+                    {r.done} из {r.plan}
+                  </span>
+                </Space>
+              ),
+            },
+          ]}
+        />
+      )}
+      <TaskCardDrawer taskId={cardTask} onClose={() => setCardTask(null)} canManage={canManage} canReport={canReport} />
     </Card>
   );
 }

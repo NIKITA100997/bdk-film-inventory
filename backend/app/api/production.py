@@ -22,6 +22,9 @@ from app.models.production import (
 )
 from app.models.users import User
 from app.schemas.production import (
+    TaskCardOrderOut,
+    TaskCardOut,
+    TaskCardReportOut,
     AreaOperationOut,
     OperationTaskCreate,
     BlankDemandLineOut,
@@ -1644,6 +1647,49 @@ def get_production_task(task_id: int, db: Session = Depends(get_db), user: User 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
     _require_task_access(user, task)
     return _task_out(db, task)
+
+
+@router.get("/production-tasks/{task_id}/card", response_model=TaskCardOut)
+def get_task_card(task_id: int, db: Session = Depends(get_db), user: User = Depends(view_tasks)) -> TaskCardOut:
+    """Карточка задания: заказ, связанные задания и история отчётов.
+    Связанные показываются и мастеру другого участка — окутке нужно видеть,
+    готов ли её п/ф, а п/ф — для какой окутки он делается."""
+    from app.models.write_off_reasons import WriteOffReasonEntry
+
+    task = db.get(ProductionTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+    _require_task_access(user, task)
+    order = db.get(ProductionOrder, task.production_order_id) if task.production_order_id else None
+    for_task = db.get(ProductionTask, task.for_task_id) if task.for_task_id else None
+    pf_tasks = db.query(ProductionTask).filter(ProductionTask.for_task_id == task.id).order_by(ProductionTask.id).all()
+    lines = {ln.id: ln for ln in task.lines}
+    stage_ids = {ln.part_stage_id for ln in task.lines if ln.part_stage_id}
+    stage_names = {st.id: st.name for st in db.query(PartStage).filter(PartStage.id.in_(stage_ids))} if stage_ids else {}
+    ops = {ln.id: stage_names.get(ln.part_stage_id) for ln in task.lines}
+    reasons = {r.code: r.name for r in db.query(WriteOffReasonEntry)}
+    reps = (
+        db.query(ProductionTaskLineReport, User.full_name)
+        .outerjoin(User, User.id == ProductionTaskLineReport.reported_by)
+        .filter(ProductionTaskLineReport.task_line_id.in_(list(lines) or [0]))
+        .order_by(ProductionTaskLineReport.reported_at.desc(), ProductionTaskLineReport.id.desc())
+        .limit(300)
+        .all()
+    )
+    return TaskCardOut(
+        order=TaskCardOrderOut(id=order.id, name=order.name, status=order.status, ship_date=order.ship_date) if order else None,
+        for_task=_task_out(db, for_task) if for_task else None,
+        pf_tasks=[_task_out(db, t) for t in pf_tasks],
+        reports=[
+            TaskCardReportOut(
+                id=r.id, reported_at=r.reported_at, user_name=name, part_name=lines[r.task_line_id].part_name,
+                operation_name=ops.get(r.task_line_id), good_pieces=float(r.good_pieces), defect_pieces=float(r.defect_pieces),
+                defect_reason_name=reasons.get(r.defect_reason, r.defect_reason) if r.defect_reason else None,
+                material_unit_id=r.material_unit_id, note=r.note,
+            )
+            for r, name in reps
+        ],
+    )
 
 
 @router.patch("/production-tasks/{task_id}/lines/{line_id}", response_model=ProductionTaskOut)

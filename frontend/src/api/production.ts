@@ -279,6 +279,33 @@ export const deleteProductModelPart = async (modelId: number, partId: number): P
   await apiClient.delete(`/product-models/${modelId}/parts/${partId}`);
 };
 
+export const getProductionTask = async (taskId: number): Promise<ProductionTask> =>
+  (await apiClient.get<ProductionTask>(`/production-tasks/${taskId}`)).data;
+
+export interface TaskCardReport {
+  id: number;
+  reported_at: string;
+  user_name: string | null;
+  part_name: string | null;
+  operation_name: string | null;
+  good_pieces: number;
+  defect_pieces: number;
+  defect_reason_name: string | null;
+  material_unit_id: number | null;
+  note: string | null;
+}
+
+/** Карточка задания: заказ, связанные задания (окутка ↔ её п/ф), история отчётов. */
+export interface TaskCard {
+  order: { id: number; name: string; status: string; ship_date: string | null } | null;
+  for_task: ProductionTask | null;
+  pf_tasks: ProductionTask[];
+  reports: TaskCardReport[];
+}
+
+export const getTaskCard = async (taskId: number): Promise<TaskCard> =>
+  (await apiClient.get<TaskCard>(`/production-tasks/${taskId}/card`)).data;
+
 export const listProductionTasks = async (): Promise<ProductionTask[]> =>
   (await apiClient.get<ProductionTask[]>("/production-tasks")).data;
 

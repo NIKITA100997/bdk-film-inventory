@@ -32,6 +32,7 @@ import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
 import ReleaseOrderModal from "./ReleaseOrderModal";
 import FastReportPanel from "./fastReport/FastReportPanel";
+import TaskCardDrawer from "./TaskCardDrawer";
 import VariantPicker from "../../../components/VariantPicker";
 import { useAuth } from "../../../auth/AuthContext";
 import { listItems, type Item } from "../../../api/items";
@@ -264,6 +265,7 @@ function OrderDrawer({
     qc.invalidateQueries({ queryKey: ["pf-demand"] });
   };
   const [releasing, setReleasing] = useState(false);
+  const [cardTask, setCardTask] = useState<number | null>(null);
   const rescheduleMutation = useMutation({
     mutationFn: (id: number) => rescheduleOrder(id),
     onSuccess: (o) => {
@@ -394,7 +396,7 @@ function OrderDrawer({
                     title: "Задание",
                     render: (_, t) => (
                       <Space size={4} wrap>
-                        <a onClick={() => navigate(`/production-tasks?task=${t.id}`)}>
+                        <a onClick={() => setCardTask(t.id)}>
                           №{t.id} · {t.name}
                         </a>
                         {t.with_film && <Tag color="blue">плёнка</Tag>}
@@ -508,6 +510,7 @@ function OrderDrawer({
         </Space>
       )}
       {releasing && order && <ReleaseOrderModal order={order} onClose={() => setReleasing(false)} />}
+      <TaskCardDrawer taskId={cardTask} onClose={() => setCardTask(null)} canManage={canManage} canReport={canManage} />
     </Drawer>
   );
 }

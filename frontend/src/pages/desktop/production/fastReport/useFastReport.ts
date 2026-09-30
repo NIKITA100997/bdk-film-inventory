@@ -48,9 +48,9 @@ function loadDraft(key: string): Record<number, Entry> {
   }
 }
 
-export function useFastReport({ area, orderId }: { area: string; orderId?: number }) {
+export function useFastReport({ area, orderId, taskId }: { area: string; orderId?: number; taskId?: number }) {
   const qc = useQueryClient();
-  const draftKey = `fast-report:${area}:${orderId ?? "all"}`;
+  const draftKey = `fast-report:${area}:${taskId != null ? `t${taskId}` : (orderId ?? "all")}`;
   const [entries, setEntries] = useState<Record<number, Entry>>(() => loadDraft(draftKey));
   useEffect(() => setEntries(loadDraft(draftKey)), [draftKey]);
   useEffect(() => {
@@ -86,6 +86,7 @@ export function useFastReport({ area, orderId }: { area: string; orderId?: numbe
     for (const task of tasksQuery.data ?? []) {
       if (task.area !== area || !task.is_active) continue;
       if (orderId != null && task.production_order_id !== orderId) continue;
+      if (taskId != null && task.id !== taskId) continue;
       for (const line of task.lines) {
         if (line.production_closed) continue;
         const onMachine = line.issued_units.some((u) => u.status === "Выдан_участку");
@@ -93,7 +94,7 @@ export function useFastReport({ area, orderId }: { area: string; orderId?: numbe
       }
     }
     return out;
-  }, [tasksQuery.data, area, orderId, todayLines]);
+  }, [tasksQuery.data, area, orderId, taskId, todayLines]);
 
   const entryOf = (l: ProductionTaskLine): Entry => {
     const e = entries[l.id];

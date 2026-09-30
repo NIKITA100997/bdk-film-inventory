@@ -25,17 +25,21 @@ const fmt = (n: number) => String(Math.round(n * 100) / 100);
 export default function FastReportPanel({
   area,
   orderId,
+  taskId,
   defaultView = "tiles",
   allowLegacy = false,
   title = "Отчёт о производстве",
 }: {
   area: string;
   orderId?: number;
+  /** Только строки этого задания (карточка задания). */
+  taskId?: number;
   defaultView?: "tiles" | "table";
   allowLegacy?: boolean;
   title?: string;
 }) {
-  const viewKey = `fast-report-view:${orderId != null ? "order" : "master"}`;
+  const narrow = orderId != null || taskId != null;
+  const viewKey = `fast-report-view:${narrow ? "order" : "master"}`;
   const [view, setViewState] = useState<View>(() => loadView(viewKey, defaultView));
   const setView = (v: View) => {
     setViewState(v);
@@ -50,15 +54,15 @@ export default function FastReportPanel({
   const [open, setOpen] = useState<FastLine | null>(null);
   const [defectFor, setDefectFor] = useState<FastLine | null>(null);
   const [detailFor, setDetailFor] = useState<FastLine | null>(null);
-  const r = useFastReport({ area, orderId });
+  const r = useFastReport({ area, orderId, taskId });
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return r.lines
-      .filter((fl) => scope === "all" || orderId != null || fl.onMachine || fl.today || isFilled(r.entryOf(fl.line)))
+      .filter((fl) => scope === "all" || narrow || fl.onMachine || fl.today || isFilled(r.entryOf(fl.line)))
       .filter((fl) => !needle || `${fl.line.part_name ?? ""} ${fl.task.name ?? ""} ${filmLabel(fl.line)}`.toLowerCase().includes(needle))
       .sort((a, b) => filmLabel(a.line).localeCompare(filmLabel(b.line), "ru") || (a.line.part_name ?? "").localeCompare(b.line.part_name ?? "", "ru"));
-  }, [r, scope, q, orderId]);
+  }, [r, scope, q, narrow]);
 
   const onSave = () => {
     const noRoll = r.filled.filter((fl) => r.needsRoll(fl));
@@ -97,7 +101,7 @@ export default function FastReportPanel({
       ) : (
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
           <Space wrap>
-            {orderId == null && (
+            {!narrow && (
               <Segmented
                 value={scope}
                 onChange={(v) => setScope(v as "work" | "all")}
@@ -112,7 +116,7 @@ export default function FastReportPanel({
           {r.loading ? null : shown.length === 0 ? (
             <Empty
               description={
-                scope === "work" && orderId == null
+                scope === "work" && !narrow
                   ? "На станке ничего нет: рулонов не выдано и на сегодня не запланировано. Нажмите «Все позиции»."
                   : "Позиций нет"
               }

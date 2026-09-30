@@ -435,6 +435,37 @@ class ProductionTaskOut(BaseModel):
     defect_pieces: float = 0.0
 
 
+class TaskCardOrderOut(BaseModel):
+    id: int
+    name: str
+    status: str
+    ship_date: date | None = None
+
+
+class TaskCardReportOut(BaseModel):
+    id: int
+    reported_at: datetime
+    user_name: str | None
+    part_name: str | None
+    operation_name: str | None
+    good_pieces: float
+    defect_pieces: float
+    defect_reason_name: str | None
+    material_unit_id: int | None
+    note: str | None
+
+
+class TaskCardOut(BaseModel):
+    """Карточка задания участка: заказ, связанные задания (окутка ↔ её п/ф)
+    и история отчётов — одним запросом."""
+
+    order: TaskCardOrderOut | None
+    # Задание, под которое делается это (для п/ф), и задания п/ф под это.
+    for_task: ProductionTaskOut | None
+    pf_tasks: list[ProductionTaskOut]
+    reports: list[TaskCardReportOut]
+
+
 class BlankDemandLineOut(BaseModel):
     """Раздел про «Заготовки» — сколько плёнки этой позиции и ширины ещё
     нужно по ВСЕМ активным заданиям (не только уже распределённым по
