@@ -1,8 +1,6 @@
-import { useState } from "react";
-import { Card, Segmented, Space, Tabs, Typography } from "antd";
+import { Card, Tabs, Typography } from "antd";
 import { useSearchParams } from "react-router-dom";
 import DailyPlanTab from "./production/DailyPlanTab";
-import TasksTab from "./production/TasksTab";
 import TasksBoard from "./production/TasksBoard";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -20,22 +18,6 @@ export default function ProductionTasks() {
   // ?task=ID (сквозной поиск по номеру) — сразу вкладка «Задания» с этим заданием.
   const [params] = useSearchParams();
   const { user } = useAuth();
-  // Мастер (участок закреплён) начинает со своего участка, начальник — со списка заданий.
-  const [view, setView] = useState<"board" | "table">(() => {
-    try {
-      return (localStorage.getItem("tasks-view") as "board" | "table") || "board";
-    } catch {
-      return "board";
-    }
-  });
-  const pickView = (v: "board" | "table") => {
-    setView(v);
-    try {
-      localStorage.setItem("tasks-view", v);
-    } catch {
-      /* не запоминаем */
-    }
-  };
   return (
     <Card>
       <Typography.Title level={4}>Задания цеха</Typography.Title>
@@ -47,19 +29,7 @@ export default function ProductionTasks() {
           {
             key: "tasks",
             label: "Задания",
-            children: (
-              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                <Segmented
-                  value={view}
-                  onChange={(v) => pickView(v as "board" | "table")}
-                  options={[
-                    { value: "board", label: "Список и карточка" },
-                    { value: "table", label: "Таблица (как раньше)" },
-                  ]}
-                />
-                {view === "board" ? <TasksBoard /> : <TasksTab />}
-              </Space>
-            ),
+            children: <TasksBoard />,
           },
         ]}
       />
