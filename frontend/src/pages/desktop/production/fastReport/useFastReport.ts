@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  closeProductionLine,
   createTaskLineReportsBatch,
   listProductionTasks,
   type ProductionTask,
@@ -22,7 +23,8 @@ export const PUSK_REASON = "puskovye";
 
 export type Disposition = "spisat" | "pererabotka" | "snyat";
 export type DefectDraft = { reason: string; qty: number; disposition: Disposition };
-export type Entry = { good: string; pusk: number; defects: DefectDraft[]; rollId: number | null };
+// close — «строка сделана полностью»: после отчёта закрыть производство по строке.
+export type Entry = { good: string; pusk: number; defects: DefectDraft[]; rollId: number | null; close?: boolean };
 export type FastLine = { task: ProductionTask; line: ProductionTaskLine; onMachine: boolean; today: boolean };
 
 const EMPTY: Entry = { good: "", pusk: 0, defects: [], rollId: null };
@@ -54,7 +56,7 @@ export const defaultRoll = (l: ProductionTaskLine): number | null => {
   return null;
 };
 
-export const isFilled = (e: Entry | undefined) => !!e && (+e.good > 0 || e.pusk > 0 || e.defects.length > 0);
+export const isFilled = (e: Entry | undefined) => !!e && (+e.good > 0 || e.pusk > 0 || e.defects.length > 0 || !!e.close);
 
 function loadDraft(key: string): Record<number, Entry> {
   try {
@@ -150,7 +152,8 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
               defect_reason: d.reason, defect_disposition: d.disposition,
             });
           }
-          await createTaskLineReportsBatch(fl.task.id, fl.line.id, payloads);
+          if (payloads.length) await createTaskLineReportsBatch(fl.task.id, fl.line.id, payloads);
+          if (e.close) await closeProductionLine(fl.task.id, fl.line.id, true);
           return fl.line.id;
         }),
       );

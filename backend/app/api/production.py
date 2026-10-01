@@ -1908,9 +1908,11 @@ def close_production_line(
     line_id: int,
     production_closed: bool,
     db: Session = Depends(get_db),
-    user: User = Depends(manage_production),
+    user: User = Depends(report_production),
 ) -> ProductionTaskOut:
-    """Явно завершить/возобновить работу по строке в ПРОИЗВОДСТВЕ
+    """Явно завершить/возобновить работу по строке в ПРОИЗВОДСТВЕ.
+    Закрыть может и мастер своего участка (из быстрого отчёта, 01.10),
+    вернуть закрытую в работу — только управляющий заданиями.
     (раздел про автоматический уход строк из очереди «Выдачи» + явное
     завершение) — независимая ось от close_task_line/is_closed выше
     (тот про выдачу/остаток рулона): этот флаг про то, что строку
@@ -1925,6 +1927,9 @@ def close_production_line(
     line = db.get(ProductionTaskLine, line_id)
     if line is None or line.task_id != task_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
+    _require_task_access(user, db.get(ProductionTask, task_id))
+    if not production_closed and not (user.is_superuser or "production_tasks.manage" in get_permission_codes(user)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Вернуть строку в работу может начальник цеха")
     line.production_closed = production_closed
     db.commit()
     task = db.get(ProductionTask, task_id)

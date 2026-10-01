@@ -32,6 +32,8 @@ export default function DailyPlanTab() {
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
   const [viewArea, setViewArea] = useState<string | null>(null);
+  // Карточка задания — из панели ввода быстрого отчёта («Задание №… →»).
+  const [reportCardTask, setReportCardTask] = useState<number | null>(null);
   const [reportTarget, setReportTarget] = useState<
     { taskId: number; line: ProductionTaskLine; assignmentId: number; area: string } | null
   >(null);
@@ -62,7 +64,8 @@ export default function DailyPlanTab() {
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         {areaPicker}
         {/* Главное у станка — отчёт; план и задания участка — ниже, по запросу. */}
-        <FastReportPanel area={effectiveArea} allowLegacy />
+        <FastReportPanel area={effectiveArea} allowLegacy onOpenTask={setReportCardTask} />
+        <TaskCardDrawer taskId={reportCardTask} onClose={() => setReportCardTask(null)} canManage={canManage} canReport={canReport} />
         <Collapse
           items={[
             {

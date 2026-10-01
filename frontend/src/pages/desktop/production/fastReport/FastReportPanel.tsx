@@ -53,6 +53,7 @@ export default function FastReportPanel({
   area,
   orderId,
   taskId,
+  onOpenTask,
   defaultView = "tiles",
   allowLegacy = false,
   title = "Отчёт о производстве",
@@ -61,6 +62,8 @@ export default function FastReportPanel({
   orderId?: number;
   /** Только строки этого задания (карточка задания). */
   taskId?: number;
+  /** Открыть карточку задания (из панели ввода по детали). */
+  onOpenTask?: (taskId: number) => void;
   defaultView?: "tiles" | "table";
   allowLegacy?: boolean;
   title?: string;
@@ -245,6 +248,7 @@ export default function FastReportPanel({
           onClose={() => setOpen(null)}
           onDefect={() => setDefectFor(open)}
           onDetail={() => setDetailFor(open)}
+          onOpenTask={onOpenTask}
           onNext={
             view === "table"
               ? () => {
@@ -291,6 +295,7 @@ function EntryBadge({ r, line }: { r: R; line: ProductionTaskLine }) {
     <Tag color="green" style={{ marginInlineEnd: 0, fontWeight: 700 }}>
       {+e.good || 0}
       {defect ? ` · брак ${defect}` : ""}
+      {e.close ? " · закрыть" : ""}
     </Tag>
   );
 }
@@ -577,6 +582,7 @@ function LineSheet({
   onDefect,
   onDetail,
   onNext,
+  onOpenTask,
 }: {
   fl: FastLine;
   r: R;
@@ -584,6 +590,7 @@ function LineSheet({
   onDefect: () => void;
   onDetail: () => void;
   onNext?: () => void;
+  onOpenTask?: (taskId: number) => void;
 }) {
   const e = r.entryOf(fl.line);
   const rolls = rollChoices(fl.line);
@@ -606,7 +613,14 @@ function LineSheet({
       >
         <Space direction="vertical" size={10} style={{ width: "100%" }}>
           <Typography.Text type="secondary">
-            {fl.task.production_order_name ?? fl.task.name} · план{" "}
+            {onOpenTask ? (
+              <a onClick={() => onOpenTask(fl.task.id)}>
+                Задание №{fl.task.id} «{fl.task.name ?? fl.task.production_order_name}» →
+              </a>
+            ) : (
+              (fl.task.production_order_name ?? fl.task.name)
+            )}{" "}
+            · план{" "}
             {fmt(fl.line.quantity_pieces)}, сделано{" "}
             {fmt(fl.line.produced_good_pieces)}, осталось{" "}
             {fmt(fl.line.remaining_pieces)} · {filmLabel(fl.line)}
@@ -663,6 +677,23 @@ function LineSheet({
               Подробно… (второй рулон, остаток)
             </Button>
           </Space>
+          <Button
+            size="large"
+            type={e.close ? "primary" : "default"}
+            danger={!!e.close}
+            onClick={() => r.setEntry(fl.line, { close: !e.close })}
+          >
+            {e.close ? "✓ Строка будет закрыта" : "Строка сделана полностью — закрыть"}
+          </Button>
+          {e.close && (
+            <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+              После сохранения строка уйдёт из отчёта
+              {fl.line.remaining_pieces - (+e.good || 0) > 0
+                ? ` — остаток ${fmt(fl.line.remaining_pieces - (+e.good || 0))} шт делать не нужно`
+                : ""}
+              . Вернуть может начальник цеха.
+            </Typography.Text>
+          )}
           <Space wrap>
             <Button
               type="primary"
