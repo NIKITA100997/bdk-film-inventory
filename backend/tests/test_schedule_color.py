@@ -56,3 +56,28 @@ def test_hardware_brackets_are_not_color():
 
     name = "В-19 800х2000 - Полипропилен INVISIBLE Белый грунтовочный (PL410 + петли AGB Eclipse 3.0) кромка Black"
     assert color_from_name(name, "") == "Полипропилен INVISIBLE Белый грунтовочный"
+
+
+def _index(*skus):
+    import re
+
+    from app.services.sku_matching import SkuMatchIndex
+
+    items = [NS(id=i, material=NS(name=m), color=NS(name=c), color_id=hash(c), material_id=hash(m), thickness=NS(value_mm=0.14))
+             for i, (m, c) in enumerate(skus, start=1)]
+    return SkuMatchIndex(
+        color_by_normalized={},
+        skus_by_color_id={},
+        combined_label_to_sku={re.sub(r"\s+", " ", f"{s.material.name} {s.color.name}".lower()): s for s in items},
+        sku_by_id={s.id: s for s in items},
+    )
+
+
+def test_film_picked_like_okutka_tasks():
+    from app.services.schedule_import import film_for_color
+
+    idx = _index(("ПЭТ 2Д", "Белый"), ("ПЭТ 3Д", "Белый"), ("ПЭТ 2Д", "Бежевый"), ("Полипропилен", "Аляска"))
+    # ПЭТ 2Д и 3Д одного цвета — материал «ПЭТ», тип решается у детали
+    assert film_for_color(None, "ПЭТ Белый", idx) == ("ПЭТ", "Белый")
+    assert film_for_color(None, "Полипропилен Аляска", idx) == ("Полипропилен", "Аляска")
+    assert film_for_color(None, "Bolton Oak", idx) is None
