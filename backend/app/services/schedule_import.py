@@ -4,6 +4,7 @@
 серия, ширина, высота, цвет, стекло, молдинг, замок, кромка, цвет_кромки), позиция
 находится или создаётся по типу, строка — строкой заказа."""
 
+import re
 from dataclasses import dataclass, field
 
 from sqlalchemy import func
@@ -48,6 +49,21 @@ def _values_for_row(type_: ItemType, row: ScheduleRow) -> tuple[dict[int, object
     color = " ".join((row.color_text or "").split())
     if not color:
         errors.append("не указан цвет")
+    # «Цвет» у типа — список вариантов (цвет привязан к плёнке): «ПЭТ Бежевый»
+    # из графика = вариант «ПЭТ Бежевый (cream silk)» — сравниваем без скобок.
+    color_value: object = color
+    if color and props["цвет"].value_type == "list":
+        def norm(v: str) -> str:
+            return " ".join(re.sub(r"\(.*?\)", " ", v).lower().replace("ё", "е").split())
+
+        opts = [o for o in props["цвет"].options if o.is_active]
+        opt = next((o for o in opts if norm(o.value) == norm(color)), None) or next(
+            (o for o in opts if norm(o.value) == norm(row.name_text.split(" - ")[-1].split(" кромка")[0])), None
+        )
+        if opt is None:
+            errors.append(f"цвета «{color}» нет в вариантах свойства «Цвет» — добавьте его в типе")
+        else:
+            color_value = opt.id
     if errors:
         return {}, errors
     features = parse_line_features(row.name_text, (series.params or {}).get("кромка") or "abs")
@@ -58,7 +74,7 @@ def _values_for_row(type_: ItemType, row: ScheduleRow) -> tuple[dict[int, object
         props["серия"].id: series.id,
         props["ширина"].id: float(size[0]),
         props["высота"].id: float(size[1]),
-        props["цвет"].id: color,
+        props["цвет"].id: color_value,
         props["стекло"].id: features.glass,  # вид стекла, "" — без стекла
         props["молдинг"].id: features.has_moulding,
         props["замок"].id: features.needs_lock_milling,
