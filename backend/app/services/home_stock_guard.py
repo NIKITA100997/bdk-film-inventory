@@ -7,7 +7,7 @@
 (та же номенклатура, ширина с аналогами) ≥ Σ по открытым строкам заданий
 участков площадки (needed − выдано, как в нехватке «Выдачи участку»).
 Нет открытых строк под эту плёнку — это пополнение запаса, не запрещаем.
-Обойти запрет может только руководитель (users.manage) или
+Обойти запрет может только тот, у кого право units.transfer_override, или
 администратор — с обязательным комментарием; кладовщик — нет."""
 
 from sqlalchemy import func
@@ -28,7 +28,7 @@ from app.services.width_analogs import equivalent_widths
 
 
 def can_override_home_stock(user: User) -> bool:
-    return user.is_superuser or "users.manage" in get_permission_codes(user)
+    return user.is_superuser or "units.transfer_override" in get_permission_codes(user)
 
 
 def home_stock_block_reason(db: Session, *, sku_id: int, width_mm: float, to_warehouse_id: int | None) -> str | None:

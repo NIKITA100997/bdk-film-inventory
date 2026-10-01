@@ -298,7 +298,7 @@ export default function UnitCard() {
         // Запрет лишнего перемещения: на складе назначения уже хватает.
         const text = homeStockBlockText(e);
         if (!text) throw e;
-        const canOverride = !!user?.is_superuser || !!user?.permissions.includes("users.manage");
+        const canOverride = !!user?.is_superuser || !!user?.permissions.includes("units.transfer_override");
         if (!canOverride) {
           showHomeStockBlock(text);
           throw new Error("blocked");

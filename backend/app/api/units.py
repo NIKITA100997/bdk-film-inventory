@@ -808,7 +808,7 @@ def _guard_home_stock(db, *, sku_id: int, width_mm: float, to_warehouse_id, user
         return None
     if override_reason and override_reason.strip() and can_override_home_stock(user):
         return f"Перемещено при наличии на складе назначения — {user.full_name}: {override_reason.strip()}"[:255]
-    tail = " Обойти может только руководитель, с комментарием." if not can_override_home_stock(user) else " Чтобы всё же переместить, укажите причину."
+    tail = " Обойти может только сотрудник с правом «Перемещение на площадку, где плёнки уже хватает», с комментарием." if not can_override_home_stock(user) else " Чтобы всё же переместить, укажите причину."
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason + tail)
 
 def _note_transfer_of(db, unit_id: int, note: str) -> None:

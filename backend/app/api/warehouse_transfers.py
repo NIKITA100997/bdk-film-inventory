@@ -114,7 +114,7 @@ def add_unit_to_transfer_endpoint(
             tail = (
                 " Чтобы всё же переместить, укажите причину."
                 if can_override_home_stock(user)
-                else " Обойти может только руководитель, с комментарием."
+                else " Обойти может только сотрудник с правом «Перемещение на площадку, где плёнки уже хватает», с комментарием."
             )
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason + tail)
         override_note = f"Перемещено при наличии на складе назначения — {user.full_name}: {payload.override_reason.strip()}"
