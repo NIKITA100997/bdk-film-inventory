@@ -58,6 +58,17 @@ export const defaultRoll = (l: ProductionTaskLine): number | null => {
 
 export const isFilled = (e: Entry | undefined) => !!e && (+e.good > 0 || e.pusk > 0 || e.defects.length > 0 || !!e.close);
 
+/** «Мой набор» — строки, отмеченные мастером на смену (★), по участку. */
+export const pinsKey = (area: string) => `fast-report-pins:${area}`;
+export function loadPins(area: string): number[] {
+  try {
+    const raw = localStorage.getItem(pinsKey(area));
+    return raw ? (JSON.parse(raw) as number[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function loadDraft(key: string): Record<number, Entry> {
   try {
     const raw = localStorage.getItem(key);
@@ -130,6 +141,25 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
     });
 
   const filled = lines.filter((fl) => isFilled(entries[fl.line.id]));
+
+  const [pinList, setPinList] = useState<number[]>(() => loadPins(area));
+  useEffect(() => setPinList(loadPins(area)), [area]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(pinsKey(area), JSON.stringify(pinList));
+    } catch {
+      /* без хранилища набор живёт до закрытия вкладки */
+    }
+  }, [area, pinList]);
+  // Закрытые/ушедшие строки сами выпадают из набора.
+  useEffect(() => {
+    if (tasksQuery.isLoading || !tasksQuery.data || orderId != null || taskId != null) return;
+    const alive = new Set(lines.map((fl) => fl.line.id));
+    setPinList((p) => (p.every((id) => alive.has(id)) ? p : p.filter((id) => alive.has(id))));
+  }, [lines, tasksQuery.isLoading, tasksQuery.data, orderId, taskId]);
+  const pins = useMemo(() => new Set(pinList), [pinList]);
+  const togglePin = (lineId: number) => setPinList((p) => (p.includes(lineId) ? p.filter((x) => x !== lineId) : [...p, lineId]));
+  const clearPins = () => setPinList([]);
   const needsRoll = (fl: FastLine) => requiresRoll && fl.line.material !== null && !entryOf(fl.line).rollId;
 
   const save = useMutation({
@@ -174,6 +204,9 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
     filled,
     needsRoll,
     save,
+    pins,
+    togglePin,
+    clearPins,
     reasons,
     hasPusk,
     requiresRoll,

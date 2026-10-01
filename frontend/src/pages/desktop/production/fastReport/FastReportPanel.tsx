@@ -25,6 +25,7 @@ import {
   PUSK_REASON,
   filmLabel,
   isFilled,
+  loadPins,
   rollChoices,
   useFastReport,
   type DefectDraft,
@@ -81,7 +82,8 @@ export default function FastReportPanel({
       /* не запоминаем */
     }
   };
-  const [scope, setScope] = useState<"work" | "all">("work");
+  // «Мой набор» есть — открываемся на нём (отмеченное мастером на смену).
+  const [scope, setScope] = useState<"pins" | "work" | "all">(() => (!narrow && loadPins(area).length ? "pins" : "work"));
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<FastLine | null>(null);
   const [defectFor, setDefectFor] = useState<FastLine | null>(null);
@@ -93,11 +95,12 @@ export default function FastReportPanel({
     return r.lines
       .filter(
         (fl) =>
-          scope === "all" ||
           narrow ||
-          fl.onMachine ||
-          fl.today ||
-          isFilled(r.entryOf(fl.line)),
+          scope === "all" ||
+          (scope === "pins" ? r.pins.has(fl.line.id) : false) ||
+          (scope === "work" && fl.onMachine) ||
+          (scope === "work" && fl.today) ||
+          (scope !== "pins" && isFilled(r.entryOf(fl.line))),
       )
       .filter(
         (fl) =>
@@ -114,7 +117,11 @@ export default function FastReportPanel({
   }, [r, scope, q, narrow]);
 
   const onSave = () => {
-    const noRoll = r.filled.filter((fl) => r.needsRoll(fl));
+    // Рулон нужен только под штуки; «только закрыть строку» — без рулона.
+    const noRoll = r.filled.filter((fl) => {
+      const e = r.entryOf(fl.line);
+      return r.needsRoll(fl) && (+e.good > 0 || e.pusk > 0 || e.defects.length > 0);
+    });
     if (noRoll.length) {
       message.warning(
         `Выберите рулон: ${noRoll.map((fl) => fl.line.part_name).join(", ")}`,
@@ -168,12 +175,18 @@ export default function FastReportPanel({
             {!narrow && (
               <Segmented
                 value={scope}
-                onChange={(v) => setScope(v as "work" | "all")}
+                onChange={(v) => setScope(v as "pins" | "work" | "all")}
                 options={[
+                  { value: "pins", label: `★ Мой набор ${r.pins.size}` },
                   { value: "work", label: "На станке и на сегодня" },
                   { value: "all", label: "Все позиции" },
                 ]}
               />
+            )}
+            {!narrow && scope === "pins" && r.pins.size > 0 && (
+              <Button type="link" onClick={r.clearPins}>
+                Очистить набор
+              </Button>
             )}
             <Input.Search
               allowClear
@@ -186,13 +199,15 @@ export default function FastReportPanel({
           {r.loading ? null : shown.length === 0 ? (
             <Empty
               description={
-                scope === "work" && !narrow
-                  ? "На станке ничего нет: рулонов не выдано и на сегодня не запланировано. Нажмите «Все позиции»."
-                  : "Позиций нет"
+                scope === "pins" && !narrow
+                  ? "Набор пуст — отметьте ★ позиции, с которыми работаете в эту смену («Все позиции» или «На станке»)."
+                  : scope === "work" && !narrow
+                    ? "На станке ничего нет: рулонов не выдано и на сегодня не запланировано. Нажмите «Все позиции»."
+                    : "Позиций нет"
               }
             />
           ) : view === "tiles" ? (
-            <Tiles lines={shown} r={r} onOpen={setOpen} />
+            <Tiles lines={shown} r={r} onOpen={setOpen} pinnable={!narrow} />
           ) : (
             <TableView
               lines={shown}
@@ -200,6 +215,7 @@ export default function FastReportPanel({
               onOpen={setOpen}
               onDefect={setDefectFor}
               onDetail={setDetailFor}
+              pinnable={!narrow}
             />
           )}
           <div
@@ -250,7 +266,7 @@ export default function FastReportPanel({
           onDetail={() => setDetailFor(open)}
           onOpenTask={onOpenTask}
           onNext={
-            view === "table"
+            view === "table" || scope === "pins"
               ? () => {
                   const i = shown.findIndex((x) => x.line.id === open.line.id);
                   setOpen(i >= 0 && i < shown.length - 1 ? shown[i + 1] : null);
@@ -300,14 +316,42 @@ function EntryBadge({ r, line }: { r: R; line: ProductionTaskLine }) {
   );
 }
 
+function PinStar({ r, lineId }: { r: R; lineId: number }) {
+  const on = r.pins.has(lineId);
+  return (
+    <button
+      type="button"
+      aria-label={on ? "Убрать из набора" : "В мой набор"}
+      title={on ? "Убрать из набора" : "В мой набор на смену"}
+      onClick={(ev) => {
+        ev.stopPropagation();
+        r.togglePin(lineId);
+      }}
+      style={{
+        border: 0,
+        background: "none",
+        cursor: "pointer",
+        fontSize: 22,
+        lineHeight: 1,
+        padding: "0 2px",
+        color: on ? "#E0A100" : "#B8B5AE",
+      }}
+    >
+      {on ? "★" : "☆"}
+    </button>
+  );
+}
+
 function Tiles({
   lines,
   r,
   onOpen,
+  pinnable,
 }: {
   lines: FastLine[];
   r: R;
   onOpen: (fl: FastLine) => void;
+  pinnable: boolean;
 }) {
   const groups = useMemo(() => {
     const m = new Map<string, FastLine[]>();
@@ -335,9 +379,14 @@ function Tiles({
                   ? " · ⚠ плёнка"
                   : "";
               return (
-                <button
+                <div
                   key={fl.line.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onOpen(fl)}
+                  onKeyDown={(ev) => {
+                    if (ev.key === "Enter" || ev.key === " ") onOpen(fl);
+                  }}
                   style={{
                     textAlign: "left",
                     cursor: "pointer",
@@ -358,7 +407,10 @@ function Tiles({
                     <Typography.Text strong>
                       {fl.line.part_name ?? "—"}
                     </Typography.Text>
-                    <EntryBadge r={r} line={fl.line} />
+                    <Space size={4} align="center">
+                      <EntryBadge r={r} line={fl.line} />
+                      {pinnable && <PinStar r={r} lineId={fl.line.id} />}
+                    </Space>
                   </Space>
                   <Typography.Text type="secondary" style={{ fontSize: 13 }}>
                     {fl.task.production_order_name ?? fl.task.name} · осталось{" "}
@@ -366,7 +418,7 @@ function Tiles({
                     {fl.today ? " · на сегодня" : ""}
                     {warn}
                   </Typography.Text>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -382,12 +434,14 @@ function TableView({
   onOpen,
   onDefect,
   onDetail,
+  pinnable,
 }: {
   lines: FastLine[];
   r: R;
   onOpen: (fl: FastLine) => void;
   onDefect: (fl: FastLine) => void;
   onDetail: (fl: FastLine) => void;
+  pinnable: boolean;
 }) {
   const cell: React.CSSProperties = {
     padding: "6px 8px",
@@ -439,6 +493,7 @@ function TableView({
             return (
               <tr key={fl.line.id}>
                 <td style={cell}>
+                  {pinnable && <PinStar r={r} lineId={fl.line.id} />}
                   <Typography.Text strong>
                     {fl.line.part_name ?? "—"}
                   </Typography.Text>
