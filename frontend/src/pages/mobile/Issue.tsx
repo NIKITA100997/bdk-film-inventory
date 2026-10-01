@@ -1935,6 +1935,10 @@ export default function Issue() {
         <Tag color="green" title={info.status.match.shared ? "Один штрипс на несколько деталей — выдаётся один раз" : undefined}>
           ✅ штрипс №{info.status.match.unit_id}
           {info.status.match.shared ? " · общий" : ""}
+          {(() => {
+            const home = homeWarehouseFor(row.task.area);
+            return home && home.name !== "Основной склад" ? ` · есть на «${home.name}»` : "";
+          })()}
         </Tag>
       );
       if (canIssue && info.acceptStock)
@@ -1952,7 +1956,12 @@ export default function Issue() {
           </Button>
         );
     } else if (info?.status.kind === "no_donor") {
-      state = <Tag color="red">✖ нет донора</Tag>;
+      const home = homeWarehouseFor(row.task.area);
+      state = (
+        <Tag color="red">
+          {home && home.name !== "Основной склад" ? `✖ на складе «${home.name}» нет — переместить` : "✖ нет донора"}
+        </Tag>
+      );
       if (canIssue && groupRows && sku)
         action = (
           <Button size="large" onClick={() => setManualPickerTarget({ sku, rows: groupRows })}>

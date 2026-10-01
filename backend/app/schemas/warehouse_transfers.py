@@ -33,6 +33,8 @@ class AddUnitToTransferRequest(BaseModel):
     to_warehouse_id: int
     note: str | None = None
     occurred_at: OccurredAt = None
+    # См. home_stock_guard: обойти запрет «там уже хватает» — руководитель, с комментарием.
+    override_reason: str | None = None
 
 
 class ReceiveTransferLineRequest(BaseModel):

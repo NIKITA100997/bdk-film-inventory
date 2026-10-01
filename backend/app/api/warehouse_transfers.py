@@ -22,6 +22,7 @@ from app.schemas.warehouse_transfers import (
     WarehouseTransferOut,
 )
 from app.services.warehouse_transfers import add_unit_to_transfer, receive_transfer_line
+from app.services.home_stock_guard import can_override_home_stock, home_stock_block_reason
 from app.services.warehouses import resolve_warehouse_id
 
 router = APIRouter(prefix="/warehouse-transfers", tags=["warehouse-transfers"])
@@ -104,10 +105,25 @@ def add_unit_to_transfer_endpoint(
     if from_warehouse_id == payload.to_warehouse_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Склад назначения совпадает со складом отправления")
 
+    reason = home_stock_block_reason(
+        db, sku_id=unit.material_sku_id, width_mm=float(unit.width_mm), to_warehouse_id=payload.to_warehouse_id
+    )
+    override_note = None
+    if reason is not None:
+        if not (payload.override_reason and payload.override_reason.strip() and can_override_home_stock(user)):
+            tail = (
+                " Чтобы всё же переместить, укажите причину."
+                if can_override_home_stock(user)
+                else " Обойти может только руководитель, с комментарием."
+            )
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason + tail)
+        override_note = f"Перемещено при наличии на складе назначения — {user.full_name}: {payload.override_reason.strip()}"
     line = add_unit_to_transfer(db, unit, from_warehouse_id, payload.to_warehouse_id, user.id, payload.occurred_at)
     transfer = db.get(WarehouseTransfer, line.transfer_id)
     if payload.note:
         transfer.note = payload.note
+    if override_note:
+        transfer.note = (f"{transfer.note}; {override_note}" if transfer.note else override_note)[:255]
     db.commit()
 
     lines = _lines_for(db, transfer.id)

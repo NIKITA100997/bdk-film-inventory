@@ -164,6 +164,9 @@ class IssueDirectRequest(BaseModel):
     # права production_tasks.manage, иначе по-прежнему 409.
     override_strip_width: bool = False
     override_material: bool = False
+    # Перемещение на склад площадки, где плёнки уже хватает (home_stock_guard) —
+    # только руководитель/администратор и только с комментарием.
+    override_reason: str | None = None
 
 
 class LinkTaskLineRequest(BaseModel):

@@ -35,6 +35,8 @@ export async function addUnitToTransfer(payload: {
   to_warehouse_id: number;
   note?: string;
   occurred_at?: string;
+  // Обойти запрет «на складе назначения уже хватает» — руководитель, с причиной.
+  override_reason?: string;
 }): Promise<WarehouseTransfer> {
   const { data } = await apiClient.post<WarehouseTransfer>("/warehouse-transfers/add-unit", payload);
   return data;

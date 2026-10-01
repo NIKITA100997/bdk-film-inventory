@@ -39,6 +39,7 @@ import {
 } from "../../api/units";
 import { suggestLocation, listWarehouses } from "../../api/storage";
 import { addUnitToTransfer } from "../../api/warehouseTransfers";
+import { askHomeStockOverride, homeStockBlockText, showHomeStockBlock } from "../../components/homeStockOverride";
 import { listUsers } from "../../api/users";
 import { areaRequiresRoll, listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
@@ -290,7 +291,23 @@ export default function UnitCard() {
   // сервис add_unit_to_transfer, что и у назначения "transfer" в
   // CuttingForm, только без самой резки.
   const transferMutation = useMutation({
-    mutationFn: (toWarehouseId: number) => addUnitToTransfer({ unit_id: unit!.id, to_warehouse_id: toWarehouseId }),
+    mutationFn: async (toWarehouseId: number) => {
+      try {
+        return await addUnitToTransfer({ unit_id: unit!.id, to_warehouse_id: toWarehouseId });
+      } catch (e) {
+        // Запрет лишнего перемещения: на складе назначения уже хватает.
+        const text = homeStockBlockText(e);
+        if (!text) throw e;
+        const canOverride = !!user?.is_superuser || !!user?.permissions.includes("users.manage");
+        if (!canOverride) {
+          showHomeStockBlock(text);
+          throw new Error("blocked");
+        }
+        const reason = await askHomeStockOverride(text);
+        if (!reason) throw new Error("blocked");
+        return addUnitToTransfer({ unit_id: unit!.id, to_warehouse_id: toWarehouseId, override_reason: reason });
+      }
+    },
     onSuccess: (transfer) => {
       const line = transfer.lines.find((l) => l.unit.id === unit!.id);
       if (line) setUnit(line.unit);
@@ -298,7 +315,10 @@ export default function UnitCard() {
       setTransferWarehouseId(undefined);
       message.success("Единица добавлена в хаб на перемещение");
     },
-    onError: () => message.error("Не удалось добавить в перемещение"),
+    onError: (e) => {
+      if (e instanceof Error && e.message === "blocked") return;
+      message.error("Не удалось добавить в перемещение");
+    },
   });
 
   const returnMutation = useMutation({

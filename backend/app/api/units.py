@@ -69,6 +69,7 @@ from app.services.splitting import (
     split_lengthwise_multi,
 )
 from app.services.warehouse_transfers import add_unit_to_transfer, auto_transfer_if_wrong_warehouse
+from app.services.home_stock_guard import can_override_home_stock, home_stock_block_reason
 from app.services.warehouses import (
     area_home_warehouse_id,
     filter_by_warehouse,
@@ -799,6 +800,26 @@ def bulk_edit_units(
     return UnitBulkEditOut(updated=updated)
 
 
+def _guard_home_stock(db, *, sku_id: int, width_mm: float, to_warehouse_id, user, override_reason: str | None) -> str | None:
+    """Запрет лишнего перемещения (home_stock_guard). Возвращает текст
+    обхода для журнала, если руководитель обошёл запрет с комментарием."""
+    reason = home_stock_block_reason(db, sku_id=sku_id, width_mm=width_mm, to_warehouse_id=to_warehouse_id)
+    if reason is None:
+        return None
+    if override_reason and override_reason.strip() and can_override_home_stock(user):
+        return f"Перемещено при наличии на складе назначения — {user.full_name}: {override_reason.strip()}"[:255]
+    tail = " Обойти может только руководитель, с комментарием." if not can_override_home_stock(user) else " Чтобы всё же переместить, укажите причину."
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason + tail)
+
+def _note_transfer_of(db, unit_id: int, note: str) -> None:
+    from app.models.warehouse_transfers import WarehouseTransfer, WarehouseTransferLine
+
+    line = db.query(WarehouseTransferLine).filter(WarehouseTransferLine.unit_id == unit_id).order_by(WarehouseTransferLine.id.desc()).first()
+    if line is not None:
+        t = db.get(WarehouseTransfer, line.transfer_id)
+        t.note = (f"{t.note}; {note}" if t.note else note)[:255]
+
+
 @router.post("/{unit_id}/issue", response_model=MaterialUnitOut)
 def issue_unit_direct(
     unit_id: int,
@@ -827,7 +848,16 @@ def issue_unit_direct(
     # (ниже) — чтобы после приёмки на другом складе было видно, для какого
     # задания эта единица предназначена, не только "куда-то на перемещение".
     unit.production_task_line_id = payload.production_task_line_id
+    home_id = area_home_warehouse_id(db, payload.area)
+    override_note = None
+    if home_id is not None and unit_warehouse_id is not None and unit_warehouse_id != home_id:
+        override_note = _guard_home_stock(
+            db, sku_id=unit.material_sku_id, width_mm=float(unit.width_mm), to_warehouse_id=home_id, user=user,
+            override_reason=payload.override_reason,
+        )
     if auto_transfer_if_wrong_warehouse(db, payload.area, unit, unit_warehouse_id, user.id, payload.occurred_at):
+        if override_note:
+            _note_transfer_of(db, unit.id, override_note)
         db.commit()
         return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
     from_cell = unit.location_code
@@ -1378,6 +1408,11 @@ def execute_cutting_recipe(
             donor_wh_for_issue = resolve_warehouse_id(db, donor.location_code) if is_issue else None
             if redirect_home_id is not None and (donor_wh_for_issue is None or donor_wh_for_issue == redirect_home_id):
                 redirect_home_id = None
+            if redirect_home_id is not None:
+                _guard_home_stock(
+                    db, sku_id=spec.material_sku_id, width_mm=float(spec.width_mm), to_warehouse_id=redirect_home_id,
+                    user=user, override_reason=None,
+                )
             new_unit = MaterialUnit(
                 parent_id=spec.parent_id,
                 upd_number=spec.upd_number,
@@ -1477,6 +1512,11 @@ def execute_cutting_recipe(
             donor_wh_for_issue = resolve_warehouse_id(db, donor.location_code) if is_issue else None
             if redirect_home_id is not None and (donor_wh_for_issue is None or donor_wh_for_issue == redirect_home_id):
                 redirect_home_id = None
+            if redirect_home_id is not None:
+                _guard_home_stock(
+                    db, sku_id=spec.material_sku_id, width_mm=float(spec.width_mm), to_warehouse_id=redirect_home_id,
+                    user=user, override_reason=None,
+                )
             new_unit = MaterialUnit(
                 parent_id=spec.parent_id,
                 upd_number=spec.upd_number,
