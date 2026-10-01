@@ -166,6 +166,8 @@ export interface ScheduleImportRow {
   item_name: string | null;
   exists: boolean;
   errors: string[];
+  // Пометки разбора: новый цвет и найденная (или нет) плёнка.
+  notes?: string[];
 }
 
 /** График запуска, вставленный из Excel → черновик заказа (dry_run — предпросмотр). */

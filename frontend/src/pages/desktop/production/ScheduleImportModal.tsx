@@ -131,6 +131,11 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
                       <Space size={4} wrap>
                         <span>{r.item_name}</span>
                         {r.exists ? <Tag>есть</Tag> : <Tag color="green">новая</Tag>}
+                        {(r.notes ?? []).map((n) => (
+                          <Tag key={n} color={n.includes("не найдена") ? "orange" : "blue"}>
+                            {n}
+                          </Tag>
+                        ))}
                       </Space>
                     ),
                 },

@@ -40,3 +40,19 @@ def test_unknown_color_is_a_readable_error():
     values, errors = _values_for_row(_type(), _row("Белое дерево"))
     assert values == {}
     assert errors and "Белое дерево" in errors[0]
+
+
+def test_color_parsed_from_name():
+    from app.services.schedule_import import color_from_name
+
+    assert color_from_name("В-10.2 (м5х3 кромка 4х) 800х2000 - ПЭТ Бежевый (cream silk) кромка черная ABS 2мм", "ПЭТ Бежевый") == "ПЭТ Бежевый (cream silk)"
+    assert color_from_name("А-1 800х2000 - Манхэттен (стекло Зеркало ГРАФИТ) (Защелка Border room) кромка Black", "Манхэттен") == "Манхэттен"
+    assert color_from_name("В-5 кромка с 4-х сторон 900х2000 - Белое дерево кромка черная ABS 2мм", "Белое дерево") == "Белое дерево"
+    assert color_from_name("без дефиса", "Полипропилен Аляска") == "Полипропилен Аляска"
+
+
+def test_hardware_brackets_are_not_color():
+    from app.services.schedule_import import color_from_name
+
+    name = "В-19 800х2000 - Полипропилен INVISIBLE Белый грунтовочный (PL410 + петли AGB Eclipse 3.0) кромка Black"
+    assert color_from_name(name, "") == "Полипропилен INVISIBLE Белый грунтовочный"

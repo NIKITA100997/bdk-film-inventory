@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { isAxiosError } from "axios";
-import { Alert, Checkbox, InputNumber, Modal, Space, Table, Tag, Typography, message } from "antd";
+import { Alert, Button, Checkbox, InputNumber, Modal, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas } from "../../../api/areas";
 import {
@@ -44,10 +44,24 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
   const lineName = (id: number) => order.lines.find((l) => l.id === id)?.item_name ?? "";
   const lamRow = (n: PfNeed) =>
     ({ lamination_area: n.lamination_area, factory_area: n.factory_area, factory_min_pieces: n.factory_min_pieces }) as PfDemandRow;
-  const lamValue = (n: PfNeed) => {
-    const q = qty[keyOf(n)] ?? 0;
-    return lam[keyOf(n)] ?? (n.factory_area && n.factory_min_pieces && q >= n.factory_min_pieces ? n.factory_area : n.lamination_area ?? undefined);
-  };
+  // Площадку ламинации выбирают вручную (01.10): правило «окутка на
+  // Фабрике или прессы» ещё не задано — автоматический порог отключён.
+  const lamValue = (n: PfNeed) => lam[keyOf(n)];
+  const lamRows = needs.filter((n) => n.lamination_area && picked[keyOf(n)] && (qty[keyOf(n)] ?? 0) > 0);
+  const unassigned = lamRows.filter((n) => !lam[keyOf(n)]);
+  const panelsBy = (code: string | undefined) =>
+    lamRows.filter((n) => lam[keyOf(n)] === code).reduce((s, n) => s + (qty[keyOf(n)] ?? 0), 0);
+  const setAllLam = (pick: (n: PfNeed) => string | null | undefined) =>
+    setLam((p) => {
+      const next = { ...p };
+      for (const n of lamRows) {
+        const v = pick(n);
+        if (v) next[keyOf(n)] = v;
+      }
+      return next;
+    });
+  const factoryCode = needs.find((n) => n.factory_area)?.factory_area ?? null;
+  const pressCode = needs.find((n) => n.lamination_area)?.lamination_area ?? null;
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -87,7 +101,7 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
       okText={count || fromStockTotal ? `Запустить (п/ф в работу: ${count}, со склада: ${fromStockTotal})` : "Запустить"}
       cancelText="Отмена"
       onCancel={onClose}
-      okButtonProps={{ loading: mutation.isPending }}
+      okButtonProps={{ loading: mutation.isPending, disabled: unassigned.length > 0 }}
       onOk={() => mutation.mutate()}
     >
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -104,6 +118,33 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
               message="П/ф для заказа"
               description="«Со склада» — свободный остаток сразу уходит в резерв этого заказа (другие задания его не возьмут). «Запустить» — задания на п/ф, сделанное тоже уйдёт в резерв. Детали «на склад» по умолчанию берутся со склада, «под заказ» (щиты, панели, детали в плёнке) — запускаются; числа можно поправить. Вложенные п/ф посчитаны от того, что запускается."
             />
+            {lamRows.length > 0 && (
+              <Alert
+                type={unassigned.length ? "warning" : "success"}
+                showIcon
+                message={
+                  unassigned.length
+                    ? `Ламинация панелей: выберите площадку — не распределено строк ${unassigned.length} (${unassigned.reduce((s, n) => s + (qty[keyOf(n)] ?? 0), 0)} шт)`
+                    : "Ламинация панелей распределена"
+                }
+                description={
+                  <Space wrap>
+                    {factoryCode && (
+                      <Button size="small" onClick={() => setAllLam((n) => n.factory_area)}>
+                        Всё на окутку ({areaName(factoryCode)})
+                      </Button>
+                    )}
+                    {pressCode && (
+                      <Button size="small" onClick={() => setAllLam((n) => n.lamination_area)}>
+                        Всё на {areaName(pressCode)}
+                      </Button>
+                    )}
+                    {factoryCode && <Typography.Text type="secondary">{areaName(factoryCode)}: {panelsBy(factoryCode)} шт</Typography.Text>}
+                    {pressCode && <Typography.Text type="secondary">{areaName(pressCode)}: {panelsBy(pressCode)} шт</Typography.Text>}
+                  </Space>
+                }
+              />
+            )}
             <Table<PfNeed>
               size="small"
               rowKey={keyOf}

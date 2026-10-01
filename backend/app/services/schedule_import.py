@@ -15,6 +15,7 @@ from app.models.production_orders import ORDER_DRAFT, ProductionOrder, Productio
 from app.services import type_rules
 from app.services.shield_schedule import ScheduleRow, parse_line_features, parse_pasted_schedule, parse_size, series_key
 
+_ROW_NOTES: list[str] = []  # пометки разбора текущей строки (новый цвет и т.п.)
 REQUIRED_CODES = ("серия", "ширина", "высота", "цвет", "стекло", "молдинг", "замок", "кромка", "цвет_кромки")
 
 
@@ -31,9 +32,67 @@ class ImportRow:
     exists: bool = False
     item_id: int | None = None
     errors: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
-def _values_for_row(type_: ItemType, row: ScheduleRow) -> tuple[dict[int, object], list[str]]:
+def color_from_name(name_text: str, color_text: str) -> str:
+    """Цвет двери из наименования строки графика: «В-10.2 (…) 800х2000 -
+    ПЭТ Бежевый (cream silk) кромка черная ABS 2мм» → «ПЭТ Бежевый (cream
+    silk)». Модель — серия, цвет — отдельно (решение 01.10). Не разобрали —
+    колонка «Цвет»."""
+    tail = name_text.split(" - ", 1)[1] if " - " in name_text else ""
+    tail = re.split(r"\s+кромка\b|\s+\(стекло|\s+\(Защелка|\s+\(защелка", tail, maxsplit=1)[0]
+    # Скобки с фурнитурой — не цвет: «(PL410 + петли AGB Eclipse 3.0)».
+    tail = re.sub(r"\((?=[^)]*(?:петл|PL\d|AGB|защел|стекл))[^)]*\)", " ", tail, flags=re.I)
+    return " ".join(tail.split()) or " ".join((color_text or "").split())
+
+
+def film_for_color(db: Session, color: str) -> tuple[str, str] | None:
+    """Плёнка для коммерческого цвета по справочнику плёнок: «Полипропилен
+    Аляска» → (Полипропилен, Аляска); «Bolton Oak» → материал с таким цветом,
+    если он один. Пояснение в скобках не учитывается."""
+    from app.models.dictionaries import Color, Material, MaterialSku
+
+    def norm(v: str) -> str:
+        return " ".join(re.sub(r"\(.*?\)", " ", v).lower().replace("ё", "е").split())
+
+    text = norm(color)
+    materials = sorted({m.name for m in db.query(Material).filter(Material.is_active.is_(True))}, key=len, reverse=True)
+    colors = {norm(c.name): c for c in db.query(Color).filter(Color.is_active.is_(True))}
+    for m in materials:
+        mn = norm(m)
+        if text.startswith(mn + " ") and text[len(mn) + 1 :] in colors:
+            return m, colors[text[len(mn) + 1 :]].name
+    c = colors.get(text)
+    if c is not None:
+        mats = {s.material.name for s in db.query(MaterialSku).filter(MaterialSku.color_id == c.id, MaterialSku.is_active.is_(True))}
+        if len(mats) == 1:
+            return mats.pop(), c.name
+    return None
+
+
+def _color_option(db: Session, prop, color: str) -> tuple[object | None, str | None]:
+    """Вариант «Цвет» по названию; нет — заводится (плёнка по справочнику)."""
+    from app.models.items import ItemPropertyOption
+
+    def norm(v: str) -> str:
+        return " ".join(re.sub(r"\(.*?\)", " ", v).lower().replace("ё", "е").split())
+
+    opt = next((o for o in prop.options if o.is_active and norm(o.value) == norm(color)), None)
+    if opt is not None:
+        return opt, None
+    film = film_for_color(db, color)
+    params = {"материал_плёнки": film[0], "цвет_плёнки": film[1]} if film else {}
+    opt = ItemPropertyOption(property_id=prop.id, value=color, params=params, is_active=True,
+                             sort_order=max([o.sort_order or 0 for o in prop.options] or [0]) + 1)
+    db.add(opt)
+    db.flush()
+    db.refresh(prop)
+    note = f"новый цвет «{color}»" + (f" — плёнка {film[0]} {film[1]}" if film else " — плёнка не найдена, привяжите в типе")
+    return opt, note
+
+
+def _values_for_row(type_: ItemType, row: ScheduleRow, db: Session | None = None) -> tuple[dict[int, object], list[str]]:
     props = {p.code: p for p in type_.properties}
     missing = [c for c in REQUIRED_CODES if c not in props]
     if missing:
@@ -46,7 +105,7 @@ def _values_for_row(type_: ItemType, row: ScheduleRow) -> tuple[dict[int, object
     size = parse_size(row.size_text)
     if size is None:
         errors.append(f"размер «{row.size_text}» не разобран (ждём «800х2000»)")
-    color = " ".join((row.color_text or "").split())
+    color = color_from_name(row.name_text, row.color_text)
     if not color:
         errors.append("не указан цвет")
     # «Цвет» у типа — список вариантов (цвет привязан к плёнке): «ПЭТ Бежевый»
@@ -58,8 +117,12 @@ def _values_for_row(type_: ItemType, row: ScheduleRow) -> tuple[dict[int, object
 
         opts = [o for o in props["цвет"].options if o.is_active]
         opt = next((o for o in opts if norm(o.value) == norm(color)), None) or next(
-            (o for o in opts if norm(o.value) == norm(row.name_text.split(" - ")[-1].split(" кромка")[0])), None
+            (o for o in opts if norm(o.value) == norm(row.color_text or "")), None
         )
+        if opt is None and db is not None:
+            opt, note = _color_option(db, props["цвет"], color)
+            if note:
+                _ROW_NOTES.append(note)
         if opt is None:
             errors.append(f"цвета «{color}» нет в вариантах свойства «Цвет» — добавьте его в типе")
         else:
@@ -96,8 +159,10 @@ def import_schedule(
             series=r.series_text, size=r.size_text, color=r.color_text, name_text=r.name_text, qty=r.doors_qty,
             invoice_no=r.invoice_no, ship_date=r.ship_date.isoformat() if r.ship_date else None,
         )
-        values, errors = _values_for_row(type_, r)
+        _ROW_NOTES.clear()
+        values, errors = _values_for_row(type_, r, db)
         ir.errors.extend(errors)
+        ir.notes.extend(_ROW_NOTES)
         if not errors:
             res = type_rules.compute(db, type_, type_rules.context_from_values(db, type_, values))
             ir.errors.extend(res.errors)

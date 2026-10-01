@@ -583,6 +583,7 @@ class ScheduleRowOut(BaseModel):
     item_name: str | None
     exists: bool
     errors: list[str]
+    notes: list[str] = []
 
 
 class ScheduleImportOut(BaseModel):
