@@ -117,6 +117,11 @@ export default function FastReportPanel({
   }, [r, scope, q, narrow]);
 
   const onSave = () => {
+    const noLeft = r.filled.filter((fl) => (r.entryOf(fl.line).extra ?? []).some((x) => x.left == null));
+    if (noLeft.length) {
+      message.warning(`Укажите остаток на дополнительных рулонах: ${noLeft.map((fl) => fl.line.part_name).join(", ")}`);
+      return;
+    }
     // Рулон нужен только под штуки; «только закрыть строку» — без рулона.
     const noRoll = r.filled.filter((fl) => {
       const e = r.entryOf(fl.line);
@@ -654,7 +659,7 @@ function LineSheet({
     <Drawer
       open
       placement="bottom"
-      height={430}
+      height={540}
       onClose={onClose}
       title={fl.line.part_name ?? "Позиция"}
       destroyOnHidden
@@ -684,24 +689,80 @@ function LineSheet({
             <Alert key={w} type="warning" showIcon message={w} />
           ))}
           {r.requiresRoll && fl.line.material !== null && (
-            <Space wrap>
-              <Typography.Text>Рулон:</Typography.Text>
-              {rolls.length === 0 ? (
-                <Typography.Text type="warning">
-                  не выдан — «Подробно…» или выдайте рулон на «Выдаче участку»
-                </Typography.Text>
-              ) : (
-                rolls.map((u) => (
-                  <Button
-                    key={u.id}
-                    type={e.rollId === u.id ? "primary" : "default"}
-                    onClick={() => r.setEntry(fl.line, { rollId: u.id })}
-                  >
-                    №{u.id} · {u.width_mm} мм · {fmt(u.left)} м
-                    {u.from ? ` · с «${u.from}»` : ""}
-                  </Button>
-                ))
-              )}
+            <Space direction="vertical" size={6} style={{ width: "100%" }}>
+              <Space wrap>
+                <Typography.Text>Рулон:</Typography.Text>
+                {rolls.length === 0 ? (
+                  <Typography.Text type="warning">
+                    не выдан — «Подробно…» или выдайте рулон на «Выдаче участку»
+                  </Typography.Text>
+                ) : (
+                  rolls
+                    .filter((u) => !(e.extra ?? []).some((x) => x.id === u.id))
+                    .map((u) => (
+                      <Button
+                        key={u.id}
+                        type={e.rollId === u.id ? "primary" : "default"}
+                        onClick={() => r.setEntry(fl.line, { rollId: u.id })}
+                      >
+                        №{u.id} · {u.width_mm} мм · {fmt(u.left)} м
+                        {u.from ? ` · с «${u.from}»` : ""}
+                      </Button>
+                    ))
+                )}
+              </Space>
+              {(() => {
+                // «+ ещё рулон»: шли с двух рулонов (другая сторона детали) — без «Подробно…».
+                const free = rolls.filter((u) => u.id !== e.rollId && !(e.extra ?? []).some((x) => x.id === u.id));
+                if (!e.rollId || !free.length) return null;
+                return (
+                  <Space wrap>
+                    <Typography.Text type="secondary">+ ещё рулон:</Typography.Text>
+                    {free.map((u) => (
+                      <Button
+                        key={u.id}
+                        size="small"
+                        onClick={() => r.setEntry(fl.line, { extra: [...(e.extra ?? []), { id: u.id, left: null }] })}
+                      >
+                        №{u.id} · {fmt(u.left)} м
+                      </Button>
+                    ))}
+                  </Space>
+                );
+              })()}
+              {(e.extra ?? []).map((x) => {
+                const u = rolls.find((c) => c.id === x.id);
+                return (
+                  <Space key={x.id} wrap>
+                    <Typography.Text>
+                      + №{x.id}: осталось на рулоне, м
+                    </Typography.Text>
+                    <InputNumber
+                      min={0}
+                      max={u?.left}
+                      inputMode="decimal"
+                      size="large"
+                      style={{ width: 120 }}
+                      value={x.left ?? undefined}
+                      placeholder={u ? `было ${fmt(u.left)}` : ""}
+                      onChange={(v) =>
+                        r.setEntry(fl.line, {
+                          extra: (e.extra ?? []).map((y) => (y.id === x.id ? { ...y, left: v ?? null } : y)),
+                        })
+                      }
+                    />
+                    {u && x.left != null && (
+                      <Typography.Text type="secondary">расход {fmt(Math.max(0, u.left - x.left))} м</Typography.Text>
+                    )}
+                    <Button
+                      type="link"
+                      onClick={() => r.setEntry(fl.line, { extra: (e.extra ?? []).filter((y) => y.id !== x.id) })}
+                    >
+                      убрать
+                    </Button>
+                  </Space>
+                );
+              })}
             </Space>
           )}
           {r.hasPusk && fl.line.material !== null && (
@@ -729,7 +790,7 @@ function LineSheet({
               </Button>
             </Badge>
             <Button size="large" onClick={onDetail}>
-              Подробно… (второй рулон, остаток)
+              Подробно…
             </Button>
           </Space>
           <Button

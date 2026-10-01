@@ -24,7 +24,10 @@ export const PUSK_REASON = "puskovye";
 export type Disposition = "spisat" | "pererabotka" | "snyat";
 export type DefectDraft = { reason: string; qty: number; disposition: Disposition };
 // close — «строка сделана полностью»: после отчёта закрыть производство по строке.
-export type Entry = { good: string; pusk: number; defects: DefectDraft[]; rollId: number | null; close?: boolean };
+// extra — ещё рулоны на эту же строку (другая сторона детали): left — сколько
+// метров на нём осталось, null — ещё не ввели (сохранять нельзя).
+export type ExtraRoll = { id: number; left: number | null };
+export type Entry = { good: string; pusk: number; defects: DefectDraft[]; rollId: number | null; close?: boolean; extra?: ExtraRoll[] };
 export type FastLine = { task: ProductionTask; line: ProductionTaskLine; onMachine: boolean; today: boolean };
 
 const EMPTY: Entry = { good: "", pusk: 0, defects: [], rollId: null };
@@ -180,6 +183,17 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
             payloads.push({
               assignment_id: null, material_unit_id: roll, good_pieces: 0, defect_pieces: d.qty,
               defect_reason: d.reason, defect_disposition: d.disposition,
+            });
+          }
+          // Ещё рулоны (как в подробном отчёте): те же детали, расход — из
+          // остатка, который ввёл мастер; counts_toward_line=false — не задваивать план.
+          for (const x of e.extra ?? []) {
+            const u = rollChoices(fl.line).find((c) => c.id === x.id);
+            const consumed = Math.max(0, (u?.left ?? 0) - (x.left ?? u?.left ?? 0));
+            payloads.push({
+              assignment_id: null, material_unit_id: x.id,
+              good_pieces: fl.line.length_m > 0 ? consumed / fl.line.length_m : 0, defect_pieces: 0,
+              counts_toward_line: false, note: `Остаток указан вручную: ${x.left} м`,
             });
           }
           if (payloads.length) await createTaskLineReportsBatch(fl.task.id, fl.line.id, payloads);
