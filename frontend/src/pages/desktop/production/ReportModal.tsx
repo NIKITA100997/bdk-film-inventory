@@ -175,6 +175,7 @@ export default function ReportModal({
             primaryRemainingM != null
               ? `Остаток указан вручную: ${primaryRemainingM} м`
               : "Рулон использован, деталь ещё не готова",
+          kind: primaryRemainingM != null ? "remainder" : null,
         });
       }
       // Раздел про второй рулон на ту же строку (двусторонние детали) —
@@ -198,6 +199,7 @@ export default function ReportModal({
           defect_pieces: 0,
           counts_toward_line: false,
           note: `Остаток указан вручную: ${extra.remainingM} м`,
+          kind: "remainder",
         });
       }
       if (payloads.length > 0) await createTaskLineReportsBatch(taskId, line.id, payloads);

@@ -18,7 +18,7 @@ from app.models.areas import Area
 from app.models.dictionaries import Part, PartStage
 from app.models.items import Item, ItemComponent
 from app.models.part_units import PartUnit, PartUnitStatus
-from app.models.production import ProductionTask, ProductionTaskLine
+from app.models.production import REPORT_CLOSE, ProductionTask, ProductionTaskLine
 from app.models.production_orders import ORDER_CLOSED, ORDER_DRAFT, ORDER_RELEASED, ProductionOrder
 from app.services.components import live_item_names
 from app.services.part_units import mint_part_unit, write_off_part_unit
@@ -155,7 +155,7 @@ def complete_tasks(db: Session, tasks: list[ProductionTask], user_id: int) -> in
                 db.add(
                     ProductionTaskLineReport(
                         task_line_id=line.id, good_pieces=left, defect_pieces=0, material_unit_id=None,
-                        counts_toward_line=True, note=COMPLETE_NOTE, reported_by=user_id,
+                        counts_toward_line=True, note=COMPLETE_NOTE, kind=REPORT_CLOSE, reported_by=user_id,
                     )
                 )
                 completed += 1

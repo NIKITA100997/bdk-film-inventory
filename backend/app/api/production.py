@@ -1128,6 +1128,7 @@ def _build_operation_report(
         note=payload.note,
         reported_by=user.id,
         counts_toward_line=payload.counts_toward_line,
+        kind=payload.kind,
     )
     db.add(report)
     db.flush()
@@ -1550,6 +1551,7 @@ def _build_task_line_report(
                 note=payload.note,
                 reported_by=user.id,
                 counts_toward_line=payload.counts_toward_line,
+                kind=payload.kind,
             )
         )
     db.add_all(reports)

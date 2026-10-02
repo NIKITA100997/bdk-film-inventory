@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -226,6 +227,9 @@ class ProductionTaskLineReportCreate(BaseModel):
     # обычных отчётов; сервер игнорирует это поле на пути с part_unit/FIFO
     # (там своя, автоматическая логика по этапам, см. create_task_line_report).
     counts_toward_line: bool = True
+    # Вид записи: "remainder" — доп. рулон / остаток указан вручную (штуки
+    # подобраны под остаток рулона). Остальные виды ставит сервер.
+    kind: Literal["remainder"] | None = None
 
 
 class ProductionTaskLineReportOut(BaseModel):
@@ -243,6 +247,7 @@ class ProductionTaskLineReportOut(BaseModel):
     # Раздел про окутку в 2 захода — False означает "промежуточный этап,
     # деталь физически ещё не готова" (см. модель ProductionTaskLineReport).
     counts_toward_line: bool = True
+    kind: str | None = None
 
 
 class ProductionTaskLineAssignmentCreate(BaseModel):

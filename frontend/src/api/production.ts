@@ -251,6 +251,8 @@ export interface ProductionTaskLineReportCreate {
   // ЭТОГО рулона величина; False, чтобы не задвоить план строки (его уже
   // засчитал основной отчёт). Не указано — как раньше, True на бэкенде.
   counts_toward_line?: boolean;
+  /** "remainder" — доп. рулон / остаток указан вручную (штуки под остаток рулона). */
+  kind?: "remainder" | null;
 }
 
 export const listProductionLines = async (): Promise<ProductionLine[]> =>

@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.models.areas import Area
 from app.models.dictionaries import Color, Material, Thickness
-from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport, REPORT_CLOSE, REPORT_RECON, REPORT_REMAINDER
 from app.models.production_orders import ProductionOrder, ProductionOrderLine
 from app.models.purchasing import PurchaseRequest
 from app.models.units import MaterialUnit, UnitStatus
@@ -49,8 +49,7 @@ def _last_prices(db: Session) -> dict[tuple[int, int, int], float]:
 
 
 def _is_film_adjustment(r) -> bool:
-    note = r.note or ""
-    return not r.counts_toward_line and (note.startswith("Расход досчитан при возврате") or note.startswith("Остаток указан вручную"))
+    return r.kind in (REPORT_RECON, REPORT_REMAINDER)
 
 
 def film_plan_fact(db: Session, date_from: date, date_to: date, area: str | None = None) -> list[dict]:
@@ -83,7 +82,7 @@ def film_plan_fact(db: Session, date_from: date, date_to: date, area: str | None
         if not _is_film_adjustment(r):
             agg[r.task_line_id]["good"] += float(r.good_pieces)
             agg[r.task_line_id]["defect"] += float(r.defect_pieces or 0)
-            if not r.material_unit_id and not (r.note or "").startswith("Закрыто: сделано полностью"):
+            if not r.material_unit_id and r.kind != REPORT_CLOSE:
                 agg[r.task_line_id]["no_roll"] += float(r.good_pieces) + float(r.defect_pieces or 0)
         if r.material_unit_id:
             agg[r.task_line_id]["rolls"].add(r.material_unit_id)
@@ -180,7 +179,7 @@ def output_report(db: Session, date_from: date, date_to: date, area: str | None 
     for rep, ln, t in q:
         if float(rep.good_pieces) == 0 and float(rep.defect_pieces or 0) == 0:
             continue  # отметка «рулон использован» без штук
-        if (rep.note or "").startswith("Закрыто: сделано полностью"):
+        if rep.kind == REPORT_CLOSE:
             continue  # закрытие строки без отчёта — не выработка
         if not rep.counts_toward_line:
             continue  # досчёт расхода / доп. рулон / первый заход — не новые штуки
@@ -251,7 +250,7 @@ def daily_output(db: Session, date_from: date, date_to: date) -> dict:
         .filter(ProductionTaskLineReport.reported_at >= start, ProductionTaskLineReport.reported_at <= end)
     ):
         g, d = float(rep.good_pieces), float(rep.defect_pieces or 0)
-        if (g == 0 and d == 0) or not rep.counts_toward_line or (rep.note or "").startswith("Закрыто: сделано полностью"):
+        if (g == 0 and d == 0) or not rep.counts_toward_line or rep.kind == REPORT_CLOSE:
             continue
         key = f"area:{t.area}"
         area = areas.get(t.area)

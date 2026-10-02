@@ -259,11 +259,22 @@ class ProductionTaskLineReport(Base):
     # возврате (return_unit) на это поле не смотрят — расход плёнки
     # фиксируется независимо от готовности детали.
     counts_toward_line: Mapped[bool] = mapped_column(default=True, server_default="true")
+    # Вид служебной записи (03.10, раньше узнавали по тексту примечания):
+    #   close     — строку закрыли «сделано полностью» без отчёта;
+    #   recon     — расход рулона досчитан при возврате;
+    #   remainder — доп. рулон / остаток указан вручную (штуки синтетические).
+    # NULL — обычный отчёт мастера.
+    kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     reported_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     task_line: Mapped[ProductionTaskLine] = relationship(back_populates="reports")
+
+
+REPORT_CLOSE = "close"
+REPORT_RECON = "recon"
+REPORT_REMAINDER = "remainder"
 
 
 class ProductionTaskLineAssignment(Base):

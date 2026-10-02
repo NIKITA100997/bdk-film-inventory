@@ -314,6 +314,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                 r.primaryRemainingM != null
                   ? `Остаток указан вручную: ${r.primaryRemainingM} м`
                   : "Рулон использован, деталь ещё не готова",
+              kind: r.primaryRemainingM != null ? "remainder" : null,
             });
           }
           // Раздел про второй рулон на ту же строку (двусторонние детали) —
@@ -338,6 +339,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               defect_pieces: 0,
               counts_toward_line: false,
               note: `Остаток указан вручную: ${extra.remainingM} м`,
+              kind: "remainder",
             });
           }
           if (payloads.length > 0) await createTaskLineReportsBatch(r.taskId, r.line.id, payloads);

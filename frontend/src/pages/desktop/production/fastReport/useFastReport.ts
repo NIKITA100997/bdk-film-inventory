@@ -193,7 +193,7 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
             payloads.push({
               assignment_id: null, material_unit_id: x.id,
               good_pieces: fl.line.length_m > 0 ? consumed / fl.line.length_m : 0, defect_pieces: 0,
-              counts_toward_line: false, note: `Остаток указан вручную: ${x.left} м`,
+              counts_toward_line: false, note: `Остаток указан вручную: ${x.left} м`, kind: "remainder",
             });
           }
           if (payloads.length) await createTaskLineReportsBatch(fl.task.id, fl.line.id, payloads);

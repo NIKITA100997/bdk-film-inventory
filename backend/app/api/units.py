@@ -15,7 +15,7 @@ from app.models.abc import CalcSettings, WidthAbcClass, WidthClass
 from app.models.cutting_operations import CuttingOperation
 from app.models.dictionaries import Color, Material, MaterialSku, Thickness
 from app.models.events import EventType, MaterialEvent
-from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport, REPORT_RECON
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
 from app.models.write_off_reasons import WriteOffReasonEntry
@@ -1806,6 +1806,7 @@ def return_unit(
                         defect_pieces=0,
                         reported_by=user.id,
                         counts_toward_line=False,
+                        kind=REPORT_RECON,
                         note=f"Расход досчитан при возврате: остаток {payload.actual_length_m} м",
                     )
                 )
