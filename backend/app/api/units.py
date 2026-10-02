@@ -69,6 +69,7 @@ from app.services.splitting import (
     split_lengthwise_multi,
 )
 from app.services.warehouse_transfers import add_unit_to_transfer, auto_transfer_if_wrong_warehouse
+from app.services.areas import cuts_film_on_site
 from app.services.home_stock_guard import can_override_home_stock, home_stock_block_reason
 from app.services.warehouses import (
     area_home_warehouse_id,
@@ -130,6 +131,15 @@ def _validate_matches_task_line(
     # пределах ±WIDTH_TOLERANCE_MM, не только явно заведённый аналог:
     # живой случай — привязку задним числом не давало сделать из-за пары
     # мм расхождения, для которой аналог никто не заводил.
+    task = db.get(ProductionTask, line.task_id)
+    if cuts_film_on_site(db, task.area if task else None):
+        # плёнку режут на участке — выдаётся рулон любой ширины, но не уже детали
+        if width_mm + WIDTH_TOLERANCE_MM < float(line.width_mm or 0):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Рулон уже детали: деталь {float(line.width_mm):g} мм, рулон {width_mm:g} мм",
+            )
+        return
     if (
         abs(width_mm - expected_w) > WIDTH_TOLERANCE_MM
         and width_mm not in equivalent_widths(db, expected_w)
@@ -1088,9 +1098,12 @@ def get_cutting_plan(
     # (с аналогами) — сначала ищем ОДИН штрипс, которого хватит по длине
     # на все сразу; группа всегда с одного участка, так что остальные
     # строки возьмут его как общий рулон участка (см. _area_roll_pool).
+    # Участок режет плёнку сам (прессы, 02.10): штрипсы не режем — один
+    # рулон любой ширины на все потребности группы, донора не ищем.
+    any_width = cuts_film_on_site(db, payload.area)
     by_width: dict[float, list[int]] = {}
     for i, w in enumerate(payload.needed_widths_mm):
-        by_width.setdefault(min(equivalent_widths(db, w)), []).append(i)
+        by_width.setdefault(0.0 if any_width else min(equivalent_widths(db, w)), []).append(i)
     shared_done: set[int] = set()
     for idxs in by_width.values():
         if len(idxs) < 2:
@@ -1099,10 +1112,11 @@ def get_cutting_plan(
         match = find_exact_stock_match(
             db,
             material_sku_id=sku.id,
-            width_mm=payload.needed_widths_mm[idxs[0]],
+            width_mm=max(payload.needed_widths_mm[i] for i in idxs) if any_width else payload.needed_widths_mm[idxs[0]],
             length_m=total,
             home_warehouse_id=home_id,
             exclude_unit_ids=claimed_unit_ids,
+            any_width=any_width,
         )
         if match is None:
             continue
@@ -1125,6 +1139,7 @@ def get_cutting_plan(
             length_m=length_m,
             home_warehouse_id=home_id,
             exclude_unit_ids=claimed_unit_ids,
+            any_width=any_width,
         )
         if match is not None:
             claimed_unit_ids.add(match.id)
@@ -1141,9 +1156,10 @@ def get_cutting_plan(
             remaining_widths.append(width_mm)
             remaining_to_original.append(i)
 
-    if not remaining_widths:
+    if not remaining_widths or any_width:
         return CuttingPlanOut(
-            donor=None, covered_widths_mm=[], uncovered_widths_mm=[], waste_mm=0.0, covered_indices=[], stock_matches=stock_matches
+            donor=None, covered_widths_mm=[], uncovered_widths_mm=remaining_widths, waste_mm=0.0, covered_indices=[],
+            stock_matches=stock_matches,
         )
 
     settings = db.get(CalcSettings, 1)

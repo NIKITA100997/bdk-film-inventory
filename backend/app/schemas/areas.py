@@ -16,6 +16,8 @@ class AreaOut(BaseModel):
     # Отчёт по строке с плёнкой — только с рулоном; возврат рулона — только
     # после отчёта.
     requires_roll_on_report: bool = False
+    # Плёнку режут на участке — выдаётся рулон целиком, ширина не проверяется.
+    film_cut_on_site: bool = False
     # Планирование: сколько рабочих дней занимает операция участка.
     lead_days: int = 1
     # Мощность (задел): штук в смену и смен в день; пусто — не задана.
@@ -36,6 +38,7 @@ class AreaUpdate(BaseModel):
     site_id: int | None = None
     requires_daily_plan: bool | None = None
     requires_roll_on_report: bool | None = None
+    film_cut_on_site: bool | None = None
     lead_days: int | None = None
     # 0 — снять мощность (не задана).
     capacity_per_shift: float | None = None

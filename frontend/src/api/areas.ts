@@ -13,6 +13,8 @@ export interface Area {
   // Участок как рабочий центр (единая модель, п.5): отчёт по строке с
   // плёнкой — только с рулоном, возврат рулона — только после отчёта.
   requires_roll_on_report: boolean;
+  /** Плёнку режут на участке (прессы): выдаётся рулон целиком, ширина не проверяется. */
+  film_cut_on_site: boolean;
   /** Планирование: сколько рабочих дней занимает операция участка. */
   lead_days: number;
   /** Мощность (задел): штук в смену (null — не задана) и смен в день. */
@@ -53,6 +55,7 @@ export async function updateArea(
     site_id?: number | null;
     requires_daily_plan?: boolean;
     requires_roll_on_report?: boolean;
+    film_cut_on_site?: boolean;
     lead_days?: number;
     capacity_per_shift?: number | null;
     shifts_per_day?: number;

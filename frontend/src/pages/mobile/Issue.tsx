@@ -387,16 +387,30 @@ function GroupDecisionPanel({
   sku,
   rows,
   onOpenManualPicker,
+  cutOnSite = false,
 }: {
   sku: MaterialSku | undefined;
   rows: QueueRowData[];
   onOpenManualPicker: () => void;
+  // Участок режет плёнку сам (прессы): выдаётся рулон целиком, не штрипс.
+  cutOnSite?: boolean;
 }) {
   const planQuery = useGroupCuttingPlan(sku, rows);
   const manualLink = <a onClick={onOpenManualPicker}>🔧 Свой донор и раскрой</a>;
 
   if (!sku || !planQuery.data) return <Typography.Text type="secondary">Подбираем план резки…</Typography.Text>;
   const { donor, covered_widths_mm, uncovered_widths_mm, waste_mm } = planQuery.data;
+
+  if (cutOnSite) {
+    return (
+      <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block" }}>
+        🧻 Участок режет плёнку сам — выдаётся рулон целиком (не уже детали), без резки на складе.
+        {uncovered_widths_mm.length > 0 && " Подходящего рулона этой плёнки на складе нет."}
+        {" · "}
+        {manualLink}
+      </Typography.Text>
+    );
+  }
 
   if (!donor) {
     return (
@@ -1862,6 +1876,7 @@ export default function Issue() {
           <GroupDecisionPanel
             sku={findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness)}
             rows={groupRows}
+            cutOnSite={!!areasQuery.data?.find((a) => a.code === row.task.area)?.film_cut_on_site}
             onOpenManualPicker={() => {
               const sku = findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness);
               if (sku) setManualPickerTarget({ sku, rows: groupRows });

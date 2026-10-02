@@ -44,3 +44,12 @@ def unique_area_code(db: Session, name: str) -> str:
         code = f"{base}_{suffix}"
         suffix += 1
     return code
+
+
+def cuts_film_on_site(db: Session, area_code: str | None) -> bool:
+    """Участок режет плёнку сам (мембранно-вакуумные прессы): выдаётся рулон
+    целиком, ширина рулона строке задания не обязана совпадать."""
+    if not area_code:
+        return False
+    area = db.get(Area, area_code)
+    return bool(area is not None and area.film_cut_on_site)

@@ -71,6 +71,7 @@ from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness, task_lines_with_progress
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
 from app.services.naryad_import import enrich_naryad_lines, parse_naryad_xls_bytes
+from app.services.areas import cuts_film_on_site
 from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.part_units import (
     LAMIS_COLLECTION,
@@ -493,6 +494,10 @@ def _task_borrowable_and_shortfall(
         return equiv_cache[sw]
 
     spec = lambda l: (l.material_id, l.color_id, l.thickness_id)  # noqa: E731
+    # Плёнку режут на участке — рулон любой ширины, нехватка и общий рулон
+    # считаются по плёнке без ширины штрипса.
+    any_width = cuts_film_on_site(db, task.area)
+    width_key_of = lambda l: 0.0 if any_width else min(equiv(_line_effective_strip_width(l)))  # noqa: E731
     reports = {**pool["reports"], **report_aggregates}
     issued = {**pool["issued"], **issued_length_by_line}
 
@@ -506,7 +511,7 @@ def _task_borrowable_and_shortfall(
         _good, defect = reports.get(l.id, (0.0, 0.0))
         by_spec.setdefault(spec(l), {})[l.id] = GroupShortfallLine(
             line_id=l.id,
-            width_key=min(equiv(_line_effective_strip_width(l))),
+            width_key=width_key_of(l),
             needed_length_m=(float(l.quantity_pieces) + defect) * float(l.length_m),
             issued_length_m=issued.get(l.id, 0.0),
             is_closed=l.is_closed,
@@ -518,7 +523,7 @@ def _task_borrowable_and_shortfall(
         prev = group.get(src.id)
         group[src.id] = GroupShortfallLine(
             line_id=src.id,
-            width_key=min(equiv(_line_effective_strip_width(src))),
+            width_key=width_key_of(src),
             needed_length_m=0.0,
             issued_length_m=(prev.issued_length_m if prev else 0.0) + remaining,
             is_closed=True,
@@ -535,7 +540,7 @@ def _task_borrowable_and_shortfall(
         found = [
             (u, src)
             for u, src, _a, _r in pool["units"]
-            if src.id != l.id and spec(src) == spec(l) and float(u.width_mm) in want_widths
+            if src.id != l.id and spec(src) == spec(l) and (any_width or float(u.width_mm) in want_widths)
         ]
         if found:
             borrowable_by_line[l.id] = found
@@ -1178,7 +1183,10 @@ def _build_task_line_report(
                     and src_task.area == db.get(ProductionTask, line.task_id).area
                     and (src_line.material_id, src_line.color_id, src_line.thickness_id)
                     == (line.material_id, line.color_id, line.thickness_id)
-                    and float(unit.width_mm) in set(equivalent_widths(db, _line_effective_strip_width(line)))
+                    and (
+                        cuts_film_on_site(db, src_task.area)
+                        or float(unit.width_mm) in set(equivalent_widths(db, _line_effective_strip_width(line)))
+                    )
                 )
         if not (status_ok and line_ok):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Рулон не найден среди выданных на эту строку")

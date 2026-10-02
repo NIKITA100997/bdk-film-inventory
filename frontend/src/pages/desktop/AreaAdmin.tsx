@@ -34,6 +34,7 @@ export default function AreaAdmin() {
     site_id?: number;
     requires_daily_plan?: boolean;
     requires_roll_on_report?: boolean;
+    film_cut_on_site?: boolean;
     lead_days?: number;
     capacity_per_shift?: number | null;
     shifts_per_day?: number;
@@ -78,6 +79,7 @@ export default function AreaAdmin() {
       site_id?: number;
       requires_daily_plan?: boolean;
       requires_roll_on_report?: boolean;
+      film_cut_on_site?: boolean;
       lead_days?: number;
       capacity_per_shift?: number | null;
       shifts_per_day?: number;
@@ -91,6 +93,7 @@ export default function AreaAdmin() {
         site_id: v.site_id ?? null,
         requires_daily_plan: v.requires_daily_plan,
         requires_roll_on_report: v.requires_roll_on_report,
+        film_cut_on_site: v.film_cut_on_site,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["areas"] });
@@ -228,7 +231,12 @@ export default function AreaAdmin() {
             {
               title: "Рулон в отчёте",
               dataIndex: "requires_roll_on_report",
-              render: (v: boolean) => (v ? <Tag color="orange">Обязателен</Tag> : <Typography.Text type="secondary">—</Typography.Text>),
+              render: (v: boolean, a: Area) => (
+                <Space size={4} wrap>
+                  {v ? <Tag color="orange">Обязателен</Tag> : <Typography.Text type="secondary">—</Typography.Text>}
+                  {a.film_cut_on_site && <Tag color="blue">режут на участке</Tag>}
+                </Space>
+              ),
             },
             {
               title: "Статус",
@@ -248,6 +256,7 @@ export default function AreaAdmin() {
                         site_id: a.site_id ?? undefined,
                         requires_daily_plan: a.requires_daily_plan,
                         requires_roll_on_report: a.requires_roll_on_report,
+                        film_cut_on_site: a.film_cut_on_site,
                         lead_days: a.lead_days,
                         capacity_per_shift: a.capacity_per_shift,
                         shifts_per_day: a.shifts_per_day,
@@ -328,6 +337,13 @@ export default function AreaAdmin() {
           <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
             Отчёт по строке с плёнкой — только с указанием рулона, а рулон нельзя вернуть без отчёта (как на окутке
             царговых). Строк без плёнки не касается.
+          </Typography.Paragraph>
+          <Form.Item name="film_cut_on_site" valuePropName="checked">
+            <Checkbox>Плёнку режут на участке (выдаётся рулон целиком)</Checkbox>
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+            Как на мембранно-вакуумных прессах: склад не режет штрипсы, а выдаёт рулон любой ширины; отчёт списывает
+            метры по норме (длина детали на штуку), фактический расход уточняется при возврате остатка.
           </Typography.Paragraph>
           <Form.Item
             name="lead_days"

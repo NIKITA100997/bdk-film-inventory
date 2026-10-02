@@ -23,6 +23,7 @@ def find_exact_stock_match(
     length_m: float,
     home_warehouse_id: int | None,
     exclude_unit_ids: set[int],
+    any_width: bool = False,
 ) -> MaterialUnit | None:
     """Тот же запрос, что раньше был только в /units/issue: На_хранении,
     та же номенклатура, подходящая ширина, достаточная длина, отфильтровано
@@ -36,13 +37,17 @@ def find_exact_stock_match(
     группы аналогов (290/285/287мм у "Стоевой" и т.п.); сортировка ставит
     точное совпадение раньше аналога, чтобы аналог расходовался только
     когда точного остатка действительно нет."""
-    widths = equivalent_widths(db, width_mm)
     query = db.query(MaterialUnit).filter(
         MaterialUnit.status == UnitStatus.NA_KHRANENII,
         MaterialUnit.material_sku_id == material_sku_id,
-        MaterialUnit.width_mm.in_(widths),
         MaterialUnit.length_m >= length_m,
     )
+    # any_width — участок режет плёнку сам (прессы): годится рулон любой
+    # ширины не уже детали (width_mm — ширина детали).
+    if any_width:
+        query = query.filter(MaterialUnit.width_mm >= width_mm)
+    else:
+        query = query.filter(MaterialUnit.width_mm.in_(equivalent_widths(db, width_mm)))
     if exclude_unit_ids:
         query = query.filter(MaterialUnit.id.notin_(exclude_unit_ids))
     return (
