@@ -4,6 +4,7 @@ import { Alert, Button, Input, Modal, Select, Space, Table, Tag, Typography, mes
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
 import { listMaterialSkus } from "../../../api/dictionaries";
+import { importColumnsText } from "../nomenclature/ImportTemplateModal";
 import {
   importOrderFromSchedule,
   type ProductionOrder,
@@ -30,9 +31,11 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 export default function ScheduleImportModal({ onClose, onCreated }: { onClose: () => void; onCreated: (o: ProductionOrder) => void }) {
   const qc = useQueryClient();
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
-  const gpTypes = (typesQuery.data ?? []).filter((t) => t.kind_code === "izdelie" && t.is_active && t.name_template);
+  // Типы с шаблоном импорта (колонки графика и признаки — настройка типа).
+  const gpTypes = (typesQuery.data ?? []).filter((t) => t.kind_code === "izdelie" && t.is_active && t.name_template && t.import_template);
   const [typeId, setTypeId] = useState<number | undefined>();
-  const effectiveType = typeId ?? gpTypes.find((t) => t.name === "Щитовая дверь")?.id ?? gpTypes[0]?.id;
+  const effectiveType = typeId ?? gpTypes[0]?.id;
+  const selectedType = gpTypes.find((t) => t.id === effectiveType);
   const [text, setText] = useState("");
   const [name, setName] = useState("");
   const [preview, setPreview] = useState<{ rows: ScheduleImportRow[]; parse_errors: string[]; colors?: ScheduleImportColor[] } | null>(null);
@@ -97,9 +100,10 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
     >
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Text type="secondary">
-          Скопируйте строки листа «График» из Excel (Дата отгрузки, № счёта, Серия, Размер, Цвет, Наименование, Кол-во
-          дверей) и вставьте сюда. Серия, размер, цвет, стекло, молдинг, замок и кромка берутся из строки; двери и их
-          каркасы/панели находятся или заводятся по правилам типа.
+          Скопируйте строки графика из Excel и вставьте сюда. Колонки по порядку
+          {selectedType ? `: ${importColumnsText(selectedType)}` : ""}. Свойства берутся из колонок и наименования по
+          шаблону импорта типа («Номенклатура → Типы и правила»); изделия и их п/ф находятся или заводятся по правилам
+          типа.
         </Typography.Text>
         <Space wrap>
           <Select

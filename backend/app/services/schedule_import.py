@@ -1,8 +1,8 @@
-"""Импорт графика запуска щитовых дверей в заказ на производство (единая
-модель). Разбор строк — services/shield_schedule.py; здесь строка графика
-становится значениями свойств типа «Щитовая дверь» (по кодам свойств:
-серия, ширина, высота, цвет, стекло, молдинг, замок, кромка, цвет_кромки), позиция
-находится или создаётся по типу, строка — строкой заказа."""
+"""Импорт графика запуска в заказ на производство (единая модель). Как
+колонки и наименование строки становятся свойствами позиции — шаблон
+импорта у типа изделия (services/import_template.py, 03.10; раньше —
+зашито под щитовую дверь). Позиция находится или создаётся по типу,
+строка графика — строкой заказа."""
 
 import re
 from dataclasses import dataclass, field
@@ -13,10 +13,9 @@ from sqlalchemy.orm import Session
 from app.models.items import Item, ItemType
 from app.models.production_orders import ORDER_DRAFT, ProductionOrder, ProductionOrderLine
 from app.services import type_rules
-from app.services.shield_schedule import ScheduleRow, parse_line_features, parse_pasted_schedule, parse_size, series_key
+from app.services.import_template import Template, TemplateRow, apply_rules, color_from_name, match_option, parse_rows, parse_size
 
 _ROW_NOTES: list[str] = []  # пометки разбора текущей строки (новый цвет и т.п.)
-REQUIRED_CODES = ("серия", "ширина", "высота", "цвет", "стекло", "молдинг", "замок", "кромка", "цвет_кромки")
 
 
 @dataclass
@@ -33,18 +32,6 @@ class ImportRow:
     item_id: int | None = None
     errors: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
-
-
-def color_from_name(name_text: str, color_text: str) -> str:
-    """Цвет двери из наименования строки графика: «В-10.2 (…) 800х2000 -
-    ПЭТ Бежевый (cream silk) кромка черная ABS 2мм» → «ПЭТ Бежевый (cream
-    silk)». Модель — серия, цвет — отдельно (решение 01.10). Не разобрали —
-    колонка «Цвет»."""
-    tail = name_text.split(" - ", 1)[1] if " - " in name_text else ""
-    tail = re.split(r"\s+кромка\b|\s+\(стекло|\s+\(Защелка|\s+\(защелка", tail, maxsplit=1)[0]
-    # Скобки с фурнитурой — не цвет: «(PL410 + петли AGB Eclipse 3.0)».
-    tail = re.sub(r"\((?=[^)]*(?:петл|PL\d|AGB|защел|стекл))[^)]*\)", " ", tail, flags=re.I)
-    return " ".join(tail.split()) or " ".join((color_text or "").split())
 
 
 def film_for_color(db: Session, color: str, index=None) -> tuple[str, str, float | None] | None:
@@ -159,57 +146,92 @@ def _color_films(db: Session, prop, colors: dict[str, int]) -> list[ColorFilm]:
 
 
 def _values_for_row(
-    type_: ItemType, row: ScheduleRow, db: Session | None = None, color_films: dict[str, int] | None = None
+    type_: ItemType, tpl: Template, row: TemplateRow, db: Session | None = None, color_films: dict[str, int] | None = None
 ) -> tuple[dict[int, object], list[str]]:
     props = {p.code: p for p in type_.properties}
-    missing = [c for c in REQUIRED_CODES if c not in props]
-    if missing:
-        return {}, [f"У типа «{type_.name}» нет свойств: {', '.join(missing)}"]
     errors: list[str] = []
-    by_key = {series_key(o.value): o for o in props["серия"].options if o.is_active}
-    series = by_key.get(series_key(row.series_text))
-    if series is None:
-        errors.append(f"серии «{row.series_text}» нет в списке серий типа")
-    size = parse_size(row.size_text)
-    if size is None:
-        errors.append(f"размер «{row.size_text}» не разобран (ждём «800х2000»)")
-    color = color_from_name(row.name_text, row.color_text)
-    if not color:
-        errors.append("не указан цвет")
-    # Цвет двери = плёнка (02.10): «Цвет» у типа — плёнки из справочника,
-    # текст графика — синоним (services/door_colors).
-    color_value: object = color
-    if color and props["цвет"].value_type == "list":
-        from app.services import door_colors as dc
-
-        chosen = (color_films or {}).get(_norm_color(color))
-        if db is not None:
-            opt, note = _color_option(db, props["цвет"], color, chosen)
-            if note:
-                _ROW_NOTES.append(note)
+    by_code: dict[str, object] = {}
+    for col in tpl.columns:
+        role = col.get("role")
+        if role == "size":
+            w_code, h_code = col.get("codes") or [None, None]
+            text = tpl.column_text(row, w_code)
+            size = parse_size(text)
+            if size is None:
+                errors.append(f"размер «{text}» не разобран (ждём «800х2000»)")
+            else:
+                by_code[w_code], by_code[h_code] = float(size[0]), float(size[1])
+            continue
+        if role != "property":
+            continue
+        p = props.get(col.get("code"))
+        if p is None:
+            errors.append(f"У типа «{type_.name}» нет свойства «{col.get('code')}»")
+            continue
+        if p.code == type_rules.COLOR_CODE and p.value_type == "list":
+            color = tpl.color_text(row, p.code)
+            if not color:
+                errors.append("не указан цвет")
+                continue
+            opt_id = _color_value(db, p, color, tpl.column_text(row, p.code), color_films)
+            if opt_id is None:
+                errors.append(f"цвет «{color}»: плёнка не найдена в справочнике — выберите плёнку в блоке «Цвета и плёнка»")
+            else:
+                by_code[p.code] = opt_id
+            continue
+        text = " ".join(tpl.column_text(row, p.code).split())
+        if not text:
+            if p.is_required:
+                errors.append(f"не указано: {p.name}")
+            continue
+        if p.value_type == "list":
+            opt = match_option(p, text)
+            if opt is None:
+                errors.append(f"{p.name.lower()} «{text}» нет в списке вариантов типа")
+            else:
+                by_code[p.code] = opt.value
+                by_code[f"__option__{p.code}"] = opt
+        elif p.value_type == "number":
+            try:
+                by_code[p.code] = float(text.replace(",", ".").replace(" ", ""))
+            except ValueError:
+                errors.append(f"{p.name}: «{text}» — не число")
+        elif p.value_type == "bool":
+            by_code[p.code] = text.lower() in ("да", "1", "+", "есть", "true")
         else:
-            opt = dc.find_option(props["цвет"], color) or dc.find_option(props["цвет"], row.color_text or "")
-        if opt is None:
-            errors.append(f"цвет «{color}»: плёнка не найдена в справочнике — выберите плёнку в блоке «Цвета и плёнка»")
-        else:
-            color_value = opt.id
+            by_code[p.code] = text
     if errors:
         return {}, errors
-    features = parse_line_features(row.name_text, (series.params or {}).get("кромка") or "abs")
-    edge = next((o for o in props["кромка"].options if o.value == features.edge_type), None)
-    if edge is None:
-        return {}, [f"кромки «{features.edge_type}» нет в вариантах свойства «Кромка»"]
-    return {
-        props["серия"].id: series.id,
-        props["ширина"].id: float(size[0]),
-        props["высота"].id: float(size[1]),
-        props["цвет"].id: color_value,
-        props["стекло"].id: features.glass,  # вид стекла, "" — без стекла
-        props["молдинг"].id: features.has_moulding,
-        props["замок"].id: features.needs_lock_milling,
-        props["кромка"].id: edge.id,
-        props["цвет_кромки"].id: features.edge_text,
-    }, []
+    apply_rules(tpl, props, by_code, row.name_text)
+    values: dict[int, object] = {}
+    for code, v in by_code.items():
+        p = props.get(code)
+        if p is None or code.startswith("__"):
+            continue
+        if p.value_type == "list" and not (p.code == type_rules.COLOR_CODE and isinstance(v, int)):
+            if v in (None, ""):
+                continue
+            opt = next((o for o in p.options if o.value == v), None) or match_option(p, str(v))
+            if opt is None:
+                return {}, [f"{p.name}: варианта «{v}» нет в списке свойства"]
+            v = opt.id
+        values[p.id] = v
+    return values, []
+
+
+def _color_value(db: Session | None, prop, color: str, column_text: str, color_films: dict[str, int] | None) -> int | None:
+    """Цвет двери = плёнка (02.10): «Цвет» у типа — плёнки из справочника,
+    текст графика — синоним (services/door_colors)."""
+    from app.services import door_colors as dc
+
+    chosen = (color_films or {}).get(_norm_color(color))
+    if db is not None:
+        opt, note = _color_option(db, prop, color, chosen)
+        if note:
+            _ROW_NOTES.append(note)
+    else:
+        opt = dc.find_option(prop, color) or dc.find_option(prop, column_text or "")
+    return opt.id if opt is not None else None
 
 
 def import_schedule(
@@ -218,7 +240,14 @@ def import_schedule(
 ) -> tuple[list[ImportRow], list[str], ProductionOrder | None]:
     """dry_run — только предпросмотр. Иначе — позиции по типу и черновик
     заказа; если хоть одна строка с ошибкой — ничего не создаётся."""
-    rows, parse_errors = parse_pasted_schedule(text)
+    tpl = Template.of(type_.import_template)
+    if tpl is None:
+        return [], [f"У типа «{type_.name}» не настроен шаблон импорта графика — «Номенклатура → Типы и правила»"], None
+    rows, parse_errors = parse_rows(text, tpl)
+    model_code = next((p.code for p in type_.properties if p.id == type_.model_property_id), None)
+    first_prop = next((c.get("code") for c in tpl.columns if c.get("role") == "property"), None)
+    size_col = next((c for c in tpl.columns if c.get("role") == "size"), None)
+    color_code = type_rules.COLOR_CODE
     # выбранная в окне импорта плёнка: цвет графика → позиция плёнки
     choices = {_norm_color(k): v for k, v in (color_films or {}).items()}
     seen_colors: dict[str, int] = {}
@@ -226,12 +255,14 @@ def import_schedule(
     values_by_row: list[dict[int, object]] = []
     for r in rows:
         ir = ImportRow(
-            series=r.series_text, size=r.size_text, color=r.color_text, name_text=r.name_text, qty=r.doors_qty,
+            series=tpl.column_text(r, model_code or first_prop or ""),
+            size=tpl.column_text(r, size_col["codes"][0]) if size_col else "",
+            color=tpl.column_text(r, color_code), name_text=r.name_text, qty=r.qty,
             invoice_no=r.invoice_no, ship_date=r.ship_date.isoformat() if r.ship_date else None,
         )
         _ROW_NOTES.clear()
-        values, errors = _values_for_row(type_, r, db, choices)
-        c = color_from_name(r.name_text, r.color_text)
+        values, errors = _values_for_row(type_, tpl, r, db, choices)
+        c = tpl.color_text(r, color_code)
         if c:
             seen_colors[c] = seen_colors.get(c, 0) + 1
         ir.errors.extend(errors)
@@ -247,7 +278,7 @@ def import_schedule(
         out.append(ir)
         values_by_row.append(values)
     if colors_out is not None:
-        prop = next((p for p in type_.properties if p.code == "цвет"), None)
+        prop = next((p for p in type_.properties if p.code == color_code), None)
         if prop is not None and prop.value_type == "list":
             colors_out.extend(_color_films(db, prop, seen_colors))
     if dry_run or not rows or parse_errors or any(r.errors for r in out):
@@ -270,7 +301,7 @@ def import_schedule(
         ir.item_id, ir.item_name, ir.exists = item.id, item.name, not created
         note = f"отгрузка {r.ship_date.strftime('%d.%m')}" if r.ship_date else None
         order.lines.append(ProductionOrderLine(
-            item_id=item.id, quantity=r.doors_qty, note=note, invoice_no=(r.invoice_no or "").strip() or None, sort_order=i,
+            item_id=item.id, quantity=r.qty, note=note, invoice_no=(r.invoice_no or "").strip() or None, sort_order=i,
         ))
     db.flush()
     return out, parse_errors, order

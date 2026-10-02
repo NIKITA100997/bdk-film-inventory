@@ -75,6 +75,8 @@ export interface ItemType {
   name_template: string | null;
   /** Условие «типовой размер» — готовая программа станка; null — не проверять. */
   standard_condition?: string | null;
+  /** Шаблон импорта графика (колонки и правила); null — график не импортируется. */
+  import_template?: ImportTemplate | null;
   properties: ItemProperty[];
   operations: TypeOperation[];
   component_rules: TypeComponentRule[];
@@ -196,3 +198,47 @@ export const createItemByType = async (
   values: Record<string, PropertyValue>,
 ): Promise<{ item_id: number; name: string; created: boolean }> =>
   (await apiClient.post("/items/by-type", { type_id: typeId, values })).data;
+
+/** Шаблон импорта графика (backend services/import_template.py). */
+export type ImportColumnRole = "ship_date" | "invoice" | "qty" | "name" | "property" | "size" | "skip";
+export interface ImportColumn {
+  title?: string;
+  role: ImportColumnRole;
+  code?: string;
+  codes?: string[];
+  /** Цвет — из наименования после « - », если есть. */
+  from_name?: boolean;
+}
+export interface ImportDefault {
+  code: string;
+  /** «серия.кромка» — параметр выбранного варианта. */
+  from?: string;
+  fallback?: string;
+}
+export interface ImportRule {
+  code: string;
+  /** Где искать: пусто — в наименовании, иначе уже найденное свойство. */
+  source?: string;
+  pattern: string;
+  /** Номер группы ( ) — взять найденный текст. */
+  capture?: number;
+  value?: string;
+  take?: "last";
+}
+export interface ImportTemplate {
+  columns: ImportColumn[];
+  defaults?: ImportDefault[];
+  rules?: ImportRule[];
+}
+export interface ImportTemplateTestRow {
+  line_no: number;
+  name: string;
+  values: Record<string, string>;
+  errors: string[];
+}
+
+export const setImportTemplate = async (typeId: number, template: ImportTemplate | null): Promise<ItemType> =>
+  (await apiClient.put<ItemType>(`/item-types/${typeId}/import-template`, { template })).data;
+
+export const testImportTemplate = async (typeId: number, template: ImportTemplate, text: string): Promise<ImportTemplateTestRow[]> =>
+  (await apiClient.post<ImportTemplateTestRow[]>(`/item-types/${typeId}/import-template/test`, { template, text })).data;

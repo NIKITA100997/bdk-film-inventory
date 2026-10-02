@@ -20,7 +20,7 @@ from app.db.session import SessionLocal  # noqa: E402
 from app.models.items import ItemType  # noqa: E402
 from app.services import type_rules  # noqa: E402
 from app.services.schedule_import import _values_for_row  # noqa: E402
-from app.services.shield_schedule import ScheduleRow  # noqa: E402
+from app.services.import_template import Template, TemplateRow  # noqa: E402
 
 DRY = "--dry-run" in sys.argv
 path = next(a for a in sys.argv[1:] if not a.startswith("--"))
@@ -28,17 +28,17 @@ titles = [" ".join(x.split()) for x in open(path, encoding="utf-8") if x.strip()
 
 db = SessionLocal()
 door = db.query(ItemType).filter(ItemType.name == "Щитовая дверь").one()
+tpl = Template.of(door.import_template)
 created = existed = 0
 failed = []
 for title in dict.fromkeys(titles):  # повторы — один раз
     size = re.search(r"(\d{3,4})\s*[хx]\s*(\d{4})", title)
     head, _, rest = title.partition(" - ")
     color = re.sub(r"\s*\(стекло[^)]*\)", "", re.split(r"\s+кромка\s+", rest)[0]).strip()
-    row = ScheduleRow(
-        ship_date=None, invoice_no="", series_text=head.split()[0], size_text=f"{size[1]}х{size[2]}" if size else "",
-        color_text=color, name_text=title, doors_qty=1,
-    )
-    values, errors = _values_for_row(door, row)
+    by_role = {"name": title, "qty": "1", "size": f"{size[1]}х{size[2]}" if size else "", "серия": head.split()[0], "цвет": color}
+    cells = [by_role.get(c.get("code") or c["role"], "") for c in tpl.columns]
+    row = TemplateRow(line_no=0, cells=cells, qty=1, name_text=title)
+    values, errors = _values_for_row(door, tpl, row)
     if not errors:
         sp = db.begin_nested()
         item, is_new, errors = type_rules.ensure_item(db, door, values)

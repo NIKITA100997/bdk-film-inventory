@@ -1,14 +1,23 @@
 from types import SimpleNamespace as NS
 
+from app.services.import_template import Template, TemplateRow
 from app.services.schedule_import import _values_for_row
-from app.services.shield_schedule import ScheduleRow
+
+TPL = Template.of({
+    "columns": [
+        {"role": "ship_date"}, {"role": "invoice"}, {"role": "property", "code": "серия"},
+        {"role": "size", "codes": ["ширина", "высота"]}, {"role": "property", "code": "цвет", "from_name": True},
+        {"role": "name"}, {"role": "qty"},
+    ],
+    "defaults": [{"code": "кромка", "from": "серия.кромка", "fallback": "abs"}],
+})
 
 
 def _type():
     def prop(pid, code, vt, options=()):
-        return NS(id=pid, code=code, value_type=vt, options=list(options), is_required=True)
+        return NS(id=pid, code=code, name=code.capitalize(), value_type=vt, options=list(options), is_required=True)
 
-    opt = lambda i, v, params=None: NS(id=i, value=v, is_active=True, params=params or {})  # noqa: E731
+    opt = lambda i, v, params=None: NS(id=i, value=v, label=None, is_active=True, params=params or {})  # noqa: E731
     return NS(
         name="Щитовая дверь",
         properties=[
@@ -26,24 +35,24 @@ def _type():
 
 
 def _row(color):
-    return ScheduleRow(ship_date=None, invoice_no="1", series_text="В-10.2", size_text="800х2000", color_text=color,
-                       name_text=f"В-10.2 800х2000 - {color} кромка черная ABS 2мм", doors_qty=1)
+    name = f"В-10.2 800х2000 - {color} кромка черная ABS 2мм"
+    return TemplateRow(line_no=1, cells=["", "1", "В-10.2", "800х2000", color, name, "1"], invoice_no="1", qty=1, name_text=name)
 
 
 def test_color_from_schedule_matches_option_without_brackets():
-    values, errors = _values_for_row(_type(), _row("ПЭТ Бежевый"))
+    values, errors = _values_for_row(_type(), TPL, _row("ПЭТ Бежевый"))
     assert errors == []
     assert values[4] == 84
 
 
 def test_unknown_color_is_a_readable_error():
-    values, errors = _values_for_row(_type(), _row("Белое дерево"))
+    values, errors = _values_for_row(_type(), TPL, _row("Белое дерево"))
     assert values == {}
     assert errors and "Белое дерево" in errors[0]
 
 
 def test_color_parsed_from_name():
-    from app.services.schedule_import import color_from_name
+    from app.services.import_template import color_from_name
 
     assert color_from_name("В-10.2 (м5х3 кромка 4х) 800х2000 - ПЭТ Бежевый (cream silk) кромка черная ABS 2мм", "ПЭТ Бежевый") == "ПЭТ Бежевый (cream silk)"
     assert color_from_name("А-1 800х2000 - Манхэттен (стекло Зеркало ГРАФИТ) (Защелка Border room) кромка Black", "Манхэттен") == "Манхэттен"
@@ -52,7 +61,7 @@ def test_color_parsed_from_name():
 
 
 def test_hardware_brackets_are_not_color():
-    from app.services.schedule_import import color_from_name
+    from app.services.import_template import color_from_name
 
     name = "В-19 800х2000 - Полипропилен INVISIBLE Белый грунтовочный (PL410 + петли AGB Eclipse 3.0) кромка Black"
     assert color_from_name(name, "") == "Полипропилен INVISIBLE Белый грунтовочный"

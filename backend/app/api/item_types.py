@@ -133,6 +133,7 @@ class ItemTypeOut(BaseModel):
     direction: str | None = None
     stage: str | None = None
     standard_condition: str | None = None
+    import_template: dict | None = None
     properties: list[PropertyOut]
     operations: list[TypeOperationIO] = []
     component_rules: list[TypeComponentIO] = []
@@ -175,7 +176,7 @@ def _type_out(db: Session, t: ItemType) -> ItemTypeOut:
         id=t.id, kind_code=t.kind.code, kind_name=t.kind.name, name=t.name, is_active=t.is_active,
         item_count=count or 0, model_count=models or 0, name_template=t.name_template,
         model_property_code=model_prop.code if model_prop else None,
-        direction=t.direction, stage=t.stage, standard_condition=t.standard_condition,
+        direction=t.direction, stage=t.stage, standard_condition=t.standard_condition, import_template=t.import_template,
         properties=[_property_out(db, p) for p in t.properties],
         operations=[TypeOperationIO(name=o.name, area=o.area, condition=o.condition, role=o.role) for o in t.operations],
         component_rules=[
@@ -295,6 +296,97 @@ def update_item_type(
                 type_rules.link_model(db, item)
     db.commit()
     return _type_out(db, t)
+
+
+class ImportTemplateIn(BaseModel):
+    # None — убрать шаблон (график этого типа не импортируется)
+    template: dict | None = None
+
+
+@router.put("/item-types/{type_id}/import-template", response_model=ItemTypeOut)
+def set_import_template(
+    type_id: int, payload: ImportTemplateIn, db: Session = Depends(get_db), user=Depends(manage_types)
+) -> ItemTypeOut:
+    """Шаблон импорта графика (services/import_template.py) — с проверкой
+    против свойств типа: колонки, правила, варианты."""
+    from app.services.import_template import validate
+
+    t = _get_type(db, type_id)
+    tpl = payload.template
+    if tpl is not None:
+        clean = {
+            "columns": [
+                {k: v for k, v in c.items() if k in ("title", "role", "code", "codes", "from_name") and v not in (None, "", False)}
+                for c in tpl.get("columns") or []
+            ],
+            "defaults": [
+                {k: v for k, v in d.items() if k in ("code", "from", "fallback") and v not in (None, "")}
+                for d in tpl.get("defaults") or [] if d.get("code")
+            ],
+            "rules": [
+                {k: v for k, v in r.items() if k in ("code", "source", "pattern", "capture", "value", "take") and v not in (None, "", False)}
+                for r in tpl.get("rules") or [] if r.get("code") or r.get("pattern")
+            ],
+        }
+        errors = validate(clean, t)
+        if errors:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Шаблон импорта: " + "; ".join(errors[:5]))
+        tpl = clean
+    t.import_template = tpl
+    db.commit()
+    return _type_out(db, t)
+
+
+class ImportTemplateTestIn(BaseModel):
+    template: dict
+    text: str
+
+
+class ImportTemplateTestRow(BaseModel):
+    line_no: int
+    name: str
+    values: dict[str, str]
+    errors: list[str]
+
+
+@router.post("/item-types/{type_id}/import-template/test", response_model=list[ImportTemplateTestRow])
+def test_import_template(
+    type_id: int, payload: ImportTemplateTestIn, db: Session = Depends(get_db), user=Depends(manage_types)
+) -> list[ImportTemplateTestRow]:
+    """Проверить шаблон на вставленных строках, ничего не сохраняя: какие
+    свойства получит каждая строка."""
+    from app.services.import_template import Template, validate
+    from app.services.schedule_import import _values_for_row  # noqa: PLC2701
+
+    t = _get_type(db, type_id)
+    errors = validate(payload.template, t)
+    if errors:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Шаблон импорта: " + "; ".join(errors[:5]))
+    tpl = Template.of(payload.template)
+    from app.services.import_template import parse_rows
+
+    rows, parse_errors = parse_rows(payload.text, tpl)
+    props = {p.id: p for p in t.properties}
+    out = [ImportTemplateTestRow(line_no=0, name="", values={}, errors=[e]) for e in parse_errors]
+    for r in rows[:200]:
+        values, errs = _values_for_row(t, tpl, r, db)
+        shown: dict[str, str] = {}
+        for pid, v in values.items():
+            p = props.get(pid)
+            if p is None:
+                continue
+            if p.value_type == "list":
+                o = next((o for o in p.options if o.id == v), None)
+                shown[p.name] = (o.label or o.value) if o else str(v)
+            elif p.value_type == "bool":
+                shown[p.name] = "да" if v else "нет"
+            elif p.value_type == "number":
+                shown[p.name] = f"{float(v):g}"
+            else:
+                shown[p.name] = str(v or "")
+        out.append(ImportTemplateTestRow(line_no=r.line_no, name=r.name_text, values=shown, errors=errs))
+    db.rollback()  # подбор цвета мог завести синонимы — проверка ничего не сохраняет
+    return out
 
 
 @router.delete("/item-types/{type_id}", status_code=status.HTTP_204_NO_CONTENT)

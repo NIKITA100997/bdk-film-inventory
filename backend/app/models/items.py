@@ -145,6 +145,10 @@ class ItemType(Base):
     # программа в строке не указана — раскладка запуска предупреждает,
     # что программу делает конструктор. Пусто — не проверять.
     standard_condition: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Шаблон импорта графика (03.10, services/import_template.py): колонки и
+    # правила «текст наименования → свойство». Пусто — график этого типа не
+    # импортируется.
+    import_template: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     kind: Mapped[ItemKind] = relationship()
     properties: Mapped[list["ItemProperty"]] = relationship(

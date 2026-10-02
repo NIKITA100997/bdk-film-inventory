@@ -19,6 +19,7 @@ import {
   type TypeOperation,
 } from "../../../api/itemTypes";
 import PropertyInputs from "./PropertyInputs";
+import ImportTemplateModal, { importColumnsText } from "./ImportTemplateModal";
 import { OPERATION_ROLE_HINT, OPERATION_ROLE_LABEL, OPERATION_ROLE_OPTIONS } from "../../../utils/operationRoles";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -67,6 +68,7 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
   });
 
   const [stdCond, setStdCond] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const stdMutation = useMutation({
     mutationFn: (cond: string) => updateItemType(type.id, { standard_condition: cond }),
     onSuccess: () => {
@@ -215,6 +217,34 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
               </Button>
             </Space>
           )}
+        </section>
+      )}
+
+      {(type.kind_code === "izdelie" || type.import_template) && (
+        <section>
+          <Space style={{ justifyContent: "space-between", width: "100%" }}>
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              Импорт графика
+            </Typography.Title>
+            {canManage && (
+              <Button size="small" onClick={() => setImportOpen(true)}>
+                {type.import_template ? "Изменить" : "Настроить"}
+              </Button>
+            )}
+          </Space>
+          {type.import_template ? (
+            <Typography.Paragraph style={{ margin: "6px 0 0", fontSize: 13 }}>
+              Колонки: {importColumnsText(type)}.{" "}
+              <Typography.Text type="secondary">
+                Признаков из наименования: {(type.import_template.rules ?? []).length}.
+              </Typography.Text>
+            </Typography.Paragraph>
+          ) : (
+            <Typography.Text type="secondary">
+              Не настроен — график запуска этого типа нельзя вставить в «Заказ из графика».
+            </Typography.Text>
+          )}
+          {importOpen && <ImportTemplateModal type={type} onClose={() => setImportOpen(false)} />}
         </section>
       )}
 
