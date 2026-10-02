@@ -140,6 +140,11 @@ class ItemType(Base):
     # Направление и стадия позиций этого типа (services/item_attrs.py).
     direction: Mapped[str | None] = mapped_column(String(16), nullable=True)
     stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Типовое изделие (03.10, вместо зашитых 600–900 × 2000): условие по
+    # свойствам, при котором программа станка готовая. Не выполнено и
+    # программа в строке не указана — раскладка запуска предупреждает,
+    # что программу делает конструктор. Пусто — не проверять.
+    standard_condition: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     kind: Mapped[ItemKind] = relationship()
     properties: Mapped[list["ItemProperty"]] = relationship(

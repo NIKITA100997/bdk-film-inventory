@@ -21,12 +21,24 @@ from app.services import type_rules
 from app.services.areas import cuts_film_on_site
 from app.services.components import live_item_names, planned_components
 from app.services.operation_roles import is_film, needs_program
+
+
+def is_standard(db: Session, item: Item) -> bool | None:
+    """Типовое ли изделие по условию его типа; None — условие не задано
+    (или не считается — тогда не предупреждаем)."""
+    from app.services.expressions import ExpressionError, evaluate_condition
+
+    t = item.type
+    if t is None or not t.standard_condition:
+        return None
+    try:
+        return bool(evaluate_condition(t.standard_condition, type_rules.context_from_values(db, t, type_rules.item_values(db, item))))
+    except ExpressionError:
+        return None
 from app.services.planning import PfPick, release_pf, schedule_order
 from app.services.production_orders import release_order
 from app.services.warehouses import area_home_warehouse_id, filter_by_warehouse
 
-STANDARD_WIDTHS = {600, 700, 800, 900}
-STANDARD_HEIGHT = 2000
 
 
 def _film_stock_m(db: Session, area: str, spec: tuple[int, int, int], min_width: float) -> float:
@@ -151,15 +163,13 @@ def build_release_layout(
             warnings.append(f"Не хватает плёнки {g['label']} на {sheets[area]['name']}: нужно {g['need_m']:.0f} м, "
                             f"на складе {stock:.0f} м (не уже {g['min_width']:g} мм)")
 
-    # нестандартный размер у дверей с фрезеровкой панелей — программа у конструктора
+    # нестандартное изделие с операцией «программа станка» — программу делает
+    # конструктор; что типовое — условие у типа изделия
     for lid in sorted(milled_lines):
-        ch = {c["code"]: c["value"] for c in chars(items.get(lid))}
-        try:
-            w, h = float(ch.get("ширина", "0").split()[0]), float(ch.get("высота", "0").split()[0])
-        except ValueError:
+        item = items.get(lid)
+        if item is None or programmed.get(lid) or is_standard(db, item) is not False:
             continue
-        if (int(w) not in STANDARD_WIDTHS or int(h) != STANDARD_HEIGHT) and not programmed.get(lid):
-            warnings.append(f"Нестандартный размер {w:g}х{h:g} — программу фрезеровки делает конструктор: {items[lid].name}")
+        warnings.append(f"Нестандартное изделие — программу станка делает конструктор: {item.name}")
 
     # материалы и комплектующие по составу (без своего маршрута — не задания)
     totals: dict[str, float] = defaultdict(float)

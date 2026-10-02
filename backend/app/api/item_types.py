@@ -95,6 +95,8 @@ class ItemTypeUpdate(BaseModel):
     # Направление и стадия позиций типа; "" — снять.
     direction: str | None = None
     stage: str | None = None
+    # Условие «типовой размер» (программа станка готовая); "" — не проверять.
+    standard_condition: str | None = None
 
 
 class TypeOperationIO(BaseModel):
@@ -130,6 +132,7 @@ class ItemTypeOut(BaseModel):
     model_property_code: str | None = None
     direction: str | None = None
     stage: str | None = None
+    standard_condition: str | None = None
     properties: list[PropertyOut]
     operations: list[TypeOperationIO] = []
     component_rules: list[TypeComponentIO] = []
@@ -172,7 +175,7 @@ def _type_out(db: Session, t: ItemType) -> ItemTypeOut:
         id=t.id, kind_code=t.kind.code, kind_name=t.kind.name, name=t.name, is_active=t.is_active,
         item_count=count or 0, model_count=models or 0, name_template=t.name_template,
         model_property_code=model_prop.code if model_prop else None,
-        direction=t.direction, stage=t.stage,
+        direction=t.direction, stage=t.stage, standard_condition=t.standard_condition,
         properties=[_property_out(db, p) for p in t.properties],
         operations=[TypeOperationIO(name=o.name, area=o.area, condition=o.condition, role=o.role) for o in t.operations],
         component_rules=[
@@ -264,6 +267,11 @@ def update_item_type(
         if tpl:
             _check_template(t, tpl, "Название позиции")
         t.name_template = tpl
+    if payload.standard_condition is not None:
+        cond = " ".join(payload.standard_condition.split()) or None
+        if cond:
+            _check_expr(t, cond, "Типовой размер")
+        t.standard_condition = cond
     if payload.direction is not None:
         if payload.direction and payload.direction not in item_attrs.DIRECTIONS:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Неизвестное направление")

@@ -66,6 +66,16 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
     return [p.code, ...params];
   });
 
+  const [stdCond, setStdCond] = useState<string | null>(null);
+  const stdMutation = useMutation({
+    mutationFn: (cond: string) => updateItemType(type.id, { standard_condition: cond }),
+    onSuccess: () => {
+      invalidate();
+      setStdCond(null);
+      message.success("Условие сохранено");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить условие")),
+  });
   const nameMutation = useMutation({
     mutationFn: (tpl: string) => updateItemType(type.id, { name_template: tpl }),
     onSuccess: () => {
@@ -171,6 +181,42 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
           </Space>
         )}
       </section>
+
+      {(type.kind_code === "izdelie" || type.standard_condition) && (
+        <section>
+          <Typography.Title level={5}>Типовое изделие</Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12.5, marginBottom: 6 }}>
+            Условие, при котором программа станка готовая. Если изделие не типовое и в строке с операцией «программа
+            станка» программа не указана, раскладка запуска предупредит: программу делает конструктор. Пусто — не
+            проверять.
+          </Typography.Paragraph>
+          {stdCond === null ? (
+            <Space>
+              <Typography.Text code={!!type.standard_condition}>{type.standard_condition ?? "не задано"}</Typography.Text>
+              {canManage && (
+                <Button size="small" onClick={() => setStdCond(type.standard_condition ?? "")}>
+                  Изменить
+                </Button>
+              )}
+            </Space>
+          ) : (
+            <Space wrap>
+              <Input
+                style={{ width: 460, fontFamily: "monospace" }}
+                value={stdCond}
+                placeholder="ширина in (600, 700, 800, 900) and высота == 2000"
+                onChange={(e) => setStdCond(e.target.value)}
+              />
+              <Button type="primary" size="small" loading={stdMutation.isPending} onClick={() => stdMutation.mutate(stdCond)}>
+                Сохранить
+              </Button>
+              <Button size="small" onClick={() => setStdCond(null)}>
+                Отмена
+              </Button>
+            </Space>
+          )}
+        </section>
+      )}
 
       <section>
         <Space style={{ justifyContent: "space-between", width: "100%" }}>
