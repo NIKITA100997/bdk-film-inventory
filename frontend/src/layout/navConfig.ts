@@ -147,6 +147,7 @@ export const navTree: NavBlock[] = [
     label: "Аналитика",
     items: [
       { key: "reports", path: "/reports", label: "Отчёты", permissions: ["reports.view"] },
+      { key: "economics", path: "/economics", label: "Экономика производства", permissions: ["reports.view"] },
       { key: "action-log", path: "/action-log", label: "Журнал действий", permissions: ["reports.view"] },
     ],
   },

@@ -748,6 +748,35 @@ def plan_fact_tasks(
 # ================= Раздел про модуль "Брак и списания" =================
 
 
+@router.get("/film-plan-fact")
+def film_plan_fact_report(
+    date_from: dt.date = Query(...),
+    date_to: dt.date = Query(...),
+    area: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("reports.view")),
+) -> list[dict]:
+    """Экономика: план/факт плёнки против норм по строкам заданий (норма,
+    брак, сверх нормы, рубли) — см. services/production_economics."""
+    from app.services.production_economics import film_plan_fact
+
+    return film_plan_fact(db, date_from, date_to, area)
+
+
+@router.get("/output")
+def output_report_endpoint(
+    date_from: dt.date = Query(...),
+    date_to: dt.date = Query(...),
+    area: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("reports.view")),
+) -> list[dict]:
+    """Экономика: выработка — сотрудник × участок × день по отчётам."""
+    from app.services.production_economics import output_report
+
+    return output_report(db, date_from, date_to, area)
+
+
 @router.get("/write-offs", response_model=list[WriteOffLine])
 def write_offs(
     date_from: dt.date = Query(...),
