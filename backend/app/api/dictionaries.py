@@ -375,14 +375,29 @@ def update_employee(
 manage_parts = require_permission("production_tasks.manage")
 
 
+def _with_stage(db: Session, parts: list[Part]) -> list[Part]:
+    """Стадия позиции детали (в плёнке / без плёнки / заготовка) — для
+    выбора детали: мастер п/ф не должен спутать деталь с деталью в плёнке."""
+    from app.models.items import Item, ItemType
+    from app.services.item_attrs import effective_stage
+
+    item_ids = {p.item_id for p in parts if p.item_id}
+    items = {i.id: i for i in db.query(Item).filter(Item.id.in_(item_ids))} if item_ids else {}
+    types = {t.id: t for t in db.query(ItemType)}
+    for p in parts:
+        it = items.get(p.item_id)
+        p.stage = effective_stage(it, types.get(it.type_id)) if it is not None else None
+    return parts
+
+
 @router.get("/parts", response_model=list[PartOut])
 def list_parts(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[Part]:
-    return db.query(Part).filter(Part.is_active).order_by(Part.name).all()
+    return _with_stage(db, db.query(Part).filter(Part.is_active).order_by(Part.name).all())
 
 
 @router.get("/parts/all", response_model=list[PartOut])
 def list_all_parts(db: Session = Depends(get_db), user=Depends(manage_parts)) -> list[Part]:
-    return db.query(Part).order_by(Part.name).all()
+    return _with_stage(db, db.query(Part).order_by(Part.name).all())
 
 
 @router.get("/parts/duplicates", response_model=list[DuplicateCandidateOut])

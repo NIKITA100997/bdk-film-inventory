@@ -332,6 +332,7 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
               form.setFieldValue("stage_id", undefined);
             }}
             placeholder="Найдите деталь в справочнике"
+            filmFilter
           />
           {selectedPart && <Typography.Text type="secondary">Выбрано: {selectedPart.name}</Typography.Text>}
         </Form.Item>

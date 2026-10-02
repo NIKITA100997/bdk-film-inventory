@@ -105,6 +105,9 @@ class PartOut(BaseModel):
     default_material_sku_id: int | None = None
     min_stock_pieces: float | None = None
     min_batch_pieces: float | None = None
+    # Стадия позиции (03.10): blank / bare / laminated / stripped — чтобы при
+    # оприходовании партии отделить детали в плёнке от деталей без плёнки.
+    stage: str | None = None
     # Раздел про правку детали "на лету" — сколько строк ещё нетронутых
     # (без резки/отчёта/распределения) активных заданий подтянули новые
     # размеры прямо в момент этого сохранения (не сохраняется в БД, только

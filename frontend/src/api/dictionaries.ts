@@ -52,6 +52,8 @@ export interface Part {
   // задание на производство, не меньше минимальной партии; null — не задано.
   min_stock_pieces: number | null;
   min_batch_pieces: number | null;
+  /** Стадия позиции: blank — заготовка, bare — без плёнки, laminated — в плёнке, stripped — после снятия плёнки. */
+  stage?: string | null;
 }
 
 export interface PartStage {
