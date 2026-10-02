@@ -1,4 +1,5 @@
 import { Checkbox, Form, Input, InputNumber, Select } from "antd";
+import { optionLabel } from "../../../utils/optionLabel";
 import type { ItemType, PropertyValue } from "../../../api/itemTypes";
 
 /** Поля ввода значений свойств типа — в карточке позиции, в проверке правил
@@ -33,7 +34,7 @@ export default function PropertyInputs({
                 style={{ width: 260 }}
                 value={(v as number | null) ?? undefined}
                 onChange={(nv) => set(nv ?? null)}
-                options={p.options.filter((o) => o.is_active || o.id === v).map((o) => ({ value: o.id, label: o.value }))}
+                options={p.options.filter((o) => o.is_active || o.id === v).map((o) => ({ value: o.id, label: optionLabel(o.value) }))}
               />
             )}
           </Form.Item>

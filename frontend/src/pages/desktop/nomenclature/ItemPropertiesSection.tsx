@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { optionLabel } from "../../../utils/optionLabel";
 import { isAxiosError } from "axios";
 import { Button, Descriptions, Form, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +20,7 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 function showValue(p: ItemProperty, v: PropertyValue | undefined): string {
   if (v === null || v === undefined || v === "") return "—";
   if (p.value_type === "bool") return v ? "да" : "нет";
-  if (p.value_type === "list") return p.options.find((o) => o.id === v)?.value ?? "—";
+  if (p.value_type === "list") return optionLabel(p.options.find((o) => o.id === v)?.value);
   return `${v}${p.unit ? ` ${p.unit}` : ""}`;
 }
 

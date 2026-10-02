@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { optionLabel } from "../utils/optionLabel";
 import { isAxiosError } from "axios";
 import { Alert, AutoComplete, Checkbox, Form, InputNumber, Modal, Select, Space, Spin, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -119,7 +120,7 @@ export default function VariantPicker({
                         style={{ width: 320 }}
                         value={(v as number | null) ?? undefined}
                         onChange={(nv) => set(nv ?? null)}
-                        options={p.options.filter((o) => o.is_active).map((o) => ({ value: o.id, label: o.value }))}
+                        options={p.options.filter((o) => o.is_active).map((o) => ({ value: o.id, label: optionLabel(o.value) }))}
                       />
                       {isFilmColorProperty(p) && <NewFilmColorButton property={p} onCreated={(id) => set(id)} />}
                     </Space>

@@ -1876,12 +1876,19 @@ def part_label_data_from_unit(unit, db=None) -> "PartLabelData":  # unit: app.mo
         line = db.get(ProductionTaskLine, unit.production_task_line_id)
         if line is not None:
             task_name = (line.task.product_model.name if line.task.product_model else None) or line.task.name
+    # на этикетке — название участка, не его код (код — транслит)
+    area = unit.area
+    if db is not None and unit.area:
+        from app.models.areas import Area
+
+        a = db.get(Area, unit.area)
+        area = a.name if a is not None else unit.area
     return PartLabelData(
         batch_id=unit.id,
         part_name=unit.part.name,
         quantity_pieces=float(unit.quantity_pieces),
         stage_name=unit.stage.name,
-        area=unit.area,
+        area=area,
         task_name=task_name,
         note=unit.note,
     )
@@ -2206,7 +2213,7 @@ PREVIEW_DATA_PF_UNIT = PartLabelData(
     part_name="Стоевая 36х108х2035 МДФ ПАЗ-11",
     quantity_pieces=10,
     stage_name="Окутка",
-    area="okutka_tsargovykh",
+    area="Окутка царговых",
     task_name="Задание №12",
     note=None,
 )

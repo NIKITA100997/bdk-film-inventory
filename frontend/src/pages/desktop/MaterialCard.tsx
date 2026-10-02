@@ -24,6 +24,7 @@ import {
   type AnalogEntry,
 } from "../../api/dictionaries";
 import { getMaterialCardByGroup } from "../../api/materialCards";
+import { listAreas } from "../../api/areas";
 import { listWarehouses, suggestLocation } from "../../api/storage";
 import {
   reassignUnitSku,
@@ -304,6 +305,9 @@ function MergeSkuModal({ sku, allSkus, onClose }: { sku: MaterialSku; allSkus: M
  * открыта переходом со state. */
 export default function MaterialCard({ prefill: prefillProp }: { prefill?: MaterialCardPrefill } = {}) {
   const location = useLocation();
+  // участок — по названию, не кодом (код — транслит)
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaName = (code: string | null | undefined) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : null);
   const navigate = useNavigate();
   const { user } = useAuth();
   const canEdit = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
@@ -438,7 +442,7 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
     for (const u of scopedUnits) {
       const g = groups.get(u.width_mm) ?? { width_mm: u.width_mm, length_m: 0, locations: new Set() };
       g.length_m += u.length_m;
-      g.locations.add(u.location_code ?? u.area ?? "—");
+      g.locations.add(u.location_code ?? areaName(u.area) ?? "—");
       groups.set(u.width_mm, g);
     }
     return [...groups.values()].sort((a, b) => b.width_mm - a.width_mm);
@@ -772,7 +776,7 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
                 { title: "Тип", render: (_, u) => <Tag>{u.is_strip ? "Штрипс" : "Рулон"}</Tag> },
                 { title: "Статус", dataIndex: "status" },
                 { title: "Склад", render: (_, u) => u.warehouse_name ?? "—" },
-                { title: "Адрес/участок", render: (_, u) => u.location_code ?? u.area ?? "—" },
+                { title: "Адрес/участок", render: (_, u) => u.location_code ?? areaName(u.area) ?? "—" },
                 {
                   title: "",
                   render: (_: unknown, u: MaterialUnit) => (
