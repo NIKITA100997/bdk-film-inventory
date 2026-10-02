@@ -563,11 +563,13 @@ def recycle_part_units_fifo(
     target_part = db.get(Part, target_part_id)
     if target_part is None:
         raise ValueError("Целевая деталь не найдена")
-    okutka_stage = next((s for s in target_part.stages if s.name == "Окутка"), None)
+    from app.services.operation_roles import film_stage
+
+    okutka_stage = film_stage(target_part.stages)
     if okutka_stage is None:
-        raise ValueError(f"У детали «{target_part.name}» нет этапа «Окутка» — переработка в неё недоступна")
+        raise ValueError(f"У детали «{target_part.name}» нет операции с плёнкой — переработка в неё недоступна")
     if not okutka_stage.area:
-        raise ValueError(f"У этапа «Окутка» детали «{target_part.name}» не указан участок — настройте в справочнике «Деталь»")
+        raise ValueError(f"У операции «{okutka_stage.name}» детали «{target_part.name}» не указан участок — настройте маршрут детали")
 
     candidates = (
         db.query(PartUnit)

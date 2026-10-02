@@ -72,6 +72,7 @@ class PartStageOut(BaseModel):
     code: str
     name: str
     area: str | None
+    role: str | None = None
 
 
 class PartStageCreate(BaseModel):
@@ -85,6 +86,7 @@ class PartStageCreate(BaseModel):
     code: str
     name: str
     area: str | None = None
+    role: str | None = "keep"  # вид операции (services/operation_roles); keep — не менять
 
 
 class PartOut(BaseModel):

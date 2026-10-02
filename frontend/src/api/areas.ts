@@ -20,6 +20,11 @@ export interface Area {
   /** Мощность (задел): штук в смену (null — не задана) и смен в день. */
   capacity_per_shift: number | null;
   shifts_per_day: number;
+  /** Припуск плёнки к ширине детали, мм (Фабрика — 7); null — без припуска. */
+  film_allowance_mm: number | null;
+  /** Крупные партии операции с плёнкой — предлагать на этот участок от N шт. */
+  big_batch_area: string | null;
+  big_batch_min_pieces: number | null;
 }
 
 /** Нужен ли рулон в отчёте на этом участке (настройка участка, не код). */
@@ -59,6 +64,9 @@ export async function updateArea(
     lead_days?: number;
     capacity_per_shift?: number | null;
     shifts_per_day?: number;
+    film_allowance_mm?: number;
+    big_batch_area?: string;
+    big_batch_min_pieces?: number;
   },
 ): Promise<Area> {
   const { data } = await apiClient.patch<Area>(`/areas/${code}`, payload);

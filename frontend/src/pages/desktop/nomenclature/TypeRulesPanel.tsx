@@ -19,6 +19,7 @@ import {
   type TypeOperation,
 } from "../../../api/itemTypes";
 import PropertyInputs from "./PropertyInputs";
+import { OPERATION_ROLE_HINT, OPERATION_ROLE_LABEL, OPERATION_ROLE_OPTIONS } from "../../../utils/operationRoles";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -190,6 +191,11 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
               {type.operations.map((o) => (
                 <li key={o.name}>
                   {o.name} <Typography.Text type="secondary">— {areaName(o.area)}</Typography.Text>
+                  {o.role && (
+                    <Tag style={{ marginLeft: 8 }} color={o.role === "film" ? "blue" : "gold"}>
+                      {OPERATION_ROLE_LABEL[o.role]}
+                    </Tag>
+                  )}
                   {o.condition && (
                     <Tag style={{ marginLeft: 8, fontFamily: "monospace" }} color="purple">
                       если {o.condition}
@@ -215,6 +221,15 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
                   options={areaOptions}
                   onChange={(v) => patchOp(i, { area: v ?? null })}
                 />
+                <Select
+                  allowClear
+                  placeholder="обычная"
+                  title={OPERATION_ROLE_HINT}
+                  style={{ width: 170 }}
+                  value={o.role ?? undefined}
+                  options={OPERATION_ROLE_OPTIONS}
+                  onChange={(v) => patchOp(i, { role: v ?? null })}
+                />
                 <Input
                   placeholder="условие (пусто — всегда)"
                   value={o.condition ?? ""}
@@ -227,7 +242,7 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
               </Space>
             ))}
             <Space>
-              <Button onClick={() => setOpsDraft((d) => [...(d ?? []), { name: "", area: "", condition: null }])}>+ операция</Button>
+              <Button onClick={() => setOpsDraft((d) => [...(d ?? []), { name: "", area: "", condition: null, role: null }])}>+ операция</Button>
               <Button type="primary" loading={opsMutation.isPending} onClick={() => opsMutation.mutate(opsDraft)}>
                 Сохранить
               </Button>

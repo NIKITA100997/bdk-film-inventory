@@ -23,6 +23,10 @@ class AreaOut(BaseModel):
     # Мощность (задел): штук в смену и смен в день; пусто — не задана.
     capacity_per_shift: float | None = None
     shifts_per_day: int = 1
+    # Припуск плёнки к ширине детали, мм; крупные партии — на другой участок.
+    film_allowance_mm: float | None = None
+    big_batch_area: str | None = None
+    big_batch_min_pieces: float | None = None
 
 
 class AreaCreate(BaseModel):
@@ -43,3 +47,8 @@ class AreaUpdate(BaseModel):
     # 0 — снять мощность (не задана).
     capacity_per_shift: float | None = None
     shifts_per_day: int | None = None
+    # 0 — без припуска.
+    film_allowance_mm: float | None = None
+    # "" — не предлагать другой участок для крупных партий.
+    big_batch_area: str | None = None
+    big_batch_min_pieces: float | None = None

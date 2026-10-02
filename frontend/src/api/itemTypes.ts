@@ -38,6 +38,8 @@ export interface TypeOperation {
   /** null — «общий запас»: последняя операция без участка, партии берутся с любого. */
   area: string | null;
   condition: string | null;
+  /** Вид операции: с плёнкой / программа станка; null — обычная. */
+  role?: "film" | "program" | null;
 }
 
 export interface TypeComponentRule {

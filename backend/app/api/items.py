@@ -676,7 +676,7 @@ def create_size_parts(payload: SizeCreateIn, db: Session = Depends(get_db), user
         template = db.get(Part, payload.route_part_id)
         if template is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Деталь-образец маршрута не найдена")
-        route = [RouteStep(code=s.code, name=s.name, area=s.area) for s in template.stages]
+        route = [RouteStep(code=s.code, name=s.name, area=s.area, role=s.role) for s in template.stages]
     groups = _unlinked_size_groups(db)
     names = _proposed_names(groups)
     existing = {normalize_name(p.name): p for p in db.query(Part)}
@@ -720,6 +720,7 @@ class TechOperation(BaseModel):
     name: str
     area: str | None
     area_name: str | None
+    role: str | None = None
 
 
 class TechInput(BaseModel):
@@ -837,7 +838,7 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
         db.query(MaterialSku).filter(MaterialSku.item_id == item_id).first() if part is None and model is None else None
     )
     operations = [
-        TechOperation(id=s.id, sequence_order=s.sequence_order, code=s.code, name=s.name, area=s.area, area_name=area_names.get(s.area))
+        TechOperation(id=s.id, sequence_order=s.sequence_order, code=s.code, name=s.name, area=s.area, area_name=area_names.get(s.area), role=s.role)
         for s in item.stages
     ]
     stage_names = {s.id: s.name for s in item.stages}
@@ -994,6 +995,18 @@ class RouteStepIO(BaseModel):
     code: str
     name: str
     area: str | None = None
+    role: str | None = "keep"  # вид операции (services/operation_roles); keep — не менять
+
+
+def _role(role: str | None) -> str | None:
+    from app.services.operation_roles import KEEP, clean_role
+
+    if role == KEEP:
+        return KEEP
+    try:
+        return clean_role(role)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
 
 @router.put("/items/{item_id}/route", response_model=list[TechOperation])
@@ -1013,7 +1026,7 @@ def set_item_route(
         )
     owner = db.query(Part).filter(Part.item_id == item.id).first() or item
     try:
-        apply_route(db, owner, [RouteStep(code=s.code, name=s.name, area=s.area) for s in payload])
+        apply_route(db, owner, [RouteStep(code=s.code, name=s.name, area=s.area, role=_role(s.role)) for s in payload])
     except RouteInUseError as e:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
@@ -1021,6 +1034,6 @@ def set_item_route(
     db.refresh(item)
     area_names = {a.code: a.name for a in db.query(Area)}
     return [
-        TechOperation(id=s.id, sequence_order=s.sequence_order, code=s.code, name=s.name, area=s.area, area_name=area_names.get(s.area))
+        TechOperation(id=s.id, sequence_order=s.sequence_order, code=s.code, name=s.name, area=s.area, area_name=area_names.get(s.area), role=s.role)
         for s in item.stages
     ]

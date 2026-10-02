@@ -100,6 +100,7 @@ class TypeOperationIO(BaseModel):
     name: str
     area: str | None = None  # None — «общий запас» (только последняя операция)
     condition: str | None = None
+    role: str | None = "keep"  # вид операции (services/operation_roles); keep — как было
 
 
 class TypeComponentIO(BaseModel):
@@ -171,7 +172,7 @@ def _type_out(db: Session, t: ItemType) -> ItemTypeOut:
         model_property_code=model_prop.code if model_prop else None,
         direction=t.direction, stage=t.stage,
         properties=[_property_out(db, p) for p in t.properties],
-        operations=[TypeOperationIO(name=o.name, area=o.area, condition=o.condition) for o in t.operations],
+        operations=[TypeOperationIO(name=o.name, area=o.area, condition=o.condition, role=o.role) for o in t.operations],
         component_rules=[
             TypeComponentIO(
                 name_template=r.name_template, qty_expr=r.qty_expr, condition=r.condition, width_expr=r.width_expr,
@@ -537,11 +538,20 @@ def set_type_operations(
         elif o.area not in areas:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Операция «{n}»: участок не найден")
         _check_expr(t, o.condition, f"Условие операции «{n}»")
+    from app.services.operation_roles import KEEP, clean_role
+
+    old_roles = {o.name: o.role for o in t.operations}
+    roles = []
+    for o, n in zip(payload, names):
+        try:
+            roles.append(old_roles.get(n) if o.role == KEEP else clean_role(o.role))
+        except ValueError as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Операция «{n}»: {e}") from e
     t.operations.clear()
     db.flush()
-    for i, (o, n) in enumerate(zip(payload, names), start=1):
+    for i, (o, n, role) in enumerate(zip(payload, names, roles), start=1):
         t.operations.append(
-            ItemTypeOperation(sequence_order=i, name=n, area=o.area, condition=(o.condition or "").strip() or None)
+            ItemTypeOperation(sequence_order=i, name=n, area=o.area, condition=(o.condition or "").strip() or None, role=role)
         )
     db.commit()
     db.refresh(t)
@@ -633,7 +643,7 @@ class RulesPreviewIn(BaseModel):
 def _preview_out(db: Session, res: type_rules.RulesResult) -> RulesPreviewOut:
     return RulesPreviewOut(
         name=res.name,
-        operations=[TypeOperationIO(name=n, area=a) for n, a in res.operations],
+        operations=[TypeOperationIO(name=n, area=a, role=res.op_roles.get(n)) for n, a in res.operations],
         components=[
             PlannedComponentOut(
                 name=c.name, qty=c.qty, width_mm=c.width_mm, length_mm=c.length_mm, strip_width_mm=c.strip_width_mm,

@@ -64,6 +64,8 @@ export interface PartStage {
   // участку при работе с партией на этом этапе выводится отсюда, не
   // выбирается вручную. null — участок для этапа ещё не назначен.
   area: string | null;
+  /** Вид операции: с плёнкой / программа станка; null — обычная. */
+  role?: "film" | "program" | null;
 }
 
 export interface PartCreate {

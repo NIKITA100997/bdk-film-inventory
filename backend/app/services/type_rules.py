@@ -55,6 +55,7 @@ class PlannedComponent:
 class RulesResult:
     name: str | None = None
     operations: list[tuple[str, str]] = field(default_factory=list)  # (название, участок)
+    op_roles: dict[str, str | None] = field(default_factory=dict)  # название → вид операции
     components: list[PlannedComponent] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -148,6 +149,7 @@ def compute(db: Session, type_: ItemType, ctx: dict) -> RulesResult:
         try:
             if evaluate_condition(op.condition, ctx):
                 res.operations.append((op.name, op.area))
+                res.op_roles[op.name] = op.role
         except ExpressionError as e:
             res.errors.append(f"Операция «{op.name}»: {e}")
     for rule in type_.component_rules:
@@ -246,7 +248,10 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
         # Маршрут: code = название операции — ключ сопоставления, партии и
         # история остаются на своих операциях (services/routes.py).
         try:
-            apply_route(db, part_owner or item, [RouteStep(code=n, name=n, area=a) for n, a in res.operations])
+            apply_route(
+                db, part_owner or item,
+                [RouteStep(code=n, name=n, area=a, role=res.op_roles.get(n)) for n, a in res.operations],
+            )
         except RouteInUseError as e:
             # Партии/история на этапе, которого по правилам больше нет, — как
             # ошибка данных: вызывающий код откатит savepoint.
@@ -274,7 +279,7 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
                     template = db.get(Part, rule.route_part_id)
                     if template is not None:
                         # Новая деталь — этапов ещё нет, убирать нечего.
-                        apply_route(db, part, [RouteStep(code=s.code, name=s.name, area=s.area) for s in template.stages])
+                        apply_route(db, part, [RouteStep(code=s.code, name=s.name, area=s.area, role=s.role) for s in template.stages])
                         part.area = template.area
                 db.flush()
                 comp_item_id = part.item_id

@@ -18,25 +18,12 @@ from sqlalchemy.orm import Session
 from app.models.dictionaries import Part
 from app.models.part_units import PartUnit, PartUnitStatus
 from app.services.part_units import reported_good_pieces_by_unit
+from app.services.operation_roles import film_stage, suggest_area
 from app.services.pf_demand import compute_pf_demand
 
-LAMINATION = ("Ламинация", "Окутка")
-# Широкоформатная окутка панелей на Фабрике — плёнка шире панели на 7 мм
-# (617 / 817 / 917 при панели 610 / 810 / 910), решение пользователя 29.09.
-# На мембранно-вакуумных прессах плёнку режут в размер вручную — по ширине
-# панели, пока не решено иначе.
-FACTORY_SITE = "Фабрика"
-FACTORY_WRAP_ALLOWANCE_MM = 7
-# Площадка ламинации панелей (решение пользователя 29.09): крупная партия —
-# от 100 дверей одного цвета и размера, т.е. от 200 панелей — окутка на
-# Фабрике, меньше — мембранно-вакуумные прессы; в задании можно поменять.
-LAMINATION_STAGE = "Ламинация"
-FACTORY_AREA = "fabrika"
-FACTORY_MIN_PANELS = 200
-
-
-def suggest_lamination_area(stage_area: str | None, pieces: float) -> str | None:
-    return FACTORY_AREA if pieces >= FACTORY_MIN_PANELS else stage_area
+# Операция с плёнкой — по виду операции (services/operation_roles), не по
+# названию. Припуск плёнки (Фабрика: панель + 7 мм, решение 29.09) и
+# «крупные партии — на Фабрику» (от 200 панелей) — настройки участка (03.10).
 
 
 @dataclass
@@ -78,24 +65,25 @@ def _planned_area(db: Session, stage, to_laminate: float) -> str | None:
         by_area[area] += max(0.0, float(line.quantity_pieces) - good)
     if by_area and max(by_area.values()) > 0:
         return max(by_area.items(), key=lambda kv: kv[1])[0]
-    return suggest_lamination_area(stage.area, to_laminate)
+    return suggest_area(db, stage.area, to_laminate)
 
 
 def _film_width(db: Session, part: Part, stage, area_code: str | None = None) -> tuple[float, str]:
-    """Ширина плёнки на панель: штрипс детали; иначе по площадке операции —
-    Фабрика (широкоформатная окутка) +7 мм, прессы — в размер панели."""
+    """Ширина плёнки на панель: штрипс детали; иначе ширина панели плюс
+    припуск участка (Фабрика, широкоформатная окутка, — 7 мм)."""
     from app.models.areas import Area
-    from app.models.sites import Site
 
     if part.strip_width_mm:
         return float(part.strip_width_mm), "штрипс детали"
     width = float(part.width_mm or 0)
     code = area_code or stage.area
     area = db.get(Area, code) if code else None
-    site = db.get(Site, area.site_id) if area is not None and area.site_id else None
-    if site is not None and site.name == FACTORY_SITE:
-        return width + FACTORY_WRAP_ALLOWANCE_MM, f"ширина панели + {FACTORY_WRAP_ALLOWANCE_MM} мм (окутка, Фабрика)"
-    return width, "ширина панели (прессы — режут в размер)"
+    allowance = float(area.film_allowance_mm or 0) if area is not None else 0.0
+    if allowance:
+        return width + allowance, f"ширина панели + {allowance:g} мм (припуск участка «{area.name}»)"
+    if area is not None and area.film_cut_on_site:
+        return width, "ширина панели (плёнку режут на участке)"
+    return width, "ширина панели"
 
 
 def _exploded_demand(db: Session) -> dict[int, float]:
@@ -139,7 +127,7 @@ def panel_film_demand(db: Session) -> list[PanelFilmRow]:
     out: list[PanelFilmRow] = []
     for part in db.query(Part).filter(Part.id.in_(list(demand)), Part.is_active.is_(True)):
         stages = sorted(part.stages, key=lambda s: s.sequence_order)
-        lam = next((s for s in stages if s.name in LAMINATION), None)
+        lam = film_stage(stages)
         if lam is None:
             continue
         after = {s.id for s in stages if s.sequence_order > lam.sequence_order}
@@ -241,7 +229,7 @@ def panel_film_spec(db: Session, part: Part) -> tuple[int, int, int] | None:
 
 def lamination_line_film(db: Session, part: Part, stage, area_code: str | None) -> dict:
     """Поля плёнки для строки задания на ламинацию/окутку панели: плёнка,
-    длина на штуку, ширина штрипса — на Фабрике панель + 7 мм (режет склад,
+    длина на штуку, ширина штрипса — панель + припуск участка (режет склад,
     как обычная окутка), на участке, где плёнку режут сами, — без штрипса."""
     from app.services.areas import cuts_film_on_site
 

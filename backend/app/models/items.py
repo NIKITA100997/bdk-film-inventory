@@ -171,6 +171,8 @@ class ItemTypeOperation(Base):
     # списываются на следующую операцию с любого участка (production_orders).
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     condition: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Вид операции — переходит в операцию маршрута позиции (PartStage.role).
+    role: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class ItemTypeComponent(Base):

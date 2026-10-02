@@ -117,7 +117,7 @@ def order_pf_needs(db: Session, order: ProductionOrder) -> list[PfNeed]:
     готовым, заново из комплектующих не делается."""
     from app.models.items import ItemKind, ItemType
     from app.services import item_attrs
-    from app.services.panel_film import FACTORY_AREA, FACTORY_MIN_PANELS, LAMINATION_STAGE
+    from app.services.operation_roles import big_batch, film_stage
     from app.services.pf_demand import _state  # noqa: PLC2701 — остаток и резервы, как на экранах
 
     st = _state(db)
@@ -144,15 +144,16 @@ def order_pf_needs(db: Session, order: ProductionOrder) -> list[PfNeed]:
             take = round(min(need, free), 2) if mode == "stock" else 0.0
             pool[part.id] = free - take
             launch = round(need - take, 2)
-            lam = next((s for s in part.stages if s.name == LAMINATION_STAGE), None)
+            lam = film_stage(part.stages)
+            target, min_pieces = big_batch(db, lam.area) if lam is not None else (None, None)
             out.append(
                 PfNeed(
                     order_line_id=order_line_id, part_id=part.id, part_name=part.name, quantity=need,
                     consumer_stage_id=stage_id, consumer_part_id=consumer_part_id, depth=depth,
                     free_stock=round(free, 2), from_stock=take, launch=launch, mode=mode,
-                    lamination_area=lam.area if lam else None,
-                    factory_area=FACTORY_AREA if lam else None,
-                    factory_min_pieces=FACTORY_MIN_PANELS if lam else None,
+                    lamination_area=lam.area if target else None,
+                    factory_area=target,
+                    factory_min_pieces=min_pieces,
                 )
             )
             if part.item_id and launch > 0:
@@ -180,7 +181,8 @@ def release_pf(
     операцию маршрута детали (кроме последнего этапа — готовая деталь);
     строки помнят строку заказа; задание — «под» задание, где деталь
     расходуется (сделанное уходит в его резерв)."""
-    from app.services.panel_film import LAMINATION, LAMINATION_STAGE, lamination_line_film
+    from app.services.operation_roles import film_stage, is_film
+    from app.services.panel_film import lamination_line_film
 
     area_names = {a.code: a.name for a in db.query(Area)}
     # (строка заказа, этап) → задание, где этот этап выполняется
@@ -208,7 +210,7 @@ def release_pf(
         ops = stages[:-1] if len(stages) > 1 else stages
         for stage in ops:
             area = stage.area
-            if pick.lamination_area and stage.name == LAMINATION_STAGE:
+            if pick.lamination_area and stage is film_stage(part.stages):
                 area = pick.lamination_area
             if area is None:
                 continue
@@ -225,7 +227,7 @@ def release_pf(
             # Ламинация/окутка панели — строка с плёнкой: склад выдаёт под неё
             # штрипс (Фабрика) или рулон целиком (прессы режут сами), отчёт
             # списывает метраж (02.10).
-            film = lamination_line_film(db, part, stage, area) if stage.name in LAMINATION else {}
+            film = lamination_line_film(db, part, stage, area) if is_film(stage) else {}
             line = ProductionTaskLine(
                 quantity_pieces=pick.quantity, part_stage_id=stage.id, part_id=part.id, part_name=part.name,
                 width_mm=float(part.width_mm or 0), length_m=film.pop("length_m", 0), order_line_id=pick.order_line_id,

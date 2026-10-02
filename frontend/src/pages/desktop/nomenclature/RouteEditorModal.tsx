@@ -4,8 +4,9 @@ import { Button, Input, Modal, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas } from "../../../api/areas";
 import { setItemRoute, type TechCard } from "../../../api/items";
+import { OPERATION_ROLE_HINT, OPERATION_ROLE_OPTIONS, type OperationRole } from "../../../utils/operationRoles";
 
-type Row = { code: string; name: string; area: string | null };
+type Row = { code: string; name: string; area: string | null; role: OperationRole };
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -22,7 +23,7 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
   // code — ключ сопоставления со старыми этапами: у существующих операций
   // сохраняем прежний, у новых — название.
   const [rows, setRows] = useState<Row[]>(
-    card.operations.map((o) => ({ code: o.code ?? o.name, name: o.name, area: o.area })),
+    card.operations.map((o) => ({ code: o.code ?? o.name, name: o.name, area: o.area, role: o.role ?? null })),
   );
   const patch = (i: number, p: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const move = (i: number, d: number) =>
@@ -38,7 +39,7 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
     mutationFn: () =>
       setItemRoute(
         card.item_id,
-        rows.map((r) => ({ code: r.code || r.name.trim(), name: r.name.trim(), area: r.area })),
+        rows.map((r) => ({ code: r.code || r.name.trim(), name: r.name.trim(), area: r.area, role: r.role })),
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["techcard", card.item_id] });
@@ -55,7 +56,7 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
   return (
     <Modal
       open
-      width={760}
+      width={940}
       title={`Маршрут — ${card.name}`}
       okText="Сохранить"
       cancelText="Отмена"
@@ -65,7 +66,7 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
     >
       <Typography.Paragraph type="secondary">
         Операции по порядку: что делают и на каком участке. Партии и история остаются на своих операциях; операцию,
-        на которой есть партии, убрать нельзя — можно поменять участок или порядок.
+        на которой есть партии, убрать нельзя — можно поменять участок или порядок. {OPERATION_ROLE_HINT}
       </Typography.Paragraph>
       <Space direction="vertical" style={{ width: "100%" }}>
         {rows.map((r, i) => (
@@ -89,6 +90,15 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
               options={areaOptions}
               onChange={(v) => patch(i, { area: v ?? null, name: r.name || areaOptions.find((a) => a.value === v)?.label || "" })}
             />
+            <Select
+              allowClear
+              placeholder="обычная"
+              title={OPERATION_ROLE_HINT}
+              style={{ width: 170 }}
+              value={r.role ?? undefined}
+              options={OPERATION_ROLE_OPTIONS}
+              onChange={(v) => patch(i, { role: (v ?? null) as OperationRole })}
+            />
             <Button size="small" disabled={i === 0} onClick={() => move(i, -1)}>
               ↑
             </Button>
@@ -100,7 +110,7 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
             </Button>
           </Space>
         ))}
-        <Button block onClick={() => setRows((rs) => [...rs, { code: "", name: "", area: null }])}>
+        <Button block onClick={() => setRows((rs) => [...rs, { code: "", name: "", area: null, role: null }])}>
           + операция
         </Button>
       </Space>

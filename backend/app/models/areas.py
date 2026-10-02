@@ -51,3 +51,12 @@ class Area(Base):
     # строке задания не обязана совпадать; расход в отчёте — по норме
     # (длина детали на штуку), факт уточняется при возврате остатка.
     film_cut_on_site: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Припуск плёнки к ширине детали, мм (03.10, вместо константы Фабрики):
+    # широкоформатная окутка панелей — штрипс шире панели на 7 мм. Пусто —
+    # штрипс в ширину детали.
+    film_allowance_mm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    # Крупные партии (03.10, вместо константы «от 200 панелей — Фабрика»):
+    # операцию с плёнкой этого участка от big_batch_min_pieces штук
+    # предлагать делать на участке big_batch_area. Пусто — не предлагать.
+    big_batch_area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
+    big_batch_min_pieces: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)

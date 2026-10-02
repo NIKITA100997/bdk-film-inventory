@@ -38,6 +38,9 @@ export default function AreaAdmin() {
     lead_days?: number;
     capacity_per_shift?: number | null;
     shifts_per_day?: number;
+    film_allowance_mm?: number | null;
+    big_batch_area?: string;
+    big_batch_min_pieces?: number | null;
   }>();
   const [showArchived, setShowArchived] = useState(false);
 
@@ -83,8 +86,15 @@ export default function AreaAdmin() {
       lead_days?: number;
       capacity_per_shift?: number | null;
       shifts_per_day?: number;
+      film_allowance_mm?: number | null;
+      big_batch_area?: string | null;
+      big_batch_min_pieces?: number | null;
     }) =>
       updateArea(editing!.code, {
+        // пусто — снять настройку (0 / "" на сервере — «не задано»)
+        film_allowance_mm: v.film_allowance_mm ?? 0,
+        big_batch_area: v.big_batch_area ?? "",
+        big_batch_min_pieces: v.big_batch_min_pieces ?? 0,
         lead_days: v.lead_days,
         // пусто — снять мощность (0 на сервере — «не задана»)
         capacity_per_shift: v.capacity_per_shift ?? 0,
@@ -235,6 +245,13 @@ export default function AreaAdmin() {
                 <Space size={4} wrap>
                   {v ? <Tag color="orange">Обязателен</Tag> : <Typography.Text type="secondary">—</Typography.Text>}
                   {a.film_cut_on_site && <Tag color="blue">режут на участке</Tag>}
+                  {!!a.film_allowance_mm && <Tag>припуск +{a.film_allowance_mm} мм</Tag>}
+                  {a.big_batch_area && (
+                    <Tag color="purple">
+                      от {a.big_batch_min_pieces} шт →{" "}
+                      {(areasQuery.data ?? []).find((x) => x.code === a.big_batch_area)?.name ?? a.big_batch_area}
+                    </Tag>
+                  )}
                 </Space>
               ),
             },
@@ -260,6 +277,9 @@ export default function AreaAdmin() {
                         lead_days: a.lead_days,
                         capacity_per_shift: a.capacity_per_shift,
                         shifts_per_day: a.shifts_per_day,
+                        film_allowance_mm: a.film_allowance_mm,
+                        big_batch_area: a.big_batch_area ?? undefined,
+                        big_batch_min_pieces: a.big_batch_min_pieces,
                       });
                     }}
                   >
@@ -344,6 +364,32 @@ export default function AreaAdmin() {
           <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
             Как на мембранно-вакуумных прессах: склад не режет штрипсы, а выдаёт рулон любой ширины; отчёт списывает
             метры по норме (длина детали на штуку), фактический расход уточняется при возврате остатка.
+          </Typography.Paragraph>
+          <Form.Item
+            name="film_allowance_mm"
+            label="Припуск плёнки к ширине детали, мм"
+            extra="Штрипс под деталь без своей ширины штрипса = ширина детали + припуск (широкоформатная окутка на Фабрике — 7 мм). Пусто — в ширину детали."
+          >
+            <InputNumber min={0} max={200} style={{ width: 160 }} placeholder="без припуска" />
+          </Form.Item>
+          <Space size={12} wrap align="start">
+            <Form.Item name="big_batch_area" label="Крупные партии — предлагать на участок">
+              <Select
+                allowClear
+                style={{ width: 280 }}
+                placeholder="не предлагать"
+                options={(areasQuery.data ?? [])
+                  .filter((x) => x.is_active && x.code !== editing?.code)
+                  .map((x) => ({ value: x.code, label: x.name }))}
+              />
+            </Form.Item>
+            <Form.Item name="big_batch_min_pieces" label="от, шт">
+              <InputNumber min={0} style={{ width: 120 }} />
+            </Form.Item>
+          </Space>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+            Для операций с плёнкой: при запуске партия от этого количества предлагается на другой участок (ламинация
+            панелей от 200 шт — окутка на Фабрике), выбор можно поменять.
           </Typography.Paragraph>
           <Form.Item
             name="lead_days"

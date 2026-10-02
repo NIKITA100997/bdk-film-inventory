@@ -253,7 +253,7 @@ def item_tree(db: Session, item: Item, *, qty: float | None = None, depth: int =
         sku = part.default_material_sku
         if sku is not None:
             node.film = f"{sku.material.name}, {sku.color.name}, {float(sku.thickness.value_mm):g} мм, {sku.manufacturer.name}"
-        elif any(s.name in ("Ламинация", "Окутка") for s in stages):
+        elif any(getattr(s, "role", None) == "film" for s in stages):
             n = len(type_rules.film_candidates(db, type_rules.item_values_color(db, item) or ""))
             node.warnings.append(
                 "плёнка не закреплена — выберите у детали" + (f" (подходит {n})" if n > 1 else " (по цвету не нашлась)")

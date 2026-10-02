@@ -13,7 +13,7 @@ from app.models.part_units import PartReservation
 from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.users import User
 from app.models.areas import Area
-from app.services.panel_film import FACTORY_AREA, FACTORY_MIN_PANELS, LAMINATION_STAGE
+from app.services.operation_roles import big_batch, film_stage
 from app.models.production_orders import ProductionOrder
 from app.services.production_orders import OrderError, attach_tasks_to_order
 from app.services.pf_demand import PfDemandRow, compute_pf_demand, compute_pf_preview, reserves_by_part
@@ -114,9 +114,10 @@ def _out(row: PfDemandRow, db: Session | None = None) -> PfDemandOut:
     extra = {}
     if db is not None:
         part = db.get(Part, row.part_id)
-        lam = next((s for s in (part.stages if part else []) if s.name == LAMINATION_STAGE), None)
-        if lam is not None:
-            extra = {"lamination_area": lam.area, "factory_area": FACTORY_AREA, "factory_min_pieces": FACTORY_MIN_PANELS}
+        lam = film_stage(part.stages) if part else None
+        target, min_pieces = big_batch(db, lam.area) if lam is not None else (None, None)
+        if target:
+            extra = {"lamination_area": lam.area, "factory_area": target, "factory_min_pieces": min_pieces}
     return PfDemandOut(**{**row.__dict__, "sources": [PfDemandSourceOut(**s.__dict__) for s in row.sources], **extra})
 
 
@@ -196,7 +197,7 @@ def create_pf_tasks(
                 missing_area.append(f"{part.name} ({stage.name})")
                 continue
             area = stage.area
-            if item.lamination_area and stage.name == LAMINATION_STAGE:
+            if item.lamination_area and stage is film_stage(part.stages):
                 if db.get(Area, item.lamination_area) is None:
                     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Участок ламинации не найден")
                 area = item.lamination_area

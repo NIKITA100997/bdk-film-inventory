@@ -140,6 +140,10 @@ class PartStage(Base):
     code: Mapped[str] = mapped_column(String(50))
     name: Mapped[str] = mapped_column(String(255))
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
+    # Вид операции (03.10, вместо проверки по названию): "film" — операция с
+    # плёнкой (ламинация, окутка: строка задания несёт плёнку, расход по
+    # рулону), "program" — нужна программа станка (фрезеровка). NULL — обычная.
+    role: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     part: Mapped[Part | None] = relationship(back_populates="stages")
     item: Mapped["Item"] = relationship(back_populates="stages")

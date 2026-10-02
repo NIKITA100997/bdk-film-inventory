@@ -159,7 +159,15 @@ export interface TechCard {
   kind_name: string;
   source_type: "sku" | "part" | "model" | null;
   source_id: number | null;
-  operations: { id: number | null; sequence_order: number; code: string | null; name: string; area: string | null; area_name: string | null }[];
+  operations: {
+    id: number | null;
+    sequence_order: number;
+    code: string | null;
+    name: string;
+    area: string | null;
+    area_name: string | null;
+    role?: "film" | "program" | null;
+  }[];
   inputs: {
     name: string;
     part_id: number | null;
@@ -194,7 +202,7 @@ export const getTechCard = async (itemId: number): Promise<TechCard> =>
 /** Маршрут любой позиции (единая модель, пункт 3) — правка на месте. */
 export const setItemRoute = async (
   itemId: number,
-  steps: { code: string; name: string; area: string | null }[],
+  steps: { code: string; name: string; area: string | null; role?: "film" | "program" | null }[],
 ): Promise<TechCard["operations"]> => (await apiClient.put<TechCard["operations"]>(`/items/${itemId}/route`, steps)).data;
 
 /** Ручной состав позиции (source=manual) целиком. */

@@ -468,7 +468,7 @@ def update_part_stages(
     if obj is None:
         raise HTTPException(404, "Деталь не найдена")
     try:
-        apply_route(db, obj, [RouteStep(code=s.code, name=s.name, area=s.area) for s in payload])
+        apply_route(db, obj, [RouteStep(code=s.code, name=s.name, area=s.area, role=s.role) for s in payload])
     except RouteInUseError as e:
         db.rollback()
         raise HTTPException(409, str(e)) from e
@@ -495,7 +495,7 @@ def update_parts_stages_bulk(
     parts = db.query(Part).filter(Part.id.in_(payload.part_ids)).all()
     if len(parts) != len(set(payload.part_ids)):
         raise HTTPException(404, "Часть деталей не найдена")
-    steps = [RouteStep(code=s.code, name=s.name, area=s.area) for s in payload.stages]
+    steps = [RouteStep(code=s.code, name=s.name, area=s.area, role=s.role) for s in payload.stages]
     try:
         for part in parts:
             apply_route(db, part, steps)

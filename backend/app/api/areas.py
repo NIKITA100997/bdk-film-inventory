@@ -83,6 +83,20 @@ def update_area(code: str, payload: AreaUpdate, db: Session = Depends(get_db), u
         if not 1 <= payload.shifts_per_day <= 4:
             raise HTTPException(status_code=422, detail="Смен в день — от 1 до 4")
         area.shifts_per_day = payload.shifts_per_day
+    if payload.film_allowance_mm is not None:
+        if not 0 <= payload.film_allowance_mm <= 200:
+            raise HTTPException(status_code=422, detail="Припуск плёнки — от 0 до 200 мм")
+        area.film_allowance_mm = payload.film_allowance_mm or None
+    if payload.big_batch_area is not None:
+        if payload.big_batch_area and payload.big_batch_area == code:
+            raise HTTPException(status_code=422, detail="Крупные партии — на другой участок, не на этот же")
+        if payload.big_batch_area and db.get(Area, payload.big_batch_area) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Участок для крупных партий не найден")
+        area.big_batch_area = payload.big_batch_area or None
+    if payload.big_batch_min_pieces is not None:
+        if payload.big_batch_min_pieces < 0:
+            raise HTTPException(status_code=422, detail="Порог крупной партии — не меньше нуля")
+        area.big_batch_min_pieces = payload.big_batch_min_pieces or None
     db.commit()
     db.refresh(area)
     return area

@@ -12,7 +12,7 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 
 from app.models.areas import Area
-from app.models.dictionaries import MaterialSku, Part
+from app.models.dictionaries import MaterialSku, Part, PartStage
 from app.models.items import Item, ItemComponent
 from app.models.production import PlanSlot, ProductionTask
 from app.models.production_orders import ProductionOrder
@@ -20,13 +20,13 @@ from app.models.units import MaterialUnit, UnitStatus
 from app.services import type_rules
 from app.services.areas import cuts_film_on_site
 from app.services.components import live_item_names, planned_components
+from app.services.operation_roles import is_film, needs_program
 from app.services.planning import PfPick, release_pf, schedule_order
 from app.services.production_orders import release_order
 from app.services.warehouses import area_home_warehouse_id, filter_by_warehouse
 
 STANDARD_WIDTHS = {600, 700, 800, 900}
 STANDARD_HEIGHT = 2000
-MILLING_AREA = "frezerovka_paneley"
 
 
 def _film_stock_m(db: Session, area: str, spec: tuple[int, int, int], min_width: float) -> float:
@@ -90,7 +90,8 @@ def build_release_layout(
             "cut_on_site": bool(area and area.film_cut_on_site), "rows": [], "dates": set(),
         })
         for ln in t.lines:
-            if t.area == MILLING_AREA and ln.order_line_id:
+            stage = db.get(PartStage, ln.part_stage_id) if ln.part_stage_id else None
+            if needs_program(stage) and ln.order_line_id:
                 milled_lines.add(ln.order_line_id)
                 programmed[ln.order_line_id] = programmed.get(ln.order_line_id, True) and bool(ln.program)
             dates = sorted({s.date for s in db.query(PlanSlot).filter(PlanSlot.task_line_id == ln.id)})
@@ -135,7 +136,7 @@ def build_release_layout(
                     g["min_width"] = max(g["min_width"], width)
                 else:
                     g["min_width"] = min(g["min_width"], width) if g["min_width"] else width
-            elif part is not None and any(s.name in ("Ламинация", "Окутка") for s in part.stages if s.id == ln.part_stage_id):
+            elif is_film(stage):
                 warnings.append(f"Плёнка не определена: {ln.part_name} ({sheet['name']}) — выберите плёнку у цвета или детали")
             sheet["rows"].append(row)
 
