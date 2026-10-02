@@ -3,6 +3,7 @@ import { AutoComplete, Card, Tabs, Button, Input, InputNumber, Select, Tag, Spac
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import FilmAliasesTab from "./FilmAliasesTab";
 import {
   listAllNameDict,
   listNameDictDuplicates,
@@ -889,6 +890,7 @@ export default function DictionaryAdmin() {
         items={[
           { key: "materials", label: "Материалы (тип)", children: <NameDictTab kind="materials" label="Материал" /> },
           { key: "colors", label: "Цвета", children: <NameDictTab kind="colors" label="Цвет" /> },
+          { key: "film-aliases", label: "Сопоставления плёнки", children: <FilmAliasesTab /> },
           { key: "manufacturers", label: "Производители", children: <NameDictTab kind="manufacturers" label="Производитель" /> },
           { key: "employees", label: "Сотрудники", children: <NameDictTab kind="employees" label="Сотрудник" /> },
           { key: "thicknesses", label: "Толщины", children: <ThicknessTab /> },

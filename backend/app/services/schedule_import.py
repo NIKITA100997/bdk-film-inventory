@@ -93,7 +93,9 @@ def _film_text(params: dict) -> str:
     return f"{params.get('материал_плёнки')} {params.get('цвет_плёнки')}" + (f" {float(t):g} мм" if t not in (None, "") else "")
 
 
-def _color_option(db: Session, prop, color: str, chosen_sku_id: int | None = None) -> tuple[object | None, str | None]:
+def _color_option(
+    db: Session, prop, color: str, chosen_sku_id: int | None = None, user_id: int | None = None
+) -> tuple[object | None, str | None]:
     """Цвет двери = плёнка (services/door_colors): текст из графика — синоним
     варианта, сам вариант — плёнка из справочника. Порядок: плёнка, выбранная
     в окне импорта → вариант по названию/синониму с плёнкой → подбор плёнки
@@ -105,15 +107,15 @@ def _color_option(db: Session, prop, color: str, chosen_sku_id: int | None = Non
     if chosen_sku_id is not None:
         sku = db.get(MaterialSku, chosen_sku_id)
         if sku is not None:
-            opt, note = dc.option_for_film(db, prop, (sku.material.name, sku.color.name, float(sku.thickness.value_mm)), color)
+            opt, note = dc.option_for_film(db, prop, (sku.material.name, sku.color.name, float(sku.thickness.value_mm)), color, user_id)
             return opt, note or (f"«{color}» → «{opt.value}» (выбрана)" if dc.norm(color) != dc.norm(opt.value) else None)
-    opt = dc.find_option(prop, color)
+    opt = dc.find_option(prop, color, db)
     if opt is not None and dc.has_film(opt):
         return opt, None
     film = film_for_color(db, color)
     if film is None:
         return None, None
-    opt, note = dc.option_for_film(db, prop, film, color)
+    opt, note = dc.option_for_film(db, prop, film, color, user_id)
     return opt, note or (f"«{color}» → «{opt.value}»" if dc.norm(color) != dc.norm(opt.value) else None)
 
 
@@ -135,7 +137,7 @@ def _color_films(db: Session, prop, colors: dict[str, int]) -> list[ColorFilm]:
 
     out = []
     for color, n in colors.items():
-        opt = dc.find_option(prop, color)
+        opt = dc.find_option(prop, color, db)
         params = (opt.params or {}) if opt is not None else {}
         cands = type_rules.film_candidates(db, opt.value) if opt is not None and dc.has_film(opt) else []
         specs = {(s.material_id, s.color_id, s.thickness_id) for s in cands}

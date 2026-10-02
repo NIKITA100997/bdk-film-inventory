@@ -36,15 +36,58 @@ def synonyms(opt: ItemPropertyOption) -> list[str]:
     return list((opt.params or {}).get(SYNONYMS) or [])
 
 
-def find_option(prop, text: str) -> ItemPropertyOption | None:
-    """Вариант по названию или синониму (без скобок и регистра)."""
+def find_option(prop, text: str, db: Session | None = None) -> ItemPropertyOption | None:
+    """Вариант по названию, синониму или общему сопоставлению плёнки
+    (services/film_aliases) — без скобок и регистра."""
     key = norm(text)
     if not key:
         return None
     opts = [o for o in prop.options if o.is_active]
-    return next((o for o in opts if norm(o.value) == key), None) or next(
+    opt = next((o for o in opts if norm(o.value) == key), None) or next(
         (o for o in opts if any(norm(s) == key for s in synonyms(o))), None
     )
+    if opt is None and db is not None:
+        from app.models.dictionaries import Color, Material
+        from app.services.film_aliases import find_alias
+
+        a = find_alias(db, text)
+        if a is not None:
+            m, c = db.get(Material, a.material_id), db.get(Color, a.color_id)
+            k = _film_key(m.name, c.name) if m and c else None
+            opt = next(
+                (o for o in opts if has_film(o) and _film_key(str(o.params.get(MATERIAL) or ""), str(o.params[COLOR])) == k),
+                None,
+            )
+    return opt
+
+
+def _save_global_alias(db: Session, text: str, material: str, color: str, thickness: float | None, user_id: int | None) -> bool:
+    """Текст источника → общее сопоставление плёнки. Только для настоящей
+    позиции справочника: «ПЭТ» без 2Д/3Д общим не делаем (тип решается у
+    детали — наряд с ПЭТ 3Д не должен попасть в 2Д)."""
+    from sqlalchemy import func
+
+    from app.models.dictionaries import Color, Material, MaterialSku, Thickness
+    from app.services.film_aliases import save_alias
+
+    # по позиции плёнки, а не по названию цвета: в справочнике бывают цвета,
+    # отличающиеся только регистром («Белое дерево» / «Белое Дерево»)
+    q = (
+        db.query(MaterialSku)
+        .join(Material, Material.id == MaterialSku.material_id)
+        .join(Color, Color.id == MaterialSku.color_id)
+        .join(Thickness, Thickness.id == MaterialSku.thickness_id)
+        .filter(func.lower(Material.name) == material.lower(), func.lower(Color.name) == color.lower(), MaterialSku.is_active.is_(True))
+    )
+    if thickness is not None:
+        q = q.filter(Thickness.value_mm == thickness)
+    sku = q.order_by(MaterialSku.id).first()
+    if sku is None:
+        return False
+    thickness_ids = {x.thickness_id for x in q.filter(MaterialSku.color_id == sku.color_id)}
+    t_id = sku.thickness_id if thickness is not None or len(thickness_ids) == 1 else None
+    save_alias(db, text, sku.material_id, sku.color_id, t_id, source="график щитовых", user_id=user_id)
+    return True
 
 
 def _film_key(material: str, color: str) -> tuple[str, str]:
@@ -52,7 +95,7 @@ def _film_key(material: str, color: str) -> tuple[str, str]:
 
 
 def option_for_film(
-    db: Session, prop, film: tuple[str, str, float | None], synonym: str | None = None
+    db: Session, prop, film: tuple[str, str, float | None], synonym: str | None = None, user_id: int | None = None
 ) -> tuple[ItemPropertyOption, str | None]:
     """Вариант «Цвет» для плёнки: есть — он (синоним добавляется, толщина
     уточняется), нет — заводится с названием по плёнке. Возвращает (вариант,
@@ -81,8 +124,13 @@ def option_for_film(
         if params.get(THICKNESS) is not None and note is None:
             note = f"цвет «{opt.value}»: толщина плёнки {thickness:g} мм (выбрана)"
         params[THICKNESS] = thickness
-    if synonym and norm(synonym) != norm(opt.value) and all(norm(s) != norm(synonym) for s in params.get(SYNONYMS) or []):
-        params[SYNONYMS] = [*(params.get(SYNONYMS) or []), synonym]
+    if synonym and norm(synonym) != norm(opt.value):
+        # общее сопоставление для всей программы; не вышло (ПЭТ без 2Д/3Д) —
+        # синоним цвета двери
+        if not _save_global_alias(db, synonym, material, color, thickness, user_id) and all(
+            norm(s) != norm(synonym) for s in params.get(SYNONYMS) or []
+        ):
+            params[SYNONYMS] = [*(params.get(SYNONYMS) or []), synonym]
     opt.params = params
     db.flush()
     db.refresh(prop)
@@ -133,8 +181,16 @@ def normalize_color_options(db: Session, prop) -> list[str]:
                 o.is_active = False
                 o.value = f"{o.value} (слит в «{label}», #{o.id})"[:255]
                 report.append(f"слит: «{o.value.split(' (слит')[0]}» → «{label}» (позиций: {n})")
-        if syn:
-            params[SYNONYMS] = syn
+        rest = [x for x in syn if not _save_global_alias(
+            db, x, str(params.get(MATERIAL) or ""), str(params[COLOR]),
+            float(params[THICKNESS]) if params.get(THICKNESS) not in (None, "") else None, None,
+        )]
+        if len(rest) < len(syn):
+            report.append(f"«{label}»: в общие сопоставления — {len(syn) - len(rest)}")
+        if rest:
+            params[SYNONYMS] = rest
+        else:
+            params.pop(SYNONYMS, None)
         if keep.value != label:
             report.append(f"переименован: «{keep.value}» → «{label}»")
             # уникальность значения: освобождаем название, если его держит неактивный

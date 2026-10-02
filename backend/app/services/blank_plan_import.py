@@ -278,6 +278,9 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
     # актуального ("Бьянко TF53") даже после того, как цвет в
     # справочнике переименован и помечен неактивным.
     colors = db.query(Color).filter(Color.is_active).all()
+    from app.services.film_aliases import alias_key, alias_map
+
+    aliases = alias_map(db)
     color_by_normalized: dict[str, Color] = {re.sub(r"\s+", " ", c.name.strip().lower()): c for c in colors}
 
     # thickness > 0 — отсекает позиции-заглушки (материал "Неизвестно",
@@ -330,6 +333,9 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
 
             sku_candidates: list[dict] = []
             pet_auto = False
+            if sku is None and aliases:
+                # общие сопоставления «текст → плёнка» (services/film_aliases)
+                sku = aliases.get(alias_key(line.color_raw))
             if sku is None:
                 color_key = re.sub(r"\s+", " ", line.color_raw.strip().lower())
                 color = color_by_normalized.get(color_key)

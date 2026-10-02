@@ -37,6 +37,8 @@ class SkuMatchIndex:
     skus_by_color_id: dict[int, list[MaterialSku]]
     combined_label_to_sku: dict[str, MaterialSku]
     sku_by_id: dict[int, MaterialSku]
+    # общие сопоставления «текст → плёнка» (services/film_aliases)
+    aliases: dict[str, MaterialSku] | None = None
 
 
 def build_sku_match_index(db: Session) -> SkuMatchIndex:
@@ -62,7 +64,9 @@ def build_sku_match_index(db: Session) -> SkuMatchIndex:
         skus_by_color_id.setdefault(s.color_id, []).append(s)
         combined = re.sub(r"\s+", " ", f"{s.material.name} {s.color.name}".strip().lower())
         combined_label_to_sku[combined] = s
-    return SkuMatchIndex(color_by_normalized, skus_by_color_id, combined_label_to_sku, {s.id: s for s in skus})
+    from app.services.film_aliases import alias_map
+
+    return SkuMatchIndex(color_by_normalized, skus_by_color_id, combined_label_to_sku, {s.id: s for s in skus}, alias_map(db))
 
 
 def part_pet(db: Session, part: Part | None) -> str | None:
@@ -112,6 +116,11 @@ def match_sku_by_color_text(index: SkuMatchIndex, color_text: str) -> tuple[Mate
     материал+цвет (когда в тексте материал+цвет вместе, "ПЭТ Белый") —
     одно уверенное совпадение проставляется, несколько похожих отдаются
     списком (sku_candidates) для ручного выбора, не гадаем."""
+    # Сопоставление из справочника — точный ответ, без подбора.
+    from app.services.film_aliases import alias_key
+
+    if index.aliases and alias_key(color_text) in index.aliases:
+        return index.aliases[alias_key(color_text)], []
     color_key = re.sub(r"\s+", " ", color_text.strip().lower())
     color = index.color_by_normalized.get(color_key)
     exact_candidates = index.skus_by_color_id.get(color.id) if color else None
