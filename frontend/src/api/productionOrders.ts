@@ -145,6 +145,39 @@ export const deleteProductionOrder = async (id: number): Promise<void> => {
 };
 
 /** Запуск: задания участкам, п/ф под заказ (pf) и сроки назад от отгрузки. */
+/** Раскладка перед запуском (запуск на сервере откатывается). */
+export interface ReleaseLayoutRow {
+  name: string;
+  qty: number;
+  chars: { code: string; name: string; value: string }[];
+  door: string | null;
+  note: string | null;
+  date_from: string | null;
+  date_to: string | null;
+  film: { label: string; strip_width_mm: number | null; width_mm: number; need_m: number } | null;
+}
+export interface ReleaseLayoutSheet {
+  area: string;
+  name: string;
+  pf: boolean;
+  cut_on_site: boolean;
+  rows: ReleaseLayoutRow[];
+  total: number;
+  date_from: string | null;
+  date_to: string | null;
+}
+export interface ReleaseLayout {
+  sheets: ReleaseLayoutSheet[];
+  film: { area: string; area_name: string; label: string; need_m: number; stock_m: number; min_width_mm: number; cut_on_site: boolean }[];
+  materials: { name: string; qty: number; unit: string | null }[];
+  warnings: string[];
+  finish: string | null;
+  late: boolean;
+  doors: number;
+}
+export const getReleaseLayout = async (id: number, pf: PfPick[] = []): Promise<ReleaseLayout> =>
+  (await apiClient.post<ReleaseLayout>(`/production-orders/${id}/release-layout`, { pf })).data;
+
 export const releaseProductionOrder = async (id: number, pf: PfPick[] = []): Promise<ProductionOrder> =>
   (await apiClient.post<ProductionOrder>(`/production-orders/${id}/release`, { pf })).data;
 

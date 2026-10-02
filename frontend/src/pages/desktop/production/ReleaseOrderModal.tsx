@@ -11,6 +11,7 @@ import {
   type ProductionOrder,
 } from "../../../api/productionOrders";
 import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
+import ReleaseLayoutModal from "./ReleaseLayoutModal";
 import type { PfDemandRow } from "../../../api/pfDemand";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -63,21 +64,21 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
   const factoryCode = needs.find((n) => n.factory_area)?.factory_area ?? null;
   const pressCode = needs.find((n) => n.lamination_area)?.lamination_area ?? null;
 
+  const buildPicks = () =>
+    needs
+      .filter((n) => picked[keyOf(n)] && ((qty[keyOf(n)] ?? 0) > 0 || (stock[keyOf(n)] ?? 0) > 0))
+      .map((n) => ({
+        order_line_id: n.order_line_id,
+        part_id: n.part_id,
+        quantity: qty[keyOf(n)] ?? 0,
+        from_stock: stock[keyOf(n)] ?? 0,
+        consumer_part_id: n.consumer_part_id,
+        lamination_area: n.lamination_area ? lamValue(n) ?? null : null,
+      }));
+  // Раскладка перед запуском — те же выбранные п/ф и площадки.
+  const [layoutPicks, setLayoutPicks] = useState<ReturnType<typeof buildPicks> | null>(null);
   const mutation = useMutation({
-    mutationFn: () =>
-      releaseProductionOrder(
-        order.id,
-        needs
-          .filter((n) => picked[keyOf(n)] && ((qty[keyOf(n)] ?? 0) > 0 || (stock[keyOf(n)] ?? 0) > 0))
-          .map((n) => ({
-            order_line_id: n.order_line_id,
-            part_id: n.part_id,
-            quantity: qty[keyOf(n)] ?? 0,
-            from_stock: stock[keyOf(n)] ?? 0,
-            consumer_part_id: n.consumer_part_id,
-            lamination_area: n.lamination_area ? lamValue(n) ?? null : null,
-          })),
-      ),
+    mutationFn: () => releaseProductionOrder(order.id, buildPicks()),
     onSuccess: (o) => {
       for (const k of [["production-orders"], ["production-tasks"], ["pf-demand"], ["plan-board"]]) qc.invalidateQueries({ queryKey: k });
       message.success(
@@ -103,7 +104,17 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
       onCancel={onClose}
       okButtonProps={{ loading: mutation.isPending, disabled: unassigned.length > 0 }}
       onOk={() => mutation.mutate()}
+      footer={(_, { OkBtn, CancelBtn }) => (
+        <Space wrap style={{ justifyContent: "flex-end" }}>
+          <CancelBtn />
+          <Button disabled={unassigned.length > 0 || previewQuery.isLoading} onClick={() => setLayoutPicks(buildPicks())}>
+            Проверить раскладку по участкам
+          </Button>
+          <OkBtn />
+        </Space>
+      )}
     >
+      {layoutPicks && <ReleaseLayoutModal order={order} picks={layoutPicks} onClose={() => setLayoutPicks(null)} />}
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Text type="secondary">
           Появятся задания участкам по маршрутам позиций. Сроки операций — назад от{" "}

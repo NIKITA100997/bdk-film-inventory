@@ -523,6 +523,24 @@ def release(
     return _order_out(db, order)
 
 
+@router.post("/production-orders/{order_id}/release-layout")
+def release_layout(
+    order_id: int, payload: ReleaseIn | None = None, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+) -> dict:
+    """Раскладка перед запуском: что родится по участкам (как листы Excel),
+    плёнка и материалы, предупреждения. Запуск выполняется по-настоящему и
+    откатывается — в базе ничего не остаётся."""
+    from app.services.release_layout import build_release_layout
+
+    order = _get_order(db, order_id)
+    try:
+        return build_release_layout(db, order, [PfPick(**p.model_dump()) for p in (payload.pf if payload else [])], user.id)
+    except OrderError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    finally:
+        db.rollback()
+
+
 @router.post("/production-orders/{order_id}/schedule", response_model=OrderOut)
 def reschedule(order_id: int, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderOut:
     """Пересчитать сроки: автоматические слоты заново, ручные — как есть."""

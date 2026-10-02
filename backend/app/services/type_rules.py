@@ -494,3 +494,32 @@ def ensure_item(db: Session, type_: ItemType, values: dict[int, object]) -> tupl
     db.flush()
     sp.commit()
     return item, True, []
+
+
+_OPTION_LABELS = {"abs": "ABS", "aluminum": "алюминий"}
+
+
+def item_chars(db: Session, item: Item) -> list[dict]:
+    """Характеристики позиции для показа колонками/тегами (раскладка запуска,
+    строки заказа): [{code, name, value}] по порядку свойств типа; пустые и
+    «нет» пропускаются, «да» — название свойства."""
+    if item is None or item.type is None:
+        return []
+    vals = item_values(db, item)
+    out = []
+    for p in sorted(item.type.properties, key=lambda p: (p.sort_order or 0, p.id)):
+        v = vals.get(p.id)
+        if v in (None, "", False):
+            continue
+        if p.value_type == "list":
+            opt = db.get(ItemPropertyOption, v)
+            text = _OPTION_LABELS.get(opt.value, opt.value) if opt else None
+        elif p.value_type == "bool":
+            text = "да"
+        elif p.value_type == "number":
+            text = f"{float(v):g}" + (f" {p.unit}" if p.unit else "")
+        else:
+            text = str(v)
+        if text:
+            out.append({"code": p.code, "name": p.name, "value": text})
+    return out
