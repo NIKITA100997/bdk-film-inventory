@@ -1,20 +1,15 @@
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Button, Card, Dropdown, Empty, Progress, Result, Space, Spin, Table, Tabs, Tag, Typography } from "antd";
+import { Button, Card, Empty, Progress, Result, Space, Spin, Table, Tabs, Tag, Typography } from "antd";
 import TechTree from "../../components/TechTree";
 import { getItemTree, getModelSummary } from "../../api/modelBuilder";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
 import { ITEM_VIEW_PERMISSIONS, getTechCard, lookupItem } from "../../api/items";
 import { ORDER_STATUS_LABEL, listProductionOrders, type ProductionOrder } from "../../api/productionOrders";
-import TechCardView from "./nomenclature/TechCardView";
 import ModelVariants from "./nomenclature/ModelVariants";
-import LaminatedBar from "./nomenclature/LaminatedBar";
-import PartParamsModal from "./nomenclature/PartParamsModal";
-import ItemMainTab from "./nomenclature/ItemMainTab";
-import ComponentsEditorModal from "./nomenclature/ComponentsEditorModal";
-import RouteEditorModal from "./nomenclature/RouteEditorModal";
+import ItemOverview from "./nomenclature/ItemOverview";
 import { listAllParts } from "../../api/dictionaries";
 import { useTabTitle } from "../../layout/tabTitle";
 import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
@@ -62,10 +57,14 @@ export default function ItemCard() {
   // Параметры детали п/ф (бывшая вкладка «Детали п/ф»): размеры, штрипс,
   // участок, закреплённая плёнка, мин. остаток и партия, архив.
   const canEditPart = has("production_tasks.manage");
-  const [paramsOpen, setParamsOpen] = useState(false);
-  const [editing, setEditing] = useState<"components" | "route" | null>(null);
   // Состав и маршрут правит тот же, кто и в техкарте (production_tasks.manage).
   const canEditTech = has("production_tasks.manage");
+  const canEditTypes = has("production_tasks.manage") || has("materials.manage");
+  const itemTreeQuery = useQuery({
+    queryKey: ["item-tree", itemId],
+    queryFn: () => getItemTree(itemId),
+    enabled: itemId > 0 && !isModel && params.get("tab") === "scheme",
+  });
   const partsQuery = useQuery({
     queryKey: ["parts", "all"],
     queryFn: listAllParts,
@@ -116,24 +115,35 @@ export default function ItemCard() {
         },
       ]
     : [
+        // Всё о позиции — одной вкладкой, у каждого раздела своя «Изменить».
+        {
+          key: "main",
+          label: "Карточка",
+          children: (
+            <ItemOverview
+              card={card}
+              part={part}
+              canEditTech={canEditTech}
+              canEditTypes={canEditTypes}
+              canEditPart={canEditPart}
+              canManageLaminated={has("production_tasks.manage") || has("materials.manage")}
+            />
+          ),
+        },
+        ...(stockTab ? [stockTab] : []),
         ...(card.source_type !== "sku"
           ? [
               {
-                key: "main",
-                label: "Главное",
-                children: (
-                  <ItemMainTab
-                    card={card}
-                    canEdit={canEditTech}
-                    onEditComponents={() => setEditing("components")}
-                    onEditRoute={() => setEditing("route")}
-                  />
+                key: "scheme",
+                label: "Схема",
+                children: itemTreeQuery.data ? (
+                  <TechTree root={itemTreeQuery.data} expandDepth={2} onOpen={(id) => navigate(`/item/${id}`)} />
+                ) : (
+                  <Spin />
                 ),
               },
             ]
           : []),
-        ...(stockTab ? [stockTab] : []),
-        { key: "techcard", label: "Техкарта", children: <TechCardView itemId={itemId} /> },
         ...(card.source_type === "sku" || card.source_type === "part"
           ? [{ key: "movements", label: "Движение", children: <MovementsPanel itemId={itemId} /> }]
           : []),
@@ -141,7 +151,9 @@ export default function ItemCard() {
           ? [{ key: "orders", label: `Заказы${orders.length ? ` (${orders.length})` : ""}`, children: <OrdersOfItem itemIds={new Set([itemId])} orders={orders} loading={ordersQuery.isLoading} /> }]
           : []),
       ];
-  const active = tabs.some((t) => t.key === params.get("tab")) ? (params.get("tab") as string) : tabs[0].key;
+  // прежние ссылки ?tab=techcard ведут на «Карточку»
+  const wanted = params.get("tab") === "techcard" ? "main" : params.get("tab");
+  const active = tabs.some((t) => t.key === wanted) ? (wanted as string) : tabs[0].key;
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -158,33 +170,7 @@ export default function ItemCard() {
             {card.type_name && <Tag color="purple">{card.type_name}</Tag>}
             {card.is_model && <Tag color="gold">модель</Tag>}
             {!card.is_active && <Tag>архив</Tag>}
-            {canEditTech && !card.is_model && card.source_type !== "sku" && (
-              <Dropdown
-                trigger={["click"]}
-                menu={{
-                  items: [
-                    ...(canEditPart && part ? [{ key: "params", label: "Параметры детали (размер, участок, плёнка, мин. остаток)…" }] : []),
-                    { key: "components", label: "Из чего делается…" },
-                    { key: "route", label: "Маршрут…" },
-                    { key: "props", label: "Тип и свойства" },
-                  ],
-                  onClick: ({ key }) => {
-                    if (key === "params") setParamsOpen(true);
-                    else if (key === "components" || key === "route") setEditing(key);
-                    else if (key === "props") setParams({ tab: "techcard" });
-                  },
-                }}
-              >
-                <Button size="small">Изменить ▾</Button>
-              </Dropdown>
-            )}
-            {editing === "components" && <ComponentsEditorModal card={card} onClose={() => setEditing(null)} />}
-            {editing === "route" && <RouteEditorModal card={card} onClose={() => setEditing(null)} />}
           </Space>
-          {paramsOpen && part && <PartParamsModal part={part} onClose={() => setParamsOpen(false)} />}
-          {card.kind_code === "pf" && !card.is_model && (
-            <LaminatedBar itemId={itemId} canManage={has("production_tasks.manage") || has("materials.manage")} />
-          )}
           {card.model_id != null && (
             <Typography.Text type="secondary">
               Вариант модели <a onClick={() => navigate(`/item/${card.model_id}`)}>{card.model_name}</a>

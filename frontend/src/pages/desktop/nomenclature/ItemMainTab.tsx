@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Alert, Button, Checkbox, Modal, Select, Space, Tag, Typography, message } from "antd";
 import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
@@ -37,15 +37,19 @@ export default function ItemMainTab({
   canEdit,
   onEditComponents,
   onEditRoute,
+  beforeUsedIn,
 }: {
   card: TechCard;
   canEdit: boolean;
   onEditComponents: () => void;
   onEditRoute: () => void;
+  // раздел перед «Во что идёт» (например, «В плёнке»)
+  beforeUsedIn?: ReactNode;
 }) {
   const navigate = useNavigate();
   const [replacing, setReplacing] = useState<Input | null>(null);
-  const inputs = card.inputs.filter((i) => i.component_item_id != null || i.source === "bom");
+  // все строки состава, в т.ч. без позиции (плёнка — выбирается в задании)
+  const inputs = card.inputs;
   const groups = groupInputs(inputs);
 
   return (
@@ -57,7 +61,7 @@ export default function ItemMainTab({
           </Typography.Title>
           {canEdit && (
             <Button size="small" onClick={onEditComponents}>
-              {inputs.length ? "Изменить состав…" : "Указать, из чего делается…"}
+              {inputs.length ? "Изменить" : "Указать"}
             </Button>
           )}
         </Space>
@@ -86,6 +90,8 @@ export default function ItemMainTab({
                         {i.qty_per_unit ?? "—"} {i.unit} на 1 шт{i.operation_name ? ` · на «${i.operation_name}»` : ""}
                       </Typography.Text>
                       {i.source === "bom" && <Tag>из BOM модели</Tag>}
+                      {i.source === "rule" && <Tag color="purple">по правилу типа</Tag>}
+                      {i.note && <Typography.Text type="secondary">· {i.note}</Typography.Text>}
                     </Space>
                     {canEdit && i.source === "manual" && (
                       <Button size="small" onClick={() => setReplacing(i)}>
@@ -107,7 +113,7 @@ export default function ItemMainTab({
           </Typography.Title>
           {canEdit && card.source_type !== "sku" && (
             <Button size="small" onClick={onEditRoute}>
-              Изменить маршрут…
+              Изменить
             </Button>
           )}
         </Space>
@@ -117,6 +123,8 @@ export default function ItemMainTab({
             : "Операции не заданы."}
         </Typography.Text>
       </section>
+
+      {beforeUsedIn}
 
       <section>
         <Typography.Title level={5}>Во что идёт</Typography.Title>

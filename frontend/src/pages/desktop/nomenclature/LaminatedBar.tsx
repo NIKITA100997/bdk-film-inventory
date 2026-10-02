@@ -11,7 +11,7 @@ const fmt = (n: number) => String(Math.round(n * 100) / 100);
 /** Деталь в плёнке в шапке карточки: у детали — её позиции «деталь · декор»
  * с остатком и «+ В плёнке…» (завести вручную, например под склад
  * ламинированных); у позиции в плёнке — ссылка на деталь без плёнки. */
-export default function LaminatedBar({ itemId, canManage }: { itemId: number; canManage: boolean }) {
+export default function LaminatedBar({ itemId, canManage, bare = false }: { itemId: number; canManage: boolean; bare?: boolean }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -40,10 +40,11 @@ export default function LaminatedBar({ itemId, canManage }: { itemId: number; ca
       </Typography.Text>
     );
   }
-  if (!data.can_laminate) return null;
+  if (!data.can_laminate)
+    return bare ? <Typography.Text type="secondary">У этой детали позиций в плёнке не бывает.</Typography.Text> : null;
   return (
     <Space wrap size={[6, 6]}>
-      <Typography.Text type="secondary">В плёнке:</Typography.Text>
+      {!bare && <Typography.Text type="secondary">В плёнке:</Typography.Text>}
       {data.variants.length === 0 && <Typography.Text type="secondary">пока нет — появится с первым излишком окутки</Typography.Text>}
       {data.variants.map((v) => (
         <Tag key={v.item_id} color="blue" style={{ cursor: "pointer" }} onClick={() => navigate(`/item/${v.item_id}`)}>
@@ -52,7 +53,7 @@ export default function LaminatedBar({ itemId, canManage }: { itemId: number; ca
       ))}
       {canManage && (
         <Button size="small" onClick={() => setOpen(true)}>
-          + В плёнке…
+          {bare ? "+ Добавить декор" : "+ В плёнке…"}
         </Button>
       )}
       <Modal

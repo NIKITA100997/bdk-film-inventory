@@ -25,7 +25,18 @@ function showValue(p: ItemProperty, v: PropertyValue | undefined): string {
 
 /** Тип позиции и значения его свойств — в карточке номенклатуры (единая
  * модель, пункты 1–2). */
-export default function ItemPropertiesSection({ itemId, kindCode, canEdit }: { itemId: number; kindCode: string; canEdit: boolean }) {
+export default function ItemPropertiesSection({
+  itemId,
+  kindCode,
+  canEdit,
+  title,
+}: {
+  itemId: number;
+  kindCode: string;
+  canEdit: boolean;
+  // заголовок раздела: «Изменить» — справа в заголовке, как у остальных разделов карточки
+  title?: string;
+}) {
   const qc = useQueryClient();
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
   const valuesQuery = useQuery({ queryKey: ["item-properties", itemId], queryFn: () => getItemProperties(itemId) });
@@ -61,15 +72,24 @@ export default function ItemPropertiesSection({ itemId, kindCode, canEdit }: { i
   if (valuesQuery.isLoading || typesQuery.isLoading) return <Typography.Text type="secondary">Загрузка…</Typography.Text>;
 
   if (!editing) {
+    const editBtn = canEdit && kindTypes.length > 0 && (
+      <Button size="small" onClick={() => setEditing(true)}>
+        Изменить
+      </Button>
+    );
     return (
       <Space direction="vertical" size="small" style={{ width: "100%" }}>
+        {title && (
+          <Space style={{ justifyContent: "space-between", width: "100%" }} align="center">
+            <Typography.Title level={5} style={{ margin: 0 }}>
+              {title}
+            </Typography.Title>
+            {editBtn}
+          </Space>
+        )}
         <Space>
           <Typography.Text>Тип: {type ? <b>{type.name}</b> : <Typography.Text type="secondary">не задан</Typography.Text>}</Typography.Text>
-          {canEdit && kindTypes.length > 0 && (
-            <Button size="small" onClick={() => setEditing(true)}>
-              Изменить
-            </Button>
-          )}
+          {!title && editBtn}
         </Space>
         {kindTypes.length === 0 && !type && (
           <Typography.Text type="secondary">
