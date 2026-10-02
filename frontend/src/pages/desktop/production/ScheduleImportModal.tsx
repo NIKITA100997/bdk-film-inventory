@@ -130,8 +130,9 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
               Цвета и плёнка
             </Typography.Title>
             <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
-              Плёнка подбирается к цвету так же, как в заданиях на окутку. Выберите другую, если подобралась не та или
-              не подобралась, — выбор сохранится за цветом и пойдёт в задания на ламинацию.
+              Цвет двери — это плёнка из справочника: текст из графика сопоставляется с плёнкой (как в заданиях на
+              окутку) и запоминается как её синоним. Подобралась не та или не подобралась — выберите плёнку, выбор
+              сохранится и пойдёт в задания на ламинацию.
             </Typography.Text>
             <Table<ScheduleImportColor>
               size="small"
@@ -143,11 +144,12 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
                 { title: "Цвет в графике", dataIndex: "color" },
                 { title: "Строк", dataIndex: "rows", width: 70 },
                 {
-                  title: "Плёнка",
+                  title: "Цвет двери (плёнка)",
                   render: (_, c) => (
                     <Space size={6} wrap>
+                      {c.option && <Typography.Text strong>{c.option}</Typography.Text>}
                       <Tag color={COLOR_STATUS[c.status].color}>{COLOR_STATUS[c.status].text}</Tag>
-                      {c.film && <span>{c.film}</span>}
+                      {c.film && c.film !== c.option && <Typography.Text type="secondary">{c.film}</Typography.Text>}
                     </Space>
                   ),
                 },

@@ -81,3 +81,15 @@ def test_film_picked_like_okutka_tasks():
     assert film_for_color(None, "ПЭТ Белый", idx) == ("ПЭТ", "Белый", 0.14)
     assert film_for_color(None, "Полипропилен Аляска", idx) == ("Полипропилен", "Аляска", 0.14)
     assert film_for_color(None, "Bolton Oak", idx) is None
+
+
+def test_door_color_found_by_synonym():
+    """Цвет двери = плёнка: текст из графика — синоним варианта."""
+    from app.services.door_colors import find_option
+
+    opt = NS(id=1, value="ПВХ Бетон темный", is_active=True,
+             params={"материал_плёнки": "ПВХ", "цвет_плёнки": "Бетон темный", "синонимы": ["Бетон тёмный ВДМ"]})
+    prop = NS(options=[opt])
+    assert find_option(prop, "Бетон тёмный ВДМ") is opt
+    assert find_option(prop, "пвх бетон тёмный") is opt
+    assert find_option(prop, "Бетон снежный") is None

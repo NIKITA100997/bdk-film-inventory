@@ -88,71 +88,33 @@ def _norm_color(v: str) -> str:
     return " ".join(re.sub(r"\(.*?\)", " ", v).lower().replace("ё", "е").split())
 
 
-def _film_params(film) -> dict:
-    out = {"материал_плёнки": film[0], "цвет_плёнки": film[1]}
-    if len(film) > 2 and film[2] is not None:
-        out["толщина_плёнки"] = film[2]
-    return out
-
-
 def _film_text(params: dict) -> str:
     t = params.get("толщина_плёнки")
     return f"{params.get('материал_плёнки')} {params.get('цвет_плёнки')}" + (f" {float(t):g} мм" if t not in (None, "") else "")
 
 
 def _color_option(db: Session, prop, color: str, chosen_sku_id: int | None = None) -> tuple[object | None, str | None]:
-    """Вариант «Цвет» для цвета из графика: подбираем плёнку (как на
-    заданиях на окутку) и берём вариант с этой плёнкой; такого нет —
-    заводится новый вариант с привязкой к найденной плёнке. Плёнку,
-    выбранную в окне импорта (chosen_sku_id), записываем в привязку цвета."""
+    """Цвет двери = плёнка (services/door_colors): текст из графика — синоним
+    варианта, сам вариант — плёнка из справочника. Порядок: плёнка, выбранная
+    в окне импорта → вариант по названию/синониму с плёнкой → подбор плёнки
+    как в заданиях на окутку. Плёнка не нашлась — (None, None): строку
+    не принять, пока плёнку не выберут."""
     from app.models.dictionaries import MaterialSku
-    from app.models.items import ItemPropertyOption
+    from app.services import door_colors as dc
 
-    opts = [o for o in prop.options if o.is_active]
-    opt = next((o for o in opts if _norm_color(o.value) == _norm_color(color)), None)
     if chosen_sku_id is not None:
         sku = db.get(MaterialSku, chosen_sku_id)
         if sku is not None:
-            params = _film_params((sku.material.name, sku.color.name, float(sku.thickness.value_mm)))
-            if opt is None:
-                opt = ItemPropertyOption(property_id=prop.id, value=color, params=params, is_active=True,
-                                         sort_order=max([o.sort_order or 0 for o in prop.options] or [0]) + 1)
-                db.add(opt)
-                db.flush()
-                db.refresh(prop)
-                return opt, f"новый цвет «{color}» — плёнка {_film_text(params)} (выбрана)"
-            old = {k: (opt.params or {}).get(k) for k in params}
-            if old != params:
-                opt.params = {**(opt.params or {}), **params}
-                db.flush()
-                return opt, f"цвет «{opt.value}» — плёнка {_film_text(params)} (выбрана)"
-            return opt, None
-    if opt is not None and (opt.params or {}).get("цвет_плёнки"):
+            opt, note = dc.option_for_film(db, prop, (sku.material.name, sku.color.name, float(sku.thickness.value_mm)), color)
+            return opt, note or (f"«{color}» → «{opt.value}» (выбрана)" if dc.norm(color) != dc.norm(opt.value) else None)
+    opt = dc.find_option(prop, color)
+    if opt is not None and dc.has_film(opt):
         return opt, None
     film = film_for_color(db, color)
-    if opt is not None:
-        # вариант заведён раньше без плёнки — привязываем, если нашлась
-        if film is None:
-            return opt, f"цвет «{opt.value}» — плёнка не найдена, выберите"
-        opt.params = {**(opt.params or {}), **_film_params(film)}
-        db.flush()
-        return opt, f"цвет «{opt.value}» привязан к плёнке {_film_text(_film_params(film))}"
-    if film is not None:
-        key = (_norm_color(film[0]), _norm_color(film[1]))
-        same = [
-            o for o in opts
-            if (_norm_color(str((o.params or {}).get("материал_плёнки") or "")), _norm_color(str((o.params or {}).get("цвет_плёнки") or ""))) == key
-        ]
-        if len(same) == 1:
-            return same[0], f"цвет «{color}» → «{same[0].value}» (плёнка {film[0]} {film[1]})"
-    params = _film_params(film) if film else {}
-    opt = ItemPropertyOption(property_id=prop.id, value=color, params=params, is_active=True,
-                             sort_order=max([o.sort_order or 0 for o in prop.options] or [0]) + 1)
-    db.add(opt)
-    db.flush()
-    db.refresh(prop)
-    note = f"новый цвет «{color}»" + (f" — плёнка {_film_text(params)}" if film else " — плёнка не найдена, выберите")
-    return opt, note
+    if film is None:
+        return None, None
+    opt, note = dc.option_for_film(db, prop, film, color)
+    return opt, note or (f"«{color}» → «{opt.value}»" if dc.norm(color) != dc.norm(opt.value) else None)
 
 
 @dataclass
@@ -168,14 +130,14 @@ class ColorFilm:
 
 
 def _color_films(db: Session, prop, colors: dict[str, int]) -> list[ColorFilm]:
-    from app.services import type_rules
+    from app.services import door_colors as dc, type_rules
     from app.services.film_check import pet_of_material
 
     out = []
     for color, n in colors.items():
-        opt = next((o for o in prop.options if o.is_active and _norm_color(o.value) == _norm_color(color)), None)
+        opt = dc.find_option(prop, color)
         params = (opt.params or {}) if opt is not None else {}
-        cands = type_rules.film_candidates(db, opt.value) if opt is not None and params.get("цвет_плёнки") else []
+        cands = type_rules.film_candidates(db, opt.value) if opt is not None and dc.has_film(opt) else []
         specs = {(s.material_id, s.color_id, s.thickness_id) for s in cands}
         status = "ok" if len(specs) == 1 else ("choose" if specs else "none")
         if status == "choose":
@@ -186,8 +148,8 @@ def _color_films(db: Session, prop, colors: dict[str, int]) -> list[ColorFilm]:
             if None not in by_pet and all(len(v) == 1 for v in by_pet.values()):
                 status = "pet"
         out.append(ColorFilm(
-            color=color, option=opt.value if opt is not None else None,
-            film=_film_text(params) if params.get("цвет_плёнки") else None,
+            color=color, option=opt.value if opt is not None and dc.has_film(opt) else None,
+            film=_film_text(params) if opt is not None and dc.has_film(opt) else None,
             sku_id=cands[0].id if len(specs) == 1 else None,
             status=status, rows=n,
         ))
@@ -212,21 +174,21 @@ def _values_for_row(
     color = color_from_name(row.name_text, row.color_text)
     if not color:
         errors.append("не указан цвет")
-    # «Цвет» у типа — список вариантов (цвет привязан к плёнке): «ПЭТ Бежевый»
-    # из графика = вариант «ПЭТ Бежевый (cream silk)» — сравниваем без скобок.
+    # Цвет двери = плёнка (02.10): «Цвет» у типа — плёнки из справочника,
+    # текст графика — синоним (services/door_colors).
     color_value: object = color
     if color and props["цвет"].value_type == "list":
-        opts = [o for o in props["цвет"].options if o.is_active]
-        opt = next((o for o in opts if _norm_color(o.value) == _norm_color(color)), None) or next(
-            (o for o in opts if _norm_color(o.value) == _norm_color(row.color_text or "")), None
-        )
+        from app.services import door_colors as dc
+
         chosen = (color_films or {}).get(_norm_color(color))
-        if db is not None and (chosen is not None or opt is None or not (opt.params or {}).get("цвет_плёнки")):
-            opt, note = _color_option(db, props["цвет"], opt.value if opt is not None else color, chosen)
+        if db is not None:
+            opt, note = _color_option(db, props["цвет"], color, chosen)
             if note:
                 _ROW_NOTES.append(note)
+        else:
+            opt = dc.find_option(props["цвет"], color) or dc.find_option(props["цвет"], row.color_text or "")
         if opt is None:
-            errors.append(f"цвета «{color}» нет в вариантах свойства «Цвет» — добавьте его в типе")
+            errors.append(f"цвет «{color}»: плёнка не найдена в справочнике — выберите плёнку в блоке «Цвета и плёнка»")
         else:
             color_value = opt.id
     if errors:
