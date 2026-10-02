@@ -202,6 +202,16 @@ def _line_effective_strip_width(line: ProductionTaskLine) -> float:
     )
 
 
+def _line_item_chars(db: Session, line: ProductionTaskLine) -> list[dict]:
+    if line.part_id or not line.order_line_id:
+        return []
+    from app.models.production_orders import ProductionOrderLine
+    from app.services.type_rules import item_chars_cached
+
+    ol = db.get(ProductionOrderLine, line.order_line_id)
+    return item_chars_cached(db, ol.item_id) if ol is not None else []
+
+
 def _task_line_out(
     db: Session,
     line: ProductionTaskLine,
@@ -237,6 +247,7 @@ def _task_line_out(
         length_m=float(line.length_m),
         strip_width_mm=sw,
         part_name=line.part_name,
+        item_chars=_line_item_chars(db, line),
         operation_name=db.get(PartStage, line.part_stage_id).name if line.part_stage_id else None,
         is_closed=line.is_closed,
         production_closed=line.production_closed,

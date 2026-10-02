@@ -355,6 +355,9 @@ class ProductionTaskLineOut(BaseModel):
     length_m: float
     strip_width_mm: float | None = None
     part_name: str | None
+    # Характеристики изделия строки (серия, размер, цвет, кромка…) — у строк
+    # по строке заказа без детали п/ф; у п/ф пусто (название и так короткое).
+    item_chars: list[dict] = []
     # Операция техкарты строки без плёнки (название этапа детали), иначе None.
     operation_name: str | None = None
     # Раздел про закрытие строки задания по выдаче — ручной флаг "выдача

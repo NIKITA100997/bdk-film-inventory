@@ -29,6 +29,7 @@ from app.services.components import live_item_names, planned_components
 from app.services.planning import PfPick, order_pf_needs, order_plan_status, release_pf, schedule_order
 from app.services.production_orders import OrderError, close_order, complete_tasks, release_order
 from app.services.schedule_import import import_schedule
+from app.services.type_rules import item_chars_cached
 from app.models.items import ItemType
 
 router = APIRouter(tags=["production-orders"])
@@ -77,6 +78,8 @@ class OrderLineOut(BaseModel):
     item_id: int
     item_name: str
     kind_name: str
+    # характеристики позиции (серия, размер, цвет, кромка…) — показ колонками
+    item_chars: list[dict] = []
     quantity: float
     note: str | None
     done: float  # готово по последней операции маршрута
@@ -173,6 +176,7 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
         out_lines.append(
             OrderLineOut(
                 id=ln.id, item_id=item.id, item_name=names.get(item.id, item.name), kind_name=kinds[item.kind_id].name,
+                item_chars=item_chars_cached(db, item.id),
                 quantity=float(ln.quantity), note=ln.note, done=ops[-1].good if ops else 0.0, operations=ops,
                 components=[
                     ComponentNeed(

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ItemChars } from "../../../../components/ItemChars";
 import {
   Alert,
   Badge,
@@ -409,9 +410,7 @@ function Tiles({
                     style={{ justifyContent: "space-between", width: "100%" }}
                     align="start"
                   >
-                    <Typography.Text strong>
-                      {fl.line.part_name ?? "—"}
-                    </Typography.Text>
+                    <ItemChars chars={fl.line.item_chars} name={fl.line.part_name} showName={false} />
                     <Space size={4} align="center">
                       <EntryBadge r={r} line={fl.line} />
                       {pinnable && <PinStar r={r} lineId={fl.line.id} />}
@@ -499,9 +498,7 @@ function TableView({
               <tr key={fl.line.id}>
                 <td style={cell}>
                   {pinnable && <PinStar r={r} lineId={fl.line.id} />}
-                  <Typography.Text strong>
-                    {fl.line.part_name ?? "—"}
-                  </Typography.Text>
+                  <ItemChars chars={fl.line.item_chars} name={fl.line.part_name} showName={false} />
                   <div style={{ fontSize: 12, color: "#6B6B68" }}>
                     {fl.task.production_order_name ?? fl.task.name} · осталось{" "}
                     {fmt(fl.line.remaining_pieces)}

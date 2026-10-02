@@ -1,3 +1,4 @@
+import type { ItemChar } from "../components/ItemChars";
 import { apiClient } from "./client";
 
 // Заказ на производство (единая модель, пункт 4): позиции любого вида и
@@ -37,6 +38,8 @@ export interface OrderLine {
   item_id: number;
   item_name: string;
   kind_name: string;
+  /** Характеристики позиции (серия, размер, цвет, кромка…). */
+  item_chars?: ItemChar[];
   quantity: number;
   note: string | null;
   done: number;
@@ -149,7 +152,7 @@ export const deleteProductionOrder = async (id: number): Promise<void> => {
 export interface ReleaseLayoutRow {
   name: string;
   qty: number;
-  chars: { code: string; name: string; value: string }[];
+  chars: ItemChar[];
   door: string | null;
   note: string | null;
   date_from: string | null;

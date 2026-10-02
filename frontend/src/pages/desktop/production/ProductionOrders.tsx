@@ -32,6 +32,7 @@ import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
 import ReleaseOrderModal from "./ReleaseOrderModal";
+import { ItemChars } from "../../../components/ItemChars";
 import FastReportPanel from "./fastReport/FastReportPanel";
 import OrderReadiness from "../OrderReadiness";
 import TaskCardDrawer from "./TaskCardDrawer";
@@ -531,8 +532,8 @@ function OrderDrawer({
               key={l.id}
               size="small"
               title={
-                <Space wrap>
-                  <span>{l.item_name}</span>
+                <Space wrap align="start">
+                  <ItemChars chars={l.item_chars} name={l.item_name} strong={false} />
                   <Tag>{l.kind_name}</Tag>
                 </Space>
               }

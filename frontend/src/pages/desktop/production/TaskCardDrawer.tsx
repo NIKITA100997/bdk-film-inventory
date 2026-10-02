@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ItemChars } from "../../../components/ItemChars";
 import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Table, Tabs, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
@@ -397,7 +398,7 @@ function LinesTab({
             title: "Деталь",
             render: (_, l) => (
               <Space direction="vertical" size={0}>
-                <Typography.Text strong>{l.part_name ?? "—"}</Typography.Text>
+                <ItemChars chars={l.item_chars} name={l.part_name} />
                 {l.operation_name && <Typography.Text type="secondary">{l.operation_name}</Typography.Text>}
               </Space>
             ),

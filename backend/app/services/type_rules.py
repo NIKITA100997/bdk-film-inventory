@@ -523,3 +523,13 @@ def item_chars(db: Session, item: Item) -> list[dict]:
         if text:
             out.append({"code": p.code, "name": p.name, "value": text})
     return out
+
+
+def item_chars_cached(db: Session, item_id: int | None) -> list[dict]:
+    """item_chars с кэшем на сессию (один запрос — одна сессия)."""
+    if not item_id:
+        return []
+    cache = db.info.setdefault("item_chars", {})
+    if item_id not in cache:
+        cache[item_id] = item_chars(db, db.get(Item, item_id))
+    return cache[item_id]

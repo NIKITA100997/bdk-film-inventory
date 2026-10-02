@@ -9,23 +9,10 @@ import {
   type ReleaseLayoutRow,
   type ReleaseLayoutSheet,
 } from "../../../api/productionOrders";
+import { ItemChars } from "../../../components/ItemChars";
 
 const d = (s: string | null) => (s ? dayjs(s).format("DD.MM") : "—");
 const period = (a: string | null, b: string | null) => (a && b && a !== b ? `${d(a)}–${d(b)}` : d(a));
-
-/** Характеристики двери тегами: серия, размер, цвет, кромка, стекло… */
-function Chars({ row }: { row: ReleaseLayoutRow }) {
-  if (!row.chars.length) return null;
-  return (
-    <Space size={[4, 4]} wrap>
-      {row.chars.map((c) => (
-        <Tag key={c.code} style={{ marginInlineEnd: 0 }}>
-          {c.value === "да" ? c.name.toLowerCase() : `${c.name}: ${c.value}`}
-        </Tag>
-      ))}
-    </Space>
-  );
-}
 
 interface Agg extends ReleaseLayoutRow {
   key: string;
@@ -84,12 +71,7 @@ function SheetTable({ sheet }: { sheet: ReleaseLayoutSheet }) {
             // крупно, длинное название мелко (модель, цвет, кромка отдельно).
             render: (_, r) =>
               r.door == null && r.chars.length ? (
-                <Space direction="vertical" size={2}>
-                  <Chars row={r} />
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {r.name}
-                  </Typography.Text>
-                </Space>
+                <ItemChars chars={r.chars} name={r.name} strong={false} />
               ) : (
                 <span>{r.name}</span>
               ),

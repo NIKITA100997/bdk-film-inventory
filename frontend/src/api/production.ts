@@ -1,3 +1,4 @@
+import type { ItemChar } from "../components/ItemChars";
 import { apiClient } from "./client";
 import type { AreaValue } from "./units";
 import type { DeleteResult } from "./deletionRequests";
@@ -118,6 +119,8 @@ export interface ProductionTaskLine {
   length_m: number;
   strip_width_mm: number | null;
   part_name: string | null;
+  /** Характеристики изделия (серия, размер, цвет, кромка…) — у строк дверей. */
+  item_chars?: ItemChar[];
   // Раздел про закрытие строки задания по выдаче — ручной флаг "выдача
   // закрыта", отдельный от shortfall_length_m/remaining_pieces.
   is_closed: boolean;
