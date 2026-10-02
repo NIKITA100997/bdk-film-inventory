@@ -57,6 +57,10 @@ def find_or_create_sku(db: Session, *, material: str, color: str, thickness: flo
         )
         db.add(sku)
         db.flush()
+        # Цвет двери = плёнка: новая плёнка сразу появляется в цветах изделий.
+        from app.services.door_colors import sync_film_colors
+
+        sync_film_colors(db)
     return sku
 
 

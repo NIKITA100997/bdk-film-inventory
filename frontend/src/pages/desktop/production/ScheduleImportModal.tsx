@@ -3,7 +3,7 @@ import { isAxiosError } from "axios";
 import { Alert, Button, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
-import { listAllMaterialSkus } from "../../../api/dictionaries";
+import { listMaterialSkus } from "../../../api/dictionaries";
 import {
   importOrderFromSchedule,
   type ProductionOrder,
@@ -39,7 +39,7 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
   // Сопоставление цвет графика → плёнка: выбор сохраняется в привязку цвета
   // типа и дальше подставляется сам (в заданиях на ламинацию — эта плёнка).
   const [colorFilms, setColorFilms] = useState<Record<string, number>>({});
-  const skusQuery = useQuery({ queryKey: ["material-skus", "all"], queryFn: listAllMaterialSkus, enabled: !!preview });
+  const skusQuery = useQuery({ queryKey: ["material-skus", "active"], queryFn: () => listMaterialSkus(false), enabled: !!preview });
   const skuOptions = (skusQuery.data ?? [])
     .filter((s) => s.is_active && s.thickness.value_mm > 0)
     .map((s) => ({

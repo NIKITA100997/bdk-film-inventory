@@ -571,6 +571,11 @@ def update_material_sku(
         sku.native_width_mm = payload.native_width_mm
     if payload.is_active is not None:
         sku.is_active = payload.is_active
+        if sku.is_active:
+            from app.services.door_colors import sync_film_colors
+
+            db.flush()
+            sync_film_colors(db)  # вернули плёнку в учёт — вернётся и в цвета изделий
     db.commit()
     db.refresh(sku)
     return _skus_query(db).filter(MaterialSku.id == sku_id).first()

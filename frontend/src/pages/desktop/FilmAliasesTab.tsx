@@ -2,7 +2,7 @@ import { useState } from "react";
 import { isAxiosError } from "axios";
 import { Button, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listAllMaterialSkus } from "../../api/dictionaries";
+import { listMaterialSkus } from "../../api/dictionaries";
 import { createFilmAlias, deleteFilmAlias, listFilmAliases, updateFilmAlias, type FilmAlias } from "../../api/filmAliases";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
@@ -17,7 +17,7 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 export default function FilmAliasesTab() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["film-aliases"], queryFn: listFilmAliases });
-  const skusQuery = useQuery({ queryKey: ["material-skus", "all"], queryFn: listAllMaterialSkus });
+  const skusQuery = useQuery({ queryKey: ["material-skus", "active"], queryFn: () => listMaterialSkus(false) });
   const skuOptions = (skusQuery.data ?? [])
     .filter((s) => s.is_active && s.thickness.value_mm > 0)
     .map((s) => ({ value: s.id, label: `${s.material.name} ${s.color.name} ${s.thickness.value_mm} мм · ${s.manufacturer.name}` }))

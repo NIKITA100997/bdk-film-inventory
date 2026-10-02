@@ -203,3 +203,68 @@ def normalize_color_options(db: Session, prop) -> list[str]:
         db.flush()
     db.refresh(prop)
     return report
+
+
+def color_properties(db: Session) -> list:
+    """Свойства «Цвет» изделий, где цвет — плёнка (у варианта есть привязка
+    к плёнке или вариантов ещё нет)."""
+    from app.models.items import ItemKind, ItemProperty, ItemType
+
+    out = []
+    for p in (
+        db.query(ItemProperty)
+        .join(ItemType, ItemType.id == ItemProperty.type_id)
+        .join(ItemKind, ItemKind.id == ItemType.kind_id)
+        .filter(ItemProperty.code == "цвет", ItemProperty.value_type == "list", ItemKind.code == "izdelie")
+    ):
+        if not p.options or any(has_film(o) for o in p.options):
+            out.append(p)
+    return out
+
+
+def sync_film_colors(db: Session, prop=None) -> int:
+    """Цвета двери = все действующие плёнки справочника (без commit): для
+    каждой плёнки (материал + цвет; ПЭТ 2Д/3Д — один цвет «ПЭТ …») без
+    варианта заводится вариант с привязкой. Толщина — если у плёнки она одна.
+    Варианты снятых с учёта плёнок не трогаем (на них ссылаются позиции).
+    Возвращает, сколько вариантов заведено."""
+    from app.models.dictionaries import MaterialSku
+
+    props = [prop] if prop is not None else color_properties(db)
+    if not props:
+        return 0
+    films: dict[tuple[str, str], dict] = {}
+    for s in db.query(MaterialSku).filter(MaterialSku.is_active.is_(True)):
+        if float(s.thickness.value_mm) <= 0 or not s.material.is_active or not s.color.is_active:
+            continue
+        key = _film_key(s.material.name, s.color.name)
+        f = films.setdefault(key, {"material": _label_material(s.material.name), "color": s.color.name, "th": set()})
+        f["th"].add(float(s.thickness.value_mm))
+    added = 0
+    for p in props:
+        have = {
+            _film_key(str(o.params.get(MATERIAL) or ""), str(o.params[COLOR]))
+            for o in p.options if o.is_active and has_film(o)
+        }
+        values = {norm(o.value): o for o in p.options}
+        order = max([o.sort_order or 0 for o in p.options] or [0])
+        for key, f in sorted(films.items(), key=lambda kv: film_label(kv[1]["material"], kv[1]["color"])):
+            if key in have:
+                continue
+            label = film_label(f["material"], f["color"])
+            params = {MATERIAL: f["material"], COLOR: f["color"]}
+            if len(f["th"]) == 1:
+                params[THICKNESS] = next(iter(f["th"]))
+            clash = values.get(norm(label))
+            if clash is not None:
+                if has_film(clash) or not clash.is_active:
+                    continue  # такое название уже занято другой плёнкой/архивом
+                clash.params = {**(clash.params or {}), **params}
+            else:
+                order += 1
+                db.add(ItemPropertyOption(property_id=p.id, value=label, params=params, is_active=True, sort_order=order))
+            have.add(key)
+            added += 1
+        db.flush()
+        db.refresh(p)
+    return added

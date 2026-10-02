@@ -43,6 +43,9 @@ try:
         prop = db.query(ItemProperty).filter(ItemProperty.type_id == t.id, ItemProperty.code == "цвет").one()
         for line in normalize_color_options(db, prop):
             print(" ", line)
+        from app.services.door_colors import sync_film_colors
+
+        print("  цветов из справочника плёнок заведено:", sync_film_colors(db, prop))
         ok, bad = 0, {}
         for it in db.query(Item).filter(Item.type_id == t.id, Item.is_model.is_(False)):
             sp = db.begin_nested()
@@ -54,7 +57,7 @@ try:
                 sp.commit()
                 ok += 1
         print(f"техкарт дверей пересчитано {ok}, ошибок {len(bad)}", list(bad.items())[:3])
-        print("цвета:", [o.value for o in prop.options if o.is_active])
+        print("цветов всего:", len([o for o in prop.options if o.is_active]))
     if "apply" in sys.argv:
         db.commit()
         print("ЗАПИСАНО")
