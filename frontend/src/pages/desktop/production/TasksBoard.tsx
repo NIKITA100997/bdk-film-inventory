@@ -11,7 +11,10 @@ import TaskCardDrawer, { TaskCardPanel } from "./TaskCardDrawer";
 type Filter = "all" | "film" | "pf" | "wait" | "late";
 
 const isFilm = (t: ProductionTask) => t.lines.some((l) => l.material !== null);
-const isPf = (t: ProductionTask) => t.for_task_id != null || (!isFilm(t) && t.lines.some((l) => l.operation_name != null));
+// П/ф — строки по детали п/ф; у заданий на изделия (двери) операции техкарты
+// тоже есть, но детали нет.
+const isPf = (t: ProductionTask) => t.for_task_id != null || (!isFilm(t) && t.lines.some((l) => l.part_id != null));
+const isProduct = (t: ProductionTask) => !isFilm(t) && t.lines.some((l) => (l.item_chars ?? []).length > 0);
 const progress = (t: ProductionTask) => {
   const plan = t.lines.reduce((s, l) => s + l.quantity_pieces, 0);
   const done = t.lines.reduce((s, l) => s + Math.min(l.produced_good_pieces, l.quantity_pieces), 0);
@@ -124,7 +127,7 @@ export default function TasksBoard() {
                 }}
               >
                 <Typography.Text type="secondary" style={{ fontSize: 11, letterSpacing: ".05em", textTransform: "uppercase" }}>
-                  {isPf(t) ? "П/ф" : isFilm(t) ? "С плёнкой" : "Операции"} · {areaName(t.area)}
+                  {isPf(t) ? "П/ф" : isFilm(t) ? "С плёнкой" : isProduct(t) ? "Изделия" : "Операции"} · {areaName(t.area)}
                 </Typography.Text>
                 <Space style={{ justifyContent: "space-between", width: "100%" }} align="start">
                   <Typography.Text strong>

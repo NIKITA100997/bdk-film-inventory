@@ -181,7 +181,7 @@ function TaskCardBody({
   if (!t) return null;
   const areaName = areasQuery.data?.find((a) => a.code === t.area)?.name ?? t.area;
   const fabrika = t.area === FABRIKA;
-  const isPf = t.for_task_id != null || (t.lines.length > 0 && t.lines.every((l) => l.material === null && l.part_name));
+  const isPf = t.for_task_id != null || (t.lines.length > 0 && t.lines.every((l) => l.material === null && l.part_id != null));
   const plan = t.lines.reduce((s, l) => s + l.quantity_pieces, 0);
   const done = t.lines.reduce((s, l) => s + Math.min(l.produced_good_pieces, l.quantity_pieces), 0);
   const pfTasks = card?.pf_tasks ?? [];

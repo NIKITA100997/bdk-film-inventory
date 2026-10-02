@@ -121,6 +121,8 @@ export interface ProductionTaskLine {
   part_name: string | null;
   /** Характеристики изделия (серия, размер, цвет, кромка…) — у строк дверей. */
   item_chars?: ItemChar[];
+  /** Деталь п/ф строки; null — изделие (дверь и т.п.). */
+  part_id?: number | null;
   // Раздел про закрытие строки задания по выдаче — ручной флаг "выдача
   // закрыта", отдельный от shortfall_length_m/remaining_pieces.
   is_closed: boolean;

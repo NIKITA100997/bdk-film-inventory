@@ -248,6 +248,7 @@ def _task_line_out(
         strip_width_mm=sw,
         part_name=line.part_name,
         item_chars=_line_item_chars(db, line),
+        part_id=line.part_id,
         operation_name=db.get(PartStage, line.part_stage_id).name if line.part_stage_id else None,
         is_closed=line.is_closed,
         production_closed=line.production_closed,
