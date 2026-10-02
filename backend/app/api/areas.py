@@ -97,6 +97,8 @@ def update_area(code: str, payload: AreaUpdate, db: Session = Depends(get_db), u
         if payload.big_batch_min_pieces < 0:
             raise HTTPException(status_code=422, detail="Порог крупной партии — не меньше нуля")
         area.big_batch_min_pieces = payload.big_batch_min_pieces or None
+    if payload.close_without_reports is not None:
+        area.close_without_reports = payload.close_without_reports
     db.commit()
     db.refresh(area)
     return area

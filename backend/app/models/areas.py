@@ -60,3 +60,6 @@ class Area(Base):
     # предлагать делать на участке big_batch_area. Пусто — не предлагать.
     big_batch_area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     big_batch_min_pieces: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    # По строкам не отчитываются (03.10, раньше — код «fabrika» во фронте):
+    # задание закрывают целиком «всё сделано», плёнка списывается метражом.
+    close_without_reports: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

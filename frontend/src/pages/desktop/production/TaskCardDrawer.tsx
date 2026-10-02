@@ -30,8 +30,6 @@ import LineSpecModal from "./LineSpecModal";
 import { areaRequiresRoll } from "../../../api/areas";
 import { rollChoices } from "./fastReport/useFastReport";
 
-const FABRIKA = "fabrika";
-
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
   return fallback;
@@ -180,7 +178,8 @@ function TaskCardBody({
   if (taskQuery.isError) return <Empty style={{ padding: 40 }} description="Задание не найдено или нет доступа" />;
   if (!t) return null;
   const areaName = areasQuery.data?.find((a) => a.code === t.area)?.name ?? t.area;
-  const fabrika = t.area === FABRIKA;
+  // Участок без отчётов по строкам (Фабрика) — закрывают задание целиком.
+  const fabrika = !!areasQuery.data?.find((a) => a.code === t.area)?.close_without_reports;
   const isPf = t.for_task_id != null || (t.lines.length > 0 && t.lines.every((l) => l.material === null && l.part_id != null));
   const plan = t.lines.reduce((s, l) => s + l.quantity_pieces, 0);
   const done = t.lines.reduce((s, l) => s + Math.min(l.produced_good_pieces, l.quantity_pieces), 0);
@@ -383,7 +382,7 @@ function LinesTab({
         <Alert
           type="info"
           showIcon
-          message="По заданиям Фабрики не отчитываются"
+          message="По заданиям этого участка не отчитываются"
           description="Плёнка списывается метражом. Когда сделано — «Ещё → Закрыть: всё сделано»: строки засчитаются без списания плёнки, задание уйдёт в архив."
         />
       )}

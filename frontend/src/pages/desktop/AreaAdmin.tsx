@@ -41,6 +41,7 @@ export default function AreaAdmin() {
     film_allowance_mm?: number | null;
     big_batch_area?: string;
     big_batch_min_pieces?: number | null;
+    close_without_reports?: boolean;
   }>();
   const [showArchived, setShowArchived] = useState(false);
 
@@ -89,12 +90,14 @@ export default function AreaAdmin() {
       film_allowance_mm?: number | null;
       big_batch_area?: string | null;
       big_batch_min_pieces?: number | null;
+      close_without_reports?: boolean;
     }) =>
       updateArea(editing!.code, {
         // пусто — снять настройку (0 / "" на сервере — «не задано»)
         film_allowance_mm: v.film_allowance_mm ?? 0,
         big_batch_area: v.big_batch_area ?? "",
         big_batch_min_pieces: v.big_batch_min_pieces ?? 0,
+        close_without_reports: v.close_without_reports,
         lead_days: v.lead_days,
         // пусто — снять мощность (0 на сервере — «не задана»)
         capacity_per_shift: v.capacity_per_shift ?? 0,
@@ -246,6 +249,7 @@ export default function AreaAdmin() {
                   {v ? <Tag color="orange">Обязателен</Tag> : <Typography.Text type="secondary">—</Typography.Text>}
                   {a.film_cut_on_site && <Tag color="blue">режут на участке</Tag>}
                   {!!a.film_allowance_mm && <Tag>припуск +{a.film_allowance_mm} мм</Tag>}
+                  {a.close_without_reports && <Tag color="default">без отчётов — закрытие целиком</Tag>}
                   {a.big_batch_area && (
                     <Tag color="purple">
                       от {a.big_batch_min_pieces} шт →{" "}
@@ -280,6 +284,7 @@ export default function AreaAdmin() {
                         film_allowance_mm: a.film_allowance_mm,
                         big_batch_area: a.big_batch_area ?? undefined,
                         big_batch_min_pieces: a.big_batch_min_pieces,
+                        close_without_reports: a.close_without_reports,
                       });
                     }}
                   >
@@ -364,6 +369,13 @@ export default function AreaAdmin() {
           <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
             Как на мембранно-вакуумных прессах: склад не режет штрипсы, а выдаёт рулон любой ширины; отчёт списывает
             метры по норме (длина детали на штуку), фактический расход уточняется при возврате остатка.
+          </Typography.Paragraph>
+          <Form.Item name="close_without_reports" valuePropName="checked">
+            <Checkbox>По строкам не отчитываются — задание закрывают целиком</Checkbox>
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+            Как на Фабрике: мастер не вносит отчёты, плёнка списывается метражом; когда сделано — «Закрыть: всё
+            сделано», строки засчитываются, задание уходит в архив.
           </Typography.Paragraph>
           <Form.Item
             name="film_allowance_mm"

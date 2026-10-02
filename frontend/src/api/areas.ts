@@ -25,6 +25,8 @@ export interface Area {
   /** Крупные партии операции с плёнкой — предлагать на этот участок от N шт. */
   big_batch_area: string | null;
   big_batch_min_pieces: number | null;
+  /** По строкам не отчитываются (Фабрика): задание закрывают целиком «всё сделано». */
+  close_without_reports: boolean;
 }
 
 /** Нужен ли рулон в отчёте на этом участке (настройка участка, не код). */
@@ -67,6 +69,7 @@ export async function updateArea(
     film_allowance_mm?: number;
     big_batch_area?: string;
     big_batch_min_pieces?: number;
+    close_without_reports?: boolean;
   },
 ): Promise<Area> {
   const { data } = await apiClient.patch<Area>(`/areas/${code}`, payload);

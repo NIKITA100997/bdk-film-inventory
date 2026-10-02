@@ -40,6 +40,7 @@ import TaskCardDrawer from "./TaskCardDrawer";
 import { OrderHistory, OrderMaterials, OrderPlan } from "./OrderTabs";
 import VariantPicker from "../../../components/VariantPicker";
 import { useAuth } from "../../../auth/AuthContext";
+import { listAreas } from "../../../api/areas";
 import { listItems, type Item } from "../../../api/items";
 import { listItemTypes } from "../../../api/itemTypes";
 import { listOrderCategories, createOrderCategory,
@@ -65,13 +66,13 @@ function apiErrorMessage(e: unknown, fallback: string): string {
 
 const STATUS_COLOR: Record<OrderStatus, string> = { draft: "default", released: "blue", closed: "green" };
 
-type ListFilter = "all" | "late" | "pf" | "fabrika" | "stock" | "draft";
-// Отборы списка заказов (30.09): что не успевает, что ждёт п/ф, Фабрика, на склад, черновики.
+type ListFilter = "all" | "late" | "pf" | "stock" | "draft";
+// Отборы списка заказов (30.09): что не успевает, что ждёт п/ф, на склад,
+// черновики; участок — выбором (раньше — только «Фабрика»).
 const LIST_FILTERS: [ListFilter, string, (o: ProductionOrder) => boolean][] = [
   ["all", "Все", () => true],
   ["late", "Не успевает", (o) => !!o.plan_late],
   ["pf", "Ждёт п/ф", (o) => (o.tasks ?? []).some((t) => t.for_task_id != null && t.is_active && t.done < t.planned)],
-  ["fabrika", "Фабрика", (o) => (o.tasks ?? []).some((t) => t.area === "fabrika")],
   ["stock", "На склад", (o) => o.kind === "stock"],
   ["draft", "Черновики", (o) => o.status === "draft"],
 ];
@@ -141,11 +142,14 @@ function OrdersList() {
   });
   const opened = (ordersQuery.data ?? []).find((o) => o.id === openId) ?? null;
   const [listFilter, setListFilter] = useState<ListFilter>("all");
+  const [areaFilter, setAreaFilter] = useState<string | null>(null);
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const [q, setQ] = useState("");
   const allOrders = ordersQuery.data ?? [];
   const needle = q.trim().toLowerCase();
   const shownOrders = allOrders
     .filter(LIST_FILTERS.find((f) => f[0] === listFilter)![2])
+    .filter((o) => !areaFilter || (o.tasks ?? []).some((t) => t.area === areaFilter))
     .filter(
       (o) =>
         !needle ||
@@ -199,6 +203,21 @@ function OrdersList() {
             {label} {allOrders.filter(fn).length}
           </Tag.CheckableTag>
         ))}
+        <Select
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          placeholder="Участок"
+          style={{ width: 240 }}
+          value={areaFilter ?? undefined}
+          onChange={(v) => setAreaFilter(v ?? null)}
+          options={(areasQuery.data ?? [])
+            .filter((a) => a.is_active && allOrders.some((o) => (o.tasks ?? []).some((t) => t.area === a.code)))
+            .map((a) => ({
+              value: a.code,
+              label: `${a.name} (${allOrders.filter((o) => (o.tasks ?? []).some((t) => t.area === a.code)).length})`,
+            }))}
+        />
       </Space>
       <ResponsiveTable<ProductionOrder>
         tableKey="production-orders"

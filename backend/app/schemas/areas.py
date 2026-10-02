@@ -27,6 +27,8 @@ class AreaOut(BaseModel):
     film_allowance_mm: float | None = None
     big_batch_area: str | None = None
     big_batch_min_pieces: float | None = None
+    # По строкам не отчитываются — задание закрывают целиком.
+    close_without_reports: bool = False
 
 
 class AreaCreate(BaseModel):
@@ -52,3 +54,4 @@ class AreaUpdate(BaseModel):
     # "" — не предлагать другой участок для крупных партий.
     big_batch_area: str | None = None
     big_batch_min_pieces: float | None = None
+    close_without_reports: bool | None = None
