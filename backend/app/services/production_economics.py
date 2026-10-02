@@ -57,16 +57,17 @@ def film_plan_fact(db: Session, date_from: date, date_to: date, area: str | None
     from app.models.events import EventType, MaterialEvent
 
     start, end = _period(date_from, date_to)
+    # Строки с отчётом за период — подзапросом: DISTINCT по самим строкам
+    # Postgres не умеет (в строке есть JSON-поле manual_changes).
+    reported = (
+        db.query(ProductionTaskLineReport.task_line_id)
+        .filter(ProductionTaskLineReport.reported_at >= start, ProductionTaskLineReport.reported_at <= end)
+        .distinct()
+    )
     q = (
         db.query(ProductionTaskLine, ProductionTask)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
-        .join(ProductionTaskLineReport, ProductionTaskLineReport.task_line_id == ProductionTaskLine.id)
-        .filter(
-            ProductionTaskLine.material_id.isnot(None),
-            ProductionTaskLineReport.reported_at >= start,
-            ProductionTaskLineReport.reported_at <= end,
-        )
-        .distinct()
+        .filter(ProductionTaskLine.material_id.isnot(None), ProductionTaskLine.id.in_(reported))
     )
     if area:
         q = q.filter(ProductionTask.area == area)
