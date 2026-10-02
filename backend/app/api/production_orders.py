@@ -570,6 +570,17 @@ class ScheduleImportIn(BaseModel):
     type_id: int
     name: str | None = None
     dry_run: bool = True
+    # цвет из графика → выбранная позиция плёнки (сохраняется в привязку цвета)
+    color_films: dict[str, int] = {}
+
+
+class ScheduleColorOut(BaseModel):
+    color: str
+    option: str | None
+    film: str | None
+    sku_id: int | None
+    status: str
+    rows: int
 
 
 class ScheduleRowOut(BaseModel):
@@ -589,6 +600,7 @@ class ScheduleRowOut(BaseModel):
 class ScheduleImportOut(BaseModel):
     rows: list[ScheduleRowOut]
     parse_errors: list[str]
+    colors: list[ScheduleColorOut] = []
     order: OrderOut | None
 
 
@@ -603,9 +615,12 @@ def order_from_schedule(
     type_ = db.get(ItemType, payload.type_id)
     if type_ is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Тип не найден")
+    colors: list = []
     rows, parse_errors, order = import_schedule(
-        db, text=payload.text, type_=type_, order_name=payload.name, user_id=user.id, dry_run=payload.dry_run
+        db, text=payload.text, type_=type_, order_name=payload.name, user_id=user.id, dry_run=payload.dry_run,
+        color_films=payload.color_films, colors_out=colors,
     )
+    colors_out = [ScheduleColorOut(**c.__dict__) for c in colors]
     if order is not None:
         db.commit()
         db.refresh(order)
@@ -614,6 +629,7 @@ def order_from_schedule(
     return ScheduleImportOut(
         rows=[ScheduleRowOut(**{k: getattr(r, k) for k in ScheduleRowOut.model_fields}) for r in rows],
         parse_errors=parse_errors,
+        colors=colors_out,
         order=_order_out(db, order) if order is not None else None,
     )
 

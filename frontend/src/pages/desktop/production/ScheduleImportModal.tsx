@@ -3,7 +3,20 @@ import { isAxiosError } from "axios";
 import { Alert, Button, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
-import { importOrderFromSchedule, type ProductionOrder, type ScheduleImportRow } from "../../../api/productionOrders";
+import { listAllMaterialSkus } from "../../../api/dictionaries";
+import {
+  importOrderFromSchedule,
+  type ProductionOrder,
+  type ScheduleImportColor,
+  type ScheduleImportRow,
+} from "../../../api/productionOrders";
+
+const COLOR_STATUS: Record<ScheduleImportColor["status"], { color: string; text: string }> = {
+  ok: { color: "green", text: "плёнка подобрана" },
+  pet: { color: "blue", text: "ПЭТ 2Д/3Д — по детали" },
+  choose: { color: "orange", text: "выберите толщину" },
+  none: { color: "red", text: "плёнка не найдена" },
+};
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -22,11 +35,28 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
   const effectiveType = typeId ?? gpTypes.find((t) => t.name === "Щитовая дверь")?.id ?? gpTypes[0]?.id;
   const [text, setText] = useState("");
   const [name, setName] = useState("");
-  const [preview, setPreview] = useState<{ rows: ScheduleImportRow[]; parse_errors: string[] } | null>(null);
+  const [preview, setPreview] = useState<{ rows: ScheduleImportRow[]; parse_errors: string[]; colors?: ScheduleImportColor[] } | null>(null);
+  // Сопоставление цвет графика → плёнка: выбор сохраняется в привязку цвета
+  // типа и дальше подставляется сам (в заданиях на ламинацию — эта плёнка).
+  const [colorFilms, setColorFilms] = useState<Record<string, number>>({});
+  const skusQuery = useQuery({ queryKey: ["material-skus", "all"], queryFn: listAllMaterialSkus, enabled: !!preview });
+  const skuOptions = (skusQuery.data ?? [])
+    .filter((s) => s.is_active && s.thickness.value_mm > 0)
+    .map((s) => ({
+      value: s.id,
+      label: `${s.material.name} ${s.color.name} ${s.thickness.value_mm} мм · ${s.manufacturer.name}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, "ru"));
 
   const run = useMutation({
     mutationFn: (dryRun: boolean) =>
-      importOrderFromSchedule({ text, type_id: effectiveType as number, name: name.trim() || null, dry_run: dryRun }),
+      importOrderFromSchedule({
+        text,
+        type_id: effectiveType as number,
+        name: name.trim() || null,
+        dry_run: dryRun,
+        color_films: colorFilms,
+      }),
     onSuccess: (res, dryRun) => {
       setPreview(res);
       if (!dryRun && res.order) {
@@ -94,6 +124,65 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
             setPreview(null);
           }}
         />
+        {preview && (preview.colors ?? []).length > 0 && (
+          <div>
+            <Typography.Title level={5} style={{ marginTop: 0 }}>
+              Цвета и плёнка
+            </Typography.Title>
+            <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+              Плёнка подбирается к цвету так же, как в заданиях на окутку. Выберите другую, если подобралась не та или
+              не подобралась, — выбор сохранится за цветом и пойдёт в задания на ламинацию.
+            </Typography.Text>
+            <Table<ScheduleImportColor>
+              size="small"
+              rowKey="color"
+              pagination={false}
+              style={{ marginTop: 8 }}
+              dataSource={preview.colors}
+              columns={[
+                { title: "Цвет в графике", dataIndex: "color" },
+                { title: "Строк", dataIndex: "rows", width: 70 },
+                {
+                  title: "Плёнка",
+                  render: (_, c) => (
+                    <Space size={6} wrap>
+                      <Tag color={COLOR_STATUS[c.status].color}>{COLOR_STATUS[c.status].text}</Tag>
+                      {c.film && <span>{c.film}</span>}
+                    </Space>
+                  ),
+                },
+                {
+                  title: "Выбрать плёнку",
+                  width: 380,
+                  render: (_, c) => (
+                    <Select
+                      showSearch
+                      allowClear
+                      size="small"
+                      style={{ width: "100%" }}
+                      placeholder={c.status === "ok" || c.status === "pet" ? "оставить как есть" : "выберите плёнку"}
+                      loading={skusQuery.isLoading}
+                      value={colorFilms[c.color]}
+                      options={skuOptions}
+                      optionFilterProp="label"
+                      onChange={(v?: number) => {
+                        const next = { ...colorFilms };
+                        if (v == null) delete next[c.color];
+                        else next[c.color] = v;
+                        setColorFilms(next);
+                      }}
+                    />
+                  ),
+                },
+              ]}
+            />
+            {Object.keys(colorFilms).length > 0 && (
+              <Button size="small" style={{ marginTop: 8 }} loading={run.isPending && run.variables === true} onClick={() => run.mutate(true)}>
+                Разобрать заново с выбранной плёнкой
+              </Button>
+            )}
+          </div>
+        )}
         {preview && (
           <>
             {bad > 0 ? (

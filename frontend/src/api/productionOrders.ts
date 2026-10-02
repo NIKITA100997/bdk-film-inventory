@@ -170,13 +170,27 @@ export interface ScheduleImportRow {
   notes?: string[];
 }
 
+/** Цвет из графика и его плёнка (привязка варианта «Цвет»). status: ok —
+ * плёнка одна; pet — ПЭТ 2Д/3Д, решается у детали; choose — несколько
+ * толщин, нужно выбрать; none — плёнка не найдена. */
+export interface ScheduleImportColor {
+  color: string;
+  option: string | null;
+  film: string | null;
+  sku_id: number | null;
+  status: "ok" | "pet" | "choose" | "none";
+  rows: number;
+}
+
 /** График запуска, вставленный из Excel → черновик заказа (dry_run — предпросмотр). */
 export const importOrderFromSchedule = async (payload: {
   text: string;
   type_id: number;
   name: string | null;
   dry_run: boolean;
-}): Promise<{ rows: ScheduleImportRow[]; parse_errors: string[]; order: ProductionOrder | null }> =>
+  // цвет графика → выбранная позиция плёнки (сохраняется в привязку цвета)
+  color_films?: Record<string, number>;
+}): Promise<{ rows: ScheduleImportRow[]; parse_errors: string[]; colors?: ScheduleImportColor[]; order: ProductionOrder | null }> =>
   (await apiClient.post("/production-orders/from-schedule", payload)).data;
 
 /** Готовность заказа для продажника (без заданий и участков). */

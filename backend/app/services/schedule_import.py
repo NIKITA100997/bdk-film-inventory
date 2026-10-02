@@ -47,54 +47,96 @@ def color_from_name(name_text: str, color_text: str) -> str:
     return " ".join(tail.split()) or " ".join((color_text or "").split())
 
 
-def film_for_color(db: Session, color: str, index=None) -> tuple[str, str] | None:
+def film_for_color(db: Session, color: str, index=None) -> tuple[str, str, float | None] | None:
     """Плёнка для цвета двери — тем же подбором, что при загрузке заданий
     на окутку (services/sku_matching): «Полипропилен Аляска» → (Полипропилен,
-    Аляска). ПЭТ 2Д и 3Д одного цвета → материал «ПЭТ» (тип ПЭТ решается у
-    детали). Неоднозначно или не найдено — None."""
+    Аляска, толщина). ПЭТ 2Д и 3Д одного цвета → материал «ПЭТ» (тип ПЭТ
+    решается у детали). Толщина — если у этой плёнки она одна, иначе None
+    (выбирают в окне импорта). Неоднозначно или не найдено — None."""
     from app.services.film_check import pet_of_material
     from app.services.sku_matching import _bare_color, build_sku_match_index, match_sku_by_color_text
 
     index = index or build_sku_match_index(db)
     sku, cands = match_sku_by_color_text(index, color)
     if sku is not None:
-        return sku.material.name, sku.color.name
-    skus = [index.sku_by_id[c["sku_id"]] for c in cands if c["sku_id"] in index.sku_by_id]
-    # Нечёткий подбор цепляет соседние цвета («Белый» → и «Бежевый»): оставляем
-    # те, у кого само название цвета совпадает.
-    same = [x for x in skus if _bare_color(x.color.name) == _bare_color(color)] or skus
-    if len({x.color_id for x in same}) != 1:
-        return None
+        same = [sku]
+    else:
+        skus = [index.sku_by_id[c["sku_id"]] for c in cands if c["sku_id"] in index.sku_by_id]
+        # Нечёткий подбор цепляет соседние цвета («Белый» → и «Бежевый»):
+        # оставляем те, у кого само название цвета совпадает.
+        same = [x for x in skus if _bare_color(x.color.name) == _bare_color(color)] or skus
+        if len({x.color_id for x in same}) != 1:
+            return None
     mats = {x.material.name for x in same}
     if len(mats) == 1:
-        return mats.pop(), same[0].color.name
-    if all(pet_of_material(m) is not None for m in mats):
-        return "ПЭТ", same[0].color.name
-    return None
+        material = mats.pop()
+    elif all(pet_of_material(m) is not None for m in mats):
+        material = "ПЭТ"
+    else:
+        return None
+    # все позиции этой плёнки (материал/цвет) — одна ли у неё толщина
+    group = [
+        x for x in index.sku_by_id.values()
+        if x.color_id == same[0].color_id
+        and (x.material.name == material or (material == "ПЭТ" and pet_of_material(x.material.name) is not None))
+    ]
+    thicknesses = {float(x.thickness.value_mm) for x in group}
+    return material, same[0].color.name, (thicknesses.pop() if len(thicknesses) == 1 else None)
 
 
 def _norm_color(v: str) -> str:
     return " ".join(re.sub(r"\(.*?\)", " ", v).lower().replace("ё", "е").split())
 
 
-def _color_option(db: Session, prop, color: str) -> tuple[object | None, str | None]:
+def _film_params(film) -> dict:
+    out = {"материал_плёнки": film[0], "цвет_плёнки": film[1]}
+    if len(film) > 2 and film[2] is not None:
+        out["толщина_плёнки"] = film[2]
+    return out
+
+
+def _film_text(params: dict) -> str:
+    t = params.get("толщина_плёнки")
+    return f"{params.get('материал_плёнки')} {params.get('цвет_плёнки')}" + (f" {float(t):g} мм" if t not in (None, "") else "")
+
+
+def _color_option(db: Session, prop, color: str, chosen_sku_id: int | None = None) -> tuple[object | None, str | None]:
     """Вариант «Цвет» для цвета из графика: подбираем плёнку (как на
     заданиях на окутку) и берём вариант с этой плёнкой; такого нет —
-    заводится новый вариант с привязкой к найденной плёнке."""
+    заводится новый вариант с привязкой к найденной плёнке. Плёнку,
+    выбранную в окне импорта (chosen_sku_id), записываем в привязку цвета."""
+    from app.models.dictionaries import MaterialSku
     from app.models.items import ItemPropertyOption
 
     opts = [o for o in prop.options if o.is_active]
     opt = next((o for o in opts if _norm_color(o.value) == _norm_color(color)), None)
+    if chosen_sku_id is not None:
+        sku = db.get(MaterialSku, chosen_sku_id)
+        if sku is not None:
+            params = _film_params((sku.material.name, sku.color.name, float(sku.thickness.value_mm)))
+            if opt is None:
+                opt = ItemPropertyOption(property_id=prop.id, value=color, params=params, is_active=True,
+                                         sort_order=max([o.sort_order or 0 for o in prop.options] or [0]) + 1)
+                db.add(opt)
+                db.flush()
+                db.refresh(prop)
+                return opt, f"новый цвет «{color}» — плёнка {_film_text(params)} (выбрана)"
+            old = {k: (opt.params or {}).get(k) for k in params}
+            if old != params:
+                opt.params = {**(opt.params or {}), **params}
+                db.flush()
+                return opt, f"цвет «{opt.value}» — плёнка {_film_text(params)} (выбрана)"
+            return opt, None
     if opt is not None and (opt.params or {}).get("цвет_плёнки"):
         return opt, None
     film = film_for_color(db, color)
     if opt is not None:
         # вариант заведён раньше без плёнки — привязываем, если нашлась
         if film is None:
-            return opt, f"цвет «{opt.value}» — плёнка не найдена, привяжите в типе"
-        opt.params = {**(opt.params or {}), "материал_плёнки": film[0], "цвет_плёнки": film[1]}
+            return opt, f"цвет «{opt.value}» — плёнка не найдена, выберите"
+        opt.params = {**(opt.params or {}), **_film_params(film)}
         db.flush()
-        return opt, f"цвет «{opt.value}» привязан к плёнке {film[0]} {film[1]}"
+        return opt, f"цвет «{opt.value}» привязан к плёнке {_film_text(_film_params(film))}"
     if film is not None:
         key = (_norm_color(film[0]), _norm_color(film[1]))
         same = [
@@ -103,17 +145,58 @@ def _color_option(db: Session, prop, color: str) -> tuple[object | None, str | N
         ]
         if len(same) == 1:
             return same[0], f"цвет «{color}» → «{same[0].value}» (плёнка {film[0]} {film[1]})"
-    params = {"материал_плёнки": film[0], "цвет_плёнки": film[1]} if film else {}
+    params = _film_params(film) if film else {}
     opt = ItemPropertyOption(property_id=prop.id, value=color, params=params, is_active=True,
                              sort_order=max([o.sort_order or 0 for o in prop.options] or [0]) + 1)
     db.add(opt)
     db.flush()
     db.refresh(prop)
-    note = f"новый цвет «{color}»" + (f" — плёнка {film[0]} {film[1]}" if film else " — плёнка не найдена, привяжите в типе")
+    note = f"новый цвет «{color}»" + (f" — плёнка {_film_text(params)}" if film else " — плёнка не найдена, выберите")
     return opt, note
 
 
-def _values_for_row(type_: ItemType, row: ScheduleRow, db: Session | None = None) -> tuple[dict[int, object], list[str]]:
+@dataclass
+class ColorFilm:
+    """Цвет из графика и его плёнка — для блока «Цвета и плёнка» в окне
+    импорта: подобранная плёнка и возможность выбрать другую."""
+    color: str
+    option: str | None
+    film: str | None  # привязка цвета подписью
+    sku_id: int | None  # плёнка, если привязка указывает на одну (материал, цвет, толщина)
+    status: str  # ok — плёнка одна; choose — несколько толщин; none — не найдена
+    rows: int = 0
+
+
+def _color_films(db: Session, prop, colors: dict[str, int]) -> list[ColorFilm]:
+    from app.services import type_rules
+    from app.services.film_check import pet_of_material
+
+    out = []
+    for color, n in colors.items():
+        opt = next((o for o in prop.options if o.is_active and _norm_color(o.value) == _norm_color(color)), None)
+        params = (opt.params or {}) if opt is not None else {}
+        cands = type_rules.film_candidates(db, opt.value) if opt is not None and params.get("цвет_плёнки") else []
+        specs = {(s.material_id, s.color_id, s.thickness_id) for s in cands}
+        status = "ok" if len(specs) == 1 else ("choose" if specs else "none")
+        if status == "choose":
+            # ПЭТ 2Д и 3Д одного цвета — не выбор: тип ПЭТ решается у детали
+            by_pet: dict = {}
+            for s_ in cands:
+                by_pet.setdefault(pet_of_material(s_.material.name), set()).add((s_.material_id, s_.color_id, s_.thickness_id))
+            if None not in by_pet and all(len(v) == 1 for v in by_pet.values()):
+                status = "pet"
+        out.append(ColorFilm(
+            color=color, option=opt.value if opt is not None else None,
+            film=_film_text(params) if params.get("цвет_плёнки") else None,
+            sku_id=cands[0].id if len(specs) == 1 else None,
+            status=status, rows=n,
+        ))
+    return sorted(out, key=lambda c: ({"none": 0, "choose": 1, "pet": 2, "ok": 3}[c.status], c.color))
+
+
+def _values_for_row(
+    type_: ItemType, row: ScheduleRow, db: Session | None = None, color_films: dict[str, int] | None = None
+) -> tuple[dict[int, object], list[str]]:
     props = {p.code: p for p in type_.properties}
     missing = [c for c in REQUIRED_CODES if c not in props]
     if missing:
@@ -137,8 +220,9 @@ def _values_for_row(type_: ItemType, row: ScheduleRow, db: Session | None = None
         opt = next((o for o in opts if _norm_color(o.value) == _norm_color(color)), None) or next(
             (o for o in opts if _norm_color(o.value) == _norm_color(row.color_text or "")), None
         )
-        if db is not None and (opt is None or not (opt.params or {}).get("цвет_плёнки")):
-            opt, note = _color_option(db, props["цвет"], opt.value if opt is not None else color)
+        chosen = (color_films or {}).get(_norm_color(color))
+        if db is not None and (chosen is not None or opt is None or not (opt.params or {}).get("цвет_плёнки")):
+            opt, note = _color_option(db, props["цвет"], opt.value if opt is not None else color, chosen)
             if note:
                 _ROW_NOTES.append(note)
         if opt is None:
@@ -165,11 +249,15 @@ def _values_for_row(type_: ItemType, row: ScheduleRow, db: Session | None = None
 
 
 def import_schedule(
-    db: Session, *, text: str, type_: ItemType, order_name: str | None, user_id: int, dry_run: bool
+    db: Session, *, text: str, type_: ItemType, order_name: str | None, user_id: int, dry_run: bool,
+    color_films: dict[str, int] | None = None, colors_out: list | None = None,
 ) -> tuple[list[ImportRow], list[str], ProductionOrder | None]:
     """dry_run — только предпросмотр. Иначе — позиции по типу и черновик
     заказа; если хоть одна строка с ошибкой — ничего не создаётся."""
     rows, parse_errors = parse_pasted_schedule(text)
+    # выбранная в окне импорта плёнка: цвет графика → позиция плёнки
+    choices = {_norm_color(k): v for k, v in (color_films or {}).items()}
+    seen_colors: dict[str, int] = {}
     out: list[ImportRow] = []
     values_by_row: list[dict[int, object]] = []
     for r in rows:
@@ -178,7 +266,10 @@ def import_schedule(
             invoice_no=r.invoice_no, ship_date=r.ship_date.isoformat() if r.ship_date else None,
         )
         _ROW_NOTES.clear()
-        values, errors = _values_for_row(type_, r, db)
+        values, errors = _values_for_row(type_, r, db, choices)
+        c = color_from_name(r.name_text, r.color_text)
+        if c:
+            seen_colors[c] = seen_colors.get(c, 0) + 1
         ir.errors.extend(errors)
         ir.notes.extend(_ROW_NOTES)
         if not errors:
@@ -191,6 +282,10 @@ def import_schedule(
                 ir.item_id = existing.id if existing else None
         out.append(ir)
         values_by_row.append(values)
+    if colors_out is not None:
+        prop = next((p for p in type_.properties if p.code == "цвет"), None)
+        if prop is not None and prop.value_type == "list":
+            colors_out.extend(_color_films(db, prop, seen_colors))
     if dry_run or not rows or parse_errors or any(r.errors for r in out):
         return out, parse_errors, None
 

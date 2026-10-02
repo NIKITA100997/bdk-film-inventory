@@ -303,6 +303,7 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
 COLOR_CODE = "цвет"
 FILM_MATERIAL = "материал_плёнки"
 FILM_COLOR = "цвет_плёнки"
+FILM_THICKNESS = "толщина_плёнки"  # мм; пусто — любая толщина этой плёнки
 
 
 def _norm(s: str) -> str:
@@ -327,6 +328,7 @@ def film_candidates(db: Session, color_value: str):
     if opt is None:
         return []
     material, color = str(opt.params.get(FILM_MATERIAL) or ""), str(opt.params[FILM_COLOR])
+    thickness = opt.params.get(FILM_THICKNESS)
     skus = (
         db.query(MaterialSku)
         .join(Color, Color.id == MaterialSku.color_id)
@@ -339,6 +341,7 @@ def film_candidates(db: Session, color_value: str):
         for s in skus
         if _norm(s.color.name) == _norm(color)
         and (not material or _norm(s.material.name) == _norm(material) or _norm(s.material.name).startswith(_norm(material) + " "))
+        and (thickness in (None, "") or abs(float(s.thickness.value_mm) - float(thickness)) < 1e-6)
     ]
 
 

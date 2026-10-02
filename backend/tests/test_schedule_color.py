@@ -78,6 +78,6 @@ def test_film_picked_like_okutka_tasks():
 
     idx = _index(("ПЭТ 2Д", "Белый"), ("ПЭТ 3Д", "Белый"), ("ПЭТ 2Д", "Бежевый"), ("Полипропилен", "Аляска"))
     # ПЭТ 2Д и 3Д одного цвета — материал «ПЭТ», тип решается у детали
-    assert film_for_color(None, "ПЭТ Белый", idx) == ("ПЭТ", "Белый")
-    assert film_for_color(None, "Полипропилен Аляска", idx) == ("Полипропилен", "Аляска")
+    assert film_for_color(None, "ПЭТ Белый", idx) == ("ПЭТ", "Белый", 0.14)
+    assert film_for_color(None, "Полипропилен Аляска", idx) == ("Полипропилен", "Аляска", 0.14)
     assert film_for_color(None, "Bolton Oak", idx) is None
