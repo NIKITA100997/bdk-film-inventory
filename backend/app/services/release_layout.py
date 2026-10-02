@@ -48,7 +48,8 @@ def _film_stock_m(db: Session, area: str, spec: tuple[int, int, int], min_width:
 
 
 def build_release_layout(
-    db: Session, order: ProductionOrder, picks: list[PfPick], user_id: int, overrides=None, user_name: str = ""
+    db: Session, order: ProductionOrder, picks: list[PfPick], user_id: int, overrides=None, user_name: str = "",
+    area_dates: dict | None = None, shift_days: int = 0, shift_next: bool = True,
 ) -> dict:
     """Запустить заказ (без commit) и описать результат. Вызывающий код
     обязан сделать db.rollback()."""
@@ -58,6 +59,11 @@ def build_release_layout(
     release_pf(db, order, tasks, picks, user_id)
     override_errors = apply_overrides(db, order, overrides or [], user_name)
     sched = schedule_order(db, order, user_id)
+    if area_dates or shift_days:
+        from app.services.planning import apply_release_dates, order_plan_status
+
+        apply_release_dates(db, order, area_dates or {}, shift_days, user_id, shift_next)
+        sched = order_plan_status(db, order)
     db.flush()
 
     areas = {a.code: a for a in db.query(Area)}

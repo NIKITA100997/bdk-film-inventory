@@ -4,6 +4,7 @@ import {
   Alert,
   Button,
   Checkbox,
+  DatePicker,
   Empty,
   Form,
   Input,
@@ -23,6 +24,7 @@ import {
   getReleaseLayout,
   type LineOverride,
   type PfPick,
+  type ReleasePlan,
   type ProductionOrder,
   type ReleaseLayoutRow,
   type ReleaseLayoutSheet,
@@ -157,10 +159,15 @@ function SheetTable({
   sheet,
   overrides,
   onEdit,
+  date,
+  onDate,
 }: {
   sheet: ReleaseLayoutSheet;
   overrides: Overrides;
   onEdit: (row: Agg) => void;
+  // ручной срок участка: всё по нему — на этот день (следующие — за ним)
+  date: string | undefined;
+  onDate: (d: string | null) => void;
 }) {
   const [mode, setMode] = useState<"sum" | "rows">("sum");
   const hasFilm = sheet.rows.some((r) => r.film);
@@ -199,6 +206,16 @@ function SheetTable({
           Всего {sheet.total} шт · срок {period(sheet.date_from, sheet.date_to)}
           {sheet.cut_on_site && " · плёнку режут на участке — выдаётся рулон целиком"}
         </Typography.Text>
+        <Space size={4}>
+          <Typography.Text>Поставить участок на дату:</Typography.Text>
+          <DatePicker
+            size="small"
+            format="DD.MM.YYYY"
+            value={date ? dayjs(date) : null}
+            onChange={(v) => onDate(v ? v.format("YYYY-MM-DD") : null)}
+          />
+          {date && <Tag color="orange">срок вручную</Tag>}
+        </Space>
       </Space>
       <Table<Agg>
         size="small"
@@ -279,18 +296,23 @@ export default function ReleaseLayoutModal({
   picks,
   overrides,
   onOverridesChange,
+  plan,
+  onPlanChange,
   onClose,
 }: {
   order: ProductionOrder;
   picks: PfPick[];
   overrides: Overrides;
   onOverridesChange: (next: Overrides) => void;
+  plan: ReleasePlan;
+  onPlanChange: (next: ReleasePlan) => void;
   onClose: () => void;
 }) {
   const list = Object.values(overrides);
+  const [shiftDraft, setShiftDraft] = useState<number | null>(plan.shift_days || null);
   const q = useQuery({
-    queryKey: ["release-layout", order.id, JSON.stringify(picks), JSON.stringify(list)],
-    queryFn: () => getReleaseLayout(order.id, picks, list),
+    queryKey: ["release-layout", order.id, JSON.stringify(picks), JSON.stringify(list), JSON.stringify(plan)],
+    queryFn: () => getReleaseLayout(order.id, picks, list, plan),
     staleTime: 0,
     gcTime: 0,
     placeholderData: (prev) => prev,
@@ -330,6 +352,29 @@ export default function ReleaseLayoutModal({
               Ничего не запущено — это проверка. Правки уйдут в задания при запуске (кнопкой в окне запуска).
             </Typography.Text>
           </Space>
+          <Space wrap>
+            <Typography.Text>Весь заказ: сдвинуть на</Typography.Text>
+            <InputNumber size="small" style={{ width: 80 }} value={shiftDraft} onChange={setShiftDraft} placeholder="±дн." />
+            <Typography.Text>рабочих дней</Typography.Text>
+            <Button size="small" onClick={() => onPlanChange({ ...plan, shift_days: shiftDraft ?? 0 })}>
+              Применить
+            </Button>
+            {plan.shift_days !== 0 && <Tag color="orange">заказ сдвинут на {plan.shift_days} раб. дн.</Tag>}
+            <Checkbox checked={plan.shift_next} onChange={(e) => onPlanChange({ ...plan, shift_next: e.target.checked })}>
+              при переносе участка сдвигать следующие этапы
+            </Checkbox>
+            {(Object.keys(plan.dates).length > 0 || plan.shift_days !== 0) && (
+              <Button
+                size="small"
+                onClick={() => {
+                  setShiftDraft(null);
+                  onPlanChange({ ...plan, dates: {}, shift_days: 0 });
+                }}
+              >
+                Сбросить сроки
+              </Button>
+            )}
+          </Space>
           {lay.warnings.length > 0 ? (
             <Alert
               type="warning"
@@ -356,7 +401,20 @@ export default function ReleaseLayoutModal({
                     {s.name} <Typography.Text type="secondary">{s.total}</Typography.Text>
                   </span>
                 ),
-                children: <SheetTable sheet={s} overrides={overrides} onEdit={(row) => setEditing({ row, sheet: s })} />,
+                children: (
+                  <SheetTable
+                    sheet={s}
+                    overrides={overrides}
+                    onEdit={(row) => setEditing({ row, sheet: s })}
+                    date={plan.dates[s.area]}
+                    onDate={(dt) => {
+                      const dates = { ...plan.dates };
+                      if (dt) dates[s.area] = dt;
+                      else delete dates[s.area];
+                      onPlanChange({ ...plan, dates });
+                    }}
+                  />
+                ),
               })),
               {
                 key: "_film",

@@ -8,6 +8,8 @@ import {
   getReleasePreview,
   releaseProductionOrder,
   type LineOverride,
+  type ReleasePlan,
+  EMPTY_PLAN,
   type PfNeed,
   type ProductionOrder,
 } from "../../../api/productionOrders";
@@ -80,8 +82,11 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
   const [layoutPicks, setLayoutPicks] = useState<ReturnType<typeof buildPicks> | null>(null);
   // Ручные правки из раскладки — уходят в задания при запуске.
   const [overrides, setOverrides] = useState<Record<string, LineOverride>>({});
+  // Ручные сроки из раскладки — уходят в план при запуске.
+  const [plan, setPlan] = useState<ReleasePlan>(EMPTY_PLAN);
+  const planCount = Object.keys(plan.dates).length + (plan.shift_days ? 1 : 0);
   const mutation = useMutation({
-    mutationFn: () => releaseProductionOrder(order.id, buildPicks(), Object.values(overrides)),
+    mutationFn: () => releaseProductionOrder(order.id, buildPicks(), Object.values(overrides), plan),
     onSuccess: (o) => {
       for (const k of [["production-orders"], ["production-tasks"], ["pf-demand"], ["plan-board"]]) qc.invalidateQueries({ queryKey: k });
       message.success(
@@ -111,7 +116,9 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
         <Space wrap style={{ justifyContent: "flex-end" }}>
           <CancelBtn />
           <Button disabled={unassigned.length > 0 || previewQuery.isLoading} onClick={() => setLayoutPicks(buildPicks())}>
-            {Object.keys(overrides).length ? `Раскладка и правки (${Object.keys(overrides).length})` : "Проверить раскладку по участкам"}
+            {Object.keys(overrides).length + planCount
+              ? `Раскладка: правок ${Object.keys(overrides).length}, сроков ${planCount}`
+              : "Проверить раскладку по участкам"}
           </Button>
           <OkBtn />
         </Space>
@@ -123,6 +130,8 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
           picks={layoutPicks}
           overrides={overrides}
           onOverridesChange={setOverrides}
+          plan={plan}
+          onPlanChange={setPlan}
           onClose={() => setLayoutPicks(null)}
         />
       )}

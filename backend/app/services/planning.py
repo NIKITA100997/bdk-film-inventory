@@ -587,3 +587,17 @@ def shift_order(db: Session, order: ProductionOrder, days: int) -> int:
         n += 1
     db.flush()
     return n
+
+
+
+def apply_release_dates(db: Session, order: ProductionOrder, area_dates: dict[str, date], shift_days: int, user_id: int, shift_next: bool = True) -> None:
+    """Ручные сроки, заданные до запуска (в раскладке): весь заказ — сдвиг
+    на N рабочих дней, затем участок — на дату (все его задания заказа),
+    следующие этапы — за ним. Вызывается сразу после schedule_order."""
+    if shift_days:
+        shift_order(db, order, shift_days)
+    if not area_dates:
+        return
+    for t in db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).order_by(ProductionTask.id):
+        if t.area in area_dates:
+            set_task_date(db, t, area_dates[t.area], user_id, shift_next)

@@ -653,9 +653,18 @@ class LineOverrideIn(BaseModel):
     skip: bool = False
 
 
+class AreaDateIn(BaseModel):
+    area: str
+    date: date
+
+
 class ReleaseIn(BaseModel):
     pf: list[PfPickIn] = []
     overrides: list[LineOverrideIn] = []
+    # Ручные сроки до запуска: участок — на дату, весь заказ — сдвиг.
+    dates: list[AreaDateIn] = []
+    shift_days: int = 0
+    shift_next: bool = True
 
 
 @router.post("/production-orders/{order_id}/release", response_model=OrderOut)
@@ -676,6 +685,10 @@ def release(
             if errs:
                 raise OrderError("; ".join(errs))
         schedule_order(db, order, user.id)
+        if payload and (payload.dates or payload.shift_days):
+            from app.services.planning import apply_release_dates
+
+            apply_release_dates(db, order, {d.area: d.date for d in payload.dates}, payload.shift_days, user.id, payload.shift_next)
     except OrderError as e:
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
@@ -701,6 +714,9 @@ def release_layout(
             db, order, [PfPick(**p.model_dump()) for p in (payload.pf if payload else [])], user.id,
             overrides=[LineOverride(**o.model_dump()) for o in (payload.overrides if payload else [])],
             user_name=user.full_name or user.username,
+            area_dates={d.area: d.date for d in (payload.dates if payload else [])},
+            shift_days=payload.shift_days if payload else 0,
+            shift_next=payload.shift_next if payload else True,
         )
     except OrderError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e

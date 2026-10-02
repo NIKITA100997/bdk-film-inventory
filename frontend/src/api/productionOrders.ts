@@ -210,8 +210,24 @@ export interface ReleaseLayout {
   late: boolean;
   doors: number;
 }
-export const getReleaseLayout = async (id: number, pf: PfPick[] = [], overrides: LineOverride[] = []): Promise<ReleaseLayout> =>
-  (await apiClient.post<ReleaseLayout>(`/production-orders/${id}/release-layout`, { pf, overrides })).data;
+/** Ручные сроки до запуска: участок — на дату, весь заказ — сдвиг на N рабочих дней. */
+export interface ReleasePlan {
+  dates: Record<string, string>; // участок → YYYY-MM-DD
+  shift_days: number;
+  shift_next: boolean;
+}
+export const EMPTY_PLAN: ReleasePlan = { dates: {}, shift_days: 0, shift_next: true };
+const planBody = (plan?: ReleasePlan) =>
+  plan
+    ? {
+        dates: Object.entries(plan.dates).map(([area, date]) => ({ area, date })),
+        shift_days: plan.shift_days,
+        shift_next: plan.shift_next,
+      }
+    : {};
+
+export const getReleaseLayout = async (id: number, pf: PfPick[] = [], overrides: LineOverride[] = [], plan?: ReleasePlan): Promise<ReleaseLayout> =>
+  (await apiClient.post<ReleaseLayout>(`/production-orders/${id}/release-layout`, { pf, overrides, ...planBody(plan) })).data;
 
 /** Лист печати заданий — участок со строками выбранных заданий. */
 export interface TaskPrintSheet {
@@ -243,8 +259,13 @@ export const setOrderPlanDates = async (
   payload: { tasks?: { task_id: number; date: string }[]; shift_days?: number; shift_next?: boolean },
 ): Promise<ProductionOrder> => (await apiClient.post<ProductionOrder>(`/production-orders/${orderId}/plan-dates`, payload)).data;
 
-export const releaseProductionOrder = async (id: number, pf: PfPick[] = [], overrides: LineOverride[] = []): Promise<ProductionOrder> =>
-  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/release`, { pf, overrides })).data;
+export const releaseProductionOrder = async (
+  id: number,
+  pf: PfPick[] = [],
+  overrides: LineOverride[] = [],
+  plan?: ReleasePlan,
+): Promise<ProductionOrder> =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/release`, { pf, overrides, ...planBody(plan) })).data;
 
 /** Закрыть как сделанный полностью, без отчётов (плёнку не трогает). */
 export const completeProductionOrder = async (id: number): Promise<ProductionOrder> =>
