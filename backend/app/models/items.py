@@ -244,6 +244,9 @@ class ItemPropertyOption(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("item_properties.id", ondelete="CASCADE"), index=True)
     value: Mapped[str] = mapped_column(String(128))
+    # Подпись для показа (03.10): значение — служебное, на него завязаны
+    # условия правил (кромка == "aluminum"), а людям — «алюминий».
+    label: Mapped[str | None] = mapped_column(String(128), nullable=True)
     params: Mapped[dict] = mapped_column(JSON, default=dict)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

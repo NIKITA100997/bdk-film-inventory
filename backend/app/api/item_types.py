@@ -49,6 +49,7 @@ class OptionField(BaseModel):
 class PropertyOptionIn(BaseModel):
     id: int | None = None
     value: str
+    label: str | None = None  # подпись для показа; пусто — само значение
     params: dict[str, float | str | None] = {}
     is_active: bool = True
 
@@ -154,7 +155,8 @@ def _property_out(db: Session, p: ItemProperty) -> PropertyOut:
         sort_order=p.sort_order, option_fields=[OptionField(**f) for f in (p.option_fields or [])],
         options=[
             PropertyOptionOut(
-                id=o.id, value=o.value, params=o.params or {}, is_active=o.is_active, used=used_by_option.get(o.id, 0)
+                id=o.id, value=o.value, label=o.label, params=o.params or {}, is_active=o.is_active,
+                used=used_by_option.get(o.id, 0),
             )
             for o in p.options
         ],
@@ -375,13 +377,14 @@ def replace_options(
     db.flush()
     for i, (o, value) in enumerate(zip(payload, values), start=1):
         params = {k: v for k, v in (o.params or {}).items() if k in field_codes and v not in (None, "")}
+        label = " ".join((o.label or "").split())[:128] or None
         if o.id is not None:
             opt = existing.get(o.id)
             if opt is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Вариант не найден")
-            opt.value, opt.params, opt.is_active, opt.sort_order = value, params, o.is_active, i
+            opt.value, opt.label, opt.params, opt.is_active, opt.sort_order = value, label, params, o.is_active, i
         else:
-            p.options.append(ItemPropertyOption(value=value, params=params, is_active=o.is_active, sort_order=i))
+            p.options.append(ItemPropertyOption(value=value, label=label, params=params, is_active=o.is_active, sort_order=i))
     db.commit()
     db.refresh(p)
     return _property_out(db, p)

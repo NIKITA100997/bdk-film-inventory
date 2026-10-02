@@ -499,17 +499,17 @@ function PropertyModal({
   );
 }
 
-type OptionDraft = { id?: number; value: string; params: Record<string, number | string | null>; is_active: boolean; used: number };
+type OptionDraft = { id?: number; value: string; label?: string | null; params: Record<string, number | string | null>; is_active: boolean; used: number };
 
 function OptionsModal({ prop, onClose, onSaved }: { prop: ItemProperty; onClose: () => void; onSaved: () => void }) {
   const [rows, setRows] = useState<OptionDraft[]>(
-    prop.options.map((o) => ({ id: o.id, value: o.value, params: { ...o.params }, is_active: o.is_active, used: o.used })),
+    prop.options.map((o) => ({ id: o.id, value: o.value, label: o.label, params: { ...o.params }, is_active: o.is_active, used: o.used })),
   );
   const mutation = useMutation({
     mutationFn: () =>
       replacePropertyOptions(
         prop.id,
-        rows.map((r) => ({ id: r.id ?? null, value: r.value, params: r.params, is_active: r.is_active })),
+        rows.map((r) => ({ id: r.id ?? null, value: r.value, label: r.label || null, params: r.params, is_active: r.is_active })),
       ),
     onSuccess: () => {
       onSaved();
@@ -541,6 +541,21 @@ function OptionsModal({ prop, onClose, onSaved }: { prop: ItemProperty; onClose:
           {
             title: "Вариант",
             render: (_, r, i) => <Input value={r.value} style={{ width: 160 }} onChange={(e) => patch(i, { value: e.target.value })} />,
+          },
+          {
+            title: (
+              <span title="Как вариант показывать людям. Значение остаётся для формул и условий правил (кромка == &quot;aluminum&quot;).">
+                Подпись
+              </span>
+            ),
+            render: (_, r, i) => (
+              <Input
+                value={r.label ?? ""}
+                placeholder={r.value}
+                style={{ width: 140 }}
+                onChange={(e) => patch(i, { label: e.target.value })}
+              />
+            ),
           },
           ...prop.option_fields.map((f) => ({
             title: f.name,

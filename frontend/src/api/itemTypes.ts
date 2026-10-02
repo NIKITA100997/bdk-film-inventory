@@ -15,6 +15,8 @@ export interface OptionField {
 export interface PropertyOption {
   id: number;
   value: string;
+  /** Подпись для показа (служебное значение «aluminum» → «алюминий»). */
+  label?: string | null;
   params: Record<string, number | string | null>;
   is_active: boolean;
   used: number;
@@ -122,7 +124,13 @@ export const deleteProperty = async (id: number): Promise<void> => {
 
 export const replacePropertyOptions = async (
   id: number,
-  options: { id?: number | null; value: string; params: Record<string, number | string | null>; is_active: boolean }[],
+  options: {
+    id?: number | null;
+    value: string;
+    label?: string | null;
+    params: Record<string, number | string | null>;
+    is_active: boolean;
+  }[],
 ): Promise<ItemProperty> => (await apiClient.put<ItemProperty>(`/item-properties/${id}/options`, options)).data;
 
 /** Один новый вариант списка (цвет двери из плёнки); такой уже есть — вернёт его. */

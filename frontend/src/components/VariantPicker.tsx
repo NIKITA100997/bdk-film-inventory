@@ -120,7 +120,7 @@ export default function VariantPicker({
                         style={{ width: 320 }}
                         value={(v as number | null) ?? undefined}
                         onChange={(nv) => set(nv ?? null)}
-                        options={p.options.filter((o) => o.is_active).map((o) => ({ value: o.id, label: optionLabel(o.value) }))}
+                        options={p.options.filter((o) => o.is_active).map((o) => ({ value: o.id, label: optionLabel(o) }))}
                       />
                       {isFilmColorProperty(p) && <NewFilmColorButton property={p} onCreated={(id) => set(id)} />}
                     </Space>

@@ -501,7 +501,6 @@ def ensure_item(db: Session, type_: ItemType, values: dict[int, object]) -> tupl
     return item, True, []
 
 
-_OPTION_LABELS = {"abs": "ABS", "aluminum": "алюминий"}
 
 
 def item_chars(db: Session, item: Item) -> list[dict]:
@@ -518,7 +517,7 @@ def item_chars(db: Session, item: Item) -> list[dict]:
             continue
         if p.value_type == "list":
             opt = db.get(ItemPropertyOption, v)
-            text = _OPTION_LABELS.get(opt.value, opt.value) if opt else None
+            text = (opt.label or opt.value) if opt else None
         elif p.value_type == "bool":
             text = "да"
         elif p.value_type == "number":

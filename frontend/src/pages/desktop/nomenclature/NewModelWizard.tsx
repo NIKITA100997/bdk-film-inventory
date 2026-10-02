@@ -27,6 +27,7 @@ import { isFilmColorProperty, listItemTypes, type ItemProperty, type ItemType, t
 import NewFilmColorButton from "../../../components/NewFilmColorButton";
 import { createModel, getTypeHints, previewTree, variantsBatch, type Hint, type VariantRow } from "../../../api/modelBuilder";
 import TechTree from "../../../components/TechTree";
+import { optionLabel } from "../../../utils/optionLabel";
 
 function apiErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -351,7 +352,7 @@ function ModelStep({
             placeholder={`${modelProp.name}…`}
             value={existing}
             onChange={setExisting}
-            options={options.map((o) => ({ value: o.id, label: `${o.value}${o.used ? ` (вариантов: ${o.used})` : ""}` }))}
+            options={options.map((o) => ({ value: o.id, label: `${optionLabel(o)}${o.used ? ` (вариантов: ${o.used})` : ""}` }))}
           />
           <Button type="primary" disabled={!existing} onClick={() => existing && onDone(existing)}>
             Дальше: варианты
@@ -391,7 +392,7 @@ function ModelStep({
                     const o = options.find((x) => x.id === id);
                     if (o) setParams((prev) => ({ ...prev, ...o.params }));
                   }}
-                  options={options.map((o) => ({ value: o.id, label: o.value }))}
+                  options={options.map((o) => ({ value: o.id, label: optionLabel(o) }))}
                 />
               </Space>
               {modelProp.option_fields.map((f) => (
@@ -463,7 +464,7 @@ function VariantChoices({
         .map((p) => {
           const vals = choices[p.id] ?? [];
           const hint = hints[p.id] ?? [];
-          const optLabel = (v: PropertyValue) => p.options.find((o) => o.id === v)?.value ?? String(v);
+          const optLabel = (v: PropertyValue) => (p.options.find((o) => o.id === v) ? optionLabel(p.options.find((o) => o.id === v)) : String(v));
           return (
             <div key={p.id} data-prop={p.code}>
               <Typography.Text strong>
@@ -490,7 +491,7 @@ function VariantChoices({
                       style={{ width: "100%" }}
                       value={vals as number[]}
                       onChange={(v) => set(p.id, v)}
-                      options={p.options.filter((o) => o.is_active).map((o) => ({ value: o.id, label: o.value }))}
+                      options={p.options.filter((o) => o.is_active).map((o) => ({ value: o.id, label: optionLabel(o) }))}
                       placeholder="Выберите"
                     />
                     {isFilmColorProperty(p) && <NewFilmColorButton property={p} onCreated={(id) => add(p.id, id)} />}

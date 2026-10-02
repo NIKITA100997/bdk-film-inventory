@@ -34,7 +34,7 @@ export default function PropertyInputs({
                 style={{ width: 260 }}
                 value={(v as number | null) ?? undefined}
                 onChange={(nv) => set(nv ?? null)}
-                options={p.options.filter((o) => o.is_active || o.id === v).map((o) => ({ value: o.id, label: optionLabel(o.value) }))}
+                options={p.options.filter((o) => o.is_active || o.id === v).map((o) => ({ value: o.id, label: optionLabel(o) }))}
               />
             )}
           </Form.Item>

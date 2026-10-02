@@ -1,5 +1,5 @@
-/** Подпись варианта свойства: служебные значения (на них завязаны условия
- * правил типа — `кромка == "aluminum"`) показываем по-русски. */
-const LABELS: Record<string, string> = { abs: "ABS", aluminum: "алюминий" };
-
-export const optionLabel = (value: string | null | undefined): string => (value ? (LABELS[value] ?? value) : "—");
+/** Подпись варианта свойства: своя подпись варианта (настраивается в
+ * «Варианты» свойства), иначе значение. Значение бывает служебным — на него
+ * завязаны условия правил типа (`кромка == "aluminum"`). */
+export const optionLabel = (opt: { value: string; label?: string | null } | null | undefined): string =>
+  opt ? opt.label || opt.value : "—";
