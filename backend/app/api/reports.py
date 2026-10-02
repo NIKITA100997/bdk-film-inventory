@@ -777,6 +777,19 @@ def output_report_endpoint(
     return output_report(db, date_from, date_to, area)
 
 
+@router.get("/daily-output")
+def daily_output_endpoint(
+    date_from: dt.date = Query(...),
+    date_to: dt.date = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("reports.view")),
+) -> dict:
+    """Ежедневная выработка по всем участкам и складу плёнки."""
+    from app.services.production_economics import daily_output
+
+    return daily_output(db, date_from, date_to)
+
+
 @router.get("/write-offs", response_model=list[WriteOffLine])
 def write_offs(
     date_from: dt.date = Query(...),

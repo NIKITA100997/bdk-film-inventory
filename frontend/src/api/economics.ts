@@ -45,3 +45,23 @@ type Period = { date_from: string; date_to: string; area?: string };
 export const getFilmPlanFact = async (p: Period): Promise<FilmPlanFactRow[]> =>
   (await apiClient.get<FilmPlanFactRow[]>("/reports/film-plan-fact", { params: p })).data;
 export const getOutput = async (p: Period): Promise<OutputRow[]> => (await apiClient.get<OutputRow[]>("/reports/output", { params: p })).data;
+
+/** Ежедневная выработка: участки (годные/брак) и склад плёнки (операции/метры). */
+export interface DailyCell {
+  value: number;
+  extra: number;
+  users: { user: string; value: number; extra: number }[];
+}
+export interface DailyRow {
+  group: "production" | "warehouse";
+  key: string;
+  label: string;
+  value_label: string;
+  extra_label: string;
+  capacity: number | null;
+  by_day: Record<string, DailyCell>;
+  total: number;
+  total_extra: number;
+}
+export const getDailyOutput = async (p: { date_from: string; date_to: string }): Promise<{ days: string[]; rows: DailyRow[] }> =>
+  (await apiClient.get<{ days: string[]; rows: DailyRow[] }>("/reports/daily-output", { params: p })).data;

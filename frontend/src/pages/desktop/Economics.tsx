@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
+import "dayjs/locale/ru";
 import { Alert, Card, Col, DatePicker, Row, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { getFilmPlanFact, getOutput, type FilmPlanFactRow, type OutputRow } from "../../api/economics";
+import { getDailyOutput, getFilmPlanFact, getOutput, type DailyRow, type FilmPlanFactRow, type OutputRow } from "../../api/economics";
 import { listAreas } from "../../api/areas";
 import Statistic from "../../components/Statistic";
 
@@ -158,7 +159,7 @@ function OutputTab({ rows, loading }: { rows: OutputRow[]; loading: boolean }) {
     const m = new Map<string, { key: string; label: string; good: number; defect: number; reports: number; days: Set<string>; capacity: number | null }>();
     for (const r of rows) {
       const key = by === "user" ? r.user : by === "area" ? r.area_name : r.date;
-      const a = m.get(key) ?? { key, label: by === "date" ? dayjs(key).format("DD.MM.YYYY, dd") : key, good: 0, defect: 0, reports: 0, days: new Set<string>(), capacity: by === "area" ? r.capacity : null };
+      const a = m.get(key) ?? { key, label: by === "date" ? dayjs(key).locale("ru").format("DD.MM.YYYY, dd") : key, good: 0, defect: 0, reports: 0, days: new Set<string>(), capacity: by === "area" ? r.capacity : null };
       a.good += r.good;
       a.defect += r.defect;
       a.reports += r.reports;
@@ -220,6 +221,100 @@ function OutputTab({ rows, loading }: { rows: OutputRow[]; loading: boolean }) {
   );
 }
 
+/** Ежедневная выработка: строки — участки и работы склада плёнки, столбцы —
+ * дни; клик по ячейке — кто сколько сделал в этот день. */
+function DailyTab({ days, rows, loading }: { days: string[]; rows: DailyRow[]; loading: boolean }) {
+  const [sel, setSel] = useState<{ row: DailyRow; day: string } | null>(null);
+  const fmtCell = (r: DailyRow, v: number, x: number) =>
+    r.group === "production" ? (
+      <Space direction="vertical" size={0}>
+        <b>{f1(v)}</b>
+        {x > 0 && <Typography.Text type="danger" style={{ fontSize: 11 }}>брак {f1(x)}</Typography.Text>}
+      </Space>
+    ) : (
+      <Space direction="vertical" size={0}>
+        <b>{f1(v)}</b>
+        {x > 0 && <Typography.Text type="secondary" style={{ fontSize: 11 }}>{r.extra_label === "метров" ? `${f1(x)} м` : `${f1(x)} ед.`}</Typography.Text>}
+      </Space>
+    );
+  const data: (DailyRow | { key: string; header: string })[] = [];
+  const prod = rows.filter((r) => r.group === "production");
+  const wh = rows.filter((r) => r.group === "warehouse");
+  if (prod.length) data.push({ key: "h-prod", header: "Производство — годных, шт (брак)" }, ...prod);
+  if (wh.length) data.push({ key: "h-wh", header: "Склад плёнки — операций (метров / единиц)" }, ...wh);
+  const isHead = (r: DailyRow | { key: string; header: string }): r is { key: string; header: string } => "header" in r;
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Table
+        size="small"
+        rowKey="key"
+        loading={loading}
+        dataSource={data}
+        pagination={false}
+        scroll={{ x: "max-content" }}
+        locale={{ emptyText: "За период отчётов и операций нет" }}
+        columns={[
+          {
+            title: "Участок / работа",
+            fixed: "left",
+            onCell: (r) => (isHead(r) ? { colSpan: days.length + 2 } : {}),
+            render: (_, r) =>
+              isHead(r) ? (
+                <Typography.Text strong>{r.header}</Typography.Text>
+              ) : (
+                <Space direction="vertical" size={0}>
+                  <span>{r.label}</span>
+                  {r.capacity ? <Typography.Text type="secondary" style={{ fontSize: 11 }}>мощность {f1(r.capacity)} в день</Typography.Text> : null}
+                </Space>
+              ),
+          },
+          {
+            title: "Итого",
+            onCell: (r) => (isHead(r) ? { colSpan: 0 } : {}),
+            render: (_, r) => (isHead(r) ? null : fmtCell(r, r.total, r.total_extra)),
+          },
+          ...days.map((d) => ({
+            title: dayjs(d).locale("ru").format("DD.MM dd"),
+            align: "right" as const,
+            onCell: (r: DailyRow | { key: string; header: string }) => {
+              if (isHead(r)) return { colSpan: 0 };
+              const c = r.by_day[d];
+              const over = r.capacity && c ? c.value > r.capacity : false;
+              return {
+                onClick: c ? () => setSel({ row: r, day: d }) : undefined,
+                style: {
+                  cursor: c ? "pointer" : undefined,
+                  background: sel && sel.row.key === r.key && sel.day === d ? "rgba(200,120,40,.15)" : over ? "rgba(46,125,74,.08)" : undefined,
+                },
+              };
+            },
+            render: (_: unknown, r: DailyRow | { key: string; header: string }) => {
+              if (isHead(r)) return null;
+              const c = r.by_day[d];
+              return c ? fmtCell(r, c.value, c.extra) : <Typography.Text type="secondary">—</Typography.Text>;
+            },
+          })),
+        ]}
+      />
+      {sel && (
+        <Card size="small" title={`${sel.row.label} — ${dayjs(sel.day).locale("ru").format("DD.MM.YYYY, dddd")}`}>
+          <Table
+            size="small"
+            rowKey="user"
+            pagination={false}
+            dataSource={sel.row.by_day[sel.day]?.users ?? []}
+            columns={[
+              { title: "Сотрудник", dataIndex: "user" },
+              { title: sel.row.value_label, align: "right", render: (_, u) => f1(u.value) },
+              { title: sel.row.extra_label, align: "right", render: (_, u) => f1(u.extra) },
+            ]}
+          />
+        </Card>
+      )}
+    </Space>
+  );
+}
+
 /** Экономика производства (02.10): план/факт плёнки против норм и выработка.
  * Себестоимость (материалы, труд) — когда появятся цены материалов и ставки. */
 export default function Economics() {
@@ -229,6 +324,10 @@ export default function Economics() {
   const p = { date_from: range[0].format("YYYY-MM-DD"), date_to: range[1].format("YYYY-MM-DD"), area };
   const film = useQuery({ queryKey: ["economics", "film", p], queryFn: () => getFilmPlanFact(p) });
   const out = useQuery({ queryKey: ["economics", "output", p], queryFn: () => getOutput(p) });
+  const daily = useQuery({
+    queryKey: ["economics", "daily", p.date_from, p.date_to],
+    queryFn: () => getDailyOutput({ date_from: p.date_from, date_to: p.date_to }),
+  });
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Card title="Экономика производства">
@@ -242,11 +341,16 @@ export default function Economics() {
             onChange={setArea}
             options={(areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }))}
           />
-          <Typography.Text type="secondary">Период — по датам отчётов мастеров.</Typography.Text>
+          <Typography.Text type="secondary">Период — по датам отчётов мастеров и операций склада.</Typography.Text>
         </Space>
       </Card>
       <Tabs
         items={[
+          {
+            key: "daily",
+            label: "По дням",
+            children: <DailyTab days={daily.data?.days ?? []} rows={daily.data?.rows ?? []} loading={daily.isLoading} />,
+          },
           { key: "film", label: "План/факт плёнки", children: <FilmTab rows={film.data ?? []} loading={film.isLoading} /> },
           { key: "output", label: "Выработка", children: <OutputTab rows={out.data ?? []} loading={out.isLoading} /> },
         ]}

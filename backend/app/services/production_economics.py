@@ -206,3 +206,114 @@ def output_report(db: Session, date_from: date, date_to: date, area: str | None 
             "defect_pct": round(r["defect"] / total * 100, 1) if total else 0.0,
         })
     return sorted(out, key=lambda r: (r["date"], r["area_name"], r["user"]), reverse=True)
+
+
+# Склад плёнки — какие операции журнала считаем выработкой и как называем.
+_WAREHOUSE_OPS = [
+    ("receipt", "Приёмка", ("PRIHOD",)),
+    ("cut", "Резка (продольная и раскрой)", ("PRODOLNAYA_REZKA", "RASKROY")),
+    ("issue", "Выдача участку", ("VYDACHA_UCHASTKU",)),
+    ("return", "Возврат с участка", ("VOZVRAT",)),
+    ("transfer_out", "Перемещение — отправлено", ("PEREMESHCHENIE_NACHATO",)),
+    ("transfer_in", "Перемещение — принято", ("PEREMESHCHENIE_PRINYATO",)),
+    ("writeoff", "Списание", ("SPISANIE",)),
+    ("inventory", "Инвентаризация", (
+        "INVENTARIZATSIYA_PODTVERZHDENO", "INVENTARIZATSIYA_PEREMESHCHENO", "INVENTARIZATSIYA_IZLISHEK",
+        "INVENTARIZATSIYA_NEDOSTACHA", "INVENTARIZATSIYA_NEDOSTACHA_OSTAVLENO",
+    )),
+    ("adjust", "Корректировка", ("KORREKTIROVKA",)),
+]
+
+
+def daily_output(db: Session, date_from: date, date_to: date) -> dict:
+    """Ежедневная выработка по всем участкам и складу плёнки.
+
+    Производственные участки — по отчётам мастеров (годные, брак).
+    Склад плёнки — по журналу движений: операций (единиц) и метров по
+    каждому виду работы; у резки — число резок (операций) и полученных
+    единиц. В ячейке — итог за день и кто сколько сделал."""
+    from app.models.events import EventType, MaterialEvent
+
+    start, end = _period(date_from, date_to)
+    users = {u.id: (u.full_name or u.username) for u in db.query(User)}
+    areas = {x.code: x for x in db.query(Area)}
+    rows: dict[str, dict] = {}
+
+    def cell(row_key: str, day: str) -> dict:
+        return rows[row_key]["by_day"].setdefault(day, {"value": 0.0, "extra": 0.0, "users": defaultdict(lambda: [0.0, 0.0])})
+
+    # ── производство
+    for rep, ln, t in (
+        db.query(ProductionTaskLineReport, ProductionTaskLine, ProductionTask)
+        .join(ProductionTaskLine, ProductionTaskLine.id == ProductionTaskLineReport.task_line_id)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(ProductionTaskLineReport.reported_at >= start, ProductionTaskLineReport.reported_at <= end)
+    ):
+        g, d = float(rep.good_pieces), float(rep.defect_pieces or 0)
+        if (g == 0 and d == 0) or not rep.counts_toward_line or (rep.note or "").startswith("Закрыто: сделано полностью"):
+            continue
+        key = f"area:{t.area}"
+        area = areas.get(t.area)
+        rows.setdefault(key, {
+            "group": "production", "key": key, "label": area.name if area else t.area,
+            "value_label": "годных, шт", "extra_label": "брак, шт", "by_day": {},
+            "capacity": float(area.capacity_per_shift) * int(area.shifts_per_day or 1) if area and area.capacity_per_shift else None,
+        })
+        c = cell(key, rep.reported_at.astimezone().date().isoformat())
+        c["value"] += g
+        c["extra"] += d
+        u = c["users"][users.get(rep.reported_by, "—")]
+        u[0] += g
+        u[1] += d
+
+    # ── склад плёнки
+    op_of = {getattr(EventType, name): (k, label) for k, label, names in _WAREHOUSE_OPS for name in names}
+    cut_ops: dict[str, set] = defaultdict(set)
+    for ev in db.query(MaterialEvent).filter(
+        MaterialEvent.timestamp >= start, MaterialEvent.timestamp <= end, MaterialEvent.event_type.in_(list(op_of))
+    ):
+        k, label = op_of[ev.event_type]
+        key = f"wh:{k}"
+        rows.setdefault(key, {
+            "group": "warehouse", "key": key, "label": label,
+            "value_label": "резок" if k == "cut" else "операций", "extra_label": "единиц" if k == "cut" else "метров",
+            "by_day": {}, "capacity": None, "order": [o[0] for o in _WAREHOUSE_OPS].index(k),
+        })
+        day = ev.timestamp.astimezone().date().isoformat()
+        c = cell(key, day)
+        who = users.get(ev.user_id, "—")
+        if k == "cut":
+            # резка: операция одна, единиц из неё несколько
+            op_id = ev.cutting_operation_id or f"e{ev.event_id}"
+            if op_id not in cut_ops[f"{day}:{who}"]:
+                cut_ops[f"{day}:{who}"].add(op_id)
+                c["value"] += 1
+                c["users"][who][0] += 1
+            c["extra"] += 1
+            c["users"][who][1] += 1
+        else:
+            m = abs(float(ev.quantity_delta_m or 0))
+            c["value"] += 1
+            c["extra"] += m
+            c["users"][who][0] += 1
+            c["users"][who][1] += m
+
+    days = sorted({d for r in rows.values() for d in r["by_day"]}, reverse=True)
+    out = []
+    for r in rows.values():
+        by_day = {
+            d: {
+                "value": round(c["value"], 2), "extra": round(c["extra"], 2),
+                "users": sorted(({"user": n, "value": round(v[0], 2), "extra": round(v[1], 2)} for n, v in c["users"].items()), key=lambda x: -x["value"]),
+            }
+            for d, c in r["by_day"].items()
+        }
+        out.append({
+            **{k: v for k, v in r.items() if k not in ("by_day", "order")},
+            "by_day": by_day,
+            "total": round(sum(c["value"] for c in by_day.values()), 2),
+            "total_extra": round(sum(c["extra"] for c in by_day.values()), 2),
+            "_sort": (0, r["label"]) if r["group"] == "production" else (1, r.get("order", 99)),
+        })
+    out.sort(key=lambda r: r.pop("_sort"))
+    return {"days": days, "rows": out}
