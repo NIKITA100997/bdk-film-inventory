@@ -213,6 +213,36 @@ export interface ReleaseLayout {
 export const getReleaseLayout = async (id: number, pf: PfPick[] = [], overrides: LineOverride[] = []): Promise<ReleaseLayout> =>
   (await apiClient.post<ReleaseLayout>(`/production-orders/${id}/release-layout`, { pf, overrides })).data;
 
+/** Лист печати заданий — участок со строками выбранных заданий. */
+export interface TaskPrintSheet {
+  area: string;
+  area_name: string;
+  site: string | null;
+  total: number;
+  tasks: { id: number; name: string; order: string | null; ship_date: string | null }[];
+  rows: {
+    task_id: number;
+    name: string;
+    chars: ItemChar[];
+    invoice_no: string | null;
+    qty: number;
+    done: number;
+    film: string | null;
+    program: string | null;
+    instruction: string | null;
+    date_from: string | null;
+    date_to: string | null;
+  }[];
+}
+export const getTasksPrintData = async (taskIds: number[]): Promise<TaskPrintSheet[]> =>
+  (await apiClient.post<TaskPrintSheet[]>("/production-tasks/print-data", { task_ids: taskIds })).data;
+
+/** Ручные сроки: этап (задание) — на дату, весь заказ — сдвиг на N рабочих дней. */
+export const setOrderPlanDates = async (
+  orderId: number,
+  payload: { tasks?: { task_id: number; date: string }[]; shift_days?: number; shift_next?: boolean },
+): Promise<ProductionOrder> => (await apiClient.post<ProductionOrder>(`/production-orders/${orderId}/plan-dates`, payload)).data;
+
 export const releaseProductionOrder = async (id: number, pf: PfPick[] = [], overrides: LineOverride[] = []): Promise<ProductionOrder> =>
   (await apiClient.post<ProductionOrder>(`/production-orders/${id}/release`, { pf, overrides })).data;
 

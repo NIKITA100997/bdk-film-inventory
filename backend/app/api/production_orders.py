@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.security import require_permission
+from app.core.security import get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import PartStage
@@ -706,6 +706,54 @@ def release_layout(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     finally:
         db.rollback()
+
+
+class TaskDateIn(BaseModel):
+    task_id: int
+    date: date
+
+
+class PlanDatesIn(BaseModel):
+    """Ручные сроки: этап (задание участка) — на дату; весь заказ — сдвиг на
+    N рабочих дней. shift_next — следующие этапы сдвигаются за изменённым."""
+
+    tasks: list[TaskDateIn] = []
+    shift_days: int = 0
+    shift_next: bool = True
+
+
+@router.post("/production-orders/{order_id}/plan-dates", response_model=OrderOut)
+def set_plan_dates(order_id: int, payload: PlanDatesIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderOut:
+    from app.services.planning import set_task_date, shift_order
+
+    order = _get_order(db, order_id)
+    if order.status == ORDER_DRAFT:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Черновик ещё не запущен — сроков нет; дата отгрузки задаётся в заказе")
+    if payload.shift_days:
+        shift_order(db, order, payload.shift_days)
+    for td in payload.tasks:
+        task = db.get(ProductionTask, td.task_id)
+        if task is None or task.production_order_id != order.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание не из этого заказа")
+        set_task_date(db, task, td.date, user.id, payload.shift_next)
+    db.commit()
+    db.refresh(order)
+    return _order_out(db, order)
+
+
+class PrintTasksIn(BaseModel):
+    task_ids: list[int] = Field(min_length=1)
+
+
+@router.post("/production-tasks/print-data")
+def tasks_print_data(payload: PrintTasksIn, db: Session = Depends(get_db), user: User = Depends(view_orders)) -> list[dict]:
+    """Данные для пакетной печати заданий: лист на участок."""
+    from app.services.task_print import print_sheets
+
+    tasks = db.query(ProductionTask).filter(ProductionTask.id.in_(payload.task_ids)).all()
+    if user.area and not user.is_superuser and "production_tasks.manage" not in get_permission_codes(user):
+        tasks = [t for t in tasks if t.area == user.area]
+    return print_sheets(db, tasks)
 
 
 @router.post("/production-orders/{order_id}/schedule", response_model=OrderOut)

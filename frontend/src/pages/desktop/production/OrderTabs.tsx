@@ -1,13 +1,16 @@
-import { Empty, Progress, Space, Table, Tag, Typography } from "antd";
-import dayjs from "dayjs";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Button, Card, Checkbox, DatePicker, Empty, InputNumber, Progress, Space, Table, Tag, Typography, message } from "antd";
+import dayjs, { type Dayjs } from "dayjs";
+import { isAxiosError } from "axios";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "../../../auth/AuthContext";
 import {
   getTaskCard,
   listProductionTasks,
   type ProductionTask,
 } from "../../../api/production";
 import { listPlanSlots, type PlanSlot } from "../../../api/planning";
-import type { ProductionOrder } from "../../../api/productionOrders";
+import { setOrderPlanDates, type ProductionOrder } from "../../../api/productionOrders";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -208,7 +211,90 @@ export function OrderMaterials({
 }
 
 /** «План» заказа: дни из планировщика по всем участкам заказа. */
+/** Ручные сроки: этап (задание участка) — на дату, весь заказ — сдвиг на N
+ * рабочих дней; следующие этапы сдвигаются за изменённым (по галочке).
+ * Поставленное вручную пересчёт сроков не трогает. */
+function PlanDatesEditor({ order }: { order: ProductionOrder }) {
+  const qc = useQueryClient();
+  const [dates, setDates] = useState<Record<number, Dayjs | null>>({});
+  const [shift, setShift] = useState<number | null>(null);
+  const [shiftNext, setShiftNext] = useState(true);
+  const tasks = (order.tasks ?? []).filter((t) => t.is_active);
+  const done = () => {
+    for (const k of [["production-orders"], ["plan-slots"], ["plan-board"], ["order-readiness"], ["invoice-readiness"]]) qc.invalidateQueries({ queryKey: k });
+  };
+  const mutation = useMutation({
+    mutationFn: (payload: { tasks?: { task_id: number; date: string }[]; shift_days?: number }) =>
+      setOrderPlanDates(order.id, { ...payload, shift_next: shiftNext }),
+    onSuccess: (o) => {
+      done();
+      setDates({});
+      setShift(null);
+      message.success(o.plan_finish ? `Сроки обновлены — готово к ${dayjs(o.plan_finish).format("DD.MM")}` : "Сроки обновлены");
+    },
+    onError: (e) => message.error(isAxiosError(e) && typeof e.response?.data?.detail === "string" ? e.response.data.detail : "Не удалось поменять сроки"),
+  });
+  const fmt = (s?: string | null) => (s ? dayjs(s).format("DD.MM") : "—");
+  return (
+    <Card size="small" title="Сроки — вручную">
+      <Space direction="vertical" style={{ width: "100%" }}>
+        <Space wrap>
+          <Typography.Text>Весь заказ: сдвинуть на</Typography.Text>
+          <InputNumber value={shift} onChange={setShift} style={{ width: 90 }} placeholder="±дн." />
+          <Typography.Text>рабочих дней</Typography.Text>
+          <Button disabled={!shift} loading={mutation.isPending} onClick={() => mutation.mutate({ shift_days: shift ?? 0 })}>
+            Сдвинуть
+          </Button>
+          <Checkbox checked={shiftNext} onChange={(e) => setShiftNext(e.target.checked)}>
+            при переносе этапа сдвигать следующие за ним
+          </Checkbox>
+        </Space>
+        <Table
+          size="small"
+          rowKey="id"
+          pagination={false}
+          dataSource={tasks}
+          columns={[
+            {
+              title: "Этап (участок)",
+              render: (_, t) => (
+                <Space size={4}>
+                  {t.area_name ?? t.area}
+                  {t.for_task_id != null && <Tag>п/ф</Tag>}
+                </Space>
+              ),
+            },
+            { title: "Сейчас", render: (_, t) => (t.plan_from ? `${fmt(t.plan_from)}${t.plan_to && t.plan_to !== t.plan_from ? `–${fmt(t.plan_to)}` : ""}` : "не в плане") },
+            {
+              title: "Поставить на дату",
+              render: (_, t) => (
+                <Space>
+                  <DatePicker format="DD.MM.YYYY" value={dates[t.id] ?? null} onChange={(v) => setDates((d) => ({ ...d, [t.id]: v }))} />
+                  <Button
+                    size="small"
+                    disabled={!dates[t.id]}
+                    loading={mutation.isPending}
+                    onClick={() => mutation.mutate({ tasks: [{ task_id: t.id, date: dates[t.id]!.format("YYYY-MM-DD") }] })}
+                  >
+                    Поставить
+                  </Button>
+                </Space>
+              ),
+            },
+          ]}
+        />
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          Несделанное по этапу встаёт на выбранный день (выходные переносятся на понедельник). Ручные сроки пересчёт
+          («Пересчитать сроки») не трогает; по дням точнее — в «Планировщике».
+        </Typography.Text>
+      </Space>
+    </Card>
+  );
+}
+
 export function OrderPlan({ order }: { order: ProductionOrder }) {
+  const { user } = useAuth();
+  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const areas = [...new Set((order.tasks ?? []).map((t) => t.area))];
   const from = dayjs().subtract(14, "day").format("YYYY-MM-DD");
   const to = dayjs().add(60, "day").format("YYYY-MM-DD");
@@ -233,14 +319,18 @@ export function OrderPlan({ order }: { order: ProductionOrder }) {
   const loading = qs.some((q) => q.isLoading);
   if (!loading && !rows.length)
     return (
-      <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="В планировщике по заказу ничего не стоит — «Ещё → Пересчитать сроки»"
-      />
+      <Space direction="vertical" style={{ width: "100%" }}>
+        {canManage && order.status === "released" && <PlanDatesEditor order={order} />}
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="В планировщике по заказу ничего не стоит — «Ещё → Пересчитать сроки» или поставьте этапы на даты выше"
+        />
+      </Space>
     );
   const ship = order.ship_date;
   return (
     <Space direction="vertical" style={{ width: "100%" }}>
+      {canManage && order.status === "released" && <PlanDatesEditor order={order} />}
       {ship && (
         <Typography.Text type="secondary">
           Отгрузка {dayjs(ship).format("DD.MM.YYYY")} — дни позже неё

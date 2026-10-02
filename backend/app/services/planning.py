@@ -547,3 +547,43 @@ def shift_following(db: Session, moved_line_ids: set[int]) -> int:
                 queue.append(b)
     db.flush()
     return shifted
+
+
+def set_task_date(db: Session, task: ProductionTask, day: date, user_id: int, shift_next: bool = True) -> int:
+    """Ручной срок этапа (02.10): всё несделанное по строкам задания — на
+    один день (ручной слот, пересчёт сроков его не трогает); следующие
+    этапы заказа при желании сдвигаются так, чтобы шли после него.
+    Возвращает число строк, поставленных на дату."""
+    day = to_workday(day)
+    lines = [ln for ln in task.lines if not ln.production_closed]
+    good = _good_by_line(db, [ln.id for ln in lines])
+    moved: set[int] = set()
+    for ln in lines:
+        db.query(PlanSlot).filter(PlanSlot.task_line_id == ln.id).delete(synchronize_session=False)
+        rest = max(0.0, float(ln.quantity_pieces) - good.get(ln.id, 0.0))
+        if rest > 0:
+            db.add(PlanSlot(task_line_id=ln.id, date=day, quantity=round(rest, 2), auto=False, created_by=user_id))
+            moved.add(ln.id)
+    db.flush()
+    if shift_next and moved:
+        shift_following(db, moved)
+    return len(moved)
+
+
+def shift_order(db: Session, order: ProductionOrder, days: int) -> int:
+    """Сдвинуть весь план заказа на days рабочих дней (вперёд или назад);
+    сдвинутые слоты становятся ручными. Возвращает число слотов."""
+    if not days:
+        return 0
+    line_ids = [
+        ln.id
+        for t in db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id)
+        for ln in t.lines
+    ]
+    n = 0
+    for sl in db.query(PlanSlot).filter(PlanSlot.task_line_id.in_(line_ids or [0])):
+        sl.date = add_workdays(sl.date, days)
+        sl.auto = False
+        n += 1
+    db.flush()
+    return n

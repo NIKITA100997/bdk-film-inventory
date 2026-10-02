@@ -32,6 +32,7 @@ import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
 import ReleaseOrderModal from "./ReleaseOrderModal";
+import PrintTasksModal from "./PrintTasksModal";
 import { ItemChars } from "../../../components/ItemChars";
 import FastReportPanel from "./fastReport/FastReportPanel";
 import OrderReadiness from "../OrderReadiness";
@@ -328,6 +329,7 @@ function OrderDrawer({
     qc.invalidateQueries({ queryKey: ["pf-demand"] });
   };
   const [releasing, setReleasing] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [cardTask, setCardTask] = useState<number | null>(null);
   const [orderTab, setOrderTab] = useState("flow");
   // Открыли другой заказ — с вкладки «Ход».
@@ -401,6 +403,9 @@ function OrderDrawer({
                 </Button>
                 
               </>
+            )}
+            {order.status !== "draft" && (order.tasks ?? []).length > 0 && (
+              <Button onClick={() => setPrinting(true)}>Печать заданий…</Button>
             )}
             {order.status === "released" && (
               <>
@@ -613,6 +618,13 @@ function OrderDrawer({
         />
       )}
       {releasing && order && <ReleaseOrderModal order={order} onClose={() => setReleasing(false)} />}
+      {printing && order && (
+        <PrintTasksModal
+          tasks={(order.tasks ?? []).filter((t) => t.is_active)}
+          title={`Задания по заказу №${order.id} «${order.name}»`}
+          onClose={() => setPrinting(false)}
+        />
+      )}
       <TaskCardDrawer taskId={cardTask} onClose={() => setCardTask(null)} canManage={canManage} canReport={canManage} />
     </Drawer>
   );

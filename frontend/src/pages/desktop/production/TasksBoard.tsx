@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Card, Checkbox, Col, Empty, Grid, Input, Progress, Row, Select, Space, Tag, Typography } from "antd";
+import { Button, Card, Checkbox, Col, Empty, Grid, Input, Progress, Row, Select, Space, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { listProductionTasks, type ProductionTask } from "../../../api/production";
@@ -7,6 +7,7 @@ import { listProductionOrders } from "../../../api/productionOrders";
 import { listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import TaskCardDrawer, { TaskCardPanel } from "./TaskCardDrawer";
+import PrintTasksModal from "./PrintTasksModal";
 
 type Filter = "all" | "film" | "pf" | "wait" | "late";
 
@@ -36,6 +37,7 @@ export default function TasksBoard() {
   const [area, setArea] = useState<string | null>(user?.area ?? null);
   const [q, setQ] = useState("");
   const [archived, setArchived] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [selected, setSelected] = useState<number | null>(Number(params.get("task")) || null);
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
@@ -74,6 +76,13 @@ export default function TasksBoard() {
   const wide = !!screens.lg;
   const current = selected ?? (wide ? rows[0]?.id ?? null : null);
 
+  const printModal = printing ? (
+    <PrintTasksModal
+      tasks={rows.map((t) => ({ id: t.id, area: t.area, area_name: areasQuery.data?.find((x) => x.code === t.area)?.name ?? t.area }))}
+      title="Задания участкам"
+      onClose={() => setPrinting(false)}
+    />
+  ) : null;
   const list = (
     <Card size="small" styles={{ body: { padding: 0 } }}>
       <Space direction="vertical" style={{ width: "100%", padding: 12 }}>
@@ -92,6 +101,9 @@ export default function TasksBoard() {
           <Checkbox checked={archived} onChange={(e) => setArchived(e.target.checked)}>
             архив
           </Checkbox>
+          <Button size="small" disabled={!rows.length} onClick={() => setPrinting(true)} title="Лист на участок по отобранным заданиям">
+            Печать ({rows.length})
+          </Button>
         </Space>
         <Space wrap size={[4, 6]}>
           {FILTERS.map(([k, label, fn]) => (
@@ -164,6 +176,7 @@ export default function TasksBoard() {
     return (
       <>
         {list}
+        {printModal}
         <TaskCardDrawer taskId={selected} onClose={() => setSelected(null)} canManage={canManage} canReport={canReport} />
       </>
     );
@@ -171,6 +184,7 @@ export default function TasksBoard() {
     <Row gutter={16} align="top">
       <Col lg={8} xl={7} xxl={6}>
         {list}
+        {printModal}
       </Col>
       <Col lg={16} xl={17} xxl={18}>
         <Card size="small" styles={{ body: { padding: 0 } }}>
