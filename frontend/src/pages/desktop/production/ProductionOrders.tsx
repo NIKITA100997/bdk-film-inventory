@@ -41,7 +41,7 @@ import VariantPicker from "../../../components/VariantPicker";
 import { useAuth } from "../../../auth/AuthContext";
 import { listItems, type Item } from "../../../api/items";
 import { listItemTypes } from "../../../api/itemTypes";
-import {
+import { listOrderCategories, createOrderCategory,
   ORDER_STATUS_LABEL,
   closeProductionOrder,
   completeProductionOrder,
@@ -148,7 +148,9 @@ function OrdersList() {
     .filter(
       (o) =>
         !needle ||
-        `${o.id} ${o.name} ${o.lines.map((l) => l.item_name).join(" ")} ${(o.tasks ?? []).map((t) => t.name).join(" ")}`.toLowerCase().includes(needle),
+        `${o.id} ${o.name} ${o.lines.map((l) => `${l.item_name} ${l.invoice_no ?? ""}`).join(" ")} ${(o.tasks ?? []).map((t) => t.name).join(" ")}`
+          .toLowerCase()
+          .includes(needle),
     );
 
   return (
@@ -536,6 +538,7 @@ function OrderDrawer({
                 <Space wrap align="start">
                   <ItemChars chars={l.item_chars} name={l.item_name} strong={false} />
                   <Tag>{l.kind_name}</Tag>
+                  {l.invoice_no && <Tag color="purple">счёт {l.invoice_no}</Tag>}
                 </Space>
               }
               extra={
@@ -649,7 +652,7 @@ function PlanTag({ order }: { order: ProductionOrder }) {
   );
 }
 
-type LineDraft = { item_id: number | null; quantity: number | null; note: string };
+type LineDraft = { item_id: number | null; quantity: number | null; note: string; invoice_no: string };
 
 function OrderModal({
   order,
@@ -666,8 +669,22 @@ function OrderModal({
   const [shipDate, setShipDate] = useState<Dayjs | null>(order?.ship_date ? dayjs(order.ship_date) : null);
   const [note, setNote] = useState(order?.note ?? "");
   const [kind, setKind] = useState<OrderKind>(order?.kind ?? "customer");
+  const [categoryId, setCategoryId] = useState<number | undefined>(order?.category_id ?? undefined);
+  const categoriesQuery = useQuery({ queryKey: ["order-categories"], queryFn: listOrderCategories });
+  const [newCategory, setNewCategory] = useState("");
+  const addCategory = useMutation({
+    mutationFn: (n: string) => createOrderCategory(n),
+    onSuccess: (c) => {
+      qc.invalidateQueries({ queryKey: ["order-categories"] });
+      setCategoryId(c.id);
+      setNewCategory("");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось добавить категорию")),
+  });
   const [lines, setLines] = useState<LineDraft[]>(
-    order ? order.lines.map((l) => ({ item_id: l.item_id, quantity: l.quantity, note: l.note ?? "" })) : [{ item_id: null, quantity: null, note: "" }],
+    order
+      ? order.lines.map((l) => ({ item_id: l.item_id, quantity: l.quantity, note: l.note ?? "", invoice_no: l.invoice_no ?? "" }))
+      : [{ item_id: null, quantity: null, note: "", invoice_no: "" }],
   );
   const patch = (i: number, p: Partial<LineDraft>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...p } : l)));
   // Модель в заказ не идёт — по ней выбирается вариант (размер, цвет,
@@ -730,7 +747,13 @@ function OrderModal({
         ship_date: shipDate ? shipDate.format("YYYY-MM-DD") : null,
         note: note.trim() || null,
         kind,
-        lines: lines.map((l) => ({ item_id: l.item_id as number, quantity: l.quantity as number, note: l.note.trim() || null })),
+        category_id: categoryId ?? null,
+        lines: lines.map((l) => ({
+          item_id: l.item_id as number,
+          quantity: l.quantity as number,
+          note: l.note.trim() || null,
+          invoice_no: l.invoice_no.trim() || null,
+        })),
       };
       return order ? updateProductionOrder(order.id, payload) : createProductionOrder(payload);
     },
@@ -778,6 +801,33 @@ function OrderModal({
             <DatePicker format="DD.MM.YYYY" value={shipDate} onChange={setShipDate} />
           </Form.Item>
         </Space>
+        <Form.Item label="Категория" extra="Для аналитики; список пополняется прямо здесь">
+          <Select
+            allowClear
+            style={{ width: 360 }}
+            placeholder="Без категории"
+            value={categoryId}
+            onChange={(v) => setCategoryId(v)}
+            options={(categoriesQuery.data ?? []).filter((c) => c.is_active || c.id === categoryId).map((c) => ({ value: c.id, label: c.name }))}
+            popupRender={(menu) => (
+              <>
+                {menu}
+                <Space style={{ padding: 8 }}>
+                  <Input
+                    size="small"
+                    placeholder="Новая категория"
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  />
+                  <Button size="small" disabled={!newCategory.trim()} loading={addCategory.isPending} onClick={() => addCategory.mutate(newCategory.trim())}>
+                    Добавить
+                  </Button>
+                </Space>
+              </>
+            )}
+          />
+        </Form.Item>
         <Form.Item label="Комментарий">
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Form.Item>
@@ -803,7 +853,7 @@ function OrderModal({
                   showSearch
                   optionFilterProp="label"
                   placeholder={pickKind === "izdelie" ? "Изделие: модель или готовый вариант" : "П/ф или прочая позиция"}
-                  style={{ width: 420 }}
+                  style={{ width: 360 }}
                   loading={itemsQuery.isLoading}
                   value={l.item_id ?? undefined}
                   options={optionsFor(l.item_id)}
@@ -813,8 +863,9 @@ function OrderModal({
                     else patch(i, { item_id: v });
                   }}
                 />
-                <InputNumber min={1} placeholder="шт" style={{ width: 100 }} value={l.quantity} onChange={(v) => patch(i, { quantity: v })} />
-                <Input placeholder="примечание" style={{ width: 160 }} value={l.note} onChange={(e) => patch(i, { note: e.target.value })} />
+                <InputNumber min={1} placeholder="шт" style={{ width: 80 }} value={l.quantity} onChange={(v) => patch(i, { quantity: v })} />
+                <Input placeholder="счёт 1С" style={{ width: 110 }} value={l.invoice_no} onChange={(e) => patch(i, { invoice_no: e.target.value })} />
+                <Input placeholder="примечание" style={{ width: 140 }} value={l.note} onChange={(e) => patch(i, { note: e.target.value })} />
                 {lines.length > 1 && (
                   <Button size="small" danger onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>
                     Убрать
@@ -822,7 +873,7 @@ function OrderModal({
                 )}
               </Space>
             ))}
-            <Button onClick={() => setLines((ls) => [...ls, { item_id: null, quantity: null, note: "" }])}>+ позиция</Button>
+            <Button onClick={() => setLines((ls) => [...ls, { item_id: null, quantity: null, note: "", invoice_no: "" }])}>+ позиция</Button>
           </Space>
         )}
       </Form>

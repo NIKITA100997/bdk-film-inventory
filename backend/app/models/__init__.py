@@ -1,4 +1,4 @@
-from app.models.production_orders import ProductionOrder, ProductionOrderLine
+from app.models.production_orders import OrderCategory, ProductionOrder, ProductionOrderLine
 from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, ItemProperty, ItemPropertyOption, ItemPropertyValue, ItemType, ItemTypeComponent, ItemTypeOperation
 from app.models.users import User, UserRole
 from app.models.areas import Area

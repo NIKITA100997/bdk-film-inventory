@@ -17,6 +17,7 @@ from app.models.dictionaries import PartStage
 from app.models.items import Item, ItemComponent, ItemKind
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.production_orders import (
+    OrderCategory,
     ORDER_CLOSED,
     ORDER_DRAFT,
     ORDER_KIND_CUSTOMER,
@@ -42,6 +43,7 @@ class OrderLineIn(BaseModel):
     item_id: int
     quantity: float = Field(gt=0)
     note: str | None = None
+    invoice_no: str | None = None  # счёт / заказ 1С
 
 
 class OrderIn(BaseModel):
@@ -49,6 +51,7 @@ class OrderIn(BaseModel):
     ship_date: date | None = None
     note: str | None = None
     kind: str = ORDER_KIND_CUSTOMER  # customer | stock
+    category_id: int | None = None
     lines: list[OrderLineIn] = Field(min_length=1)
 
 
@@ -82,6 +85,7 @@ class OrderLineOut(BaseModel):
     item_chars: list[dict] = []
     quantity: float
     note: str | None
+    invoice_no: str | None = None
     done: float  # готово по последней операции маршрута
     operations: list[OperationProgress]
     components: list[ComponentNeed]
@@ -112,6 +116,8 @@ class OrderOut(BaseModel):
     note: str | None
     status: str
     kind: str = ORDER_KIND_CUSTOMER
+    category_id: int | None = None
+    category_name: str | None = None
     created_by_name: str
     created_at: datetime
     released_at: datetime | None
@@ -177,7 +183,7 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
             OrderLineOut(
                 id=ln.id, item_id=item.id, item_name=names.get(item.id, item.name), kind_name=kinds[item.kind_id].name,
                 item_chars=item_chars_cached(db, item.id),
-                quantity=float(ln.quantity), note=ln.note, done=ops[-1].good if ops else 0.0, operations=ops,
+                quantity=float(ln.quantity), note=ln.note, invoice_no=ln.invoice_no, done=ops[-1].good if ops else 0.0, operations=ops,
                 components=[
                     ComponentNeed(
                         item_id=c.component_item_id, name=comp_names.get(c.component_item_id, "—"),
@@ -193,6 +199,8 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
     tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).order_by(ProductionTask.id).all()
     return OrderOut(
         id=order.id, name=order.name, ship_date=order.ship_date, note=order.note, status=order.status, kind=order.kind,
+        category_id=order.category_id,
+        category_name=(db.get(OrderCategory, order.category_id).name if order.category_id else None),
         created_by_name=(author.full_name or author.username) if author else "—", created_at=order.created_at,
         released_at=order.released_at, task_ids=[t.id for t in tasks], lines=out_lines,
         tasks=_tasks_out(db, tasks, area_names),
@@ -260,7 +268,10 @@ def _write_lines(db: Session, order: ProductionOrder, lines: list[OrderLineIn]) 
                 status.HTTP_422_UNPROCESSABLE_ENTITY, f"«{item.name}» — модель: в заказ берётся её вариант (размер, цвет…)"
             )
         order.lines.append(
-            ProductionOrderLine(item_id=ln.item_id, quantity=ln.quantity, note=(ln.note or "").strip() or None, sort_order=i)
+            ProductionOrderLine(
+                item_id=ln.item_id, quantity=ln.quantity, note=(ln.note or "").strip() or None,
+                invoice_no=(ln.invoice_no or "").strip() or None, sort_order=i,
+            )
         )
 
 
@@ -323,14 +334,14 @@ class ReadinessOut(BaseModel):
 PF_STAGE = "П/ф"
 
 
-def _readiness_stages(db: Session, order: ProductionOrder) -> list[ReadinessStageOut]:
+def _readiness_stages(db: Session, order: ProductionOrder, order_line_ids: set[int] | None = None) -> list[ReadinessStageOut]:
     """Этапы заказа для продажника: операции изделия (по названию, в порядке
     маршрута), п/ф — одной колонкой; у заказа из заданий — по участкам."""
     from collections import defaultdict as _dd
     from datetime import date as _date
 
     tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).all()
-    lines = [(ln, t) for t in tasks for ln in t.lines]
+    lines = [(ln, t) for t in tasks for ln in t.lines if order_line_ids is None or ln.order_line_id in order_line_ids]
     if not lines:
         return []
     area_names = {a.code: a.name for a in db.query(Area)}
@@ -415,9 +426,134 @@ def orders_readiness(
     return out
 
 
+class InvoiceReadinessOut(BaseModel):
+    """Готовность по счёту 1С — то, что продажник обещал клиенту: строки
+    счёта могут быть в разных запусках."""
+
+    invoice: str  # «без счёта» — строки без номера (по заказу)
+    orders: list[str]
+    ship_date: date | None
+    plan_finish: date | None
+    plan_late: bool
+    plan_overdue: float
+    planned: bool
+    quantity: float
+    done: float
+    closed: bool
+    lines: list[ReadinessLineOut]
+    stages: list[ReadinessStageOut] = []
+
+
+@router.get("/production-orders/readiness-invoices", response_model=list[InvoiceReadinessOut])
+def invoices_readiness(
+    include_closed: bool = False, db: Session = Depends(get_db), user: User = Depends(view_readiness)
+) -> list[InvoiceReadinessOut]:
+    """Готовность по счетам: этапы, срок по плану и «успевает ли» — по строкам
+    счёта во всех запусках. Строки без счёта — по своему заказу."""
+    q = db.query(ProductionOrder).filter(ProductionOrder.status != ORDER_DRAFT, ProductionOrder.kind != ORDER_KIND_STOCK)
+    if not include_closed:
+        q = q.filter(ProductionOrder.status != ORDER_CLOSED)
+    groups: dict[str, dict] = {}
+    for order in q:
+        full = _order_out(db, order)
+        by_line = {ln.id: ln for ln in full.lines}
+        keys: dict[str, set[int]] = defaultdict(set)
+        for ln in order.lines:
+            keys[ln.invoice_no or f"без счёта · №{order.id} «{order.name}»"].add(ln.id)
+        for key, ids in keys.items():
+            g = groups.setdefault(key, {"orders": [], "ship": None, "lines": [], "stages": [], "closed": True})
+            g["orders"].append(f"№{order.id} «{order.name}»")
+            if order.ship_date and (g["ship"] is None or order.ship_date < g["ship"]):
+                g["ship"] = order.ship_date
+            g["closed"] = g["closed"] and order.status == ORDER_CLOSED
+            g["lines"] += [
+                ReadinessLineOut(item_name=by_line[i].item_name, quantity=by_line[i].quantity, done=min(by_line[i].done, by_line[i].quantity))
+                for i in ids if i in by_line
+            ]
+            g["stages"] += _readiness_stages(db, order, ids)
+    out = []
+    for key, g in groups.items():
+        merged: dict[str, dict] = {}
+        for st in g["stages"]:
+            m = merged.setdefault(st.name, {"seq": st.seq, "plan": 0.0, "done": 0.0, "date": None, "st": []})
+            m["plan"] += st.plan
+            m["done"] += st.done
+            m["st"].append(st.status)
+            if st.plan_date and (m["date"] is None or st.plan_date > m["date"]):
+                m["date"] = st.plan_date
+        stages = []
+        for name, m in merged.items():
+            sts = m["st"]
+            status_ = ("done" if all(x == "done" for x in sts) else "overdue" if "overdue" in sts
+                       else "progress" if "progress" in sts or "done" in sts else "planned" if "planned" in sts else "none")
+            stages.append(ReadinessStageOut(name=name, seq=m["seq"], plan=round(m["plan"], 2), done=round(m["done"], 2),
+                                            plan_date=m["date"], status=status_))
+        stages.sort(key=lambda x: (x.seq, x.name))
+        dates = [s_.plan_date for s_ in stages if s_.plan_date]
+        finish = max(dates) if dates else None
+        overdue = max([s_.plan - s_.done for s_ in stages if s_.status == "overdue"] or [0.0])
+        out.append(InvoiceReadinessOut(
+            invoice=key, orders=g["orders"], ship_date=g["ship"], plan_finish=finish,
+            plan_late=bool(finish and g["ship"] and finish > g["ship"]), plan_overdue=round(overdue, 2), planned=bool(dates),
+            quantity=round(sum(ln.quantity for ln in g["lines"]), 2), done=round(sum(ln.done for ln in g["lines"]), 2),
+            closed=g["closed"], lines=g["lines"], stages=stages,
+        ))
+    return sorted(out, key=lambda x: (x.ship_date or date.max, x.invoice))
+
+
 @router.get("/production-orders/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: Session = Depends(get_db), user: User = Depends(view_orders)) -> OrderOut:
     return _order_out(db, _get_order(db, order_id))
+
+
+def _category(db: Session, category_id: int | None) -> int | None:
+    if category_id is not None and db.get(OrderCategory, category_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
+    return category_id
+
+
+class OrderCategoryOut(BaseModel):
+    id: int
+    name: str
+    is_active: bool
+
+
+class OrderCategoryIn(BaseModel):
+    name: str
+    is_active: bool = True
+
+
+@router.get("/order-categories", response_model=list[OrderCategoryOut])
+def list_order_categories(db: Session = Depends(get_db), user: User = Depends(view_orders)) -> list[OrderCategoryOut]:
+    return [OrderCategoryOut(id=c.id, name=c.name, is_active=c.is_active) for c in db.query(OrderCategory).order_by(OrderCategory.name)]
+
+
+@router.post("/order-categories", response_model=OrderCategoryOut, status_code=status.HTTP_201_CREATED)
+def create_order_category(payload: OrderCategoryIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderCategoryOut:
+    name = " ".join(payload.name.split())
+    if not name:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите название категории")
+    if db.query(OrderCategory).filter(func.lower(OrderCategory.name) == name.lower()).first():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Такая категория уже есть")
+    c = OrderCategory(name=name, is_active=payload.is_active)
+    db.add(c)
+    db.commit()
+    return OrderCategoryOut(id=c.id, name=c.name, is_active=c.is_active)
+
+
+@router.patch("/order-categories/{category_id}", response_model=OrderCategoryOut)
+def update_order_category(
+    category_id: int, payload: OrderCategoryIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+) -> OrderCategoryOut:
+    c = db.get(OrderCategory, category_id)
+    if c is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
+    name = " ".join(payload.name.split())
+    if not name:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите название категории")
+    c.name, c.is_active = name, payload.is_active
+    db.commit()
+    return OrderCategoryOut(id=c.id, name=c.name, is_active=c.is_active)
 
 
 def _kind(value: str) -> str:
@@ -435,7 +571,7 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db), user: User = D
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите дату отгрузки — от неё считаются сроки операций")
     order = ProductionOrder(
         name=name, ship_date=payload.ship_date, note=(payload.note or "").strip() or None, status=ORDER_DRAFT, created_by=user.id,
-        kind=_kind(payload.kind),
+        kind=_kind(payload.kind), category_id=_category(db, payload.category_id),
     )
     db.add(order)
     db.flush()
@@ -455,6 +591,7 @@ def update_order(order_id: int, payload: OrderIn, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите название заказа")
     order.name, order.ship_date, order.note = name, payload.ship_date, (payload.note or "").strip() or None
     order.kind = _kind(payload.kind)
+    order.category_id = _category(db, payload.category_id)
     _write_lines(db, order, payload.lines)
     db.commit()
     db.refresh(order)

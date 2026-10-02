@@ -42,6 +42,8 @@ export interface OrderLine {
   item_chars?: ItemChar[];
   quantity: number;
   note: string | null;
+  /** Счёт / заказ 1С строки — в одном запуске двери разных счетов. */
+  invoice_no?: string | null;
   done: number;
   operations: OrderOperation[];
   components: OrderComponent[];
@@ -55,6 +57,8 @@ export interface ProductionOrder {
   status: OrderStatus;
   /** Клиенту (срок — отгрузка) или на склад (пополнение остатка, срок — «готово к»). */
   kind?: OrderKind;
+  category_id?: number | null;
+  category_name?: string | null;
   created_by_name: string;
   created_at: string;
   released_at: string | null;
@@ -126,8 +130,19 @@ export interface OrderInput {
   ship_date: string | null;
   note: string | null;
   kind?: OrderKind;
-  lines: { item_id: number; quantity: number; note: string | null }[];
+  category_id?: number | null;
+  lines: { item_id: number; quantity: number; note: string | null; invoice_no?: string | null }[];
 }
+
+/** Категория заказа — для аналитики (справочник, заполняют пользователи). */
+export interface OrderCategory {
+  id: number;
+  name: string;
+  is_active: boolean;
+}
+export const listOrderCategories = async (): Promise<OrderCategory[]> => (await apiClient.get<OrderCategory[]>("/order-categories")).data;
+export const createOrderCategory = async (name: string): Promise<OrderCategory> =>
+  (await apiClient.post<OrderCategory>("/order-categories", { name })).data;
 
 /** itemId — заказы с этой позицией; modelId — с любым вариантом модели. */
 export const listProductionOrders = async (includeClosed: boolean, itemId?: number, modelId?: number): Promise<ProductionOrder[]> =>
@@ -254,6 +269,24 @@ export interface ReadinessStage {
   plan_date: string | null;
   status: "done" | "progress" | "planned" | "overdue" | "none";
 }
+
+/** Готовность по счёту 1С — строки счёта во всех запусках. */
+export interface InvoiceReadiness {
+  invoice: string;
+  orders: string[];
+  ship_date: string | null;
+  plan_finish: string | null;
+  plan_late: boolean;
+  plan_overdue: number;
+  planned: boolean;
+  quantity: number;
+  done: number;
+  closed: boolean;
+  lines: { item_name: string; quantity: number; done: number }[];
+  stages: ReadinessStage[];
+}
+export const getInvoicesReadiness = async (includeClosed = false): Promise<InvoiceReadiness[]> =>
+  (await apiClient.get<InvoiceReadiness[]>("/production-orders/readiness-invoices", { params: { include_closed: includeClosed } })).data;
 
 export const getOrdersReadiness = async (includeClosed = false): Promise<OrderReadiness[]> =>
   (await apiClient.get<OrderReadiness[]>("/production-orders/readiness", { params: { include_closed: includeClosed } })).data;

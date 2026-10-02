@@ -268,7 +268,9 @@ def import_schedule(
             ir.errors.extend(errors)
             return out, parse_errors, None
         ir.item_id, ir.item_name, ir.exists = item.id, item.name, not created
-        note = "; ".join(x for x in (f"счёт {r.invoice_no}" if r.invoice_no else "", r.ship_date.strftime("%d.%m") if r.ship_date else "") if x)
-        order.lines.append(ProductionOrderLine(item_id=item.id, quantity=r.doors_qty, note=note or None, sort_order=i))
+        note = f"отгрузка {r.ship_date.strftime('%d.%m')}" if r.ship_date else None
+        order.lines.append(ProductionOrderLine(
+            item_id=item.id, quantity=r.doors_qty, note=note, invoice_no=(r.invoice_no or "").strip() or None, sort_order=i,
+        ))
     db.flush()
     return out, parse_errors, order

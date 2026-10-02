@@ -14,6 +14,17 @@ ORDER_KIND_CUSTOMER = "customer"
 ORDER_KIND_STOCK = "stock"
 
 
+class OrderCategory(Base):
+    """Категория заказа на производство — для аналитики (справочник,
+    заполняется пользователями; 02.10 заведён пустым)."""
+
+    __tablename__ = "order_categories"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True)
+    is_active: Mapped[bool] = mapped_column(default=True, server_default="true")
+
+
 class ProductionOrder(Base):
     """Заказ на производство (единая модель, пункт 4) — что и сколько
     сделать: позиции номенклатуры любого вида. Запуск раскладывает его по
@@ -34,6 +45,7 @@ class ProductionOrder(Base):
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("order_categories.id"), nullable=True)
 
     lines: Mapped[list["ProductionOrderLine"]] = relationship(
         back_populates="order", order_by="ProductionOrderLine.sort_order", cascade="all, delete-orphan"
@@ -48,6 +60,9 @@ class ProductionOrderLine(Base):
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"))
     quantity: Mapped[float] = mapped_column(Numeric(12, 2))
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Счёт / заказ 1С (02.10): в одном запуске — двери разных счетов; по
+    # счетам продажники смотрят готовность.
+    invoice_no: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
     order: Mapped[ProductionOrder] = relationship(back_populates="lines")

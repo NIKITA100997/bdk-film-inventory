@@ -1,8 +1,14 @@
 import { useMemo, useState } from "react";
 import dayjs from "dayjs";
-import { Card, Checkbox, Input, Progress, Space, Table, Tag, Typography } from "antd";
+import { Card, Checkbox, Input, Progress, Segmented, Space, Table, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { getOrdersReadiness, type OrderReadiness, type ReadinessStage } from "../../api/productionOrders";
+import {
+  getInvoicesReadiness,
+  getOrdersReadiness,
+  type InvoiceReadiness,
+  type OrderReadiness,
+  type ReadinessStage,
+} from "../../api/productionOrders";
 
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
@@ -11,6 +17,9 @@ const fmt = (n: number) => String(Math.round(n * 100) / 100);
  * ли к отгрузке и сколько сделано по позициям — без цеховых подробностей
  * (задания, участки). План — из планировщика (сроки назад от отгрузки). */
 export default function OrderReadiness() {
+  // Продажнику важнее счёт клиента: в одном запуске двери разных счетов,
+  // один счёт бывает в разных запусках.
+  const [by, setBy] = useState<"invoice" | "order">("invoice");
   const [q, setQ] = useState("");
   const [withClosed, setWithClosed] = useState(false);
   const [onlyRisk, setOnlyRisk] = useState(false);
@@ -27,7 +36,7 @@ export default function OrderReadiness() {
   // Колонки этапов — общие для показанных заказов, по порядку маршрута.
   const stageCols = useMemo(() => {
     const seq = new Map<string, number>();
-    for (const o of rows) for (const st of o.stages) seq.set(st.name, Math.min(seq.get(st.name) ?? Infinity, st.seq));
+    for (const o of rows) for (const st of o.stages) seq.set(st.name, Math.max(seq.get(st.name) ?? -Infinity, st.seq));
     return [...seq.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0], "ru")).map(([name]) => name);
   }, [rows]);
 
@@ -36,12 +45,26 @@ export default function OrderReadiness() {
       <Card title="Готовность заказов">
         <Space direction="vertical" size={8} style={{ width: "100%" }}>
           <Typography.Text type="secondary">
-            Заказ — строка, этапы — колонки: готово, в работе (сколько из скольких и до какого дня), запланировано на
+            Счёт (или заказ) — строка, этапы — колонки: готово, в работе (сколько из скольких и до какого дня), запланировано на
             день или просрочено. Справа — когда заказ будет готов по плану и успевает ли к отгрузке. Раскройте строку —
             готовность по позициям.
           </Typography.Text>
           <Space wrap>
-            <Input.Search allowClear placeholder="Заказ, № или позиция" style={{ width: 300 }} value={q} onChange={(e) => setQ(e.target.value)} />
+            <Segmented
+              value={by}
+              onChange={(v) => setBy(v as "invoice" | "order")}
+              options={[
+                { value: "invoice", label: "По счетам" },
+                { value: "order", label: "По заказам" },
+              ]}
+            />
+            <Input.Search
+              allowClear
+              placeholder={by === "invoice" ? "Счёт, заказ или позиция" : "Заказ, № или позиция"}
+              style={{ width: 300 }}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
             <Checkbox checked={onlyRisk} onChange={(e) => setOnlyRisk(e.target.checked)}>
               Только с риском{risky ? ` (${risky})` : ""}
             </Checkbox>
@@ -51,6 +74,9 @@ export default function OrderReadiness() {
           </Space>
         </Space>
       </Card>
+      {by === "invoice" ? (
+        <InvoiceTable q={q} withClosed={withClosed} onlyRisk={onlyRisk} />
+      ) : (
       <Table<OrderReadiness>
         size="small"
         rowKey="id"
@@ -118,7 +144,108 @@ export default function OrderReadiness() {
           { title: "Статус", render: (_, o) => (o.status === "closed" ? <Tag>закрыт</Tag> : <Tag color="blue">в производстве</Tag>) },
         ]}
       />
+      )}
     </Space>
+  );
+}
+
+/** Готовность по счетам 1С: строка — счёт (во всех запусках), этапы —
+ * колонки, срок по плану и «успевает ли» к отгрузке. */
+function InvoiceTable({ q, withClosed, onlyRisk }: { q: string; withClosed: boolean; onlyRisk: boolean }) {
+  const query = useQuery({ queryKey: ["invoice-readiness", withClosed], queryFn: () => getInvoicesReadiness(withClosed) });
+  const rows = useMemo(() => {
+    const needle = norm(q.trim());
+    return (query.data ?? []).filter(
+      (o) =>
+        (!needle ||
+          norm(o.invoice).includes(needle) ||
+          o.orders.some((x) => norm(x).includes(needle)) ||
+          o.lines.some((l) => norm(l.item_name).includes(needle))) &&
+        (!onlyRisk || o.plan_late || o.plan_overdue > 0),
+    );
+  }, [query.data, q, onlyRisk]);
+  const stageCols = useMemo(() => {
+    const seq = new Map<string, number>();
+    for (const o of rows) for (const st of o.stages) seq.set(st.name, Math.max(seq.get(st.name) ?? -Infinity, st.seq));
+    return [...seq.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0], "ru")).map(([name]) => name);
+  }, [rows]);
+  return (
+    <Table<InvoiceReadiness>
+      size="small"
+      rowKey="invoice"
+      loading={query.isLoading}
+      dataSource={rows}
+      pagination={{ pageSize: 30, hideOnSinglePage: true }}
+      scroll={{ x: "max-content" }}
+      locale={{ emptyText: "Счетов в производстве нет" }}
+      expandable={{
+        expandedRowRender: (o) => (
+          <Table
+            size="small"
+            rowKey={(_, i) => String(i)}
+            pagination={false}
+            dataSource={o.lines}
+            columns={[
+              { title: "Позиция", dataIndex: "item_name" },
+              { title: "Заказано", render: (_, l) => fmt(l.quantity) },
+              { title: "Готово", render: (_, l) => fmt(l.done) },
+              {
+                title: "",
+                render: (_, l) => <Progress percent={l.quantity ? Math.round((l.done / l.quantity) * 100) : 0} size="small" style={{ width: 140 }} />,
+              },
+            ]}
+          />
+        ),
+      }}
+      columns={[
+        {
+          title: "Счёт",
+          fixed: "left",
+          render: (_, o) => (
+            <Space direction="vertical" size={0}>
+              <Typography.Text strong>{o.invoice}</Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {o.orders.join(", ")}
+              </Typography.Text>
+            </Space>
+          ),
+        },
+        {
+          title: "Отгрузка",
+          sorter: (a, b) => (a.ship_date ?? "9").localeCompare(b.ship_date ?? "9"),
+          render: (_, o) => (o.ship_date ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—"),
+        },
+        ...stageCols.map((name) => ({
+          title: name,
+          render: (_: unknown, o: InvoiceReadiness) => <StageCell stage={o.stages.find((s) => s.name === name)} />,
+        })),
+        {
+          title: "Готово по плану",
+          render: (_, o) =>
+            !o.planned ? (
+              <Tag>без плана</Tag>
+            ) : (
+              <Space size={4} wrap>
+                {o.plan_finish && <span>{dayjs(o.plan_finish).format("DD.MM.YYYY")}</span>}
+                {o.plan_late ? <Tag color="red">не успевает к отгрузке</Tag> : <Tag color="green">успевает</Tag>}
+                {o.plan_overdue > 0 && <Tag color="orange">отставание {fmt(o.plan_overdue)} шт</Tag>}
+              </Space>
+            ),
+        },
+        {
+          title: "Сделано",
+          render: (_, o) => (
+            <Space size={8}>
+              <Progress percent={o.quantity ? Math.round((o.done / o.quantity) * 100) : 0} size="small" style={{ width: 120 }} />
+              <span>
+                {fmt(o.done)} из {fmt(o.quantity)}
+              </span>
+            </Space>
+          ),
+        },
+        { title: "Статус", render: (_, o) => (o.closed ? <Tag>закрыт</Tag> : <Tag color="blue">в производстве</Tag>) },
+      ]}
+    />
   );
 }
 
