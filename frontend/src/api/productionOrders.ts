@@ -164,7 +164,24 @@ export const deleteProductionOrder = async (id: number): Promise<void> => {
 
 /** Запуск: задания участкам, п/ф под заказ (pf) и сроки назад от отгрузки. */
 /** Раскладка перед запуском (запуск на сервере откатывается). */
+/** Ручная правка строки, что родится при запуске. */
+export interface LineOverride {
+  key: string;
+  quantity?: number | null;
+  program?: string | null;
+  instruction?: string | null;
+  material_sku_id?: number | null;
+  strip_width_mm?: number | null;
+  area?: string | null;
+  skip?: boolean;
+}
+
 export interface ReleaseLayoutRow {
+  key: string;
+  area: string;
+  program: string | null;
+  instruction: string | null;
+  manual: boolean;
   name: string;
   qty: number;
   chars: ItemChar[];
@@ -172,7 +189,7 @@ export interface ReleaseLayoutRow {
   note: string | null;
   date_from: string | null;
   date_to: string | null;
-  film: { label: string; strip_width_mm: number | null; width_mm: number; need_m: number } | null;
+  film: { sku_id: number | null; label: string; strip_width_mm: number | null; width_mm: number; need_m: number } | null;
 }
 export interface ReleaseLayoutSheet {
   area: string;
@@ -193,11 +210,11 @@ export interface ReleaseLayout {
   late: boolean;
   doors: number;
 }
-export const getReleaseLayout = async (id: number, pf: PfPick[] = []): Promise<ReleaseLayout> =>
-  (await apiClient.post<ReleaseLayout>(`/production-orders/${id}/release-layout`, { pf })).data;
+export const getReleaseLayout = async (id: number, pf: PfPick[] = [], overrides: LineOverride[] = []): Promise<ReleaseLayout> =>
+  (await apiClient.post<ReleaseLayout>(`/production-orders/${id}/release-layout`, { pf, overrides })).data;
 
-export const releaseProductionOrder = async (id: number, pf: PfPick[] = []): Promise<ProductionOrder> =>
-  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/release`, { pf })).data;
+export const releaseProductionOrder = async (id: number, pf: PfPick[] = [], overrides: LineOverride[] = []): Promise<ProductionOrder> =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/release`, { pf, overrides })).data;
 
 /** Закрыть как сделанный полностью, без отчётов (плёнку не трогает). */
 export const completeProductionOrder = async (id: number): Promise<ProductionOrder> =>

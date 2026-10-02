@@ -47,11 +47,16 @@ def _film_stock_m(db: Session, area: str, spec: tuple[int, int, int], min_width:
     return round(sum(float(u.length_m) for u in q), 1)
 
 
-def build_release_layout(db: Session, order: ProductionOrder, picks: list[PfPick], user_id: int) -> dict:
+def build_release_layout(
+    db: Session, order: ProductionOrder, picks: list[PfPick], user_id: int, overrides=None, user_name: str = ""
+) -> dict:
     """Запустить заказ (без commit) и описать результат. Вызывающий код
     обязан сделать db.rollback()."""
+    from app.services.release_overrides import apply_overrides, line_key
+
     tasks = release_order(db, order, user_id)
     release_pf(db, order, tasks, picks, user_id)
+    override_errors = apply_overrides(db, order, overrides or [], user_name)
     sched = schedule_order(db, order, user_id)
     db.flush()
 
@@ -68,7 +73,8 @@ def build_release_layout(db: Session, order: ProductionOrder, picks: list[PfPick
         return chars_cache[item.id]
 
     sheets: dict[str, dict] = {}
-    warnings: list[str] = []
+    warnings: list[str] = list(override_errors)
+    programmed: dict[int, bool] = {}
     milled_lines: set[int] = set()
     film_need: dict[tuple, dict] = {}
     for t in db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).order_by(ProductionTask.id):
@@ -80,12 +86,18 @@ def build_release_layout(db: Session, order: ProductionOrder, picks: list[PfPick
         for ln in t.lines:
             if t.area == MILLING_AREA and ln.order_line_id:
                 milled_lines.add(ln.order_line_id)
+                programmed[ln.order_line_id] = programmed.get(ln.order_line_id, True) and bool(ln.program)
             dates = sorted({s.date for s in db.query(PlanSlot).filter(PlanSlot.task_line_id == ln.id)})
             sheet["dates"].update(dates)
             part = db.get(Part, ln.part_id) if ln.part_id else None
             item = db.get(Item, part.item_id) if part is not None and part.item_id else items.get(ln.order_line_id)
             ol = lines_by_id.get(ln.order_line_id)
             row = {
+                "key": line_key(ln),
+                "area": t.area,
+                "program": ln.program,
+                "instruction": ln.instruction,
+                "manual": bool(ln.manual_changes),
                 "name": ln.part_name or (item.name if item else ""),
                 "qty": float(ln.quantity_pieces),
                 "chars": chars(item),
@@ -103,6 +115,7 @@ def build_release_layout(db: Session, order: ProductionOrder, picks: list[PfPick
                 need_m = round(float(ln.quantity_pieces) * float(ln.length_m or 0), 1)
                 width = float(ln.strip_width_mm or ln.width_mm or 0)
                 row["film"] = {
+                    "sku_id": sku.id if sku else None,
                     "label": f"{sku.material.name} {sku.color.name} {float(sku.thickness.value_mm):g}" if sku else "?",
                     "strip_width_mm": float(ln.strip_width_mm) if ln.strip_width_mm is not None else None,
                     "width_mm": width, "need_m": need_m,
@@ -138,7 +151,7 @@ def build_release_layout(db: Session, order: ProductionOrder, picks: list[PfPick
             w, h = float(ch.get("ширина", "0").split()[0]), float(ch.get("высота", "0").split()[0])
         except ValueError:
             continue
-        if int(w) not in STANDARD_WIDTHS or int(h) != STANDARD_HEIGHT:
+        if (int(w) not in STANDARD_WIDTHS or int(h) != STANDARD_HEIGHT) and not programmed.get(lid):
             warnings.append(f"Нестандартный размер {w:g}х{h:g} — программу фрезеровки делает конструктор: {items[lid].name}")
 
     # материалы и комплектующие по составу (без своего маршрута — не задания)

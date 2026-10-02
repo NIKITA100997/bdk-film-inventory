@@ -410,7 +410,11 @@ function Tiles({
                     style={{ justifyContent: "space-between", width: "100%" }}
                     align="start"
                   >
-                    <ItemChars chars={fl.line.item_chars} name={fl.line.part_name} showName={false} />
+                    <Space direction="vertical" size={0}>
+                      <ItemChars chars={fl.line.item_chars} name={fl.line.part_name} showName={false} />
+                      {fl.line.program && <Typography.Text style={{ fontSize: 12 }}>программа {fl.line.program}</Typography.Text>}
+                      {fl.line.instruction && <Typography.Text type="warning" style={{ fontSize: 12 }}>⚑ {fl.line.instruction}</Typography.Text>}
+                    </Space>
                     <Space size={4} align="center">
                       <EntryBadge r={r} line={fl.line} />
                       {pinnable && <PinStar r={r} lineId={fl.line.id} />}

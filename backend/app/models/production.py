@@ -8,7 +8,7 @@ ProductionTaskLine; распределение по конкретным лин�
 
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -183,6 +183,12 @@ class ProductionTaskLine(Base):
     # remaining_pieces — рост quantity_pieces (план пересмотрели в
     # бо́льшую сторону) НЕ переоткрывает автоматически, только вручную.
     production_closed: Mapped[bool] = mapped_column(default=False, server_default="false")
+
+    # Ручная правка при запуске (02.10): программа станка (фрезеровка),
+    # указание мастеру и что поменяли против расчёта — «Кол-во 2 → 4 · Иванов».
+    program: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    instruction: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    manual_changes: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     task: Mapped[ProductionTask] = relationship(back_populates="lines")
     reports: Mapped[list["ProductionTaskLineReport"]] = relationship(

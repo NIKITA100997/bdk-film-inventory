@@ -7,6 +7,7 @@ import { listAreas } from "../../../api/areas";
 import {
   getReleasePreview,
   releaseProductionOrder,
+  type LineOverride,
   type PfNeed,
   type ProductionOrder,
 } from "../../../api/productionOrders";
@@ -77,8 +78,10 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
       }));
   // Раскладка перед запуском — те же выбранные п/ф и площадки.
   const [layoutPicks, setLayoutPicks] = useState<ReturnType<typeof buildPicks> | null>(null);
+  // Ручные правки из раскладки — уходят в задания при запуске.
+  const [overrides, setOverrides] = useState<Record<string, LineOverride>>({});
   const mutation = useMutation({
-    mutationFn: () => releaseProductionOrder(order.id, buildPicks()),
+    mutationFn: () => releaseProductionOrder(order.id, buildPicks(), Object.values(overrides)),
     onSuccess: (o) => {
       for (const k of [["production-orders"], ["production-tasks"], ["pf-demand"], ["plan-board"]]) qc.invalidateQueries({ queryKey: k });
       message.success(
@@ -108,13 +111,21 @@ export default function ReleaseOrderModal({ order, onClose }: { order: Productio
         <Space wrap style={{ justifyContent: "flex-end" }}>
           <CancelBtn />
           <Button disabled={unassigned.length > 0 || previewQuery.isLoading} onClick={() => setLayoutPicks(buildPicks())}>
-            Проверить раскладку по участкам
+            {Object.keys(overrides).length ? `Раскладка и правки (${Object.keys(overrides).length})` : "Проверить раскладку по участкам"}
           </Button>
           <OkBtn />
         </Space>
       )}
     >
-      {layoutPicks && <ReleaseLayoutModal order={order} picks={layoutPicks} onClose={() => setLayoutPicks(null)} />}
+      {layoutPicks && (
+        <ReleaseLayoutModal
+          order={order}
+          picks={layoutPicks}
+          overrides={overrides}
+          onOverridesChange={setOverrides}
+          onClose={() => setLayoutPicks(null)}
+        />
+      )}
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Text type="secondary">
           Появятся задания участкам по маршрутам позиций. Сроки операций — назад от{" "}

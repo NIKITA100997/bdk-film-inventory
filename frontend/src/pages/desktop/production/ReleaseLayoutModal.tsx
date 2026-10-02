@@ -1,42 +1,184 @@
 import { useMemo, useState } from "react";
 import dayjs from "dayjs";
-import { Alert, Empty, Modal, Segmented, Space, Spin, Table, Tabs, Tag, Typography } from "antd";
+import {
+  Alert,
+  Button,
+  Checkbox,
+  Empty,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Segmented,
+  Select,
+  Space,
+  Spin,
+  Table,
+  Tabs,
+  Tag,
+  Typography,
+} from "antd";
 import { useQuery } from "@tanstack/react-query";
 import {
   getReleaseLayout,
+  type LineOverride,
   type PfPick,
   type ProductionOrder,
   type ReleaseLayoutRow,
   type ReleaseLayoutSheet,
 } from "../../../api/productionOrders";
+import { listAreas } from "../../../api/areas";
+import { listMaterialSkus } from "../../../api/dictionaries";
 import { ItemChars } from "../../../components/ItemChars";
 
 const d = (s: string | null) => (s ? dayjs(s).format("DD.MM") : "—");
 const period = (a: string | null, b: string | null) => (a && b && a !== b ? `${d(a)}–${d(b)}` : d(a));
 
+type Overrides = Record<string, LineOverride>;
+
 interface Agg extends ReleaseLayoutRow {
-  key: string;
+  rowKey: string;
+  keys: string[];
   lines: number;
 }
 
+/** Правка строки (или группы строк в «Сводно»): что поменять против расчёта. */
+function EditLineModal({
+  row,
+  sheet,
+  overrides,
+  onSave,
+  onClose,
+}: {
+  row: Agg;
+  sheet: ReleaseLayoutSheet;
+  overrides: Overrides;
+  onSave: (keys: string[], ov: Omit<LineOverride, "key"> | null) => void;
+  onClose: () => void;
+}) {
+  const [form] = Form.useForm();
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const skusQuery = useQuery({ queryKey: ["material-skus", "active"], queryFn: () => listMaterialSkus(false), enabled: !!row.film });
+  const current = overrides[row.keys[0]] ?? {};
+  const single = row.keys.length === 1;
+  return (
+    <Modal
+      open
+      title={single ? `Правка строки: ${row.name}` : `Правка ${row.keys.length} строк: ${row.name}`}
+      okText="Применить"
+      cancelText="Отмена"
+      onCancel={onClose}
+      onOk={() =>
+        form.validateFields().then((v) => {
+          const ov: Omit<LineOverride, "key"> = {
+            quantity: single ? v.quantity ?? null : null,
+            program: v.program ?? null,
+            instruction: v.instruction ?? null,
+            material_sku_id: v.material_sku_id ?? null,
+            strip_width_mm: v.strip_width_mm ?? null,
+            area: v.area && v.area !== sheet.area ? v.area : null,
+            skip: !!v.skip,
+          };
+          onSave(row.keys, ov);
+        })
+      }
+      footer={(_, { OkBtn, CancelBtn }) => (
+        <Space>
+          {row.keys.some((k) => overrides[k]) && (
+            <Button danger onClick={() => onSave(row.keys, null)}>
+              Сбросить правку
+            </Button>
+          )}
+          <CancelBtn />
+          <OkBtn />
+        </Space>
+      )}
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{
+          quantity: current.quantity ?? row.qty,
+          program: current.program ?? row.program ?? undefined,
+          instruction: current.instruction ?? row.instruction ?? undefined,
+          material_sku_id: current.material_sku_id ?? row.film?.sku_id ?? undefined,
+          strip_width_mm: current.strip_width_mm ?? row.film?.strip_width_mm ?? undefined,
+          area: current.area ?? sheet.area,
+          skip: !!current.skip,
+        }}
+      >
+        {single && (
+          <Form.Item name="quantity" label="Количество, шт">
+            <InputNumber min={1} style={{ width: 160 }} />
+          </Form.Item>
+        )}
+        <Form.Item name="program" label="Программа станка" extra="Для фрезеровки; нестандартный размер — программа от конструктора">
+          <Input placeholder="например, В13.2_(М5х3)" />
+        </Form.Item>
+        <Form.Item name="instruction" label="Указание мастеру" extra="Видно в задании и в отчёте мастера">
+          <Input maxLength={255} placeholder="например, +2 на брак, кромка по образцу" />
+        </Form.Item>
+        {row.film && (
+          <Form.Item name="material_sku_id" label="Плёнка">
+            <Select
+              showSearch
+              optionFilterProp="label"
+              loading={skusQuery.isLoading}
+              options={(skusQuery.data ?? [])
+                .filter((s) => s.thickness.value_mm > 0)
+                .map((s) => ({ value: s.id, label: `${s.material.name} ${s.color.name} ${s.thickness.value_mm} мм · ${s.manufacturer.name}` }))}
+            />
+          </Form.Item>
+        )}
+        {row.film && row.film.strip_width_mm != null && (
+          <Form.Item name="strip_width_mm" label="Ширина штрипса, мм">
+            <InputNumber min={1} style={{ width: 160 }} />
+          </Form.Item>
+        )}
+        <Form.Item name="area" label="Участок">
+          <Select
+            showSearch
+            optionFilterProp="label"
+            options={(areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }))}
+          />
+        </Form.Item>
+        <Form.Item name="skip" valuePropName="checked" style={{ marginBottom: 0 }}>
+          <Checkbox>Не делать этот этап (строка не попадёт в задание)</Checkbox>
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
 /** Лист участка: «Сводно» — одинаковые позиции сложены (как листы Excel по
- * размерам), «По строкам заказа» — каждая строка со счётом и дверью. */
-function SheetTable({ sheet }: { sheet: ReleaseLayoutSheet }) {
+ * размерам), «По строкам заказа» — каждая строка со счётом и дверью. У
+ * строки «✎» — ручная правка; в «Сводно» она применяется ко всей группе. */
+function SheetTable({
+  sheet,
+  overrides,
+  onEdit,
+}: {
+  sheet: ReleaseLayoutSheet;
+  overrides: Overrides;
+  onEdit: (row: Agg) => void;
+}) {
   const [mode, setMode] = useState<"sum" | "rows">("sum");
   const hasFilm = sheet.rows.some((r) => r.film);
   const data: Agg[] = useMemo(() => {
-    if (mode === "rows") return sheet.rows.map((r, i) => ({ ...r, key: String(i), lines: 1 }));
+    if (mode === "rows") return sheet.rows.map((r, i) => ({ ...r, rowKey: `${r.key}#${i}`, keys: [r.key], lines: 1 }));
     const m = new Map<string, Agg>();
     for (const r of sheet.rows) {
-      const k = `${r.name}|${r.film?.label ?? ""}|${r.film?.strip_width_mm ?? ""}`;
+      const k = `${r.name}|${r.film?.label ?? ""}|${r.film?.strip_width_mm ?? ""}|${r.program ?? ""}|${r.instruction ?? ""}`;
       const a = m.get(k);
       if (a) {
         a.qty += r.qty;
         a.lines += 1;
+        if (!a.keys.includes(r.key)) a.keys.push(r.key);
+        a.manual = a.manual || r.manual;
         if (a.film && r.film) a.film = { ...a.film, need_m: Math.round((a.film.need_m + r.film.need_m) * 10) / 10 };
         if (r.date_from && (!a.date_from || r.date_from < a.date_from)) a.date_from = r.date_from;
         if (r.date_to && (!a.date_to || r.date_to > a.date_to)) a.date_to = r.date_to;
-      } else m.set(k, { ...r, film: r.film ? { ...r.film } : null, key: k, lines: 1 });
+      } else m.set(k, { ...r, film: r.film ? { ...r.film } : null, rowKey: k, keys: [r.key], lines: 1 });
     }
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"));
   }, [sheet, mode]);
@@ -60,7 +202,7 @@ function SheetTable({ sheet }: { sheet: ReleaseLayoutSheet }) {
       </Space>
       <Table<Agg>
         size="small"
-        rowKey="key"
+        rowKey="rowKey"
         pagination={false}
         scroll={{ x: "max-content", y: 420 }}
         dataSource={data}
@@ -69,12 +211,16 @@ function SheetTable({ sheet }: { sheet: ReleaseLayoutSheet }) {
             title: "Наименование",
             // п/ф — название (размер в нём уже есть); дверь — характеристики
             // крупно, длинное название мелко (модель, цвет, кромка отдельно).
-            render: (_, r) =>
-              r.door == null && r.chars.length ? (
-                <ItemChars chars={r.chars} name={r.name} strong={false} />
-              ) : (
-                <span>{r.name}</span>
-              ),
+            render: (_, r) => (
+              <Space direction="vertical" size={2}>
+                {r.door == null && r.chars.length ? <ItemChars chars={r.chars} name={r.name} strong={false} /> : <span>{r.name}</span>}
+                <Space size={4} wrap>
+                  {r.program && <Tag color="geekblue">программа {r.program}</Tag>}
+                  {r.instruction && <Typography.Text type="warning">⚑ {r.instruction}</Typography.Text>}
+                  {(r.manual || r.keys.some((k) => overrides[k])) && <Tag color="orange">изменено вручную</Tag>}
+                </Space>
+              </Space>
+            ),
           },
           { title: "Кол-во", dataIndex: "qty", align: "right", width: 80, render: (v: number) => <b>{v}</b> },
           ...(mode === "rows"
@@ -108,6 +254,15 @@ function SheetTable({ sheet }: { sheet: ReleaseLayoutSheet }) {
               ]
             : []),
           { title: "Срок", width: 100, render: (_, r) => period(r.date_from, r.date_to) },
+          {
+            title: "",
+            width: 56,
+            render: (_, r) => (
+              <Button size="small" title={r.keys.length > 1 ? `Править ${r.keys.length} строк` : "Править строку"} onClick={() => onEdit(r)}>
+                ✎
+              </Button>
+            ),
+          },
         ]}
       />
     </Space>
@@ -116,15 +271,41 @@ function SheetTable({ sheet }: { sheet: ReleaseLayoutSheet }) {
 
 /** Раскладка перед запуском: запуск выполняется на сервере по-настоящему и
  * откатывается — показ совпадает с тем, что родится. Листы как в
- * Excel-мониторе: по участкам в порядке сроков, плюс плёнка и материалы. */
-export default function ReleaseLayoutModal({ order, picks, onClose }: { order: ProductionOrder; picks: PfPick[]; onClose: () => void }) {
+ * Excel-мониторе: по участкам в порядке сроков, плюс плёнка и материалы.
+ * Ручные правки строк применяются сразу (раскладка пересчитывается) и
+ * уходят в задания при запуске. */
+export default function ReleaseLayoutModal({
+  order,
+  picks,
+  overrides,
+  onOverridesChange,
+  onClose,
+}: {
+  order: ProductionOrder;
+  picks: PfPick[];
+  overrides: Overrides;
+  onOverridesChange: (next: Overrides) => void;
+  onClose: () => void;
+}) {
+  const list = Object.values(overrides);
   const q = useQuery({
-    queryKey: ["release-layout", order.id, JSON.stringify(picks)],
-    queryFn: () => getReleaseLayout(order.id, picks),
+    queryKey: ["release-layout", order.id, JSON.stringify(picks), JSON.stringify(list)],
+    queryFn: () => getReleaseLayout(order.id, picks, list),
     staleTime: 0,
     gcTime: 0,
+    placeholderData: (prev) => prev,
   });
   const lay = q.data;
+  const [editing, setEditing] = useState<{ row: Agg; sheet: ReleaseLayoutSheet } | null>(null);
+  const save = (keys: string[], ov: Omit<LineOverride, "key"> | null) => {
+    const next = { ...overrides };
+    for (const k of keys) {
+      if (ov) next[k] = { key: k, ...ov };
+      else delete next[k];
+    }
+    onOverridesChange(next);
+    setEditing(null);
+  };
   return (
     <Modal open width="96vw" style={{ maxWidth: 1300, top: 16 }} title={`Раскладка запуска — заказ №${order.id} «${order.name}»`} footer={null} onCancel={onClose}>
       {q.isLoading && <Spin style={{ display: "block", margin: "48px auto" }} />}
@@ -136,7 +317,18 @@ export default function ReleaseLayoutModal({ order, picks, onClose }: { order: P
               Дверей: <b>{lay.doors}</b> · участков: <b>{lay.sheets.length}</b> · готово к <b>{d(lay.finish)}</b>
             </Typography.Text>
             {lay.late ? <Tag color="red">не успевает к отгрузке</Tag> : <Tag color="green">успевает</Tag>}
-            <Typography.Text type="secondary">Ничего не запущено — это проверка. Запуск — кнопкой в окне запуска.</Typography.Text>
+            {q.isFetching && <Spin size="small" />}
+            {list.length > 0 && (
+              <>
+                <Tag color="orange">ручных правок: {list.length}</Tag>
+                <Button size="small" onClick={() => onOverridesChange({})}>
+                  Сбросить все правки
+                </Button>
+              </>
+            )}
+            <Typography.Text type="secondary">
+              Ничего не запущено — это проверка. Правки уйдут в задания при запуске (кнопкой в окне запуска).
+            </Typography.Text>
           </Space>
           {lay.warnings.length > 0 ? (
             <Alert
@@ -152,7 +344,7 @@ export default function ReleaseLayoutModal({ order, picks, onClose }: { order: P
               }
             />
           ) : (
-            <Alert type="success" showIcon message="Замечаний нет: плёнка определена и хватает, размеры стандартные" />
+            <Alert type="success" showIcon message="Замечаний нет: плёнка определена и хватает, размеры стандартные или программа задана" />
           )}
           <Tabs
             size="small"
@@ -164,7 +356,7 @@ export default function ReleaseLayoutModal({ order, picks, onClose }: { order: P
                     {s.name} <Typography.Text type="secondary">{s.total}</Typography.Text>
                   </span>
                 ),
-                children: <SheetTable sheet={s} />,
+                children: <SheetTable sheet={s} overrides={overrides} onEdit={(row) => setEditing({ row, sheet: s })} />,
               })),
               {
                 key: "_film",
@@ -224,6 +416,9 @@ export default function ReleaseLayoutModal({ order, picks, onClose }: { order: P
             ]}
           />
         </Space>
+      )}
+      {editing && (
+        <EditLineModal row={editing.row} sheet={editing.sheet} overrides={overrides} onSave={save} onClose={() => setEditing(null)} />
       )}
     </Modal>
   );

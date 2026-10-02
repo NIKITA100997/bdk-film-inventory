@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ItemChars } from "../../../components/ItemChars";
-import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Table, Tabs, Tag, Typography, message } from "antd";
+import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Table, Tabs, Tag, Typography, message, Tooltip } from "antd";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -400,6 +400,13 @@ function LinesTab({
               <Space direction="vertical" size={0}>
                 <ItemChars chars={l.item_chars} name={l.part_name} />
                 {l.operation_name && <Typography.Text type="secondary">{l.operation_name}</Typography.Text>}
+                {l.program && <Tag color="geekblue">программа {l.program}</Tag>}
+                {l.instruction && <Typography.Text type="warning">⚑ {l.instruction}</Typography.Text>}
+                {(l.manual_changes ?? []).length > 0 && (
+                  <Tooltip title={(l.manual_changes ?? []).join(" · ")}>
+                    <Tag color="orange">изменено вручную</Tag>
+                  </Tooltip>
+                )}
               </Space>
             ),
           },

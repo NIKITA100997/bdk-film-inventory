@@ -123,6 +123,10 @@ export interface ProductionTaskLine {
   item_chars?: ItemChar[];
   /** Деталь п/ф строки; null — изделие (дверь и т.п.). */
   part_id?: number | null;
+  /** Ручная правка при запуске: программа станка, указание мастеру, что поменяли. */
+  program?: string | null;
+  instruction?: string | null;
+  manual_changes?: string[];
   // Раздел про закрытие строки задания по выдаче — ручной флаг "выдача
   // закрыта", отдельный от shortfall_length_m/remaining_pieces.
   is_closed: boolean;

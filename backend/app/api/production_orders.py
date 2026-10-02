@@ -640,8 +640,22 @@ class PfPickIn(BaseModel):
     from_stock: float = Field(default=0, ge=0)  # взять со склада — в резерв под заказ
 
 
+class LineOverrideIn(BaseModel):
+    """Ручная правка строки, что родится при запуске (см. release_overrides)."""
+
+    key: str
+    quantity: float | None = Field(default=None, gt=0)
+    program: str | None = None
+    instruction: str | None = None
+    material_sku_id: int | None = None
+    strip_width_mm: float | None = Field(default=None, gt=0)
+    area: str | None = None
+    skip: bool = False
+
+
 class ReleaseIn(BaseModel):
     pf: list[PfPickIn] = []
+    overrides: list[LineOverrideIn] = []
 
 
 @router.post("/production-orders/{order_id}/release", response_model=OrderOut)
@@ -655,6 +669,12 @@ def release(
         tasks = release_order(db, order, user.id)
         if payload and payload.pf:
             release_pf(db, order, tasks, [PfPick(**p.model_dump()) for p in payload.pf], user.id)
+        if payload and payload.overrides:
+            from app.services.release_overrides import LineOverride, apply_overrides
+
+            errs = apply_overrides(db, order, [LineOverride(**o.model_dump()) for o in payload.overrides], user.full_name or user.username)
+            if errs:
+                raise OrderError("; ".join(errs))
         schedule_order(db, order, user.id)
     except OrderError as e:
         db.rollback()
@@ -675,7 +695,13 @@ def release_layout(
 
     order = _get_order(db, order_id)
     try:
-        return build_release_layout(db, order, [PfPick(**p.model_dump()) for p in (payload.pf if payload else [])], user.id)
+        from app.services.release_overrides import LineOverride
+
+        return build_release_layout(
+            db, order, [PfPick(**p.model_dump()) for p in (payload.pf if payload else [])], user.id,
+            overrides=[LineOverride(**o.model_dump()) for o in (payload.overrides if payload else [])],
+            user_name=user.full_name or user.username,
+        )
     except OrderError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     finally:
