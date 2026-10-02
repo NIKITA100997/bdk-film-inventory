@@ -40,6 +40,7 @@ import { OrderHistory, OrderMaterials, OrderPlan } from "./OrderTabs";
 import VariantPicker from "../../../components/VariantPicker";
 import { useAuth } from "../../../auth/AuthContext";
 import { listItems, type Item } from "../../../api/items";
+import { listItemTypes } from "../../../api/itemTypes";
 import {
   ORDER_STATUS_LABEL,
   closeProductionOrder,
@@ -673,20 +674,54 @@ function OrderModal({
   // кромка): есть — берётся, нет — заводится сам (VariantPicker).
   const [picking, setPicking] = useState<{ line: number; model: Item } | null>(null);
   const items = itemsQuery.data ?? [];
-  const itemOptions = [
-    {
-      label: "Модели — выбрать размер и цвет",
-      options: items
-        .filter((i) => i.is_model && i.type_id)
-        .map((i) => ({ value: i.id, label: `${i.name} — выбрать вариант…` })),
-    },
-    {
-      label: "Позиции",
-      options: items
-        .filter((i) => i.kind_code !== "plenka" && i.kind_code !== "material" && !i.is_model)
-        .map((i) => ({ value: i.id, label: `${i.name} · ${i.kind_name}` })),
-    },
-  ];
+  const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
+  const typeName = (id: number | null | undefined) => (id ? typesQuery.data?.find((t) => t.id === id)?.name : undefined);
+  // Двери и п/ф в одном заказе почти не встречаются — список делится:
+  // изделия по моделям (модель → её варианты), п/ф и прочее по типу.
+  const orderable = items.filter((i) => i.kind_code !== "plenka" && i.kind_code !== "material");
+  const isProduct = (i: Item) => i.kind_code === "izdelie";
+  const [pickKind, setPickKind] = useState<"izdelie" | "other">(() => {
+    const ls = order?.lines ?? [];
+    return ls.length > 0 && ls.every((l) => l.kind_name !== "Изделие") ? "other" : "izdelie";
+  });
+  const groupBy = (list: Item[], key: (i: Item) => string) => {
+    const m = new Map<string, Item[]>();
+    for (const i of list) m.set(key(i), [...(m.get(key(i)) ?? []), i]);
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], "ru"));
+  };
+  const modelName = (id: number | null) => items.find((m) => m.id === id)?.name;
+  const itemOptions =
+    pickKind === "izdelie"
+      ? [
+          {
+            label: "Модели — выбрать размер и цвет",
+            options: orderable
+              .filter((i) => isProduct(i) && i.is_model && i.type_id)
+              .map((i) => ({ value: i.id, label: `${i.name} — выбрать вариант…` })),
+          },
+          ...groupBy(
+            orderable.filter((i) => isProduct(i) && !i.is_model),
+            (i) => modelName(i.model_id) ?? typeName(i.type_id) ?? "Без модели",
+          ).map(([label, list]) => ({ label, options: list.map((i) => ({ value: i.id, label: i.name })) })),
+        ]
+      : [
+          {
+            label: "Модели — выбрать вариант",
+            options: orderable
+              .filter((i) => !isProduct(i) && i.is_model && i.type_id)
+              .map((i) => ({ value: i.id, label: `${i.name} — выбрать вариант…` })),
+          },
+          ...groupBy(
+            orderable.filter((i) => !isProduct(i) && !i.is_model),
+            (i) => typeName(i.type_id) ?? i.kind_name,
+          ).map(([label, list]) => ({ label, options: list.map((i) => ({ value: i.id, label: i.name })) })),
+        ].filter((g) => g.options.length > 0);
+  // Уже выбранная позиция из другой половины списка — показываем подписью.
+  const optionsFor = (itemId: number | null) => {
+    const it = itemId != null ? items.find((x) => x.id === itemId) : undefined;
+    if (!it || itemOptions.some((g) => g.options.some((o) => o.value === it.id))) return itemOptions;
+    return [{ label: "Выбрано", options: [{ value: it.id, label: it.name }] }, ...itemOptions];
+  };
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -746,7 +781,18 @@ function OrderModal({
         <Form.Item label="Комментарий">
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Form.Item>
-        <Typography.Text strong>Позиции</Typography.Text>
+        <Space wrap>
+          <Typography.Text strong>Позиции</Typography.Text>
+          <Segmented
+            size="small"
+            value={pickKind}
+            onChange={(v) => setPickKind(v as "izdelie" | "other")}
+            options={[
+              { value: "izdelie", label: "Изделия" },
+              { value: "other", label: "П/ф и прочее" },
+            ]}
+          />
+        </Space>
         {items.length === 0 && !itemsQuery.isLoading ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Нет позиций" />
         ) : (
@@ -756,11 +802,11 @@ function OrderModal({
                 <Select
                   showSearch
                   optionFilterProp="label"
-                  placeholder="Позиция (изделие или п/ф)"
+                  placeholder={pickKind === "izdelie" ? "Изделие: модель или готовый вариант" : "П/ф или прочая позиция"}
                   style={{ width: 420 }}
                   loading={itemsQuery.isLoading}
                   value={l.item_id ?? undefined}
-                  options={itemOptions}
+                  options={optionsFor(l.item_id)}
                   onChange={(v) => {
                     const picked = items.find((x) => x.id === v);
                     if (picked?.is_model) setPicking({ line: i, model: picked });
