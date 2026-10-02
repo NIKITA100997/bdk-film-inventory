@@ -180,7 +180,7 @@ def release_pf(
     операцию маршрута детали (кроме последнего этапа — готовая деталь);
     строки помнят строку заказа; задание — «под» задание, где деталь
     расходуется (сделанное уходит в его резерв)."""
-    from app.services.panel_film import LAMINATION_STAGE
+    from app.services.panel_film import LAMINATION, LAMINATION_STAGE, lamination_line_film
 
     area_names = {a.code: a.name for a in db.query(Area)}
     # (строка заказа, этап) → задание, где этот этап выполняется
@@ -222,9 +222,14 @@ def release_pf(
                 )
                 db.add(task)
                 tasks[key] = task
+            # Ламинация/окутка панели — строка с плёнкой: склад выдаёт под неё
+            # штрипс (Фабрика) или рулон целиком (прессы режут сами), отчёт
+            # списывает метраж (02.10).
+            film = lamination_line_film(db, part, stage, area) if stage.name in LAMINATION else {}
             line = ProductionTaskLine(
                 quantity_pieces=pick.quantity, part_stage_id=stage.id, part_id=part.id, part_name=part.name,
-                width_mm=float(part.width_mm or 0), length_m=0, order_line_id=pick.order_line_id,
+                width_mm=float(part.width_mm or 0), length_m=film.pop("length_m", 0), order_line_id=pick.order_line_id,
+                **film,
             )
             task.lines.append(line)
             db.flush()

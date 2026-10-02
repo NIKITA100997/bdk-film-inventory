@@ -154,7 +154,9 @@ def panel_film_demand(db: Session) -> list[PanelFilmRow]:
         )
         reported = reported_good_pieces_by_unit(db, [u.id for u in units])
         laminated = sum(max(0.0, float(u.quantity_pieces) - reported.get(u.id, 0.0)) for u in units)
-        to_laminate = max(0.0, demand[part.id] - laminated)
+        # Строки ламинации с плёнкой (с 02.10) резервируются как обычные
+        # строки заданий — здесь их не считаем второй раз.
+        to_laminate = max(0.0, demand[part.id] - laminated - _in_film_lines(db, lam))
         width, rule = _film_width(db, part, lam, _planned_area(db, lam, to_laminate))
         length = float(part.length_m or 0)
         sku = part.default_material_sku
@@ -175,9 +177,78 @@ def panel_film_demand(db: Session) -> list[PanelFilmRow]:
     return sorted(out, key=lambda r: (r.film is not None, -r.area_m2, r.part_name))
 
 
+def _in_film_lines(db: Session, stage) -> float:
+    """Осталось сделать по открытым строкам ламинации этой детали, у которых
+    плёнка в строке уже есть (они в резерве «Закупок» сами по себе)."""
+    from sqlalchemy import func
+
+    from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+
+    total = 0.0
+    for line in (
+        db.query(ProductionTaskLine)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(
+            ProductionTask.is_active.is_(True), ProductionTaskLine.part_stage_id == stage.id,
+            ProductionTaskLine.material_id.isnot(None), ProductionTaskLine.is_closed.is_(False),
+        )
+    ):
+        good = float(
+            db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
+            .filter(ProductionTaskLineReport.task_line_id == line.id, ProductionTaskLineReport.counts_toward_line.is_(True))
+            .scalar()
+        )
+        total += max(0.0, float(line.quantity_pieces) - good)
+    return total
+
+
 def panel_film_by_group(rows: list[PanelFilmRow]) -> dict[tuple[int, int, int], float]:
     totals: dict[tuple[int, int, int], float] = defaultdict(float)
     for r in rows:
         if r.group is not None and r.area_m2 > 0:
             totals[r.group] += r.area_m2
     return {k: round(v, 3) for k, v in totals.items()}
+
+
+def panel_film_spec(db: Session, part: Part) -> tuple[int, int, int] | None:
+    """Плёнка для строки ламинации/окутки панели (материал, цвет, толщина):
+    закреплённая у детали, иначе по цвету позиции — варианты «Цвет» с
+    привязкой к плёнке; ПЭТ 2Д/3Д решается признаком ПЭТ у позиции детали.
+    Производитель строке задания не нужен — несколько производителей одной
+    плёнки не мешают. Не определилась однозначно — None (плёнку выбирают
+    в задании)."""
+    from app.models.dictionaries import MaterialSku
+    from app.models.items import Item
+    from app.services import type_rules
+    from app.services.film_check import pet_of_material
+
+    if part.default_material_sku_id:
+        s = db.get(MaterialSku, part.default_material_sku_id)
+        return (s.material_id, s.color_id, s.thickness_id) if s else None
+    item = db.get(Item, part.item_id) if part.item_id else None
+    color = type_rules.item_values_color(db, item) if item is not None else None
+    if not color:
+        return None
+    cands = type_rules.film_candidates(db, color)
+    if len({(s.material_id, s.color_id, s.thickness_id) for s in cands}) > 1:
+        pet = (item.pet_type or "2d") if item is not None else "2d"
+        pets = [pet_of_material(s.material.name) for s in cands]
+        if any(p is not None for p in pets):
+            cands = [s for s, p in zip(cands, pets) if p is None or p == pet]
+    specs = {(s.material_id, s.color_id, s.thickness_id) for s in cands}
+    return specs.pop() if len(specs) == 1 else None
+
+
+def lamination_line_film(db: Session, part: Part, stage, area_code: str | None) -> dict:
+    """Поля плёнки для строки задания на ламинацию/окутку панели: плёнка,
+    длина на штуку, ширина штрипса — на Фабрике панель + 7 мм (режет склад,
+    как обычная окутка), на участке, где плёнку режут сами, — без штрипса."""
+    from app.services.areas import cuts_film_on_site
+
+    out: dict = {"length_m": float(part.length_m or 0)}
+    spec = panel_film_spec(db, part)
+    if spec is not None:
+        out.update(material_id=spec[0], color_id=spec[1], thickness_id=spec[2])
+    if not cuts_film_on_site(db, area_code):
+        out["strip_width_mm"] = _film_width(db, part, stage, area_code)[0]
+    return out
