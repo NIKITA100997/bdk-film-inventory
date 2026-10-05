@@ -42,6 +42,18 @@ const HELP_BLOCKS: HelpBlock[] = [
     action: { label: "Открыть задания", path: "/production-tasks" },
   },
   {
+    test: (u) => u.permissions.includes("production_tasks.manage"),
+    title: "Заказы и запуск",
+    body: "«Производство → Заказы на производство» — новый заказ (вручную или из графика) сохраняется черновиком. На его странице выбираются п/ф со склада, площадки ламинации и сроки, видно, что получит каждый участок; «Запустить заказ» создаёт задания участкам.",
+    action: { label: "Открыть заказы", path: "/production-orders" },
+  },
+  {
+    test: (u) => u.permissions.includes("part_units.manage") || u.permissions.includes("part_units.view"),
+    title: "Детали п/ф",
+    body: "«Склад → Остатки», вид «П/ф» — остатки и партии деталей; «Производство → Потребность → П/ф» — сколько деталей не хватает под задания. Партию открывает скан QR-кода на наклейке.",
+    action: { label: "Открыть остатки п/ф", path: "/stock?kind=pf" },
+  },
+  {
     test: (u) => u.permissions.includes("purchasing.manage"),
     title: "Закупки плёнки",
     body: "«Закупки → Закупки плёнки» — заявки поставщику, привязка к приёмке при закрытии.",

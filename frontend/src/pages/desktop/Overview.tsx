@@ -9,7 +9,9 @@ import { getStockOverview, listPurchaseRequests } from "../../api/purchasing";
 import { listSessions } from "../../api/inventory";
 import { getDonorAccuracy, getStaleUnits, getDefectsOverview, getRollsVsStrips, getStockSummary, getCuttingDiscrepancies } from "../../api/reports";
 import { listMaterialSkus } from "../../api/dictionaries";
-import { getBlanksDemand } from "../../api/production";
+import { getBlanksDemand, listProductionTasks } from "../../api/production";
+import { getOrdersReadiness, listProductionOrders } from "../../api/productionOrders";
+import { listPfDemand } from "../../api/pfDemand";
 import { searchUnits } from "../../api/units";
 import { listAreas } from "../../api/areas";
 import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
@@ -23,6 +25,10 @@ import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "../.
 // специфичного для колонок в нём нет), тот же значок-шестерёнка вместо
 // нового UI-паттерна. Порядок — как карточки идут в разметке ниже.
 const TILE_OPTIONS: ColumnOption[] = [
+  { key: "my-tasks", label: "Открытые задания моего участка" },
+  { key: "drafts", label: "Черновики заказов" },
+  { key: "late", label: "Заказы не успевают к отгрузке" },
+  { key: "pf-shortage", label: "Не хватает п/ф" },
   { key: "issued-work", label: "В работе у участков" },
   { key: "purchase-requests", label: "Открытых заявок поставщику" },
   { key: "reorder", label: "Пора заказывать (по расходу)" },
@@ -38,7 +44,8 @@ const TILE_OPTIONS: ColumnOption[] = [
   { key: "unplaced", label: "Без места" },
 ];
 
-/** Обзор (5.5 ТЗ) — сводка сигналов по роли: у каждой роли своя выборка
+/** Обзор (5.5 ТЗ) — сводка сигналов по роли (05.10: и производство —
+ * задания участка, черновики, «не успевает», дефицит п/ф): у каждой роли своя выборка
  * карточек, собранная из уже существующих отчётов/списков (без нового
  * бэкенда) — нехватка, буферы заказов, закупки, точность донор-рекомендаций.
  * Карточки кликабельны — ведут в раздел-источник (10 раздел бэклога
@@ -80,8 +87,23 @@ export default function Overview() {
   // складскими операциями или уже видит планирование/инвентаризацию — не
   // привязано к одной роли, чтобы не плодить очередной хардкод по имени роли.
   const showIssuedWork = hasReceive || hasIssue || hasCut || hasReturn || showInventory || showDonorAccuracy;
+  // Производство (05.10): «Обзор» был только про плёнку — у цеха, мастера
+  // и продаж теперь свои сигналы.
+  const showShop = has("production_tasks.manage") || has("production_tasks.view");
+  const showMyTasks = !!user?.area && (has("production_tasks.report") || has("production_tasks.manage") || has("production_tasks.view"));
+  const showLate = showShop || has("production_tasks.report") || showSales;
+  const showPfShortage = has("production_tasks.manage") || has("part_units.manage");
   const [quickQuery, setQuickQuery] = useState("");
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas, enabled: showIssuedWork && !user?.area });
+
+  const ordersQuery = useQuery({ queryKey: ["production-orders", "overview"], queryFn: () => listProductionOrders(false), enabled: showShop });
+  const draftsCount = (ordersQuery.data ?? []).filter((o) => o.status === "draft").length;
+  const readinessQuery = useQuery({ queryKey: ["order-readiness", "overview"], queryFn: () => getOrdersReadiness(false), enabled: showLate });
+  const lateCount = (readinessQuery.data ?? []).filter((o) => o.plan_late || o.plan_overdue > 0).length;
+  const pfQuery = useQuery({ queryKey: ["pf-demand", "overview"], queryFn: () => listPfDemand(), enabled: showPfShortage });
+  const pfShortCount = (pfQuery.data ?? []).filter((r) => r.shortage > 0).length;
+  const tasksQuery = useQuery({ queryKey: ["production-tasks", "overview"], queryFn: listProductionTasks, enabled: showMyTasks });
+  const myTasksCount = (tasksQuery.data ?? []).filter((t) => t.is_active && t.area === user?.area).length;
 
   const purchasingQuery = useQuery({
     queryKey: ["purchase-requests", "open"],
@@ -165,13 +187,35 @@ export default function Overview() {
 
       {showOnboarding && <OnboardingCard onClose={() => setShowOnboarding(false)} />}
 
-      {/* Раздел про единый рабочий экран — тот же список "без места", что
-          уже есть на "Стеллажах и полках" (UnplacedUnitsCard оттуда же,
-          просто переиспользован), но прямо на "Обзоре" — куда оператор и
-          так попадает по входу, без отдельного похода в "Стеллажи". */}
-      {hasPlace && tileSettings.isVisible("unplaced") && <UnplacedUnitsCard />}
-
       <Row gutter={[16, 16]}>
+        {showMyTasks && tileSettings.isVisible("my-tasks") && (
+          <Col xs={12} sm={12} md={8} lg={6}>
+            <Card loading={tasksQuery.isLoading} {...clickableProps("/production-tasks")}>
+              <Statistic title="Открытых заданий моего участка" value={myTasksCount} />
+            </Card>
+          </Col>
+        )}
+        {showShop && tileSettings.isVisible("drafts") && (
+          <Col xs={12} sm={12} md={8} lg={6}>
+            <Card loading={ordersQuery.isLoading} {...clickableProps("/production-orders")}>
+              <Statistic title="Черновиков заказов — ждут запуска" value={draftsCount} valueStyle={{ color: draftsCount > 0 ? "#C97A2B" : undefined }} />
+            </Card>
+          </Col>
+        )}
+        {showLate && tileSettings.isVisible("late") && (
+          <Col xs={12} sm={12} md={8} lg={6}>
+            <Card loading={readinessQuery.isLoading} {...clickableProps("/order-readiness")}>
+              <Statistic title="Заказов не успевает к отгрузке" value={lateCount} valueStyle={{ color: lateCount > 0 ? "#cf1322" : undefined }} />
+            </Card>
+          </Col>
+        )}
+        {showPfShortage && tileSettings.isVisible("pf-shortage") && (
+          <Col xs={12} sm={12} md={8} lg={6}>
+            <Card loading={pfQuery.isLoading} {...clickableProps("/demand?tab=pf")}>
+              <Statistic title="Деталей п/ф не хватает" value={pfShortCount} valueStyle={{ color: pfShortCount > 0 ? "#C97A2B" : undefined }} />
+            </Card>
+          </Col>
+        )}
         {showIssuedWork && user?.area && tileSettings.isVisible("issued-work") && (
           <Col xs={12} sm={12} md={8} lg={6}>
             <Card loading={issuedUnitsQuery.isLoading} {...clickableProps("/stock")}>
@@ -182,7 +226,8 @@ export default function Overview() {
         {showIssuedWork &&
           !user?.area &&
           tileSettings.isVisible("issued-work") &&
-          (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => (
+          // только участки, где сейчас есть плёнка (у щитовых и п/ф-участков нули — шум)
+          (areasQuery.data ?? []).filter((a) => a.is_active && (issuedByArea[a.code] ?? 0) > 0).map((a) => (
             <Col xs={12} sm={12} md={8} lg={6} key={a.code}>
               <Card loading={issuedUnitsQuery.isLoading} {...clickableProps("/stock")}>
                 <Statistic title={`В работе: ${a.name}`} value={issuedByArea[a.code] ?? 0} suffix="ед." />
@@ -301,6 +346,12 @@ export default function Overview() {
         )}
       </Row>
 
+      {/* Раздел про единый рабочий экран — тот же список "без места", что
+          уже есть на "Стеллажах и полках" (UnplacedUnitsCard оттуда же,
+          просто переиспользован), но прямо на "Обзоре" — куда оператор и
+          так попадает по входу, без отдельного похода в "Стеллажи". */}
+      {hasPlace && tileSettings.isVisible("unplaced") && <UnplacedUnitsCard />}
+
       {/* Быстрые действия — не привязаны к тому, есть ли другие сигналы: это
       основные действия оператора склада (приёмка/выдача), нужны ему
       независимо от того, что ещё показано выше. */}
@@ -339,6 +390,9 @@ export default function Overview() {
         !showBlanks &&
         !showSales &&
         !showIssuedWork &&
+        !showShop &&
+        !showMyTasks &&
+        !showLate &&
         !hasReceive &&
         !hasIssue && (
           <Card>
