@@ -530,6 +530,8 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
             columns={[
               {
                 title: "Материал",
+                // на планшете таблица шире экрана — название остаётся на месте (05.10)
+                fixed: "left",
                 render: (_, r) => `${r.material}, ${r.color}, ${r.thickness} мм`,
                 sorter: (a, b) => a.material.localeCompare(b.material),
               },
@@ -702,6 +704,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
           <ResponsiveTable<MaterialUnit>
             tableKey="materials-explorer-units"
             lockedColumns={["ID", "Материал"]}
+            stickyColumns={2}
             cardBreakpoint="sm"
             rowKey="id"
             loading={unitsQuery.isLoading}

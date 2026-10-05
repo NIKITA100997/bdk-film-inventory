@@ -50,6 +50,7 @@ export default function ResponsiveTable<T extends object>({
   lockedColumns,
   defaultHiddenColumns,
   exportTitle,
+  stickyColumns = 0,
   ...rest
 }: TableProps<T> & {
   cardBreakpoint?: "xs" | "sm" | "md" | "lg";
@@ -59,6 +60,9 @@ export default function ResponsiveTable<T extends object>({
   /** Отчёт (05.10): над таблицей «Excel» и «Печать» — по видимым столбцам,
    * значения — как на экране. Заголовок печатной формы и имя файла. */
   exportTitle?: string;
+  /** Сколько первых видимых столбцов закрепить слева при прокрутке вбок
+   * (05.10: на планшете широкая таблица теряла, о какой строке речь). */
+  stickyColumns?: number;
 }) {
   const screens = Grid.useBreakpoint();
 
@@ -190,7 +194,10 @@ export default function ResponsiveTable<T extends object>({
       <div ref={containerRef}>
         {settingsBar}
         <Table<T>
-          columns={[...visibleLabelable, ...unlabelable]}
+          columns={[
+            ...visibleLabelable.map((c, i) => (i < stickyColumns ? { ...c, fixed: "left" as const } : c)),
+            ...unlabelable,
+          ]}
           dataSource={dataSource}
           rowKey={rowKey}
           locale={locale}
