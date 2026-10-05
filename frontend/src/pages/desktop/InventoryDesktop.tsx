@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import {
   Card,
-  Table,
   Tag,
   Button,
   Modal,
@@ -43,6 +42,7 @@ import { listUsers } from "../../api/users";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import QrScanButton from "../../components/QrScanButton";
 import { fmtDateTime } from "../../utils/dates";
+import ResponsiveTable from "../../components/ResponsiveTable";
 
 const scopeOptions = [
   { value: "rack", label: "Стеллаж" },
@@ -189,7 +189,8 @@ export default function InventoryDesktop() {
           </Button>
         }
       >
-        <Table<InventorySession>
+        <ResponsiveTable<InventorySession>
+          exportTitle="Инвентаризации"
           rowKey="id"
           loading={sessionsQuery.isLoading}
           dataSource={sessionsQuery.data ?? []}

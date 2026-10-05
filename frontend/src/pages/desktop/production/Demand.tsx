@@ -1,11 +1,12 @@
 import { useMemo } from "react";
-import { Card, Empty, Space, Table, Tabs, Tag, Typography } from "antd";
+import { Card, Empty, Space, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../../auth/AuthContext";
 import { listProductionOrders } from "../../../api/productionOrders";
 import PfDemand from "./PfDemand";
 import { BlanksDemandTab } from "../Blanks";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 
 type Tab = "pf" | "film" | "components";
 
@@ -83,7 +84,8 @@ function ComponentsDemand() {
         По открытым заказам на производство: «осталось» — на то, что ещё не сделано. Складской остаток комплектующих система
         пока не ведёт.
       </Typography.Paragraph>
-      <Table<ComponentRow>
+      <ResponsiveTable<ComponentRow>
+        exportTitle="Потребность в материалах и комплектующих"
         size="small"
         rowKey="key"
         loading={q.isLoading}

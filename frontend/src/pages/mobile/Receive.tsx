@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Segmented, Select, Space, Table, Tag, Typography, List, Row, Col, message } from "antd";
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Segmented, Select, Space, Tag, Typography, List, Row, Col, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import InitialStock from "./InitialStock";
@@ -21,6 +21,7 @@ import ExistingSkuPicker from "../../components/ExistingSkuPicker";
 import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useDraftForm } from "../../hooks/useDraftForm";
+import ResponsiveTable from "../../components/ResponsiveTable";
 
 type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code" | "occurred_at" | "thickness"> & {
   thickness: string;
@@ -348,7 +349,7 @@ function ReceiptsHistoryModal({ open, onClose }: { open: boolean; onClose: () =>
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <Table<ReceiptSession>
+        <ResponsiveTable<ReceiptSession>
           size="small"
           tableLayout="fixed"
           rowKey={(s) => `${s.upd_number}-${s.pallet_number}`}
@@ -383,7 +384,7 @@ function ReceiptsHistoryModal({ open, onClose }: { open: boolean; onClose: () =>
             <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
               Кликните строку, чтобы открыть карточку физической единицы.
             </Typography.Paragraph>
-            <Table<(typeof detail.units)[number]>
+            <ResponsiveTable<(typeof detail.units)[number]>
               size="small"
               tableLayout="fixed"
               rowKey="unit_id"

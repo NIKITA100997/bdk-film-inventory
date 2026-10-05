@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ItemChars } from "../../../components/ItemChars";
-import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Table, Tabs, Tag, Typography, message, Tooltip } from "antd";
+import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Tabs, Tag, Typography, message, Tooltip } from "antd";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -29,6 +29,7 @@ import LineSpecModal from "./LineSpecModal";
 import { areaRequiresRoll } from "../../../api/areas";
 import { rollChoices } from "./fastReport/useFastReport";
 import { apiErrorMessage } from "../../../utils/apiError";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 
 /** Готовность задания п/ф по деталям: деталь готова, когда все её строки
  * (этапы на этом участке) сделаны или закрыты. */
@@ -381,7 +382,7 @@ function LinesTab({
           description="Плёнка списывается метражом. Когда сделано — «Ещё → Закрыть: всё сделано»: строки засчитаются без списания плёнки, задание уйдёт в архив."
         />
       )}
-      <Table<ProductionTaskLine>
+      <ResponsiveTable<ProductionTaskLine>
         size="small"
         rowKey="id"
         pagination={false}
@@ -518,7 +519,8 @@ function PlanTab({ t }: { t: ProductionTask }) {
   if (!q.isLoading && !rows.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="В планировщике по этому заданию ничего не стоит" />;
   const today = dayjs().format("YYYY-MM-DD");
   return (
-    <Table
+    <ResponsiveTable
+      exportTitle="План задания по дням"
       size="small"
       loading={q.isLoading}
       rowKey={(s) => `${s.id}-${s.task_line_id}-${s.date}`}
@@ -546,7 +548,8 @@ function PlanTab({ t }: { t: ProductionTask }) {
 function HistoryTab({ reports, loading }: { reports: TaskCardReport[]; loading: boolean }) {
   if (!loading && !reports.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Отчётов по заданию ещё не было" />;
   return (
-    <Table
+    <ResponsiveTable
+      exportTitle="Отчёты по заданию"
       size="small"
       loading={loading}
       rowKey="id"

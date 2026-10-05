@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Table, Tag, Space, Button, Modal, Form, InputNumber, Input, Select, Checkbox, Typography, message, Empty, List } from "antd";
+import { Tag, Space, Button, Modal, Form, InputNumber, Input, Select, Checkbox, Typography, message, Empty, List } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getReconciliation,
@@ -21,6 +21,7 @@ import { toOccurredAtIso } from "../../../utils/occurredAt";
 import ReportModal from "./ReportModal";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { fmtDateTime } from "../../../utils/dates";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 
 // Раздел про сверку рулонов на окутке — пилот "Ежедневки" вскрыл разрыв
 // между тремя вкладками (Выдача участку, карточка единицы, отчёт по
@@ -182,7 +183,8 @@ export default function RollReconciliationTab() {
         />
       </Space>
 
-      <Table
+      <ResponsiveTable
+        exportTitle="Сверка рулонов"
         rowKey="unit_id"
         loading={reconciliationQuery.isLoading}
         dataSource={shownRows}

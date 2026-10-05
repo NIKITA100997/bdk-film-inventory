@@ -1,8 +1,9 @@
-import { Alert, Space, Table, Tag, Typography } from "antd";
+import { Alert, Space, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { getPanelFilm, type PanelFilmRow } from "../api/purchasing";
 import { lookupItem } from "../api/items";
+import ResponsiveTable from "../components/ResponsiveTable";
 
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
 
@@ -50,7 +51,8 @@ export default function PanelFilmTable() {
           ))}
         </Space>
       )}
-      <Table<PanelFilmRow>
+      <ResponsiveTable<PanelFilmRow>
+        exportTitle="Плёнка под панели"
         size="small"
         rowKey="part_id"
         loading={query.isLoading}

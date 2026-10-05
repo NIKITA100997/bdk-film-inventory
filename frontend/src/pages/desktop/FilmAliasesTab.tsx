@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Button, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Button, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { createFilmAlias, deleteFilmAlias, listFilmAliases, updateFilmAlias, type FilmAlias } from "../../api/filmAliases";
 import { apiErrorMessage } from "../../utils/apiError";
+import ResponsiveTable from "../../components/ResponsiveTable";
 
 /** Сопоставления плёнки: как плёнку называют во внешних источниках (графики
  * запуска, наряды, планы заготовок, 1С) → позиция справочника. Общие для всей
@@ -61,7 +62,8 @@ export default function FilmAliasesTab() {
           Добавить сопоставление
         </Button>
       </Space>
-      <Table<FilmAlias>
+      <ResponsiveTable<FilmAlias>
+        exportTitle="Сопоставления плёнки"
         size="small"
         rowKey="id"
         loading={q.isLoading}

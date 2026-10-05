@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Col, Input, Row, Space, Statistic, Table, Tag, Typography } from "antd";
+import { Button, Card, Col, Input, Row, Space, Statistic, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../../auth/AuthContext";
 import { getItemProperties, listItemTypes } from "../../../api/itemTypes";
 import { getModelSummary, type VariantStat } from "../../../api/modelBuilder";
 import NewModelWizard from "./NewModelWizard";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
 
@@ -113,7 +114,8 @@ export default function ModelVariants({ modelId, typeId }: { modelId: number; ty
               </Button>
             )}
           </Space>
-          <Table<VariantStat>
+          <ResponsiveTable<VariantStat>
+            exportTitle="Варианты модели"
             size="small"
             rowKey="item_id"
             loading={summaryQuery.isLoading}

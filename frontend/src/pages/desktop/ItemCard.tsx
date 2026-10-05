@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Button, Card, Empty, Progress, Result, Space, Spin, Table, Tabs, Tag, Typography } from "antd";
+import { Button, Card, Empty, Progress, Result, Space, Spin, Tabs, Tag, Typography } from "antd";
 import TechTree from "../../components/TechTree";
 import { getItemTree, getModelSummary } from "../../api/modelBuilder";
 import { useQuery } from "@tanstack/react-query";
@@ -16,6 +16,7 @@ import { useTabTitle } from "../../layout/tabTitle";
 import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
 import PartCard from "./production/PartCard";
 import { MovementsPanel } from "./StockLotsMovements";
+import ResponsiveTable from "../../components/ResponsiveTable";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
 
@@ -189,7 +190,8 @@ function OrdersOfItem({ itemIds, orders, loading }: { itemIds: Set<number>; orde
   const navigate = useNavigate();
   if (!loading && orders.length === 0) return <Empty description="В заказах на производство позиции пока нет" />;
   return (
-    <Table<ProductionOrder>
+    <ResponsiveTable<ProductionOrder>
+      exportTitle="Заказы с позицией"
       size="small"
       rowKey="id"
       loading={loading}

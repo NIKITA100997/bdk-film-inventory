@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tabs, DatePicker, Space, Row, Col, Tag, Select, Progress, Typography, Switch, Empty, Table } from "antd";
+import { Card, Tabs, DatePicker, Space, Row, Col, Tag, Select, Progress, Typography, Switch, Empty } from "antd";
 import Statistic from "../../components/Statistic";
 import { ArrowUpOutlined, ArrowDownOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
@@ -29,6 +29,7 @@ import { palette } from "../../theme";
 import { WriteOffReasonsTab } from "./DictionaryAdmin";
 import { UnitLink } from "../../components/EntityLink";
 import { fmtDate, fmtDateTime } from "../../utils/dates";
+import ResponsiveTable from "../../components/ResponsiveTable";
 
 function DeltaTag({ value, goodDirection }: { value: number | null; goodDirection: "down" | "up" }) {
   if (value === null) return <Tag>нет данных за пред. период</Tag>;
@@ -219,7 +220,8 @@ function DefectsOverviewTab() {
         <Row gutter={[16, 16]}>
           <Col xs={24} lg={12}>
             <Card size="small" title="Топ материалов по списаниям">
-              <Table
+              <ResponsiveTable
+                exportTitle="Топ материалов по списаниям"
                 size="small"
                 pagination={false}
                 rowKey={(r) => `${r.material}-${r.color}-${r.thickness}`}
@@ -231,7 +233,8 @@ function DefectsOverviewTab() {
           </Col>
           <Col xs={24} lg={12}>
             <Card size="small" title="Худшие по браку" extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>доля от годных</Typography.Text>}>
-              <Table
+              <ResponsiveTable
+                exportTitle="Худшие по браку"
                 size="small"
                 pagination={false}
                 rowKey={(r) => `${r.level}-${r.label}`}
