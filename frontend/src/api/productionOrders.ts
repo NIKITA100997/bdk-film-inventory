@@ -226,6 +226,10 @@ const planBody = (plan?: ReleasePlan) =>
       }
     : {};
 
+/** Раскладка по участкам прямо из графика — до черновика (всё откатывается). */
+export const getScheduleLayout = async (p: { text: string; type_id: number; color_films?: Record<string, number> }): Promise<ReleaseLayout> =>
+  (await apiClient.post<ReleaseLayout>("/production-orders/schedule-layout", p)).data;
+
 export const getReleaseLayout = async (id: number, pf: PfPick[] = [], overrides: LineOverride[] = [], plan?: ReleasePlan): Promise<ReleaseLayout> =>
   (await apiClient.post<ReleaseLayout>(`/production-orders/${id}/release-layout`, { pf, overrides, ...planBody(plan) })).data;
 

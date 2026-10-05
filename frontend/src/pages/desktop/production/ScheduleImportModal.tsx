@@ -5,7 +5,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
 import { listMaterialSkus } from "../../../api/dictionaries";
 import { importColumnsText } from "../nomenclature/ImportTemplateModal";
+import ReleaseLayoutModal from "./ReleaseLayoutModal";
 import {
+  EMPTY_PLAN,
+  getScheduleLayout,
   importOrderFromSchedule,
   type ProductionOrder,
   type ScheduleImportColor,
@@ -42,6 +45,7 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
   // Сопоставление цвет графика → плёнка: выбор сохраняется в привязку цвета
   // типа и дальше подставляется сам (в заданиях на ламинацию — эта плёнка).
   const [colorFilms, setColorFilms] = useState<Record<string, number>>({});
+  const [layoutOpen, setLayoutOpen] = useState(false);
   const skusQuery = useQuery({ queryKey: ["material-skus", "active"], queryFn: () => listMaterialSkus(false), enabled: !!preview });
   const skuOptions = (skusQuery.data ?? [])
     .filter((s) => s.is_active && s.thickness.value_mm > 0)
@@ -88,6 +92,13 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
             Разобрать
           </Button>
           <Button
+            disabled={!preview || bad > 0 || preview.rows.length === 0}
+            title="Что родится по участкам — как листы Excel-монитора; ничего не создаётся"
+            onClick={() => setLayoutOpen(true)}
+          >
+            Раскладка по участкам
+          </Button>
+          <Button
             type="primary"
             disabled={!preview || bad > 0 || preview.rows.length === 0}
             loading={run.isPending && run.variables === false}
@@ -98,6 +109,21 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
         </Space>
       }
     >
+      {layoutOpen && effectiveType && (
+        <ReleaseLayoutModal
+          order={{ id: 0, name: name.trim() || "по графику" } as ProductionOrder}
+          picks={[]}
+          overrides={{}}
+          onOverridesChange={() => {}}
+          plan={EMPTY_PLAN}
+          onPlanChange={() => {}}
+          onClose={() => setLayoutOpen(false)}
+          preview={{
+            title: `Раскладка по участкам — ${name.trim() || "график"} (предпросмотр)`,
+            load: () => getScheduleLayout({ text, type_id: effectiveType, color_films: colorFilms }),
+          }}
+        />
+      )}
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Text type="secondary">
           Скопируйте строки графика из Excel и вставьте сюда. Колонки по порядку

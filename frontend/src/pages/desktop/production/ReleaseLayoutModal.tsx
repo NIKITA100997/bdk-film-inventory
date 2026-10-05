@@ -27,6 +27,7 @@ import {
   type ReleasePlan,
   type ProductionOrder,
   type ReleaseLayoutRow,
+  type ReleaseLayout,
   type ReleaseLayoutSheet,
 } from "../../../api/productionOrders";
 import { listAreas } from "../../../api/areas";
@@ -164,10 +165,10 @@ function SheetTable({
 }: {
   sheet: ReleaseLayoutSheet;
   overrides: Overrides;
-  onEdit: (row: Agg) => void;
+  onEdit?: (row: Agg) => void;
   // ручной срок участка: всё по нему — на этот день (следующие — за ним)
   date: string | undefined;
-  onDate: (d: string | null) => void;
+  onDate?: (d: string | null) => void;
 }) {
   const [mode, setMode] = useState<"sum" | "rows">("sum");
   const hasFilm = sheet.rows.some((r) => r.film);
@@ -206,16 +207,18 @@ function SheetTable({
           Всего {sheet.total} шт · срок {period(sheet.date_from, sheet.date_to)}
           {sheet.cut_on_site && " · плёнку режут на участке — выдаётся рулон целиком"}
         </Typography.Text>
-        <Space size={4}>
-          <Typography.Text>Поставить участок на дату:</Typography.Text>
-          <DatePicker
-            size="small"
-            format="DD.MM.YYYY"
-            value={date ? dayjs(date) : null}
-            onChange={(v) => onDate(v ? v.format("YYYY-MM-DD") : null)}
-          />
-          {date && <Tag color="orange">срок вручную</Tag>}
-        </Space>
+        {onDate && (
+          <Space size={4}>
+            <Typography.Text>Поставить участок на дату:</Typography.Text>
+            <DatePicker
+              size="small"
+              format="DD.MM.YYYY"
+              value={date ? dayjs(date) : null}
+              onChange={(v) => onDate(v ? v.format("YYYY-MM-DD") : null)}
+            />
+            {date && <Tag color="orange">срок вручную</Tag>}
+          </Space>
+        )}
       </Space>
       <Table<Agg>
         size="small"
@@ -271,15 +274,19 @@ function SheetTable({
               ]
             : []),
           { title: "Срок", width: 100, render: (_, r) => period(r.date_from, r.date_to) },
-          {
-            title: "",
-            width: 56,
-            render: (_, r) => (
-              <Button size="small" title={r.keys.length > 1 ? `Править ${r.keys.length} строк` : "Править строку"} onClick={() => onEdit(r)}>
-                ✎
-              </Button>
-            ),
-          },
+          ...(onEdit
+            ? [
+                {
+                  title: "",
+                  width: 56,
+                  render: (_: unknown, r: Agg) => (
+                    <Button size="small" title={r.keys.length > 1 ? `Править ${r.keys.length} строк` : "Править строку"} onClick={() => onEdit(r)}>
+                      ✎
+                    </Button>
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
     </Space>
@@ -299,6 +306,7 @@ export default function ReleaseLayoutModal({
   plan,
   onPlanChange,
   onClose,
+  preview,
 }: {
   order: ProductionOrder;
   picks: PfPick[];
@@ -307,12 +315,14 @@ export default function ReleaseLayoutModal({
   plan: ReleasePlan;
   onPlanChange: (next: ReleasePlan) => void;
   onClose: () => void;
+  /** Предпросмотр из графика (ещё нет заказа): только просмотр, без правок и сроков. */
+  preview?: { title: string; load: () => Promise<ReleaseLayout> };
 }) {
   const list = Object.values(overrides);
   const [shiftDraft, setShiftDraft] = useState<number | null>(plan.shift_days || null);
   const q = useQuery({
-    queryKey: ["release-layout", order.id, JSON.stringify(picks), JSON.stringify(list), JSON.stringify(plan)],
-    queryFn: () => getReleaseLayout(order.id, picks, list, plan),
+    queryKey: ["release-layout", order.id, JSON.stringify(picks), JSON.stringify(list), JSON.stringify(plan), preview?.title],
+    queryFn: () => (preview ? preview.load() : getReleaseLayout(order.id, picks, list, plan)),
     staleTime: 0,
     gcTime: 0,
     placeholderData: (prev) => prev,
@@ -329,7 +339,7 @@ export default function ReleaseLayoutModal({
     setEditing(null);
   };
   return (
-    <Modal open width="96vw" style={{ maxWidth: 1300, top: 16 }} title={`Раскладка запуска — заказ №${order.id} «${order.name}»`} footer={null} onCancel={onClose}>
+    <Modal open width="96vw" style={{ maxWidth: 1300, top: 16 }} title={preview ? preview.title : `Раскладка запуска — заказ №${order.id} «${order.name}»`} footer={null} onCancel={onClose}>
       {q.isLoading && <Spin style={{ display: "block", margin: "48px auto" }} />}
       {q.isError && <Alert type="error" showIcon message="Не удалось посчитать раскладку" description={String((q.error as Error)?.message ?? "")} />}
       {lay && (
@@ -349,9 +359,12 @@ export default function ReleaseLayoutModal({
               </>
             )}
             <Typography.Text type="secondary">
-              Ничего не запущено — это проверка. Правки уйдут в задания при запуске (кнопкой в окне запуска).
+              {preview
+                ? "Предпросмотр по графику: ничего не создано. Площадка ламинации — по размеру партии (панель одного цвета и размера от порога — на Фабрику); править строки и сроки — при запуске заказа."
+                : "Ничего не запущено — это проверка. Правки уйдут в задания при запуске (кнопкой в окне запуска)."}
             </Typography.Text>
           </Space>
+          {!preview && (
           <Space wrap>
             <Typography.Text>Весь заказ: сдвинуть на</Typography.Text>
             <InputNumber size="small" style={{ width: 80 }} value={shiftDraft} onChange={setShiftDraft} placeholder="±дн." />
@@ -375,6 +388,7 @@ export default function ReleaseLayoutModal({
               </Button>
             )}
           </Space>
+          )}
           {lay.warnings.length > 0 ? (
             <Alert
               type="warning"
@@ -405,14 +419,18 @@ export default function ReleaseLayoutModal({
                   <SheetTable
                     sheet={s}
                     overrides={overrides}
-                    onEdit={(row) => setEditing({ row, sheet: s })}
+                    onEdit={preview ? undefined : (row) => setEditing({ row, sheet: s })}
                     date={plan.dates[s.area]}
-                    onDate={(dt) => {
-                      const dates = { ...plan.dates };
-                      if (dt) dates[s.area] = dt;
-                      else delete dates[s.area];
-                      onPlanChange({ ...plan, dates });
-                    }}
+                    onDate={
+                      preview
+                        ? undefined
+                        : (dt) => {
+                            const dates = { ...plan.dates };
+                            if (dt) dates[s.area] = dt;
+                            else delete dates[s.area];
+                            onPlanChange({ ...plan, dates });
+                          }
+                    }
                   />
                 ),
               })),

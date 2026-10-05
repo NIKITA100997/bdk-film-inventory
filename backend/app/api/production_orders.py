@@ -853,6 +853,46 @@ class ScheduleImportOut(BaseModel):
     order: OrderOut | None
 
 
+@router.post("/production-orders/schedule-layout")
+def schedule_layout(payload: ScheduleImportIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> dict:
+    """Раскладка по участкам прямо из графика — до черновика: импорт, запуск
+    и раскладка выполняются по-настоящему и откатываются. П/ф — как
+    предложит окно запуска; площадка ламинации — по размеру партии
+    (крупная — на участок крупных партий, иначе — по маршруту)."""
+    from app.services.release_layout import build_release_layout
+
+    type_ = db.get(ItemType, payload.type_id)
+    if type_ is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Тип не найден")
+    try:
+        rows, parse_errors, order = import_schedule(
+            db, text=payload.text, type_=type_, order_name=payload.name or "Предпросмотр графика", user_id=user.id,
+            dry_run=False, color_films=payload.color_films,
+        )
+        if order is None:
+            errs = parse_errors + [e for r in rows for e in r.errors]
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Сначала исправьте ошибки графика: " + "; ".join(errs[:3]))
+        db.flush()
+        needs = order_pf_needs(db, order)
+        # крупная партия — по панели целиком (один цвет и размер) по всему заказу
+        per_part: dict[int, float] = {}
+        for n in needs:
+            per_part[n.part_id] = per_part.get(n.part_id, 0) + n.launch
+        picks = []
+        for n in needs:
+            lam = None
+            if n.lamination_area:
+                big = n.factory_area and n.factory_min_pieces and per_part[n.part_id] >= n.factory_min_pieces
+                lam = n.factory_area if big else n.lamination_area
+            picks.append(PfPick(order_line_id=n.order_line_id, part_id=n.part_id, quantity=n.launch,
+                                consumer_part_id=n.consumer_part_id, lamination_area=lam, from_stock=n.from_stock))
+        return build_release_layout(db, order, picks, user.id, user_name=user.full_name or user.username)
+    except OrderError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    finally:
+        db.rollback()
+
+
 @router.post("/production-orders/from-schedule", response_model=ScheduleImportOut)
 def order_from_schedule(
     payload: ScheduleImportIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)
