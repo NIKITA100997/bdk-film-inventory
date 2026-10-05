@@ -29,6 +29,8 @@
   Свойство-флажок без совпадения — «нет», текст — пусто.
 """
 
+import csv
+import io
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -193,6 +195,19 @@ def validate(tpl_raw: dict, type_) -> list[str]:
     return errors
 
 
+def _split_rows(text: str) -> list[tuple[int, list[str]]]:
+    """Строки и ячейки вставки из Excel: табуляция между ячейками; ячейку с
+    переносом строки внутри Excel берёт в кавычки — она не рвёт строку.
+    Номер — строка вставки, с которой начинается запись."""
+    out: list[tuple[int, list[str]]] = []
+    reader = csv.reader(io.StringIO(text), delimiter="\t", quotechar='"')
+    line = 1
+    for cells in reader:
+        out.append((line, cells))
+        line = reader.line_num + 1
+    return out
+
+
 def parse_rows(text: str, tpl: Template) -> tuple[list[TemplateRow], list[str]]:
     """Строки вставленного графика по колонкам шаблона. Шапку (тексты
     совпадают с названиями колонок), пустые строки и заглушки шаблона
@@ -203,14 +218,23 @@ def parse_rows(text: str, tpl: Template) -> tuple[list[TemplateRow], list[str]]:
     i_qty, i_name, i_ship, i_inv = tpl.index("qty"), tpl.index("name"), tpl.index("ship_date"), tpl.index("invoice")
     titles = [(c.get("title") or "").strip().lower() for c in tpl.columns]
     data_cols = [i for i, c in enumerate(tpl.columns) if c.get("role") in ("property", "size")]
-    for no, raw in enumerate(text.splitlines(), 1):
-        cells = [c.strip() for c in raw.split("\t")]
+    last_qty = bool(tpl.columns) and tpl.columns[-1].get("role") == "qty"
+    for no, raw_cells in _split_rows(text):
+        cells = [" ".join(c.split()) for c in raw_cells]
         if not any(cells):
             continue
+        while cells and not cells[-1]:
+            cells.pop()
+        # Скопировали не с первой колонки (без «Даты отгрузки») — строка
+        # короче шаблона, а количество — последним: выравниваем по правому
+        # краю, чтобы колонки встали на свои места.
+        if last_qty and 0 < len(cells) < n and re.fullmatch(r"\d+", cells[-1].replace(" ", "")):
+            cells = [""] * (n - len(cells)) + cells
         cells += [""] * max(0, n - len(cells))
         if any(cells[i].startswith("#") for i in data_cols):
             continue
-        if sum(1 for i, t in enumerate(titles) if t and cells[i].lower() == t) >= 2:
+        # шапка — в строке два и больше названий колонок (где бы они ни стояли)
+        if len({c.lower() for c in cells if c} & {t for t in titles if t}) >= 2:
             continue
         row = TemplateRow(line_no=no, cells=cells[:n])
         row.name_text = tpl.cell(row, i_name)

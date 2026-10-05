@@ -182,3 +182,25 @@ def test_validate_catches_unknown_property_and_bad_regex():
     }
     errs = validate(bad, NS(properties=list(_props().values())))
     assert any("нет_такого" in e for e in errs) and any("не читается" in e for e in errs)
+
+
+class TestPasteVariants:
+    def test_copied_without_ship_date_column(self):
+        # выделили строки с колонки «№ счёта» — без «Даты отгрузки»
+        text = "1726-ВД\tВ-10.2\t800х2000\tПЭТ Бежевый\tВ-10.2 (м5х3 кромка 4х) 800х2000 - ПЭТ Бежевый\t1\n" \
+               "1589-ДВ\tЕ-14.2\t600х2000\tПЭТ Светло-серый\tЕ-14.2 600х2000 - ПЭТ\t6"
+        rows, errors = parse_rows(text, TPL)
+        assert errors == []
+        assert [(r.invoice_no, r.qty, TPL.column_text(r, "серия")) for r in rows] == [("1726-ВД", 1, "В-10.2"), ("1589-ДВ", 6, "Е-14.2")]
+
+    def test_cell_with_line_break_inside(self):
+        text = '\t1589-ДВ\tЕ-17.2\t600х2000\t"ПЭТ Светло-\nкоричневый"\tЕ-17.2 600х2000 - ПЭТ Светло-коричневый\t6\n' \
+               "\t1781-АВ\tВ-13.2\t700х2000\tПЭТ Светло-серый\tВ-13.2 700х2000 - ПЭТ Светло-серый\t1"
+        rows, errors = parse_rows(text, TPL)
+        assert errors == []
+        assert TPL.column_text(rows[0], "цвет") == "ПЭТ Светло- коричневый"
+        assert [r.qty for r in rows] == [6, 1]
+
+    def test_empty_quantity_still_an_error(self):
+        rows, errors = parse_rows("\t1\tВ-5\t800х2000\tБелый\tВ-5 800х2000\t", TPL)
+        assert rows == [] and errors and "не число" in errors[0]
