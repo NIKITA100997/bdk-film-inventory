@@ -1,8 +1,12 @@
-import { useState, type ReactNode } from "react";
-import { Alert, Button, Checkbox, Modal, Select, Space, Tag, Typography, message } from "antd";
+import { useState } from "react";
+import { Alert, Button, Checkbox, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItems, setItemComponents, type TechCard } from "../../../api/items";
+import { listAreas } from "../../../api/areas";
+import { OPERATION_ROLE_LABEL } from "../../../utils/operationRoles";
+import ComponentsEditorModal from "./ComponentsEditorModal";
+import RouteEditorModal from "./RouteEditorModal";
 import { apiErrorMessage } from "../../../utils/apiError";
 
 type Input = TechCard["inputs"][number];
@@ -108,6 +112,17 @@ export default function ItemComposition({ card, canEdit }: { card: TechCard; can
                   ) : (
                     <Typography.Text type="secondary">обычная</Typography.Text>
                   ),
+              },
+              {
+                title: "Расценка",
+                render: (_, o) => {
+                  const a = area(o.area);
+                  if (o.piece_rate != null) return `${o.piece_rate} ₽/шт`;
+                  if (a?.pay_mode === "piece" && a.piece_rate != null)
+                    return <Typography.Text type="secondary">{a.piece_rate} ₽/шт (участка)</Typography.Text>;
+                  if (a?.pay_mode === "shift") return <Typography.Text type="secondary">за смену</Typography.Text>;
+                  return <Typography.Text type="secondary">—</Typography.Text>;
+                },
               },
               { title: "Срок, раб. дн.", render: (_, o) => area(o.area)?.lead_days ?? "—" },
               {
