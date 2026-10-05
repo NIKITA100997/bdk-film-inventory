@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from "react";
-import { Button, Space, Typography } from "antd";
+import { Space, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import type { TechCard } from "../../../api/items";
 import { listAreas } from "../../../api/areas";
 import type { Part } from "../../../api/dictionaries";
 import ItemPropertiesSection from "./ItemPropertiesSection";
 import LaminatedBar from "./LaminatedBar";
-import PartParamsModal from "./PartParamsModal";
+import ItemEditModal from "./ItemEditModal";
 import ItemPriceSection from "./ItemPriceSection";
 import { useAuth } from "../../../auth/AuthContext";
 
@@ -70,14 +70,7 @@ export default function ItemOverview({
           canEdit={canEditTypes}
           title="Характеристики"
           extra={partRows}
-          extraAction={
-            part &&
-            canEditPart && (
-              <Button size="small" onClick={() => setEditing(true)}>
-                Изменить параметры детали
-              </Button>
-            )
-          }
+          onEdit={canEditTypes || (part && canEditPart) ? () => setEditing(true) : undefined}
         />
       </section>
 
@@ -90,7 +83,17 @@ export default function ItemOverview({
         </section>
       )}
 
-      {editing && part && <PartParamsModal part={part} onClose={() => setEditing(false)} />}
+      {editing && (
+        <ItemEditModal
+          itemId={card.item_id}
+          kindCode={card.kind_code}
+          typed={!!card.type_id}
+          part={part}
+          canEditTypes={canEditTypes}
+          canEditPart={canEditPart}
+          onClose={() => setEditing(false)}
+        />
+      )}
     </Space>
   );
 }

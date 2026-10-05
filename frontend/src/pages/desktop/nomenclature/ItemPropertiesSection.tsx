@@ -28,6 +28,7 @@ export default function ItemPropertiesSection({
   title,
   extra = [],
   extraAction,
+  onEdit,
 }: {
   itemId: number;
   kindCode: string;
@@ -38,6 +39,8 @@ export default function ItemPropertiesSection({
   extra?: { label: string; value: ReactNode }[];
   /** Ещё кнопка в заголовке (изменить параметры детали). */
   extraAction?: ReactNode;
+  /** Правка — общим окном карточки (свойства и параметры вместе), а не здесь. */
+  onEdit?: () => void;
 }) {
   const qc = useQueryClient();
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
@@ -74,10 +77,17 @@ export default function ItemPropertiesSection({
   if (valuesQuery.isLoading || typesQuery.isLoading) return <Typography.Text type="secondary">Загрузка…</Typography.Text>;
 
   if (!editing) {
-    const editBtn = canEdit && kindTypes.length > 0 && (
-      <Button size="small" onClick={() => setEditing(true)}>
-        {extraAction ? "Изменить свойства" : "Изменить"}
+    const editBtn = onEdit ? (
+      <Button size="small" onClick={onEdit}>
+        Изменить
       </Button>
+    ) : (
+      canEdit &&
+      kindTypes.length > 0 && (
+        <Button size="small" onClick={() => setEditing(true)}>
+          {extraAction ? "Изменить свойства" : "Изменить"}
+        </Button>
+      )
     );
     const props = type?.properties ?? [];
     return (
