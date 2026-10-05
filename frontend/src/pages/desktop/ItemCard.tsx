@@ -197,7 +197,7 @@ function OrdersOfItem({ itemIds, orders, loading }: { itemIds: Set<number>; orde
       loading={loading}
       pagination={false}
       dataSource={orders}
-      onRow={(o) => ({ onClick: () => navigate(`/production-orders?order=${o.id}`), style: { cursor: "pointer" } })}
+      onRow={(o) => ({ onClick: () => navigate(`/production-orders/${o.id}`), style: { cursor: "pointer" } })}
       columns={[
         { title: "Заказ", render: (_, o) => `№${o.id} «${o.name}»` },
         { title: "Статус", render: (_, o) => <Tag>{ORDER_STATUS_LABEL[o.status]}</Tag> },

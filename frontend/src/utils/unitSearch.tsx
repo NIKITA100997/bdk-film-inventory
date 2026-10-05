@@ -15,7 +15,7 @@ const HIT_PATH: Record<IdHit["kind"], (id: number) => [string, unknown?]> = {
   film_unit: (id) => ["/m/unit-card", { unitId: id }],
   part_unit: (id) => ["/m/part-unit-card", { unitId: id }],
   task: (id) => [`/production-tasks?task=${id}`],
-  order: (id) => [`/production-orders?order=${id}`],
+  order: (id) => [`/production-orders/${id}`],
 };
 
 function openHit(hit: IdHit, navigate: NavigateFunction) {

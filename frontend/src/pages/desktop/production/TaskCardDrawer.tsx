@@ -296,7 +296,7 @@ function TaskCardBody({
                 <a
                   onClick={() => {
                     onClose?.();
-                    navigate(`/production-orders?order=${card.order!.id}`);
+                    navigate(`/production-orders/${card.order!.id}`);
                   }}
                 >
                   заказ №{card.order.id} «{card.order.name}» · {ORDER_STATUS_LABEL[card.order.status as keyof typeof ORDER_STATUS_LABEL] ?? card.order.status}

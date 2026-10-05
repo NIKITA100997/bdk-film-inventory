@@ -336,7 +336,7 @@ function SlotsDrawer({ target, onClose }: { target: Target; onClose: () => void 
                 </span>
                 <Space size={4} wrap>
                   {s.order_id ? (
-                    <a onClick={() => navigate(`/production-orders?order=${s.order_id}`)} style={{ fontSize: 12 }}>
+                    <a onClick={() => navigate(`/production-orders/${s.order_id}`)} style={{ fontSize: 12 }}>
                       Заказ №{s.order_id} «{s.order_name}»
                     </a>
                   ) : (
