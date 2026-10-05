@@ -55,3 +55,69 @@ h4,
 h5 {
   font-family: "Cambria", Georgia, serif;
 }
+
+/* Планшет / сенсорный экран (05.10, ревизия): кнопки, поля и строки таблиц
+   крупнее — под палец (было ~24 px, нужно 36–40). Только при грубом
+   указателе: на компьютере с мышью всё как было. */
+@media (pointer: coarse) {
+  .ant-btn {
+    min-height: 40px;
+  }
+  .ant-btn.ant-btn-sm {
+    min-height: 36px;
+    padding-inline: 10px;
+  }
+  .ant-btn.ant-btn-icon-only {
+    min-width: 40px;
+  }
+  .ant-btn.ant-btn-sm.ant-btn-icon-only {
+    min-width: 36px;
+  }
+  .ant-input,
+  .ant-input-affix-wrapper,
+  .ant-picker,
+  .ant-input-number {
+    min-height: 40px;
+  }
+  .ant-input-number-input {
+    height: 38px;
+  }
+  /* поле внутри рамки (поиск, поле с иконкой) — высоту держит рамка */
+  .ant-input-affix-wrapper > .ant-input {
+    min-height: 0;
+  }
+  .ant-input-search > .ant-input-group > .ant-input-group-addon > .ant-btn {
+    height: 40px;
+  }
+  .ant-select-single:not(.ant-select-customize-input) .ant-select-selector,
+  .ant-select-single {
+    min-height: 40px;
+    height: auto;
+    align-items: center;
+  }
+  .ant-select-multiple .ant-select-selector {
+    min-height: 40px;
+  }
+  .ant-segmented-item-label {
+    min-height: 36px;
+    line-height: 36px;
+  }
+  .ant-checkbox-inner,
+  .ant-radio-inner {
+    width: 20px;
+    height: 20px;
+  }
+  .ant-tabs-tab {
+    padding-block: 12px;
+  }
+  .ant-table.ant-table-small .ant-table-tbody > tr > td {
+    padding-block: 10px;
+  }
+  .ant-pagination .ant-pagination-item,
+  .ant-pagination .ant-pagination-prev,
+  .ant-pagination .ant-pagination-next {
+    min-width: 40px;
+    height: 40px;
+    line-height: 38px;
+  }
+}
