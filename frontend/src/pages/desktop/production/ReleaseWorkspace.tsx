@@ -438,7 +438,7 @@ export default function ReleaseWorkspace({
     ...(lay?.sheets ?? []).map(
       (s): SectionItem => ({
         key: s.area,
-        group: "Участки — что родится",
+        group: "Задания участкам",
         label: s.name,
         sub: `${s.total} шт · ${period(s.date_from, s.date_to)}${s.pf ? " · п/ф" : ""}`,
         mark: plan.dates[s.area] ? "срок вручную" : s.rows.some((r) => overrides[r.key] || r.manual) ? "правки" : undefined,

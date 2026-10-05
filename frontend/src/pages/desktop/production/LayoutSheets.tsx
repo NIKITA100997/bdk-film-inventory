@@ -229,20 +229,26 @@ export function SheetTable({
             </Typography.Text>
           )}
           <ResponsiveTable<Agg>
+            // ширины столбцов заданы явно, таблица пересоздаётся при смене
+            // режима — иначе при max-content первый столбец «запоминал»
+            // ширину широкого режима и рос при каждом переключении (05.10)
+            key={mode}
+            tableLayout="fixed"
             exportTitle={`Раскладка запуска: ${sheet.name}${g.op ? ` — ${g.op}` : ""}`}
             cardBreakpoint="xs"
             size="small"
             rowKey="rowKey"
             pagination={false}
-            scroll={{ x: "max-content", y: 420 }}
+            scroll={{ x: 360 + 80 + (mode === "rows" ? 240 : 70) + (hasFilm ? 230 : 0) + 100 + (onEdit ? 56 : 0), y: 420 }}
             dataSource={g.rows}
             columns={[
               {
                 title: "Наименование",
+                width: 360,
                 // п/ф — название (размер в нём уже есть); дверь — характеристики
                 // крупно, длинное название мелко (модель, цвет, кромка отдельно).
                 render: (_, r) => (
-                  <Space direction="vertical" size={2}>
+                  <Space direction="vertical" size={2} style={{ wordBreak: "break-word" }}>
                     {r.door == null && r.chars.length ? <ItemChars chars={r.chars} name={r.name} strong={false} /> : <span>{r.name}</span>}
                     <Space size={4} wrap>
                       {r.program && <Tag color="geekblue">программа {r.program}</Tag>}
@@ -257,6 +263,7 @@ export function SheetTable({
                 ? [
                     {
                       title: "Для двери / счёт",
+                      width: 240,
                       render: (_: unknown, r: Agg) => (
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                           {[r.door, r.note].filter(Boolean).join(" · ")}
@@ -269,6 +276,7 @@ export function SheetTable({
                 ? [
                     {
                       title: "Плёнка",
+                      width: 230,
                       render: (_: unknown, r: Agg) =>
                         r.film ? (
                           <Space direction="vertical" size={0}>
