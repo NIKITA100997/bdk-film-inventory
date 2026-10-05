@@ -5,6 +5,7 @@ import { useSearchParams } from "react-router-dom";
 import { listProductionTasks, type ProductionTask } from "../../../api/production";
 import { listProductionOrders } from "../../../api/productionOrders";
 import { listAreas } from "../../../api/areas";
+import { listParts } from "../../../api/dictionaries";
 import { useAuth } from "../../../auth/AuthContext";
 import TaskCardDrawer, { TaskCardPanel } from "./TaskCardDrawer";
 import PrintTasksModal from "./PrintTasksModal";
@@ -44,6 +45,15 @@ export default function TasksBoard() {
   const ordersQuery = useQuery({ queryKey: ["production-orders", "board"], queryFn: () => listProductionOrders(false) });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaName = (c: string) => areasQuery.data?.find((a) => a.code === c)?.name ?? c;
+  // Детали, у которых есть операция на участке мастера: задания других
+  // участков (окутка), которым нужны эти детали, мастер п/ф тоже видит —
+  // для чего он делает п/ф (только просмотр, отчёты — по своему участку).
+  const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts, enabled: !!user?.area });
+  const myParts = useMemo(
+    () => new Set((partsQuery.data ?? []).filter((p) => p.stages.some((s) => s.area === user?.area)).map((p) => p.id)),
+    [partsQuery.data, user?.area],
+  );
+  const needsMine = (t: ProductionTask) => !!user?.area && t.area !== user.area && t.lines.some((l) => l.part_id != null && myParts.has(l.part_id));
 
   const all = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
   const lateOrders = useMemo(() => new Set((ordersQuery.data ?? []).filter((o) => o.plan_late).map((o) => o.id)), [ordersQuery.data]);
@@ -62,7 +72,9 @@ export default function TasksBoard() {
     ["wait", "Ждёт п/ф", waitsPf],
     ["late", "Не успевает", late],
   ];
-  const base = all.filter((t) => (archived || t.is_active) && (!area || t.area === area));
+  const base = all.filter(
+    (t) => (archived || t.is_active) && (!area || t.area === area || (area === user?.area && needsMine(t))),
+  );
   const needle = q.trim().toLowerCase();
   const rows = base
     .filter(FILTERS.find((f) => f[0] === filter)![2])
@@ -140,6 +152,7 @@ export default function TasksBoard() {
               >
                 <Typography.Text type="secondary" style={{ fontSize: 11, letterSpacing: ".05em", textTransform: "uppercase" }}>
                   {isPf(t) ? "П/ф" : isFilm(t) ? "С плёнкой" : isProduct(t) ? "Изделия" : "Операции"} · {areaName(t.area)}
+                  {needsMine(t) && <Tag color="purple" style={{ marginLeft: 6, fontSize: 10, lineHeight: "16px" }}>нужен ваш п/ф</Tag>}
                 </Typography.Text>
                 <Space style={{ justifyContent: "space-between", width: "100%" }} align="start">
                   <Typography.Text strong>

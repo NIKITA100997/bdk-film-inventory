@@ -192,4 +192,6 @@ export const masterNav: NavItem[] = [
   { key: "scan-roll", path: "/m/unit-card", label: "Скан рулона", permissions: ["units.cut", "units.return", "units.issue"] },
   { key: "scan-pf", path: "/m/part-unit-card", label: "Скан партии п/ф", permissions: ["part_units.manage", "part_units.view", "part_units.correct"] },
   { key: "pf-stock", path: "/stock?kind=pf", label: "Остатки п/ф", permissions: ["part_units.manage", "part_units.view"] },
+  // Мастер п/ф работает от потребности: что нужно окутке, что запустить.
+  { key: "pf-demand", path: "/demand?tab=pf", label: "Потребность п/ф", permissions: ["production_tasks.manage", "part_units.manage"] },
 ];
