@@ -3,7 +3,7 @@ import { Badge, Button, Popover, List, Typography, Space, Tag } from "antd";
 import { BellOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { listNotifications, markNotificationRead } from "../api/notifications";
+import { listNotifications, markAllNotificationsRead, markNotificationRead } from "../api/notifications";
 import { useAuth } from "../auth/AuthContext";
 
 const REFRESH_MS = 5 * 60 * 1000;
@@ -34,6 +34,11 @@ export default function NotificationBell() {
 
   const readMutation = useMutation({
     mutationFn: markNotificationRead,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+
+  const readAllMutation = useMutation({
+    mutationFn: markAllNotificationsRead,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
   });
 
@@ -77,7 +82,14 @@ export default function NotificationBell() {
             )}
           />
         )}
-        <Typography.Link onClick={() => goTo("/reports")}>Все →</Typography.Link>
+        <Space style={{ justifyContent: "space-between", width: "100%" }}>
+          <Typography.Link onClick={() => goTo("/reports")}>Все →</Typography.Link>
+          {unreadCount > 0 && (
+            <Button size="small" loading={readAllMutation.isPending} onClick={() => readAllMutation.mutate()}>
+              Прочитать все ({unreadCount})
+            </Button>
+          )}
+        </Space>
       </div>
     </Space>
   );

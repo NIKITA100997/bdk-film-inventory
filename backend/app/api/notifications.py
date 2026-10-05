@@ -76,6 +76,19 @@ def list_notifications(db: Session = Depends(get_db), user: User = Depends(view_
     ]
 
 
+@router.post("/read-all")
+def mark_all_notifications_read(db: Session = Depends(get_db), user: User = Depends(view_notifications)) -> dict:
+    """«Прочитать все» (05.10): копились десятками — важное тонуло."""
+    now = datetime.now(timezone.utc)
+    count = (
+        db.query(Notification)
+        .filter(Notification.resolved_at.is_(None), Notification.read_at.is_(None))
+        .update({"read_at": now, "read_by": user.id}, synchronize_session=False)
+    )
+    db.commit()
+    return {"read": count}
+
+
 @router.post("/{notification_id}/read", response_model=NotificationOut)
 def mark_notification_read(
     notification_id: int, db: Session = Depends(get_db), user: User = Depends(view_notifications)

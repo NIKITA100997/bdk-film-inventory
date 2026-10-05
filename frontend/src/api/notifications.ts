@@ -16,3 +16,6 @@ export const listNotifications = async (): Promise<Notification[]> =>
 
 export const markNotificationRead = async (id: number): Promise<Notification> =>
   (await apiClient.post<Notification>(`/notifications/${id}/read`)).data;
+
+export const markAllNotificationsRead = async (): Promise<{ read: number }> =>
+  (await apiClient.post<{ read: number }>("/notifications/read-all")).data;
