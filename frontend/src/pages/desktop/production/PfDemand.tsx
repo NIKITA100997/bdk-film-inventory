@@ -10,7 +10,7 @@ import ResponsiveTable from "../../../components/ResponsiveTable";
 import PanelFilmTable from "../../../components/PanelFilmTable";
 import { useAuth } from "../../../auth/AuthContext";
 import { listAreas } from "../../../api/areas";
-import { updatePart } from "../../../api/dictionaries";
+import { listParts, updatePart } from "../../../api/dictionaries";
 import { createPfTasks, listPfDemand, suggestLaminationArea, type PfDemandRow } from "../../../api/pfDemand";
 import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
 
@@ -31,6 +31,9 @@ export default function PfDemand() {
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const [onlyShortage, setOnlyShortage] = useState(true);
+  // Мастер участка: по умолчанию — только детали, у которых в маршруте
+  // есть операция на его участке (что делать ему).
+  const [onlyMine, setOnlyMine] = useState(!!user?.area);
   const [qty, setQty] = useState<Record<number, number | null>>({});
   // Срок нового заказа на п/ф — от него считаются сроки операций.
   const [dueDate, setDueDate] = useState<Dayjs | null>(null);
@@ -53,18 +56,25 @@ export default function PfDemand() {
     return [...byId.entries()].sort((a, b) => a[0] - b[0]).map(([id, name]) => ({ value: id, label: `№${id} · ${name}` }));
   }, [allQuery.data]);
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts, enabled: !!user?.area });
+  const myParts = useMemo(
+    () => new Set((partsQuery.data ?? []).filter((p) => p.stages.some((st) => st.area === user?.area)).map((p) => p.id)),
+    [partsQuery.data, user?.area],
+  );
   const areaName = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : null);
 
   const rows = useMemo(
     () =>
       filterPf(
-        (demandQuery.data ?? []).filter((r) => !onlyShortage || r.shortage > 0),
+        (demandQuery.data ?? [])
+          .filter((r) => !onlyShortage || r.shortage > 0)
+          .filter((r) => !onlyMine || !user?.area || myParts.has(r.part_id)),
         (r) => r.part_id,
         pf,
         pfAttrs,
         itemGroups,
       ),
-    [demandQuery.data, onlyShortage, pf, pfAttrs, itemGroups],
+    [demandQuery.data, onlyShortage, onlyMine, myParts, user?.area, pf, pfAttrs, itemGroups],
   );
   const sections = sectionsPf(rows, (r) => r.part_id, pf, pfAttrs, itemGroups);
 
@@ -150,6 +160,11 @@ export default function PfDemand() {
           <Checkbox checked={onlyShortage} onChange={(e) => setOnlyShortage(e.target.checked)}>
             Только с нехваткой
           </Checkbox>
+          {user?.area && (
+            <Checkbox checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)}>
+              Мой участок: {areaName(user.area)}
+            </Checkbox>
+          )}
           <PfFilterBar value={pf} onChange={setPf} groups={itemGroups} />
         </Space>
         {taskFilter.length > 0 && (
