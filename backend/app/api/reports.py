@@ -705,7 +705,30 @@ def film_plan_fact_report(
     брак, сверх нормы, рубли) — см. services/production_economics."""
     from app.services.production_economics import film_plan_fact
 
-    return film_plan_fact(db, date_from, date_to, area)
+    rows = film_plan_fact(db, date_from, date_to, area)
+    if not _sees_prices(user):
+        for r in rows:
+            r.update(price_m2=None, fact_rub=None, over_rub=None)
+    return rows
+
+
+def _sees_prices(user: User) -> bool:
+    from app.core.security import get_permission_codes
+
+    return user.is_superuser or not get_permission_codes(user).isdisjoint({"prices.view", "prices.manage"})
+
+
+@router.get("/area-costs")
+def area_costs_endpoint(
+    date_from: dt.date = Query(...),
+    date_to: dt.date = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("prices.view", "prices.manage")),
+) -> list[dict]:
+    """Себестоимость по участкам: работа, плёнка, материалы, на штуку."""
+    from app.services.production_economics import area_costs
+
+    return area_costs(db, date_from, date_to)
 
 
 @router.get("/output")

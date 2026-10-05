@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { Button, Input, Modal, Select, Space, Typography, message } from "antd";
+import { Button, Input, InputNumber, Modal, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas } from "../../../api/areas";
 import { setItemRoute, type TechCard } from "../../../api/items";
 import { OPERATION_ROLE_HINT, OPERATION_ROLE_OPTIONS, type OperationRole } from "../../../utils/operationRoles";
 import { apiErrorMessage } from "../../../utils/apiError";
 
-type Row = { code: string; name: string; area: string | null; role: OperationRole };
+type Row = { code: string; name: string; area: string | null; role: OperationRole; piece_rate: number | null };
 
 /** Маршрут любой позиции (единая модель, пункт 3): операции по порядку —
  * название работы и участок, где её делают. Правка на месте: партии и
@@ -18,7 +18,7 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
   // code — ключ сопоставления со старыми этапами: у существующих операций
   // сохраняем прежний, у новых — название.
   const [rows, setRows] = useState<Row[]>(
-    card.operations.map((o) => ({ code: o.code ?? o.name, name: o.name, area: o.area, role: o.role ?? null })),
+    card.operations.map((o) => ({ code: o.code ?? o.name, name: o.name, area: o.area, role: o.role ?? null, piece_rate: o.piece_rate ?? null })),
   );
   const patch = (i: number, p: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const move = (i: number, d: number) =>
@@ -34,7 +34,7 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
     mutationFn: () =>
       setItemRoute(
         card.item_id,
-        rows.map((r) => ({ code: r.code || r.name.trim(), name: r.name.trim(), area: r.area, role: r.role })),
+        rows.map((r) => ({ code: r.code || r.name.trim(), name: r.name.trim(), area: r.area, role: r.role, piece_rate: r.piece_rate })),
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["techcard", card.item_id] });
@@ -51,7 +51,7 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
   return (
     <Modal
       open
-      width={940}
+      width={1040}
       title={`Маршрут — ${card.name}`}
       okText="Сохранить"
       cancelText="Отмена"
@@ -94,6 +94,15 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
               options={OPERATION_ROLE_OPTIONS}
               onChange={(v) => patch(i, { role: (v ?? null) as OperationRole })}
             />
+            <InputNumber
+              min={0}
+              step={0.5}
+              placeholder="₽/шт"
+              title="Сдельная расценка операции, ₽ за штуку; пусто — расценка участка (или формула типа при пересчёте)"
+              style={{ width: 100 }}
+              value={r.piece_rate}
+              onChange={(v) => patch(i, { piece_rate: v ?? null })}
+            />
             <Button size="small" disabled={i === 0} onClick={() => move(i, -1)}>
               ↑
             </Button>
@@ -105,7 +114,7 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
             </Button>
           </Space>
         ))}
-        <Button block onClick={() => setRows((rs) => [...rs, { code: "", name: "", area: null, role: null }])}>
+        <Button block onClick={() => setRows((rs) => [...rs, { code: "", name: "", area: null, role: null, piece_rate: null }])}>
           + операция
         </Button>
       </Space>

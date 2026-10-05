@@ -42,6 +42,8 @@ export interface TypeOperation {
   condition: string | null;
   /** Вид операции: с плёнкой / программа станка; null — обычная. */
   role?: "film" | "program" | null;
+  /** Сдельная расценка, ₽ за штуку — формула от свойств; пусто — расценка участка. */
+  piece_rate_expr?: string | null;
 }
 
 export interface TypeComponentRule {

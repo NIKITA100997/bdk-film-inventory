@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import { Alert, Card, Col, DatePicker, Row, Segmented, Select, Space, Tabs, Tag, Tooltip, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { getDailyOutput, getFilmPlanFact, getOutput, type DailyRow, type FilmPlanFactRow, type OutputRow } from "../../api/economics";
+import { getAreaCosts, getDailyOutput, getFilmPlanFact, getOutput, type AreaCostRow, type DailyRow, type FilmPlanFactRow, type OutputRow } from "../../api/economics";
+import { useAuth } from "../../auth/AuthContext";
 import { listAreas } from "../../api/areas";
 import Statistic from "../../components/Statistic";
 import ResponsiveTable from "../../components/ResponsiveTable";
@@ -73,7 +74,7 @@ function FilmTab({ rows, loading }: { rows: FilmPlanFactRow[]; loading: boolean 
           type="info"
           showIcon
           message={`Рубли не посчитаны у ${unpriced} из ${rows.length} строк — нет цены м² этой плёнки`}
-          description="Цена берётся из заявок поставщику («Закупки»): у плёнки появится цена — появятся и рубли."
+          description="Цена плёнки — «Закупки → Цены» (вручную, из 1С, по УПД; евро и доллары — по курсу из «Настроек»), иначе из заявок поставщику."
         />
       )}
       <Space wrap>
@@ -321,13 +322,82 @@ function DailyTab({ days, rows, loading }: { days: string[]; rows: DailyRow[]; l
 
 /** Экономика производства (02.10): план/факт плёнки против норм и выработка.
  * Себестоимость (материалы, труд) — когда появятся цены материалов и ставки. */
+const PAY_LABEL = { piece: "сдельно", shift: "за смену" } as const;
+
+/** Себестоимость по участкам: работа (сдельно / за смену — настройка
+ * участка), плёнка по факту рулонов, материалы по расходу — в рублях по
+ * ценам позиций и общему курсу. Чего не хватает для расчёта — в «Не
+ * посчитано». */
+function CostTab({ rows, loading }: { rows: AreaCostRow[]; loading: boolean }) {
+  const t = rows.reduce(
+    (s, r) => ({ labor: s.labor + r.labor_rub, film: s.film + r.film_rub, mat: s.mat + r.materials_rub, total: s.total + r.total_rub }),
+    { labor: 0, film: 0, mat: 0, total: 0 },
+  );
+  const issues = rows.filter((r) => r.issues.length).length;
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Row gutter={[12, 12]}>
+        <Col xs={12} md={6}><Card size="small"><Statistic title="Работа" value={rub(t.labor)} /></Card></Col>
+        <Col xs={12} md={6}><Card size="small"><Statistic title="Плёнка" value={rub(t.film)} /></Card></Col>
+        <Col xs={12} md={6}><Card size="small"><Statistic title="Материалы" value={rub(t.mat)} /></Card></Col>
+        <Col xs={12} md={6}><Card size="small"><Statistic title="Итого" value={rub(t.total)} /></Card></Col>
+      </Row>
+      {issues > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message={`Посчитано не полностью у ${issues} участков — см. «Не посчитано»`}
+          description="Вид оплаты и ставки — «Участки и линии»; расценка операции — «Типы и правила» или маршрут позиции; цены — «Закупки → Цены»; курсы — «Настройки»."
+        />
+      )}
+      <ResponsiveTable<AreaCostRow>
+        exportTitle="Себестоимость по участкам"
+        size="small"
+        rowKey="area"
+        loading={loading}
+        dataSource={rows}
+        pagination={false}
+        scroll={{ x: "max-content" }}
+        columns={[
+          { title: "Участок", dataIndex: "area_name" },
+          { title: "Оплата", render: (_, r) => (r.pay_mode ? PAY_LABEL[r.pay_mode] : "—") },
+          { title: "Годные, шт", render: (_, r) => f1(r.good) },
+          { title: "Брак, шт", render: (_, r) => f1(r.defect) },
+          { title: "Дней с выпуском", dataIndex: "days" },
+          { title: "Работа", render: (_, r) => rub(r.labor_rub) },
+          { title: "Плёнка", render: (_, r) => rub(r.film_rub) },
+          { title: "Материалы", render: (_, r) => rub(r.materials_rub) },
+          { title: "Итого", render: (_, r) => <b>{rub(r.total_rub)}</b> },
+          { title: "На годную штуку", render: (_, r) => rub(r.per_piece_rub) },
+          {
+            title: "Не посчитано",
+            render: (_, r) =>
+              r.issues.map((i) => (
+                <Tag key={i} color="warning" style={{ whiteSpace: "normal" }}>
+                  {i}
+                </Tag>
+              )),
+          },
+        ]}
+      />
+    </Space>
+  );
+}
+
 export default function Economics({ embedded = false }: { embedded?: boolean }) {
+  const { user } = useAuth();
+  const seesPrices = !!user?.is_superuser || !!user?.permissions.some((p) => p === "prices.view" || p === "prices.manage");
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(30, "day"), dayjs()]);
   const [area, setArea] = useState<string | undefined>();
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const p = { date_from: range[0].format("YYYY-MM-DD"), date_to: range[1].format("YYYY-MM-DD"), area };
   const film = useQuery({ queryKey: ["economics", "film", p], queryFn: () => getFilmPlanFact(p) });
   const out = useQuery({ queryKey: ["economics", "output", p], queryFn: () => getOutput(p) });
+  const costs = useQuery({
+    queryKey: ["economics", "costs", p.date_from, p.date_to],
+    queryFn: () => getAreaCosts({ date_from: p.date_from, date_to: p.date_to }),
+    enabled: seesPrices,
+  });
   const daily = useQuery({
     queryKey: ["economics", "daily", p.date_from, p.date_to],
     queryFn: () => getDailyOutput({ date_from: p.date_from, date_to: p.date_to }),
@@ -357,6 +427,9 @@ export default function Economics({ embedded = false }: { embedded?: boolean }) 
           },
           { key: "film", label: "План/факт плёнки", children: <FilmTab rows={film.data ?? []} loading={film.isLoading} /> },
           { key: "output", label: "Выработка", children: <OutputTab rows={out.data ?? []} loading={out.isLoading} /> },
+          ...(seesPrices
+            ? [{ key: "costs", label: "Себестоимость по участкам", children: <CostTab rows={costs.data ?? []} loading={costs.isLoading} /> }]
+            : []),
         ]}
       />
     </Space>

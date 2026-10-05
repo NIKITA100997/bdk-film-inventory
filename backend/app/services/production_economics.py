@@ -36,8 +36,13 @@ def _period(date_from: date, date_to: date):
     return start, end
 
 
-def _last_prices(db: Session) -> dict[tuple[int, int, int], float]:
-    """Последняя известная цена м² по плёнке (материал, цвет, толщина)."""
+def _last_prices(db: Session, at: date | None = None) -> dict[tuple[int, int, int], float]:
+    """Цена м² плёнки в рублях (материал, цвет, толщина): из цен позиций
+    (вручную, 1С, УПД — services/prices, по общему курсу; у нескольких
+    производителей — самая свежая), иначе — последняя из заявок поставщику."""
+    from app.models.dictionaries import MaterialSku
+    from app.services.prices import current_price, film_rub_per_m2, rates
+
     out: dict[tuple[int, int, int], float] = {}
     for r in (
         db.query(PurchaseRequest)
@@ -45,6 +50,17 @@ def _last_prices(db: Session) -> dict[tuple[int, int, int], float]:
         .order_by(PurchaseRequest.created_at.asc())
     ):
         out[(r.material_id, r.color_id, r.thickness_id)] = float(r.price_per_m2)
+    rate_map = rates(db)
+    fresh: dict[tuple[int, int, int], tuple] = {}
+    for sku in db.query(MaterialSku).filter(MaterialSku.item_id.isnot(None)):
+        p = current_price(db, sku.item_id, at)
+        if p is None:
+            continue
+        rub = film_rub_per_m2(db, sku.item_id, sku.native_width_mm, at, rate_map)
+        key = (sku.material_id, sku.color_id, sku.thickness_id)
+        if rub is not None and (key not in fresh or (p.valid_from, p.id) > fresh[key][0]):
+            fresh[key] = ((p.valid_from, p.id), rub)
+    out.update({k: v[1] for k, v in fresh.items()})
     return out
 
 
@@ -115,7 +131,7 @@ def film_plan_fact(db: Session, date_from: date, date_to: date, area: str | None
                     agg[lid]["fact"] += used * part / total_w
                     if still:
                         agg[lid]["estimated"] = True
-    prices = _last_prices(db)
+    prices = _last_prices(db, date_to)
     mats = {m.id: m.name for m in db.query(Material)}
     cols = {c.id: c.name for c in db.query(Color)}
     ths = {x.id: float(x.value_mm) for x in db.query(Thickness)}
@@ -317,3 +333,109 @@ def daily_output(db: Session, date_from: date, date_to: date) -> dict:
         })
     out.sort(key=lambda r: r.pop("_sort"))
     return {"days": days, "rows": out}
+
+
+def area_costs(db: Session, date_from: date, date_to: date) -> list[dict]:
+    """Себестоимость по участкам за период (05.10): работа, плёнка,
+    материалы и на штуку годных.
+
+    Работа: сдельно — годные × расценка операции (у позиции) или участка;
+    за смену — дней с выпуском × смен в день × людей в смене × ставка
+    смены. Плёнка — факт по рулонам (как в план/факте) × цена м²;
+    материалы — расход по отчётам операций × цена позиции на дату. Чего не
+    хватает для расчёта — в issues, а не нулём."""
+    from app.models.dictionaries import PartStage
+    from app.models.items import MOVE_CONSUMPTION, Item, MaterialMove
+    from app.services.prices import price_rub, rates
+
+    start, end = _period(date_from, date_to)
+    areas = {a.code: a for a in db.query(Area)}
+    rows: dict[str, dict] = {}
+
+    def row(code: str) -> dict:
+        if code not in rows:
+            a = areas.get(code)
+            rows[code] = {
+                "area": code, "area_name": a.name if a else code, "pay_mode": a.pay_mode if a else None,
+                "good": 0.0, "defect": 0.0, "labor_rub": 0.0, "film_rub": 0.0, "materials_rub": 0.0,
+                "days": set(), "no_rate": 0.0, "film_no_price": 0, "materials_no_price": set(), "issues": [],
+            }
+        return rows[code]
+
+    stage_rate = {s.id: float(s.piece_rate) for s in db.query(PartStage).filter(PartStage.piece_rate.isnot(None))}
+    reps = (
+        db.query(ProductionTaskLineReport, ProductionTaskLine, ProductionTask)
+        .join(ProductionTaskLine, ProductionTaskLine.id == ProductionTaskLineReport.task_line_id)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(ProductionTaskLineReport.reported_at >= start, ProductionTaskLineReport.reported_at <= end,
+                ProductionTaskLineReport.kind.is_(None), ProductionTaskLineReport.counts_toward_line.is_(True))
+    )
+    for rep, ln, t in reps:
+        g, d = float(rep.good_pieces), float(rep.defect_pieces or 0)
+        if g == 0 and d == 0:
+            continue
+        r = row(t.area)
+        r["good"] += g
+        r["defect"] += d
+        r["days"].add(rep.reported_at.astimezone().date())
+        a = areas.get(t.area)
+        if a is not None and a.pay_mode == "piece":
+            rate = stage_rate.get(ln.part_stage_id) if ln.part_stage_id else None
+            if rate is None and a.piece_rate is not None:
+                rate = float(a.piece_rate)
+            if rate is None:
+                r["no_rate"] += g
+            else:
+                r["labor_rub"] += g * rate
+    for code, r in rows.items():
+        a = areas.get(code)
+        if a is None or not a.pay_mode:
+            r["issues"].append("вид оплаты не задан — работа не считается")
+        elif a.pay_mode == "shift":
+            if a.shift_rate is None or a.shift_headcount is None:
+                r["issues"].append("за смену: не задана ставка или число людей")
+            else:
+                r["labor_rub"] = len(r["days"]) * (a.shifts_per_day or 1) * float(a.shift_headcount) * float(a.shift_rate)
+        if r["no_rate"]:
+            r["issues"].append(f"без расценки: {r['no_rate']:g} шт")
+
+    for f in film_plan_fact(db, date_from, date_to):
+        r = row(f["area"])
+        if f["fact_rub"] is not None:
+            r["film_rub"] += f["fact_rub"]
+        elif f["fact_m"]:
+            r["film_no_price"] += 1
+
+    rate_map = rates(db)
+    moves = (
+        db.query(MaterialMove, ProductionTask.area)
+        .join(ProductionTaskLine, ProductionTaskLine.id == MaterialMove.task_line_id)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(MaterialMove.kind == MOVE_CONSUMPTION, MaterialMove.occurred_at >= start, MaterialMove.occurred_at <= end)
+    )
+    names = {}
+    for mv, code in moves:
+        r = row(code)
+        pr = price_rub(db, mv.item_id, mv.occurred_at.astimezone().date(), rate_map)
+        if pr is None:
+            names.setdefault(mv.item_id, db.get(Item, mv.item_id).name)
+            r["materials_no_price"].add(names[mv.item_id])
+        else:
+            r["materials_rub"] += -float(mv.qty) * pr.rub
+
+    out = []
+    for r in rows.values():
+        if r["film_no_price"]:
+            r["issues"].append(f"плёнка без цены: {r['film_no_price']} строк")
+        if r["materials_no_price"]:
+            r["issues"].append("материалы без цены: " + ", ".join(sorted(r["materials_no_price"])[:5]))
+        total = r["labor_rub"] + r["film_rub"] + r["materials_rub"]
+        out.append({
+            "area": r["area"], "area_name": r["area_name"], "pay_mode": r["pay_mode"],
+            "good": round(r["good"], 2), "defect": round(r["defect"], 2), "days": len(r["days"]),
+            "labor_rub": round(r["labor_rub"], 2), "film_rub": round(r["film_rub"], 2),
+            "materials_rub": round(r["materials_rub"], 2), "total_rub": round(total, 2),
+            "per_piece_rub": round(total / r["good"], 2) if r["good"] else None,
+            "issues": r["issues"],
+        })
+    return sorted(out, key=lambda x: -x["total_rub"])

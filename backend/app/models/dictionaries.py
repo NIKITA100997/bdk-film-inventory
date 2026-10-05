@@ -144,6 +144,9 @@ class PartStage(Base):
     # плёнкой (ламинация, окутка: строка задания несёт плёнку, расход по
     # рулону), "program" — нужна программа станка (фрезеровка). NULL — обычная.
     role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Сдельная расценка этой операции у этой позиции, ₽ за штуку (05.10) —
+    # из формулы операции типа или вручную; пусто — расценка участка.
+    piece_rate: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
 
     part: Mapped[Part | None] = relationship(back_populates="stages")
     item: Mapped["Item"] = relationship(back_populates="stages")

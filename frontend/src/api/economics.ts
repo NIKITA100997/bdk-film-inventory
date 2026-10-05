@@ -65,3 +65,21 @@ export interface DailyRow {
 }
 export const getDailyOutput = async (p: { date_from: string; date_to: string }): Promise<{ days: string[]; rows: DailyRow[] }> =>
   (await apiClient.get<{ days: string[]; rows: DailyRow[] }>("/reports/daily-output", { params: p })).data;
+
+/** Себестоимость по участкам за период (работа, плёнка, материалы). */
+export interface AreaCostRow {
+  area: string;
+  area_name: string;
+  pay_mode: "piece" | "shift" | null;
+  good: number;
+  defect: number;
+  days: number;
+  labor_rub: number;
+  film_rub: number;
+  materials_rub: number;
+  total_rub: number;
+  per_piece_rub: number | null;
+  issues: string[];
+}
+export const getAreaCosts = async (p: { date_from: string; date_to: string }): Promise<AreaCostRow[]> =>
+  (await apiClient.get<AreaCostRow[]>("/reports/area-costs", { params: p })).data;

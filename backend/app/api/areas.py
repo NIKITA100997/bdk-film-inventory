@@ -99,6 +99,16 @@ def update_area(code: str, payload: AreaUpdate, db: Session = Depends(get_db), u
         area.big_batch_min_pieces = payload.big_batch_min_pieces or None
     if payload.close_without_reports is not None:
         area.close_without_reports = payload.close_without_reports
+    if payload.pay_mode is not None:
+        if payload.pay_mode not in ("", "piece", "shift"):
+            raise HTTPException(status_code=422, detail="Вид оплаты — сдельно или за смену")
+        area.pay_mode = payload.pay_mode or None
+    for f in ("piece_rate", "shift_rate", "shift_headcount"):
+        v = getattr(payload, f)
+        if v is not None:
+            if v < 0:
+                raise HTTPException(status_code=422, detail="Ставки и численность — не меньше нуля")
+            setattr(area, f, v or None)
     db.commit()
     db.refresh(area)
     return area

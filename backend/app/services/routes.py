@@ -28,6 +28,7 @@ class RouteStep:
     name: str
     area: str | None
     role: str | None = KEEP  # вид операции; KEEP — оставить как есть (новая — обычная)
+    piece_rate: float | str | None = KEEP  # сдельная расценка, ₽/шт; KEEP — как есть
 
 
 class RouteInUseError(ValueError):
@@ -51,7 +52,7 @@ def apply_route(db: Session, part: Part | Item, steps: list[RouteStep]) -> None:
     стоит деталь п/ф, вызывайте с деталью: новые этапы получат и деталь, и
     позицию."""
     # Код этапа — String(50), а экран кладёт туда код участка (до 128).
-    steps = [RouteStep(code=s.code[:50], name=s.name[:255], area=s.area, role=s.role) for s in steps]
+    steps = [RouteStep(code=s.code[:50], name=s.name[:255], area=s.area, role=s.role, piece_rate=s.piece_rate) for s in steps]
     existing = sorted(part.stages, key=lambda s: s.sequence_order)
     pool = list(existing)
     matched: list[PartStage | None] = [None] * len(steps)
@@ -87,7 +88,10 @@ def apply_route(db: Session, part: Part | Item, steps: list[RouteStep]) -> None:
     for i, (step, stage) in enumerate(zip(steps, matched), start=1):
         if stage is None:
             role = None if step.role == KEEP else step.role
-            part.stages.append(PartStage(sequence_order=i, code=step.code, name=step.name, area=step.area, role=role))
+            rate = None if step.piece_rate == KEEP else step.piece_rate
+            part.stages.append(
+                PartStage(sequence_order=i, code=step.code, name=step.name, area=step.area, role=role, piece_rate=rate)
+            )
             # у позиции без детали item_id ставит сама коллекция Item.stages
         else:
             stage.sequence_order = i
@@ -96,4 +100,6 @@ def apply_route(db: Session, part: Part | Item, steps: list[RouteStep]) -> None:
             stage.area = step.area
             if step.role != KEEP:
                 stage.role = step.role
+            if step.piece_rate != KEEP:
+                stage.piece_rate = step.piece_rate
     db.flush()

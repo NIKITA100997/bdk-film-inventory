@@ -104,6 +104,7 @@ class TypeOperationIO(BaseModel):
     area: str | None = None  # None — «общий запас» (только последняя операция)
     condition: str | None = None
     role: str | None = "keep"  # вид операции (services/operation_roles); keep — как было
+    piece_rate_expr: str | None = "keep"  # сдельная расценка, ₽/шт — формула; keep — как было
 
 
 class TypeComponentIO(BaseModel):
@@ -178,7 +179,10 @@ def _type_out(db: Session, t: ItemType) -> ItemTypeOut:
         model_property_code=model_prop.code if model_prop else None,
         direction=t.direction, stage=t.stage, standard_condition=t.standard_condition, import_template=t.import_template,
         properties=[_property_out(db, p) for p in t.properties],
-        operations=[TypeOperationIO(name=o.name, area=o.area, condition=o.condition, role=o.role) for o in t.operations],
+        operations=[
+            TypeOperationIO(name=o.name, area=o.area, condition=o.condition, role=o.role, piece_rate_expr=o.piece_rate_expr)
+            for o in t.operations
+        ],
         component_rules=[
             TypeComponentIO(
                 name_template=r.name_template, qty_expr=r.qty_expr, condition=r.condition, width_expr=r.width_expr,
@@ -644,17 +648,26 @@ def set_type_operations(
     from app.services.operation_roles import KEEP, clean_role
 
     old_roles = {o.name: o.role for o in t.operations}
+    old_rates = {o.name: o.piece_rate_expr for o in t.operations}
     roles = []
+    rates = []
     for o, n in zip(payload, names):
         try:
             roles.append(old_roles.get(n) if o.role == KEEP else clean_role(o.role))
         except ValueError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Операция «{n}»: {e}") from e
+        expr = old_rates.get(n) if o.piece_rate_expr == KEEP else ((o.piece_rate_expr or "").strip() or None)
+        if expr:
+            _check_expr(t, expr, f"Расценка операции «{n}»")
+        rates.append(expr)
     t.operations.clear()
     db.flush()
-    for i, (o, n, role) in enumerate(zip(payload, names, roles), start=1):
+    for i, (o, n, role, rate) in enumerate(zip(payload, names, roles, rates), start=1):
         t.operations.append(
-            ItemTypeOperation(sequence_order=i, name=n, area=o.area, condition=(o.condition or "").strip() or None, role=role)
+            ItemTypeOperation(
+                sequence_order=i, name=n, area=o.area, condition=(o.condition or "").strip() or None, role=role,
+                piece_rate_expr=rate,
+            )
         )
     db.commit()
     db.refresh(t)

@@ -29,6 +29,12 @@ class AreaOut(BaseModel):
     big_batch_min_pieces: float | None = None
     # По строкам не отчитываются — задание закрывают целиком.
     close_without_reports: bool = False
+    # Оплата работ: piece — сдельно (₽ за шт), shift — за смену (₽ на
+    # человека × людей в смене); пусто — не считается.
+    pay_mode: str | None = None
+    piece_rate: float | None = None
+    shift_rate: float | None = None
+    shift_headcount: float | None = None
 
 
 class AreaCreate(BaseModel):
@@ -55,3 +61,8 @@ class AreaUpdate(BaseModel):
     big_batch_area: str | None = None
     big_batch_min_pieces: float | None = None
     close_without_reports: bool | None = None
+    # "" — снять вид оплаты; 0 — снять ставку.
+    pay_mode: str | None = None
+    piece_rate: float | None = None
+    shift_rate: float | None = None
+    shift_headcount: float | None = None

@@ -56,6 +56,7 @@ class RulesResult:
     name: str | None = None
     operations: list[tuple[str, str]] = field(default_factory=list)  # (название, участок)
     op_roles: dict[str, str | None] = field(default_factory=dict)  # название → вид операции
+    op_rates: dict[str, float | None] = field(default_factory=dict)  # название → расценка, ₽/шт
     components: list[PlannedComponent] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -150,6 +151,7 @@ def compute(db: Session, type_: ItemType, ctx: dict) -> RulesResult:
             if evaluate_condition(op.condition, ctx):
                 res.operations.append((op.name, op.area))
                 res.op_roles[op.name] = op.role
+                res.op_rates[op.name] = round(evaluate_number(op.piece_rate_expr, ctx), 4) if op.piece_rate_expr else None
         except ExpressionError as e:
             res.errors.append(f"Операция «{op.name}»: {e}")
     for rule in type_.component_rules:
@@ -250,7 +252,7 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
         try:
             apply_route(
                 db, part_owner or item,
-                [RouteStep(code=n, name=n, area=a, role=res.op_roles.get(n)) for n, a in res.operations],
+                [RouteStep(code=n, name=n, area=a, role=res.op_roles.get(n), piece_rate=res.op_rates.get(n)) for n, a in res.operations],
             )
         except RouteInUseError as e:
             # Партии/история на этапе, которого по правилам больше нет, — как
@@ -279,7 +281,7 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
                     template = db.get(Part, rule.route_part_id)
                     if template is not None:
                         # Новая деталь — этапов ещё нет, убирать нечего.
-                        apply_route(db, part, [RouteStep(code=s.code, name=s.name, area=s.area, role=s.role) for s in template.stages])
+                        apply_route(db, part, [RouteStep(code=s.code, name=s.name, area=s.area, role=s.role, piece_rate=s.piece_rate) for s in template.stages])
                         part.area = template.area
                 db.flush()
                 comp_item_id = part.item_id

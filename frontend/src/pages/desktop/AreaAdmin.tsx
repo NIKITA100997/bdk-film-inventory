@@ -37,6 +37,10 @@ export default function AreaAdmin() {
     big_batch_area?: string;
     big_batch_min_pieces?: number | null;
     close_without_reports?: boolean;
+    pay_mode?: "piece" | "shift" | null;
+    piece_rate?: number | null;
+    shift_rate?: number | null;
+    shift_headcount?: number | null;
   }>();
   const [showArchived, setShowArchived] = useState(false);
 
@@ -86,6 +90,10 @@ export default function AreaAdmin() {
       big_batch_area?: string | null;
       big_batch_min_pieces?: number | null;
       close_without_reports?: boolean;
+      pay_mode?: "piece" | "shift" | null;
+      piece_rate?: number | null;
+      shift_rate?: number | null;
+      shift_headcount?: number | null;
     }) =>
       updateArea(editing!.code, {
         // пусто — снять настройку (0 / "" на сервере — «не задано»)
@@ -93,6 +101,11 @@ export default function AreaAdmin() {
         big_batch_area: v.big_batch_area ?? "",
         big_batch_min_pieces: v.big_batch_min_pieces ?? 0,
         close_without_reports: v.close_without_reports,
+        // пусто — снять (на сервере "" / 0 — «не задано»)
+        pay_mode: v.pay_mode ?? "",
+        piece_rate: v.piece_rate ?? 0,
+        shift_rate: v.shift_rate ?? 0,
+        shift_headcount: v.shift_headcount ?? 0,
         lead_days: v.lead_days,
         // пусто — снять мощность (0 на сервере — «не задана»)
         capacity_per_shift: v.capacity_per_shift ?? 0,
@@ -245,6 +258,12 @@ export default function AreaAdmin() {
                   {a.film_cut_on_site && <Tag color="blue">режут на участке</Tag>}
                   {!!a.film_allowance_mm && <Tag>припуск +{a.film_allowance_mm} мм</Tag>}
                   {a.close_without_reports && <Tag color="default">без отчётов — закрытие целиком</Tag>}
+                  {a.pay_mode === "piece" && <Tag color="green">сдельно{a.piece_rate ? ` ${a.piece_rate} ₽/шт` : ""}</Tag>}
+                  {a.pay_mode === "shift" && (
+                    <Tag color="green">
+                      за смену{a.shift_rate ? ` ${a.shift_rate} ₽ × ${a.shift_headcount ?? "?"} чел.` : ""}
+                    </Tag>
+                  )}
                   {a.big_batch_area && (
                     <Tag color="purple">
                       от {a.big_batch_min_pieces} шт →{" "}
@@ -280,6 +299,10 @@ export default function AreaAdmin() {
                         big_batch_area: a.big_batch_area ?? undefined,
                         big_batch_min_pieces: a.big_batch_min_pieces,
                         close_without_reports: a.close_without_reports,
+                        pay_mode: a.pay_mode,
+                        piece_rate: a.piece_rate,
+                        shift_rate: a.shift_rate,
+                        shift_headcount: a.shift_headcount,
                       });
                     }}
                   >
@@ -365,6 +388,38 @@ export default function AreaAdmin() {
             Как на мембранно-вакуумных прессах: склад не режет штрипсы, а выдаёт рулон любой ширины; отчёт списывает
             метры по норме (длина детали на штуку), фактический расход уточняется при возврате остатка.
           </Typography.Paragraph>
+          <Form.Item name="pay_mode" label="Оплата работ (для себестоимости)">
+            <Select
+              allowClear
+              placeholder="не задана — работа в себестоимость не входит"
+              options={[
+                { value: "piece", label: "Сдельно — за годную штуку" },
+                { value: "shift", label: "За смену" },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(a, b) => a.pay_mode !== b.pay_mode}>
+            {({ getFieldValue }) =>
+              getFieldValue("pay_mode") === "piece" ? (
+                <Form.Item
+                  name="piece_rate"
+                  label="Расценка по умолчанию, ₽ за штуку"
+                  extra="Своя расценка операции (формулой в «Типах и правилах» или в маршруте позиции) — важнее этой."
+                >
+                  <InputNumber min={0} step={0.5} style={{ width: 160 }} />
+                </Form.Item>
+              ) : getFieldValue("pay_mode") === "shift" ? (
+                <Space size={12} wrap>
+                  <Form.Item name="shift_rate" label="Ставка смены на человека, ₽">
+                    <InputNumber min={0} step={100} style={{ width: 160 }} />
+                  </Form.Item>
+                  <Form.Item name="shift_headcount" label="Людей в смене" extra="Считается за каждый день с выпуском × смен в день">
+                    <InputNumber min={0} step={1} style={{ width: 120 }} />
+                  </Form.Item>
+                </Space>
+              ) : null
+            }
+          </Form.Item>
           <Form.Item name="close_without_reports" valuePropName="checked">
             <Checkbox>По строкам не отчитываются — задание закрывают целиком</Checkbox>
           </Form.Item>

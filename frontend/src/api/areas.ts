@@ -27,6 +27,11 @@ export interface Area {
   big_batch_min_pieces: number | null;
   /** По строкам не отчитываются (Фабрика): задание закрывают целиком «всё сделано». */
   close_without_reports: boolean;
+  /** Оплата работ: piece — сдельно (piece_rate ₽/шт), shift — за смену (shift_rate ₽ на человека × shift_headcount). */
+  pay_mode: "piece" | "shift" | null;
+  piece_rate: number | null;
+  shift_rate: number | null;
+  shift_headcount: number | null;
 }
 
 /** Нужен ли рулон в отчёте на этом участке (настройка участка, не код). */
@@ -70,6 +75,10 @@ export async function updateArea(
     big_batch_area?: string;
     big_batch_min_pieces?: number;
     close_without_reports?: boolean;
+    pay_mode?: string;
+    piece_rate?: number;
+    shift_rate?: number;
+    shift_headcount?: number;
   },
 ): Promise<Area> {
   const { data } = await apiClient.patch<Area>(`/areas/${code}`, payload);

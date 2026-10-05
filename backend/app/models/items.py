@@ -187,6 +187,9 @@ class ItemTypeOperation(Base):
     condition: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Вид операции — переходит в операцию маршрута позиции (PartStage.role).
     role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Сдельная расценка операции, ₽ за штуку — формулой от свойств позиции
+    # («ширина * высота / 1000000 * 45»); пусто — расценка участка.
+    piece_rate_expr: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class ItemTypeComponent(Base):

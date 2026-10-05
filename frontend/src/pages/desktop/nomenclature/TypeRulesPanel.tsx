@@ -267,6 +267,11 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
                       {OPERATION_ROLE_LABEL[o.role]}
                     </Tag>
                   )}
+                  {o.piece_rate_expr && (
+                    <Tag style={{ marginLeft: 8, fontFamily: "monospace" }} color="green">
+                      {o.piece_rate_expr} ₽/шт
+                    </Tag>
+                  )}
                   {o.condition && (
                     <Tag style={{ marginLeft: 8, fontFamily: "monospace" }} color="purple">
                       если {o.condition}
@@ -300,6 +305,13 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
                   value={o.role ?? undefined}
                   options={OPERATION_ROLE_OPTIONS}
                   onChange={(v) => patchOp(i, { role: v ?? null })}
+                />
+                <Input
+                  placeholder="₽/шт, формула (пусто — участка)"
+                  title="Сдельная расценка операции, ₽ за штуку: число или формула от свойств — «ширина * высота / 1000000 * 45». Пусто — расценка участка."
+                  value={o.piece_rate_expr ?? ""}
+                  style={{ width: 220, fontFamily: "monospace" }}
+                  onChange={(e) => patchOp(i, { piece_rate_expr: e.target.value || null })}
                 />
                 <Input
                   placeholder="условие (пусто — всегда)"
