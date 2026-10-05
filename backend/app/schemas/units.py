@@ -22,6 +22,11 @@ class ReceiveRequest(BaseModel):
     location_code: str | None = None
     is_strip: bool = False
     occurred_at: OccurredAt = None
+    # Цена по УПД (05.10) — необязательно: за м² (или за «м» рулона) в
+    # валюте; попадает в историю цен позиции плёнки с номером УПД.
+    price: float | None = Field(default=None, ge=0)
+    price_currency: str | None = None
+    price_unit: str | None = None
 
 
 class MaterialUnitOut(BaseModel):

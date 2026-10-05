@@ -77,6 +77,11 @@ class Item(Base):
     direction: Mapped[str | None] = mapped_column(String(16), nullable=True)
     stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
     make_mode: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # Условная единица цены позиции (05.10, models/prices.py): валюта и
+    # единица, в которых заводится цена (вручную, из 1С, по УПД). Пусто —
+    # рубли и единица позиции (у плёнки — м²).
+    price_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    price_unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # Деталь в плёнке («деталь · декор», services/laminated.py): от какой
     # детали без плёнки и в каком декоре (материал + цвет плёнки).
     base_item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)

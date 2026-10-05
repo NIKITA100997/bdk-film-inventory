@@ -212,9 +212,10 @@ function UnitCell({ row }: { row: MaterialStockRow }) {
 
 function MoveModal({ row, kind, onClose }: { row: MaterialStockRow; kind: ManualKind; onClose: () => void }) {
   const qc = useQueryClient();
-  const [form] = Form.useForm<{ qty: number; doc?: string; note?: string; occurred_at?: Dayjs }>();
+  type V = { qty: number; doc?: string; note?: string; occurred_at?: Dayjs; price?: number | null; price_currency?: string };
+  const [form] = Form.useForm<V>();
   const mutation = useMutation({
-    mutationFn: (v: { qty: number; doc?: string; note?: string; occurred_at?: Dayjs }) =>
+    mutationFn: (v: V) =>
       createMaterialMove({
         item_id: row.item_id,
         kind,
@@ -222,6 +223,8 @@ function MoveModal({ row, kind, onClose }: { row: MaterialStockRow; kind: Manual
         doc: v.doc,
         note: v.note,
         occurred_at: v.occurred_at ? v.occurred_at.format("YYYY-MM-DD") : null,
+        price: kind === "receipt" ? v.price : undefined,
+        price_currency: kind === "receipt" ? v.price_currency : undefined,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["material-stock"] });
@@ -246,6 +249,23 @@ function MoveModal({ row, kind, onClose }: { row: MaterialStockRow; kind: Manual
           <Form.Item name="doc" label="Документ (УПД, накладная)">
             <Input placeholder="Необязательно" />
           </Form.Item>
+        )}
+        {kind === "receipt" && (
+          <Space.Compact style={{ width: "100%", marginBottom: 24 }}>
+            <Form.Item name="price" noStyle>
+              <InputNumber min={0} step={0.01} style={{ width: "70%" }} placeholder={`Цена по УПД за ${row.unit} — необязательно`} />
+            </Form.Item>
+            <Form.Item name="price_currency" noStyle initialValue="RUB">
+              <Select
+                style={{ width: "30%" }}
+                options={[
+                  { value: "RUB", label: "₽" },
+                  { value: "EUR", label: "€" },
+                  { value: "USD", label: "$" },
+                ]}
+              />
+            </Form.Item>
+          </Space.Compact>
         )}
         <Form.Item
           name="note"

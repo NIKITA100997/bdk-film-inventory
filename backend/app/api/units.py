@@ -232,9 +232,29 @@ def receive(
     auto_close_on_receipt(
         db, material_id=sku.material_id, color_id=sku.color_id, thickness_id=sku.thickness_id
     )
+    if payload.price is not None:
+        _receipt_price(db, sku, payload, user.id)
     db.commit()
     ids = [u.id for u in created]
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id.in_(ids)).all()
+
+
+def _receipt_price(db: Session, sku: MaterialSku, payload: ReceiveRequest, user_id: int) -> None:
+    """Цена из УПД — в историю цен позиции плёнки (services/prices)."""
+    from app.models.items import Item
+    from app.models.prices import PRICE_UPD
+    from app.services.prices import add_price
+
+    item = db.get(Item, sku.item_id) if sku.item_id else None
+    if item is None:
+        return
+    when = payload.occurred_at.date() if payload.occurred_at else dt.date.today()
+    try:
+        add_price(db, item, price=payload.price, currency=payload.price_currency, unit=payload.price_unit, source=PRICE_UPD,
+                  valid_from=when, user_id=user_id, doc=f"УПД {payload.upd_number}")
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
 
 
 def _cutting_operation_out(db: Session, op: CuttingOperation, user: User) -> CuttingOperationOut:

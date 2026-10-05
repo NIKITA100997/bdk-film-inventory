@@ -26,6 +26,13 @@ import ResponsiveTable from "../../components/ResponsiveTable";
 type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code" | "occurred_at" | "thickness"> & {
   thickness: string;
 };
+// Валюты цены по УПД — кодами, без запроса справочника (у кладовщика может
+// не быть права на цены).
+const CURRENCY_OPTIONS = [
+  { value: "RUB", label: "₽" },
+  { value: "EUR", label: "€" },
+  { value: "USD", label: "$" },
+];
 type HeaderValues = {
   upd_number: string;
   pallet_number: string;
@@ -248,6 +255,18 @@ export default function Receive() {
                       </Button>
                     </Col>
                   ))}
+                </Row>
+                <Row gutter={8}>
+                  <Col span={14}>
+                    <Form.Item name="price" label="Цена по УПД, за м²" extra="Необязательно — попадёт в цены плёнки">
+                      <InputNumber size="large" min={0} step={0.01} style={{ width: "100%" }} placeholder="—" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={10}>
+                    <Form.Item name="price_currency" label="Валюта" initialValue="RUB">
+                      <Select size="large" options={CURRENCY_OPTIONS} />
+                    </Form.Item>
+                  </Col>
                 </Row>
                 <Button size="large" type="primary" htmlType="submit" block loading={addLineMutation.isPending}>
                   Добавить и дальше

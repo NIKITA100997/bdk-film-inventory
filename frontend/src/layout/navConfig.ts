@@ -127,7 +127,11 @@ export const navTree: NavBlock[] = [
   {
     key: "purchasing",
     label: "Закупки",
-    items: [{ key: "purchasing", path: "/purchasing", label: "Закупки плёнки", permissions: ["purchasing.manage"] }],
+    items: [
+      { key: "purchasing", path: "/purchasing", label: "Закупки плёнки", permissions: ["purchasing.manage"] },
+      // Прайс плёнки и материалов, загрузка цен из 1С (05.10).
+      { key: "prices", path: "/prices", label: "Цены", permissions: ["prices.view", "prices.manage"] },
+    ],
   },
   {
     key: "sales",
@@ -159,7 +163,7 @@ export const navTree: NavBlock[] = [
       { key: "roles", path: "/roles", label: "Роли и права", permissions: ["users.manage"] },
       { key: "deletion-requests", path: "/deletion-requests", label: "Заявки на удаление", permissions: ["users.manage"] },
       // Настройки: параметры расчётов и макет этикетки — вкладками (30.09).
-      { key: "settings", path: "/settings", label: "Настройки", permissions: ["calc_settings.manage", "labels.manage"] },
+      { key: "settings", path: "/settings", label: "Настройки", permissions: ["calc_settings.manage", "labels.manage", "prices.manage"] },
     ],
   },
 ];

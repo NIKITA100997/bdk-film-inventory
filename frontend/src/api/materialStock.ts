@@ -55,6 +55,9 @@ export const createMaterialMove = async (payload: {
   doc?: string | null;
   note?: string | null;
   occurred_at?: string | null;
+  /** Цена прихода по УПД — за единицу позиции, в валюте. */
+  price?: number | null;
+  price_currency?: string;
 }): Promise<MaterialMove> => (await apiClient.post<MaterialMove>("/material-stock/moves", payload)).data;
 
 export const listMaterialMoves = async (params: {

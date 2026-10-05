@@ -29,6 +29,7 @@ from app.models.part_units import PartUnit, PartUnitStatus, PartUnitEvent, PartE
 from app.models.part_film_restrictions import PartFilmRestriction
 from app.models.width_analogs import WidthAnalogGroup, WidthAnalogMember
 from app.models.film_aliases import FilmAlias
+from app.models.prices import Currency, ItemPrice
 
 __all__ = [
     "User",
@@ -82,4 +83,6 @@ __all__ = [
     "Item",
     "ItemGroup",
     "ItemKind",
+    "Currency",
+    "ItemPrice",
 ]

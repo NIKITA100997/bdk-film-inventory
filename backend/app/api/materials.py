@@ -127,6 +127,10 @@ class MoveIn(BaseModel):
     doc: str | None = None
     note: str | None = None
     occurred_at: date | None = None
+    # Цена прихода по УПД (05.10) — за единицу позиции, в валюте; попадает
+    # в историю цен позиции.
+    price: float | None = Field(default=None, ge=0)
+    price_currency: str | None = None
 
 
 class MoveOut(BaseModel):
@@ -177,6 +181,17 @@ def create_move(payload: MoveIn, db: Session = Depends(get_db), user: User = Dep
     except ValueError as e:
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    if payload.price is not None and payload.kind == "receipt":
+        from app.models.prices import PRICE_UPD
+        from app.services.prices import add_price
+
+        try:
+            add_price(db, item, price=payload.price, currency=payload.price_currency, unit=None, source=PRICE_UPD,
+                      valid_from=payload.occurred_at or date.today(), user_id=user.id,
+                      doc=f"УПД {payload.doc}" if payload.doc else None)
+        except ValueError as e:
+            db.rollback()
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     db.commit()
     db.refresh(move)
     return _moves_out(db, [move])[0]

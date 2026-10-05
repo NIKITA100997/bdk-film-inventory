@@ -54,6 +54,9 @@ export interface ReceiveRequest {
   location_code?: string;
   is_strip?: boolean;
   occurred_at?: string;
+  /** Цена по УПД (необязательно) — за м² в валюте; уходит в историю цен плёнки. */
+  price?: number | null;
+  price_currency?: string;
 }
 
 export async function receiveUnits(payload: ReceiveRequest): Promise<MaterialUnit[]> {

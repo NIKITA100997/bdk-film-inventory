@@ -11,6 +11,7 @@ import PartUnitCard from "./pages/mobile/PartUnitCard";
 
 import Stock, { StockRedirect } from "./pages/desktop/Stock";
 import Reports from "./pages/desktop/Reports";
+import { PricesPage } from "./pages/desktop/PricesTab";
 import ActionLog from "./pages/desktop/ActionLog";
 import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
 import InventoryDesktop from "./pages/desktop/InventoryDesktop";
@@ -147,6 +148,10 @@ const appPageRoutes = (
       element={
         <Navigate to="/areas?tab=lines" replace />
       }
+    />
+    <Route
+      path="/prices"
+      element={<RequirePermission permissions={["prices.view", "prices.manage"]}><PricesPage /></RequirePermission>}
     />
     <Route
       path="/nomenclature"
