@@ -435,7 +435,7 @@ export default function SalesCalculator() {
         <Card title="Аналоги">
           {analogs.length === 0 ? (
             <Empty
-              description="Аналоги не привязаны — можно добавить в «Администрирование → Справочники → Номенклатура»"
+              description="Аналоги не привязаны — можно добавить в «Номенклатура → Справочники»"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           ) : (
