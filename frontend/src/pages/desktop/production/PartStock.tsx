@@ -15,6 +15,7 @@ import PfReserveCell from "../../../components/PfReserveCell";
 import { usePfReserves } from "../../../components/usePfReserves";
 import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
 import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
+import { FileExcelOutlined } from "@ant-design/icons";
 
 interface PartStockGroup {
   partId: number;
@@ -150,8 +151,8 @@ export default function PartStock() {
               + Оприходовать партию
             </Button>
           )}
-          <Button size="small" onClick={exportRows}>
-            Экспорт в Excel
+          <Button icon={<FileExcelOutlined />} size="small" onClick={exportRows}>
+            Excel
           </Button>
         </Space>
       }

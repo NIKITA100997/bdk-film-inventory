@@ -10,6 +10,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { exportToExcel } from "../../utils/excel";
 import PfReserveCell from "../../components/PfReserveCell";
 import { usePfReserves } from "../../components/usePfReserves";
+import { FileExcelOutlined } from "@ant-design/icons";
 
 type Domain = "film" | "part";
 
@@ -216,8 +217,8 @@ export default function GeneralStock() {
               Выгрузить выбранное ({selectedKeys.length})
             </Button>
           )}
-          <Button size="small" onClick={() => exportRows(filtered)}>
-            Экспорт в Excel
+          <Button icon={<FileExcelOutlined />} size="small" onClick={() => exportRows(filtered)}>
+            Excel
           </Button>
         </Space>
       }

@@ -27,6 +27,7 @@ import PanelFilmTable from "../../components/PanelFilmTable";
 import { useAuth } from "../../auth/AuthContext";
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDate } from "../../utils/dates";
+import { FileExcelOutlined } from "@ant-design/icons";
 
 interface EditingPriceTarget {
   requestIds: number[];
@@ -207,6 +208,7 @@ export default function Purchasing() {
                 extra={
                   <Space>
                     <Button
+                      icon={<FileExcelOutlined />}
                       onClick={() =>
                         exportToExcel(
                           "zayavki-postavshchiku.xlsx",
@@ -233,7 +235,7 @@ export default function Purchasing() {
                         )
                       }
                     >
-                      Экспорт в Excel
+                      Excel
                     </Button>
                     <Button
                       type="primary"
@@ -400,6 +402,7 @@ export default function Purchasing() {
                 extra={
                   <Space>
                     <Button
+                      icon={<FileExcelOutlined />}
                       onClick={() =>
                         exportToExcel(
                           "zakazy-postavshchikam.xlsx",
@@ -428,7 +431,7 @@ export default function Purchasing() {
                         )
                       }
                     >
-                      Экспорт в Excel
+                      Excel
                     </Button>
                     <Checkbox checked={showClosedOrders} onChange={(e) => setShowClosedOrders(e.target.checked)}>
                       Показывать закрытые
@@ -529,6 +532,7 @@ export default function Purchasing() {
                 extra={
                   (supplierStatsQuery.data ?? []).length > 0 && (
                     <Button
+                      icon={<FileExcelOutlined />}
                       onClick={() =>
                         exportToExcel(
                           "postavshchiki.xlsx",
@@ -551,7 +555,7 @@ export default function Purchasing() {
                         )
                       }
                     >
-                      Экспорт в Excel
+                      Excel
                     </Button>
                   )
                 }

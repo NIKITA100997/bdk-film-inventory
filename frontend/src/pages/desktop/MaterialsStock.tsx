@@ -33,6 +33,7 @@ import {
   type MaterialStockRow,
 } from "../../api/materialStock";
 import { apiErrorMessage } from "../../utils/apiError";
+import { FileExcelOutlined } from "@ant-design/icons";
 
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
 const UNITS = ["м²", "м.п.", "шт", "кг", "л", "лист", "уп"];
@@ -76,6 +77,7 @@ export function MaterialsStockTab() {
         extra={
           <Space>
             <Button
+              icon={<FileExcelOutlined />}
               disabled={rows.length === 0}
               onClick={() =>
                 exportToExcel(
@@ -90,7 +92,7 @@ export function MaterialsStockTab() {
                 )
               }
             >
-              Экспорт в Excel
+              Excel
             </Button>
             {canManage && (
               <Button type="primary" onClick={() => setNewOpen(true)}>
@@ -327,6 +329,7 @@ export function MaterialMovesTab() {
         />
         <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => setRange(v && v[0] && v[1] ? [v[0], v[1]] : null)} />
         <Button
+          icon={<FileExcelOutlined />}
           disabled={rows.length === 0}
           onClick={() =>
             exportToExcel(
@@ -356,7 +359,7 @@ export function MaterialMovesTab() {
             )
           }
         >
-          Экспорт в Excel
+          Excel
         </Button>
       </Space>
       <ResponsiveTable<MaterialMove>

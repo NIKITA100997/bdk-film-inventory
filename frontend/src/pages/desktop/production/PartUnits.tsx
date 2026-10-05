@@ -27,6 +27,7 @@ import { listPartFilmRestrictions, createPartFilmRestriction } from "../../../ap
 import { listUsers } from "../../../api/users";
 import { useAuth } from "../../../auth/AuthContext";
 import { fmtDate, fmtDateTime } from "../../../utils/dates";
+import { FileExcelOutlined } from "@ant-design/icons";
 
 const NEW_FILM_RESTRICTION = "__new__";
 
@@ -492,6 +493,7 @@ export default function PartUnits() {
         title="Остатки партий"
         extra={
           <Button
+            icon={<FileExcelOutlined />}
             size="small"
             onClick={() =>
               exportToExcel(
@@ -519,7 +521,7 @@ export default function PartUnits() {
               )
             }
           >
-            Экспорт в Excel
+            Excel
           </Button>
         }
       >

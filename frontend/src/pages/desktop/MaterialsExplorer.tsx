@@ -21,7 +21,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { DownOutlined, SearchOutlined } from "@ant-design/icons";
+import { DownOutlined, SearchOutlined, FileExcelOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -478,6 +478,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
         <Card
           extra={
             <Button
+              icon={<FileExcelOutlined />}
               onClick={() =>
                 exportToExcel(
                   "ostatki-po-pozitsiyam.xlsx",
@@ -505,7 +506,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                 )
               }
             >
-              Экспорт в Excel
+              Excel
             </Button>
           }
         >
@@ -626,6 +627,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
         <Card
           extra={
             <Button
+              icon={<FileExcelOutlined />}
               onClick={() =>
                 exportToExcel(
                   "ostatki-po-edinitsam.xlsx",
@@ -648,7 +650,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                 )
               }
             >
-              Экспорт в Excel
+              Excel
             </Button>
           }
         >
