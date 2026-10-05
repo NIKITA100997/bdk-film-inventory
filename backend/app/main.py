@@ -33,7 +33,6 @@ from app.api.users import router as users_router
 from app.api.width_analogs import router as width_analogs_router
 from app.api.write_off_reasons import router as write_off_reasons_router
 from app.api.part_film_restrictions import router as part_film_restrictions_router
-from app.api.door_series import router as door_series_router
 from app.api.pf_demand import router as pf_demand_router
 from app.api.items import router as items_router
 from app.api.item_types import router as item_types_router
@@ -116,7 +115,6 @@ app.include_router(users_router, prefix=API_PREFIX)
 app.include_router(roles_router, prefix=API_PREFIX)
 app.include_router(width_analogs_router, prefix=API_PREFIX)
 app.include_router(write_off_reasons_router, prefix=API_PREFIX)
-app.include_router(door_series_router, prefix=API_PREFIX)
 app.include_router(pf_demand_router, prefix=API_PREFIX)
 app.include_router(items_router, prefix=API_PREFIX)
 app.include_router(item_types_router, prefix=API_PREFIX)
