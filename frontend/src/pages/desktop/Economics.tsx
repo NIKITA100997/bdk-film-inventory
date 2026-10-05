@@ -316,7 +316,7 @@ function DailyTab({ days, rows, loading }: { days: string[]; rows: DailyRow[]; l
 
 /** Экономика производства (02.10): план/факт плёнки против норм и выработка.
  * Себестоимость (материалы, труд) — когда появятся цены материалов и ставки. */
-export default function Economics() {
+export default function Economics({ embedded = false }: { embedded?: boolean }) {
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(30, "day"), dayjs()]);
   const [area, setArea] = useState<string | undefined>();
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
@@ -329,7 +329,7 @@ export default function Economics() {
   });
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Card title="Экономика производства">
+      <Card title={embedded ? undefined : "Экономика производства"} size={embedded ? "small" : undefined}>
         <Space wrap>
           <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
           <Select

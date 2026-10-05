@@ -179,32 +179,6 @@ export interface PartUnitReconciliationLine {
 export const getPartUnitReconciliation = async (): Promise<PartUnitReconciliationLine[]> =>
   (await apiClient.get<PartUnitReconciliationLine[]>("/reports/part-unit-reconciliation")).data;
 
-// Раздел про план/факт по расходу плёнки на задание — план (кол-во
-// деталей × длина на деталь) против факта, который уже выдал/отрезал
-// склад (issued_length_m), независимо от бумажной самоотчётности цеха.
-export interface PlanFactTaskLine {
-  task_id: number;
-  task_name: string | null;
-  area: string;
-  line_id: number;
-  part_name: string | null;
-  material: string;
-  color: string;
-  thickness: number;
-  planned_length_m: number;
-  actual_length_m: number;
-  remaining_length_m: number;
-  completion_percent: number;
-  created_at: string;
-}
-
-export const getPlanFactTasks = async (dateFrom: string, dateTo: string, area?: string): Promise<PlanFactTaskLine[]> =>
-  (
-    await apiClient.get<PlanFactTaskLine[]>("/reports/plan-fact-tasks", {
-      params: { date_from: dateFrom, date_to: dateTo, area },
-    })
-  ).data;
-
 // ---------- Раздел про модуль "Брак и списания" ----------
 
 export interface WriteOffLine {

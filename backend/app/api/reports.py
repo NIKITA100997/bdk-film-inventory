@@ -33,7 +33,6 @@ from app.schemas.reports import (
     DonorAccuracyOut,
     MovementEntry,
     PartUnitReconciliationLine,
-    PlanFactTaskLineOut,
     ProductionDefectLine,
     ReasonShareLine,
     RollsVsStripsLine,
@@ -689,60 +688,6 @@ def action_log_part_units(
         )
         for ev, part_name, user_name, reason_entry, _line, task in rows
     ]
-
-
-@router.get("/plan-fact-tasks", response_model=list[PlanFactTaskLineOut])
-def plan_fact_tasks(
-    date_from: dt.date = Query(...),
-    date_to: dt.date = Query(...),
-    area: str | None = None,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_permission("reports.view")),
-) -> list[PlanFactTaskLineOut]:
-    """План/факт по расходу плёнки на задание (раздел про выдачу мимо
-    хаба) — план (quantity_pieces × length_m на строке) против факта
-    (уже выданный/отрезанный складом метраж, warehouse-driven через
-    fetch_issued_length_by_task_line) — не зависит от того, отчитался ли
-    цех о производстве бумажно, на практике этот отчёт не используется."""
-    query = (
-        db.query(ProductionTaskLine, ProductionTask, Material.name, Color.name, Thickness.value_mm)
-        .join(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
-        .join(Material, ProductionTaskLine.material_id == Material.id)
-        .join(Color, ProductionTaskLine.color_id == Color.id)
-        .join(Thickness, ProductionTaskLine.thickness_id == Thickness.id)
-        .filter(
-            func.date(ProductionTask.created_at) >= date_from,
-            func.date(ProductionTask.created_at) <= date_to,
-        )
-    )
-    if area:
-        query = query.filter(ProductionTask.area == area)
-    rows = query.order_by(ProductionTask.created_at.desc()).all()
-
-    issued_by_line = fetch_issued_length_by_task_line(db, [line.id for line, *_ in rows])
-
-    result: list[PlanFactTaskLineOut] = []
-    for line, task, material, color, thickness in rows:
-        planned = round(float(line.quantity_pieces) * float(line.length_m), 2)
-        actual = round(issued_by_line.get(line.id, 0.0), 2)
-        result.append(
-            PlanFactTaskLineOut(
-                task_id=task.id,
-                task_name=task.name,
-                area=task.area,
-                line_id=line.id,
-                part_name=line.part_name,
-                material=material,
-                color=color,
-                thickness=float(thickness),
-                planned_length_m=planned,
-                actual_length_m=actual,
-                remaining_length_m=round(planned - actual, 2),
-                completion_percent=round(actual / planned * 100, 1) if planned else 0.0,
-                created_at=task.created_at,
-            )
-        )
-    return result
 
 
 # ================= Раздел про модуль "Брак и списания" =================

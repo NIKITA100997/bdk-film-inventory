@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Defects from "./Defects";
 import { useSearchParams } from "react-router-dom";
-import { Card, Tabs, DatePicker, Space, Row, Col, Tag, InputNumber, Select, Typography, Segmented } from "antd";
+import { Card, Tabs, DatePicker, Space, Row, Col, Tag, InputNumber, Typography, Segmented } from "antd";
 import Statistic from "../../components/Statistic";
 import { useQuery } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";
@@ -12,7 +12,6 @@ import {
   getDonorAccuracy,
   getStaleUnits,
   getCuttingDiscrepancies,
-  getPlanFactTasks,
   getUnitReconciliation,
   getPartUnitReconciliation,
 } from "../../api/reports";
@@ -23,6 +22,7 @@ import { listAreas } from "../../api/areas";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { UnitLink, PartUnitLink } from "../../components/EntityLink";
 import { fmtDate, fmtDateTime } from "../../utils/dates";
+import Economics from "./Economics";
 
 function StockSummaryTab() {
   const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
@@ -393,65 +393,6 @@ export function PartUnitReconciliationTab() {
   );
 }
 
-function PlanFactTab() {
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(29, "day"), dayjs()]);
-  const [area, setArea] = useState<string | undefined>(undefined);
-  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
-  const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
-  const query = useQuery({
-    queryKey: ["report-plan-fact-tasks", range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD"), area],
-    queryFn: () => getPlanFactTasks(range[0].format("YYYY-MM-DD"), range[1].format("YYYY-MM-DD"), area),
-  });
-
-  const rows = query.data ?? [];
-  const columns: ReportColumn<(typeof rows)[number]>[] = [
-    { key: "created_at", header: "Создано", render: (r) => fmtDate(r.created_at), printValue: (r) => fmtDate(r.created_at) },
-    { key: "task_name", header: "Задание", render: (r) => r.task_name ?? `№${r.task_id}`, printValue: (r) => r.task_name ?? `№${r.task_id}` },
-    { key: "area", header: "Участок", render: (r) => areaLabel(r.area), printValue: (r) => areaLabel(r.area) },
-    { key: "part_name", header: "Деталь", render: (r) => r.part_name ?? "—", printValue: (r) => r.part_name ?? "" },
-    { key: "material", header: "Плёнка", render: (r) => `${r.material}, ${r.color}, ${r.thickness} мм`, printValue: (r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
-    { key: "planned_length_m", header: "План, м", render: (r) => r.planned_length_m, printValue: (r) => r.planned_length_m },
-    { key: "actual_length_m", header: "Факт, м", render: (r) => r.actual_length_m, printValue: (r) => r.actual_length_m },
-    {
-      key: "remaining_length_m",
-      header: "Остаток, м",
-      render: (r) => <Tag color={r.remaining_length_m > 0 ? "orange" : "green"}>{r.remaining_length_m}</Tag>,
-      printValue: (r) => r.remaining_length_m,
-      sorter: (a, b) => b.remaining_length_m - a.remaining_length_m,
-      defaultSortOrder: "descend",
-    },
-    { key: "completion_percent", header: "Выполнено, %", render: (r) => `${r.completion_percent}%`, printValue: (r) => r.completion_percent },
-  ];
-
-  return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <span style={{ color: "rgba(0,0,0,0.45)" }}>
-        План (кол-во деталей × длина на деталь) против факта — метража, уже выданного/отрезанного складом под эту
-        строку задания. Факт считается по журналу склада, а не по отчёту цеха о производстве.
-      </span>
-      <Space wrap>
-        <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
-        <Select
-          allowClear
-          placeholder="Все участки"
-          style={{ width: 220 }}
-          value={area}
-          onChange={setArea}
-          options={(areasQuery.data ?? []).map((a) => ({ value: a.code, label: a.name }))}
-        />
-      </Space>
-      <ReportTable
-        title="План/факт по заданиям"
-        filename="plan-fakt-po-zadaniyam.csv"
-        rowKey={(r) => `${r.line_id}`}
-        columns={columns}
-        data={rows}
-        loading={query.isLoading}
-      />
-    </Space>
-  );
-}
-
 export function ReorderTab() {
   const query = useQuery({ queryKey: ["report-reorder", "reorder"], queryFn: getStockOverview });
   const rows = (query.data ?? []).filter((r) => r.reorder_suggested);
@@ -491,8 +432,8 @@ export function ReorderTab() {
 
 type Group = "stock" | "cutting" | "production" | "defects";
 
-/** Отчёты по группам: склад, резка, производство, брак и списания (брак —
- * бывший отдельный пункт меню, 30.09). Группа и вкладка — в адресе. */
+/** Отчёты по группам: склад, резка, производство (экономика), брак и
+ * списания — бывшие отдельные пункты меню. Группа и вкладка — в адресе. */
 export default function Reports() {
   const [params, setParams] = useSearchParams();
   const groups: { key: Group; label: string; tabs: { key: string; label: string; children: React.ReactNode }[] }[] = [
@@ -514,7 +455,10 @@ export default function Reports() {
         { key: "donor", label: "Точность донор-рекомендаций", children: <DonorAccuracyTab /> },
       ],
     },
-    { key: "production", label: "Производство", tabs: [{ key: "plan-fact", label: "План/факт по заданиям", children: <PlanFactTab /> }] },
+    // Экономика производства (план/факт плёнки против норм, выработка, по
+    // дням) — здесь же, а не отдельным пунктом меню (05.10); старый «План/факт
+    // по заданиям» (только выдано, без возвратов) она заменяет.
+    { key: "production", label: "Производство", tabs: [] },
     { key: "defects", label: "Брак и списания", tabs: [] },
   ];
   const group = groups.find((g) => g.key === params.get("group")) ?? groups[0];
@@ -529,6 +473,8 @@ export default function Reports() {
         />
         {group.key === "defects" ? (
           <Defects />
+        ) : group.key === "production" ? (
+          <Economics embedded />
         ) : (
           <Tabs
             activeKey={tab?.key}

@@ -11,7 +11,6 @@ import PartUnitCard from "./pages/mobile/PartUnitCard";
 
 import Stock, { StockRedirect } from "./pages/desktop/Stock";
 import Reports from "./pages/desktop/Reports";
-import Economics from "./pages/desktop/Economics";
 import ActionLog from "./pages/desktop/ActionLog";
 import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
 import InventoryDesktop from "./pages/desktop/InventoryDesktop";
@@ -77,10 +76,7 @@ const appPageRoutes = (
       path="/reports"
       element={<RequirePermission permissions={["reports.view"]}><Reports /></RequirePermission>}
     />
-    <Route
-      path="/economics"
-      element={<RequirePermission permissions={["reports.view"]}><Economics /></RequirePermission>}
-    />
+    <Route path="/economics" element={<Navigate to="/reports?group=production" replace />} />
     <Route
       path="/defects"
       element={<Navigate to="/reports?group=defects" replace />}
