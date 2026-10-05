@@ -116,7 +116,7 @@ export default function CuttingHistory() {
         снова) — если кнопка недоступна, наведите на неё, чтобы увидеть точную причину.
       </Typography.Paragraph>
       <Space wrap>
-        <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
+        <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
         <InputNumber
           placeholder="№ донора"
           style={{ width: 140 }}

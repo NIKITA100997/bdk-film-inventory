@@ -152,7 +152,7 @@ function DefectsOverviewTab() {
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
+      <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
 
       {o && (
         <Row gutter={[16, 16]}>
@@ -308,7 +308,7 @@ function DefectsPivotTab() {
         Брак на производстве, сгруппированный по выбранному разрезу, с раскладкой по причинам и долей брака от годных изделий.
       </span>
       <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
-        <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
+        <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
         <Select<DefectPivotGroupBy>
           value={groupBy}
           onChange={setGroupBy}
@@ -392,7 +392,7 @@ function WriteOffsTab() {
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap>
-        <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
+        <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
         <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
         <Select
           allowClear
@@ -451,7 +451,7 @@ function ProductionDefectsTab() {
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap>
-        <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
+        <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
         <Select
           allowClear
           placeholder="Участок"

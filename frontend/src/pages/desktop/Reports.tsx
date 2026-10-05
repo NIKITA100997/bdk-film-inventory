@@ -175,6 +175,7 @@ function DonorAccuracyTab() {
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <DatePicker.RangePicker
+        format="DD.MM.YYYY"
         value={range}
         onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])}
       />
@@ -280,7 +281,7 @@ function CuttingDiscrepancyTab() {
         Резка по плану на несколько ширин за проход (Выдача участку → «Взять в работу») — где контрольная длина,
         введённая по факту резки, заметно отличается от расчётной (донор той же длины, что и до резки).
       </span>
-      <DatePicker.RangePicker value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
+      <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
       <ReportTable
         title="Отклонения при резке"
         filename="otkloneniya-pri-rezke.csv"
