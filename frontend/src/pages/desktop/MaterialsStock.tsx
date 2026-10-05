@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
 import {
   AutoComplete,
@@ -33,11 +32,7 @@ import {
   type MaterialMoveKind,
   type MaterialStockRow,
 } from "../../api/materialStock";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../utils/apiError";
 
 const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
 const UNITS = ["м²", "м.п.", "шт", "кг", "л", "лист", "уп"];

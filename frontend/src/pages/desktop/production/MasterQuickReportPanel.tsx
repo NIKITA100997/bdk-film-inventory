@@ -3,7 +3,6 @@ import { Card, Space, Typography, Select, InputNumber, Input, Button, message, E
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useNavigate } from "react-router-dom";
-import { isAxiosError } from "axios";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import {
   lineFilmLabel,
@@ -17,11 +16,7 @@ import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { listParts } from "../../../api/dictionaries";
 import { listPartUnits } from "../../../api/partUnits";
 import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 interface DefectEntry {
   reason: string;

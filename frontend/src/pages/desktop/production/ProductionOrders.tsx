@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import dayjs, { type Dayjs } from "dayjs";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -58,11 +57,7 @@ import { listOrderCategories, createOrderCategory,
   type OrderTask,
   type ProductionOrder,
 } from "../../../api/productionOrders";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 const STATUS_COLOR: Record<OrderStatus, string> = { draft: "default", released: "blue", closed: "green" };
 

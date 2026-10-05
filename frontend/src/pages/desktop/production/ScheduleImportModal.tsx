@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { Alert, Button, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
@@ -14,6 +13,7 @@ import {
   type ScheduleImportColor,
   type ScheduleImportRow,
 } from "../../../api/productionOrders";
+import { apiErrorMessage } from "../../../utils/apiError";
 
 const COLOR_STATUS: Record<ScheduleImportColor["status"], { color: string; text: string }> = {
   ok: { color: "green", text: "плёнка подобрана" },
@@ -21,11 +21,6 @@ const COLOR_STATUS: Record<ScheduleImportColor["status"], { color: string; text:
   choose: { color: "orange", text: "выберите толщину" },
   none: { color: "red", text: "плёнка не найдена" },
 };
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 
 /** График запуска (лист «График» из Excel, колонки: Дата отгрузки, № счёта,
  * Серия, Размер, Цвет, Наименование, Кол-во дверей) → черновик заказа.

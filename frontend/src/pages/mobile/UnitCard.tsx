@@ -18,7 +18,6 @@ import {
   message,
 } from "antd";
 import type { Dayjs } from "dayjs";
-import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -57,6 +56,7 @@ import ReportModal from "../desktop/production/ReportModal";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { useAuth } from "../../auth/AuthContext";
+import { apiErrorMessage } from "../../utils/apiError";
 
 type ActionKind = "place" | "cut" | "return" | "writeoff" | "transfer" | "adjust" | null;
 
@@ -78,11 +78,6 @@ const actionPermissions: Record<Exclude<ActionKind, "cut" | null>, string> = {
   // админу/начальнику склада.
   adjust: "units.correct",
 };
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 
 const statusLabels: Record<string, string> = {
   Принят: "Принят",

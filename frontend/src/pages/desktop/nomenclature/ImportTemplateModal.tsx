@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { Alert, Button, Checkbox, Input, Modal, Select, Space, Table, Tabs, Tag, Typography, message } from "antd";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,11 +13,7 @@ import {
   type ItemType,
 } from "../../../api/itemTypes";
 import { optionLabel } from "../../../utils/optionLabel";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 export const IMPORT_ROLE_LABEL: Record<ImportColumnRole, string> = {
   ship_date: "Дата отгрузки",

@@ -1,20 +1,11 @@
-import { useState } from "react";
-import { Alert, Button, Checkbox, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
+import { useState, type ReactNode } from "react";
+import { Alert, Button, Checkbox, Modal, Select, Space, Tag, Typography, message } from "antd";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItems, setItemComponents, type TechCard } from "../../../api/items";
-import { listAreas } from "../../../api/areas";
-import { OPERATION_ROLE_LABEL } from "../../../utils/operationRoles";
-import ComponentsEditorModal from "./ComponentsEditorModal";
-import RouteEditorModal from "./RouteEditorModal";
-import { isAxiosError } from "axios";
+import { apiErrorMessage } from "../../../utils/apiError";
 
 type Input = TechCard["inputs"][number];
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 
 /** Группы состава: строка без «или» — сама по себе, строки одной группы
  * «или» — вместе (варианты друг друга). */

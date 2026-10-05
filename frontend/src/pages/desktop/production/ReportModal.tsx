@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Alert, Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message, Radio, Tag, Space } from "antd";
 import dayjs from "dayjs";
-import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { createTaskLineReportsBatch, type ProductionTaskLine, type ProductionTaskLineReportCreate } from "../../../api/production";
@@ -9,11 +8,7 @@ import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { listPartUnits } from "../../../api/partUnits";
 import { listParts } from "../../../api/dictionaries";
 import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 /** Отчёт о производстве/браке (раздел про брак по дням) — отчёт обычно
  * привязан к конкретной записи распределения (день/линия/сотрудники), не

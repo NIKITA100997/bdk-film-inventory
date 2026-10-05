@@ -1,14 +1,9 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { Button, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listMaterialSkus } from "../../api/dictionaries";
 import { createFilmAlias, deleteFilmAlias, listFilmAliases, updateFilmAlias, type FilmAlias } from "../../api/filmAliases";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../utils/apiError";
 
 /** Сопоставления плёнки: как плёнку называют во внешних источниках (графики
  * запуска, наряды, планы заготовок, 1С) → позиция справочника. Общие для всей

@@ -1,13 +1,8 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { Button, Empty, Input, Modal, Popconfirm, Space, Tree, TreeSelect, Typography, message } from "antd";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createItemGroup, deleteItemGroup, groupTree, updateItemGroup, type ItemGroup } from "../../../api/items";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 interface TreeNode {
   key: number;

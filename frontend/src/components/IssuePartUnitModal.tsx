@@ -1,13 +1,8 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { Form, InputNumber, Modal, Typography, message } from "antd";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { issuePartUnit, type PartUnit } from "../api/partUnits";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../utils/apiError";
 
 /** «Передать на участок» — партию «На хранении» (например, возвращённую на
  * склад) на участок её этапа. Можно часть — она отделится своей партией. */

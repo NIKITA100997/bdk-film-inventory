@@ -1,15 +1,10 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { Alert, Button, Checkbox, Divider, Form, Input, InputNumber, Modal, Segmented, Space, Typography, message } from "antd";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import { useAuth } from "../../auth/AuthContext";
 import { adjustUnit, bulkEditUnits, placeUnit, reassignUnitSku, type MaterialUnit } from "../../api/units";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../utils/apiError";
 
 function usePerms() {
   const { user } = useAuth();

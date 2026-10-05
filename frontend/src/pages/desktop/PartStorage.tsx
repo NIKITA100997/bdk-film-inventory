@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Card, Space, Typography, Button, Modal, Form, Input, InputNumber, Tag, message } from "antd";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { isAxiosError } from "axios";
 import { createPartRack, getPartRackOccupancy, listPartRacks, placePartUnit, type PartRackOccupancyCell } from "../../api/partStorage";
 import { listPartUnits, type PartUnit } from "../../api/partUnits";
 import { printPartRackLabel, printPartShelfLabelsBatch, printPartUnitLabelsBatch } from "../../api/partLabels";
@@ -10,11 +9,7 @@ import PrintFormatButton from "../../components/PrintFormatButton";
 import CollapsibleWarningBanner from "../../components/CollapsibleWarningBanner";
 import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../utils/apiError";
 
 /** Без адреса (раздел про адресное хранение деталей) — зеркалит
  * UnplacedUnitsCard у плёнки (StorageMap.tsx): партии физически на

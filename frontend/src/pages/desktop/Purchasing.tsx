@@ -2,16 +2,11 @@ import { ReorderTab } from "./Reports";
 import { useEffect, useState } from "react";
 import { Card, Tag, Button, Modal, Form, InputNumber, Input, DatePicker, Space, Typography, Empty, Tabs, Checkbox, Collapse, message } from "antd";
 import dayjs from "dayjs";
-import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { exportToExcel } from "../../utils/excel";
 
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 import {
   listPurchaseRequests,
   createPurchaseRequest,
@@ -30,6 +25,7 @@ import { getSupplierStats, type SupplierStats } from "../../api/suppliers";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import PanelFilmTable from "../../components/PanelFilmTable";
 import { useAuth } from "../../auth/AuthContext";
+import { apiErrorMessage } from "../../utils/apiError";
 
 interface EditingPriceTarget {
   requestIds: number[];

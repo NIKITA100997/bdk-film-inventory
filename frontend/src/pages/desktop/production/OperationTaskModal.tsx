@@ -1,18 +1,13 @@
 import { useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { isAxiosError } from "axios";
 import { DatePicker, Button, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas } from "../../../api/areas";
 import { createOperationTask, listAreaOperations } from "../../../api/production";
+import { apiErrorMessage } from "../../../utils/apiError";
 
 type LineDraft = { part_stage_id?: number | null; name?: string; quantity_pieces?: number };
 type FormValues = { name: string; area: string; ship_date?: Dayjs; lines: LineDraft[] };
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 
 /** Задание без плёнки на любой участок (этап 3 единой модели — одно
  * задание): строка — операция техкарты (этап детали на этом участке; отчёт

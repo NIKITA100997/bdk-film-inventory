@@ -20,7 +20,6 @@ import {
 import { listAreas } from "../../../api/areas";
 import { listPlanSlots } from "../../../api/planning";
 import { ORDER_STATUS_LABEL } from "../../../api/productionOrders";
-import { isAxiosError } from "axios";
 import { useAuth } from "../../../auth/AuthContext";
 import FastReportPanel from "./fastReport/FastReportPanel";
 import ReportModal from "./ReportModal";
@@ -29,11 +28,7 @@ import PfSupplyModal from "./PfSupplyModal";
 import LineSpecModal from "./LineSpecModal";
 import { areaRequiresRoll } from "../../../api/areas";
 import { rollChoices } from "./fastReport/useFastReport";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 /** Готовность задания п/ф по деталям: деталь готова, когда все её строки
  * (этапы на этом участке) сделаны или закрыты. */

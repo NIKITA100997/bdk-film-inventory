@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -28,11 +27,7 @@ import NewFilmColorButton from "../../../components/NewFilmColorButton";
 import { createModel, getTypeHints, previewTree, variantsBatch, type Hint, type VariantRow } from "../../../api/modelBuilder";
 import TechTree from "../../../components/TechTree";
 import { optionLabel } from "../../../utils/optionLabel";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 const STATUS: Record<string, { color: string; label: string }> = {
   new: { color: "green", label: "новая" },

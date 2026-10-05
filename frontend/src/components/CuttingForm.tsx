@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Alert, Button, Card, DatePicker, InputNumber, Radio, Select, Space, Typography, message } from "antd";
-import { isAxiosError } from "axios";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
@@ -18,11 +17,7 @@ import { suggestLocation, listWarehouses } from "../api/storage";
 import LocationSelect from "./LocationSelect";
 import { toOccurredAtIso } from "../utils/occurredAt";
 import { useAuth } from "../auth/AuthContext";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../utils/apiError";
 
 type LengthDestKind = "keep" | "issue" | "discard" | "transfer";
 type WidthDestKind = "keep" | "issue" | "transfer";

@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { optionLabel } from "../../../utils/optionLabel";
-import { isAxiosError } from "axios";
 import { Button, Descriptions, Form, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,11 +10,7 @@ import {
   type PropertyValue,
 } from "../../../api/itemTypes";
 import PropertyInputs from "./PropertyInputs";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 function showValue(p: ItemProperty, v: PropertyValue | undefined): string {
   if (v === null || v === undefined || v === "") return "—";

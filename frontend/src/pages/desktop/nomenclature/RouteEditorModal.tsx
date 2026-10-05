@@ -1,17 +1,12 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { Button, Input, Modal, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas } from "../../../api/areas";
 import { setItemRoute, type TechCard } from "../../../api/items";
 import { OPERATION_ROLE_HINT, OPERATION_ROLE_OPTIONS, type OperationRole } from "../../../utils/operationRoles";
+import { apiErrorMessage } from "../../../utils/apiError";
 
 type Row = { code: string; name: string; area: string | null; role: OperationRole };
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 
 /** Маршрут любой позиции (единая модель, пункт 3): операции по порядку —
  * название работы и участок, где её делают. Правка на месте: партии и

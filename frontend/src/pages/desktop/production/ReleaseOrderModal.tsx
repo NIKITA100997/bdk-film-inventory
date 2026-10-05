@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
-import { isAxiosError } from "axios";
 import { Alert, Button, Checkbox, InputNumber, Modal, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas } from "../../../api/areas";
@@ -16,11 +15,7 @@ import {
 import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
 import ReleaseLayoutModal from "./ReleaseLayoutModal";
 import type { PfDemandRow } from "../../../api/pfDemand";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 const keyOf = (n: PfNeed) => `${n.order_line_id}|${n.part_id}|${n.consumer_part_id ?? ""}`;
 

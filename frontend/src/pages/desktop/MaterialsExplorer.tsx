@@ -25,7 +25,6 @@ import { DownOutlined, SearchOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { isAxiosError } from "axios";
 import {
   searchUnits,
   UNIT_SEARCH_LIMIT,
@@ -59,6 +58,7 @@ import { UnitBulkEditModal, UnitEditModal } from "./UnitEditModals";
 import UnitBulkActionModal, { type BulkAction } from "./UnitBulkActions";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
+import { apiErrorMessage } from "../../utils/apiError";
 
 const statusOptions: { value: UnitStatusValue; label: string }[] = [
   { value: "Принят", label: "Принят" },
@@ -79,11 +79,6 @@ type UnitLineValues = {
   is_strip?: boolean;
   occurred_at?: Dayjs | null;
 };
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 
 /** mode — режим задаёт экран «Остатки» своими вкладками (тогда свой
  * переключатель не показывается); без него — как раньше, сам по себе. */

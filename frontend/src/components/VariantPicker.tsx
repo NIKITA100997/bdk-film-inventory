@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { optionLabel } from "../utils/optionLabel";
-import { isAxiosError } from "axios";
 import { Alert, AutoComplete, Checkbox, Form, InputNumber, Modal, Select, Space, Spin, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getItemProperties, isFilmColorProperty, listItemTypes, type PropertyValue } from "../api/itemTypes";
 import NewFilmColorButton from "./NewFilmColorButton";
 import { getTypeHints, variantsBatch } from "../api/modelBuilder";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../utils/apiError";
 
 /** Вариант модели прямо из заказа: модель выбрана — задаёте размер, цвет,
  * кромку (с подсказками частых значений); такая позиция есть — берётся

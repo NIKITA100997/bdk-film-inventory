@@ -1,15 +1,10 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { Button, Checkbox, InputNumber, Modal, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItems, setItemComponents, type TechCard } from "../../../api/items";
+import { apiErrorMessage } from "../../../utils/apiError";
 
 type Row = { component_item_id: number | null; qty_per_unit: number | null; stage_id: number | null; alt_group: number | null; from_defect: boolean };
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 
 /** Ручной состав позиции (единая модель, пункт 3): компонент, сколько на
  * 1 шт и на какой операции расходуется. Строки из BOM модели здесь не

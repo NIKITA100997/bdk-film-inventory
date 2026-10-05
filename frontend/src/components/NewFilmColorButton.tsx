@@ -1,14 +1,9 @@
 import { useMemo, useState } from "react";
-import { isAxiosError } from "axios";
 import { Button, Form, Input, Modal, Select, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listMaterialSkus } from "../api/dictionaries";
 import { addPropertyOption, type ItemProperty } from "../api/itemTypes";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../utils/apiError";
 
 /** «+ цвет из плёнки»: новый цвет двери берётся из справочника плёнки
  * (материал · цвет), название — коммерческое (можно поправить). Так в

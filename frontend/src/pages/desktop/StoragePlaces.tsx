@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
 import {
   Button,
@@ -26,6 +25,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { apiClient } from "../../api/client";
 import { createRack, listWarehouses } from "../../api/storage";
 import { createPartRack } from "../../api/partStorage";
+import { apiErrorMessage } from "../../utils/apiError";
 
 interface Place {
   kind: "plenka" | "pf";
@@ -54,11 +54,6 @@ const deletePlace = async (kind: string, id: number): Promise<void> => {
   await apiClient.delete(`/storage-places/${kind}/${id}`);
 };
 const listCells = async (kind: string, id: number): Promise<Cell[]> => (await apiClient.get<Cell[]>(`/storage-places/${kind}/${id}/cells`)).data;
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange" };
 

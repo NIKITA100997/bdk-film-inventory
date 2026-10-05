@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { DIRECTIONS, STAGES, toOptions } from "../../../utils/itemAttrs";
-import { isAxiosError } from "axios";
 import {
   Button,
   Card,
@@ -39,11 +38,7 @@ import {
   type OptionField,
   type PropertyInput,
 } from "../../../api/itemTypes";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 /** Типы изделий и их свойства (единая модель, пункты 1–2). Слева — типы по
  * видам номенклатуры, справа — свойства выбранного типа. Новый вид

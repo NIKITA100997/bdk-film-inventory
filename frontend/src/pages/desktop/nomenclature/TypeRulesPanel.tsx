@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { Alert, Button, Card, Col, Form, Input, Modal, Row, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas } from "../../../api/areas";
@@ -21,11 +20,7 @@ import {
 import PropertyInputs from "./PropertyInputs";
 import ImportTemplateModal, { importColumnsText } from "./ImportTemplateModal";
 import { OPERATION_ROLE_HINT, OPERATION_ROLE_LABEL, OPERATION_ROLE_OPTIONS } from "../../../utils/operationRoles";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 const emptyRule: TypeComponentRule = {
   name_template: "",

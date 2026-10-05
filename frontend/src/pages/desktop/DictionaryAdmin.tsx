@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { AutoComplete, Card, Tabs, Button, Input, InputNumber, Select, Tag, Space, Popconfirm, Typography, Empty, Checkbox, Modal, Form, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { isAxiosError } from "axios";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import FilmAliasesTab from "./FilmAliasesTab";
 import {
@@ -21,10 +20,6 @@ import {
   type ThicknessEntry,
 } from "../../api/dictionaries";
 
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 import {
   listAllWriteOffReasons,
   createWriteOffReason,
@@ -39,6 +34,7 @@ import {
   deleteWidthAnalogGroup,
   type WidthAnalogGroup,
 } from "../../api/widthAnalogs";
+import { apiErrorMessage } from "../../utils/apiError";
 
 // Раздел про модуль "Брак и списания" — общая подпись категории, чтобы
 // не разъезжалась между таблицей причин и формой создания.

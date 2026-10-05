@@ -1,6 +1,5 @@
 import { Modal, Form, Select, DatePicker, InputNumber, Button, Table, Typography, message } from "antd";
 import dayjs from "dayjs";
-import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProductionLines,
@@ -12,11 +11,7 @@ import {
 } from "../../../api/production";
 import EmployeesTagSelect from "../../../components/EmployeesTagSelect";
 import { getLineDays } from "../../../api/planning";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 /** Распределение строки задания по линиям/дням/сотрудникам (раздел 12.5)
  * — отдельный экран начальника участка поверх уже созданного задания.

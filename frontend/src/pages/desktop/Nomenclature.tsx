@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import DictionaryAdmin from "./DictionaryAdmin";
 import { DIRECTIONS, MODES, STAGES, STAGE_COLOR, toOptions } from "../../utils/itemAttrs";
-import { isAxiosError } from "axios";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button, Card, Checkbox, Input, Modal, Popconfirm, Segmented, Select, Space, Tabs, Tag, TreeSelect, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,11 +32,7 @@ import {
   type SizeCandidate,
   type UnlinkedLineGroup,
 } from "../../api/items";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../utils/apiError";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
 

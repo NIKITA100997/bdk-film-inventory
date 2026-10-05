@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Button, DatePicker, Input, InputNumber, Modal, Space, Tag, Tooltip, Typography, message } from "antd";
-import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";
 import {
@@ -14,11 +13,7 @@ import {
 import { listAreas } from "../../api/areas";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import CuttingForm from "../../components/CuttingForm";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../utils/apiError";
 
 function destinationLabel(kind: string, area: string | null, areaLabel: (code: string) => string): string {
   if (kind === "issue") return `выдан участку «${area ? areaLabel(area) : "?"}»`;

@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { isAxiosError } from "axios";
 import { Alert, Button, InputNumber, Modal, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { listAreas } from "../../../api/areas";
 import { createPfTasks, listPfDemand, setPfReservation, suggestLaminationArea, type PfDemandRow } from "../../../api/pfDemand";
 import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 const fmt = (n: number) => Math.round(n * 100) / 100;
 

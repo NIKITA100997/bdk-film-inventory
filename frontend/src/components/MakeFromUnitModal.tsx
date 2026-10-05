@@ -1,13 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { isAxiosError } from "axios";
 import { Alert, Form, InputNumber, Modal, Select, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMakeTargets, makeFromPartUnit, type PartUnit } from "../api/partUnits";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../utils/apiError";
 
 /** «Выпуск детали из заготовки» — общая заготовка до фрезеровки становится
  * деталью с пазом: выбрать деталь и сколько штук; заготовка списывается в

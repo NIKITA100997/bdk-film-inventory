@@ -6,7 +6,6 @@ import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { isAxiosError } from "axios";
 import {
   listMaterialSkus,
   listAllMaterialSkus,
@@ -47,6 +46,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import type { Dayjs } from "dayjs";
+import { apiErrorMessage } from "../../utils/apiError";
 
 export interface MaterialCardPrefill {
   material?: string;
@@ -57,11 +57,6 @@ export interface MaterialCardPrefill {
   // участвует в выборе группы.
   thickness?: number;
   manufacturer?: string;
-}
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
 }
 
 function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku; allSkus: MaterialSku[]; onClose: () => void; canEdit: boolean }) {

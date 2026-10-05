@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Card, Tabs, Button, Input, Space, Tag, Typography, Empty, message } from "antd";
-import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import ResponsiveTable from "../../components/ResponsiveTable";
@@ -13,11 +12,7 @@ import {
   type WarehouseTransfer,
   type WarehouseTransferLine,
 } from "../../api/warehouseTransfers";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../utils/apiError";
 
 function TransferGroup({
   transfer,

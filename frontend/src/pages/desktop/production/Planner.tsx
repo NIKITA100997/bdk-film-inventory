@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
 import {
   Button,
@@ -31,11 +30,7 @@ import {
   type PlanSlot,
 } from "../../../api/planning";
 import { useMoveGuard } from "./MoveGuard";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
 const WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];

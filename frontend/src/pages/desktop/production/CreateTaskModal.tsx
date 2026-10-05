@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import type { FormInstance } from "antd";
 import { DatePicker, Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, Tag, message, Alert } from "antd";
-import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProductModels,
@@ -19,11 +18,7 @@ import { listMaterialSkus } from "../../../api/dictionaries";
 import { skuLabel, type AreaValue, type MaterialSku } from "../../../api/units";
 import { listAreas } from "../../../api/areas";
 import PartSelect from "../../../components/PartSelect";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 type ManualRowFormValues = ProductionTaskLineManualCreate & { sku_id?: number };
 // Раздел про импорт плана заготовок — sku_candidates существует только

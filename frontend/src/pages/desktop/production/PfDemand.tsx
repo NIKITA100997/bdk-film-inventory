@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
 import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
 import dayjs, { type Dayjs } from "dayjs";
-import { isAxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
 import { DatePicker, Button, Card, Checkbox, Form, InputNumber, Modal, Select, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,11 +12,7 @@ import { listAreas } from "../../../api/areas";
 import { listParts, updatePart } from "../../../api/dictionaries";
 import { createPfTasks, listPfDemand, suggestLaminationArea, type PfDemandRow } from "../../../api/pfDemand";
 import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
+import { apiErrorMessage } from "../../../utils/apiError";
 
 const fmt = (n: number) => Math.round(n * 100) / 100;
 

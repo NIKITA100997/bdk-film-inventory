@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { Table, Tag, Space, Button, Modal, Form, InputNumber, Input, Select, Checkbox, Typography, message, Empty, List } from "antd";
-import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getReconciliation,
@@ -20,6 +19,7 @@ import OccurredAtField from "../../../components/OccurredAtField";
 import { LinkTaskLineForm, LegacyNoteModal } from "../../../components/TaskLineLinkControls";
 import { toOccurredAtIso } from "../../../utils/occurredAt";
 import ReportModal from "./ReportModal";
+import { apiErrorMessage } from "../../../utils/apiError";
 
 // Раздел про сверку рулонов на окутке — пилот "Ежедневки" вскрыл разрыв
 // между тремя вкладками (Выдача участку, карточка единицы, отчёт по
@@ -29,11 +29,6 @@ import ReportModal from "./ReportModal";
 // Участок сверки — первый с настройкой «рулон обязателен в отчёте»
 // (единая модель, п.5); пока такой один — окутка царговых.
 const DEFAULT_ROLL_AREA = "okutka_tsargovykh";
-
-function apiErrorMessage(e: unknown, fallback: string): string {
-  if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
-  return fallback;
-}
 
 type Bucket = "all" | "no_task" | "no_report" | "legacy";
 
