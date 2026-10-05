@@ -487,10 +487,12 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                       {available != null && (
                         <Space size={4}>
                           <Tag
-                            color={available < r.goodPieces + totalDefect(r) ? "orange" : "default"}
+                            color={available <= 0 ? "red" : available < r.goodPieces + totalDefect(r) ? "orange" : "default"}
                             style={{ margin: 0, fontSize: 11 }}
                           >
-                            доступно партий п/ф: {Math.round(available * 100) / 100} шт
+                            {available > 0
+                              ? `доступно партий п/ф: ${Math.round(available * 100) / 100} шт`
+                              : "нет партий п/ф на участке — отчёт их не спишет"}
                           </Tag>
                           <a
                             style={{ fontSize: 11 }}

@@ -317,9 +317,16 @@ export default function ReportModal({
         </Form.Item>
         {availableForLine != null && (
           <Space size={4} style={{ marginTop: -8, marginBottom: 16 }}>
-            <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
-              доступно партий п/ф: {Math.round(availableForLine * 100) / 100} шт
-            </Tag>
+            {availableForLine > 0 ? (
+              <Tag color="default" style={{ margin: 0, fontSize: 11 }}>
+                доступно партий п/ф: {Math.round(availableForLine * 100) / 100} шт
+              </Tag>
+            ) : (
+              // отчёт без партии сохраняется, но п/ф не списывается — молча (05.10)
+              <Tag color="red" style={{ margin: 0, fontSize: 11 }}>
+                на участке нет партий п/ф — отчёт их не спишет, сначала зарегистрируйте партию
+              </Tag>
+            )}
             <a style={{ fontSize: 11 }} onClick={() => partForLine && navigate("/part-card", { state: { partId: partForLine.id } })}>
               Остатки п/ф →
             </a>
