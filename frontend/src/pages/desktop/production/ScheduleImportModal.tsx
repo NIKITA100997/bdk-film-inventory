@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Alert, Button, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
@@ -23,7 +23,7 @@ const COLOR_STATUS: Record<ScheduleImportColor["status"], { color: string; text:
  * Серия, Размер, Цвет, Наименование, Кол-во дверей) → черновик заказа.
  * Строка — позиция по типу (находится или создаётся с техкартой по
  * правилам типа) и строка заказа. Сначала «Разобрать» — предпросмотр. */
-export default function ScheduleImportModal({ onClose, onCreated }: { onClose: () => void; onCreated: (o: ProductionOrder, release: boolean) => void }) {
+export default function ScheduleImportModal({ onClose, onCreated }: { onClose: () => void; onCreated: (o: ProductionOrder) => void }) {
   const qc = useQueryClient();
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
   // Типы с шаблоном импорта (колонки графика и признаки — настройка типа).
@@ -37,8 +37,6 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
   // Сопоставление цвет графика → плёнка: выбор сохраняется в привязку цвета
   // типа и дальше подставляется сам (в заданиях на ламинацию — эта плёнка).
   const [colorFilms, setColorFilms] = useState<Record<string, number>>({});
-  // после создания черновика — сразу окно запуска (п/ф, площадки, раскладка)
-  const thenRelease = useRef(true);
   const skusQuery = useQuery({ queryKey: ["material-skus", "active"], queryFn: () => listMaterialSkus(false), enabled: !!preview });
   const skuOptions = (skusQuery.data ?? [])
     .filter((s) => s.is_active && s.thickness.value_mm > 0)
@@ -63,7 +61,7 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
         qc.invalidateQueries({ queryKey: ["production-orders"] });
         qc.invalidateQueries({ queryKey: ["items"] });
         message.success(`Черновик заказа №${res.order.id} создан: ${res.order.lines.length} строк`);
-        onCreated(res.order, thenRelease.current);
+        onCreated(res.order);
       }
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось разобрать график")),
@@ -85,26 +83,13 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
             Разобрать
           </Button>
           <Button
-            disabled={!preview || bad > 0 || preview.rows.length === 0}
-            loading={run.isPending && run.variables === false && !thenRelease.current}
-            onClick={() => {
-              thenRelease.current = false;
-              run.mutate(false);
-            }}
-          >
-            Только черновик
-          </Button>
-          <Button
             type="primary"
             disabled={!preview || bad > 0 || preview.rows.length === 0}
-            loading={run.isPending && run.variables === false && thenRelease.current}
-            title="Создать черновик и сразу открыть запуск: п/ф, площадки ламинации, раскладка по участкам с правкой строк и сроков"
-            onClick={() => {
-              thenRelease.current = true;
-              run.mutate(false);
-            }}
+            loading={run.isPending && run.variables === false}
+            title="Создать черновик и открыть его страницу: там — настройка запуска (п/ф, площадки, сроки, раскладка по участкам)"
+            onClick={() => run.mutate(false)}
           >
-            Создать черновик и настроить запуск
+            Создать черновик и перейти к запуску
           </Button>
         </Space>
       }

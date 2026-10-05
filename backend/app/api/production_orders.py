@@ -3,7 +3,7 @@
 позиций на задания участкам, прогресс — по отчётам этих заданий."""
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -504,6 +504,39 @@ def invoices_readiness(
 @router.get("/production-orders/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: Session = Depends(get_db), user: User = Depends(view_orders)) -> OrderOut:
     return _order_out(db, _get_order(db, order_id))
+
+
+class ReleaseSettingsIO(BaseModel):
+    # формат — у экрана запуска: {pf: {...}, overrides: {...}, plan: {...}}
+    settings: dict | None = None
+    updated_at: datetime | None = None
+
+
+@router.get("/production-orders/{order_id}/release-settings", response_model=ReleaseSettingsIO)
+def get_release_settings(order_id: int, db: Session = Depends(get_db), user: User = Depends(view_orders)) -> ReleaseSettingsIO:
+    """Сохранённая настройка запуска черновика — вернуться к ней позже."""
+    order = _get_order(db, order_id)
+    raw = order.release_settings or {}
+    return ReleaseSettingsIO(settings=raw.get("settings"), updated_at=raw.get("updated_at"))
+
+
+@router.put("/production-orders/{order_id}/release-settings", response_model=ReleaseSettingsIO)
+def save_release_settings(
+    order_id: int, payload: ReleaseSettingsIO, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+) -> ReleaseSettingsIO:
+    """Сохранить настройку запуска черновика (п/ф, площадки, правки строк,
+    сроки) — по ходу настройки, без запуска."""
+    import json
+
+    order = _get_order(db, order_id)
+    if order.status != ORDER_DRAFT:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Заказ уже запущен — настройка запуска не меняется")
+    if payload.settings is not None and len(json.dumps(payload.settings, ensure_ascii=False)) > 500_000:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Слишком большая настройка запуска")
+    now = datetime.now(timezone.utc)
+    order.release_settings = {"settings": payload.settings, "updated_at": now.isoformat(), "user_id": user.id}
+    db.commit()
+    return ReleaseSettingsIO(settings=payload.settings, updated_at=now)
 
 
 def _category(db: Session, category_id: int | None) -> int | None:

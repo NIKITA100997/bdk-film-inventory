@@ -6,7 +6,6 @@ import {
   Card,
   Checkbox,
   DatePicker,
-  Drawer,
   Dropdown,
   Empty,
   Form,
@@ -30,7 +29,7 @@ import ScheduleImportModal from "./ScheduleImportModal";
 import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
-import ReleaseOrderModal from "./ReleaseOrderModal";
+import ReleaseWorkspace from "./ReleaseWorkspace";
 import PrintTasksModal from "./PrintTasksModal";
 import { ItemChars } from "../../../components/ItemChars";
 import FastReportPanel from "./fastReport/FastReportPanel";
@@ -123,9 +122,14 @@ function OrdersList() {
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
   const [includeClosed, setIncludeClosed] = useState(false);
-  // ?order=ID (сквозной поиск по номеру) — сразу открыть карточку заказа.
+  // ?order=ID (сквозной поиск по номеру) — сразу открыть страницу заказа.
   const [params] = useSearchParams();
-  const [openId, setOpenId] = useState<number | null>(Number(params.get("order")) || null);
+  const navigate = useNavigate();
+  const openOrder = (id: number) => navigate(`/production-orders/${id}`);
+  useEffect(() => {
+    const id = Number(params.get("order"));
+    if (id) navigate(`/production-orders/${id}`, { replace: true });
+  }, [params, navigate]);
   const [editing, setEditing] = useState<ProductionOrder | "new" | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [taskCreate, setTaskCreate] = useState<TaskCreate | null>(null);
@@ -135,10 +139,7 @@ function OrdersList() {
     queryKey: ["production-orders", includeClosed || includeClosedDefault],
     queryFn: () => listProductionOrders(includeClosed || includeClosedDefault),
   });
-  const opened = (ordersQuery.data ?? []).find((o) => o.id === openId) ?? null;
   const [listFilter, setListFilter] = useState<ListFilter>("all");
-  // заказ, у которого сразу открыть окно запуска (черновик из графика)
-  const [autoRelease, setAutoRelease] = useState<number | null>(null);
   const [areaFilter, setAreaFilter] = useState<string | null>(null);
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const [q, setQ] = useState("");
@@ -226,7 +227,7 @@ function OrdersList() {
         pagination={{ pageSize: 30 }}
         scroll={{ x: "max-content" }}
         locale={{ emptyText: "Заказов пока нет" }}
-        onRow={(o) => ({ onClick: () => setOpenId(o.id), style: { cursor: "pointer" } })}
+        onRow={(o) => ({ onClick: () => openOrder(o.id), style: { cursor: "pointer" } })}
         columns={[
           {
             title: "Заказ",
@@ -273,22 +274,12 @@ function OrdersList() {
           { title: "Создал", render: (_, o) => `${o.created_by_name}, ${dayjs(o.created_at).format("DD.MM.YYYY")}` },
         ]}
       />
-      <OrderDrawer
-        order={opened}
-        onClose={() => setOpenId(null)}
-        onEdit={(o) => setEditing(o)}
-        canManage={canManage}
-        onAddTask={(kind, orderId) => setTaskCreate({ kind, orderId })}
-        onSupply={(t) => setSupplyTarget({ id: t.id, name: t.name })}
-        autoRelease={opened != null && autoRelease === opened.id}
-        onAutoReleaseDone={() => setAutoRelease(null)}
-      />
       <CreateTaskModal
         open={taskCreate?.kind === "film"}
         orderId={taskCreate?.orderId}
         onClose={() => setTaskCreate(null)}
         onCreated={(t, needsPf) => {
-          if (t.production_order_id) setOpenId(t.production_order_id);
+          if (t.production_order_id) openOrder(t.production_order_id);
           if (needsPf) setSupplyTarget({ id: t.id, name: t.name ?? "" });
         }}
       />
@@ -304,10 +295,9 @@ function OrdersList() {
       {importOpen && (
         <ScheduleImportModal
           onClose={() => setImportOpen(false)}
-          onCreated={(o, release) => {
+          onCreated={(o) => {
             setImportOpen(false);
-            setOpenId(o.id);
-            setAutoRelease(release ? o.id : null);
+            openOrder(o.id);
           }}
         />
       )}
@@ -317,7 +307,7 @@ function OrdersList() {
           onClose={() => setEditing(null)}
           onSaved={(o) => {
             setEditing(null);
-            setOpenId(o.id);
+            openOrder(o.id);
           }}
         />
       )}
@@ -325,15 +315,17 @@ function OrdersList() {
   );
 }
 
-function OrderDrawer({
+/** Заказ на производство — страница (05.10, вместо боковой панели).
+ * Черновик — рабочее место запуска (ReleaseWorkspace): всё, что решается
+ * перед запуском, в одном месте и сохраняется в черновике. Запущенный —
+ * ход, отчёт, материалы, план, история. */
+export function OrderView({
   order,
   onClose,
   onEdit,
   canManage,
   onAddTask,
   onSupply,
-  autoRelease = false,
-  onAutoReleaseDone,
 }: {
   order: ProductionOrder | null;
   onClose: () => void;
@@ -341,23 +333,15 @@ function OrderDrawer({
   canManage: boolean;
   onAddTask: (kind: "film" | "ops", orderId: number) => void;
   onSupply: (t: OrderTask) => void;
-  autoRelease?: boolean;
-  onAutoReleaseDone?: () => void;
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["production-orders"] });
+    qc.invalidateQueries({ queryKey: ["production-order"] });
     qc.invalidateQueries({ queryKey: ["production-tasks"] });
     qc.invalidateQueries({ queryKey: ["pf-demand"] });
   };
-  const [releasing, setReleasing] = useState(false);
-  useEffect(() => {
-    if (autoRelease && order?.status === "draft") {
-      setReleasing(true);
-      onAutoReleaseDone?.();
-    }
-  }, [autoRelease, order?.status, onAutoReleaseDone]);
   const [printing, setPrinting] = useState(false);
   const [cardTask, setCardTask] = useState<number | null>(null);
   const [orderTab, setOrderTab] = useState("flow");
@@ -403,10 +387,7 @@ function OrderDrawer({
   });
 
   return (
-    <Drawer
-      open={!!order}
-      onClose={onClose}
-      width={880}
+    <Card
       title={
         order && (
           <Space>
@@ -423,14 +404,10 @@ function OrderDrawer({
           <Space>
             {order.status === "draft" && (
               <>
-                <Button onClick={() => onEdit(order)}>Изменить</Button>
+                <Button onClick={() => onEdit(order)}>Изменить строки</Button>
                 <Popconfirm title="Удалить черновик?" okText="Удалить" cancelText="Отмена" onConfirm={() => deleteMutation.mutate(order.id)}>
-                  <Button danger>Удалить</Button>
+                  <Button danger>Удалить черновик</Button>
                 </Popconfirm>
-                <Button type="primary" onClick={() => setReleasing(true)}>
-                  Запустить…
-                </Button>
-                
               </>
             )}
             {order.status !== "draft" && (order.tasks ?? []).length > 0 && (
@@ -491,7 +468,9 @@ function OrderDrawer({
         )
       }
     >
-      {order && (
+      {order && order.status === "draft" ? (
+        <ReleaseWorkspace order={order} canManage={canManage} onEditLines={() => onEdit(order)} />
+      ) : order && (
         <Tabs
           activeKey={orderTab}
           onChange={setOrderTab}
@@ -646,7 +625,6 @@ function OrderDrawer({
           ]}
         />
       )}
-      {releasing && order && <ReleaseOrderModal order={order} onClose={() => setReleasing(false)} />}
       {printing && order && (
         <PrintTasksModal
           tasks={(order.tasks ?? []).filter((t) => t.is_active)}
@@ -655,7 +633,7 @@ function OrderDrawer({
         />
       )}
       <TaskCardDrawer taskId={cardTask} onClose={() => setCardTask(null)} canManage={canManage} canReport={canManage} />
-    </Drawer>
+    </Card>
   );
 }
 
@@ -695,7 +673,7 @@ function PlanTag({ order }: { order: ProductionOrder }) {
 
 type LineDraft = { item_id: number | null; quantity: number | null; note: string; invoice_no: string };
 
-function OrderModal({
+export function OrderModal({
   order,
   onClose,
   onSaved,

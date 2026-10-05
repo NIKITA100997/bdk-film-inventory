@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -46,6 +46,10 @@ class ProductionOrder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("order_categories.id"), nullable=True)
+    # Настройки запуска черновика (05.10): п/ф (со склада / в работу),
+    # площадки ламинации, ручные правки строк, сроки — сохраняются по ходу
+    # настройки, чтобы вернуться к запуску позже. Формат — у экрана запуска.
+    release_settings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     lines: Mapped[list["ProductionOrderLine"]] = relationship(
         back_populates="order", order_by="ProductionOrderLine.sort_order", cascade="all, delete-orphan"

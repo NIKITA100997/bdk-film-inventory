@@ -230,6 +230,20 @@ const planBody = (plan?: ReleasePlan) =>
       }
     : {};
 
+export const getProductionOrder = async (id: number): Promise<ProductionOrder> =>
+  (await apiClient.get<ProductionOrder>(`/production-orders/${id}`)).data;
+
+/** Настройка запуска черновика — сохраняется по ходу, чтобы вернуться позже. */
+export interface ReleaseSettings {
+  pf: Record<string, { picked: boolean; qty: number | null; stock: number | null; lam?: string | null }>;
+  overrides: Record<string, LineOverride>;
+  plan: ReleasePlan;
+}
+export const getReleaseSettings = async (id: number): Promise<{ settings: ReleaseSettings | null; updated_at: string | null }> =>
+  (await apiClient.get<{ settings: ReleaseSettings | null; updated_at: string | null }>(`/production-orders/${id}/release-settings`)).data;
+export const saveReleaseSettings = async (id: number, settings: ReleaseSettings): Promise<{ updated_at: string | null }> =>
+  (await apiClient.put<{ updated_at: string | null }>(`/production-orders/${id}/release-settings`, { settings })).data;
+
 export const getReleaseLayout = async (id: number, pf: PfPick[] = [], overrides: LineOverride[] = [], plan?: ReleasePlan): Promise<ReleaseLayout> =>
   (await apiClient.post<ReleaseLayout>(`/production-orders/${id}/release-layout`, { pf, overrides, ...planBody(plan) })).data;
 

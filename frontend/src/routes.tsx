@@ -11,6 +11,7 @@ import PartUnitCard from "./pages/mobile/PartUnitCard";
 
 import Stock, { StockRedirect } from "./pages/desktop/Stock";
 import Reports from "./pages/desktop/Reports";
+import OrderPage from "./pages/desktop/production/OrderPage";
 import { PricesPage } from "./pages/desktop/PricesTab";
 import ActionLog from "./pages/desktop/ActionLog";
 import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
@@ -160,6 +161,10 @@ const appPageRoutes = (
           <Nomenclature />
         </RequirePermission>
       }
+    />
+    <Route
+      path="/production-orders/:id"
+      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "sales_calculator.view"]}><OrderPage /></RequirePermission>}
     />
     <Route
       path="/production-orders"
