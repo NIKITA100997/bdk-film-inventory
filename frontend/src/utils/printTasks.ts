@@ -1,4 +1,5 @@
 import type { TaskPrintSheet } from "../api/productionOrders";
+import { fmtDateTime } from "./dates";
 
 const esc = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const dm = (s: string | null) => (s ? `${s.slice(8, 10)}.${s.slice(5, 7)}` : "");
@@ -23,7 +24,7 @@ function what(r: TaskPrintSheet["rows"][number]): string {
 /** Пакетная печать заданий: лист на участок (новая страница), строки всех
  * выбранных заданий участка, графы «Сделано / Брак / Подпись» — от руки. */
 export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задания участкам") {
-  const now = new Date().toLocaleString("ru-RU");
+  const now = fmtDateTime(new Date());
   const pages = sheets
     .map((s) => {
       const hasFilm = s.rows.some((r) => r.film);

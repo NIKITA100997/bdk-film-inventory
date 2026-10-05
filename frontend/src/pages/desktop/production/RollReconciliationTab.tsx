@@ -20,6 +20,7 @@ import { LinkTaskLineForm, LegacyNoteModal } from "../../../components/TaskLineL
 import { toOccurredAtIso } from "../../../utils/occurredAt";
 import ReportModal from "./ReportModal";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { fmtDateTime } from "../../../utils/dates";
 
 // Раздел про сверку рулонов на окутке — пилот "Ежедневки" вскрыл разрыв
 // между тремя вкладками (Выдача участку, карточка единицы, отчёт по
@@ -486,7 +487,7 @@ function UnitHistoryPanel({ unitId, reasons }: { unitId: number; reasons: { code
           <Space direction="vertical" size={0}>
             <span>
               <Tag color={ev.event_type === "Списание" ? "red" : undefined}>{ev.event_type.replace(/_/g, " ")}</Tag>
-              {new Date(ev.timestamp).toLocaleString("ru-RU")} — <Typography.Text strong>{eventLengthChange(ev)}</Typography.Text>
+              {fmtDateTime(ev.timestamp)} — <Typography.Text strong>{eventLengthChange(ev)}</Typography.Text>
             </span>
             {(ev.from_cell || ev.to_cell) && (
               <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>

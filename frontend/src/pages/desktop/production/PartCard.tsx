@@ -24,6 +24,7 @@ import { useAuth } from "../../../auth/AuthContext";
 import OccurredAtField from "../../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../../utils/occurredAt";
 import type { Dayjs } from "dayjs";
+import { fmtDate, fmtDateTime } from "../../../utils/dates";
 
 const STATUS_LABEL: Record<string, string> = {
   На_хранении: "На хранении",
@@ -361,7 +362,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
             { title: "Статус", render: (_, u) => <Tag color={STATUS_TAG_COLOR[u.status]}>{STATUS_LABEL[u.status]}</Tag> },
             { title: "Участок", render: (_, u) => areaLabel(u.area) },
             { title: "Место", render: (_, u) => u.location_code ?? "—" },
-            { title: "Изготовлено", dataIndex: "manufactured_at", render: (v: string) => new Date(v).toLocaleDateString("ru-RU") },
+            { title: "Изготовлено", dataIndex: "manufactured_at", render: (v: string) => fmtDate(v) },
             {
               title: "",
               width: 210,
@@ -425,7 +426,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
                     </Typography.Text>
                   )}
                   <div style={{ fontSize: 11.5, color: "#8A8C99" }}>
-                    {new Date(ev.occurred_at).toLocaleString("ru-RU")} — {userName(ev.user_id)}
+                    {fmtDateTime(ev.occurred_at)} — {userName(ev.user_id)}
                   </div>
                 </div>
               </div>
@@ -471,7 +472,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
                     />
                     <div style={{ flex: 1 }}>
                       <div>
-                        №{u.id} · {new Date(u.manufactured_at).toLocaleDateString("ru-RU")}
+                        №{u.id} · {fmtDate(u.manufactured_at)}
                         {u.location_code && <> · {u.location_code}</>}
                       </div>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>

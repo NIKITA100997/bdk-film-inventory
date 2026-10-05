@@ -13,6 +13,7 @@ import {
   type WarehouseTransferLine,
 } from "../../api/warehouseTransfers";
 import { apiErrorMessage } from "../../utils/apiError";
+import { fmtDate } from "../../utils/dates";
 
 function TransferGroup({
   transfer,
@@ -26,7 +27,7 @@ function TransferGroup({
       size="small"
       title={`${transfer.from_warehouse_name} → ${transfer.to_warehouse_name} (${transfer.lines.length} шт.)`}
       style={{ marginBottom: 16 }}
-      extra={<Typography.Text type="secondary">Создано {new Date(transfer.created_at).toLocaleDateString("ru-RU")}</Typography.Text>}
+      extra={<Typography.Text type="secondary">Создано {fmtDate(transfer.created_at)}</Typography.Text>}
     >
       {children}
     </Card>
@@ -212,8 +213,8 @@ function HistoryTab() {
         { title: "Откуда", dataIndex: "from_warehouse_name" },
         { title: "Куда", dataIndex: "to_warehouse_name" },
         { title: "Единиц", render: (_, t) => t.lines.length },
-        { title: "Отправлено", render: (_, t) => (t.shipped_at ? new Date(t.shipped_at).toLocaleDateString("ru-RU") : "—") },
-        { title: "Принято", render: (_, t) => (t.received_at ? new Date(t.received_at).toLocaleDateString("ru-RU") : "—") },
+        { title: "Отправлено", render: (_, t) => (t.shipped_at ? fmtDate(t.shipped_at) : "—") },
+        { title: "Принято", render: (_, t) => (t.received_at ? fmtDate(t.received_at) : "—") },
       ]}
     />
     </Space>

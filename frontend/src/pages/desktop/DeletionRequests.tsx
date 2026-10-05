@@ -9,6 +9,7 @@ import {
   type DeletionRequest,
 } from "../../api/deletionRequests";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import { fmtDateTime } from "../../utils/dates";
 
 const STATUS_TAG: Record<DeletionRequest["status"], { color: string; label: string }> = {
   pending: { color: "orange", label: "Ожидает" },
@@ -138,7 +139,7 @@ export default function DeletionRequests() {
               { title: "Что", dataIndex: "entity_label" },
               { title: "Причина", dataIndex: "reason", render: (v: string | null) => v ?? "—" },
               { title: "Кто запросил", dataIndex: "requested_by_name" },
-              { title: "Когда", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
+              { title: "Когда", dataIndex: "created_at", render: (v: string) => fmtDateTime(v) },
               {
                 title: "Статус",
                 dataIndex: "status",

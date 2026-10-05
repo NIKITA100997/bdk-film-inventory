@@ -47,6 +47,7 @@ import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import type { Dayjs } from "dayjs";
 import { apiErrorMessage } from "../../utils/apiError";
+import { fmtDateTime } from "../../utils/dates";
 
 export interface MaterialCardPrefill {
   material?: string;
@@ -818,7 +819,7 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
               dataSource={cardQuery.data.events}
               scroll={{ x: "max-content" }}
               columns={[
-                { title: "Когда", dataIndex: "timestamp", render: (v) => new Date(v).toLocaleString("ru-RU") },
+                { title: "Когда", dataIndex: "timestamp", render: (v) => fmtDateTime(v) },
                 { title: "Событие", dataIndex: "event_type" },
                 { title: "Ед.", dataIndex: "unit_id" },
                 { title: "Δ метры", dataIndex: "quantity_delta_m" },

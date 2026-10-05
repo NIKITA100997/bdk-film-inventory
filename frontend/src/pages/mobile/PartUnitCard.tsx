@@ -24,6 +24,7 @@ import QrScanButton from "../../components/QrScanButton";
 import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useAuth } from "../../auth/AuthContext";
+import { fmtDateTime } from "../../utils/dates";
 
 type ActionKind = "place" | "advance" | null;
 
@@ -330,7 +331,7 @@ export default function PartUnitCard() {
                 <Space direction="vertical" size={0}>
                   <span>
                     <Tag>{ev.event_type.replace(/_/g, " ")}</Tag>
-                    {new Date(ev.occurred_at).toLocaleString("ru-RU")} — {userName(ev.user_id)}
+                    {fmtDateTime(ev.occurred_at)} — {userName(ev.user_id)}
                   </span>
                   {(ev.from_stage_id != null || ev.to_stage_id != null) && (
                     <Typography.Text type="secondary">

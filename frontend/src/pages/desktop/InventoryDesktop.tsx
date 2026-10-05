@@ -42,6 +42,7 @@ import { skuLabel, type MaterialSku } from "../../api/units";
 import { listUsers } from "../../api/users";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import QrScanButton from "../../components/QrScanButton";
+import { fmtDateTime } from "../../utils/dates";
 
 const scopeOptions = [
   { value: "rack", label: "Стеллаж" },
@@ -225,11 +226,11 @@ export default function InventoryDesktop() {
             { title: "Ожидалось", dataIndex: "expected_count" },
             { title: "Отсканировано", dataIndex: "scanned_count" },
             { title: "Участники", render: (_, s) => participantNames(s.participant_ids) || "—" },
-            { title: "Начата", dataIndex: "started_at", render: (v: string) => new Date(v).toLocaleString("ru-RU") },
+            { title: "Начата", dataIndex: "started_at", render: (v: string) => fmtDateTime(v) },
             {
               title: "Закрыта",
               dataIndex: "closed_at",
-              render: (v: string | null) => (v ? new Date(v).toLocaleString("ru-RU") : "—"),
+              render: (v: string | null) => (v ? fmtDateTime(v) : "—"),
             },
             {
               title: "",

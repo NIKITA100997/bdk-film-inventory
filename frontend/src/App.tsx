@@ -3,10 +3,15 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { ConfigProvider } from "antd";
 import ruRU from "antd/locale/ru_RU";
+import dayjs from "dayjs";
+import "dayjs/locale/ru";
 import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import AppRoutes from "./routes";
 import { theme } from "./theme";
+
+// Даты и дни недели по-русски во всём приложении (DatePicker, «пн», «понедельник»).
+dayjs.locale("ru");
 
 const queryClient = new QueryClient();
 

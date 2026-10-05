@@ -14,6 +14,7 @@ import { listAreas } from "../../api/areas";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import CuttingForm from "../../components/CuttingForm";
 import { apiErrorMessage } from "../../utils/apiError";
+import { fmtDateTime } from "../../utils/dates";
 
 function destinationLabel(kind: string, area: string | null, areaLabel: (code: string) => string): string {
   if (kind === "issue") return `выдан участку «${area ? areaLabel(area) : "?"}»`;
@@ -148,7 +149,7 @@ export default function CuttingHistory() {
           {
             title: "Когда",
             key: "created_at",
-            render: (_, r) => new Date(r.created_at).toLocaleString("ru-RU"),
+            render: (_, r) => fmtDateTime(r.created_at),
             sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
             defaultSortOrder: "descend",
           },
@@ -187,7 +188,7 @@ export default function CuttingHistory() {
             key: "status",
             render: (_, r) =>
               r.undone_at ? (
-                <Tooltip title={`${r.undone_by_name ?? ""}, ${new Date(r.undone_at).toLocaleString("ru-RU")}`}>
+                <Tooltip title={`${r.undone_by_name ?? ""}, ${fmtDateTime(r.undone_at)}`}>
                   <Tag>отменена</Tag>
                 </Tooltip>
               ) : (

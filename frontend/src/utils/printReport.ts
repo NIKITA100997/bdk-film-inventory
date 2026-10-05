@@ -1,3 +1,4 @@
+import { fmtDateTime } from "./dates";
 /** Печатная форма отчёта (5 раздел обратной связи) — HTML-страница через
  * браузер, без PDF-библиотек (в отличие от этикеток — там прямая печать
  * HTML на термопринтере оказалась ненадёжной, см. api/labels.ts/units.ts
@@ -31,7 +32,7 @@ export function printReport(title: string, columns: { key: string; header: strin
 </head>
 <body>
   <h1>${escapeHtml(title)}</h1>
-  <div class="meta">${escapeHtml(new Date().toLocaleString("ru-RU"))} · строк: ${rows.length}</div>
+  <div class="meta">${escapeHtml(fmtDateTime(new Date()))} · строк: ${rows.length}</div>
   <table>
     <thead><tr>${headerRow}</tr></thead>
     <tbody>${bodyRows}</tbody>

@@ -26,6 +26,7 @@ import DictAutoComplete from "../../components/DictAutoComplete";
 import PanelFilmTable from "../../components/PanelFilmTable";
 import { useAuth } from "../../auth/AuthContext";
 import { apiErrorMessage } from "../../utils/apiError";
+import { fmtDate } from "../../utils/dates";
 
 interface EditingPriceTarget {
   requestIds: number[];
@@ -217,7 +218,7 @@ export default function Purchasing() {
                             price_per_m2: r.price_per_m2 ?? "",
                             note: r.note ?? "",
                             status: r.status === "open" ? "Открыта" : "Закрыта",
-                            created_at: new Date(r.created_at).toLocaleDateString("ru-RU"),
+                            created_at: fmtDate(r.created_at),
                           })),
                           [
                             { key: "material", header: "Материал" },
@@ -319,7 +320,7 @@ export default function Purchasing() {
                     {
                       title: "Создана",
                       dataIndex: "created_at",
-                      render: (v: string) => new Date(v).toLocaleDateString("ru-RU"),
+                      render: (v: string) => fmtDate(v),
                     },
                     {
                       title: "",
@@ -407,7 +408,7 @@ export default function Purchasing() {
                               order_id: order.id,
                               status: order.is_open ? "Открыт" : "Закрыт",
                               supplier: order.supplier,
-                              created_at: new Date(order.created_at).toLocaleDateString("ru-RU"),
+                              created_at: fmtDate(order.created_at),
                               material: `${line.material}, ${line.color}, ${line.thickness} мм`,
                               requested_area_m2: line.requested_area_m2,
                               current_stock_m2: line.current_stock_m2,
@@ -449,7 +450,7 @@ export default function Purchasing() {
                             <Typography.Text strong>{order.supplier}</Typography.Text>
                             <Typography.Text type="secondary">
                               {order.lines.length} {order.lines.length === 1 ? "позиция" : "позиций"} · {totalArea.toFixed(1)} м² ·{" "}
-                              {new Date(order.created_at).toLocaleDateString("ru-RU")}
+                              {fmtDate(order.created_at)}
                             </Typography.Text>
                           </Space>
                         ),
@@ -537,7 +538,7 @@ export default function Purchasing() {
                             avg_price_per_m2: s.avg_price_per_m2 ?? "",
                             avg_lead_time_days: s.avg_lead_time_days ?? "",
                             avg_delivery_variance_days: s.avg_delivery_variance_days ?? "",
-                            last_request_at: new Date(s.last_request_at).toLocaleDateString("ru-RU"),
+                            last_request_at: fmtDate(s.last_request_at),
                           })),
                           [
                             { key: "supplier_name", header: "Поставщик" },
@@ -595,7 +596,7 @@ export default function Purchasing() {
                       {
                         title: "Последняя заявка",
                         dataIndex: "last_request_at",
-                        render: (v: string) => new Date(v).toLocaleDateString("ru-RU"),
+                        render: (v: string) => fmtDate(v),
                       },
                       {
                         title: "",

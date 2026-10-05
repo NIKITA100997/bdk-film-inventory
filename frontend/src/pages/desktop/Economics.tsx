@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import "dayjs/locale/ru";
 import { Alert, Card, Col, DatePicker, Row, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { getDailyOutput, getFilmPlanFact, getOutput, type DailyRow, type FilmPlanFactRow, type OutputRow } from "../../api/economics";
@@ -159,7 +158,7 @@ function OutputTab({ rows, loading }: { rows: OutputRow[]; loading: boolean }) {
     const m = new Map<string, { key: string; label: string; good: number; defect: number; reports: number; days: Set<string>; capacity: number | null }>();
     for (const r of rows) {
       const key = by === "user" ? r.user : by === "area" ? r.area_name : r.date;
-      const a = m.get(key) ?? { key, label: by === "date" ? dayjs(key).locale("ru").format("DD.MM.YYYY, dd") : key, good: 0, defect: 0, reports: 0, days: new Set<string>(), capacity: by === "area" ? r.capacity : null };
+      const a = m.get(key) ?? { key, label: by === "date" ? dayjs(key).format("DD.MM.YYYY, dd") : key, good: 0, defect: 0, reports: 0, days: new Set<string>(), capacity: by === "area" ? r.capacity : null };
       a.good += r.good;
       a.defect += r.defect;
       a.reports += r.reports;
@@ -274,7 +273,7 @@ function DailyTab({ days, rows, loading }: { days: string[]; rows: DailyRow[]; l
             render: (_, r) => (isHead(r) ? null : fmtCell(r, r.total, r.total_extra)),
           },
           ...days.map((d) => ({
-            title: dayjs(d).locale("ru").format("DD.MM dd"),
+            title: dayjs(d).format("DD.MM dd"),
             align: "right" as const,
             onCell: (r: DailyRow | { key: string; header: string }) => {
               if (isHead(r)) return { colSpan: 0 };
@@ -297,7 +296,7 @@ function DailyTab({ days, rows, loading }: { days: string[]; rows: DailyRow[]; l
         ]}
       />
       {sel && (
-        <Card size="small" title={`${sel.row.label} — ${dayjs(sel.day).locale("ru").format("DD.MM.YYYY, dddd")}`}>
+        <Card size="small" title={`${sel.row.label} — ${dayjs(sel.day).format("DD.MM.YYYY, dddd")}`}>
           <Table
             size="small"
             rowKey="user"

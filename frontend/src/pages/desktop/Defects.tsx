@@ -28,6 +28,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { palette } from "../../theme";
 import { WriteOffReasonsTab } from "./DictionaryAdmin";
 import { UnitLink } from "../../components/EntityLink";
+import { fmtDate, fmtDateTime } from "../../utils/dates";
 
 function DeltaTag({ value, goodDirection }: { value: number | null; goodDirection: "down" | "up" }) {
   if (value === null) return <Tag>нет данных за пред. период</Tag>;
@@ -366,8 +367,8 @@ function WriteOffsTab() {
     {
       key: "timestamp",
       header: "Когда",
-      render: (r) => new Date(r.timestamp).toLocaleString("ru-RU"),
-      printValue: (r) => new Date(r.timestamp).toLocaleString("ru-RU"),
+      render: (r) => fmtDateTime(r.timestamp),
+      printValue: (r) => fmtDateTime(r.timestamp),
       sorter: (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       defaultSortOrder: "descend",
     },
@@ -428,8 +429,8 @@ function ProductionDefectsTab() {
     {
       key: "reported_at",
       header: "Дата",
-      render: (r) => new Date(r.reported_at).toLocaleDateString("ru-RU"),
-      printValue: (r) => new Date(r.reported_at).toLocaleDateString("ru-RU"),
+      render: (r) => fmtDate(r.reported_at),
+      printValue: (r) => fmtDate(r.reported_at),
       sorter: (a, b) => new Date(a.reported_at).getTime() - new Date(b.reported_at).getTime(),
       defaultSortOrder: "descend",
     },

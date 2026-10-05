@@ -59,6 +59,7 @@ import UnitBulkActionModal, { type BulkAction } from "./UnitBulkActions";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { apiErrorMessage } from "../../utils/apiError";
+import { fmtDateTime } from "../../utils/dates";
 
 const statusOptions: { value: UnitStatusValue; label: string }[] = [
   { value: "Принят", label: "Принят" },
@@ -437,7 +438,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
             )}
             {lastRecomputed && (
               <Typography.Text type="secondary">
-                Классы пересчитаны: {new Date(lastRecomputed).toLocaleString("ru-RU")}
+                Классы пересчитаны: {fmtDateTime(lastRecomputed)}
               </Typography.Text>
             )}
           </Space>

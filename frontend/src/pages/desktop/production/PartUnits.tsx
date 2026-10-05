@@ -26,6 +26,7 @@ import { placePartUnit } from "../../../api/partStorage";
 import { listPartFilmRestrictions, createPartFilmRestriction } from "../../../api/partFilmRestrictions";
 import { listUsers } from "../../../api/users";
 import { useAuth } from "../../../auth/AuthContext";
+import { fmtDate, fmtDateTime } from "../../../utils/dates";
 
 const NEW_FILM_RESTRICTION = "__new__";
 
@@ -609,7 +610,7 @@ export default function PartUnits() {
               title: "Изготовлено",
               dataIndex: "manufactured_at",
               width: 110,
-              render: (v: string) => new Date(v).toLocaleDateString("ru-RU"),
+              render: (v: string) => fmtDate(v),
             },
             { title: "Этап", dataIndex: "stage_name", width: 130, ellipsis: true },
             {
@@ -1129,7 +1130,7 @@ export default function PartUnits() {
                         </Typography.Text>
                       )}
                       <div style={{ fontSize: 11.5, color: "#8A8C99" }}>
-                        {new Date(ev.occurred_at).toLocaleString("ru-RU")} — {userName(ev.user_id)}
+                        {fmtDateTime(ev.occurred_at)} — {userName(ev.user_id)}
                       </div>
                     </div>
                   </div>

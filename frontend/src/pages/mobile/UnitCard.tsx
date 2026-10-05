@@ -57,6 +57,7 @@ import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { useAuth } from "../../auth/AuthContext";
 import { apiErrorMessage } from "../../utils/apiError";
+import { fmtDateTime } from "../../utils/dates";
 
 type ActionKind = "place" | "cut" | "return" | "writeoff" | "transfer" | "adjust" | null;
 
@@ -726,7 +727,7 @@ export default function UnitCard() {
                 <Space direction="vertical" size={0}>
                   <span>
                     <Tag>{ev.event_type.replace(/_/g, " ")}</Tag>
-                    {new Date(ev.timestamp).toLocaleString("ru-RU")} — {userName(ev.user_id)}
+                    {fmtDateTime(ev.timestamp)} — {userName(ev.user_id)}
                   </span>
                   {(ev.from_cell || ev.to_cell) && (
                     <Typography.Text type="secondary">

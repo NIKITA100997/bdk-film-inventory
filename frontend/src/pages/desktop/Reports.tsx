@@ -22,6 +22,7 @@ import DictAutoComplete from "../../components/DictAutoComplete";
 import { listAreas } from "../../api/areas";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { UnitLink, PartUnitLink } from "../../components/EntityLink";
+import { fmtDate, fmtDateTime } from "../../utils/dates";
 
 function StockSummaryTab() {
   const { warehouseId, picker: warehousePicker } = useWarehouseFilter();
@@ -210,7 +211,7 @@ function StaleUnitsTab() {
       sorter: (a, b) => a.days_idle - b.days_idle,
       defaultSortOrder: "descend",
     },
-    { key: "last_moved_at", header: "Последнее движение", render: (r) => new Date(r.last_moved_at).toLocaleDateString("ru-RU"), printValue: (r) => new Date(r.last_moved_at).toLocaleDateString("ru-RU") },
+    { key: "last_moved_at", header: "Последнее движение", render: (r) => fmtDate(r.last_moved_at), printValue: (r) => fmtDate(r.last_moved_at) },
   ];
 
   return (
@@ -245,8 +246,8 @@ function CuttingDiscrepancyTab() {
     {
       key: "timestamp",
       header: "Когда",
-      render: (r) => new Date(r.timestamp).toLocaleString("ru-RU"),
-      printValue: (r) => new Date(r.timestamp).toLocaleString("ru-RU"),
+      render: (r) => fmtDateTime(r.timestamp),
+      printValue: (r) => fmtDateTime(r.timestamp),
       sorter: (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       defaultSortOrder: "descend",
     },
@@ -404,7 +405,7 @@ function PlanFactTab() {
 
   const rows = query.data ?? [];
   const columns: ReportColumn<(typeof rows)[number]>[] = [
-    { key: "created_at", header: "Создано", render: (r) => new Date(r.created_at).toLocaleDateString("ru-RU"), printValue: (r) => new Date(r.created_at).toLocaleDateString("ru-RU") },
+    { key: "created_at", header: "Создано", render: (r) => fmtDate(r.created_at), printValue: (r) => fmtDate(r.created_at) },
     { key: "task_name", header: "Задание", render: (r) => r.task_name ?? `№${r.task_id}`, printValue: (r) => r.task_name ?? `№${r.task_id}` },
     { key: "area", header: "Участок", render: (r) => areaLabel(r.area), printValue: (r) => areaLabel(r.area) },
     { key: "part_name", header: "Деталь", render: (r) => r.part_name ?? "—", printValue: (r) => r.part_name ?? "" },
