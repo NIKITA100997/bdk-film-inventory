@@ -11,6 +11,7 @@ import {
 } from "../../../api/production";
 import { listPlanSlots, type PlanSlot } from "../../../api/planning";
 import { setOrderPlanDates, type ProductionOrder } from "../../../api/productionOrders";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -100,7 +101,8 @@ export function OrderMaterials({
             {loading ? "Загрузка…" : "Плёнка по заказу не нужна."}
           </Typography.Text>
         ) : (
-          <Table<FilmRow>
+          <ResponsiveTable<FilmRow>
+            exportTitle={`Заказ №${order.id} «${order.name}»: плёнка`}
             size="small"
             rowKey="key"
             pagination={false}
@@ -138,7 +140,8 @@ export function OrderMaterials({
             Заданий на п/ф в заказе нет.
           </Typography.Text>
         ) : (
-          <Table<ProductionTask>
+          <ResponsiveTable<ProductionTask>
+            exportTitle={`Заказ №${order.id} «${order.name}»: детали п/ф`}
             size="small"
             rowKey="id"
             pagination={false}
@@ -337,7 +340,8 @@ export function OrderPlan({ order }: { order: ProductionOrder }) {
           подсвечены.
         </Typography.Text>
       )}
-      <Table
+      <ResponsiveTable
+        exportTitle={`Заказ №${order.id} «${order.name}»: план`}
         size="small"
         loading={loading}
         rowKey={(s) => `${s.id}-${s.task_line_id}-${s.date}`}
@@ -424,7 +428,8 @@ export function OrderHistory({ order }: { order: ProductionOrder }) {
   });
   events.sort((a, b) => b.at.localeCompare(a.at));
   return (
-    <Table<Ev>
+    <ResponsiveTable<Ev>
+      exportTitle={`Заказ №${order.id} «${order.name}»: история`}
       size="small"
       rowKey="key"
       loading={qs.some((q) => q.isLoading)}

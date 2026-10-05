@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Table, Card, Space, Empty, Pagination } from "antd";
+import { Table, Card, Space, Empty, Pagination, Button } from "antd";
+import { FileExcelOutlined, PrinterOutlined } from "@ant-design/icons";
 import type { TableProps } from "antd";
 import { Grid } from "antd";
 import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "./ColumnSettings";
+import { exportToExcel } from "../utils/excel";
+import { printReport } from "../utils/printReport";
+import { exportValue, nodeText } from "../utils/nodeText";
 
 type Column<T> = NonNullable<TableProps<T>["columns"]>[number];
 
@@ -45,12 +49,16 @@ export default function ResponsiveTable<T extends object>({
   tableKey,
   lockedColumns,
   defaultHiddenColumns,
+  exportTitle,
   ...rest
 }: TableProps<T> & {
   cardBreakpoint?: "xs" | "sm" | "md" | "lg";
   tableKey?: string;
   lockedColumns?: string[];
   defaultHiddenColumns?: string[];
+  /** Отчёт (05.10): над таблицей «Excel» и «Печать» — по видимым столбцам,
+   * значения — как на экране. Заголовок печатной формы и имя файла. */
+  exportTitle?: string;
 }) {
   const screens = Grid.useBreakpoint();
 
@@ -120,9 +128,60 @@ export default function ResponsiveTable<T extends object>({
   const visibleLabelable = labelable.filter((c, i) => settings.isVisible(columnKey(c, i)));
   const hiddenLabelable = labelable.filter((c, i) => !settings.isVisible(columnKey(c, i)));
 
-  const settingsBar = settings.enabled && (
-    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-      <ColumnSettingsButton columns={columnOptions} settings={settings} />
+  const cellValue = (col: Column<T>, record: T, index: number): React.ReactNode => {
+    const dataIndex = (col as { dataIndex?: string | string[] }).dataIndex;
+    const raw = typeof dataIndex === "string" ? (record as Record<string, unknown>)[dataIndex] : undefined;
+    if (!col.render) return raw as React.ReactNode;
+    const rendered = col.render(raw, record, index);
+    // render может вернуть {props, children} для объединения ячеек
+    // (antd RenderedCell) — в карточках такого объединения нет, берём
+    // только содержимое.
+    if (rendered && typeof rendered === "object" && "children" in rendered) {
+      return (rendered as { children: React.ReactNode }).children;
+    }
+    return rendered as React.ReactNode;
+  };
+
+  const exportData = () => {
+    const cols = visibleLabelable.map((c, i) => ({ key: `c${i}`, header: nodeText(c.title as React.ReactNode), col: c }));
+    const rows = (dataSource ?? []).map((r, ri) =>
+      Object.fromEntries(cols.map((c) => [c.key, exportValue(nodeText(cellValue(c.col, r, ri)))])),
+    );
+    return { cols: cols.map(({ key, header }) => ({ key, header })), rows };
+  };
+  const fileName = `${(exportTitle ?? "").replace(/[\/:*?"<>|]/g, " ").trim()} ${new Date().toISOString().slice(0, 10)}`;
+
+  const settingsBar = (settings.enabled || exportTitle) && (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+      <Space wrap size={6}>
+        {exportTitle && (
+          <>
+            <Button
+              size="small"
+              icon={<FileExcelOutlined />}
+              disabled={!(dataSource ?? []).length}
+              onClick={() => {
+                const { cols, rows } = exportData();
+                exportToExcel(fileName, rows, cols as { key: keyof (typeof rows)[number]; header: string }[]);
+              }}
+            >
+              Excel
+            </Button>
+            <Button
+              size="small"
+              icon={<PrinterOutlined />}
+              disabled={!(dataSource ?? []).length}
+              onClick={() => {
+                const { cols, rows } = exportData();
+                printReport(exportTitle, cols, rows);
+              }}
+            >
+              Печать
+            </Button>
+          </>
+        )}
+      </Space>
+      {settings.enabled && <ColumnSettingsButton columns={columnOptions} settings={settings} />}
     </div>
   );
 
@@ -143,7 +202,6 @@ export default function ResponsiveTable<T extends object>({
   }
 
   const rows = dataSource ?? [];
-
   const pageSize = isControlledPage ? (paginationConfig.pageSize ?? 10) : (localPageSize ?? paginationConfig.pageSize ?? 10);
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(isControlledPage ? paginationConfig.current! : localPage, totalPages);
@@ -162,20 +220,6 @@ export default function ResponsiveTable<T extends object>({
     if (typeof rowKey === "function") return String(rowKey(record, index));
     if (typeof rowKey === "string") return String((record as Record<string, unknown>)[rowKey]);
     return String(index);
-  };
-
-  const cellValue = (col: Column<T>, record: T, index: number): React.ReactNode => {
-    const dataIndex = (col as { dataIndex?: string | string[] }).dataIndex;
-    const raw = typeof dataIndex === "string" ? (record as Record<string, unknown>)[dataIndex] : undefined;
-    if (!col.render) return raw as React.ReactNode;
-    const rendered = col.render(raw, record, index);
-    // render может вернуть {props, children} для объединения ячеек
-    // (antd RenderedCell) — в карточках такого объединения нет, берём
-    // только содержимое.
-    if (rendered && typeof rendered === "object" && "children" in rendered) {
-      return (rendered as { children: React.ReactNode }).children;
-    }
-    return rendered as React.ReactNode;
   };
 
   if (rows.length === 0) {

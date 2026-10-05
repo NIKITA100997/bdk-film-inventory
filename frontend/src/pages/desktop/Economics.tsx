@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { Alert, Card, Col, DatePicker, Row, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from "antd";
+import { Alert, Card, Col, DatePicker, Row, Segmented, Select, Space, Tabs, Tag, Tooltip, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { getDailyOutput, getFilmPlanFact, getOutput, type DailyRow, type FilmPlanFactRow, type OutputRow } from "../../api/economics";
 import { listAreas } from "../../api/areas";
 import Statistic from "../../components/Statistic";
+import ResponsiveTable from "../../components/ResponsiveTable";
 
 const f1 = (n: number | null | undefined) => (n == null ? "—" : (Math.round(n * 10) / 10).toLocaleString("ru-RU"));
 const rub = (n: number | null | undefined) => (n == null ? "—" : `${Math.round(n).toLocaleString("ru-RU")} ₽`);
@@ -90,7 +91,8 @@ function FilmTab({ rows, loading }: { rows: FilmPlanFactRow[]; loading: boolean 
           Норма — годные × длина детали; факт — по рулонам (выдано − вернули); перерасход — брак, обрезки, недоучёт.
         </Typography.Text>
       </Space>
-      <Table<FilmAgg>
+      <ResponsiveTable<FilmAgg>
+        exportTitle="План/факт плёнки"
         size="small"
         rowKey="key"
         loading={loading}
@@ -186,7 +188,8 @@ function OutputTab({ rows, loading }: { rows: OutputRow[]; loading: boolean }) {
           { value: "date", label: "По дням" },
         ]}
       />
-      <Table
+      <ResponsiveTable
+        exportTitle="Выработка"
         size="small"
         rowKey="key"
         loading={loading}
@@ -244,7 +247,8 @@ function DailyTab({ days, rows, loading }: { days: string[]; rows: DailyRow[]; l
   const isHead = (r: DailyRow | { key: string; header: string }): r is { key: string; header: string } => "header" in r;
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Table
+      <ResponsiveTable
+        exportTitle="Выработка по дням"
         size="small"
         rowKey="key"
         loading={loading}
@@ -297,7 +301,8 @@ function DailyTab({ days, rows, loading }: { days: string[]; rows: DailyRow[]; l
       />
       {sel && (
         <Card size="small" title={`${sel.row.label} — ${dayjs(sel.day).format("DD.MM.YYYY, dddd")}`}>
-          <Table
+          <ResponsiveTable
+            exportTitle={`Выработка за день: ${sel.row.label}, ${dayjs(sel.day).format("DD.MM.YYYY")}`}
             size="small"
             rowKey="user"
             pagination={false}

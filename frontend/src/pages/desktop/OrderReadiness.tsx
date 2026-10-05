@@ -9,6 +9,7 @@ import {
   type OrderReadiness,
   type ReadinessStage,
 } from "../../api/productionOrders";
+import ResponsiveTable from "../../components/ResponsiveTable";
 
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
@@ -77,7 +78,9 @@ export default function OrderReadiness() {
       {by === "invoice" ? (
         <InvoiceTable q={q} withClosed={withClosed} onlyRisk={onlyRisk} />
       ) : (
-      <Table<OrderReadiness>
+      <ResponsiveTable<OrderReadiness>
+        exportTitle="Готовность к отгрузке — по заказам"
+        cardBreakpoint="xs"
         size="small"
         rowKey="id"
         loading={query.isLoading}
@@ -170,7 +173,9 @@ function InvoiceTable({ q, withClosed, onlyRisk }: { q: string; withClosed: bool
     return [...seq.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0], "ru")).map(([name]) => name);
   }, [rows]);
   return (
-    <Table<InvoiceReadiness>
+    <ResponsiveTable<InvoiceReadiness>
+      exportTitle="Готовность к отгрузке — по счетам"
+      cardBreakpoint="xs"
       size="small"
       rowKey="invoice"
       loading={query.isLoading}

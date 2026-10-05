@@ -14,7 +14,6 @@ import {
   Select,
   Space,
   Spin,
-  Table,
   Tabs,
   Tag,
   Typography,
@@ -33,6 +32,7 @@ import {
 import { listAreas } from "../../../api/areas";
 import { listMaterialSkus } from "../../../api/dictionaries";
 import { ItemChars } from "../../../components/ItemChars";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 
 const d = (s: string | null) => (s ? dayjs(s).format("DD.MM") : "—");
 const period = (a: string | null, b: string | null) => (a && b && a !== b ? `${d(a)}–${d(b)}` : d(a));
@@ -220,7 +220,9 @@ function SheetTable({
           </Space>
         )}
       </Space>
-      <Table<Agg>
+      <ResponsiveTable<Agg>
+        exportTitle={`Раскладка запуска: ${sheet.name}`}
+        cardBreakpoint="xs"
         size="small"
         rowKey="rowKey"
         pagination={false}
@@ -438,7 +440,9 @@ export default function ReleaseLayoutModal({
                 key: "_film",
                 label: "Плёнка",
                 children: lay.film.length ? (
-                  <Table
+                  <ResponsiveTable
+                    exportTitle={`Раскладка запуска заказа №${order.id}: плёнка`}
+                    cardBreakpoint="xs"
                     size="small"
                     rowKey={(r) => `${r.area}|${r.label}`}
                     pagination={false}
@@ -472,7 +476,9 @@ export default function ReleaseLayoutModal({
                 key: "_mat",
                 label: "Материалы и комплектующие",
                 children: (
-                  <Table
+                  <ResponsiveTable
+                    exportTitle={`Раскладка запуска заказа №${order.id}: материалы и комплектующие`}
+                    cardBreakpoint="xs"
                     size="small"
                     rowKey="name"
                     pagination={false}
