@@ -1,9 +1,13 @@
-import { useState, type ReactNode } from "react";
-import { Alert, Button, Checkbox, Modal, Select, Space, Tag, Typography, message } from "antd";
-import { isAxiosError } from "axios";
+import { useState } from "react";
+import { Alert, Button, Checkbox, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItems, setItemComponents, type TechCard } from "../../../api/items";
+import { listAreas } from "../../../api/areas";
+import { OPERATION_ROLE_LABEL } from "../../../utils/operationRoles";
+import ComponentsEditorModal from "./ComponentsEditorModal";
+import RouteEditorModal from "./RouteEditorModal";
+import { isAxiosError } from "axios";
 
 type Input = TechCard["inputs"][number];
 
@@ -29,39 +33,131 @@ function groupInputs(inputs: Input[]): Input[][] {
   return out;
 }
 
-/** «Главное» карточки позиции: из чего делается (с вариантами «или» и
- * браком), во что идёт, маршрут одной строкой. Заменить заготовку — прямо
- * здесь, у строки состава. */
-export default function ItemMainTab({
-  card,
-  canEdit,
-  onEditComponents,
-  onEditRoute,
-  beforeUsedIn,
-}: {
-  card: TechCard;
-  canEdit: boolean;
-  onEditComponents: () => void;
-  onEditRoute: () => void;
-  // раздел перед «Во что идёт» (например, «В плёнке»)
-  beforeUsedIn?: ReactNode;
-}) {
+type Op = TechCard["operations"][number];
+
+/** Вкладка «Состав» позиции (05.10): маршрут по участкам цепочкой; работы —
+ * операции с участком, видом, расценкой, сроком и тем, что на них
+ * расходуется; из чего делается (с вариантами «или» и браком); во что
+ * входит. Заменить заготовку — прямо у строки состава. */
+export default function ItemComposition({ card, canEdit }: { card: TechCard; canEdit: boolean }) {
   const navigate = useNavigate();
   const [replacing, setReplacing] = useState<Input | null>(null);
+  const [editing, setEditing] = useState<"components" | "route" | null>(null);
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const area = (code: string | null) => areasQuery.data?.find((a) => a.code === code);
   // все строки состава, в т.ч. без позиции (плёнка — выбирается в задании)
   const inputs = card.inputs;
   const groups = groupInputs(inputs);
+  const ops = card.operations;
+  // цепочка участков: подряд идущие операции одного участка — одним звеном
+  const chain: { area: string | null; name: string; ops: string[] }[] = [];
+  for (const o of ops) {
+    const last = chain[chain.length - 1];
+    if (last && last.area === o.area) last.ops.push(o.name);
+    else chain.push({ area: o.area, name: o.area ? (o.area_name ?? o.area) : "общий запас", ops: [o.name] });
+  }
+  const consumedAt = (o: Op) => inputs.filter((i) => i.stage_id != null && i.stage_id === o.id);
+  const unbound = inputs.filter((i) => i.stage_id == null);
+
+  if (card.source_type === "sku") return <UsedIn card={card} />;
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <section>
         <Space style={{ justifyContent: "space-between", width: "100%" }}>
           <Typography.Title level={5} style={{ margin: 0 }}>
+            Маршрут по участкам
+          </Typography.Title>
+          {canEdit && (
+            <Button size="small" onClick={() => setEditing("route")}>
+              Изменить маршрут
+            </Button>
+          )}
+        </Space>
+        {chain.length === 0 ? (
+          <Typography.Text type="secondary">Операции не заданы — в заказ позиция не запустится.</Typography.Text>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 8 }}>
+            {chain.map((c, i) => (
+              <Space key={i} size={6}>
+                {i > 0 && <Typography.Text type="secondary">→</Typography.Text>}
+                <div style={{ border: "1px solid rgba(128,128,128,.35)", borderRadius: 8, padding: "4px 10px", lineHeight: 1.3 }}>
+                  <div style={{ fontWeight: 600 }}>{c.name}</div>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {c.ops.join(", ")}
+                  </Typography.Text>
+                </div>
+              </Space>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {ops.length > 0 && (
+        <section>
+          <Typography.Title level={5}>Работы</Typography.Title>
+          <Table<Op>
+            size="small"
+            rowKey={(o) => String(o.id ?? o.sequence_order)}
+            pagination={false}
+            dataSource={ops}
+            scroll={{ x: "max-content" }}
+            columns={[
+              { title: "№", width: 44, render: (_, o) => o.sequence_order },
+              { title: "Работа", render: (_, o) => <b>{o.name}</b> },
+              {
+                title: "Участок",
+                render: (_, o) => (o.area ? (o.area_name ?? o.area) : <Typography.Text type="secondary">общий запас</Typography.Text>),
+              },
+              {
+                title: "Вид",
+                render: (_, o) =>
+                  o.role ? (
+                    <Tag color={o.role === "film" ? "blue" : "gold"}>{OPERATION_ROLE_LABEL[o.role]}</Tag>
+                  ) : (
+                    <Typography.Text type="secondary">обычная</Typography.Text>
+                  ),
+              },
+              { title: "Срок, раб. дн.", render: (_, o) => area(o.area)?.lead_days ?? "—" },
+              {
+                title: "Расходуется на этой работе",
+                render: (_, o) => {
+                  const list = consumedAt(o);
+                  return list.length ? (
+                    <Space direction="vertical" size={0}>
+                      {list.map((i, k) => (
+                        <span key={k}>
+                          {i.component_item_id ? <a onClick={() => navigate(`/item/${i.component_item_id}`)}>{i.name}</a> : i.name}
+                          <Typography.Text type="secondary">
+                            {" "}
+                            · {i.qty_per_unit ?? "—"} {i.unit}
+                          </Typography.Text>
+                        </span>
+                      ))}
+                    </Space>
+                  ) : (
+                    <Typography.Text type="secondary">—</Typography.Text>
+                  );
+                },
+              },
+            ]}
+          />
+          {unbound.length > 0 && (
+            <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+              Без привязки к работе: {unbound.length} — расходуются на первой операции.
+            </Typography.Text>
+          )}
+        </section>
+      )}
+
+      <section>
+        <Space style={{ justifyContent: "space-between", width: "100%" }}>
+          <Typography.Title level={5} style={{ margin: 0 }}>
             Из чего делается
           </Typography.Title>
           {canEdit && (
-            <Button size="small" onClick={onEditComponents}>
-              {inputs.length ? "Изменить" : "Указать"}
+            <Button size="small" onClick={() => setEditing("components")}>
+              {inputs.length ? "Изменить состав" : "Указать состав"}
             </Button>
           )}
         </Space>
@@ -106,43 +202,33 @@ export default function ItemMainTab({
         )}
       </section>
 
-      <section>
-        <Space style={{ justifyContent: "space-between", width: "100%" }}>
-          <Typography.Title level={5} style={{ margin: 0 }}>
-            Маршрут
-          </Typography.Title>
-          {canEdit && card.source_type !== "sku" && (
-            <Button size="small" onClick={onEditRoute}>
-              Изменить
-            </Button>
-          )}
-        </Space>
-        <Typography.Text type={card.operations.length ? undefined : "secondary"}>
-          {card.operations.length
-            ? card.operations.map((o) => `${o.name}${o.area_name && o.area_name !== o.name ? ` (${o.area_name})` : ""}`).join(" → ")
-            : "Операции не заданы."}
-        </Typography.Text>
-      </section>
-
-      {beforeUsedIn}
-
-      <section>
-        <Typography.Title level={5}>Во что идёт</Typography.Title>
-        {card.used_in.length === 0 ? (
-          <Typography.Text type="secondary">Ни в одном составе не используется.</Typography.Text>
-        ) : (
-          <Space wrap size={[6, 6]}>
-            {card.used_in.map((u, k) => (
-              <Tag key={k} style={{ cursor: u.item_id ? "pointer" : undefined }} onClick={() => u.item_id && navigate(`/item/${u.item_id}`)}>
-                {u.name}
-                {u.qty_per_unit != null ? ` · ${u.qty_per_unit}` : ""}
-              </Tag>
-            ))}
-          </Space>
-        )}
-      </section>
+      <UsedIn card={card} />
       {replacing && <ReplaceModal card={card} target={replacing} onClose={() => setReplacing(null)} />}
+      {editing === "components" && <ComponentsEditorModal card={card} onClose={() => setEditing(null)} />}
+      {editing === "route" && <RouteEditorModal card={card} onClose={() => setEditing(null)} />}
     </Space>
+  );
+}
+
+/** Во что входит позиция — в составы каких позиций и сколько на штуку. */
+function UsedIn({ card }: { card: TechCard }) {
+  const navigate = useNavigate();
+  return (
+    <section>
+      <Typography.Title level={5}>Во что входит</Typography.Title>
+      {card.used_in.length === 0 ? (
+        <Typography.Text type="secondary">Ни в одном составе не используется.</Typography.Text>
+      ) : (
+        <Space wrap size={[6, 6]}>
+          {card.used_in.map((u, k) => (
+            <Tag key={k} style={{ cursor: u.item_id ? "pointer" : undefined }} onClick={() => u.item_id && navigate(`/item/${u.item_id}`)}>
+              {u.name}
+              {u.qty_per_unit != null ? ` · ${u.qty_per_unit} на шт` : ""}
+            </Tag>
+          ))}
+        </Space>
+      )}
+    </section>
   );
 }
 

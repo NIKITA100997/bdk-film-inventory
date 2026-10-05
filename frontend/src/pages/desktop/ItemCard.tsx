@@ -10,6 +10,7 @@ import { ITEM_VIEW_PERMISSIONS, getTechCard, lookupItem } from "../../api/items"
 import { ORDER_STATUS_LABEL, listProductionOrders, type ProductionOrder } from "../../api/productionOrders";
 import ModelVariants from "./nomenclature/ModelVariants";
 import ItemOverview from "./nomenclature/ItemOverview";
+import ItemComposition from "./nomenclature/ItemComposition";
 import { listAllParts } from "../../api/dictionaries";
 import { useTabTitle } from "../../layout/tabTitle";
 import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
@@ -123,13 +124,14 @@ export default function ItemCard() {
             <ItemOverview
               card={card}
               part={part}
-              canEditTech={canEditTech}
               canEditTypes={canEditTypes}
               canEditPart={canEditPart}
               canManageLaminated={has("production_tasks.manage") || has("materials.manage")}
             />
           ),
         },
+        // Состав: маршрут по участкам, работы, из чего делается, во что входит.
+        { key: "composition", label: "Состав", children: <ItemComposition card={card} canEdit={canEditTech} /> },
         ...(stockTab ? [stockTab] : []),
         ...(card.source_type !== "sku"
           ? [
@@ -151,8 +153,8 @@ export default function ItemCard() {
           ? [{ key: "orders", label: `Заказы${orders.length ? ` (${orders.length})` : ""}`, children: <OrdersOfItem itemIds={new Set([itemId])} orders={orders} loading={ordersQuery.isLoading} /> }]
           : []),
       ];
-  // прежние ссылки ?tab=techcard ведут на «Карточку»
-  const wanted = params.get("tab") === "techcard" ? "main" : params.get("tab");
+  // прежние ссылки ?tab=techcard ведут на «Состав»
+  const wanted = params.get("tab") === "techcard" ? "composition" : params.get("tab");
   const active = tabs.some((t) => t.key === wanted) ? (wanted as string) : tabs[0].key;
 
   return (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { optionLabel } from "../../../utils/optionLabel";
 import { isAxiosError } from "axios";
 import { Button, Descriptions, Form, Select, Space, Typography, message } from "antd";
@@ -31,12 +31,18 @@ export default function ItemPropertiesSection({
   kindCode,
   canEdit,
   title,
+  extra = [],
+  extraAction,
 }: {
   itemId: number;
   kindCode: string;
   canEdit: boolean;
   // заголовок раздела: «Изменить» — справа в заголовке, как у остальных разделов карточки
   title?: string;
+  /** Ещё строки той же таблицы (параметры детали) — одной таблицей со свойствами. */
+  extra?: { label: string; value: ReactNode }[];
+  /** Ещё кнопка в заголовке (изменить параметры детали). */
+  extraAction?: ReactNode;
 }) {
   const qc = useQueryClient();
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
@@ -75,9 +81,10 @@ export default function ItemPropertiesSection({
   if (!editing) {
     const editBtn = canEdit && kindTypes.length > 0 && (
       <Button size="small" onClick={() => setEditing(true)}>
-        Изменить
+        {extraAction ? "Изменить свойства" : "Изменить"}
       </Button>
     );
+    const props = type?.properties ?? [];
     return (
       <Space direction="vertical" size="small" style={{ width: "100%" }}>
         {title && (
@@ -85,7 +92,10 @@ export default function ItemPropertiesSection({
             <Typography.Title level={5} style={{ margin: 0 }}>
               {title}
             </Typography.Title>
-            {editBtn}
+            <Space size={6}>
+              {editBtn}
+              {extraAction}
+            </Space>
           </Space>
         )}
         <Space>
@@ -97,11 +107,16 @@ export default function ItemPropertiesSection({
             Для этого вида типов пока нет — их заводят во вкладке «Типы и свойства».
           </Typography.Text>
         )}
-        {type && type.properties.length > 0 && (
-          <Descriptions size="small" column={1} bordered>
-            {type.properties.map((p) => (
+        {(props.length > 0 || extra.length > 0) && (
+          <Descriptions size="small" column={{ xs: 1, md: 2 }} bordered>
+            {props.map((p) => (
               <Descriptions.Item key={p.id} label={p.name}>
                 {showValue(p, valuesQuery.data?.values[String(p.id)])}
+              </Descriptions.Item>
+            ))}
+            {extra.map((e) => (
+              <Descriptions.Item key={e.label} label={e.label}>
+                {e.value}
               </Descriptions.Item>
             ))}
           </Descriptions>
