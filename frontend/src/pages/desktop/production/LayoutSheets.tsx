@@ -1,10 +1,11 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import dayjs from "dayjs";
 import {
   Button,
   Checkbox,
   DatePicker,
   Form,
+  Grid,
   Input,
   InputNumber,
   Modal,
@@ -328,53 +329,75 @@ export interface SectionItem {
 export function SectionsView({ items, initial }: { items: SectionItem[]; initial?: string }) {
   const [sel, setSel] = useState(initial ?? items[0]?.key);
   const cur = items.find((i) => i.key === sel) ?? items[0];
+  const wide = Grid.useBreakpoint().lg ?? true;
+  const tile = (i: SectionItem, extra?: CSSProperties) => {
+    const on = i.key === cur?.key;
+    return (
+      <button
+        key={i.key}
+        type="button"
+        role="tab"
+        aria-selected={on}
+        onClick={() => setSel(i.key)}
+        style={{
+          textAlign: "left",
+          padding: "7px 10px",
+          borderRadius: 8,
+          border: `1px solid ${on ? "#C97A2B" : "rgba(128,128,128,.25)"}`,
+          background: on ? "rgba(201,122,43,.10)" : "transparent",
+          cursor: "pointer",
+          font: "inherit",
+          color: "inherit",
+          ...extra,
+        }}
+      >
+        <div style={{ fontWeight: on ? 600 : 500 }}>{i.label}</div>
+        {(i.sub || i.mark) && (
+          <div style={{ fontSize: 12, opacity: 0.7 }}>
+            {i.sub}
+            {i.mark && <Tag color="orange" style={{ marginLeft: 6, fontSize: 11 }}>{i.mark}</Tag>}
+          </div>
+        )}
+      </button>
+    );
+  };
+  const headStyle: CSSProperties = { fontSize: 11, letterSpacing: ".06em", textTransform: "uppercase", opacity: 0.6 };
+  // группы по порядку появления
+  const groups: { group?: string; items: SectionItem[] }[] = [];
+  for (const i of items) {
+    const last = groups[groups.length - 1];
+    if (last && last.group === i.group) last.items.push(i);
+    else groups.push({ group: i.group, items: [i] });
+  }
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
-      <div
-        role="tablist"
-        aria-orientation="vertical"
-        style={{ flex: "0 1 280px", minWidth: 220, display: "grid", gap: 4, maxHeight: "70vh", overflowY: "auto" }}
-      >
-        {items.map((i, idx) => {
-          const on = i.key === cur?.key;
-          const head = i.group && i.group !== items[idx - 1]?.group ? i.group : null;
-          return (
-            <div key={i.key} style={{ display: "grid", gap: 4 }}>
-            {head && (
-              <div style={{ fontSize: 11, letterSpacing: ".06em", textTransform: "uppercase", opacity: 0.6, marginTop: idx ? 8 : 0 }}>
-                {head}
-              </div>
-            )}
-            <button
-              key={i.key}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              onClick={() => setSel(i.key)}
-              style={{
-                textAlign: "left",
-                padding: "7px 10px",
-                borderRadius: 8,
-                border: `1px solid ${on ? "#C97A2B" : "rgba(128,128,128,.25)"}`,
-                background: on ? "rgba(201,122,43,.10)" : "transparent",
-                cursor: "pointer",
-                font: "inherit",
-                color: "inherit",
-                ...(!i.group && i.key.startsWith("_") && !items[idx - 1]?.key.startsWith("_") ? { marginTop: 8 } : {}),
-              }}
-            >
-              <div style={{ fontWeight: on ? 600 : 500 }}>{i.label}</div>
-              {(i.sub || i.mark) && (
-                <div style={{ fontSize: 12, opacity: 0.7 }}>
-                  {i.sub}
-                  {i.mark && <Tag color="orange" style={{ marginLeft: 6, fontSize: 11 }}>{i.mark}</Tag>}
-                </div>
-              )}
-            </button>
+      {wide ? (
+        <div
+          role="tablist"
+          aria-orientation="vertical"
+          style={{ flex: "0 1 280px", minWidth: 220, display: "grid", gap: 4, maxHeight: "70vh", overflowY: "auto" }}
+        >
+          {groups.map((g, gi) => (
+            <div key={g.group ?? `_${gi}`} style={{ display: "grid", gap: 4, marginTop: gi ? 8 : 0 }}>
+              {g.group && <div style={headStyle}>{g.group}</div>}
+              {g.items.map((i) => tile(i))}
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      ) : (
+        // Узкий экран (планшет вертикально): разделы — плиткой во всю ширину
+        // над содержимым, иначе выбранный раздел уезжал под длинный столбец.
+        <div role="tablist" aria-orientation="horizontal" style={{ flex: "1 1 100%", display: "grid", gap: 10 }}>
+          {groups.map((g, gi) => (
+            <div key={g.group ?? `_${gi}`} style={{ display: "grid", gap: 4 }}>
+              {g.group && <div style={headStyle}>{g.group}</div>}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 4 }}>
+                {g.items.map((i) => tile(i))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div style={{ flex: "1 1 600px", minWidth: 0 }}>{cur?.children}</div>
     </div>
   );

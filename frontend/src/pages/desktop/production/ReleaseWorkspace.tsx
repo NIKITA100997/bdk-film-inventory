@@ -575,6 +575,18 @@ export default function ReleaseWorkspace({
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               {saveMutation.isPending ? "сохраняю…" : savedAt ? `настройка сохранена ${dayjs(savedAt).format("DD.MM HH:mm")}` : "настройка по расчёту"}
             </Typography.Text>
+            {canManage && !canRelease && (
+              // причина видна сразу, без наведения (на планшете подсказки нет)
+              <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                Не запускается:{" "}
+                {[
+                  unassigned.length ? `не выбрана площадка ламинации (${unassigned.length})` : "",
+                  noRoute.length ? `нет маршрута у позиций (${noRoute.length})` : "",
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
+              </Typography.Text>
+            )}
             {canManage && (
               <Tooltip title={!canRelease ? "Сначала уберите замечания: маршруты и площадки ламинации" : "Создать задания участкам и п/ф по этой настройке"}>
                 <Button type="primary" size="large" disabled={!canRelease} loading={release.isPending} onClick={() => release.mutate()}>
