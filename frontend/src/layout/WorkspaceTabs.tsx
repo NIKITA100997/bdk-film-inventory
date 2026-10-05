@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Tabs } from "antd";
+import { Button, Tabs } from "antd";
 import {
   createRoutesFromChildren,
   useLocation,
@@ -23,7 +23,8 @@ import { TabTitleContext } from "./tabTitle";
  * (?tab=…) — та же вкладка; переход с заменой (перенаправление, например
  * /materials → карточка позиции) — заменяет текущую вкладку. */
 
-const MAX_TABS = 12;
+// 8 (05.10, было 12): на планшете больше не помещается, остальное уходило в «…»
+const MAX_TABS = 8;
 const STORAGE_KEY = "bdk-workspace-tabs";
 
 interface Tab {
@@ -184,6 +185,13 @@ export default function WorkspaceTabs({ pageRoutes }: { pageRoutes: ReactNode })
             </span>
           ),
         }))}
+        tabBarExtraContent={
+          tabs.length > 2 ? (
+            <Button size="small" type="text" title="Закрыть все вкладки, кроме текущей" onClick={() => setTabs((prev) => prev.filter((t) => t.key === activeKey))}>
+              Закрыть остальные
+            </Button>
+          ) : undefined
+        }
         tabBarStyle={{ margin: 0, padding: "6px 8px 0" }}
         style={{ flexShrink: 0 }}
       />

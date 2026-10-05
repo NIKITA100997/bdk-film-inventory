@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Button,
   Card,
@@ -33,7 +33,6 @@ import ReleaseWorkspace from "./ReleaseWorkspace";
 import PrintTasksModal from "./PrintTasksModal";
 import { ItemChars } from "../../../components/ItemChars";
 import FastReportPanel from "./fastReport/FastReportPanel";
-import OrderReadiness from "../OrderReadiness";
 import TaskCardDrawer from "./TaskCardDrawer";
 import { OrderHistory, OrderMaterials, OrderPlan } from "./OrderTabs";
 import VariantPicker from "../../../components/VariantPicker";
@@ -92,30 +91,17 @@ type TaskCreate = { kind: "film" | "ops"; orderId?: number };
  * наряда или плана заготовок и работы участка без плёнки — сразу заказ с
  * заданием. «Задания цеха» — только исполнение. Комплектующие п/ф — через
  * «Обеспечение п/ф» задания и «Потребность п/ф». */
-/** Заказы на производство — два вида одного списка: «Заказы» (цех: задания,
- * запуск, отчёт) и «Готовность» (для продаж: когда будет готово, успевает
- * ли к отгрузке). Без прав цеха — только «Готовность». */
+/** Заказы на производство (цех: задания, запуск, отчёт). «Готовность к
+ * отгрузке» — один экран «Продажи и заказы → Готовность заказов» (05.10:
+ * была ещё и вкладкой здесь — дубль); старый адрес ?view=readiness и вход
+ * без прав цеха ведут туда. */
 export default function ProductionOrders() {
   const { user } = useAuth();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const shop =
     !!user?.is_superuser || ["production_tasks.manage", "production_tasks.view", "production_tasks.report"].some((c) => user?.permissions.includes(c));
-  const view = !shop || params.get("view") === "readiness" ? "readiness" : "list";
-  return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      {shop && (
-        <Segmented
-          value={view}
-          onChange={(v) => setParams(v === "readiness" ? { view: "readiness" } : {}, { replace: true })}
-          options={[
-            { value: "list", label: "Заказы" },
-            { value: "readiness", label: "Готовность к отгрузке" },
-          ]}
-        />
-      )}
-      {view === "readiness" ? <OrderReadiness /> : <OrdersList />}
-    </Space>
-  );
+  if (!shop || params.get("view") === "readiness") return <Navigate to="/order-readiness" replace />;
+  return <OrdersList />;
 }
 
 function OrdersList() {

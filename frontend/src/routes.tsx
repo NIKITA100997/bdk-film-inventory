@@ -26,6 +26,7 @@ import Settings from "./pages/desktop/Settings";
 import Reconciliation from "./pages/desktop/Reconciliation";
 import AreasAndLines from "./pages/desktop/AreasAndLines";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
+import OrderReadiness from "./pages/desktop/OrderReadiness";
 import Planner from "./pages/desktop/production/Planner";
 import Nomenclature from "./pages/desktop/Nomenclature";
 import ItemCard, { MaterialCardRedirect, PartCardRedirect } from "./pages/desktop/ItemCard";
@@ -233,7 +234,7 @@ const appPageRoutes = (
         <RequirePermission
           permissions={["sales_calculator.view", "production_tasks.manage", "production_tasks.view", "production_tasks.report"]}
         >
-          <Navigate to="/production-orders?view=readiness" replace />
+          <OrderReadiness />
         </RequirePermission>
       }
     />
