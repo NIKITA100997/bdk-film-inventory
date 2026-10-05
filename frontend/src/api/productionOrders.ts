@@ -190,6 +190,8 @@ export interface ReleaseLayoutRow {
   date_from: string | null;
   date_to: string | null;
   film: { sku_id: number | null; label: string; strip_width_mm: number | null; width_mm: number; need_m: number } | null;
+  /** операция маршрута, к которой относится строка */
+  operation?: string | null;
 }
 export interface ReleaseLayoutSheet {
   area: string;
@@ -205,6 +207,8 @@ export interface ReleaseLayout {
   sheets: ReleaseLayoutSheet[];
   film: { area: string; area_name: string; label: string; need_m: number; stock_m: number; min_width_mm: number; cut_on_site: boolean }[];
   materials: { name: string; qty: number; unit: string | null }[];
+  /** п/ф заказа: нужно, со склада, в работу, для скольких строк заказа */
+  pf: { name: string; need: number; from_stock: number; launch: number; order_lines: number; lamination_area: string | null }[];
   warnings: string[];
   finish: string | null;
   late: boolean;
@@ -225,10 +229,6 @@ const planBody = (plan?: ReleasePlan) =>
         shift_next: plan.shift_next,
       }
     : {};
-
-/** Раскладка по участкам прямо из графика — до черновика (всё откатывается). */
-export const getScheduleLayout = async (p: { text: string; type_id: number; color_films?: Record<string, number> }): Promise<ReleaseLayout> =>
-  (await apiClient.post<ReleaseLayout>("/production-orders/schedule-layout", p)).data;
 
 export const getReleaseLayout = async (id: number, pf: PfPick[] = [], overrides: LineOverride[] = [], plan?: ReleasePlan): Promise<ReleaseLayout> =>
   (await apiClient.post<ReleaseLayout>(`/production-orders/${id}/release-layout`, { pf, overrides, ...planBody(plan) })).data;

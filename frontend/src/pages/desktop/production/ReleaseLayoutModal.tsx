@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import dayjs from "dayjs";
 import {
   Alert,
@@ -14,7 +14,6 @@ import {
   Select,
   Space,
   Spin,
-  Tabs,
   Tag,
   Typography,
 } from "antd";
@@ -26,7 +25,6 @@ import {
   type ReleasePlan,
   type ProductionOrder,
   type ReleaseLayoutRow,
-  type ReleaseLayout,
   type ReleaseLayoutSheet,
 } from "../../../api/productionOrders";
 import { listAreas } from "../../../api/areas";
@@ -176,7 +174,7 @@ function SheetTable({
     if (mode === "rows") return sheet.rows.map((r, i) => ({ ...r, rowKey: `${r.key}#${i}`, keys: [r.key], lines: 1 }));
     const m = new Map<string, Agg>();
     for (const r of sheet.rows) {
-      const k = `${r.name}|${r.film?.label ?? ""}|${r.film?.strip_width_mm ?? ""}|${r.program ?? ""}|${r.instruction ?? ""}`;
+      const k = `${r.operation ?? ""}|${r.name}|${r.film?.label ?? ""}|${r.film?.strip_width_mm ?? ""}|${r.program ?? ""}|${r.instruction ?? ""}`;
       const a = m.get(k);
       if (a) {
         a.qty += r.qty;
@@ -190,6 +188,16 @@ function SheetTable({
     }
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"));
   }, [sheet, mode]);
+  // Несколько операций на одном участке — один лист, разбитый по операциям
+  // (порядок — как в маршруте), с подытогом у каждой.
+  const groups = useMemo(() => {
+    const order: string[] = [];
+    for (const r of sheet.rows) if (!order.includes(r.operation ?? "")) order.push(r.operation ?? "");
+    return order.map((op) => {
+      const rows = data.filter((r) => (r.operation ?? "") === op);
+      return { op, rows, total: Math.round(rows.reduce((t, r) => t + r.qty, 0) * 100) / 100 };
+    });
+  }, [sheet, data]);
 
   return (
     <Space direction="vertical" size="small" style={{ width: "100%" }}>
@@ -220,78 +228,136 @@ function SheetTable({
           </Space>
         )}
       </Space>
-      <ResponsiveTable<Agg>
-        exportTitle={`Раскладка запуска: ${sheet.name}`}
-        cardBreakpoint="xs"
-        size="small"
-        rowKey="rowKey"
-        pagination={false}
-        scroll={{ x: "max-content", y: 420 }}
-        dataSource={data}
-        columns={[
-          {
-            title: "Наименование",
-            // п/ф — название (размер в нём уже есть); дверь — характеристики
-            // крупно, длинное название мелко (модель, цвет, кромка отдельно).
-            render: (_, r) => (
-              <Space direction="vertical" size={2}>
-                {r.door == null && r.chars.length ? <ItemChars chars={r.chars} name={r.name} strong={false} /> : <span>{r.name}</span>}
-                <Space size={4} wrap>
-                  {r.program && <Tag color="geekblue">программа {r.program}</Tag>}
-                  {r.instruction && <Typography.Text type="warning">⚑ {r.instruction}</Typography.Text>}
-                  {(r.manual || r.keys.some((k) => overrides[k])) && <Tag color="orange">изменено вручную</Tag>}
-                </Space>
-              </Space>
-            ),
-          },
-          { title: "Кол-во", dataIndex: "qty", align: "right", width: 80, render: (v: number) => <b>{v}</b> },
-          ...(mode === "rows"
-            ? [
-                {
-                  title: "Для двери / счёт",
-                  render: (_: unknown, r: Agg) => (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {[r.door, r.note].filter(Boolean).join(" · ")}
-                    </Typography.Text>
-                  ),
-                },
-              ]
-            : [{ title: "Строк", dataIndex: "lines", width: 70, align: "right" as const }]),
-          ...(hasFilm
-            ? [
-                {
-                  title: "Плёнка",
-                  render: (_: unknown, r: Agg) =>
-                    r.film ? (
-                      <Space direction="vertical" size={0}>
-                        <span>{r.film.label}</span>
+      {groups.map((g) => (
+        <div key={g.op || "-"} style={{ display: "grid", gap: 6 }}>
+          {groups.length > 1 && (
+            <Typography.Text strong>
+              Операция «{g.op || "—"}» · {g.total} шт
+            </Typography.Text>
+          )}
+          <ResponsiveTable<Agg>
+            exportTitle={`Раскладка запуска: ${sheet.name}${g.op ? ` — ${g.op}` : ""}`}
+            cardBreakpoint="xs"
+            size="small"
+            rowKey="rowKey"
+            pagination={false}
+            scroll={{ x: "max-content", y: 420 }}
+            dataSource={g.rows}
+            columns={[
+              {
+                title: "Наименование",
+                // п/ф — название (размер в нём уже есть); дверь — характеристики
+                // крупно, длинное название мелко (модель, цвет, кромка отдельно).
+                render: (_, r) => (
+                  <Space direction="vertical" size={2}>
+                    {r.door == null && r.chars.length ? <ItemChars chars={r.chars} name={r.name} strong={false} /> : <span>{r.name}</span>}
+                    <Space size={4} wrap>
+                      {r.program && <Tag color="geekblue">программа {r.program}</Tag>}
+                      {r.instruction && <Typography.Text type="warning">⚑ {r.instruction}</Typography.Text>}
+                      {(r.manual || r.keys.some((k) => overrides[k])) && <Tag color="orange">изменено вручную</Tag>}
+                    </Space>
+                  </Space>
+                ),
+              },
+              { title: "Кол-во", dataIndex: "qty", align: "right", width: 80, render: (v: number) => <b>{v}</b> },
+              ...(mode === "rows"
+                ? [
+                    {
+                      title: "Для двери / счёт",
+                      render: (_: unknown, r: Agg) => (
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          {r.film.strip_width_mm ? `штрипс ${r.film.strip_width_mm} мм` : "рулон, режут на участке"} · {r.film.need_m} м
+                          {[r.door, r.note].filter(Boolean).join(" · ")}
                         </Typography.Text>
-                      </Space>
-                    ) : (
-                      <Tag color="red">не определена</Tag>
-                    ),
-                },
-              ]
-            : []),
-          { title: "Срок", width: 100, render: (_, r) => period(r.date_from, r.date_to) },
-          ...(onEdit
-            ? [
-                {
-                  title: "",
-                  width: 56,
-                  render: (_: unknown, r: Agg) => (
-                    <Button size="small" title={r.keys.length > 1 ? `Править ${r.keys.length} строк` : "Править строку"} onClick={() => onEdit(r)}>
-                      ✎
-                    </Button>
-                  ),
-                },
-              ]
-            : []),
-        ]}
-      />
+                      ),
+                    },
+                  ]
+                : [{ title: "Строк", dataIndex: "lines", width: 70, align: "right" as const }]),
+              ...(hasFilm
+                ? [
+                    {
+                      title: "Плёнка",
+                      render: (_: unknown, r: Agg) =>
+                        r.film ? (
+                          <Space direction="vertical" size={0}>
+                            <span>{r.film.label}</span>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {r.film.strip_width_mm ? `штрипс ${r.film.strip_width_mm} мм` : "рулон, режут на участке"} · {r.film.need_m} м
+                            </Typography.Text>
+                          </Space>
+                        ) : (
+                          <Tag color="red">не определена</Tag>
+                        ),
+                    },
+                  ]
+                : []),
+              { title: "Срок", width: 100, render: (_, r) => period(r.date_from, r.date_to) },
+              ...(onEdit
+                ? [
+                    {
+                      title: "",
+                      width: 56,
+                      render: (_: unknown, r: Agg) => (
+                        <Button size="small" title={r.keys.length > 1 ? `Править ${r.keys.length} строк` : "Править строку"} onClick={() => onEdit(r)}>
+                          ✎
+                        </Button>
+                      ),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        </div>
+      ))}
     </Space>
+  );
+}
+
+/** Разделы раскладки: список слева (все участки видны сразу, без «…»),
+ * выбранный лист — справа; на узком экране — список сверху. */
+function SectionsView({ items }: { items: { key: string; label: string; sub?: string; mark?: string; children: ReactNode }[] }) {
+  const [sel, setSel] = useState(items[0]?.key);
+  const cur = items.find((i) => i.key === sel) ?? items[0];
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+      <div
+        role="tablist"
+        aria-orientation="vertical"
+        style={{ flex: "0 1 280px", minWidth: 220, display: "grid", gap: 4, maxHeight: "70vh", overflowY: "auto" }}
+      >
+        {items.map((i) => {
+          const on = i.key === cur?.key;
+          return (
+            <button
+              key={i.key}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => setSel(i.key)}
+              style={{
+                textAlign: "left",
+                padding: "7px 10px",
+                borderRadius: 8,
+                border: `1px solid ${on ? "#C97A2B" : "rgba(128,128,128,.25)"}`,
+                background: on ? "rgba(201,122,43,.10)" : "transparent",
+                cursor: "pointer",
+                font: "inherit",
+                color: "inherit",
+                ...(i.key.startsWith("_") && !items[items.indexOf(i) - 1]?.key.startsWith("_") ? { marginTop: 8 } : {}),
+              }}
+            >
+              <div style={{ fontWeight: on ? 600 : 500 }}>{i.label}</div>
+              {(i.sub || i.mark) && (
+                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                  {i.sub}
+                  {i.mark && <Tag color="orange" style={{ marginLeft: 6, fontSize: 11 }}>{i.mark}</Tag>}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ flex: "1 1 600px", minWidth: 0 }}>{cur?.children}</div>
+    </div>
   );
 }
 
@@ -308,7 +374,6 @@ export default function ReleaseLayoutModal({
   plan,
   onPlanChange,
   onClose,
-  preview,
 }: {
   order: ProductionOrder;
   picks: PfPick[];
@@ -317,14 +382,12 @@ export default function ReleaseLayoutModal({
   plan: ReleasePlan;
   onPlanChange: (next: ReleasePlan) => void;
   onClose: () => void;
-  /** Предпросмотр из графика (ещё нет заказа): только просмотр, без правок и сроков. */
-  preview?: { title: string; load: () => Promise<ReleaseLayout> };
 }) {
   const list = Object.values(overrides);
   const [shiftDraft, setShiftDraft] = useState<number | null>(plan.shift_days || null);
   const q = useQuery({
-    queryKey: ["release-layout", order.id, JSON.stringify(picks), JSON.stringify(list), JSON.stringify(plan), preview?.title],
-    queryFn: () => (preview ? preview.load() : getReleaseLayout(order.id, picks, list, plan)),
+    queryKey: ["release-layout", order.id, JSON.stringify(picks), JSON.stringify(list), JSON.stringify(plan)],
+    queryFn: () => getReleaseLayout(order.id, picks, list, plan),
     staleTime: 0,
     gcTime: 0,
     placeholderData: (prev) => prev,
@@ -341,7 +404,14 @@ export default function ReleaseLayoutModal({
     setEditing(null);
   };
   return (
-    <Modal open width="96vw" style={{ maxWidth: 1300, top: 16 }} title={preview ? preview.title : `Раскладка запуска — заказ №${order.id} «${order.name}»`} footer={null} onCancel={onClose}>
+    <Modal
+      open
+      width="calc(100vw - 32px)"
+      style={{ maxWidth: 1800, top: 12, paddingBottom: 12 }}
+      title={`Раскладка запуска — заказ №${order.id} «${order.name}»`}
+      footer={null}
+      onCancel={onClose}
+    >
       {q.isLoading && <Spin style={{ display: "block", margin: "48px auto" }} />}
       {q.isError && <Alert type="error" showIcon message="Не удалось посчитать раскладку" description={String((q.error as Error)?.message ?? "")} />}
       {lay && (
@@ -361,12 +431,9 @@ export default function ReleaseLayoutModal({
               </>
             )}
             <Typography.Text type="secondary">
-              {preview
-                ? "Предпросмотр по графику: ничего не создано. Площадка ламинации — по размеру партии (панель одного цвета и размера от порога — на Фабрику); править строки и сроки — при запуске заказа."
-                : "Ничего не запущено — это проверка. Правки уйдут в задания при запуске (кнопкой в окне запуска)."}
+              Ничего не запущено — это проверка. Правки уйдут в задания при запуске (кнопкой в окне запуска).
             </Typography.Text>
           </Space>
-          {!preview && (
           <Space wrap>
             <Typography.Text>Весь заказ: сдвинуть на</Typography.Text>
             <InputNumber size="small" style={{ width: 80 }} value={shiftDraft} onChange={setShiftDraft} placeholder="±дн." />
@@ -390,7 +457,6 @@ export default function ReleaseLayoutModal({
               </Button>
             )}
           </Space>
-          )}
           {lay.warnings.length > 0 ? (
             <Alert
               type="warning"
@@ -407,38 +473,66 @@ export default function ReleaseLayoutModal({
           ) : (
             <Alert type="success" showIcon message="Замечаний нет: плёнка определена и хватает, размеры стандартные или программа задана" />
           )}
-          <Tabs
-            size="small"
+          <SectionsView
             items={[
               ...lay.sheets.map((s) => ({
                 key: s.area,
-                label: (
-                  <span>
-                    {s.name} <Typography.Text type="secondary">{s.total}</Typography.Text>
-                  </span>
-                ),
+                label: s.name,
+                sub: `${s.total} шт · ${period(s.date_from, s.date_to)}${s.pf ? " · п/ф" : ""}`,
+                mark: plan.dates[s.area] ? "срок вручную" : undefined,
                 children: (
                   <SheetTable
                     sheet={s}
                     overrides={overrides}
-                    onEdit={preview ? undefined : (row) => setEditing({ row, sheet: s })}
+                    onEdit={(row) => setEditing({ row, sheet: s })}
                     date={plan.dates[s.area]}
-                    onDate={
-                      preview
-                        ? undefined
-                        : (dt) => {
-                            const dates = { ...plan.dates };
-                            if (dt) dates[s.area] = dt;
-                            else delete dates[s.area];
-                            onPlanChange({ ...plan, dates });
-                          }
-                    }
+                    onDate={(dt) => {
+                      const dates = { ...plan.dates };
+                      if (dt) dates[s.area] = dt;
+                      else delete dates[s.area];
+                      onPlanChange({ ...plan, dates });
+                    }}
                   />
                 ),
               })),
               {
+                key: "_pf",
+                label: "П/ф: со склада и в работу",
+                sub: `${lay.pf.length} деталей`,
+                children: lay.pf.length ? (
+                  <Space direction="vertical" size="small" style={{ width: "100%" }}>
+                    <Typography.Text type="secondary">
+                      Откуда детали на листах участков: «со склада» — свободный остаток уходит в резерв заказа, «в работу» — по
+                      ним заданы операции на участках. Поменять — в окне запуска.
+                    </Typography.Text>
+                    <ResponsiveTable
+                      exportTitle={`Раскладка запуска заказа №${order.id}: п/ф`}
+                      cardBreakpoint="xs"
+                      size="small"
+                      rowKey="name"
+                      pagination={false}
+                      scroll={{ y: 520 }}
+                      dataSource={lay.pf}
+                      columns={[
+                        { title: "Деталь", dataIndex: "name" },
+                        { title: "Нужно", dataIndex: "need", align: "right" },
+                        { title: "Со склада", dataIndex: "from_stock", align: "right" },
+                        { title: "В работу", dataIndex: "launch", align: "right", render: (v: number) => <b>{v}</b> },
+                        { title: "Строк заказа", dataIndex: "order_lines", align: "right" },
+                        ...(lay.pf.some((r) => r.lamination_area)
+                          ? [{ title: "Ламинация", render: (_: unknown, r: (typeof lay.pf)[number]) => r.lamination_area ?? "" }]
+                          : []),
+                      ]}
+                    />
+                  </Space>
+                ) : (
+                  <Empty description="П/ф для заказа не нужны" />
+                ),
+              },
+              {
                 key: "_film",
                 label: "Плёнка",
+                sub: `${lay.film.length} позиций${lay.film.some((f) => f.stock_m < f.need_m) ? " · не хватает" : ""}`,
                 children: lay.film.length ? (
                   <ResponsiveTable
                     exportTitle={`Раскладка запуска заказа №${order.id}: плёнка`}
@@ -475,6 +569,7 @@ export default function ReleaseLayoutModal({
               {
                 key: "_mat",
                 label: "Материалы и комплектующие",
+                sub: `${lay.materials.length} позиций`,
                 children: (
                   <ResponsiveTable
                     exportTitle={`Раскладка запуска заказа №${order.id}: материалы и комплектующие`}

@@ -1,13 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Button, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
 import { listMaterialSkus } from "../../../api/dictionaries";
 import { importColumnsText } from "../nomenclature/ImportTemplateModal";
-import ReleaseLayoutModal from "./ReleaseLayoutModal";
 import {
-  EMPTY_PLAN,
-  getScheduleLayout,
   importOrderFromSchedule,
   type ProductionOrder,
   type ScheduleImportColor,
@@ -26,7 +23,7 @@ const COLOR_STATUS: Record<ScheduleImportColor["status"], { color: string; text:
  * Серия, Размер, Цвет, Наименование, Кол-во дверей) → черновик заказа.
  * Строка — позиция по типу (находится или создаётся с техкартой по
  * правилам типа) и строка заказа. Сначала «Разобрать» — предпросмотр. */
-export default function ScheduleImportModal({ onClose, onCreated }: { onClose: () => void; onCreated: (o: ProductionOrder) => void }) {
+export default function ScheduleImportModal({ onClose, onCreated }: { onClose: () => void; onCreated: (o: ProductionOrder, release: boolean) => void }) {
   const qc = useQueryClient();
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
   // Типы с шаблоном импорта (колонки графика и признаки — настройка типа).
@@ -40,7 +37,8 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
   // Сопоставление цвет графика → плёнка: выбор сохраняется в привязку цвета
   // типа и дальше подставляется сам (в заданиях на ламинацию — эта плёнка).
   const [colorFilms, setColorFilms] = useState<Record<string, number>>({});
-  const [layoutOpen, setLayoutOpen] = useState(false);
+  // после создания черновика — сразу окно запуска (п/ф, площадки, раскладка)
+  const thenRelease = useRef(true);
   const skusQuery = useQuery({ queryKey: ["material-skus", "active"], queryFn: () => listMaterialSkus(false), enabled: !!preview });
   const skuOptions = (skusQuery.data ?? [])
     .filter((s) => s.is_active && s.thickness.value_mm > 0)
@@ -65,7 +63,7 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
         qc.invalidateQueries({ queryKey: ["production-orders"] });
         qc.invalidateQueries({ queryKey: ["items"] });
         message.success(`Черновик заказа №${res.order.id} создан: ${res.order.lines.length} строк`);
-        onCreated(res.order);
+        onCreated(res.order, thenRelease.current);
       }
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось разобрать график")),
@@ -88,37 +86,29 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
           </Button>
           <Button
             disabled={!preview || bad > 0 || preview.rows.length === 0}
-            title="Что родится по участкам — как листы Excel-монитора; ничего не создаётся"
-            onClick={() => setLayoutOpen(true)}
+            loading={run.isPending && run.variables === false && !thenRelease.current}
+            onClick={() => {
+              thenRelease.current = false;
+              run.mutate(false);
+            }}
           >
-            Раскладка по участкам
+            Только черновик
           </Button>
           <Button
             type="primary"
             disabled={!preview || bad > 0 || preview.rows.length === 0}
-            loading={run.isPending && run.variables === false}
-            onClick={() => run.mutate(false)}
+            loading={run.isPending && run.variables === false && thenRelease.current}
+            title="Создать черновик и сразу открыть запуск: п/ф, площадки ламинации, раскладка по участкам с правкой строк и сроков"
+            onClick={() => {
+              thenRelease.current = true;
+              run.mutate(false);
+            }}
           >
-            Создать черновик заказа
+            Создать черновик и настроить запуск
           </Button>
         </Space>
       }
     >
-      {layoutOpen && effectiveType && (
-        <ReleaseLayoutModal
-          order={{ id: 0, name: name.trim() || "по графику" } as ProductionOrder}
-          picks={[]}
-          overrides={{}}
-          onOverridesChange={() => {}}
-          plan={EMPTY_PLAN}
-          onPlanChange={() => {}}
-          onClose={() => setLayoutOpen(false)}
-          preview={{
-            title: `Раскладка по участкам — ${name.trim() || "график"} (предпросмотр)`,
-            load: () => getScheduleLayout({ text, type_id: effectiveType, color_films: colorFilms }),
-          }}
-        />
-      )}
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Text type="secondary">
           Скопируйте строки графика из Excel и вставьте сюда. Колонки по порядку

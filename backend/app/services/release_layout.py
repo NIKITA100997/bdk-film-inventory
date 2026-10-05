@@ -125,6 +125,7 @@ def build_release_layout(
                 "date_from": dates[0].isoformat() if dates else None,
                 "date_to": dates[-1].isoformat() if dates else None,
                 "film": None,
+                "operation": stage.name if stage is not None else None,
             }
             if ln.material_id:
                 sku = db.query(MaterialSku).filter(
@@ -193,6 +194,25 @@ def build_release_layout(
         walk(l.item_id, float(l.quantity))
     materials = [{"name": n, "qty": round(q, 3), "unit": units.get(n)} for n, q in sorted(totals.items())]
 
+    # п/ф заказа: сколько нужно, сколько со склада, сколько в работу и для
+    # скольких строк заказа — откуда берутся детали на листах участков
+    pf: dict[int, dict] = {}
+    for pk in picks:
+        part = db.get(Part, pk.part_id)
+        g = pf.setdefault(pk.part_id, {"name": part.name if part else f"деталь #{pk.part_id}", "need": 0.0, "from_stock": 0.0,
+                                       "launch": 0.0, "lines": set(), "lamination_area": None})
+        g["from_stock"] += float(pk.from_stock or 0)
+        g["launch"] += float(pk.quantity or 0)
+        g["need"] += float(pk.quantity or 0) + float(pk.from_stock or 0)
+        g["lines"].add(pk.order_line_id)
+        if pk.lamination_area:
+            g["lamination_area"] = areas[pk.lamination_area].name if pk.lamination_area in areas else pk.lamination_area
+    pf_rows = sorted(
+        ({**{k: v for k, v in g.items() if k != "lines"}, "need": round(g["need"], 2), "from_stock": round(g["from_stock"], 2),
+          "launch": round(g["launch"], 2), "order_lines": len(g["lines"])} for g in pf.values()),
+        key=lambda r: r["name"],
+    )
+
     seq = []
     for s in sheets.values():
         d = sorted(s.pop("dates"))
@@ -205,6 +225,7 @@ def build_release_layout(
         "sheets": seq,
         "film": sorted(film, key=lambda f: (f["area_name"], f["label"])),
         "materials": materials,
+        "pf": pf_rows,
         "warnings": warnings,
         "finish": sched.finish.isoformat() if sched.finish else None,
         "late": bool(sched.late),

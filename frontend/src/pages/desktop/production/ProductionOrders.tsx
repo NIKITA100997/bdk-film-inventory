@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -137,6 +137,8 @@ function OrdersList() {
   });
   const opened = (ordersQuery.data ?? []).find((o) => o.id === openId) ?? null;
   const [listFilter, setListFilter] = useState<ListFilter>("all");
+  // заказ, у которого сразу открыть окно запуска (черновик из графика)
+  const [autoRelease, setAutoRelease] = useState<number | null>(null);
   const [areaFilter, setAreaFilter] = useState<string | null>(null);
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const [q, setQ] = useState("");
@@ -278,6 +280,8 @@ function OrdersList() {
         canManage={canManage}
         onAddTask={(kind, orderId) => setTaskCreate({ kind, orderId })}
         onSupply={(t) => setSupplyTarget({ id: t.id, name: t.name })}
+        autoRelease={opened != null && autoRelease === opened.id}
+        onAutoReleaseDone={() => setAutoRelease(null)}
       />
       <CreateTaskModal
         open={taskCreate?.kind === "film"}
@@ -300,9 +304,10 @@ function OrdersList() {
       {importOpen && (
         <ScheduleImportModal
           onClose={() => setImportOpen(false)}
-          onCreated={(o) => {
+          onCreated={(o, release) => {
             setImportOpen(false);
             setOpenId(o.id);
+            setAutoRelease(release ? o.id : null);
           }}
         />
       )}
@@ -327,6 +332,8 @@ function OrderDrawer({
   canManage,
   onAddTask,
   onSupply,
+  autoRelease = false,
+  onAutoReleaseDone,
 }: {
   order: ProductionOrder | null;
   onClose: () => void;
@@ -334,6 +341,8 @@ function OrderDrawer({
   canManage: boolean;
   onAddTask: (kind: "film" | "ops", orderId: number) => void;
   onSupply: (t: OrderTask) => void;
+  autoRelease?: boolean;
+  onAutoReleaseDone?: () => void;
 }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -343,6 +352,12 @@ function OrderDrawer({
     qc.invalidateQueries({ queryKey: ["pf-demand"] });
   };
   const [releasing, setReleasing] = useState(false);
+  useEffect(() => {
+    if (autoRelease && order?.status === "draft") {
+      setReleasing(true);
+      onAutoReleaseDone?.();
+    }
+  }, [autoRelease, order?.status, onAutoReleaseDone]);
   const [printing, setPrinting] = useState(false);
   const [cardTask, setCardTask] = useState<number | null>(null);
   const [orderTab, setOrderTab] = useState("flow");
