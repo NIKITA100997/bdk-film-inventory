@@ -153,6 +153,11 @@ export const unlinkLines = async (payload: { part_name: string; part_id: number 
   (await apiClient.post<{ bom_lines: number; task_lines: number }>("/items/unlink-lines", payload)).data;
 
 export interface TechCard {
+  /** Признаки: действующие; own_attrs — заданные у самой позиции (остальные — от типа). */
+  direction?: string | null;
+  stage?: string | null;
+  make_mode?: string | null;
+  own_attrs?: string[];
   item_id: number;
   name: string;
   kind_code: string;

@@ -85,6 +85,12 @@ export default function ItemCard() {
         ? { key: "stock", label: "Склад", children: <PartCard partId={card.source_id} /> }
         : null;
   const orders = ordersQuery.data ?? [];
+  const off = (key: string, label: string, reason: string) => ({
+    key,
+    disabled: true,
+    label: <span title={reason}>{label}</span>,
+    children: null,
+  });
   // Модель (серия) — только её варианты: маршрут, состав и остатки — у вариантов.
   const tabs = card.is_model
     ? [
@@ -133,30 +139,34 @@ export default function ItemCard() {
         },
         // Состав: маршрут по участкам, работы, из чего делается, во что входит.
         { key: "composition", label: "Состав", children: <ItemComposition card={card} canEdit={canEditTech} /> },
-        ...(stockTab ? [stockTab] : []),
-        ...(card.source_type !== "sku"
-          ? [
-              {
-                key: "scheme",
-                label: "Схема",
-                children: itemTreeQuery.data ? (
-                  <TechTree root={itemTreeQuery.data} expandDepth={2} onOpen={(id) => navigate(`/item/${id}`)} />
-                ) : (
-                  <Spin />
-                ),
-              },
-            ]
-          : []),
-        ...(card.source_type === "sku" || card.source_type === "part"
-          ? [{ key: "movements", label: "Движение", children: <MovementsPanel itemId={itemId} /> }]
-          : []),
-        ...(card.kind_code !== "plenka" && canSeeOrders
-          ? [{ key: "orders", label: `Заказы${orders.length ? ` (${orders.length})` : ""}`, children: <OrdersOfItem itemIds={new Set([itemId])} orders={orders} loading={ordersQuery.isLoading} /> }]
-          : []),
-      ];
+        // Набор вкладок одинаковый у всех позиций (05.10): неприменимая —
+        // серая с пояснением, а не пропадает (человек не гадает, куда
+        // делась вкладка). Без прав — скрыта, как и раньше.
+        stockTab ??
+          (card.source_type === "part" ? null : off("stock", "Склад", card.source_type === "sku" ? "У позиции плёнки не заданы материал и цвет" : "Партий у этой позиции нет: склад ведётся у плёнки и деталей п/ф, материалы — «Склад → Остатки → Материалы»")),
+        card.source_type !== "sku"
+          ? {
+              key: "scheme",
+              label: "Схема",
+              children: itemTreeQuery.data ? (
+                <TechTree root={itemTreeQuery.data} expandDepth={2} onOpen={(id) => navigate(`/item/${id}`)} />
+              ) : (
+                <Spin />
+              ),
+            }
+          : off("scheme", "Схема", "У плёнки нет схемы сборки — она сама входит в схемы деталей"),
+        card.source_type === "sku" || card.source_type === "part"
+          ? { key: "movements", label: "Движение", children: <MovementsPanel itemId={itemId} /> }
+          : off("movements", "Движение", "Движения по партиям есть у плёнки и деталей п/ф; у изделия — его заказы"),
+        canSeeOrders
+          ? card.kind_code !== "plenka"
+            ? { key: "orders", label: `Заказы${orders.length ? ` (${orders.length})` : ""}`, children: <OrdersOfItem itemIds={new Set([itemId])} orders={orders} loading={ordersQuery.isLoading} /> }
+            : off("orders", "Заказы", "Плёнка в заказ не входит напрямую — только через детали")
+          : null,
+      ].filter((t): t is NonNullable<typeof t> => t != null);
   // прежние ссылки ?tab=techcard ведут на «Состав»
   const wanted = params.get("tab") === "techcard" ? "composition" : params.get("tab");
-  const active = tabs.some((t) => t.key === wanted) ? (wanted as string) : tabs[0].key;
+  const active = tabs.some((t) => t.key === wanted && !("disabled" in t && t.disabled)) ? (wanted as string) : tabs[0].key;
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>

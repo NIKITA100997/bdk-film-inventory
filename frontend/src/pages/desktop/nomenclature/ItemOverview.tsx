@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Space, Typography } from "antd";
+import { Space, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import type { TechCard } from "../../../api/items";
 import { listAreas } from "../../../api/areas";
@@ -9,6 +9,7 @@ import LaminatedBar from "./LaminatedBar";
 import ItemEditModal from "./ItemEditModal";
 import ItemPriceSection from "./ItemPriceSection";
 import { useAuth } from "../../../auth/AuthContext";
+import { DIRECTIONS, MODES, STAGES } from "../../../utils/itemAttrs";
 
 /** Заголовок раздела карточки: название слева, одно действие справа — во
  * всех разделах одинаково. */
@@ -48,13 +49,32 @@ export default function ItemOverview({
   const showPrice = (card.kind_code === "plenka" || card.kind_code === "material") && (has("prices.view") || has("prices.manage"));
   const showLaminated = card.kind_code === "pf" && !card.is_model;
 
+  const routeAreas = [...new Set(card.operations.map((o) => o.area_name ?? o.area).filter((a): a is string => !!a))];
+  // Признаки позиции: свои или от типа / по правилу — помечаем, откуда.
+  const fromType = <Tag style={{ marginLeft: 6, fontSize: 11 }}>из типа</Tag>;
+  const attrRow = (field: "direction" | "stage" | "make_mode", label: string, dict: Record<string, string>) => {
+    const v = card[field];
+    if (!v) return [];
+    return [{ label, value: <span>{dict[v] ?? v}{!(card.own_attrs ?? []).includes(field) && fromType}</span> }];
+  };
+  const attrRows = card.is_model
+    ? []
+    : [...attrRow("direction", "Направление", DIRECTIONS), ...attrRow("stage", "Стадия", STAGES), ...attrRow("make_mode", "Режим", MODES)];
   // Параметры детали — в той же таблице, что свойства. Размер для плёнки —
   // только у позиции без типа: у типовой он повторяет ширину и высоту.
   const partRows = part
     ? [
         ...(card.type_id ? [] : [{ label: "Размер для плёнки", value: `${part.width_mm} мм × ${part.length_m} м` }]),
         { label: "Ширина штрипса", value: part.strip_width_mm ? `${part.strip_width_mm} мм` : "по ширине детали" },
-        { label: "Участок", value: areaName(part.area) },
+        {
+          label: "Участок",
+          // не закреплён — участки берутся из маршрута (вкладка «Состав»)
+          value: part.area
+            ? areaName(part.area)
+            : routeAreas.length
+              ? <span>{routeAreas.join(" → ")} <Typography.Text type="secondary">(по маршруту)</Typography.Text></span>
+              : "—",
+        },
         { label: "Мин. остаток", value: part.min_stock_pieces != null ? `${part.min_stock_pieces} шт` : "—" },
         { label: "Мин. партия", value: part.min_batch_pieces != null ? `${part.min_batch_pieces} шт` : "—" },
         { label: "Закреплённая плёнка", value: part.default_material_sku_id ? "закреплена" : "подбирается по цвету" },
@@ -69,7 +89,7 @@ export default function ItemOverview({
           kindCode={card.kind_code}
           canEdit={canEditTypes}
           title="Характеристики"
-          extra={partRows}
+          extra={[...attrRows, ...partRows]}
           onEdit={canEditTypes || (part && canEditPart) ? () => setEditing(true) : undefined}
         />
       </section>

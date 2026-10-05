@@ -771,6 +771,12 @@ class TechCardOut(BaseModel):
     is_model: bool = False
     model_id: int | None = None
     model_name: str | None = None
+    # Признаки (05.10): действующие значения и какие заданы у самой позиции —
+    # остальные берутся у типа / по правилу (карточка помечает «из типа»).
+    direction: str | None = None
+    stage: str | None = None
+    make_mode: str | None = None
+    own_attrs: list[str] = []
 
 
 
@@ -929,6 +935,7 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
         type_name=item.type.name if item.type else None, type_id=item.type_id,
         is_model=item.is_model, model_id=item.model_id,
         model_name=db.get(Item, item.model_id).name if item.model_id else None,
+        **_attrs(item, kind.code, {item.type_id: item.type} if item.type else {}),
     )
 
 
