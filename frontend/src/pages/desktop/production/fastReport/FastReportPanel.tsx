@@ -782,6 +782,18 @@ function LineSheet({
                   {n}
                 </Button>
               ))}
+              {/* своё количество — когда пусковых больше трёх (05.10) */}
+              <InputNumber
+                min={0}
+                precision={0}
+                inputMode="numeric"
+                size="large"
+                placeholder="своё"
+                style={{ width: 100 }}
+                status={e.pusk > 3 ? "warning" : undefined}
+                value={e.pusk > 3 ? e.pusk : null}
+                onChange={(v) => r.setEntry(fl.line, { pusk: v ?? 0 })}
+              />
             </Space>
           )}
           <Space wrap>
