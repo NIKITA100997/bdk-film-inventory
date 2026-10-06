@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AdjustModal from "../../components/AdjustModal";
 import { UnitLink, PartUnitLink } from "../../components/EntityLink";
 import { adjustMaterialUnit, adjustPartUnitEntry } from "../../api/actionLog";
+import LotActions from "../../components/lotOps/LotActions";
 import { useAuth } from "../../auth/AuthContext";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { exportToExcel } from "../../utils/excel";
@@ -140,6 +141,8 @@ export function LotsTab() {
           { title: "Участок", render: (_, r) => r.area_name ?? "—" },
           { title: "Место", render: (_, r) => r.location_code ?? "—" },
           { title: "С", render: (_, r) => (r.since ? dayjs(r.since).format("DD.MM.YYYY") : "—") },
+          // единое окно операций — для рулона и партии п/ф одинаково (06.10)
+          { title: "", key: "ops", width: 120, render: (_, r) => <LotActions lot={r} /> },
         ]}
       />
     </Space>
