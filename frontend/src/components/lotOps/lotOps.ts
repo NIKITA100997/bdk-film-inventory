@@ -1,5 +1,5 @@
 import type { Lot } from "../../api/unifiedStock";
-import { skuLabel, type MaterialUnit } from "../../api/units";
+import { skuLabel, type MaterialSku, type MaterialUnit } from "../../api/units";
 import type { PartUnit } from "../../api/partUnits";
 
 /** Единые окна операций (слой 4 единой модели, 06.10): одно окно на
@@ -12,6 +12,8 @@ export type LotOp = "move" | "return" | "writeoff" | "adjust";
  * то же, собранное карточкой из рулона / партии п/ф. */
 export type LotRef = Pick<Lot, "kind" | "lot_id" | "item_name" | "qty" | "unit" | "status" | "location_code" | "area_name" | "stage" | "detail"> & {
   sku_id?: number | null;
+  /** Позиция плёнки целиком — выбор полки с учётом зонирования. */
+  sku?: MaterialSku;
   is_strip?: boolean;
   /** Длина рулона по учёту — у выданного рулона qty уже за вычетом расхода. */
   length_m?: number;
@@ -78,6 +80,7 @@ export function lotFromUnit(u: MaterialUnit, areaName?: string | null): LotRef {
     stage: null,
     detail: `${u.is_strip ? "штрипс" : "рулон"} ${u.width_mm} мм`,
     sku_id: u.material_sku.id,
+    sku: u.material_sku,
     is_strip: u.is_strip,
   };
 }

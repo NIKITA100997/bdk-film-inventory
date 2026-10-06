@@ -12,17 +12,20 @@ export default function LotActions({
   lot,
   layout = "menu",
   size,
+  hideUnavailable = false,
   onDone,
 }: {
   lot: LotRef;
   /** menu — «Действия ▾» (строка таблицы); buttons — ряд кнопок (карточка). */
   layout?: "menu" | "buttons";
   size?: "small" | "middle" | "large";
+  /** Скрыть недоступные (строки таблиц) вместо серых с причиной (карточки). */
+  hideUnavailable?: boolean;
   onDone?: () => void;
 }) {
   const { user } = useAuth();
   const has = (code: string) => !!user?.is_superuser || !!user?.permissions.includes(code);
-  const ops = lotOps(lot, has);
+  const ops = lotOps(lot, has).filter((o) => o.ok || !hideUnavailable);
   const [open, setOpen] = useState<LotOp | null>(null);
   if (ops.length === 0) return null;
 
@@ -30,8 +33,9 @@ export default function LotActions({
 
   if (layout === "buttons")
     return (
-      <>
-        <Space wrap>
+      // окно рисуется порталом, но клики всплывают по дереву React — не отдаём их строке таблицы
+      <span onClick={(e) => e.stopPropagation()}>
+        <Space size={4} wrap>
           {ops.map(({ op, ok, why }) => (
             <Tooltip key={op} title={ok ? undefined : why}>
               <Button size={size} danger={op === "writeoff"} disabled={!ok} onClick={() => setOpen(op)}>
@@ -41,7 +45,7 @@ export default function LotActions({
           ))}
         </Space>
         {modal}
-      </>
+      </span>
     );
 
   return (

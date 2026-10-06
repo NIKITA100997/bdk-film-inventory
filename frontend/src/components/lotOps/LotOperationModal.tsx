@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Dayjs } from "dayjs";
 import OccurredAtField from "../OccurredAtField";
 import FilmRestrictionPicker from "../FilmRestrictionPicker";
+import LocationSelect from "../LocationSelect";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { apiErrorMessage } from "../../utils/apiError";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
@@ -19,6 +20,9 @@ interface Values {
   reason?: string;
   note?: string;
   film_restriction?: string | null;
+  // корректировка рулона: ширина и тип (рулон / штрипс)
+  width_mm?: number;
+  is_strip?: boolean;
   occurred_at?: Dayjs | null;
 }
 
@@ -65,10 +69,10 @@ export default function LotOperationModal({
     queryFn: async () => {
       if (film) {
         const u = await getUnit(lot.lot_id);
-        return { total: u.length_m, free: u.length_m, restriction: null as string | null };
+        return { total: u.length_m, free: u.length_m, restriction: null as string | null, width: u.width_mm, is_strip: u.is_strip };
       }
       const u = await getPartUnit(lot.lot_id);
-      return { total: u.quantity_pieces, free: u.quantity_available, restriction: u.film_restriction };
+      return { total: u.quantity_pieces, free: u.quantity_available, restriction: u.film_restriction, width: null, is_strip: null };
     },
     enabled: op === "adjust",
   });
@@ -76,7 +80,12 @@ export default function LotOperationModal({
   const reported = full ? Math.max(0, full.total - full.free) : 0;
   useEffect(() => {
     if (full && form.getFieldValue("qty") == null)
-      form.setFieldsValue({ qty: film ? full.total : full.free, film_restriction: full.restriction ?? undefined });
+      form.setFieldsValue({
+        qty: film ? full.total : full.free,
+        film_restriction: full.restriction ?? undefined,
+        width_mm: full.width ?? undefined,
+        is_strip: full.is_strip ?? undefined,
+      });
   }, [full, film, form]);
   useEffect(() => {
     if (expected != null && form.getFieldValue("qty") == null) form.setFieldsValue({ qty: expected });
@@ -84,8 +93,14 @@ export default function LotOperationModal({
 
   const suggest = useMutation({
     mutationFn: () => suggestLocation({ material_sku_id: lot.sku_id!, is_strip: lot.is_strip }),
-    onSuccess: (code) => (code ? form.setFieldsValue({ location_code: code }) : message.info("Свободного места по правилам нет — укажите вручную")),
+    onSuccess: (code) => (code ? form.setFieldsValue({ location_code: code }) : message.info("Свободной ячейки по правилам нет — укажите вручную")),
   });
+
+  // рулон без адреса — сразу предложить ячейку по правилам (как было в карточке материала)
+  useEffect(() => {
+    if (op === "move" && film && lot.sku_id != null && !lot.location_code) suggest.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const run = useMutation({
     mutationFn: async (v: Values) => {
@@ -100,7 +115,15 @@ export default function LotOperationModal({
           : writeOffPartUnit(id, { quantity_pieces: v.qty!, reason: v.reason!, note: v.note || undefined, occurred_at: at });
       if (!full) throw new Error("Партия не загружена");
       return film
-        ? adjustUnit(id, { actual_length_m: v.qty!, reason: v.reason!.trim(), note: v.note || undefined, occurred_at: at })
+        ? adjustUnit(id, {
+            actual_length_m: v.qty!,
+            // ширину и тип шлём, только если поменяли — иначе сервер не трогает
+            width_mm: v.width_mm != null && v.width_mm !== full.width ? v.width_mm : undefined,
+            is_strip: v.is_strip != null && v.is_strip !== full.is_strip ? v.is_strip : undefined,
+            reason: v.reason!.trim(),
+            note: v.note || undefined,
+            occurred_at: at,
+          })
         : adjustPartUnit(id, {
             actual_quantity_pieces: v.qty! + reported,
             reason: v.reason!.trim(),
@@ -151,7 +174,12 @@ export default function LotOperationModal({
           <Form.Item label="Адрес ячейки" required>
             <Space.Compact style={{ width: "100%" }}>
               <Form.Item name="location_code" noStyle rules={[{ required: true, whitespace: true, message: "Укажите адрес" }]}>
-                <Input placeholder="например, Стеллаж 1-2-3" autoFocus />
+                {film ? (
+                  // реальные полки с занятостью; закрытые зонированием под другую плёнку не показываются
+                  <LocationSelect sku={lot.sku} placeholder="Выберите полку" />
+                ) : (
+                  <Input placeholder="например, ЗГ-1-01" autoFocus />
+                )}
               </Form.Item>
               {film && lot.sku_id != null && (
                 <Button loading={suggest.isPending} onClick={() => suggest.mutate()}>
@@ -224,6 +252,22 @@ export default function LotOperationModal({
             >
               <InputNumber min={0} step={film ? 0.1 : 1} style={{ width: "100%" }} inputMode="decimal" autoFocus />
             </Form.Item>
+            {film && (
+              <Space size={12} style={{ width: "100%" }} wrap>
+                <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true, message: "Ширина" }]}>
+                  <InputNumber min={1} style={{ width: 140 }} />
+                </Form.Item>
+                <Form.Item name="is_strip" label="Тип">
+                  <Select
+                    style={{ width: 140 }}
+                    options={[
+                      { value: false, label: "Рулон" },
+                      { value: true, label: "Штрипс" },
+                    ]}
+                  />
+                </Form.Item>
+              </Space>
+            )}
             <Form.Item name="reason" label="Причина корректировки" rules={[{ required: true, whitespace: true, message: "Укажите причину" }]}>
               <Input placeholder="например, пересчитали при инвентаризации" />
             </Form.Item>

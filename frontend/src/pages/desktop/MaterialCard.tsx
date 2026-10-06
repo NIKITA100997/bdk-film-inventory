@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, Select, Row, Col, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Form, Typography, Empty, Upload, Image, Checkbox, Radio, List, Alert, message } from "antd";
+import { Card, Select, Row, Col, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Form, Typography, Empty, Upload, Image, Checkbox, Radio, List, message } from "antd";
 import Statistic from "../../components/Statistic";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
@@ -24,24 +24,19 @@ import {
 } from "../../api/dictionaries";
 import { getMaterialCardByGroup } from "../../api/materialCards";
 import { listAreas } from "../../api/areas";
-import { listWarehouses, suggestLocation } from "../../api/storage";
+import { listWarehouses } from "../../api/storage";
 import {
   reassignUnitSku,
   receiveAndAutoPlace,
   printLabel,
   skuLabel,
-  adjustUnit,
-  writeOffUnit,
-  placeUnit,
-  returnUnit,
   type MaterialSku,
   type MaterialUnit,
-  type UnitAdjustRequest,
 } from "../../api/units";
-import { listWriteOffReasons } from "../../api/writeOffReasons";
 import DictAutoComplete from "../../components/DictAutoComplete";
-import LocationSelect from "../../components/LocationSelect";
 import OccurredAtField from "../../components/OccurredAtField";
+import LotActions from "../../components/lotOps/LotActions";
+import { lotFromUnit } from "../../components/lotOps/lotOps";
 import { useAuth } from "../../auth/AuthContext";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
@@ -320,14 +315,6 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
   const [mergeTarget, setMergeTarget] = useState<MaterialSku | null>(null);
   const [addUnitOpen, setAddUnitOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState<MaterialUnit | null>(null);
-  // Раздел про работу с физическими единицами прямо с карточки материала
-  // (не открывая каждый раз карточку единицы) — те же действия, что уже
-  // есть в UnitCard.tsx, но как быстрые модалки по клику в этой же таблице.
-  const [adjustTarget, setAdjustTarget] = useState<MaterialUnit | null>(null);
-  const [writeOffTarget, setWriteOffTarget] = useState<MaterialUnit | null>(null);
-  const [placeTarget, setPlaceTarget] = useState<MaterialUnit | null>(null);
-  const [returnTarget, setReturnTarget] = useState<MaterialUnit | null>(null);
-  const hasPermission = (code: string) => !!user?.is_superuser || !!user?.permissions.includes(code);
   // Раздел про производителя внутри карточки материала (не отдельным
   // измерением) — черновик правки теперь на строку таблицы производителей
   // (sku.id), не один на всю карточку, как раньше.
@@ -782,26 +769,8 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
                           Изменить
                         </Button>
                       )}
-                      {hasPermission("units.correct") && (
-                        <Button size="small" onClick={() => setAdjustTarget(u)}>
-                          Скорректировать
-                        </Button>
-                      )}
-                      {hasPermission("units.place") && (u.status === "На_хранении" || u.status === "Принят") && (
-                        <Button size="small" onClick={() => setPlaceTarget(u)}>
-                          Разместить
-                        </Button>
-                      )}
-                      {hasPermission("units.return") && u.status === "Выдан_участку" && (
-                        <Button size="small" onClick={() => setReturnTarget(u)}>
-                          Вернуть
-                        </Button>
-                      )}
-                      {hasPermission("units.writeoff") && u.status === "На_хранении" && (
-                        <Button size="small" danger onClick={() => setWriteOffTarget(u)}>
-                          Списать
-                        </Button>
-                      )}
+                      {/* единое окно операций (06.10) — как у партий п/ф */}
+                      <LotActions lot={lotFromUnit(u, u.area ? areaName(u.area) : null)} layout="buttons" size="small" hideUnavailable />
                     </Space>
                   ),
                 },
@@ -838,10 +807,6 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
       {mergeTarget && (
         <MergeSkuModal sku={mergeTarget} allSkus={skusQuery.data ?? []} onClose={() => setMergeTarget(null)} />
       )}
-      {adjustTarget && <UnitAdjustModal unit={adjustTarget} onClose={() => setAdjustTarget(null)} />}
-      {writeOffTarget && <UnitWriteOffModal unit={writeOffTarget} onClose={() => setWriteOffTarget(null)} />}
-      {placeTarget && <UnitPlaceModal unit={placeTarget} onClose={() => setPlaceTarget(null)} />}
-      {returnTarget && <UnitReturnModal unit={returnTarget} onClose={() => setReturnTarget(null)} />}
     </Space>
   );
 }
@@ -1035,204 +1000,3 @@ function ReassignSkuModal({ unit, onClose }: { unit: MaterialUnit; onClose: () =
   );
 }
 
-/** Раздел про работу с физическими единицами прямо с карточки материала
- * (не открывая каждый раз карточку единицы) — те же четыре действия, что
- * уже есть в UnitCard.tsx (Скорректировать/Списать/Разместить/Вернуть),
- * как быстрые модалки по клику в списке единиц этой карточки. */
-function UnitAdjustModal({ unit, onClose }: { unit: MaterialUnit; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [form] = Form.useForm<{
-    actual_length_m: number;
-    width_mm: number;
-    is_strip: boolean;
-    reason: string;
-    note?: string;
-    occurred_at?: Dayjs | null;
-  }>();
-
-  const adjustMutation = useMutation({
-    mutationFn: (v: { actual_length_m: number; width_mm: number; is_strip: boolean; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
-      adjustUnit(unit.id, { ...v, occurred_at: toOccurredAtIso(v.occurred_at) } as UnitAdjustRequest),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["material-card-group"] });
-      message.success(`Единица №${unit.id} скорректирована`);
-      onClose();
-    },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось скорректировать")),
-  });
-
-  return (
-    <Modal title={`Скорректировать — единица №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
-      <Typography.Paragraph type="secondary">
-        Формальная правка вместо изменения истории напрямую — действие добавит запись в журнал единицы, причина
-        обязательна.
-      </Typography.Paragraph>
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={{ actual_length_m: unit.length_m, width_mm: unit.width_mm, is_strip: unit.is_strip }}
-        onFinish={(v) => adjustMutation.mutate(v)}
-      >
-        <Form.Item name="actual_length_m" label="Фактическая длина, м" rules={[{ required: true }]}>
-          <InputNumber min={0} style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
-          <InputNumber min={1} style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item name="is_strip" label="Тип">
-          <Radio.Group
-            options={[
-              { label: "Рулон", value: false },
-              { label: "Штрипс", value: true },
-            ]}
-            optionType="button"
-          />
-        </Form.Item>
-        <Form.Item name="reason" label="Причина" rules={[{ required: true, message: "Укажите причину корректировки" }]}>
-          <Input placeholder="Например: опечатка при вводе остатка" />
-        </Form.Item>
-        <Form.Item name="note" label="Заметка (опционально)">
-          <Input.TextArea rows={2} />
-        </Form.Item>
-        <OccurredAtField />
-        <Button type="primary" htmlType="submit" block loading={adjustMutation.isPending}>
-          Скорректировать
-        </Button>
-      </Form>
-    </Modal>
-  );
-}
-
-function UnitWriteOffModal({ unit, onClose }: { unit: MaterialUnit; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [form] = Form.useForm<{ reason: string; note?: string; occurred_at?: Dayjs | null }>();
-  const reasonsQuery = useQuery({
-    queryKey: ["write-off-reasons", "warehouse"],
-    queryFn: () => listWriteOffReasons("warehouse"),
-  });
-
-  const writeOffMutation = useMutation({
-    mutationFn: (v: { reason: string; note?: string; occurred_at?: Dayjs | null }) =>
-      writeOffUnit(unit.id, v.reason, v.note, toOccurredAtIso(v.occurred_at)),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["material-card-group"] });
-      message.success(`Единица №${unit.id} списана`);
-      onClose();
-    },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось списать")),
-  });
-
-  return (
-    <Modal title={`Списать — единица №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
-      <Alert
-        style={{ marginBottom: 16 }}
-        type="warning"
-        showIcon
-        message="Отменить нельзя — используйте, если материал испорчен или физически отсутствует."
-      />
-      <Form form={form} layout="vertical" onFinish={(v) => writeOffMutation.mutate(v)}>
-        <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
-          <Select
-            loading={reasonsQuery.isLoading}
-            options={(reasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))}
-            placeholder="Выберите причину"
-          />
-        </Form.Item>
-        <Form.Item name="note" label="Заметка (опционально)">
-          <Input.TextArea rows={2} placeholder="Детали для претензии поставщику" />
-        </Form.Item>
-        <OccurredAtField />
-        <Button type="primary" danger htmlType="submit" block loading={writeOffMutation.isPending}>
-          Списать
-        </Button>
-      </Form>
-    </Modal>
-  );
-}
-
-function UnitPlaceModal({ unit, onClose }: { unit: MaterialUnit; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [form] = Form.useForm<{ location_code: string; occurred_at?: Dayjs | null }>();
-  const suggestion = useQuery({
-    queryKey: ["suggest-location", "material-card-place", unit.material_sku.id, unit.is_strip],
-    queryFn: () => suggestLocation({ material_sku_id: unit.material_sku.id, is_strip: unit.is_strip }),
-  });
-
-  const placeMutation = useMutation({
-    mutationFn: (v: { location_code: string; occurred_at?: Dayjs | null }) =>
-      placeUnit(unit.id, v.location_code, toOccurredAtIso(v.occurred_at)),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["material-card-group"] });
-      message.success(`Единица №${unit.id} размещена`);
-      onClose();
-    },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось разместить")),
-  });
-
-  return (
-    <Modal title={`Разместить — единица №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={{ location_code: unit.location_code ?? undefined }}
-        onFinish={(v) => placeMutation.mutate(v)}
-      >
-        {suggestion.data && (
-          <Alert
-            style={{ marginBottom: 16 }}
-            type="success"
-            showIcon
-            message={`Рекомендуем: ${suggestion.data}`}
-            action={
-              <Button size="small" onClick={() => form.setFieldValue("location_code", suggestion.data)}>
-                Подставить
-              </Button>
-            }
-          />
-        )}
-        <Form.Item name="location_code" label="Адрес ячейки" rules={[{ required: true }]}>
-          <LocationSelect sku={unit.material_sku} />
-        </Form.Item>
-        <OccurredAtField />
-        <Button type="primary" htmlType="submit" block loading={placeMutation.isPending}>
-          Сохранить адрес
-        </Button>
-      </Form>
-    </Modal>
-  );
-}
-
-function UnitReturnModal({ unit, onClose }: { unit: MaterialUnit; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [form] = Form.useForm<{ actual_length_m: number; occurred_at?: Dayjs | null }>();
-
-  const returnMutation = useMutation({
-    mutationFn: (v: { actual_length_m: number; occurred_at?: Dayjs | null }) =>
-      returnUnit(unit.id, { actual_length_m: v.actual_length_m, occurred_at: toOccurredAtIso(v.occurred_at) }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["material-card-group"] });
-      message.success(`Единица №${unit.id} возвращена на склад`);
-      onClose();
-    },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось оформить возврат")),
-  });
-
-  return (
-    <Modal title={`Вернуть на склад — единица №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={{ actual_length_m: unit.length_m }}
-        onFinish={(v) => returnMutation.mutate(v)}
-      >
-        <Form.Item name="actual_length_m" label="Фактическая длина остатка, м" rules={[{ required: true }]}>
-          <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
-        </Form.Item>
-        <OccurredAtField />
-        <Button type="primary" htmlType="submit" block loading={returnMutation.isPending}>
-          Вернуть на склад
-        </Button>
-      </Form>
-    </Modal>
-  );
-}
