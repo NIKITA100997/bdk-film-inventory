@@ -4,7 +4,7 @@
 - ПЭТ 2Д/3Д: у детали признак (items.pet_type, пусто — 2Д), в строке — ПЭТ
   другого типа;
 - на участке лежат партии детали «после снятия плёнки» (пометка «Ламис»),
-  а декор строки — не из коллекции «Ламис»: эти партии в строку не пойдут.
+  а плёнка строки — не ПВХ («Ламис» — это ПВХ, 06.10): эти партии в строку не пойдут.
 """
 
 from sqlalchemy import func
@@ -31,6 +31,19 @@ def pet_of_material(name: str | None) -> str | None:
     return None
 
 
+def is_lamis_film(material: Material | None, decor: Color | None) -> bool:
+    """«Ламис» — это ПВХ-плёнки (ответ пользователя 06.10): деталь после
+    снятия плёнки переклеивается любой ПВХ. Коллекция «Ламис» у цвета —
+    по-прежнему признак (ручная отметка не теряется)."""
+    if material is not None and normalize_film(material.name).startswith("пвх"):
+        return True
+    return bool(decor and (decor.collection or "").strip().lower() == LAMIS_COLLECTION)
+
+
+def normalize_film(name: str | None) -> str:
+    return (name or "").strip().lower().replace("ё", "е")
+
+
 def film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
     if line.material_id is None or line.part_id is None:
         return []
@@ -44,7 +57,7 @@ def film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
         if part_pet != line_pet:
             out.append(f"Деталь клеится {PET_LABEL[part_pet]}, а в строке {PET_LABEL[line_pet]}")
     decor = db.get(Color, line.color_id) if line.color_id else None
-    decor_is_lamis = bool(decor and (decor.collection or "").strip().lower() == LAMIS_COLLECTION)
+    decor_is_lamis = is_lamis_film(material, decor)
     if part is not None and not decor_is_lamis:
         held = float(
             db.query(func.coalesce(func.sum(PartUnit.quantity_pieces), 0))
@@ -57,5 +70,5 @@ def film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
             .scalar()
         )
         if held > 0:
-            out.append(f"На участке {held:g} шт после снятия плёнки — их можно клеить только декором коллекции «Ламис»")
+            out.append(f"На участке {held:g} шт после снятия плёнки — их можно клеить только ПВХ («Ламис»)")
     return out

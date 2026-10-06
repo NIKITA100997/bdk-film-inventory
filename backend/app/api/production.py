@@ -55,7 +55,7 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.components import sync_bom_components
 from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
-from app.services.film_check import film_warnings
+from app.services.film_check import film_warnings, is_lamis_film
 from app.services.laminated import can_laminate, laminated_excess
 from app.models.production import PlanSlot
 from app.models.production_orders import ProductionOrder
@@ -74,7 +74,6 @@ from app.services.naryad_import import enrich_naryad_lines, parse_naryad_xls_byt
 from app.services.areas import cuts_film_on_site
 from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.part_units import (
-    LAMIS_COLLECTION,
     advance_part_unit,
     consume_defect_fifo,
     consume_part_units_fifo,
@@ -1281,11 +1280,10 @@ def _build_task_line_report(
     # (задвоение расхода партии вплоть до "недостаточно партий").
     fifo_results: list[tuple[PartUnit, bool, float]] = []
     # Партии «после снятия плёнки» (пометка «Ламис») — только в строки с
-    # декором коллекции «Ламис», и там первыми; у строки без плёнки — как раньше.
+    # ПВХ («Ламис» — это ПВХ, 06.10), и там первыми; у строки без плёнки — как раньше.
     lamis_ok: bool | None = None
     if line.color_id is not None:
-        decor = db.get(Color, line.color_id)
-        lamis_ok = (decor.collection or "").strip().lower() == LAMIS_COLLECTION if decor else False
+        lamis_ok = is_lamis_film(db.get(Material, line.material_id) if line.material_id else None, db.get(Color, line.color_id))
     if payload.defect_pieces > 0 and payload.defect_disposition == "snyat" and not has_part_unit_stock:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
