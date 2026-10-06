@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   closeProductionLine,
   createTaskLineReportsBatch,
+  listProductionLines,
   listProductionTasks,
   type ProductionTask,
   type ProductionTaskLine,
@@ -78,6 +79,18 @@ function loadDraft(key: string): Record<number, Entry> {
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
+  }
+}
+
+/** Своя линия мастера на участке (06.10, «Ежедневка» по линиям) — одна на
+ * планшет и участок, уходит с каждым отчётом. */
+const lineKey = (area: string) => `fast-report-line:${area}`;
+function loadLine(area: string): number | null {
+  try {
+    const v = Number(localStorage.getItem(lineKey(area)));
+    return v > 0 ? v : null;
+  } catch {
+    return null;
   }
 }
 
@@ -163,6 +176,24 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
   const pins = useMemo(() => new Set(pinList), [pinList]);
   const togglePin = (lineId: number) => setPinList((p) => (p.includes(lineId) ? p.filter((x) => x !== lineId) : [...p, lineId]));
   const clearPins = () => setPinList([]);
+  const linesQuery = useQuery({ queryKey: ["production-lines"], queryFn: listProductionLines });
+  const areaLines = useMemo(
+    () => (linesQuery.data ?? []).filter((l) => l.area === area && l.is_active),
+    [linesQuery.data, area],
+  );
+  const [myLine, setMyLineState] = useState<number | null>(() => loadLine(area));
+  useEffect(() => setMyLineState(loadLine(area)), [area]);
+  const setMyLine = (id: number | null) => {
+    setMyLineState(id);
+    try {
+      if (id) localStorage.setItem(lineKey(area), String(id));
+      else localStorage.removeItem(lineKey(area));
+    } catch {
+      /* без хранилища — до перезагрузки */
+    }
+  };
+  // линия есть, только если она этого участка (участок у планшета могли сменить)
+  const lineForReport = myLine && areaLines.some((l) => l.id === myLine) ? myLine : null;
   const needsRoll = (fl: FastLine) => requiresRoll && fl.line.material !== null && !entryOf(fl.line).rollId;
 
   const save = useMutation({
@@ -196,6 +227,7 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
               counts_toward_line: false, note: `Остаток указан вручную: ${x.left} м`, kind: "remainder",
             });
           }
+          if (lineForReport) for (const pl of payloads) pl.line_id = lineForReport;
           if (payloads.length) await createTaskLineReportsBatch(fl.task.id, fl.line.id, payloads);
           if (e.close) await closeProductionLine(fl.task.id, fl.line.id, true);
           return fl.line.id;
@@ -210,6 +242,9 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
   });
 
   return {
+    areaLines,
+    myLine: lineForReport,
+    setMyLine,
     loading: tasksQuery.isLoading,
     lines,
     entryOf,

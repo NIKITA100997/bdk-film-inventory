@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.film_aliases import router as film_aliases_router
 from app.api.prices import router as prices_router
 from app.api.part_counts import router as part_counts_router
+from app.api.daily_sheet import router as daily_sheet_router
 from app.api.abc import router as abc_router
 from app.api.areas import router as areas_router
 from app.api.sites import router as sites_router
@@ -130,6 +131,7 @@ app.include_router(search_router, prefix=API_PREFIX)
 app.include_router(film_aliases_router, prefix=API_PREFIX)
 app.include_router(prices_router, prefix=API_PREFIX)
 app.include_router(part_counts_router, prefix=API_PREFIX)
+app.include_router(daily_sheet_router, prefix=API_PREFIX)
 
 
 @app.get("/health")

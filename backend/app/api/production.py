@@ -1558,6 +1558,26 @@ def _build_task_line_report(
     return reports
 
 
+def _stamp_report_line(
+    db: Session, task_id: int, payload: ProductionTaskLineReportCreate, reports: list[ProductionTaskLineReport]
+) -> None:
+    """Линия отчёта (06.10, «Ежедневка» по линиям): выбранная мастером
+    (должна быть линией участка задания) или из записи распределения."""
+    line_id = payload.line_id
+    if line_id is not None:
+        task = db.get(ProductionTask, task_id)
+        pl = db.get(ProductionLine, line_id)
+        if pl is None or task is None or pl.area != task.area:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Линия не относится к участку задания")
+    elif payload.assignment_id is not None:
+        a = db.get(ProductionTaskLineAssignment, payload.assignment_id)
+        line_id = a.line_id if a else None
+    if line_id is None:
+        return
+    for r in reports:
+        r.line_id = line_id
+
+
 @router.post(
     "/production-tasks/{task_id}/lines/{line_id}/reports",
     response_model=ProductionTaskLineReportOut,
@@ -1581,6 +1601,7 @@ def create_task_line_report(
     (раздел про отключение распределения по дням): там распределений и не
     предполагается, отчёт принимается без assignment_id."""
     reports = _build_task_line_report(task_id, line_id, payload, db, user)
+    _stamp_report_line(db, task_id, payload, reports)
     db.commit()
     for r in reports:
         db.refresh(r)
@@ -1617,7 +1638,9 @@ def create_task_line_reports_batch(
     безопасен."""
     reports: list[ProductionTaskLineReport] = []
     for payload in payloads:
-        reports.extend(_build_task_line_report(task_id, line_id, payload, db, user))
+        built = _build_task_line_report(task_id, line_id, payload, db, user)
+        _stamp_report_line(db, task_id, payload, built)
+        reports.extend(built)
     db.commit()
     for r in reports:
         db.refresh(r)

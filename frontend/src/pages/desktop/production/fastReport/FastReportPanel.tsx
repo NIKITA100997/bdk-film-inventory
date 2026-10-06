@@ -195,6 +195,18 @@ export default function FastReportPanel({
                 Очистить набор
               </Button>
             )}
+            {r.areaLines.length > 1 && (
+              // своя линия — для «Ежедневки» по линиям; запоминается на планшете
+              <Select
+                placeholder="Моя линия"
+                style={{ minWidth: 180 }}
+                value={r.myLine ?? undefined}
+                onChange={(v) => r.setMyLine(v ?? null)}
+                allowClear
+                status={r.myLine ? undefined : "warning"}
+                options={r.areaLines.map((l) => ({ value: l.id, label: l.name }))}
+              />
+            )}
             <Input.Search
               allowClear
               placeholder="Деталь, заказ или плёнка"

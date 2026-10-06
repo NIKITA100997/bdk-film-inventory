@@ -228,6 +228,8 @@ export interface ProductionTaskLineReportCreate {
   // Раздел про отключение распределения по дням — null для участка с
   // requires_daily_plan=false (backend это допускает только для него).
   assignment_id: number | null;
+  /** Линия участка («Ежедневка» по линиям, 06.10) — своя линия мастера. */
+  line_id?: number | null;
   // Раздел про цифровой аналог "Ежедневки" (пилот: окутка царговых) —
   // backend требует его для участков, где включён этот учёт.
   material_unit_id?: number | null;

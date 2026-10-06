@@ -2,6 +2,7 @@ import { Card, Tabs, Typography } from "antd";
 import { useSearchParams } from "react-router-dom";
 import DailyPlanTab from "./production/DailyPlanTab";
 import TasksBoard from "./production/TasksBoard";
+import DailySheet from "./production/DailySheet";
 import { useAuth } from "../../auth/AuthContext";
 
 /** Задания — разбор «N штук модели X» на строки по производственным
@@ -23,7 +24,7 @@ export default function ProductionTasks() {
       <Typography.Title level={4}>Задания цеха</Typography.Title>
       <Tabs
         key={`${params.get("task") ?? ""}:${params.get("tab") ?? ""}`}
-        defaultActiveKey={params.get("task") || params.get("tab") === "tasks" || !user?.area ? "tasks" : "daily-plan"}
+        defaultActiveKey={params.get("tab") === "daily-sheet" ? "daily-sheet" : params.get("task") || params.get("tab") === "tasks" || !user?.area ? "tasks" : "daily-plan"}
         items={[
           { key: "daily-plan", label: "Мой участок", children: <DailyPlanTab /> },
           {
@@ -31,6 +32,8 @@ export default function ProductionTasks() {
             label: "Задания",
             children: <TasksBoard />,
           },
+          // бумажный дневной бланк линии/участка — из отчётов мастеров (06.10)
+          { key: "daily-sheet", label: "Ежедневка", children: <DailySheet /> },
         ]}
       />
     </Card>

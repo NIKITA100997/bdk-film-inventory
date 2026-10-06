@@ -242,6 +242,11 @@ class ProductionTaskLineReport(Base):
     part_unit_id: Mapped[int | None] = mapped_column(
         ForeignKey("part_units.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Линия участка (06.10, «Ежедневка» по линиям): из распределения по дням
+    # или выбранная мастером в отчёте; NULL — участок без линий / не выбрана.
+    line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("production_lines.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     good_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
     defect_pieces: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
