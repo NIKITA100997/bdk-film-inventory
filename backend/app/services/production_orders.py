@@ -152,13 +152,20 @@ def complete_tasks(db: Session, tasks: list[ProductionTask], user_id: int) -> in
             )
             left = round(float(line.quantity_pieces) - done, 2)
             if left > 0:
-                db.add(
-                    ProductionTaskLineReport(
-                        task_line_id=line.id, good_pieces=left, defect_pieces=0, material_unit_id=None,
-                        counts_toward_line=True, note=COMPLETE_NOTE, kind=REPORT_CLOSE, reported_by=user_id,
-                    )
+                report = ProductionTaskLineReport(
+                    task_line_id=line.id, good_pieces=left, defect_pieces=0, material_unit_id=None,
+                    counts_toward_line=True, note=COMPLETE_NOTE, kind=REPORT_CLOSE, reported_by=user_id,
                 )
+                db.add(report)
                 completed += 1
+                # последняя операция изделия (ламинированный погонаж Фабрики —
+                # готов к продаже, 06.10) — на склад готовой продукции
+                stage = db.get(PartStage, line.part_stage_id) if line.part_stage_id else None
+                if stage is not None:
+                    from app.services.finished_goods import receive_from_report
+
+                    db.flush()
+                    receive_from_report(db, line=line, stage=stage, report=report, user_id=user_id)
             line.production_closed = True
             line.is_closed = True
         task.is_active = False
