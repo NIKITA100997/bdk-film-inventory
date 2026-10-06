@@ -79,20 +79,3 @@ export interface ActionLogPartUnitFilters extends Omit<ActionLogFilters, "unit_i
 
 export const getActionLogPartUnits = async (filters: ActionLogPartUnitFilters = {}): Promise<ActionLogPartUnitLine[]> =>
   (await apiClient.get<ActionLogPartUnitLine[]>("/reports/action-log/part-units", { params: filters })).data;
-
-// Раздел про формальную «Корректировку» (не правка истории напрямую в
-// БД) — общий вход для журнала: material — length_m рулона/штрипса,
-// part-unit — quantity_pieces партии.
-export const adjustMaterialUnit = async (
-  unitId: number,
-  payload: { actual_length_m: number; reason: string; note?: string },
-): Promise<void> => {
-  await apiClient.post(`/units/${unitId}/adjust`, payload);
-};
-
-export const adjustPartUnitEntry = async (
-  unitId: number,
-  payload: { actual_quantity_pieces: number; reason: string; note?: string },
-): Promise<void> => {
-  await apiClient.post(`/part-units/${unitId}/adjust`, payload);
-};

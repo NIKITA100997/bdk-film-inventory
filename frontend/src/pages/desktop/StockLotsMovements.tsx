@@ -1,12 +1,11 @@
 import { useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Checkbox, DatePicker, Input, InputNumber, Segmented, Select, Space, Tag, Typography, message } from "antd";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import AdjustModal from "../../components/AdjustModal";
+import { Button, Card, Checkbox, DatePicker, Input, InputNumber, Segmented, Select, Space, Tag, Typography } from "antd";
+import { useQuery } from "@tanstack/react-query";
 import { UnitLink, PartUnitLink } from "../../components/EntityLink";
-import { adjustMaterialUnit, adjustPartUnitEntry } from "../../api/actionLog";
 import LotActions from "../../components/lotOps/LotActions";
+import LotOperationById from "../../components/lotOps/LotOperationById";
 import { useAuth } from "../../auth/AuthContext";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { exportToExcel } from "../../utils/excel";
@@ -154,7 +153,6 @@ export function LotsTab() {
  * по событию, участку и партии, задание, причина и исправление ошибок. */
 export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?: number; fixedKind?: "plenka" | "pf"; defaultDays?: number }) {
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const { user } = useAuth();
   const canCorrect = (k: string) =>
     !!user?.is_superuser || !!user?.permissions.includes(k === "plenka" ? "units.correct" : "part_units.correct");
@@ -165,19 +163,8 @@ export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?
   const [events, setEvents] = useState<string[]>([]);
   const [areas, setAreas] = useState<string[]>([]);
   const [lot, setLot] = useState<number | null>(null);
+  // исправление ошибки из журнала — единое окно корректировки (06.10)
   const [adjust, setAdjust] = useState<Movement | null>(null);
-  const adjustMutation = useMutation({
-    mutationFn: (v: { actual_value: number; reason: string; note?: string }) =>
-      adjust!.kind === "plenka"
-        ? adjustMaterialUnit(adjust!.lot_id, { actual_length_m: v.actual_value, reason: v.reason, note: v.note })
-        : adjustPartUnitEntry(adjust!.lot_id, { actual_quantity_pieces: v.actual_value, reason: v.reason, note: v.note }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["unified-movements"] });
-      message.success("Скорректировано");
-      setAdjust(null);
-    },
-    onError: () => message.error("Не удалось скорректировать"),
-  });
   const movesQuery = useQuery({
     queryKey: ["unified-movements", itemId, range?.[0]?.format("YYYY-MM-DD"), range?.[1]?.format("YYYY-MM-DD")],
     queryFn: () =>
@@ -328,15 +315,7 @@ export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?
             : []),
         ]}
       />
-      <AdjustModal
-        open={!!adjust}
-        title={adjust ? `Скорректировать ${adjust.kind === "plenka" ? "рулон" : "партию"} №${adjust.lot_id}` : ""}
-        currentValue={adjust?.kind === "plenka" ? adjust.to_length ?? undefined : undefined}
-        unitLabel={adjust?.kind === "plenka" ? "м" : "шт"}
-        loading={adjustMutation.isPending}
-        onCancel={() => setAdjust(null)}
-        onSubmit={(v) => adjustMutation.mutate(v)}
-      />
+      {adjust && <LotOperationById kind={adjust.kind} id={adjust.lot_id} op="adjust" onClose={() => setAdjust(null)} />}
     </Space>
   );
 }
