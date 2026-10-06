@@ -23,6 +23,7 @@ from app.models.events import EventType, MaterialEvent
 from app.models.production import ProductionLine, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.units import MaterialUnit
 from app.models.users import User
+from app.services.production import report_film_m
 
 router = APIRouter(prefix="/daily-sheet", tags=["daily-sheet"])
 
@@ -101,7 +102,7 @@ def daily_sheet(
             g["produced"] += good + bad
             g["defect"] += bad
             g["passed"] += good
-        g["consumed"] += float(ln.length_m or 0) * (good + bad)
+        g["consumed"] += report_film_m(good, bad, float(ln.length_m or 0), None if r.film_used_m is None else float(r.film_used_m))
 
     # справочники плёнки
     mat = {m.id: m.name for m in db.query(Material)}
@@ -131,8 +132,9 @@ def daily_sheet(
             .join(ProductionTaskLine, ProductionTaskLineReport.task_line_id == ProductionTaskLine.id)
             .filter(ProductionTaskLineReport.material_unit_id.in_(unit_ids), ProductionTaskLineReport.reported_at < end)
         ):
-            consumed_total[rr.material_unit_id] = consumed_total.get(rr.material_unit_id, 0.0) + float(ln.length_m or 0) * (
-                float(rr.good_pieces) + float(rr.defect_pieces)
+            consumed_total[rr.material_unit_id] = consumed_total.get(rr.material_unit_id, 0.0) + report_film_m(
+                float(rr.good_pieces), float(rr.defect_pieces), float(ln.length_m or 0),
+                None if rr.film_used_m is None else float(rr.film_used_m),
             )
 
     rows = []

@@ -28,7 +28,16 @@ export type DefectDraft = { reason: string; qty: number; disposition: Dispositio
 // extra — ещё рулоны на эту же строку (другая сторона детали): left — сколько
 // метров на нём осталось, null — ещё не ввели (сохранять нельзя).
 export type ExtraRoll = { id: number; left: number | null };
-export type Entry = { good: string; pusk: number; defects: DefectDraft[]; rollId: number | null; close?: boolean; extra?: ExtraRoll[] };
+// meters — фактический расход плёнки основного рулона, м (прессы, 06.10).
+export type Entry = {
+  good: string;
+  pusk: number;
+  defects: DefectDraft[];
+  rollId: number | null;
+  close?: boolean;
+  extra?: ExtraRoll[];
+  meters?: number | null;
+};
 export type FastLine = { task: ProductionTask; line: ProductionTaskLine; onMachine: boolean; today: boolean };
 
 const EMPTY: Entry = { good: "", pusk: 0, defects: [], rollId: null };
@@ -125,6 +134,9 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
   );
   const hasPusk = reasons.some((r) => r.code === PUSK_REASON);
   const requiresRoll = areaRequiresRoll(areasQuery.data, area);
+  // Плёнку режут на участке (прессы): мастер вводит штуки и сколько метров
+  // ушло — средний расход на панель программа считает сама (06.10).
+  const filmByMeters = !!areasQuery.data?.find((a) => a.code === area)?.film_cut_on_site;
 
   const todayLines = useMemo(() => new Set((slotsQuery.data ?? []).map((s) => s.task_line_id)), [slotsQuery.data]);
   const lines: FastLine[] = useMemo(() => {
@@ -216,6 +228,11 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
               defect_reason: d.reason, defect_disposition: d.disposition,
             });
           }
+          // Фактический расход основного рулона — на первую запись, на
+          // остальные (брак) — 0, иначе брак посчитается ещё и по норме.
+          if (filmByMeters && e.meters != null && fl.line.material !== null) {
+            payloads.forEach((pl, i) => (pl.film_used_m = i === 0 ? e.meters : 0));
+          }
           // Ещё рулоны (как в подробном отчёте): те же детали, расход — из
           // остатка, который ввёл мастер; counts_toward_line=false — не задваивать план.
           for (const x of e.extra ?? []) {
@@ -259,5 +276,14 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
     reasons,
     hasPusk,
     requiresRoll,
+    filmByMeters,
+  };
+}
+
+/** Средний расход на панель: метры (с браком) на годную и на все панели. */
+export function metersPerPanel(meters: number, good: number, defect: number) {
+  return {
+    perGood: good > 0 ? meters / good : null,
+    perAll: good + defect > 0 ? meters / (good + defect) : null,
   };
 }

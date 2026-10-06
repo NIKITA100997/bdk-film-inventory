@@ -1763,6 +1763,14 @@ def return_preview(
     expected = (
         compute_expected_return_length_m(float(unit.length_m), float(line.length_m), good, defect) if line else None
     )
+    # Фактический расход (прессы, 06.10) — если хоть в одном отчёте рулона
+    # метры введены, остаток считаем по отчётам рулона, а не по норме.
+    if line and db.query(ProductionTaskLineReport.id).filter(
+        ProductionTaskLineReport.material_unit_id == unit_id, ProductionTaskLineReport.film_used_m.isnot(None)
+    ).first():
+        from app.api.production import _unit_consumed_length_m
+
+        expected = max(0.0, float(unit.length_m) - _unit_consumed_length_m(db, unit_id))
     return ReturnPreviewOut(expected_return_length_m=expected, good_pieces=good, defect_pieces=defect)
 
 

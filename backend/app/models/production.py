@@ -252,6 +252,9 @@ class ProductionTaskLineReport(Base):
     defect_pieces: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     defect_reason: Mapped[str | None] = mapped_column(ForeignKey("write_off_reasons.code"), nullable=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Фактический расход плёнки, м (06.10, прессы: мастер вводит штуки и
+    # метры). Пусто — расход по норме: длина детали × (годные + брак).
+    film_used_m: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     # Раздел про окутку в 2 захода — засчитывается ли good_pieces/
     # defect_pieces этого отчёта в остаток СТРОКИ ЗАДАНИЯ участка
     # (produced_good_pieces/remaining_pieces, api/production.py::

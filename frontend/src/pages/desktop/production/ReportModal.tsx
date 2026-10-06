@@ -7,6 +7,7 @@ import { createTaskLineReportsBatch, type ProductionTaskLine, type ProductionTas
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { listPartUnits } from "../../../api/partUnits";
 import { listParts } from "../../../api/dictionaries";
+import { listAreas } from "../../../api/areas";
 import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
 import { apiErrorMessage } from "../../../utils/apiError";
 
@@ -45,6 +46,9 @@ export default function ReportModal({
   const navigate = useNavigate();
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const hasPartStages = !!area && (partsQuery.data ?? []).some((p) => p.stages.some((s) => s.area === area));
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  // Плёнку режут на участке (прессы): мастер вводит и метры (06.10).
+  const filmByMeters = !!area && !!areasQuery.data?.find((a) => a.code === area)?.film_cut_on_site;
   const partUnitsQuery = useQuery({
     queryKey: ["part-units", "area", area],
     queryFn: () => listPartUnits({ area, status_: "Выдан_участку" }),
@@ -123,6 +127,7 @@ export default function ReportModal({
       assignment_id: number | null;
       material_unit_id: number | null;
       good_pieces: number;
+      film_used_m?: number | null;
     }) => {
       const payloads: ProductionTaskLineReportCreate[] = [];
       if (v.good_pieces > 0) {
@@ -195,6 +200,13 @@ export default function ReportModal({
           counts_toward_line: false,
           note: `Остаток указан вручную: ${extra.remainingM} м`,
           kind: "remainder",
+        });
+      }
+      // Фактический расход основного рулона (прессы) — на первую запись,
+      // на брак — 0, иначе брак посчитается ещё и по норме.
+      if (filmByMeters && v.film_used_m != null && payloads.length > 0) {
+        payloads.forEach((pl, i) => {
+          if (pl.kind !== "remainder") pl.film_used_m = i === 0 ? v.film_used_m : 0;
         });
       }
       if (payloads.length > 0) await createTaskLineReportsBatch(taskId, line.id, payloads);
@@ -315,6 +327,15 @@ export default function ReportModal({
         <Form.Item name="good_pieces" label="Хороших деталей, шт" rules={[{ required: true }]}>
           <InputNumber min={0} style={{ width: "100%" }} />
         </Form.Item>
+        {filmByMeters && line.material !== null && (
+          <Form.Item
+            name="film_used_m"
+            label="Израсходовано плёнки, м"
+            extra="Плёнку режут на участке: расход рулона — по этим метрам, средний расход на панель программа считает сама"
+          >
+            <InputNumber min={0} style={{ width: "100%" }} placeholder="по норме, если пусто" />
+          </Form.Item>
+        )}
         {availableForLine != null && (
           <Space size={4} style={{ marginTop: -8, marginBottom: 16 }}>
             {availableForLine > 0 ? (

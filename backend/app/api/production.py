@@ -393,12 +393,15 @@ def _unit_consumed_length_m(db: Session, unit_id: int) -> float:
             ProductionTaskLineReport.good_pieces,
             ProductionTaskLineReport.defect_pieces,
             ProductionTaskLine.length_m,
+            ProductionTaskLineReport.film_used_m,
         )
         .join(ProductionTaskLine, ProductionTaskLineReport.task_line_id == ProductionTaskLine.id)
         .filter(ProductionTaskLineReport.material_unit_id == unit_id)
         .all()
     )
-    return compute_unit_consumed_length_m([(float(g), float(d), float(l)) for g, d, l in rows])
+    return compute_unit_consumed_length_m(
+        [(float(g), float(d), float(l), None if f is None else float(f)) for g, d, l, f in rows]
+    )
 
 
 def _line_issued_units_map(db: Session, line_ids: list[int]) -> dict[int, list[MaterialUnit]]:
@@ -1579,6 +1582,23 @@ def _stamp_report_line(
         r.line_id = line_id
 
 
+def _stamp_report_film(payload: ProductionTaskLineReportCreate, reports: list[ProductionTaskLineReport]) -> None:
+    """Фактический расход плёнки (06.10, прессы): payload мог разложиться
+    на несколько строк отчёта (FIFO по партиям) — метры делим по штукам."""
+    if payload.film_used_m is None or not reports:
+        return
+    pieces = [float(r.good_pieces or 0) + float(r.defect_pieces or 0) for r in reports]
+    total = sum(pieces)
+    left = round(float(payload.film_used_m), 2)
+    for i, r in enumerate(reports):
+        if i == len(reports) - 1:
+            share = left
+        else:
+            share = round(float(payload.film_used_m) * pieces[i] / total, 2) if total else 0.0
+            left = round(left - share, 2)
+        r.film_used_m = share
+
+
 @router.post(
     "/production-tasks/{task_id}/lines/{line_id}/reports",
     response_model=ProductionTaskLineReportOut,
@@ -1603,6 +1623,7 @@ def create_task_line_report(
     предполагается, отчёт принимается без assignment_id."""
     reports = _build_task_line_report(task_id, line_id, payload, db, user)
     _stamp_report_line(db, task_id, payload, reports)
+    _stamp_report_film(payload, reports)
     db.commit()
     for r in reports:
         db.refresh(r)
@@ -1641,6 +1662,7 @@ def create_task_line_reports_batch(
     for payload in payloads:
         built = _build_task_line_report(task_id, line_id, payload, db, user)
         _stamp_report_line(db, task_id, payload, built)
+        _stamp_report_film(payload, built)
         reports.extend(built)
     db.commit()
     for r in reports:

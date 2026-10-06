@@ -32,6 +32,7 @@ import {
   type DefectDraft,
   type Disposition,
   type FastLine,
+  metersPerPanel,
 } from "./useFastReport";
 import type { ProductionTaskLine } from "../../../../api/production";
 import { rollNo } from "../../../../utils/lotNo";
@@ -330,6 +331,7 @@ function EntryBadge({ r, line }: { r: R; line: ProductionTaskLine }) {
     <Tag color="green" style={{ marginInlineEnd: 0, fontWeight: 700 }}>
       {+e.good || 0}
       {defect ? ` · брак ${defect}` : ""}
+      {e.meters != null ? ` · ${e.meters} м` : ""}
       {e.close ? " · закрыть" : ""}
     </Tag>
   );
@@ -807,6 +809,30 @@ function LineSheet({
                 value={e.pusk > 3 ? e.pusk : null}
                 onChange={(v) => r.setEntry(fl.line, { pusk: v ?? 0 })}
               />
+            </Space>
+          )}
+          {r.filmByMeters && fl.line.material !== null && (
+            <Space wrap>
+              <Typography.Text>Израсходовано плёнки, м:</Typography.Text>
+              <InputNumber
+                min={0}
+                inputMode="decimal"
+                size="large"
+                style={{ width: 120 }}
+                value={e.meters ?? undefined}
+                onChange={(v) => r.setEntry(fl.line, { meters: v ?? null })}
+              />
+              {e.meters != null &&
+                (() => {
+                  const all = defect + e.pusk;
+                  const m = metersPerPanel(e.meters, +e.good || 0, all);
+                  return (
+                    <Typography.Text type="secondary">
+                      {m.perGood != null ? `≈ ${fmt(m.perGood)} м на годную панель` : ""}
+                      {m.perAll != null && all > 0 ? ` · ${fmt(m.perAll)} м на панель с браком` : ""}
+                    </Typography.Text>
+                  );
+                })()}
             </Space>
           )}
           <Space wrap>

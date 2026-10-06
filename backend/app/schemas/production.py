@@ -233,6 +233,8 @@ class ProductionTaskLineReportCreate(BaseModel):
     # Вид записи: "remainder" — доп. рулон / остаток указан вручную (штуки
     # подобраны под остаток рулона). Остальные виды ставит сервер.
     kind: Literal["remainder"] | None = None
+    # Фактический расход плёнки, м (прессы). Пусто — по норме.
+    film_used_m: float | None = Field(default=None, ge=0)
 
 
 class ProductionTaskLineReportOut(BaseModel):
@@ -251,6 +253,7 @@ class ProductionTaskLineReportOut(BaseModel):
     # деталь физически ещё не готова" (см. модель ProductionTaskLineReport).
     counts_toward_line: bool = True
     kind: str | None = None
+    film_used_m: float | None = None
 
 
 class ProductionTaskLineAssignmentCreate(BaseModel):

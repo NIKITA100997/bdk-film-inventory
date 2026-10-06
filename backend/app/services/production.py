@@ -162,7 +162,15 @@ def reserved_area_m2_by_group(lines: list[TaskLineForReserve]) -> dict[tuple[int
     return {key: round(value, 3) for key, value in totals.items()}
 
 
-def compute_unit_consumed_length_m(reports: list[tuple[float, float, float]]) -> float:
+def report_film_m(good_pieces: float, defect_pieces: float, length_m_per_piece: float, film_used_m: float | None = None) -> float:
+    """Расход плёнки одного отчёта: фактический, если мастер его ввёл
+    (прессы, 06.10), иначе по норме — длина детали × (годные + брак)."""
+    if film_used_m is not None:
+        return float(film_used_m)
+    return length_m_per_piece * (good_pieces + defect_pieces)
+
+
+def compute_unit_consumed_length_m(reports: list[tuple]) -> float:
     """Сколько метров конкретного рулона (MaterialUnit) уже израсходовано
     (раздел про цифровой аналог "Ежедневки") — суммарно по ВСЕМ отчётам,
     когда-либо ссылавшимся на этот рулон, а не только за один день:
@@ -171,8 +179,9 @@ def compute_unit_consumed_length_m(reports: list[tuple[float, float, float]]) ->
     length_m_per_piece) отдельного отчёта; length_m_per_piece свой у
     каждого, т.к. один рулон технически может быть довыдан на другую
     деталь/строку задания. Брак расходует плёнку так же, как и хорошая
-    деталь — тот же принцип, что compute_expected_return_length_m выше."""
-    return sum(length_m_per_piece * (good_pieces + defect_pieces) for good_pieces, defect_pieces, length_m_per_piece in reports)
+    деталь — тот же принцип, что compute_expected_return_length_m выше.
+    Четвёртый элемент (необязательный) — фактический расход отчёта, м."""
+    return sum(report_film_m(*r) for r in reports)
 
 
 def compute_expected_return_length_m(

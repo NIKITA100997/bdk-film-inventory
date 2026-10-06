@@ -255,6 +255,8 @@ export interface ProductionTaskLineReportCreate {
   counts_toward_line?: boolean;
   /** "remainder" — доп. рулон / остаток указан вручную (штуки под остаток рулона). */
   kind?: "remainder" | null;
+  /** Фактический расход плёнки, м (прессы, 06.10). Пусто — по норме. */
+  film_used_m?: number | null;
 }
 
 export const listProductionLines = async (): Promise<ProductionLine[]> =>

@@ -28,6 +28,7 @@ from app.models.production_orders import ProductionOrder, ProductionOrderLine
 from app.models.purchasing import PurchaseRequest
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
+from app.services.production import report_film_m
 
 
 def _period(date_from: date, date_to: date):
@@ -113,7 +114,10 @@ def film_plan_fact(db: Session, date_from: date, date_to: date, area: str | None
             .filter(ProductionTaskLineReport.material_unit_id.in_(unit_ids))
         ):
             line_len[ln.id] = float(ln.length_m or 0)
-            weight[r.material_unit_id][ln.id] += (float(r.good_pieces) + float(r.defect_pieces or 0)) * float(ln.length_m or 0)
+            weight[r.material_unit_id][ln.id] += report_film_m(
+                float(r.good_pieces), float(r.defect_pieces or 0), float(ln.length_m or 0),
+                None if r.film_used_m is None else float(r.film_used_m),
+            )
         closed: dict[int, float] = defaultdict(float)
         for ev in db.query(MaterialEvent).filter(
             MaterialEvent.unit_id.in_(unit_ids), MaterialEvent.event_type.in_([EventType.VOZVRAT, EventType.SPISANIE])

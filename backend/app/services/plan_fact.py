@@ -67,12 +67,15 @@ def fetch_consumed_length_by_unit(db: Session, unit_ids: list[int]) -> dict[int,
             ProductionTaskLineReport.good_pieces,
             ProductionTaskLineReport.defect_pieces,
             ProductionTaskLine.length_m,
+            ProductionTaskLineReport.film_used_m,
         )
         .join(ProductionTaskLine, ProductionTaskLineReport.task_line_id == ProductionTaskLine.id)
         .filter(ProductionTaskLineReport.material_unit_id.in_(unit_ids))
         .all()
     )
-    by_unit: dict[int, list[tuple[float, float, float]]] = {}
-    for unit_id, good, defect, length_m in rows:
-        by_unit.setdefault(unit_id, []).append((float(good or 0), float(defect or 0), float(length_m)))
+    by_unit: dict[int, list[tuple]] = {}
+    for unit_id, good, defect, length_m, used in rows:
+        by_unit.setdefault(unit_id, []).append(
+            (float(good or 0), float(defect or 0), float(length_m), None if used is None else float(used))
+        )
     return {uid: compute_unit_consumed_length_m(reps) for uid, reps in by_unit.items()}

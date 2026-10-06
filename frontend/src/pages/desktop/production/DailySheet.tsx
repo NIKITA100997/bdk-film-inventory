@@ -118,6 +118,8 @@ export default function DailySheet() {
             { title: "Передано", align: "right", render: (_, r) => n(r.passed) },
             { title: "Расход плёнки, м", align: "right", render: (_, r) => n(r.consumed_m) },
             { title: "Остаток, м", align: "right", render: (_, r) => <b>{n(r.remaining_m)}</b> },
+            // средний расход на годную панель — брак входит в расход (06.10)
+            { title: "м на панель", align: "right", render: (_, r) => (r.passed > 0 ? n(r.consumed_m / r.passed) : "—") },
           ]}
           summary={(rows) =>
             rows.length > 1 ? (
@@ -130,6 +132,12 @@ export default function DailySheet() {
                 <Table.Summary.Cell index={3} align="right">{n(rows.reduce((s, r) => s + r.passed, 0))}</Table.Summary.Cell>
                 <Table.Summary.Cell index={4} align="right">{n(rows.reduce((s, r) => s + r.consumed_m, 0))}</Table.Summary.Cell>
                 <Table.Summary.Cell index={5} />
+                <Table.Summary.Cell index={6} align="right">
+                  {(() => {
+                    const passed = rows.reduce((s, r) => s + r.passed, 0);
+                    return passed > 0 ? n(rows.reduce((s, r) => s + r.consumed_m, 0) / passed) : "—";
+                  })()}
+                </Table.Summary.Cell>
               </Table.Summary.Row>
             ) : null
           }
