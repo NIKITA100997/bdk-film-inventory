@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Form, Input, InputNumber, Typography, Descriptions, Alert, Tag, List, Space, Modal, Select, message } from "antd";
+import { Button, Card, Form, Input, InputNumber, Typography, Descriptions, Alert, Tag, List, Space, message } from "antd";
 import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   getPartUnit,
-  writeOffPartUnit,
   advancePartUnit,
   listMakeSourceParts,
-  adjustPartUnit,
   listPartUnitEvents,
   type PartUnit,
 } from "../../api/partUnits";
 import { placePartUnit } from "../../api/partStorage";
+import LotOperationModal from "../../components/lotOps/LotOperationModal";
+import { lotFromPartUnit, type LotOp } from "../../components/lotOps/lotOps";
 import { printPartUnitLabel } from "../../api/partLabels";
 import { listParts } from "../../api/dictionaries";
 import { listUsers } from "../../api/users";
@@ -51,13 +51,11 @@ export default function PartUnitCard() {
   const [issueOpen, setIssueOpen] = useState(false);
   const makeSourcesQuery = useQuery({ queryKey: ["part-unit-make-sources"], queryFn: listMakeSourceParts });
   const [action, setAction] = useState<ActionKind>(null);
-  const [writeOffOpen, setWriteOffOpen] = useState(false);
-  const [adjustOpen, setAdjustOpen] = useState(false);
+  // «Списать» и «Скорректировать» — единое окно операций (06.10)
+  const [lotOp, setLotOp] = useState<LotOp | null>(null);
   const [scanForm] = Form.useForm<{ id: number }>();
   const [placeForm] = Form.useForm<{ location_code: string; occurred_at?: Dayjs | null }>();
   const [advanceForm] = Form.useForm<{ quantity_pieces: number; occurred_at?: Dayjs | null }>();
-  const [writeOffForm] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
-  const [adjustForm] = Form.useForm<{ actual_quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
 
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
@@ -126,32 +124,6 @@ export default function PartUnitCard() {
       message.success(`Переведена на этап «${u.stage_name}»`);
     },
     onError: () => message.error("Не удалось перевести на следующий этап"),
-  });
-
-  const writeOffMutation = useMutation({
-    mutationFn: (values: { quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
-      writeOffPartUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
-    onSuccess: (u) => {
-      setUnit(u);
-      setWriteOffOpen(false);
-      writeOffForm.resetFields();
-      qc.invalidateQueries({ queryKey: ["part-unit-events", u.id] });
-      message.success("Партия списана");
-    },
-    onError: () => message.error("Не удалось списать"),
-  });
-
-  const adjustMutation = useMutation({
-    mutationFn: (values: { actual_quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
-      adjustPartUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
-    onSuccess: (u) => {
-      setUnit(u);
-      setAdjustOpen(false);
-      adjustForm.resetFields();
-      qc.invalidateQueries({ queryKey: ["part-unit-events", u.id] });
-      message.success("Количество скорректировано");
-    },
-    onError: () => message.error("Не удалось скорректировать"),
   });
 
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
@@ -237,17 +209,14 @@ export default function PartUnitCard() {
                   </Button>
                 )}
               {unit.status !== "Списан" && (
-                <Button size="large" danger onClick={() => setWriteOffOpen(true)}>
+                <Button size="large" danger onClick={() => setLotOp("writeoff")}>
                   Списать
                 </Button>
               )}
               {canCorrect && (
                 <Button
                   size="large"
-                  onClick={() => {
-                    adjustForm.setFieldsValue({ actual_quantity_pieces: unit.quantity_pieces });
-                    setAdjustOpen(true);
-                  }}
+                  onClick={() => setLotOp("adjust")}
                 >
                   Скорректировать
                 </Button>
@@ -356,67 +325,17 @@ export default function PartUnitCard() {
         </>
       )}
 
-      <Modal
-        title="Списать партию"
-        open={writeOffOpen}
-        onCancel={() => setWriteOffOpen(false)}
-        onOk={() => writeOffForm.submit()}
-        okButtonProps={{ danger: true, loading: writeOffMutation.isPending }}
-        okText="Списать"
-        destroyOnHidden
-      >
-        <Alert style={{ marginBottom: 16 }} type="warning" showIcon message="Отменить нельзя — используйте, если партия испорчена или физически отсутствует." />
-        <Form
-          form={writeOffForm}
-          layout="vertical"
-          onFinish={(v) => writeOffMutation.mutate(v)}
-          initialValues={{ quantity_pieces: unit?.quantity_available }}
-        >
-          <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
-            <InputNumber min={0.01} max={unit?.quantity_available} step={1} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
-            <Select
-              loading={writeOffReasonsQuery.isLoading}
-              options={(writeOffReasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))}
-              placeholder="Выберите причину"
-            />
-          </Form.Item>
-          <Form.Item name="note" label="Заметка (опционально)">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <OccurredAtField />
-        </Form>
-      </Modal>
-
-      <Modal
-        title="Скорректировать количество"
-        open={adjustOpen}
-        onCancel={() => setAdjustOpen(false)}
-        onOk={() => adjustForm.submit()}
-        okButtonProps={{ loading: adjustMutation.isPending }}
-        okText="Скорректировать"
-        destroyOnHidden
-      >
-        <Alert
-          style={{ marginBottom: 16 }}
-          type="info"
-          showIcon
-          message="Формальная правка вместо изменения истории напрямую — действие добавит запись в журнал партии, причина обязательна."
+      {lotOp && unit && (
+        <LotOperationModal
+          lot={lotFromPartUnit(unit)}
+          op={lotOp}
+          onClose={() => setLotOp(null)}
+          onDone={(u) => {
+            setUnit(u as PartUnit);
+            qc.invalidateQueries({ queryKey: ["part-unit-events", u.id] });
+          }}
         />
-        <Form form={adjustForm} layout="vertical" onFinish={(v) => adjustMutation.mutate(v)}>
-          <Form.Item name="actual_quantity_pieces" label="Фактическое количество, шт" rules={[{ required: true }]}>
-            <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="reason" label="Причина" rules={[{ required: true, message: "Укажите причину корректировки" }]}>
-            <Input placeholder="Например: опечатка при вводе" />
-          </Form.Item>
-          <Form.Item name="note" label="Заметка (опционально)">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <OccurredAtField />
-        </Form>
-      </Modal>
+      )}
     </Card>
   );
 }

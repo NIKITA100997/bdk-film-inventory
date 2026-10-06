@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Alert, Button, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from "antd";
+import { Alert, Button, Checkbox, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Dayjs } from "dayjs";
 import OccurredAtField from "../OccurredAtField";
@@ -8,10 +8,11 @@ import LocationSelect from "../LocationSelect";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { apiErrorMessage } from "../../utils/apiError";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
-import { adjustUnit, getReturnPreview, getUnit, placeUnit, returnUnit, writeOffUnit } from "../../api/units";
-import { adjustPartUnit, getPartUnit, returnPartUnit, writeOffPartUnit } from "../../api/partUnits";
+import { adjustUnit, getReturnPreview, getUnit, placeUnit, returnUnit, writeOffUnit, type MaterialUnit } from "../../api/units";
+import { adjustPartUnit, getPartUnit, returnPartUnit, writeOffPartUnit, type PartUnit } from "../../api/partUnits";
 import { placePartUnit } from "../../api/partStorage";
 import { suggestLocation } from "../../api/storage";
+import { listAreas } from "../../api/areas";
 import { OP_DONE, OP_LABEL, lotTitle, type LotOp, type LotRef } from "./lotOps";
 
 interface Values {
@@ -23,6 +24,8 @@ interface Values {
   // корректировка рулона: ширина и тип (рулон / штрипс)
   width_mm?: number;
   is_strip?: boolean;
+  /** возврат рулона: остаток сразу списать */
+  write_off?: boolean;
   occurred_at?: Dayjs | null;
 }
 
@@ -43,18 +46,23 @@ export default function LotOperationModal({
   lot: LotRef;
   op: LotOp;
   onClose: () => void;
-  onDone?: () => void;
+  /** Обновлённая запись партии (рулон или партия п/ф) — экрану, чтобы показать новое состояние. */
+  onDone?: (updated: MaterialUnit | PartUnit) => void;
 }) {
   const [form] = Form.useForm<Values>();
   const qc = useQueryClient();
   const film = lot.kind === "plenka";
   const unit = lot.unit;
 
+  // участок — названием, даже если экран передал код
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areaName = lot.area_name ? (areasQuery.data?.find((a) => a.code === lot.area_name)?.name ?? lot.area_name) : null;
   const reasonsQuery = useQuery({
     queryKey: ["write-off-reasons", film ? "warehouse" : "parts"],
     queryFn: () => listWriteOffReasons(film ? "warehouse" : "parts"),
-    enabled: op === "writeoff",
+    enabled: op === "writeoff" || (film && op === "return"),
   });
+  const returnWriteOff = Form.useWatch("write_off", form);
   const previewQuery = useQuery({
     queryKey: ["return-preview", lot.lot_id],
     queryFn: () => getReturnPreview(lot.lot_id),
@@ -108,7 +116,15 @@ export default function LotOperationModal({
       const id = lot.lot_id;
       if (op === "move") return film ? placeUnit(id, v.location_code!.trim(), at) : placePartUnit(id, v.location_code!.trim(), at);
       if (op === "return")
-        return film ? returnUnit(id, { actual_length_m: v.qty!, occurred_at: at }) : returnPartUnit(id, v.qty!, at);
+        return film
+          ? returnUnit(id, {
+              actual_length_m: v.qty!,
+              // рулон израсходован — остаток списывается тем же действием, без захода «на хранение»
+              write_off_reason: v.write_off ? v.reason : undefined,
+              write_off_note: v.write_off ? v.note || undefined : undefined,
+              occurred_at: at,
+            })
+          : returnPartUnit(id, v.qty!, at);
       if (op === "writeoff")
         return film
           ? writeOffUnit(id, v.reason!, v.note || undefined, at)
@@ -134,12 +150,12 @@ export default function LotOperationModal({
             occurred_at: at,
           });
     },
-    onSuccess: () => {
+    onSuccess: (updated) => {
       message.success(`${lotTitle(lot)} — ${OP_DONE[op]}`);
       // остатки, движения и карточки обоих видов
       for (const key of ["unified-lots", "unified-movements", "materials-explorer", "units", "unit", "part-units", "part-unit", "part-stock", "material-card", "storage", "part-rack-occupancy", "rack-occupancy", "storage-places", "lot-full", "return-preview"])
         qc.invalidateQueries({ queryKey: [key] });
-      onDone?.();
+      onDone?.(updated);
       onClose();
     },
     onError: (e) => message.error(apiErrorMessage(e, `Не удалось: ${OP_LABEL[op].toLowerCase()}`)),
@@ -165,7 +181,7 @@ export default function LotOperationModal({
           {fmt(lot.qty)} {unit}
           {lot.detail ? ` · ${lot.detail}` : ""}
           {lot.stage ? ` · этап «${lot.stage}»` : ""} · {lot.status.replace(/_/g, " ")}
-          {lot.area_name ? ` · ${lot.area_name}` : ""}
+          {areaName ? ` · ${areaName}` : ""}
           {lot.location_code ? ` · ${lot.location_code}` : ""}
         </Descriptions.Item>
       </Descriptions>
@@ -205,6 +221,23 @@ export default function LotOperationModal({
           >
             <InputNumber min={0} max={film ? undefined : lot.qty} step={film ? 0.1 : 1} style={{ width: "100%" }} inputMode="decimal" autoFocus />
           </Form.Item>
+        )}
+        {op === "return" && film && (
+          <>
+            <Form.Item name="write_off" valuePropName="checked" style={{ marginTop: -8 }}>
+              <Checkbox>Рулон израсходован — остаток сразу списать</Checkbox>
+            </Form.Item>
+            {returnWriteOff && (
+              <>
+                <Form.Item name="reason" label="Причина списания остатка" rules={[{ required: true, message: "Выберите причину" }]}>
+                  <Select loading={reasonsQuery.isLoading} options={(reasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))} />
+                </Form.Item>
+                <Form.Item name="note" label="Комментарий">
+                  <Input />
+                </Form.Item>
+              </>
+            )}
+          </>
         )}
 
         {op === "writeoff" && (

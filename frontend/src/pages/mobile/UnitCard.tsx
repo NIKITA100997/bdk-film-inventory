@@ -12,7 +12,6 @@ import {
   List,
   Space,
   Modal,
-  Radio,
   Select,
   Checkbox,
   message,
@@ -25,8 +24,6 @@ import {
   returnUnit,
   getReturnPreview,
   placeUnit,
-  writeOffUnit,
-  adjustUnit,
   getUnitEvents,
   getUnitReconciliation,
   linkTaskLine,
@@ -45,6 +42,8 @@ import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { listProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../api/production";
 import QrScanButton from "../../components/QrScanButton";
 import LocationSelect from "../../components/LocationSelect";
+import LotOperationModal from "../../components/lotOps/LotOperationModal";
+import { lotFromUnit, type LotOp } from "../../components/lotOps/lotOps";
 import OccurredAtField from "../../components/OccurredAtField";
 import CuttingForm from "../../components/CuttingForm";
 import { LinkTaskLineForm, LegacyNoteModal } from "../../components/TaskLineLinkControls";
@@ -118,8 +117,8 @@ export default function UnitCard() {
   const canIssue = hasPermission("units.issue");
   const [unit, setUnit] = useState<MaterialUnit | null>(null);
   const [action, setAction] = useState<ActionKind>(null);
-  const [writeOffOpen, setWriteOffOpen] = useState(false);
-  const [adjustOpen, setAdjustOpen] = useState(false);
+  // «Списать» и «Скорректировать» — единое окно операций (06.10)
+  const [lotOp, setLotOp] = useState<LotOp | null>(null);
   // Раздел про единую форму резки — после резки может остаться несколько
   // ещё не размещённых "keep"-кусков (несколько ширин из остатка сразу);
   // разместить их предлагаем по очереди, один за другим, тем же приёмом,
@@ -134,8 +133,6 @@ export default function UnitCard() {
     write_off_note?: string;
   }>();
   const returnWriteOff = Form.useWatch("write_off", returnForm);
-  const [writeOffForm] = Form.useForm<{ reason: string; note?: string }>();
-  const [adjustForm] = Form.useForm<{ actual_length_m: number; width_mm?: number; reason: string; note?: string; occurred_at?: Dayjs | null; is_strip?: boolean }>();
   const [transferWarehouseId, setTransferWarehouseId] = useState<number>();
   // Раздел про сверку рулонов в карточке единицы — раньше карточка
   // показывала только "Выдан участку", без ответа на "по какому заданию,
@@ -360,33 +357,6 @@ export default function UnitCard() {
     onError: () => message.error("Не удалось оформить возврат"),
   });
 
-  const writeOffMutation = useMutation({
-    mutationFn: (values: { reason: string; note?: string; occurred_at?: Dayjs | null }) =>
-      writeOffUnit(unit!.id, values.reason, values.note, toOccurredAtIso(values.occurred_at)),
-    onSuccess: (u) => {
-      setUnit(u);
-      setAction(null);
-      setWriteOffOpen(false);
-      writeOffForm.resetFields();
-      qc.invalidateQueries({ queryKey: ["unit-events", u.id] });
-      message.success("Единица списана");
-    },
-    onError: () => message.error("Не удалось списать"),
-  });
-
-  const adjustMutation = useMutation({
-    mutationFn: (values: { actual_length_m: number; width_mm?: number; reason: string; note?: string; occurred_at?: Dayjs | null; is_strip?: boolean }) =>
-      adjustUnit(unit!.id, { ...values, occurred_at: toOccurredAtIso(values.occurred_at) }),
-    onSuccess: (u) => {
-      setUnit(u);
-      setAdjustOpen(false);
-      adjustForm.resetFields();
-      qc.invalidateQueries({ queryKey: ["unit-events", u.id] });
-      message.success("Длина скорректирована");
-    },
-    onError: () => message.error("Не удалось скорректировать"),
-  });
-
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
   const reasonName = (code: string) => writeOffReasonsQuery.data?.find((r) => r.code === code)?.name ?? code;
 
@@ -509,17 +479,14 @@ export default function UnitCard() {
                   .filter((a) => a !== "transfer" || activeWarehouses.length > 1)
                   .map((a) =>
                     a === "writeoff" ? (
-                      <Button key={a} size="large" danger onClick={() => setWriteOffOpen(true)}>
+                      <Button key={a} size="large" danger onClick={() => setLotOp("writeoff")}>
                         {actionLabels[a]}
                       </Button>
                     ) : a === "adjust" ? (
                       <Button
                         key={a}
                         size="large"
-                        onClick={() => {
-                          adjustForm.setFieldsValue({ actual_length_m: unit.length_m, width_mm: unit.width_mm, is_strip: unit.is_strip });
-                          setAdjustOpen(true);
-                        }}
+                        onClick={() => setLotOp("adjust")}
                       >
                         {actionLabels[a]}
                       </Button>
@@ -747,79 +714,18 @@ export default function UnitCard() {
         </>
       )}
 
-      <Modal
-        title="Списать единицу"
-        open={writeOffOpen}
-        onCancel={() => setWriteOffOpen(false)}
-        onOk={() => writeOffForm.submit()}
-        okButtonProps={{ danger: true, loading: writeOffMutation.isPending }}
-        okText="Списать"
-        destroyOnHidden
-      >
-        <Alert
-          style={{ marginBottom: 16 }}
-          type="warning"
-          showIcon
-          message="Отменить нельзя — используйте, если материал испорчен или физически отсутствует."
+      {lotOp && unit && (
+        <LotOperationModal
+          lot={lotFromUnit(unit)}
+          op={lotOp}
+          onClose={() => setLotOp(null)}
+          onDone={(u) => {
+            setUnit(u as MaterialUnit);
+            setAction(null);
+            qc.invalidateQueries({ queryKey: ["unit-events", u.id] });
+          }}
         />
-        <Form form={writeOffForm} layout="vertical" onFinish={(v) => writeOffMutation.mutate(v)}>
-          <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
-            <Select
-              loading={writeOffReasonsQuery.isLoading}
-              options={(writeOffReasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))}
-              placeholder="Выберите причину"
-            />
-          </Form.Item>
-          <Form.Item name="note" label="Заметка (опционально)">
-            <Input.TextArea rows={2} placeholder="Детали для претензии поставщику" />
-          </Form.Item>
-          <OccurredAtField />
-        </Form>
-      </Modal>
-
-      <Modal
-        title="Скорректировать длину"
-        open={adjustOpen}
-        onCancel={() => setAdjustOpen(false)}
-        onOk={() => adjustForm.submit()}
-        okButtonProps={{ loading: adjustMutation.isPending }}
-        okText="Скорректировать"
-        destroyOnHidden
-      >
-        <Alert
-          style={{ marginBottom: 16 }}
-          type="info"
-          showIcon
-          message="Формальная правка вместо изменения истории напрямую — действие добавит запись в журнал единицы, причина обязательна."
-        />
-        <Form form={adjustForm} layout="vertical" onFinish={(v) => adjustMutation.mutate(v)}>
-          <Form.Item name="actual_length_m" label="Фактическая длина, м" rules={[{ required: true }]}>
-            <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
-            <InputNumber min={1} style={{ width: "100%" }} />
-          </Form.Item>
-          {/* Раздел про рулон/штрипс — ручной override автоматической
-              классификации (ширина/история резов и списаний почти всегда
-              верна сама, но редкий случай поправить можно и здесь). */}
-          <Form.Item name="is_strip" label="Тип">
-            <Radio.Group
-              options={[
-                { label: "Рулон", value: false },
-                { label: "Штрипс", value: true },
-              ]}
-              optionType="button"
-            />
-          </Form.Item>
-          <Form.Item name="reason" label="Причина" rules={[{ required: true, message: "Укажите причину корректировки" }]}>
-            <Input placeholder="Например: опечатка при вводе остатка" />
-          </Form.Item>
-          <Form.Item name="note" label="Заметка (опционально)">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <OccurredAtField />
-        </Form>
-      </Modal>
+      )}
 
       {linkOpen && (
         <Modal title={`Привязать единицу №${unit?.id} к строке задания`} open onCancel={() => setLinkOpen(false)} footer={null} destroyOnHidden>

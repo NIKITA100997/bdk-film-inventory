@@ -3,6 +3,8 @@ import { Button, Dropdown, Space, Tooltip } from "antd";
 import { DownOutlined } from "@ant-design/icons";
 import { useAuth } from "../../auth/AuthContext";
 import LotOperationModal from "./LotOperationModal";
+import type { MaterialUnit } from "../../api/units";
+import type { PartUnit } from "../../api/partUnits";
 import { OP_LABEL, lotOps, type LotOp, type LotRef } from "./lotOps";
 
 /** Действия с партией — одна кнопка «Действия ▾» (или ряд кнопок в
@@ -21,7 +23,7 @@ export default function LotActions({
   size?: "small" | "middle" | "large";
   /** Скрыть недоступные (строки таблиц) вместо серых с причиной (карточки). */
   hideUnavailable?: boolean;
-  onDone?: () => void;
+  onDone?: (updated: MaterialUnit | PartUnit) => void;
 }) {
   const { user } = useAuth();
   const has = (code: string) => !!user?.is_superuser || !!user?.permissions.includes(code);
