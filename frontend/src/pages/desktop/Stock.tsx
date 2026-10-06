@@ -7,12 +7,13 @@ import Blanks from "./Blanks";
 import PartStorage from "./PartStorage";
 import PartStock from "./production/PartStock";
 import PartUnits from "./production/PartUnits";
+import { FgMovesTab, FgStockTab } from "./FinishedGoodsStock";
 import GeneralStock from "./GeneralStock";
 import StoragePlaces from "./StoragePlaces";
 import { LotsTab, MovementsPanel } from "./StockLotsMovements";
 import { MaterialMovesTab, MaterialsStockTab } from "./MaterialsStock";
 
-export type StockKind = "film" | "pf" | "materials" | "all";
+export type StockKind = "film" | "pf" | "materials" | "fg" | "all";
 export type StockTab = "items" | "lots" | "free" | "movements" | "map";
 
 /** Остатки — один экран на плёнку, п/ф и материалы вместо четырёх («Остатки плёнки»,
@@ -38,6 +39,8 @@ export default function Stock() {
     ...(canPf ? [{ value: "pf" as const, label: "П/ф" }] : []),
     // Материалы (МДФ, пенопласт, клей, кромка…) — остаток одним числом.
     { value: "materials", label: "Материалы" },
+    // готовая продукция (06.10): приход — из отчёта упаковки, расход — отгрузка
+    { value: "fg", label: "Изделия" },
     ...(canPf ? [{ value: "all" as const, label: "Всё" }] : []),
   ];
   // По умолчанию — свой вид: у кого нет работы с плёнкой, но есть п/ф, — п/ф.
@@ -63,6 +66,10 @@ export default function Stock() {
       { key: "map", label: "Стеллажи" },
     ],
     materials: [
+      { key: "items", label: "Остатки" },
+      { key: "movements", label: "Движения" },
+    ],
+    fg: [
       { key: "items", label: "Остатки" },
       { key: "movements", label: "Движения" },
     ],
@@ -113,6 +120,8 @@ export default function Stock() {
       ) : (
         <PartStorage />
       );
+  } else if (kind === "fg") {
+    content = tab === "movements" ? <FgMovesTab /> : <FgStockTab />;
   } else if (kind === "materials") {
     content = tab === "movements" ? <MaterialMovesTab /> : <MaterialsStockTab />;
   } else {

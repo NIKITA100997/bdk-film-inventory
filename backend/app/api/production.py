@@ -96,6 +96,7 @@ from app.services.production import (
     distribute_group_shortfall,
 )
 from app.services.width_analogs import equivalent_widths
+from app.services.finished_goods import receive_from_report
 
 router = APIRouter(tags=["production"])
 
@@ -1132,6 +1133,8 @@ def _build_operation_report(
     )
     db.add(report)
     db.flush()
+    # последняя операция изделия (упаковка) — на склад готовой продукции (06.10)
+    receive_from_report(db, line=line, stage=stage, report=report, user_id=user.id)
     return [report]
 
 

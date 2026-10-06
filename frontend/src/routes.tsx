@@ -27,6 +27,7 @@ import Reconciliation from "./pages/desktop/Reconciliation";
 import AreasAndLines from "./pages/desktop/AreasAndLines";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
 import OrderReadiness from "./pages/desktop/OrderReadiness";
+import Shipments from "./pages/desktop/Shipments";
 import Planner from "./pages/desktop/production/Planner";
 import Nomenclature from "./pages/desktop/Nomenclature";
 import ItemCard, { MaterialCardRedirect, PartCardRedirect } from "./pages/desktop/ItemCard";
@@ -227,6 +228,14 @@ const appPageRoutes = (
     <Route
       path="/purchasing"
       element={<RequirePermission permissions={["purchasing.manage"]}><Purchasing /></RequirePermission>}
+    />
+    <Route
+      path="/shipments"
+      element={
+        <RequirePermission permissions={["fg.ship", "sales_calculator.view", "production_tasks.manage", "production_tasks.view"]}>
+          <Shipments />
+        </RequirePermission>
+      }
     />
     <Route
       path="/order-readiness"

@@ -87,3 +87,4 @@ __all__ = [
     "ItemPrice",
 ]
 from app.models.part_counts import PartCountSession, PartCountLine
+from app.models.finished_goods import FgMove, FgShipment
