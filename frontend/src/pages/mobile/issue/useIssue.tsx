@@ -296,6 +296,9 @@ export function useIssue() {
   // Раздел про отключение распределения по дням — для такого участка
   // строка в очереди "week" не помечается как "не распределено" (это её
   // нормальное постоянное состояние, а не сигнал забытой распределения).
+  // Участки, с которых остатки плёнки не возвращаются — возврата не ждём.
+  const areaNoReturn = (code: string | null | undefined) =>
+    !!code && !!areasQuery.data?.find((a) => a.code === code)?.film_no_return;
   const areaRequiresDailyPlan = (code: string) => areasQuery.data?.find((a) => a.code === code)?.requires_daily_plan ?? true;
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
   const taskOptions = (tasksQuery.data ?? [])
@@ -494,7 +497,7 @@ export function useIssue() {
     const map = new Map<number, { task: ProductionTask; units: ProductionTaskLineIssuedUnit[] }>();
     for (const { task, line } of activeLines) {
       if (line.remaining_pieces > 0) continue;
-      const outstanding = line.issued_units.filter((u) => u.status === "Выдан_участку");
+      const outstanding = line.issued_units.filter((u) => u.status === "Выдан_участку" && !areaNoReturn(u.area));
       if (outstanding.length === 0) continue;
       const entry = map.get(task.id) ?? { task, units: [] };
       const seen = new Set(entry.units.map((u) => u.id));
@@ -502,7 +505,8 @@ export function useIssue() {
       map.set(task.id, entry);
     }
     return [...map.values()];
-  }, [activeLines]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLines, areasQuery.data]);
 
   // --- Выбранная потребность: авто-подбор точного/донор-штрипса сразу
   // после выбора строки в очереди, без лишнего клика "искать".
@@ -825,6 +829,9 @@ export function useIssue() {
     // держим сами единицы по обеим группам, чтобы вывести кликабельный
     // номер каждого рулона (провалиться в его карточку), не только итог.
     const stillOutUnits: ProductionTaskLineIssuedUnit[] = [];
+    // Участок без возврата: рулон у участка, но «к сдаче» его не ждём.
+    let atArea = 0;
+    const atAreaUnits: ProductionTaskLineIssuedUnit[] = [];
     const backInStockUnits: ProductionTaskLineIssuedUnit[] = [];
     for (const u of units) {
       const remaining = u.remaining_length_m ?? u.length_m;
@@ -832,6 +839,9 @@ export function useIssue() {
       if (u.status === "На_хранении") {
         backInStock += remaining;
         backInStockUnits.push(u);
+      } else if (areaNoReturn(u.area)) {
+        atArea += remaining;
+        atAreaUnits.push(u);
       } else {
         stillOut += remaining;
         stillOutUnits.push(u);
@@ -843,6 +853,8 @@ export function useIssue() {
       backInStock: Math.round(backInStock * 100) / 100,
       stillOutUnits,
       backInStockUnits,
+      atArea: Math.round(atArea * 100) / 100,
+      atAreaUnits,
     };
   };
 

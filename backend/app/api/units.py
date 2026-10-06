@@ -1694,6 +1694,43 @@ def cut_unit(
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 
+@router.post("/{unit_id}/consume", response_model=MaterialUnitOut)
+def consume_unit(
+    unit_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.return")),
+) -> MaterialUnit:
+    """Рулон израсходован участком, остатки с которого на склад не
+    возвращаются (06.10: Фабрика, прессы): раскрой до нуля — расход, не
+    брак, в «Брак и списания» не попадает."""
+    unit = _get_storable_unit(db, unit_id)
+    if unit.status != UnitStatus.VYDAN_UCHASTKU:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Отметить израсходованным можно только рулон, выданный участку")
+    area = db.get(Area, unit.area) if unit.area else None
+    if area is None or not area.film_no_return:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Участок возвращает остатки плёнки на склад — примите возврат, а не отмечайте рулон израсходованным",
+        )
+    try:
+        outcome = cut_to_length(unit, float(unit.length_m))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    unit.length_m = outcome.parent_length_m
+    unit.status = outcome.parent_status
+    record_event(
+        db,
+        unit=unit,
+        event_type=outcome.parent_event.event_type,
+        user_id=user.id,
+        quantity_delta_m=outcome.parent_event.quantity_delta_m,
+        from_length=outcome.parent_event.from_length,
+        to_length=outcome.parent_event.to_length,
+    )
+    db.commit()
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+
+
 @router.get("/{unit_id}/return-preview", response_model=ReturnPreviewOut)
 def return_preview(
     unit_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)

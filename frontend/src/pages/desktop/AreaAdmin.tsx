@@ -37,6 +37,7 @@ export default function AreaAdmin() {
     big_batch_area?: string;
     big_batch_min_pieces?: number | null;
     close_without_reports?: boolean;
+    film_no_return?: boolean;
     pay_mode?: "piece" | "shift" | null;
     piece_rate?: number | null;
     shift_rate?: number | null;
@@ -90,6 +91,7 @@ export default function AreaAdmin() {
       big_batch_area?: string | null;
       big_batch_min_pieces?: number | null;
       close_without_reports?: boolean;
+      film_no_return?: boolean;
       pay_mode?: "piece" | "shift" | null;
       piece_rate?: number | null;
       shift_rate?: number | null;
@@ -101,6 +103,7 @@ export default function AreaAdmin() {
         big_batch_area: v.big_batch_area ?? "",
         big_batch_min_pieces: v.big_batch_min_pieces ?? 0,
         close_without_reports: v.close_without_reports,
+        film_no_return: v.film_no_return,
         // пусто — снять (на сервере "" / 0 — «не задано»)
         pay_mode: v.pay_mode ?? "",
         piece_rate: v.piece_rate ?? 0,
@@ -258,6 +261,7 @@ export default function AreaAdmin() {
                   {a.film_cut_on_site && <Tag color="blue">режут на участке</Tag>}
                   {!!a.film_allowance_mm && <Tag>припуск +{a.film_allowance_mm} мм</Tag>}
                   {a.close_without_reports && <Tag color="default">без отчётов — закрытие целиком</Tag>}
+                  {a.film_no_return && <Tag color="default">остатки плёнки не возвращают</Tag>}
                   {a.pay_mode === "piece" && <Tag color="green">сдельно{a.piece_rate ? ` ${a.piece_rate} ₽/шт` : ""}</Tag>}
                   {a.pay_mode === "shift" && (
                     <Tag color="green">
@@ -299,6 +303,7 @@ export default function AreaAdmin() {
                         big_batch_area: a.big_batch_area ?? undefined,
                         big_batch_min_pieces: a.big_batch_min_pieces,
                         close_without_reports: a.close_without_reports,
+                        film_no_return: a.film_no_return,
                         pay_mode: a.pay_mode,
                         piece_rate: a.piece_rate,
                         shift_rate: a.shift_rate,
@@ -426,6 +431,13 @@ export default function AreaAdmin() {
           <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
             Как на Фабрике: мастер не вносит отчёты, плёнка списывается метражом; когда сделано — «Закрыть: всё
             сделано», строки засчитываются, задание уходит в архив.
+          </Typography.Paragraph>
+          <Form.Item name="film_no_return" valuePropName="checked">
+            <Checkbox>Остатки плёнки на склад не возвращаются</Checkbox>
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+            Рулоны и штрипсы расходуют до конца. В «Выдаче» вместо «Принять ПЛ-…» — «ПЛ-… израсходован»: рулон
+            списывается до нуля как расход, не брак; возврата от участка не ждём.
           </Typography.Paragraph>
           <Form.Item
             name="film_allowance_mm"

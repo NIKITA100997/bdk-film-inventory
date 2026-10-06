@@ -7,6 +7,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Popconfirm,
   Popover,
   Select,
   Space,
@@ -18,6 +19,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import ActionIcon from "../../../components/ActionIcon";
 import { toOccurredAtIso } from "../../../utils/occurredAt";
 import {
+  consumeUnit,
   getReturnPreview,
   placeUnit,
   printLabel,
@@ -25,6 +27,7 @@ import {
 } from "../../../api/units";
 import { suggestLocation } from "../../../api/storage";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
+import { listAreas } from "../../../api/areas";
 import {
   type ProductionTaskLineIssuedUnit,
 } from "../../../api/production";
@@ -117,6 +120,9 @@ export function AcceptStockAction({
 
 export function AcceptReturnButton({ unit }: { unit: ProductionTaskLineIssuedUnit }) {
   const [open, setOpen] = useState(false);
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const noReturn = !!unit.area && !!areasQuery.data?.find((a) => a.code === unit.area)?.film_no_return;
+  if (noReturn) return <ConsumeUnitButton unit={unit} />;
   return (
     <>
       <Button size="small" type="primary" onClick={() => setOpen(true)}>
@@ -124,6 +130,36 @@ export function AcceptReturnButton({ unit }: { unit: ProductionTaskLineIssuedUni
       </Button>
       {open && <AcceptReturnModal unit={unit} onClose={() => setOpen(false)} />}
     </>
+  );
+}
+
+/** Участок, с которого остатки плёнки не возвращаются (Фабрика, прессы):
+ * вместо приёма возврата — «израсходован», рулон списывается до нуля как
+ * расход (не брак). Нажимают, когда участок сообщил, что рулон кончился. */
+function ConsumeUnitButton({ unit }: { unit: ProductionTaskLineIssuedUnit }) {
+  const qc = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: () => consumeUnit(unit.id),
+    onSuccess: () => {
+      message.success(`${rollNo(unit.id)} израсходован`);
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      qc.invalidateQueries({ queryKey: ["units"] });
+    },
+    onError: (e) => message.error(issueErrorMessage(e, "Не удалось отметить рулон израсходованным")),
+  });
+  const left = unit.remaining_length_m ?? unit.length_m;
+  return (
+    <Popconfirm
+      title={`${rollNo(unit.id)} израсходован?`}
+      description={`Остатки с участка не возвращаются — рулон (${unit.length_m} м на складе по учёту, по отчётам осталось ${left} м) спишется до нуля как расход, не брак.`}
+      okText="Израсходован"
+      cancelText="Отмена"
+      onConfirm={() => mutation.mutate()}
+    >
+      <Button size="small" loading={mutation.isPending}>
+        {rollNo(unit.id)} израсходован
+      </Button>
+    </Popconfirm>
   );
 }
 

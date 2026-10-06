@@ -401,6 +401,13 @@ export interface ReturnRequest {
   write_off_note?: string;
 }
 
+// Рулон израсходован участком, с которого остатки не возвращаются:
+// раскрой до нуля — расход, не брак.
+export async function consumeUnit(unitId: number): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/consume`);
+  return data;
+}
+
 export async function returnUnit(unitId: number, payload: ReturnRequest): Promise<MaterialUnit> {
   const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/return`, payload);
   return data;

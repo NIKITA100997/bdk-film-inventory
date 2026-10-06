@@ -387,7 +387,7 @@ export default function Issue() {
                 // "0 м нужно" (бесполезно, раз уже выдано целиком), а факт:
                 // сколько выдано / сколько реально израсходовано по отчётам
                 // / сколько ещё физически должно вернуться на склад.
-                const { consumed, stillOut, backInStock, stillOutUnits, backInStockUnits } = lineActuals(row.line);
+                const { consumed, stillOut, backInStock, stillOutUnits, backInStockUnits, atArea, atAreaUnits } = lineActuals(row.line);
                 return (
                   <div style={{ fontSize: 11.5, lineHeight: 1.6 }}>
                     <div>Выдано: {row.line.issued_length_m} м</div>
@@ -396,6 +396,17 @@ export default function Issue() {
                       <div style={{ color: "#D46B08" }}>
                         К сдаче: {stillOut} м ·{" "}
                         {stillOutUnits.map((u, i) => (
+                          <span key={u.id}>
+                            {i > 0 && ", "}
+                            <UnitLink id={u.id} />
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {atAreaUnits.length > 0 && (
+                      <div style={{ color: "#8C8C8C" }}>
+                        У участка (не возвращают): {atArea} м ·{" "}
+                        {atAreaUnits.map((u, i) => (
                           <span key={u.id}>
                             {i > 0 && ", "}
                             <UnitLink id={u.id} />

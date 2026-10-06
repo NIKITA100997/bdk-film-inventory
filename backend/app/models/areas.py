@@ -63,6 +63,10 @@ class Area(Base):
     # По строкам не отчитываются (03.10, раньше — код «fabrika» во фронте):
     # задание закрывают целиком «всё сделано», плёнка списывается метражом.
     close_without_reports: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Остатки плёнки на склад не возвращаются (06.10: Фабрика, прессы) —
+    # рулон/штрипс расходуют до конца, склад отмечает его «израсходован»
+    # (раскрой до нуля, расход — не брак) и возврата не ждёт.
+    film_no_return: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # Оплата работ (05.10, себестоимость по участкам): "piece" — сдельно,
     # piece_rate ₽ за годную штуку (операция может задать свою); "shift" —
     # за смену: shift_rate ₽ за смену на человека × shift_headcount человек ×
