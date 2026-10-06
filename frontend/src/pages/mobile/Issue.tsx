@@ -289,6 +289,8 @@ export default function Issue() {
             ),
             key: "badge",
             width: 56,
+            // планшет (06.10): что за строка — всегда на виду, действия — справа
+            fixed: "left",
             render: (_, row) =>
               row.kind === "manual" ? (
                 <Tooltip title="Выдано вручную — без привязки к заданию">
@@ -324,6 +326,7 @@ export default function Issue() {
             title: "Статус",
             key: "status",
             width: 108,
+            fixed: "left",
             render: (_, row) =>
               row.kind === "manual" ? (
                 <Tag color="green">✅ вручную</Tag>
@@ -338,6 +341,7 @@ export default function Issue() {
             title: "Деталь",
             key: "part",
             width: 190,
+            fixed: "left",
             render: (_, row) => (row.kind === "manual" ? "—" : (row.line.part_name ?? "Деталь без названия")),
           },
           {
@@ -427,6 +431,7 @@ export default function Issue() {
             title: "Действия",
             key: "actions",
             width: 150,
+            fixed: "right",
             render: (_, row) => {
               if (row.kind === "manual") {
                 return (

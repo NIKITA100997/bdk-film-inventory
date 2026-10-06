@@ -96,7 +96,10 @@ export function useIssue() {
     } catch {
       /* нет хранилища */
     }
-    return typeof window !== "undefined" && window.innerWidth < 992 ? "cards" : "table";
+    // на планшете (сенсорный экран) — карточки: они и сделаны под палец
+    if (typeof window === "undefined") return "table";
+    const touch = window.matchMedia?.("(pointer: coarse)").matches;
+    return touch || window.innerWidth < 992 ? "cards" : "table";
   });
   const pickQueueView = (v: "cards" | "table") => {
     setQueueView(v);
