@@ -11,6 +11,7 @@ from app.core.security import get_current_user, require_permission
 from app.db.session import get_db
 from app.models.finished_goods import (
     FG_ADJUST,
+    FG_RETURN,
     FG_SHIPMENT,
     FG_TRANSFER,
     FG_UNSHIP,
@@ -185,10 +186,13 @@ class ShipmentIn(BaseModel):
 
 
 class ShipmentLineOut(BaseModel):
+    order_line_id: int | None = None
     item_name: str
     qty: float
     order_name: str | None
     site_name: str | None
+    # вернул клиент по этой строке заказа в этой отгрузке
+    returned: float = 0
 
 
 class ShipmentOut(BaseModel):
@@ -202,6 +206,7 @@ class ShipmentOut(BaseModel):
     cancelled_at: datetime | None
     lines: list[ShipmentLineOut]
     total: float
+    returned: float = 0
 
 
 def _shipment_out(db: Session, sh: FgShipment) -> ShipmentOut:
@@ -210,14 +215,26 @@ def _shipment_out(db: Session, sh: FgShipment) -> ShipmentOut:
     items = {i.id: i.name for i in db.query(Item).filter(Item.id.in_({m.item_id for m in mv}))} if mv else {}
     ols = {ol.id: ol.order_id for ol in db.query(ProductionOrderLine).filter(ProductionOrderLine.id.in_({m.order_line_id for m in mv if m.order_line_id}))} if mv else {}
     onames = {o.id: o.name for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_(set(ols.values())))} if ols else {}
+    returned = _returned_by_line(db, sh.id)
     lines = [
-        ShipmentLineOut(item_name=items.get(m.item_id, ""), qty=-float(m.qty), order_name=onames.get(ols.get(m.order_line_id)), site_name=sites.get(m.site_id))
+        ShipmentLineOut(
+            order_line_id=m.order_line_id, item_name=items.get(m.item_id, ""), qty=-float(m.qty),
+            order_name=onames.get(ols.get(m.order_line_id)), site_name=sites.get(m.site_id), returned=returned.get(m.order_line_id, 0.0),
+        )
         for m in mv
     ]
     return ShipmentOut(
         id=sh.id, invoice_no=sh.invoice_no, customer=sh.customer, note=sh.note, status=sh.status, created_at=sh.created_at,
         created_by_name=users.get(sh.created_by), cancelled_at=sh.cancelled_at, lines=lines, total=sum(ln.qty for ln in lines),
+        returned=round(sum(returned.values()), 2),
     )
+
+
+def _returned_by_line(db: Session, shipment_id: int) -> dict[int | None, float]:
+    out: dict[int | None, float] = defaultdict(float)
+    for m in db.query(FgMove).filter(FgMove.shipment_id == shipment_id, FgMove.kind == FG_RETURN):
+        out[m.order_line_id] += float(m.qty)
+    return {k: round(v, 2) for k, v in out.items()}
 
 
 @router.post("/shipments", response_model=ShipmentOut, status_code=status.HTTP_201_CREATED)
@@ -263,16 +280,75 @@ def cancel_shipment(shipment_id: int, db: Session = Depends(get_db), user: User 
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Отгрузка не найдена")
     if sh.status == SHIP_CANCELLED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Отгрузка уже отменена")
+    # то, что клиент уже вернул, на склад второй раз не возвращаем
+    returned = dict(_returned_by_line(db, sh.id))
     for m in db.query(FgMove).filter(FgMove.shipment_id == sh.id, FgMove.kind == FG_SHIPMENT).all():
+        qty = -float(m.qty)
+        back = min(qty, returned.get(m.order_line_id, 0.0))
+        returned[m.order_line_id] = returned.get(m.order_line_id, 0.0) - back
+        if qty - back <= 1e-9:
+            continue
         db.add(
             FgMove(
-                item_id=m.item_id, qty=-float(m.qty), kind=FG_UNSHIP, site_id=m.site_id, order_line_id=m.order_line_id,
+                item_id=m.item_id, qty=qty - back, kind=FG_UNSHIP, site_id=m.site_id, order_line_id=m.order_line_id,
                 invoice_no=m.invoice_no, shipment_id=sh.id, note=f"Отмена отгрузки №{sh.id}", user_id=user.id,
             )
         )
     sh.status = SHIP_CANCELLED
     sh.cancelled_by = user.id
     sh.cancelled_at = datetime.now(timezone.utc)
+    db.commit()
+    return _shipment_out(db, sh)
+
+
+# ---------- возврат от клиента ----------
+class ReturnLineIn(BaseModel):
+    order_line_id: int
+    qty: float = Field(gt=0)
+
+
+class ReturnIn(BaseModel):
+    site_id: int | None = None  # куда вернули (по умолчанию — основной склад)
+    reason: str = Field(min_length=1, max_length=200)
+    lines: list[ReturnLineIn]
+
+
+@router.post("/shipments/{shipment_id}/return", response_model=ShipmentOut)
+def return_from_customer(shipment_id: int, payload: ReturnIn, db: Session = Depends(get_db), user: User = Depends(ship_fg)) -> ShipmentOut:
+    """Возврат от клиента (06.10): часть отгруженного вернулась — снова на
+    склад площадки под тот же заказ и счёт, с причиной. Больше, чем
+    отгружено этой отгрузкой за вычетом прошлых возвратов, — нельзя."""
+    sh = db.get(FgShipment, shipment_id)
+    if sh is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Отгрузка не найдена")
+    if sh.status == SHIP_CANCELLED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Отгрузка отменена — возвращать нечего")
+    if not payload.lines:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите, что вернули")
+    site_id = payload.site_id
+    if site_id is None:
+        main = db.query(Site).filter(Site.is_fg_main.is_(True)).first()
+        site_id = main.id if main else None
+    shipped: dict[int | None, tuple[float, FgMove]] = {}
+    for m in db.query(FgMove).filter(FgMove.shipment_id == sh.id, FgMove.kind == FG_SHIPMENT):
+        prev = shipped.get(m.order_line_id)
+        shipped[m.order_line_id] = ((prev[0] if prev else 0.0) - float(m.qty), m)
+    returned = _returned_by_line(db, sh.id)
+    for ln in payload.lines:
+        if ln.order_line_id not in shipped:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Строки нет в этой отгрузке")
+        total, m = shipped[ln.order_line_id]
+        left = total - returned.get(ln.order_line_id, 0.0)
+        if ln.qty > left + 1e-9:
+            item = db.get(Item, m.item_id)
+            raise HTTPException(status.HTTP_409_CONFLICT, f"«{item.name if item else m.item_id}»: отгружено {total:g}, уже вернули {total - left:g} — вернуть {ln.qty:g} нельзя")
+        returned[ln.order_line_id] = returned.get(ln.order_line_id, 0.0) + ln.qty
+        db.add(
+            FgMove(
+                item_id=m.item_id, qty=ln.qty, kind=FG_RETURN, site_id=site_id, order_line_id=ln.order_line_id,
+                invoice_no=m.invoice_no, shipment_id=sh.id, note=f"Возврат от клиента: {payload.reason.strip()}", user_id=user.id,
+            )
+        )
     db.commit()
     return _shipment_out(db, sh)
 

@@ -230,7 +230,7 @@ export function FgMovesTab() {
       locale={{ emptyText: "Движений нет" }}
       columns={[
         { title: "Когда", render: (_, m) => dayjs(m.occurred_at).format("DD.MM.YYYY HH:mm") },
-        { title: "Событие", render: (_, m) => <Tag color={m.kind === "receipt" ? "green" : m.kind === "shipment" ? "blue" : "default"}>{FG_KIND_LABEL[m.kind]}</Tag> },
+        { title: "Событие", render: (_, m) => <Tag color={m.kind === "receipt" ? "green" : m.kind === "shipment" ? "blue" : m.kind === "return" ? "orange" : "default"}>{FG_KIND_LABEL[m.kind]}</Tag> },
         { title: "Изделие", dataIndex: "item_name" },
         {
           title: "Кол-во",

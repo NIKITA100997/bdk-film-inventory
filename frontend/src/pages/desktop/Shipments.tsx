@@ -6,7 +6,9 @@ import {
   Empty,
   Input,
   InputNumber,
+  Modal,
   Popconfirm,
+  Select,
   Progress,
   Space,
   Table,
@@ -20,7 +22,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import { useAuth } from "../../auth/AuthContext";
 import { listSites } from "../../api/sites";
-import { cancelFgShipment, listFgInvoices, listFgShipments, shipFg, type FgInvoice, type FgShipment } from "../../api/finishedGoods";
+import {
+  cancelFgShipment,
+  listFgInvoices,
+  listFgShipments,
+  returnFromCustomer,
+  shipFg,
+  type FgInvoice,
+  type FgShipment,
+} from "../../api/finishedGoods";
 import { printReport } from "../../utils/printReport";
 import { apiErrorMessage } from "../../utils/apiError";
 import { useTabTitle } from "../../layout/tabTitle";
@@ -216,6 +226,7 @@ function History() {
   const canShip = !!user?.is_superuser || !!user?.permissions.includes("fg.ship");
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["fg-shipments"], queryFn: listFgShipments });
+  const [returning, setReturning] = useState<FgShipment | null>(null);
   const cancel = useMutation({
     mutationFn: (id: number) => cancelFgShipment(id),
     onSuccess: () => {
@@ -225,6 +236,8 @@ function History() {
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось отменить")),
   });
   return (
+    <>
+    {returning && <ReturnModal sh={returning} onClose={() => setReturning(null)} />}
     <Table<FgShipment>
       size="small"
       rowKey="id"
@@ -245,6 +258,7 @@ function History() {
               { title: "Кол-во", align: "right", render: (_, l) => n(l.qty) },
               { title: "Заказ", render: (_, l) => l.order_name ?? "—" },
               { title: "Площадка", render: (_, l) => l.site_name ?? "—" },
+              { title: "Вернули", align: "right", render: (_, l) => (l.returned ? <Tag color="orange">{n(l.returned)}</Tag> : "") },
             ]}
           />
         ),
@@ -256,7 +270,15 @@ function History() {
         { title: "Клиент", render: (_, sh) => sh.customer ?? "" },
         { title: "Шт", align: "right", render: (_, sh) => n(sh.total) },
         { title: "Кто", render: (_, sh) => sh.created_by_name ?? "" },
-        { title: "Статус", render: (_, sh) => (sh.status === "cancelled" ? <Tag color="red">отменена</Tag> : <Tag color="green">отгружено</Tag>) },
+        {
+          title: "Статус",
+          render: (_, sh) => (
+            <Space size={4}>
+              {sh.status === "cancelled" ? <Tag color="red">отменена</Tag> : <Tag color="green">отгружено</Tag>}
+              {sh.returned > 0 && <Tag color="orange">возврат {n(sh.returned)}</Tag>}
+            </Space>
+          ),
+        },
         {
           title: "",
           render: (_, sh) => (
@@ -264,6 +286,11 @@ function History() {
               <Button size="small" icon={<PrinterOutlined />} onClick={() => printSheet(sh)}>
                 Лист
               </Button>
+              {canShip && sh.status !== "cancelled" && sh.returned < sh.total && (
+                <Button size="small" onClick={() => setReturning(sh)}>
+                  Возврат от клиента
+                </Button>
+              )}
               {canShip && sh.status !== "cancelled" && (
                 <Popconfirm title="Отменить отгрузку? Двери вернутся на склад." okText="Отменить отгрузку" cancelText="Нет" onConfirm={() => cancel.mutate(sh.id)}>
                   <Button size="small" danger>
@@ -276,5 +303,97 @@ function History() {
         },
       ]}
     />
+    </>
+  );
+}
+
+/** Возврат от клиента (06.10): часть отгруженного вернулась — на склад
+ * площадки (по умолчанию основной), под тот же заказ и счёт, с причиной. */
+function ReturnModal({ sh, onClose }: { sh: FgShipment; onClose: () => void }) {
+  const qc = useQueryClient();
+  const sitesQuery = useQuery({ queryKey: ["sites"], queryFn: listSites });
+  // строки отгрузки по строке заказа (одна строка могла уйти с двух площадок)
+  const lines = useMemo(() => {
+    const m = new Map<number, { order_line_id: number; item_name: string; order_name: string | null; qty: number; returned: number }>();
+    for (const l of sh.lines) {
+      if (l.order_line_id == null) continue;
+      const cur = m.get(l.order_line_id);
+      if (cur) cur.qty += l.qty;
+      else m.set(l.order_line_id, { order_line_id: l.order_line_id, item_name: l.item_name, order_name: l.order_name, qty: l.qty, returned: l.returned });
+    }
+    return [...m.values()];
+  }, [sh]);
+  const [qty, setQty] = useState<Record<number, number | null>>({});
+  const [reason, setReason] = useState("");
+  const main = (sitesQuery.data ?? []).find((s) => s.is_fg_main && s.is_active);
+  const [siteId, setSiteId] = useState<number | null | undefined>(undefined);
+  const site = siteId === undefined ? (main?.id ?? null) : siteId;
+  const picked = lines.filter((l) => (qty[l.order_line_id] ?? 0) > 0);
+  const m = useMutation({
+    mutationFn: () =>
+      returnFromCustomer(sh.id, {
+        site_id: site,
+        reason: reason.trim(),
+        lines: picked.map((l) => ({ order_line_id: l.order_line_id, qty: qty[l.order_line_id]! })),
+      }),
+    onSuccess: () => {
+      message.success("Возврат принят — двери на складе");
+      for (const k of ["fg-invoices", "fg-stock", "fg-moves", "fg-shipments"]) qc.invalidateQueries({ queryKey: [k] });
+      onClose();
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось принять возврат")),
+  });
+  return (
+    <Modal
+      open
+      title={`Возврат от клиента — отгрузка №${sh.id}${sh.invoice_no ? `, счёт ${sh.invoice_no}` : ""}`}
+      okText="Принять возврат"
+      cancelText="Отмена"
+      onCancel={onClose}
+      onOk={() => m.mutate()}
+      okButtonProps={{ loading: m.isPending, disabled: !picked.length || !reason.trim() }}
+      width={720}
+      destroyOnHidden
+    >
+      <Space direction="vertical" style={{ width: "100%" }}>
+        <Typography.Text type="secondary">
+          Двери вернутся на склад под тот же заказ и счёт — их можно отгрузить снова или скорректировать, если они в браке.
+        </Typography.Text>
+        <Table
+          size="small"
+          rowKey="order_line_id"
+          pagination={false}
+          dataSource={lines}
+          columns={[
+            { title: "Изделие", render: (_, l) => <>{l.item_name}{l.order_name ? <Typography.Text type="secondary"> · {l.order_name}</Typography.Text> : null}</> },
+            { title: "Отгружено", align: "right", render: (_, l) => n(l.qty) },
+            { title: "Уже вернули", align: "right", render: (_, l) => (l.returned ? n(l.returned) : "") },
+            {
+              title: "Вернули сейчас",
+              render: (_, l) => (
+                <InputNumber
+                  min={0}
+                  max={l.qty - l.returned}
+                  precision={0}
+                  disabled={l.qty - l.returned <= 0}
+                  value={qty[l.order_line_id] ?? null}
+                  onChange={(v) => setQty((p) => ({ ...p, [l.order_line_id]: v }))}
+                />
+              ),
+            },
+          ]}
+        />
+        <Space wrap>
+          <Typography.Text>Куда:</Typography.Text>
+          <Select
+            style={{ width: 240 }}
+            value={site}
+            onChange={(v) => setSiteId(v ?? null)}
+            options={(sitesQuery.data ?? []).filter((s) => s.is_active).map((s) => ({ value: s.id, label: s.is_fg_main ? `${s.name} — основной склад` : s.name }))}
+          />
+        </Space>
+        <Input placeholder="Причина возврата — например, повреждена при доставке" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} />
+      </Space>
+    </Modal>
   );
 }

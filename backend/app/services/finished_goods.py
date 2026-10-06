@@ -77,7 +77,7 @@ def totals_by_order_line(db: Session, order_line_ids: list[int]) -> dict[int, di
         n = float(n)
         if kind == FG_RECEIPT:
             t["received"] += n
-        elif kind in ("shipment", "unship"):
+        elif kind in ("shipment", "unship", "return"):
             t["shipped"] -= n
         t["on_stock"] += n
     for t in out.values():
