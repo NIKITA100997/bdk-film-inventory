@@ -52,6 +52,8 @@ import DictAutoComplete from "../../components/DictAutoComplete";
 import ExistingSkuPicker from "../../components/ExistingSkuPicker";
 import OccurredAtField from "../../components/OccurredAtField";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import LotActions from "../../components/lotOps/LotActions";
+import { lotFromUnit } from "../../components/lotOps/lotOps";
 import { useAuth } from "../../auth/AuthContext";
 import { exportToExcel } from "../../utils/excel";
 import { UnitBulkEditModal, UnitEditModal } from "./UnitEditModals";
@@ -753,6 +755,8 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                 title: "",
                 render: (_, u) => (
                   <Space size={4} onClick={(e) => e.stopPropagation()}>
+                    {/* переместить / вернуть / списать / скорректировать — единое окно (06.10) */}
+                    <LotActions lot={lotFromUnit(u)} />
                     {canEditUnit && (
                       <Button size="small" onClick={() => setReassignTarget(u)}>
                         Изменить

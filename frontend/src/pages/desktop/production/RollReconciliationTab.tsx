@@ -1,12 +1,10 @@
 import { useMemo, useState } from "react";
-import { Tag, Space, Button, Modal, Form, InputNumber, Input, Select, Checkbox, Typography, message, Empty, List } from "antd";
+import { Tag, Space, Button, Modal, Input, Typography, message, Empty, List } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getReconciliation,
   linkTaskLine,
   setLegacyTaskNote,
-  returnUnit,
-  writeOffUnit,
   getUnitEvents,
   type ReconciliationRow,
   type UnitEvent,
@@ -15,10 +13,9 @@ import { listProductionTasks, type ProductionTask, type ProductionTaskLine } fro
 import { listAreas } from "../../../api/areas";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { useAuth } from "../../../auth/AuthContext";
-import OccurredAtField from "../../../components/OccurredAtField";
 import { LinkTaskLineForm, LegacyNoteModal } from "../../../components/TaskLineLinkControls";
-import { toOccurredAtIso } from "../../../utils/occurredAt";
 import ReportModal from "./ReportModal";
+import LotOperationById from "../../../components/lotOps/LotOperationById";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { fmtDateTime } from "../../../utils/dates";
 import ResponsiveTable from "../../../components/ResponsiveTable";
@@ -131,32 +128,6 @@ export default function RollReconciliationTab() {
       invalidate();
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить пометку")),
-  });
-
-  const returnMutation = useMutation({
-    mutationFn: (v: { actual_length_m: number; write_off: boolean; write_off_reason?: string; write_off_note?: string; occurred_at?: string }) =>
-      returnUnit(returnTarget!.unit_id, {
-        actual_length_m: v.actual_length_m,
-        occurred_at: v.occurred_at,
-        write_off_reason: v.write_off ? v.write_off_reason : undefined,
-        write_off_note: v.write_off ? v.write_off_note : undefined,
-      }),
-    onSuccess: () => {
-      message.success("Рулон возвращён");
-      setReturnTarget(null);
-      invalidate();
-    },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось вернуть")),
-  });
-
-  const writeOffMutation = useMutation({
-    mutationFn: (v: { reason: string; note?: string }) => writeOffUnit(writeOffTarget!.unit_id, v.reason, v.note),
-    onSuccess: () => {
-      message.success("Списано");
-      setWriteOffTarget(null);
-      invalidate();
-    },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось списать")),
   });
 
   return (
@@ -334,22 +305,17 @@ export default function RollReconciliationTab() {
         />
       )}
 
-      {returnTarget && (
-        <ReturnModal
-          row={returnTarget}
-          reasons={writeOffReasonsQuery.data ?? []}
-          onCancel={() => setReturnTarget(null)}
-          onSubmit={(v) => returnMutation.mutate(v)}
-          loading={returnMutation.isPending}
-        />
-      )}
-
-      {writeOffTarget && (
-        <WriteOffModal
-          reasons={writeOffReasonsQuery.data ?? []}
-          onCancel={() => setWriteOffTarget(null)}
-          onSubmit={(v) => writeOffMutation.mutate(v)}
-          loading={writeOffMutation.isPending}
+      {(returnTarget || writeOffTarget) && (
+        // единое окно операций (06.10): возврат — с «сразу списать остаток»
+        <LotOperationById
+          kind="plenka"
+          id={(returnTarget ?? writeOffTarget)!.unit_id}
+          op={returnTarget ? "return" : "writeoff"}
+          onClose={() => {
+            setReturnTarget(null);
+            setWriteOffTarget(null);
+          }}
+          onDone={invalidate}
         />
       )}
 
@@ -367,101 +333,6 @@ export default function RollReconciliationTab() {
         />
       )}
     </div>
-  );
-}
-
-// --- Вернуть (+ опционально списать сразу) ----------------------------------
-
-function ReturnModal({
-  row,
-  reasons,
-  onCancel,
-  onSubmit,
-  loading,
-}: {
-  row: ReconciliationRow;
-  reasons: { code: string; name: string }[];
-  onCancel: () => void;
-  onSubmit: (v: { actual_length_m: number; write_off: boolean; write_off_reason?: string; write_off_note?: string; occurred_at?: string }) => void;
-  loading: boolean;
-}) {
-  const [form] = Form.useForm<{ actual_length_m: number; write_off: boolean; write_off_reason?: string; write_off_note?: string; occurred_at?: import("dayjs").Dayjs }>();
-  const writeOff = Form.useWatch("write_off", form);
-  return (
-    <Modal
-      title={`Вернуть рулон №${row.unit_id}`}
-      open
-      onCancel={onCancel}
-      onOk={() => form.submit()}
-      confirmLoading={loading}
-      destroyOnClose
-    >
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={{ actual_length_m: row.length_m, write_off: false }}
-        onFinish={(v) =>
-          onSubmit({
-            actual_length_m: v.actual_length_m,
-            write_off: v.write_off,
-            write_off_reason: v.write_off_reason,
-            write_off_note: v.write_off_note,
-            occurred_at: toOccurredAtIso(v.occurred_at),
-          })
-        }
-      >
-        <Form.Item
-          name="actual_length_m"
-          label="Фактическая длина остатка, м"
-          rules={[{ required: true }]}
-          extra="0 — если рулон израсходован полностью. Всё, что не вернулось, система досчитает как расход по этому рулону."
-        >
-          <InputNumber min={0} style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item name="write_off" valuePropName="checked">
-          <Checkbox>Списать этот остаток сразу</Checkbox>
-        </Form.Item>
-        {writeOff && (
-          <>
-            <Form.Item name="write_off_reason" label="Причина списания" rules={[{ required: true, message: "Выберите причину" }]}>
-              <Select options={reasons.map((r) => ({ value: r.code, label: r.name }))} />
-            </Form.Item>
-            <Form.Item name="write_off_note" label="Комментарий">
-              <Input.TextArea rows={2} />
-            </Form.Item>
-          </>
-        )}
-        <OccurredAtField />
-      </Form>
-    </Modal>
-  );
-}
-
-// --- Списать (единица уже На_хранении) --------------------------------------
-
-function WriteOffModal({
-  reasons,
-  onCancel,
-  onSubmit,
-  loading,
-}: {
-  reasons: { code: string; name: string }[];
-  onCancel: () => void;
-  onSubmit: (v: { reason: string; note?: string }) => void;
-  loading: boolean;
-}) {
-  const [form] = Form.useForm<{ reason: string; note?: string }>();
-  return (
-    <Modal title="Списать" open onCancel={onCancel} onOk={() => form.submit()} confirmLoading={loading} destroyOnClose>
-      <Form form={form} layout="vertical" onFinish={onSubmit}>
-        <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
-          <Select options={reasons.map((r) => ({ value: r.code, label: r.name }))} />
-        </Form.Item>
-        <Form.Item name="note" label="Комментарий">
-          <Input.TextArea rows={2} />
-        </Form.Item>
-      </Form>
-    </Modal>
   );
 }
 
