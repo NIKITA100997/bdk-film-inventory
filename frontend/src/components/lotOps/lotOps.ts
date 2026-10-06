@@ -1,4 +1,6 @@
 import type { Lot } from "../../api/unifiedStock";
+import { skuLabel, type MaterialUnit } from "../../api/units";
+import type { PartUnit } from "../../api/partUnits";
 
 /** Единые окна операций (слой 4 единой модели, 06.10): одно окно на
  * действие для любой партии — рулона/штрипса плёнки или партии п/ф. Таблицы
@@ -40,7 +42,7 @@ export function lotOps(lot: LotRef, has: (code: string) => boolean): { op: LotOp
   const perm = (op: LotOp) =>
     film
       ? has({ move: "units.place", return: "units.return", writeoff: "units.writeoff", adjust: "units.correct" }[op])
-      : op === "adjust"
+      : op === "adjust" || op === "return"
         ? has("part_units.correct")
         : has("part_units.manage");
   const rule = (op: LotOp): string | undefined => {
@@ -59,3 +61,39 @@ export function lotOps(lot: LotRef, has: (code: string) => boolean): { op: LotOp
 }
 
 export const lotTitle = (lot: LotRef) => `${lot.kind === "plenka" ? "Рулон" : "Партия п/ф"} №${lot.lot_id}`;
+
+/** Рулон/штрипс плёнки → партия для окна. Остаток — по учёту (у выданного
+ * расход по отчётам видно в самом окне возврата). */
+export function lotFromUnit(u: MaterialUnit, areaName?: string | null): LotRef {
+  return {
+    kind: "plenka",
+    lot_id: u.id,
+    item_name: skuLabel(u.material_sku),
+    qty: u.length_m,
+    length_m: u.length_m,
+    unit: "м",
+    status: u.status,
+    location_code: u.location_code,
+    area_name: areaName ?? u.area,
+    stage: null,
+    detail: `${u.is_strip ? "штрипс" : "рулон"} ${u.width_mm} мм`,
+    sku_id: u.material_sku.id,
+    is_strip: u.is_strip,
+  };
+}
+
+/** Партия п/ф → партия для окна; количество — свободное (за вычетом отчитанного). */
+export function lotFromPartUnit(u: PartUnit, areaName?: string | null): LotRef {
+  return {
+    kind: "pf",
+    lot_id: u.id,
+    item_name: u.part_name,
+    qty: u.quantity_available,
+    unit: "шт",
+    status: u.status,
+    location_code: u.location_code,
+    area_name: areaName ?? u.area,
+    stage: u.stage_name,
+    detail: null,
+  };
+}

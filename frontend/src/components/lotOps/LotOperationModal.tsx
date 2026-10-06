@@ -3,11 +3,12 @@ import { Alert, Button, Descriptions, Form, Input, InputNumber, Modal, Select, S
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Dayjs } from "dayjs";
 import OccurredAtField from "../OccurredAtField";
+import FilmRestrictionPicker from "../FilmRestrictionPicker";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { apiErrorMessage } from "../../utils/apiError";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
-import { adjustUnit, getReturnPreview, placeUnit, returnUnit, writeOffUnit } from "../../api/units";
-import { adjustPartUnit, returnPartUnit, writeOffPartUnit } from "../../api/partUnits";
+import { adjustUnit, getReturnPreview, getUnit, placeUnit, returnUnit, writeOffUnit } from "../../api/units";
+import { adjustPartUnit, getPartUnit, returnPartUnit, writeOffPartUnit } from "../../api/partUnits";
 import { placePartUnit } from "../../api/partStorage";
 import { suggestLocation } from "../../api/storage";
 import { OP_DONE, OP_LABEL, lotTitle, type LotOp, type LotRef } from "./lotOps";
@@ -17,6 +18,7 @@ interface Values {
   qty?: number;
   reason?: string;
   note?: string;
+  film_restriction?: string | null;
   occurred_at?: Dayjs | null;
 }
 
@@ -55,6 +57,27 @@ export default function LotOperationModal({
     enabled: film && op === "return",
   });
   const expected = previewQuery.data?.expected_return_length_m;
+  // Корректировка — по полной записи партии: у п/ф сервер правит общее
+  // количество (вместе с отчитанным), а человек считает то, что лежит;
+  // у рулона — длину по учёту (без вычета расхода по отчётам).
+  const fullQuery = useQuery({
+    queryKey: ["lot-full", lot.kind, lot.lot_id],
+    queryFn: async () => {
+      if (film) {
+        const u = await getUnit(lot.lot_id);
+        return { total: u.length_m, free: u.length_m, restriction: null as string | null };
+      }
+      const u = await getPartUnit(lot.lot_id);
+      return { total: u.quantity_pieces, free: u.quantity_available, restriction: u.film_restriction };
+    },
+    enabled: op === "adjust",
+  });
+  const full = fullQuery.data;
+  const reported = full ? Math.max(0, full.total - full.free) : 0;
+  useEffect(() => {
+    if (full && form.getFieldValue("qty") == null)
+      form.setFieldsValue({ qty: film ? full.total : full.free, film_restriction: full.restriction ?? undefined });
+  }, [full, film, form]);
   useEffect(() => {
     if (expected != null && form.getFieldValue("qty") == null) form.setFieldsValue({ qty: expected });
   }, [expected, form]);
@@ -75,14 +98,23 @@ export default function LotOperationModal({
         return film
           ? writeOffUnit(id, v.reason!, v.note || undefined, at)
           : writeOffPartUnit(id, { quantity_pieces: v.qty!, reason: v.reason!, note: v.note || undefined, occurred_at: at });
+      if (!full) throw new Error("Партия не загружена");
       return film
         ? adjustUnit(id, { actual_length_m: v.qty!, reason: v.reason!.trim(), note: v.note || undefined, occurred_at: at })
-        : adjustPartUnit(id, { actual_quantity_pieces: v.qty!, reason: v.reason!.trim(), note: v.note || undefined, occurred_at: at });
+        : adjustPartUnit(id, {
+            actual_quantity_pieces: v.qty! + reported,
+            reason: v.reason!.trim(),
+            note: v.note || undefined,
+            // пометка плёнки на партии («Ламис», «с кромкой»…): поставить / снять
+            film_restriction: v.film_restriction ?? undefined,
+            clear_film_restriction: !v.film_restriction && !!full.restriction,
+            occurred_at: at,
+          });
     },
     onSuccess: () => {
       message.success(`${lotTitle(lot)} — ${OP_DONE[op]}`);
       // остатки, движения и карточки обоих видов
-      for (const key of ["unified-lots", "unified-movements", "materials-explorer", "units", "unit", "part-units", "part-unit", "part-stock", "material-card", "storage"])
+      for (const key of ["unified-lots", "unified-movements", "materials-explorer", "units", "unit", "part-units", "part-unit", "part-stock", "material-card", "storage", "part-rack-occupancy", "rack-occupancy", "storage-places", "lot-full", "return-preview"])
         qc.invalidateQueries({ queryKey: [key] });
       onDone?.();
       onClose();
@@ -90,10 +122,8 @@ export default function LotOperationModal({
     onError: (e) => message.error(apiErrorMessage(e, `Не удалось: ${OP_LABEL[op].toLowerCase()}`)),
   });
 
-  // у выданного рулона qty — остаток за вычетом расхода, а корректируется
-  // длина по учёту: без length_m не подставляем, пусть введут факт
-  const filmAdjust = lot.length_m ?? (lot.status.replace(/_/g, " ") === "Выдан участку" ? undefined : lot.qty);
-  const initialQty = op === "writeoff" ? lot.qty : op === "adjust" ? (film ? filmAdjust : lot.qty) : film ? undefined : lot.qty;
+  // корректировка подставляется после загрузки полной партии (fullQuery)
+  const initialQty = op === "writeoff" ? lot.qty : op === "adjust" ? undefined : film ? undefined : lot.qty;
 
   return (
     <Modal
@@ -101,7 +131,7 @@ export default function LotOperationModal({
       title={`${OP_LABEL[op]} — ${lotTitle(lot)}`}
       onCancel={onClose}
       okText={OP_LABEL[op]}
-      okButtonProps={{ danger: op === "writeoff", loading: run.isPending }}
+      okButtonProps={{ danger: op === "writeoff", loading: run.isPending, disabled: op === "adjust" && !full }}
       cancelText="Отмена"
       onOk={() => form.submit()}
       destroyOnHidden
@@ -178,7 +208,20 @@ export default function LotOperationModal({
             <Typography.Paragraph type="secondary" style={{ marginTop: -4 }}>
               Корректировка не переписывает историю — добавляется запись «Корректировка» с причиной.
             </Typography.Paragraph>
-            <Form.Item name="qty" label={film ? "Фактическая длина, м" : "Фактическое количество, шт"} rules={[{ required: true, message: "Укажите количество" }]}>
+            <Form.Item
+              name="qty"
+              label={film ? "Длина рулона по учёту, м" : "Фактически в наличии, шт"}
+              extra={
+                !full
+                  ? "Загружаю партию…"
+                  : film
+                    ? `По учёту ${fmt(full.total)} м${lot.status.replace(/_/g, " ") === "Выдан участку" ? "; расход по отчётам вычитается отдельно" : ""}`
+                    : reported > 0
+                      ? `В партии ${fmt(full.total)} шт, из них ${fmt(reported)} уже отчитаны в производстве — введите, сколько лежит`
+                      : `По учёту ${fmt(full.total)} шт`
+              }
+              rules={[{ required: true, message: "Укажите количество" }]}
+            >
               <InputNumber min={0} step={film ? 0.1 : 1} style={{ width: "100%" }} inputMode="decimal" autoFocus />
             </Form.Item>
             <Form.Item name="reason" label="Причина корректировки" rules={[{ required: true, whitespace: true, message: "Укажите причину" }]}>
@@ -187,6 +230,11 @@ export default function LotOperationModal({
             <Form.Item name="note" label="Комментарий">
               <Input />
             </Form.Item>
+            {!film && (
+              <Form.Item name="film_restriction" label="Пометка по плёнке (необязательно)">
+                <FilmRestrictionPicker />
+              </Form.Item>
+            )}
           </>
         )}
 

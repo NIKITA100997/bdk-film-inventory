@@ -10,6 +10,9 @@ import MakeFromUnitModal from "../../../components/MakeFromUnitModal";
 import IssuePartUnitModal from "../../../components/IssuePartUnitModal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ActionIcon from "../../../components/ActionIcon";
+import FilmRestrictionPicker from "../../../components/FilmRestrictionPicker";
+import LotOperationModal from "../../../components/lotOps/LotOperationModal";
+import { lotFromPartUnit, type LotOp } from "../../../components/lotOps/lotOps";
 import PrintFormatButton from "../../../components/PrintFormatButton";
 import PartSelect from "../../../components/PartSelect";
 import ResponsiveTable from "../../../components/ResponsiveTable";
@@ -17,78 +20,16 @@ import OccurredAtField from "../../../components/OccurredAtField";
 import { printPartUnitLabel } from "../../../api/partLabels";
 import { exportToExcel } from "../../../utils/excel";
 import { toOccurredAtIso } from "../../../utils/occurredAt";
-import { listPartUnits, createPartUnit, writeOffPartUnit, advancePartUnit, listMakeSourceParts, returnPartUnit, adjustPartUnit, recyclePartUnits, listPartUnitEvents, type PartUnit, type PartUnitStatus, getRecycleTargets, type MakeTarget } from "../../../api/partUnits";
+import { listPartUnits, createPartUnit, advancePartUnit, listMakeSourceParts, recyclePartUnits, listPartUnitEvents, type PartUnit, type PartUnitStatus, getRecycleTargets, type MakeTarget } from "../../../api/partUnits";
 import { listProductionTasks } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
 import { listParts, type Part } from "../../../api/dictionaries";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
-import { placePartUnit } from "../../../api/partStorage";
-import { listPartFilmRestrictions, createPartFilmRestriction } from "../../../api/partFilmRestrictions";
+import { listPartFilmRestrictions } from "../../../api/partFilmRestrictions";
 import { listUsers } from "../../../api/users";
 import { useAuth } from "../../../auth/AuthContext";
 import { fmtDate, fmtDateTime } from "../../../utils/dates";
 import { FileExcelOutlined } from "@ant-design/icons";
-
-const NEW_FILM_RESTRICTION = "__new__";
-
-/** Раздел про совместимость с плёнкой ("ламис"/"с кромкой"/"аляска" и
- * т.п.) — пометка на конкретной партии, список видов заранее не
- * зафиксирован (пользователь сам решил, что будет расширять), поэтому
- * выпадающий список умеет заводить новый вариант тут же, без отдельного
- * экрана администрирования. Управляемый компонент (value/onChange),
- * чтобы Form.Item мог использовать его как обычное поле формы. */
-function FilmRestrictionPicker({ value, onChange }: { value?: string | null; onChange?: (v: string | null) => void }) {
-  const qc = useQueryClient();
-  const [creating, setCreating] = useState(false);
-  const [draftName, setDraftName] = useState("");
-  const restrictionsQuery = useQuery({ queryKey: ["part-film-restrictions"], queryFn: listPartFilmRestrictions });
-  const createMutation = useMutation({
-    mutationFn: (name: string) => createPartFilmRestriction(name),
-    onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ["part-film-restrictions"] });
-      onChange?.(created.code);
-      setCreating(false);
-      setDraftName("");
-    },
-    onError: () => message.error("Не удалось добавить — такое название уже есть?"),
-  });
-  return (
-    <>
-      <Select
-        allowClear
-        placeholder="Без ограничений"
-        value={value ?? undefined}
-        onChange={(v) => {
-          if (v === NEW_FILM_RESTRICTION) {
-            setCreating(true);
-            return;
-          }
-          onChange?.(v ?? null);
-        }}
-        options={[
-          ...(restrictionsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name })),
-          { value: NEW_FILM_RESTRICTION, label: "+ Добавить новую пометку…" },
-        ]}
-      />
-      <Modal
-        title="Новая пометка совместимости с плёнкой"
-        open={creating}
-        onCancel={() => setCreating(false)}
-        onOk={() => draftName.trim() && createMutation.mutate(draftName.trim())}
-        okButtonProps={{ loading: createMutation.isPending, disabled: !draftName.trim() }}
-        destroyOnHidden
-      >
-        <Input
-          autoFocus
-          placeholder="Например: Ламис (толстые плёнки)"
-          value={draftName}
-          onChange={(e) => setDraftName(e.target.value)}
-          onPressEnter={() => draftName.trim() && createMutation.mutate(draftName.trim())}
-        />
-      </Modal>
-    </>
-  );
-}
 
 const STATUS_LABEL: Record<PartUnitStatus, string> = {
   На_хранении: "На хранении",
@@ -146,24 +87,14 @@ export default function PartUnits() {
   const qc = useQueryClient();
   const [form] = Form.useForm<MintFormValues>();
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
-  const [writeOffTarget, setWriteOffTarget] = useState<PartUnit | null>(null);
-  const [writeOffForm] = Form.useForm<{ quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
+  // единое окно операций (06.10): переместить / вернуть / списать / скорректировать
+  const [lotOp, setLotOp] = useState<{ unit: PartUnit; op: LotOp } | null>(null);
   const [advanceTarget, setAdvanceTarget] = useState<PartUnit | null>(null);
   const [advanceForm] = Form.useForm<{ quantity_pieces: number; occurred_at?: Dayjs | null }>();
-  const [placeTarget, setPlaceTarget] = useState<PartUnit | null>(null);
-  const [placeLocationCode, setPlaceLocationCode] = useState("");
   const [cardTarget, setCardTarget] = useState<PartUnit | null>(null);
   // Направление / группа / стадия из номенклатуры и разбивка по группам.
   const [pf, setPf] = usePfFilter();
   const { byPart: pfAttrs, groups: itemGroups } = usePfIndex();
-  // Раздел про ревизию путей плёнки/п/ф — возврат на склад (партия
-  // выдана участку, но физически не использована/использована лишь
-  // частично) и формальная корректировка количества (вместо правки
-  // истории напрямую в БД).
-  const [returnTarget, setReturnTarget] = useState<PartUnit | null>(null);
-  const [returnForm] = Form.useForm<{ actual_quantity_pieces: number; occurred_at?: Dayjs | null }>();
-  const [adjustTarget, setAdjustTarget] = useState<PartUnit | null>(null);
-  const [adjustForm] = Form.useForm<{ actual_quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }>();
   // Раздел про переработку брака — "Переработать в деталь": забрать
   // резерв (В_переработку) детали+участка по FIFO и заминтить новую
   // партию ДРУГОЙ детали сразу на её этапе "Окутка". recycleTarget несёт
@@ -287,30 +218,6 @@ export default function PartUnits() {
     onError: () => message.error("Не удалось зарегистрировать партию — у детали настроены этапы?"),
   });
 
-  const placeMutation = useMutation({
-    mutationFn: ({ id, locationCode }: { id: number; locationCode: string }) => placePartUnit(id, locationCode),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["part-units"] });
-      qc.invalidateQueries({ queryKey: ["part-rack-occupancy"] });
-      message.success("Партия размещена");
-      setPlaceTarget(null);
-      setPlaceLocationCode("");
-    },
-    onError: () => message.error("Не удалось разместить партию"),
-  });
-
-  const writeOffMutation = useMutation({
-    mutationFn: (v: { quantity_pieces: number; reason: string; note?: string; occurred_at?: Dayjs | null }) =>
-      writeOffPartUnit(writeOffTarget!.id, { ...v, occurred_at: toOccurredAtIso(v.occurred_at) }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["part-units"] });
-      message.success("Партия списана");
-      setWriteOffTarget(null);
-      writeOffForm.resetFields();
-    },
-    onError: () => message.error("Не удалось списать партию"),
-  });
-
   // Раздел про мобильный скан-сценарий по этапам — тот же прямой перевод,
   // что теперь доступен и со сканера на телефоне (PartUnitCard.tsx), для
   // симметрии здесь тоже, не только на мобильном.
@@ -324,41 +231,6 @@ export default function PartUnits() {
       advanceForm.resetFields();
     },
     onError: () => message.error("Не удалось перевести на следующий этап"),
-  });
-
-  const returnMutation = useMutation({
-    mutationFn: (v: { actual_quantity_pieces: number; occurred_at?: Dayjs | null }) =>
-      returnPartUnit(returnTarget!.id, v.actual_quantity_pieces, toOccurredAtIso(v.occurred_at)),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["part-units"] });
-      message.success("Партия возвращена на склад");
-      setReturnTarget(null);
-      returnForm.resetFields();
-    },
-    onError: () => message.error("Не удалось вернуть партию на склад"),
-  });
-
-  const adjustMutation = useMutation({
-    mutationFn: (v: {
-      actual_quantity_pieces: number;
-      reason: string;
-      note?: string;
-      film_restriction?: string | null;
-      occurred_at?: Dayjs | null;
-    }) =>
-      adjustPartUnit(adjustTarget!.id, {
-        ...v,
-        film_restriction: v.film_restriction ?? undefined,
-        clear_film_restriction: !v.film_restriction && !!adjustTarget?.film_restriction,
-        occurred_at: toOccurredAtIso(v.occurred_at),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["part-units"] });
-      message.success("Количество скорректировано");
-      setAdjustTarget(null);
-      adjustForm.resetFields();
-    },
-    onError: () => message.error("Не удалось скорректировать партию"),
   });
 
   const recycleMutation = useMutation({
@@ -658,10 +530,7 @@ export default function PartUnits() {
                     <ActionIcon
                       tone="outline"
                       tip="Разместить на стеллаж"
-                      onClick={() => {
-                        setPlaceTarget(u);
-                        setPlaceLocationCode(u.location_code ?? "");
-                      }}
+                      onClick={() => setLotOp({ unit: u, op: "move" })}
                     >
                       📦
                     </ActionIcon>
@@ -689,7 +558,7 @@ export default function PartUnits() {
                     </ActionIcon>
                   )}
                   {canManage && u.status !== "Списан" && (
-                    <ActionIcon tone="ghost" danger tip="Списать" onClick={() => setWriteOffTarget(u)}>
+                    <ActionIcon tone="ghost" danger tip="Списать" onClick={() => setLotOp({ unit: u, op: "writeoff" })}>
                       ✖
                     </ActionIcon>
                   )}
@@ -710,10 +579,7 @@ export default function PartUnits() {
                     <ActionIcon
                       tone="outline"
                       tip="Вернуть на склад"
-                      onClick={() => {
-                        setReturnTarget(u);
-                        returnForm.setFieldsValue({ actual_quantity_pieces: u.quantity_available });
-                      }}
+                      onClick={() => setLotOp({ unit: u, op: "return" })}
                     >
                       📥
                     </ActionIcon>
@@ -722,10 +588,7 @@ export default function PartUnits() {
                     <ActionIcon
                       tone="outline"
                       tip="Скорректировать количество"
-                      onClick={() => {
-                        setAdjustTarget(u);
-                        adjustForm.setFieldsValue({ actual_quantity_pieces: u.quantity_pieces });
-                      }}
+                      onClick={() => setLotOp({ unit: u, op: "adjust" })}
                     >
                       🛠
                     </ActionIcon>
@@ -739,70 +602,13 @@ export default function PartUnits() {
         />
       </Card>
 
-      <Modal
-        title={`Разместить партию «${placeTarget?.part_name ?? ""}»`}
-        open={!!placeTarget}
-        onCancel={() => {
-          setPlaceTarget(null);
-          setPlaceLocationCode("");
-        }}
-        footer={null}
-        destroyOnHidden
-      >
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
-          <Typography.Text type="secondary">
-            {placeTarget?.quantity_pieces} шт, этап «{placeTarget?.stage_name}»
-            {placeTarget?.location_code && <> · сейчас на {placeTarget.location_code}</>}
-          </Typography.Text>
-          <Input
-            placeholder="Например, ЗГ-1-01"
-            value={placeLocationCode}
-            onChange={(e) => setPlaceLocationCode(e.target.value)}
-          />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            Схему стеллажей и свободные полки удобнее смотреть на «Стеллажи п/ф».
-          </Typography.Text>
-          <Button
-            type="primary"
-            block
-            loading={placeMutation.isPending}
-            disabled={!placeLocationCode.trim()}
-            onClick={() => placeMutation.mutate({ id: placeTarget!.id, locationCode: placeLocationCode.trim() })}
-          >
-            Разместить
-          </Button>
-        </Space>
-      </Modal>
-
-      <Modal
-        title={`Списать партию «${writeOffTarget?.part_name ?? ""}»`}
-        open={!!writeOffTarget}
-        onCancel={() => setWriteOffTarget(null)}
-        footer={null}
-        destroyOnHidden
-      >
-        <Form
-          layout="vertical"
-          form={writeOffForm}
-          initialValues={{ quantity_pieces: writeOffTarget?.quantity_available }}
-          onFinish={(v) => writeOffMutation.mutate(v)}
-        >
-          <Form.Item name="quantity_pieces" label="Количество, шт" rules={[{ required: true }]}>
-            <InputNumber min={0.01} max={writeOffTarget?.quantity_available} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="reason" label="Причина" rules={[{ required: true }]}>
-            <Select loading={reasonsQuery.isLoading} options={(reasonsQuery.data ?? []).map((r) => ({ value: r.code, label: r.name }))} />
-          </Form.Item>
-          <Form.Item name="note" label="Заметка (опционально)">
-            <Input />
-          </Form.Item>
-          <OccurredAtField />
-          <Button type="primary" danger htmlType="submit" block loading={writeOffMutation.isPending}>
-            Списать
-          </Button>
-        </Form>
-      </Modal>
-
+      {lotOp && (
+        <LotOperationModal
+          lot={lotFromPartUnit(lotOp.unit, lotOp.unit.area ? areaLabel(lotOp.unit.area) : null)}
+          op={lotOp.op}
+          onClose={() => setLotOp(null)}
+        />
+      )}
       {makeTarget && <MakeFromUnitModal unit={makeTarget} onClose={() => setMakeTarget(null)} />}
       {issueTarget && <IssuePartUnitModal unit={issueTarget} onClose={() => setIssueTarget(null)} />}
       <Modal
@@ -834,70 +640,6 @@ export default function PartUnits() {
           <OccurredAtField />
           <Button type="primary" htmlType="submit" block loading={advanceMutation.isPending}>
             Перевести
-          </Button>
-        </Form>
-      </Modal>
-
-      <Modal
-        title={`Вернуть партию «${returnTarget?.part_name ?? ""}» на склад`}
-        open={!!returnTarget}
-        onCancel={() => setReturnTarget(null)}
-        footer={null}
-        destroyOnHidden
-      >
-        <Typography.Paragraph type="secondary">
-          Выдано было {returnTarget?.quantity_pieces} шт, доступно к возврату {returnTarget?.quantity_available} шт.
-          Укажите, сколько реально возвращается — если часть физически ушла в дело без отдельного отчёта, разница
-          просто зафиксируется событием.
-        </Typography.Paragraph>
-        <Form
-          layout="vertical"
-          form={returnForm}
-          initialValues={{ actual_quantity_pieces: returnTarget?.quantity_available }}
-          onFinish={(v) => returnMutation.mutate(v)}
-        >
-          <Form.Item name="actual_quantity_pieces" label="Фактически возвращается, шт" rules={[{ required: true }]}>
-            <InputNumber min={0} max={returnTarget?.quantity_available} style={{ width: "100%" }} />
-          </Form.Item>
-          <OccurredAtField />
-          <Button type="primary" htmlType="submit" block loading={returnMutation.isPending}>
-            Вернуть на склад
-          </Button>
-        </Form>
-      </Modal>
-
-      <Modal
-        title={`Скорректировать партию «${adjustTarget?.part_name ?? ""}»`}
-        open={!!adjustTarget}
-        onCancel={() => setAdjustTarget(null)}
-        footer={null}
-        destroyOnHidden
-      >
-        <Typography.Paragraph type="secondary">
-          Сейчас в системе {adjustTarget?.quantity_pieces} шт. Формальная правка вместо изменения истории
-          напрямую — действие добавит запись в журнал партии, причина обязательна.
-        </Typography.Paragraph>
-        <Form
-          layout="vertical"
-          form={adjustForm}
-          initialValues={{ actual_quantity_pieces: adjustTarget?.quantity_pieces, film_restriction: adjustTarget?.film_restriction }}
-          onFinish={(v) => adjustMutation.mutate(v)}
-        >
-          <Form.Item name="actual_quantity_pieces" label="Фактическое количество, шт" rules={[{ required: true }]}>
-            <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="reason" label="Причина" rules={[{ required: true, message: "Укажите причину корректировки" }]}>
-            <Input placeholder="Например: опечатка при вводе" />
-          </Form.Item>
-          <Form.Item name="note" label="Заметка (опционально)">
-            <Input />
-          </Form.Item>
-          <Form.Item name="film_restriction" label="Ограничение по плёнке (опционально)">
-            <FilmRestrictionPicker />
-          </Form.Item>
-          <OccurredAtField />
-          <Button type="primary" htmlType="submit" block loading={adjustMutation.isPending}>
-            Скорректировать
           </Button>
         </Form>
       </Modal>
