@@ -37,7 +37,7 @@ def search_by_id(number: int, db: Session = Depends(get_db), user: User = Depend
         hits.append(
             IdHit(
                 kind="film_unit", id=unit.id,
-                title=f"{'Штрипс' if unit.is_strip else 'Рулон'} №{unit.id}: "
+                title=f"{'Штрипс' if unit.is_strip else 'Рулон'} ПЛ-{unit.id}: "
                 + sku_item_name(sku.material.name, sku.color.name, sku.thickness.value_mm, sku.manufacturer.name),
                 subtitle=f"{float(unit.width_mm):g} мм × {float(unit.length_m):g} м · {unit.status.value.replace('_', ' ')}"
                 + (f" · {unit.location_code}" if unit.location_code else ""),
@@ -48,7 +48,7 @@ def search_by_id(number: int, db: Session = Depends(get_db), user: User = Depend
         if lot is not None:
             hits.append(
                 IdHit(
-                    kind="part_unit", id=lot.id, title=f"Партия п/ф №{lot.id}: {lot.part.name}",
+                    kind="part_unit", id=lot.id, title=f"Партия ПФ-{lot.id}: {lot.part.name}",
                     subtitle=f"{float(lot.quantity_pieces):g} шт · {lot.stage.name if lot.stage else ''} · "
                     f"{lot.status.value.replace('_', ' ')}" + (f" · {lot.location_code}" if lot.location_code else ""),
                 )

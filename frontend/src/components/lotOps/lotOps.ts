@@ -1,6 +1,7 @@
 import type { Lot } from "../../api/unifiedStock";
 import { skuLabel, type MaterialSku, type MaterialUnit } from "../../api/units";
 import type { PartUnit } from "../../api/partUnits";
+import { lotNo } from "../../utils/lotNo";
 
 /** Единые окна операций (слой 4 единой модели, 06.10): одно окно на
  * действие для любой партии — рулона/штрипса плёнки или партии п/ф. Таблицы
@@ -62,7 +63,7 @@ export function lotOps(lot: LotRef, has: (code: string) => boolean): { op: LotOp
     });
 }
 
-export const lotTitle = (lot: LotRef) => `${lot.kind === "plenka" ? "Рулон" : "Партия п/ф"} №${lot.lot_id}`;
+export const lotTitle = (lot: LotRef) => `${lot.kind === "plenka" ? "Рулон" : "Партия"} ${lotNo(lot.kind, lot.lot_id)}`;
 
 /** Рулон/штрипс плёнки → партия для окна. Остаток — по учёту (у выданного
  * расход по отчётам видно в самом окне возврата). */

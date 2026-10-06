@@ -50,6 +50,7 @@ import { printRackLabel, printShelfLabelsBatch } from "../../api/labels";
 import { useAuth } from "../../auth/AuthContext";
 import QrScanModal from "../../components/QrScanModal";
 import { apiErrorMessage } from "../../utils/apiError";
+import { rollNo } from "../../utils/lotNo";
 
 const typeLabels: Record<RackType, string> = { roll: "рулонный", strip: "штрипсовый" };
 
@@ -619,7 +620,7 @@ function UnplacedRow({ unit }: { unit: MaterialUnit }) {
       qc.invalidateQueries({ queryKey: ["rack-occupancy"] });
       message.success(
         <>
-          №{u.id} размещён: {u.location_code} — <a onClick={() => printLabel(u.id)}>печать бирки</a>
+          {rollNo(u.id)} размещён: {u.location_code} — <a onClick={() => printLabel(u.id)}>печать бирки</a>
         </>,
       );
     },
@@ -641,7 +642,7 @@ function UnplacedRow({ unit }: { unit: MaterialUnit }) {
       }}
     >
       <Space size={12} wrap style={{ minWidth: 0 }}>
-        <Typography.Text strong>№{unit.id}</Typography.Text>
+        <Typography.Text strong>{rollNo(unit.id)}</Typography.Text>
         <Typography.Text>{skuLabel(unit.material_sku)}</Typography.Text>
         <Typography.Text type="secondary">
           {unit.width_mm}×{unit.length_m} м
@@ -747,7 +748,7 @@ function RollShelfRows({
                           (планшет) кнопки справа не давали блоку с текстом
                           сжаться, и текст переносился по одной букве в строку. */}
                       <div style={{ minWidth: 0, flex: "1 1 240px", display: "flex", flexWrap: "wrap", gap: "2px 10px" }}>
-                        <Typography.Text strong>№{unit.id}</Typography.Text>
+                        <Typography.Text strong>{rollNo(unit.id)}</Typography.Text>
                         <Typography.Text>{skuLabel(unit.material_sku)}</Typography.Text>
                         <Typography.Text type="secondary">
                           {unit.width_mm}×{unit.length_m} м

@@ -8,6 +8,7 @@ import { listRacks, getRackOccupancy } from "../../api/storage";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import ExistingSkuPicker from "../../components/ExistingSkuPicker";
 import { toOccurredAtIso } from "../../utils/occurredAt";
+import { rollNo } from "../../utils/lotNo";
 
 type LineValues = {
   shelf: number;
@@ -214,7 +215,7 @@ export default function InitialStock({ embedded = false }: { embedded?: boolean 
               type="success"
               message={
                 lastAdded.length === 1
-                  ? `№${lastAdded[0].id} → ${lastAdded[0].location_code}`
+                  ? `${rollNo(lastAdded[0].id)} → ${lastAdded[0].location_code}`
                   : `${lastAdded.length} шт → ${lastAdded[0].location_code}`
               }
             />

@@ -8,6 +8,7 @@ import { listWarehouses } from "../../api/storage";
 import { addUnitToTransfer } from "../../api/warehouseTransfers";
 import { deleteUnit, issueUnitDirect, linkTaskLine, returnUnit, type MaterialUnit } from "../../api/units";
 import { LinkTaskLineForm } from "../../components/TaskLineLinkControls";
+import { rollNo } from "../../utils/lotNo";
 
 /** Массовые действия с выбранными единицами плёнки в «Остатках». Каждое —
  * то же одиночное действие по каждой единице по очереди (все проверки и
@@ -56,7 +57,7 @@ function showOutcome(title: string, outcomes: Outcome[]) {
         dataSource={failed}
         renderItem={(o) => (
           <List.Item>
-            <b>№{o.id}</b>&nbsp;— {o.error}
+            <b>{rollNo(o.id)}</b>&nbsp;— {o.error}
           </List.Item>
         )}
       />
@@ -212,7 +213,7 @@ function ReturnBody({ units, busy, run }: { units: MaterialUnit[]; busy: boolean
         scroll={{ y: 360 }}
         dataSource={issued}
         columns={[
-          { title: "№", dataIndex: "id", width: 80 },
+          { title: "№", dataIndex: "id", width: 90, render: (v: number) => rollNo(v) },
           { title: "Материал", render: (_, u) => `${u.material_sku.material.name}, ${u.material_sku.color.name}, ${u.width_mm} мм` },
           { title: "Было, м", dataIndex: "length_m", width: 90 },
           {

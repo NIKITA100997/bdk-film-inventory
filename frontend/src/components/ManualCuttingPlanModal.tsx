@@ -6,6 +6,7 @@ import { getCalcSettings } from "../api/abc";
 import { suggestLocation } from "../api/storage";
 import ResponsiveTable from "./ResponsiveTable";
 import type { CuttingFormInitialWidthCut } from "./CuttingForm";
+import { rollNo } from "../utils/lotNo";
 
 interface QueueRowLike {
   line: { id: number; strip_width_mm?: number | null; width_mm: number; part_name?: string | null };
@@ -168,7 +169,7 @@ export default function ManualCuttingPlanModal({
             scroll={{ x: "max-content" }}
             locale={{ emptyText: "Ничего нет на хранении" }}
             columns={[
-              { title: "№", dataIndex: "id" },
+              { title: "№", dataIndex: "id", render: (v: number) => rollNo(v) },
               { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
               { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
               {
@@ -185,7 +186,7 @@ export default function ManualCuttingPlanModal({
       ) : (
         <>
           <Typography.Paragraph style={{ marginBottom: 8 }}>
-            Донор №{donor.id} — {donor.width_mm} мм × {donor.length_m} м
+            Донор {rollNo(donor.id)} — {donor.width_mm} мм × {donor.length_m} м
             {" · "}
             <a onClick={() => setDonor(null)}>сменить донора</a>
           </Typography.Paragraph>

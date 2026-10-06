@@ -1,4 +1,5 @@
 import { Checkbox, InputNumber, Space, Tag, Typography } from "antd";
+import { rollNo } from "../utils/lotNo";
 
 // Раздел про общий штрипс на детали одного задания — единый список
 // рулонов (свои + заимствованные с соседних строк той же ширины,
@@ -85,7 +86,7 @@ export default function RollPicker({
         return (
           <Space key={o.value} align="start" wrap>
             <Checkbox checked={checked} onChange={(e) => setChecked(o.value, e.target.checked)}>
-              №{o.value} — {o.widthMm} мм, остаток {o.remainingM} м{" "}
+              {rollNo(o.value)} — {o.widthMm} мм, остаток {o.remainingM} м{" "}
               {o.own ? <Tag color="green">своя</Tag> : <Tag color="blue">с детали «{o.fromPartName ?? "?"}»</Tag>}
               {isPrimary && <Tag>основной</Tag>}
             </Checkbox>

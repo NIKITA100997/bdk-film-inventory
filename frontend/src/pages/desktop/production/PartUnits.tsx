@@ -30,6 +30,7 @@ import { listUsers } from "../../../api/users";
 import { useAuth } from "../../../auth/AuthContext";
 import { fmtDate, fmtDateTime } from "../../../utils/dates";
 import { FileExcelOutlined } from "@ant-design/icons";
+import { pfNo } from "../../../utils/lotNo";
 
 const STATUS_LABEL: Record<PartUnitStatus, string> = {
   На_хранении: "На хранении",
@@ -244,7 +245,7 @@ export default function PartUnits() {
       }),
     onSuccess: (newUnit) => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
-      message.success(`Партия №${newUnit.id} детали «${newUnit.part_name}» создана из переработки`);
+      message.success(`Партия ${pfNo(newUnit.id)} детали «${newUnit.part_name}» создана из переработки`);
       setRecycleTarget(null);
       setRecycleTargetPart(null);
       setRecycleComp(null);
@@ -457,6 +458,8 @@ export default function PartUnits() {
           locale={{ emptyText: "Ничего не найдено по текущему фильтру" }}
           onRow={(u) => ({ onClick: () => setCardTarget(u), style: { cursor: "pointer" } })}
           columns={[
+            // номер партии — единая нумерация (ПФ-…), различать партии одной детали
+            { title: "№", dataIndex: "id", width: 90, render: (v: number) => pfNo(v) },
             { title: "Деталь", dataIndex: "part_name", width: 220 },
             {
               title: "Кол-во, шт",
@@ -863,7 +866,7 @@ export default function PartUnits() {
                                 if (rel) setCardTarget(rel);
                               }}
                             >
-                              → партия №{ev.related_part_unit_id}
+                              → партия {pfNo(ev.related_part_unit_id)}
                             </a>
                           </>
                         )}

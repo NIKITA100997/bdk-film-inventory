@@ -62,6 +62,7 @@ import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDateTime } from "../../utils/dates";
+import { rollNo } from "../../utils/lotNo";
 
 const statusOptions: { value: UnitStatusValue; label: string }[] = [
   { value: "Принят", label: "Принят" },
@@ -268,7 +269,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
       qc.invalidateQueries({ queryKey: ["materials-explorer"] });
       setCreatedUnits(units);
       unitForm.resetFields();
-      message.success(`Единица №${units[0].id} зарегистрирована`);
+      message.success(`Единица ${rollNo(units[0].id)} зарегистрирована`);
     },
     onError: () => message.error("Не удалось зарегистрировать единицу"),
   });
@@ -722,7 +723,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
               },
             })}
             columns={[
-              { title: "ID", dataIndex: "id", sorter: (a, b) => a.id - b.id },
+              { title: "ID", dataIndex: "id", sorter: (a, b) => a.id - b.id, render: (v: number) => rollNo(v) },
               { title: "Материал", render: (_, u) => skuLabel(u.material_sku) },
               { title: "Тип", render: (_, u) => (u.is_strip ? "штрипс" : "рулон") },
               { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м`, sorter: (a, b) => a.width_mm - b.width_mm },
@@ -965,7 +966,7 @@ function SuggestPlaceButton({ unit }: { unit: MaterialUnit }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["materials-explorer", "units"] });
       qc.invalidateQueries({ queryKey: ["units-unplaced"] });
-      message.success(`№${unit.id} размещён`);
+      message.success(`${rollNo(unit.id)} размещён`);
     },
     onError: () => message.error("Не удалось разместить"),
   });
@@ -1007,12 +1008,12 @@ function BulkCutModal({ onClose }: { onClose: () => void }) {
     mutationFn: (id: number) => getUnit(id),
     onSuccess: (unit) => {
       if (!CUTTABLE_STATUSES.includes(unit.status)) {
-        setLookupError(`№${unit.id}: статус «${unit.status.replace(/_/g, " ")}» — раскрой недоступен`);
+        setLookupError(`${rollNo(unit.id)}: статус «${unit.status.replace(/_/g, " ")}» — раскрой недоступен`);
         setFoundUnit(null);
         return;
       }
       if (queue.some((q) => q.unit.id === unit.id)) {
-        setLookupError(`№${unit.id} уже в списке — уберите строку, чтобы изменить`);
+        setLookupError(`${rollNo(unit.id)} уже в списке — уберите строку, чтобы изменить`);
         setFoundUnit(null);
         return;
       }
@@ -1093,7 +1094,7 @@ function BulkCutModal({ onClose }: { onClose: () => void }) {
       {foundUnit && (
         <Card size="small" style={{ marginBottom: 8 }}>
           <Typography.Text>
-            №{foundUnit.id} — {skuLabel(foundUnit.material_sku)}, {foundUnit.width_mm}×{foundUnit.length_m} м,{" "}
+            {rollNo(foundUnit.id)} — {skuLabel(foundUnit.material_sku)}, {foundUnit.width_mm}×{foundUnit.length_m} м,{" "}
             {foundUnit.status.replace(/_/g, " ")}
           </Typography.Text>
           <div style={{ marginTop: 8 }}>
@@ -1134,7 +1135,7 @@ function BulkCutModal({ onClose }: { onClose: () => void }) {
                 </Button>,
               ]}
             >
-              №{item.unit.id} — {skuLabel(item.unit.material_sku)}: было {item.unit.length_m} м, спишется{" "}
+              {rollNo(item.unit.id)} — {skuLabel(item.unit.material_sku)}: было {item.unit.length_m} м, спишется{" "}
               {item.cutLengthM} м, останется {(item.unit.length_m - item.cutLengthM).toFixed(2)} м
             </List.Item>
           )}
@@ -1157,7 +1158,7 @@ function BulkCutModal({ onClose }: { onClose: () => void }) {
             dataSource={results}
             renderItem={(r) => (
               <List.Item>
-                №{r.id} — было {r.before} м, осталось {r.after} м{r.after === 0 && " — списан полностью"}
+                {rollNo(r.id)} — было {r.before} м, осталось {r.after} м{r.after === 0 && " — списан полностью"}
               </List.Item>
             )}
           />

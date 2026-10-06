@@ -25,6 +25,7 @@ import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useAuth } from "../../auth/AuthContext";
 import { fmtDateTime } from "../../utils/dates";
+import { pfNo } from "../../utils/lotNo";
 
 type ActionKind = "place" | "advance" | null;
 
@@ -158,7 +159,7 @@ export default function PartUnitCard() {
       {unit && (
         <>
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
-            <Descriptions.Item label="ID">№ {unit.id}</Descriptions.Item>
+            <Descriptions.Item label="Номер">{pfNo(unit.id)}</Descriptions.Item>
             <Descriptions.Item label="Деталь">
               <a onClick={() => navigate("/part-card", { state: { partId: unit.part_id } })}>{unit.part_name}</a>
             </Descriptions.Item>

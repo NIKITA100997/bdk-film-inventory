@@ -34,6 +34,7 @@ import {
   type FastLine,
 } from "./useFastReport";
 import type { ProductionTaskLine } from "../../../../api/production";
+import { rollNo } from "../../../../utils/lotNo";
 
 type View = "tiles" | "table" | "legacy";
 
@@ -512,7 +513,7 @@ function TableView({
                   <div style={{ fontSize: 13 }}>{filmLabel(fl.line)}</div>
                   {roll ? (
                     <Tag color={roll.from ? "cyan" : "blue"}>
-                      №{roll.id} · {fmt(roll.left)} м
+                      {rollNo(roll.id)} · {fmt(roll.left)} м
                       {roll.from ? " · общий" : ""}
                     </Tag>
                   ) : r.needsRoll(fl) ? (
@@ -706,7 +707,7 @@ function LineSheet({
                         type={e.rollId === u.id ? "primary" : "default"}
                         onClick={() => r.setEntry(fl.line, { rollId: u.id })}
                       >
-                        №{u.id} · {u.width_mm} мм · {fmt(u.left)} м
+                        {rollNo(u.id)} · {u.width_mm} мм · {fmt(u.left)} м
                         {u.from ? ` · с «${u.from}»` : ""}
                       </Button>
                     ))
@@ -725,7 +726,7 @@ function LineSheet({
                         size="small"
                         onClick={() => r.setEntry(fl.line, { extra: [...(e.extra ?? []), { id: u.id, left: null }] })}
                       >
-                        №{u.id} · {fmt(u.left)} м
+                        {rollNo(u.id)} · {fmt(u.left)} м
                       </Button>
                     ))}
                   </Space>
@@ -736,7 +737,7 @@ function LineSheet({
                 return (
                   <Space key={x.id} wrap>
                     <Typography.Text>
-                      + №{x.id}: осталось на рулоне, м
+                      + {rollNo(x.id)}: осталось на рулоне, м
                     </Typography.Text>
                     <InputNumber
                       min={0}

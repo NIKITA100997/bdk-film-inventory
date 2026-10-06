@@ -43,6 +43,7 @@ import {
 } from "../../api/partCounts";
 import { STAGES } from "../../utils/itemAttrs";
 import { apiErrorMessage } from "../../utils/apiError";
+import { pfNo } from "../../utils/lotNo";
 
 const fmt = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100) / 100}`);
 const DiffTag = ({ diff }: { diff: number | null }) =>
@@ -277,7 +278,7 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
 
   return (
     <Card
-      title={`Пересчёт №${d.id} · ${d.area_name}`}
+      title={`Пересчёт ${pfNo(d.id)} · ${d.area_name}`}
       extra={<Tag color="blue">идёт</Tag>}
     >
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -334,7 +335,7 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
                 columns={[
                   {
                     title: "Партия",
-                    render: (_, l) => (l.part_unit_id ? `№${l.part_unit_id}` : <Tag color="orange">найдено сверх листа</Tag>),
+                    render: (_, l) => (l.part_unit_id ? `${pfNo(l.part_unit_id)}` : <Tag color="orange">найдено сверх листа</Tag>),
                   },
                   { title: "Изготовлена", render: (_, l) => (l.manufactured_at ? dayjs(l.manufactured_at).format("DD.MM.YYYY") : "—") },
                   { title: "По учёту, шт", align: "right", render: (_, l) => fmt(l.expected_qty) },
@@ -452,7 +453,7 @@ function CountResult({ d }: { d: PartCountDetail }) {
   const label = { write_off: "списано", accept: "оприходовано", keep: "оставлено как есть" } as const;
   return (
     <Card
-      title={`Пересчёт №${d.id} · ${d.area_name}`}
+      title={`Пересчёт ${pfNo(d.id)} · ${d.area_name}`}
       extra={d.lines_open > 0 ? <Tag color="orange">без решения: {d.lines_open}</Tag> : <Tag color="green">все решения приняты</Tag>}
     >
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -472,7 +473,7 @@ function CountResult({ d }: { d: PartCountDetail }) {
           scroll={{ x: "max-content" }}
           columns={[
             { title: "Деталь", render: (_, l) => <>{l.part_name} <Tag>{l.stage_name}</Tag></> },
-            { title: "Партия", render: (_, l) => (l.part_unit_id ? `№${l.part_unit_id}` : <Tag color="orange">сверх листа</Tag>) },
+            { title: "Партия", render: (_, l) => (l.part_unit_id ? `${pfNo(l.part_unit_id)}` : <Tag color="orange">сверх листа</Tag>) },
             { title: "По учёту", align: "right", render: (_, l) => fmt(l.expected_qty) },
             { title: "Факт", align: "right", render: (_, l) => fmt(l.counted_qty) },
             { title: "", render: (_, l) => <DiffTag diff={l.diff} /> },
@@ -482,7 +483,7 @@ function CountResult({ d }: { d: PartCountDetail }) {
                 l.decision ? (
                   <Typography.Text type="secondary">
                     {label[l.decision]}
-                    {l.result_part_unit_id ? ` · партия №${l.result_part_unit_id}` : ""}
+                    {l.result_part_unit_id ? ` · партия ${pfNo(l.result_part_unit_id)}` : ""}
                   </Typography.Text>
                 ) : l.allowed.length ? (
                   <Space size={4} wrap>
@@ -533,7 +534,7 @@ function WriteOffShortage({
   return (
     <Modal
       open
-      title={`Списать недостачу ${fmt(-(line.diff ?? 0))} шт — партия №${line.part_unit_id}`}
+      title={`Списать недостачу ${fmt(-(line.diff ?? 0))} шт — партия ${pfNo(line.part_unit_id)}`}
       okText="Списать"
       okButtonProps={{ danger: true, loading }}
       cancelText="Отмена"

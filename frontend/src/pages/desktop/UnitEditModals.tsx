@@ -5,6 +5,7 @@ import DictAutoComplete from "../../components/DictAutoComplete";
 import { useAuth } from "../../auth/AuthContext";
 import { adjustUnit, bulkEditUnits, placeUnit, reassignUnitSku, type MaterialUnit } from "../../api/units";
 import { apiErrorMessage } from "../../utils/apiError";
+import { rollNo } from "../../utils/lotNo";
 
 function usePerms() {
   const { user } = useAuth();
@@ -80,7 +81,7 @@ export function UnitEditModal({ unit, onClose }: { unit: MaterialUnit; onClose: 
       qc.invalidateQueries({ queryKey: ["materials-explorer"] });
       qc.invalidateQueries({ queryKey: ["material-card"] });
       qc.invalidateQueries({ queryKey: ["material-card-group"] });
-      message.success(done.length ? `Единица №${unit.id}: изменено — ${done.join(", ")}` : "Ничего не изменилось");
+      message.success(done.length ? `Единица ${rollNo(unit.id)}: изменено — ${done.join(", ")}` : "Ничего не изменилось");
       onClose();
     },
     onError: (e) => {
@@ -91,7 +92,7 @@ export function UnitEditModal({ unit, onClose }: { unit: MaterialUnit; onClose: 
   });
 
   return (
-    <Modal title={`Изменить единицу №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden width={560}>
+    <Modal title={`Изменить единицу ${rollNo(unit.id)}`} open onCancel={onClose} footer={null} destroyOnHidden width={560}>
       <Form form={form} layout="vertical" initialValues={initial} onFinish={(v) => mutation.mutate(v)}>
         <Typography.Text strong>Номенклатура</Typography.Text>
         <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>

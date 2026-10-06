@@ -69,6 +69,7 @@ import CuttingForm, { type CuttingFormInitialWidthCut } from "../../components/C
 import ManualCuttingPlanModal from "../../components/ManualCuttingPlanModal";
 import { useAuth } from "../../auth/AuthContext";
 import { listWidthAnalogGroups, isWidthMatch } from "../../api/widthAnalogs";
+import { rollNo } from "../../utils/lotNo";
 
 function issueErrorMessage(e: unknown, fallback: string): string {
   if (isAxiosError(e) && typeof e.response?.data?.detail === "string") return e.response.data.detail;
@@ -424,7 +425,7 @@ function GroupDecisionPanel({
 
   return (
     <Typography.Text type="secondary" style={{ fontSize: 12.5, display: "block" }}>
-      ✂️ План резки: донор №{donor.unit_id} ({donor.width_mm} мм, {donor.length_m} м) → режем{" "}
+      ✂️ План резки: донор {rollNo(donor.unit_id)} ({donor.width_mm} мм, {donor.length_m} м) → режем{" "}
       {covered_widths_mm.join(" + ")} мм, отход {waste_mm} мм
       {uncovered_widths_mm.length > 0 && <> · ещё нет донора на {uncovered_widths_mm.join(", ")} мм</>}
       {" · "}
@@ -598,7 +599,7 @@ export default function Issue() {
         removeStockDecision(d.lineId);
         okCount++;
       } catch (e) {
-        failed.push({ label: `${d.label} — штрипс №${d.unitId}`, error: issueErrorMessage(e, "не удалось выдать") });
+        failed.push({ label: `${d.label} — штрипс ${rollNo(d.unitId)}`, error: issueErrorMessage(e, "не удалось выдать") });
       }
     }
     for (const entry of cuttingBatch) {
@@ -615,7 +616,7 @@ export default function Issue() {
         removeFromCuttingBatch(entry.donorUnitId);
         okCount++;
       } catch (e) {
-        failed.push({ label: `Донор №${entry.donorUnitId} (${entry.pieces.length} кус.)`, error: issueErrorMessage(e, "не удалось разрезать") });
+        failed.push({ label: `Донор ${rollNo(entry.donorUnitId)} (${entry.pieces.length} кус.)`, error: issueErrorMessage(e, "не удалось разрезать") });
       }
     }
     setExecutingAll(false);
@@ -1240,7 +1241,7 @@ export default function Issue() {
   // что "Остатки"/"Карточка материала" уже используют — navigate с
   // unitId в state, UnitCard.tsx сам подхватывает и грузит по id).
   const UnitLink = ({ id }: { id: number }) => (
-    <a onClick={() => navigate("/m/unit-card", { state: { unitId: id } })}>№{id}</a>
+    <a onClick={() => navigate("/m/unit-card", { state: { unitId: id } })}>{rollNo(id)}</a>
   );
 
   // Та же категоризация, что renderStatusPill превращает в пилюлю —
@@ -1267,7 +1268,7 @@ export default function Issue() {
     if (!status) return null;
     switch (status.kind) {
       case "stock":
-        return <Tag color="green">✅ №{status.match.unit_id}{status.match.shared ? " · общий" : ""}</Tag>;
+        return <Tag color="green">✅ {rollNo(status.match.unit_id)}{status.match.shared ? " · общий" : ""}</Tag>;
       case "cut_planned":
         return <Tag color="gold">✂️ резка</Tag>;
       case "no_donor":
@@ -1506,7 +1507,7 @@ export default function Issue() {
 
           {canIssue && exactMatch && (
             <div style={{ background: "#E7F5EE", border: "1px solid #B7E0CD", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-              <div style={{ fontWeight: 700, color: "#146B4E" }}>Есть точный штрипс №{exactMatch.id}</div>
+              <div style={{ fontWeight: 700, color: "#146B4E" }}>Есть точный штрипс {rollNo(exactMatch.id)}</div>
               <div style={{ fontSize: 12.5, marginTop: 4 }}>
                 {exactMatch.width_mm} мм × {exactMatch.length_m} м
                 {exactMatch.location_code ? ` · ${exactMatch.location_code}` : ""}
@@ -1549,7 +1550,7 @@ export default function Issue() {
           {canIssue && result?.outcome === "donor_suggested" && result.donor && (
             <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12, marginBottom: 12 }}>
               <div style={{ fontWeight: 700, color: "#A8631E" }}>
-                ⚡ Точного штрипса нет — есть донор №{result.donor.unit_id}
+                ⚡ Точного штрипса нет — есть донор {rollNo(result.donor.unit_id)}
               </div>
               <div style={{ fontSize: 12.5, marginTop: 4 }}>
                 {result.donor.width_mm} мм, класс{" "}
@@ -1612,7 +1613,7 @@ export default function Issue() {
                     scroll={{ x: "max-content" }}
                     locale={{ emptyText: "Ничего нет на хранении" }}
                     columns={[
-                      { title: "№", dataIndex: "id" },
+                      { title: "№", dataIndex: "id", render: (v: number) => rollNo(v) },
                       { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
                       { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
                       {
@@ -1694,7 +1695,7 @@ export default function Issue() {
                               scroll={{ x: "max-content" }}
                               locale={{ emptyText: "Ничего нет на хранении по этой номенклатуре" }}
                               columns={[
-                                { title: "№", dataIndex: "id" },
+                                { title: "№", dataIndex: "id", render: (v: number) => rollNo(v) },
                                 { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
                                 { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
                                 {
@@ -1771,12 +1772,12 @@ export default function Issue() {
               ✓
             </span>
             <Typography.Text strong style={{ color: "#146B4E", fontSize: 15 }}>
-              Выдано №{lastIssued.unit.id} — {lastIssued.unit.width_mm} мм × {lastIssued.unit.length_m} м
+              Выдано {rollNo(lastIssued.unit.id)} — {lastIssued.unit.width_mm} мм × {lastIssued.unit.length_m} м
             </Typography.Text>
           </Space>
           {lastIssued.remainder && (
             <div style={{ marginLeft: 40, fontSize: 12.5, color: "#2E6B54", marginBottom: 14 }}>
-              Донор разрезан, остаток №{lastIssued.remainder.id} обновлён
+              Донор разрезан, остаток {rollNo(lastIssued.remainder.id)} обновлён
             </div>
           )}
 
@@ -1809,7 +1810,7 @@ export default function Issue() {
                 }}
               >
                 <span>
-                  📦 Остаток №{lastIssued.remainder.id}, {lastIssued.remainder.width_mm} мм
+                  📦 Остаток {rollNo(lastIssued.remainder.id)}, {lastIssued.remainder.width_mm} мм
                   {remainderSuggestion.data && (
                     <>
                       {" — рекомендуем "}
@@ -1948,7 +1949,7 @@ export default function Issue() {
     } else if (info?.status.kind === "stock") {
       state = (
         <Tag color="green" title={info.status.match.shared ? "Один штрипс на несколько деталей — выдаётся один раз" : undefined}>
-          ✅ штрипс №{info.status.match.unit_id}
+          ✅ штрипс {rollNo(info.status.match.unit_id)}
           {info.status.match.shared ? " · общий" : ""}
           {(() => {
             const home = homeWarehouseFor(row.task.area);
@@ -1959,11 +1960,11 @@ export default function Issue() {
       if (canIssue && info.acceptStock)
         action = (
           <Button type="primary" size="large" style={{ background: "#1D8F68" }} onClick={info.acceptStock}>
-            Выдать №{info.status.match.unit_id}
+            Выдать {rollNo(info.status.match.unit_id)}
           </Button>
         );
     } else if (info?.status.kind === "cut_planned") {
-      state = <Tag color="gold">✂ резать из №{info.donorUnitId}</Tag>;
+      state = <Tag color="gold">✂ резать из {rollNo(info.donorUnitId)}</Tag>;
       if (canIssue && info.acceptCut)
         action = (
           <Button type="primary" size="large" onClick={() => void info.acceptCut!()}>
@@ -2173,7 +2174,7 @@ export default function Issue() {
                       scroll={{ x: "max-content" }}
                       locale={{ emptyText: "Ничего нет на хранении" }}
                       columns={[
-                        { title: "№", dataIndex: "id" },
+                        { title: "№", dataIndex: "id", render: (v: number) => rollNo(v) },
                         { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м` },
                         { title: "Ячейка", dataIndex: "location_code", render: (v) => v ?? "—" },
                         {
@@ -2220,7 +2221,7 @@ export default function Issue() {
                     {manualDonor && (
                       <div style={{ background: "#FBF0E3", border: "1px solid #ECC79B", borderRadius: 10, padding: 12 }}>
                         <div style={{ fontWeight: 700, color: "#A8631E" }}>
-                          ⚡ Точного совпадения нет — есть донор №{manualDonor.unit_id}
+                          ⚡ Точного совпадения нет — есть донор {rollNo(manualDonor.unit_id)}
                         </div>
                         <div style={{ fontSize: 12.5, marginTop: 4 }}>
                           {manualDonor.width_mm} мм, класс{" "}
@@ -2352,14 +2353,14 @@ export default function Issue() {
                     {withLeftover.length > 0 && (
                       <div>
                         <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
-                          Заберите остаток со участка: {withLeftover.map((u) => `№${u.id} (${u.width_mm}×${u.length_m} м)`).join(", ")}
+                          Заберите остаток со участка: {withLeftover.map((u) => `${rollNo(u.id)} (${u.width_mm}×${u.length_m} м)`).join(", ")}
                         </Typography.Text>
                       </div>
                     )}
                     {empty.length > 0 && (
                       <div>
                         <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
-                          Израсходованы в ноль, нести нечего — только закрыть запись: {empty.map((u) => `№${u.id}`).join(", ")}
+                          Израсходованы в ноль, нести нечего — только закрыть запись: {empty.map((u) => `${rollNo(u.id)}`).join(", ")}
                         </Typography.Text>
                       </div>
                     )}
@@ -2739,7 +2740,7 @@ export default function Issue() {
                   {canIssue && info?.acceptCut && (
                     <ActionIcon
                       tone="outline"
-                      tip={info.donorUnitId ? `В резку — донор №${info.donorUnitId}` : "Добавить в план резки"}
+                      tip={info.donorUnitId ? `В резку — донор ${rollNo(info.donorUnitId)}` : "Добавить в план резки"}
                       onClick={info.acceptCut}
                     >
                       ✂️
@@ -2846,7 +2847,7 @@ export default function Issue() {
 
       {cuttingSession && (
         <Modal
-          title={`Резать донора №${cuttingSession.donor.id}`}
+          title={`Резать донора ${rollNo(cuttingSession.donor.id)}`}
           open
           onCancel={() => setCuttingSession(null)}
           footer={null}
@@ -3057,7 +3058,7 @@ function AcceptStockAction({
 
   if (siblings.length === 0) {
     return (
-      <ActionIcon tone="filled" tip={`Взять со склада — штрипс №${unitId}`} onClick={onAccept}>
+      <ActionIcon tone="filled" tip={`Взять со склада — штрипс ${rollNo(unitId)}`} onClick={onAccept}>
         ✓
       </ActionIcon>
     );
@@ -3088,7 +3089,7 @@ function AcceptStockAction({
                 })
               }
             >
-              {s.label} — штрипс №{s.unitId}
+              {s.label} — штрипс {rollNo(s.unitId)}
             </Checkbox>
           ))}
           <Button
@@ -3101,12 +3102,12 @@ function AcceptStockAction({
               setOpen(false);
             }}
           >
-            Взять со склада — штрипс №{unitId}{checkedCount > 0 ? ` + ещё ${checkedCount}` : ""}
+            Взять со склада — штрипс {rollNo(unitId)}{checkedCount > 0 ? ` + ещё ${checkedCount}` : ""}
           </Button>
         </Space>
       }
     >
-      <ActionIcon tone="filled" tip={`Взять со склада — штрипс №${unitId} (есть и на соседние строки)`} onClick={() => setOpen(true)}>
+      <ActionIcon tone="filled" tip={`Взять со склада — штрипс ${rollNo(unitId)} (есть и на соседние строки)`} onClick={() => setOpen(true)}>
         ✓
       </ActionIcon>
     </Popover>
@@ -3118,7 +3119,7 @@ function AcceptReturnButton({ unit }: { unit: ProductionTaskLineIssuedUnit }) {
   return (
     <>
       <Button size="small" type="primary" onClick={() => setOpen(true)}>
-        Принять №{unit.id}
+        Принять {rollNo(unit.id)}
       </Button>
       {open && <AcceptReturnModal unit={unit} onClose={() => setOpen(false)} />}
     </>
@@ -3185,10 +3186,10 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
       qc.invalidateQueries({ queryKey: ["issue-manual-issued"] });
       message.success(
         writeOff ? (
-          `№${returned.id} принят и сразу списан`
+          `${rollNo(returned.id)} принят и сразу списан`
         ) : (
           <>
-            №{returned.id} принят{placed ? ` и размещён: ${locationCode.trim()}` : ""} —{" "}
+            {rollNo(returned.id)} принят{placed ? ` и размещён: ${locationCode.trim()}` : ""} —{" "}
             <a onClick={() => printLabel(returned.id, { kind: "cutting_issue" })}>печать бирки</a>
           </>
         ),
@@ -3199,7 +3200,7 @@ function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineIssuedUn
   });
 
   return (
-    <Modal title={`Принять №${unit.id} на склад`} open onCancel={onClose} footer={null} destroyOnHidden>
+    <Modal title={`Принять ${rollNo(unit.id)} на склад`} open onCancel={onClose} footer={null} destroyOnHidden>
       {expected != null ? (
         <Alert
           style={{ marginBottom: 8 }}

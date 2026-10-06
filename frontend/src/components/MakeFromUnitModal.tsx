@@ -3,6 +3,7 @@ import { Alert, Form, InputNumber, Modal, Select, Typography, message } from "an
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMakeTargets, makeFromPartUnit, type PartUnit } from "../api/partUnits";
 import { apiErrorMessage } from "../utils/apiError";
+import { pfNo } from "../utils/lotNo";
 
 /** «Выпуск детали из заготовки» — общая заготовка до фрезеровки становится
  * деталью с пазом: выбрать деталь и сколько штук; заготовка списывается в
@@ -39,7 +40,7 @@ export default function MakeFromUnitModal({
       qc.invalidateQueries({ queryKey: ["part-units"] });
       qc.invalidateQueries({ queryKey: ["part-unit-events"] });
       qc.invalidateQueries({ queryKey: ["unified-lots"] });
-      message.success(`Готово: партия №${made.id} «${made.part_name}», ${made.quantity_pieces} шт — на этапе «${made.stage_name}»`);
+      message.success(`Готово: партия ${pfNo(made.id)} «${made.part_name}», ${made.quantity_pieces} шт — на этапе «${made.stage_name}»`);
       onDone?.(made);
       onClose();
     },
@@ -49,7 +50,7 @@ export default function MakeFromUnitModal({
   return (
     <Modal
       open
-      title={`Выпуск детали из партии №${unit.id}`}
+      title={`Выпуск детали из партии ${pfNo(unit.id)}`}
       okText="Выпустить"
       cancelText="Отмена"
       okButtonProps={{ disabled: !target || !qty || qty <= 0, loading: mutation.isPending, size }}

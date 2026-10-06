@@ -15,6 +15,7 @@ import ResponsiveTable from "../../components/ResponsiveTable";
 import CuttingForm from "../../components/CuttingForm";
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDateTime } from "../../utils/dates";
+import { rollNo } from "../../utils/lotNo";
 
 function destinationLabel(kind: string, area: string | null, areaLabel: (code: string) => string): string {
   if (kind === "issue") return `выдан участку «${area ? areaLabel(area) : "?"}»`;
@@ -88,14 +89,14 @@ export default function CuttingHistory() {
     : allRows;
 
   const confirmUndo = (op: CuttingOperation) => {
-    const pieces = op.resulting_pieces.map((p) => `№${p.id} (${p.width_mm}×${p.length_m} м)`).join(", ") || "—";
+    const pieces = op.resulting_pieces.map((p) => `${rollNo(p.id)} (${p.width_mm}×${p.length_m} м)`).join(", ") || "—";
     Modal.confirm({
       title: "Отменить резку?",
       width: 480,
       content: (
         <div>
           <p>
-            Донор №{op.donor_unit_id} вернётся к {op.donor_width_before_mm}×{op.donor_length_before_m} м.
+            Донор {rollNo(op.donor_unit_id)} вернётся к {op.donor_width_before_mm}×{op.donor_length_before_m} м.
           </p>
           <p>Будут удалены куски: {pieces}.</p>
           <p>Записи в журнале движений за эту резку будут удалены.</p>
@@ -158,7 +159,7 @@ export default function CuttingHistory() {
             key: "donor",
             render: (_, r) => (
               <span>
-                №{r.donor_unit_id} — {r.donor_material_sku.material.name}, {r.donor_material_sku.color.name},{" "}
+                {rollNo(r.donor_unit_id)} — {r.donor_material_sku.material.name}, {r.donor_material_sku.color.name},{" "}
                 {r.donor_material_sku.thickness.value_mm} мм
                 <br />
                 {r.donor_width_before_mm}×{r.donor_length_before_m} → {r.donor_width_after_mm}×{r.donor_length_after_m} м
@@ -176,7 +177,7 @@ export default function CuttingHistory() {
                 <Space direction="vertical" size={2}>
                   {r.resulting_pieces.map((p) => (
                     <span key={p.id}>
-                      №{p.id}: {p.width_mm}×{p.length_m} м — {destinationLabel(p.destination_kind, p.area, areaLabel)}
+                      {rollNo(p.id)}: {p.width_mm}×{p.length_m} м — {destinationLabel(p.destination_kind, p.area, areaLabel)}
                     </span>
                   ))}
                 </Space>
@@ -233,7 +234,7 @@ export default function CuttingHistory() {
       />
 
       {recutDonor && (
-        <Modal title={`Резать донора №${recutDonor.id}`} open onCancel={() => setRecutDonor(null)} footer={null} destroyOnHidden width={560}>
+        <Modal title={`Резать донора ${rollNo(recutDonor.id)}`} open onCancel={() => setRecutDonor(null)} footer={null} destroyOnHidden width={560}>
           <CuttingForm
             donor={recutDonor}
             onDone={() => {

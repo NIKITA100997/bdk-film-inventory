@@ -22,6 +22,7 @@ import OccurredAtField from "../../components/OccurredAtField";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useDraftForm } from "../../hooks/useDraftForm";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import { rollNo } from "../../utils/lotNo";
 
 type LineValues = Omit<ReceiveRequest, "upd_number" | "pallet_number" | "location_code" | "occurred_at" | "thickness"> & {
   thickness: string;
@@ -281,7 +282,7 @@ export default function Receive() {
                   message={
                     lastAdded.every((u) => u.location_code)
                       ? lastAdded.length === 1
-                        ? `№${lastAdded[0].id} → ячейка ${lastAdded[0].location_code}`
+                        ? `${rollNo(lastAdded[0].id)} → ячейка ${lastAdded[0].location_code}`
                         : `${lastAdded.length} рулонов размещено: ${lastAdded.map((u) => u.location_code).join(", ")}`
                       : `Без места автоматически: ${lastAdded.filter((u) => !u.location_code).length} из ${lastAdded.length} — разместите вручную через карточку единицы после завершения приёмки`
                   }
@@ -415,7 +416,7 @@ function ReceiptsHistoryModal({ open, onClose }: { open: boolean; onClose: () =>
                 style: { cursor: "pointer" },
               })}
               columns={[
-                { title: "№", dataIndex: "unit_id", width: 70 },
+                { title: "№", dataIndex: "unit_id", width: 90, render: (v: number) => rollNo(v) },
                 {
                   title: "Материал",
                   render: (_, u) => `${u.material}, ${u.color}, ${u.thickness} мм, ${u.manufacturer}`,

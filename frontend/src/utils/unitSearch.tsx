@@ -3,6 +3,7 @@ import { Button, Modal, Space, Typography, message } from "antd";
 import { apiClient } from "../api/client";
 import { listRacks } from "../api/storage";
 import { listPartRacks } from "../api/partStorage";
+import { parseLotNo } from "./lotNo";
 
 interface IdHit {
   kind: "film_unit" | "part_unit" | "task" | "order";
@@ -118,9 +119,11 @@ export async function runUnitOrMaterialSearch(
   // "код-НН"), но у плёночных стеллажей такого кода нет, и скан молча
   // проваливался бы в поиск по /stock (тот же класс бага, что уже чинили
   // для плёночных стеллажей в этом же сканере).
-  const pfUnitMatch = trimmed.match(/^ПФ(\d+)$/i);
-  if (pfUnitMatch) {
-    navigate("/m/part-unit-card", { state: { unitId: Number(pfUnitMatch[1]) } });
+  // Единая нумерация (06.10): «ПЛ-1015» — рулон, «ПФ-193» — партия п/ф; QR
+  // партии («ПФ193») — тот же разбор.
+  const lot = parseLotNo(trimmed);
+  if (lot) {
+    navigate(lot.kind === "plenka" ? "/m/unit-card" : "/m/part-unit-card", { state: { unitId: lot.id } });
     return;
   }
   // Стеллажи п/ф — по любому коду (не только «ЗГ-…»): коды стеллажей

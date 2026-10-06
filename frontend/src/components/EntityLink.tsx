@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { pfNo, rollNo } from "../utils/lotNo";
 
 /** Раздел про недостающие кликабельные ссылки в отчётах/журнале действий
  * (полный аудит приложения) — номер единицы/партии там был просто
@@ -9,10 +10,10 @@ import { useNavigate } from "react-router-dom";
  * же onClick в каждом отчёте. */
 export function UnitLink({ id }: { id: number }) {
   const navigate = useNavigate();
-  return <a onClick={() => navigate("/m/unit-card", { state: { unitId: id } })}>№{id}</a>;
+  return <a onClick={() => navigate("/m/unit-card", { state: { unitId: id } })}>{rollNo(id)}</a>;
 }
 
 export function PartUnitLink({ id }: { id: number }) {
   const navigate = useNavigate();
-  return <a onClick={() => navigate("/m/part-unit-card", { state: { unitId: id } })}>№{id}</a>;
+  return <a onClick={() => navigate("/m/part-unit-card", { state: { unitId: id } })}>{pfNo(id)}</a>;
 }

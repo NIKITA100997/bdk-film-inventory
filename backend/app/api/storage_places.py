@@ -6,6 +6,8 @@
 
 from collections import defaultdict
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -129,8 +131,17 @@ def place_cells(kind: str, place_id: int, db: Session = Depends(get_db), user: U
     ]
 
 
+LOT_NO_RE = re.compile(r"^(ПЛ|ПФ)[\s-]*\d+$", re.IGNORECASE)
+
+
 def code_taken_anywhere(db: Session, code: str, *, exclude_film_id: int | None = None) -> str | None:
-    """Код стеллажа занят в любом виде мест хранения? Вернёт вид или None."""
+    """Код стеллажа занят в любом виде мест хранения? Вернёт вид или None.
+    «ПЛ-123» / «ПФ-123» — номера партий (единая нумерация 06.10): такой код
+    стеллажа перепутался бы с номером при поиске и скане — не даём завести."""
+    if LOT_NO_RE.match(code.strip()):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Коды вида «ПЛ-123» и «ПФ-123» — номера рулонов и партий п/ф, для стеллажа выберите другой"
+        )
     q = db.query(Rack.id).filter(func.lower(Rack.code) == code.strip().lower())
     if exclude_film_id is not None:
         q = q.filter(Rack.id != exclude_film_id)

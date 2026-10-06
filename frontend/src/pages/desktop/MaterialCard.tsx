@@ -43,6 +43,7 @@ import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import type { Dayjs } from "dayjs";
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDateTime } from "../../utils/dates";
+import { rollNo } from "../../utils/lotNo";
 
 export interface MaterialCardPrefill {
   material?: string;
@@ -746,7 +747,7 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
                 style: { cursor: "pointer" },
               })}
               columns={[
-                { title: "ID", dataIndex: "id" },
+                { title: "ID", dataIndex: "id", render: (v: number) => rollNo(v) },
                 // Раздел про производителя внутри карточки материала (не
                 // отдельным измерением) — единицы разных производителей
                 // теперь вперемешку в одном списке, эта колонка — единственное
@@ -871,7 +872,7 @@ function AddUnitModal({
       qc.invalidateQueries({ queryKey: ["material-skus"] });
       setCreatedUnits(units);
       form.resetFields();
-      message.success(`Единица №${units[0].id} зарегистрирована`);
+      message.success(`Единица ${rollNo(units[0].id)} зарегистрирована`);
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось зарегистрировать единицу")),
   });
@@ -957,14 +958,14 @@ function ReassignSkuModal({ unit, onClose }: { unit: MaterialUnit; onClose: () =
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["material-card"] });
       qc.invalidateQueries({ queryKey: ["materials-explorer"] });
-      message.success(`Номенклатура единицы №${unit.id} изменена`);
+      message.success(`Номенклатура единицы ${rollNo(unit.id)} изменена`);
       onClose();
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось изменить номенклатуру")),
   });
 
   return (
-    <Modal title={`Изменить номенклатуру — единица №${unit.id}`} open onCancel={onClose} footer={null} destroyOnHidden>
+    <Modal title={`Изменить номенклатуру — единица ${rollNo(unit.id)}`} open onCancel={onClose} footer={null} destroyOnHidden>
       <Typography.Paragraph type="secondary">
         Исправление ошибки ввода — единица остаётся той же (id, история движений, адрес не меняются), меняется только
         привязка к материалу/цвету/толщине/производителю.

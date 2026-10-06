@@ -18,6 +18,7 @@ import LocationSelect from "./LocationSelect";
 import { toOccurredAtIso } from "../utils/occurredAt";
 import { useAuth } from "../auth/AuthContext";
 import { apiErrorMessage } from "../utils/apiError";
+import { rollNo } from "../utils/lotNo";
 
 type LengthDestKind = "keep" | "issue" | "discard" | "transfer";
 type WidthDestKind = "keep" | "issue" | "transfer";
@@ -201,12 +202,12 @@ export default function CuttingForm({
       const allIds = pieces.map((p) => p.unit.id);
       message.success(
         <>
-          Разрезано {allIds.length > 0 ? `— ${allIds.map((id) => `№${id}`).join(", ")}` : ""}
+          Разрезано {allIds.length > 0 ? `— ${allIds.map((id) => `${rollNo(id)}`).join(", ")}` : ""}
           {transferredIds.length > 0 && (
-            <> · участок физически на другом складе — {transferredIds.map((id) => `№${id}`).join(", ")} отправлен(ы) в хаб на перемещение</>
+            <> · участок физически на другом складе — {transferredIds.map((id) => `${rollNo(id)}`).join(", ")} отправлен(ы) в хаб на перемещение</>
           )}
           {res.donor_remainder.status === "Списан" && <> · остаток донора списан автоматически (отход)</>}
-          {flagged.length > 0 && <> · ⚠️ заметное отклонение по: {flagged.map((w) => `№${w.unit.id}`).join(", ")}</>}
+          {flagged.length > 0 && <> · ⚠️ заметное отклонение по: {flagged.map((w) => `${rollNo(w.unit.id)}`).join(", ")}</>}
         </>,
       );
       onDone(res);
@@ -260,7 +261,7 @@ export default function CuttingForm({
   return (
     <Card size="small" style={{ marginTop: 16 }}>
       <Typography.Paragraph style={{ marginBottom: 8 }}>
-        Донор №{donor.id} — {skuLabel(donor.material_sku)}, {donor.width_mm} мм × {donor.length_m} м
+        Донор {rollNo(donor.id)} — {skuLabel(donor.material_sku)}, {donor.width_mm} мм × {donor.length_m} м
         {donor.warehouse_name ? ` · ${donor.warehouse_name}` : ""}
       </Typography.Paragraph>
 

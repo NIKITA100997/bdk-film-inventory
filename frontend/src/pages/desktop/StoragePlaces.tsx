@@ -26,6 +26,7 @@ import { apiClient } from "../../api/client";
 import { createRack, listWarehouses } from "../../api/storage";
 import { createPartRack } from "../../api/partStorage";
 import { apiErrorMessage } from "../../utils/apiError";
+import { lotNo } from "../../utils/lotNo";
 
 interface Place {
   kind: "plenka" | "pf";
@@ -229,7 +230,7 @@ function PlaceCells({ place }: { place: Place }) {
             ) : (
               <Space direction="vertical" size={0} style={{ width: "100%" }}>
                 {c.lots.slice(0, 4).map((l) => (
-                  <Tooltip key={l.lot_id} title={`№${l.lot_id} · ${l.status}${l.detail ? ` · ${l.detail}` : ""}`}>
+                  <Tooltip key={l.lot_id} title={`${lotNo(place.kind, l.lot_id)} · ${l.status}${l.detail ? ` · ${l.detail}` : ""}`}>
                     <a style={{ fontSize: 12 }} onClick={() => l.item_id && navigate(`/item/${l.item_id}?tab=stock`)}>
                       {l.item_name} — {l.qty} {l.unit}
                     </a>

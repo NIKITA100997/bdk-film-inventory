@@ -11,6 +11,7 @@ import ResponsiveTable from "../../components/ResponsiveTable";
 import { exportToExcel } from "../../utils/excel";
 import { listAreas } from "../../api/areas";
 import { KIND_LABEL, listLots, listMovements, type Lot, type Movement } from "../../api/unifiedStock";
+import { lotNo } from "../../utils/lotNo";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange" };
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
@@ -125,7 +126,7 @@ export function LotsTab() {
         columns={[
           { title: "Позиция", render: (_, r) => r.item_name },
           { title: "Вид", render: (_, r) => <Tag color={KIND_COLOR[r.kind]}>{KIND_LABEL[r.kind]}</Tag> },
-          { title: "Партия", render: (_, r) => `№${r.lot_id}` },
+          { title: "Партия", render: (_, r) => lotNo(r.kind, r.lot_id) },
           { title: "Что", render: (_, r) => r.detail ?? (r.stage ? `этап: ${r.stage}` : "—") },
           {
             title: "Количество",

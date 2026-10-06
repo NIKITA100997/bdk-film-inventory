@@ -57,6 +57,7 @@ import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { useAuth } from "../../auth/AuthContext";
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDateTime } from "../../utils/dates";
+import { rollNo } from "../../utils/lotNo";
 
 type ActionKind = "place" | "cut" | "return" | "writeoff" | "transfer" | "adjust" | null;
 
@@ -254,7 +255,7 @@ export default function UnitCard() {
         const [next, ...rest] = placeQueue;
         setPlaceQueue(rest);
         setUnit(next);
-        message.success(`Адрес сохранён — далее №${next.id}`);
+        message.success(`Адрес сохранён — далее ${rollNo(next.id)}`);
       } else {
         setUnit(u);
         setAction(null);
@@ -395,7 +396,7 @@ export default function UnitCard() {
       {unit && (
         <>
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
-            <Descriptions.Item label="ID">№ {unit.id}</Descriptions.Item>
+            <Descriptions.Item label="Номер">{rollNo(unit.id)}</Descriptions.Item>
             <Descriptions.Item label="Материал">
               <a
                 onClick={() =>
@@ -728,7 +729,7 @@ export default function UnitCard() {
       )}
 
       {linkOpen && (
-        <Modal title={`Привязать единицу №${unit?.id} к строке задания`} open onCancel={() => setLinkOpen(false)} footer={null} destroyOnHidden>
+        <Modal title={`Привязать единицу ${rollNo(unit?.id)} к строке задания`} open onCancel={() => setLinkOpen(false)} footer={null} destroyOnHidden>
           <LinkTaskLineForm
             tasks={openTasks}
             orderRef={taskOrderRef}

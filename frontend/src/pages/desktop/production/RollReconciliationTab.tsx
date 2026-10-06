@@ -19,6 +19,7 @@ import LotOperationById from "../../../components/lotOps/LotOperationById";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { fmtDateTime } from "../../../utils/dates";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import { rollNo } from "../../../utils/lotNo";
 
 // Раздел про сверку рулонов на окутке — пилот "Ежедневки" вскрыл разрыв
 // между тремя вкладками (Выдача участку, карточка единицы, отчёт по
@@ -170,7 +171,7 @@ export default function RollReconciliationTab() {
             key: "unit",
             render: (_, r) => (
               <Space direction="vertical" size={0}>
-                <Typography.Text strong>№{r.unit_id}</Typography.Text>
+                <Typography.Text strong>{rollNo(r.unit_id)}</Typography.Text>
                 <Tag color={r.status === "Выдан_участку" ? "blue" : r.status === "На_хранении" ? "green" : "default"}>
                   {r.status}
                 </Tag>
@@ -281,7 +282,7 @@ export default function RollReconciliationTab() {
 
       {linkTarget && (
         <Modal
-          title={`Привязать рулон №${linkTarget.unit_id} к строке задания`}
+          title={`Привязать рулон ${rollNo(linkTarget.unit_id)} к строке задания`}
           open
           onCancel={() => setLinkTarget(null)}
           footer={null}

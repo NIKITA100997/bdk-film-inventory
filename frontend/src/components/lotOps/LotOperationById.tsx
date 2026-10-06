@@ -4,6 +4,7 @@ import { getUnit, type MaterialUnit } from "../../api/units";
 import { getPartUnit, type PartUnit } from "../../api/partUnits";
 import LotOperationModal from "./LotOperationModal";
 import { lotFromPartUnit, lotFromUnit, type LotOp } from "./lotOps";
+import { pfNo, rollNo } from "../../utils/lotNo";
 
 /** Единое окно операции, когда у экрана есть только вид и номер партии
  * (журнал движений, поиск): сначала загружает рулон или партию п/ф. */
@@ -26,7 +27,7 @@ export default function LotOperationById({
   });
   if (!q.data)
     return (
-      <Modal open footer={null} onCancel={onClose} title={kind === "plenka" ? `Рулон №${id}` : `Партия п/ф №${id}`}>
+      <Modal open footer={null} onCancel={onClose} title={kind === "plenka" ? `Рулон ${rollNo(id)}` : `Партия ${pfNo(id)}`}>
         {q.isError ? "Партия не найдена" : <Spin />}
       </Modal>
     );

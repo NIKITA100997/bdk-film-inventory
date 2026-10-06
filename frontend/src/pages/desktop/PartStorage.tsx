@@ -10,6 +10,7 @@ import CollapsibleWarningBanner from "../../components/CollapsibleWarningBanner"
 import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
 import { apiErrorMessage } from "../../utils/apiError";
+import { pfNo } from "../../utils/lotNo";
 
 /** Без адреса (раздел про адресное хранение деталей) — зеркалит
  * UnplacedUnitsCard у плёнки (StorageMap.tsx): партии физически на
@@ -57,7 +58,7 @@ function UnplacedPartUnitRow({
   });
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-      <Typography.Text strong>№{unit.id}</Typography.Text>
+      <Typography.Text strong>{pfNo(unit.id)}</Typography.Text>
       <Typography.Text>{unit.part_name}</Typography.Text>
       <Typography.Text type="secondary">{unit.quantity_pieces} шт</Typography.Text>
       <Tag style={{ margin: 0 }}>{unit.stage_name}</Tag>
@@ -287,7 +288,7 @@ export default function PartStorage() {
                         {occupied ? (
                           cell.units.map((u) => (
                             <div key={u.id} style={{ display: "flex", flexWrap: "wrap", gap: "2px 10px", alignItems: "center" }}>
-                              <Typography.Text strong>№{u.id}</Typography.Text>
+                              <Typography.Text strong>{pfNo(u.id)}</Typography.Text>
                               <Typography.Text>{u.part_name}</Typography.Text>
                               <Typography.Text type="secondary">{u.quantity_pieces} шт</Typography.Text>
                               <Tag style={{ margin: 0 }}>{u.stage_name}</Tag>

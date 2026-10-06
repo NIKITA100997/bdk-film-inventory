@@ -3,6 +3,7 @@ import { Form, InputNumber, Modal, Typography, message } from "antd";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { issuePartUnit, type PartUnit } from "../api/partUnits";
 import { apiErrorMessage } from "../utils/apiError";
+import { pfNo } from "../utils/lotNo";
 
 /** «Передать на участок» — партию «На хранении» (например, возвращённую на
  * склад) на участок её этапа. Можно часть — она отделится своей партией. */
@@ -25,7 +26,7 @@ export default function IssuePartUnitModal({
       qc.invalidateQueries({ queryKey: ["part-units"] });
       qc.invalidateQueries({ queryKey: ["part-unit-events"] });
       qc.invalidateQueries({ queryKey: ["unified-lots"] });
-      message.success(`Передано на участок: партия №${issued.id}, ${issued.quantity_pieces} шт`);
+      message.success(`Передано на участок: партия ${pfNo(issued.id)}, ${issued.quantity_pieces} шт`);
       onDone?.(issued);
       onClose();
     },
@@ -34,7 +35,7 @@ export default function IssuePartUnitModal({
   return (
     <Modal
       open
-      title={`Передать на участок — партия №${unit.id}`}
+      title={`Передать на участок — партия ${pfNo(unit.id)}`}
       okText="Передать"
       cancelText="Отмена"
       okButtonProps={{ disabled: !qty || qty <= 0 || qty > unit.quantity_pieces, loading: mutation.isPending, size }}

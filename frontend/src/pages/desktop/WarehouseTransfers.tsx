@@ -14,6 +14,7 @@ import {
 } from "../../api/warehouseTransfers";
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDate } from "../../utils/dates";
+import { rollNo } from "../../utils/lotNo";
 
 function TransferGroup({
   transfer,
@@ -36,7 +37,7 @@ function TransferGroup({
 
 function linesColumns(extra: (line: WarehouseTransferLine) => React.ReactNode) {
   return [
-    { title: "№", dataIndex: ["unit", "id"], render: (_: unknown, l: WarehouseTransferLine) => l.unit.id },
+    { title: "№", dataIndex: ["unit", "id"], render: (_: unknown, l: WarehouseTransferLine) => rollNo(l.unit.id) },
     {
       title: "Материал",
       render: (_: unknown, l: WarehouseTransferLine) =>

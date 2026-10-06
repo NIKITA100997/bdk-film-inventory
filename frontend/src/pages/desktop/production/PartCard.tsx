@@ -20,6 +20,7 @@ import LotActions from "../../../components/lotOps/LotActions";
 import { lotFromPartUnit } from "../../../components/lotOps/lotOps";
 import { useAuth } from "../../../auth/AuthContext";
 import { fmtDate, fmtDateTime } from "../../../utils/dates";
+import { pfNo } from "../../../utils/lotNo";
 
 const STATUS_LABEL: Record<string, string> = {
   На_хранении: "На хранении",
@@ -332,7 +333,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
           // умеет открываться сразу с готовым unitId (см. её useEffect).
           onRow={(u) => ({ onClick: () => navigate("/m/part-unit-card", { state: { unitId: u.id } }), style: { cursor: "pointer" } })}
           columns={[
-            { title: "№", dataIndex: "id", width: 70 },
+            { title: "№", dataIndex: "id", width: 80, render: (v: number) => pfNo(v) },
             {
               title: "Кол-во",
               width: 110,
@@ -372,7 +373,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
                 key={ev.id}
                 style={{ display: "flex", gap: 10, padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #DEDEDA", fontSize: 13 }}
               >
-                <Tag style={{ margin: 0, flexShrink: 0, height: "fit-content" }}>№{ev.unitId}</Tag>
+                <Tag style={{ margin: 0, flexShrink: 0, height: "fit-content" }}>{pfNo(ev.unitId)}</Tag>
                 <Tag style={{ margin: 0, flexShrink: 0, height: "fit-content" }}>{ev.event_type.replace(/_/g, " ")}</Tag>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div>
@@ -439,7 +440,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
                     />
                     <div style={{ flex: 1 }}>
                       <div>
-                        №{u.id} · {fmtDate(u.manufactured_at)}
+                        {pfNo(u.id)} · {fmtDate(u.manufactured_at)}
                         {u.location_code && <> · {u.location_code}</>}
                       </div>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>

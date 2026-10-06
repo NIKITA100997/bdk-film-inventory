@@ -11,6 +11,7 @@ import {
 } from "react-router-dom";
 import { navTree } from "./navConfig";
 import { TabTitleContext } from "./tabTitle";
+import { pfNo, rollNo } from "../utils/lotNo";
 
 /** Рабочие вкладки, как в 1С: каждый открытый экран или карточка — своя
  * вкладка под меню, её можно переключить или закрыть. Вкладки не
@@ -51,8 +52,8 @@ function defaultTitle(location: Location): string {
   const byPath = menuTitles.find((m) => m.pathname === location.pathname);
   if (byPath) return byPath.label;
   const unitId = (location.state as { unitId?: number } | null)?.unitId;
-  if (location.pathname === "/m/unit-card") return unitId != null ? `Единица №${unitId}` : "Карточка единицы";
-  if (location.pathname === "/m/part-unit-card") return unitId != null ? `Партия п/ф №${unitId}` : "Карточка партии п/ф";
+  if (location.pathname === "/m/unit-card") return unitId != null ? `Рулон ${rollNo(unitId)}` : "Карточка единицы";
+  if (location.pathname === "/m/part-unit-card") return unitId != null ? `Партия ${pfNo(unitId)}` : "Карточка партии п/ф";
   const item = location.pathname.match(/^\/item\/(\d+)/);
   if (item) return `Позиция №${item[1]}`;
   return location.pathname;
