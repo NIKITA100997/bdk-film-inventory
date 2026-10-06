@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.models.finished_goods import (
     FG_ADJUST,
     FG_SHIPMENT,
+    FG_TRANSFER,
     FG_UNSHIP,
     SHIP_CANCELLED,
     SHIP_DONE,
@@ -274,6 +275,46 @@ def cancel_shipment(shipment_id: int, db: Session = Depends(get_db), user: User 
     sh.cancelled_at = datetime.now(timezone.utc)
     db.commit()
     return _shipment_out(db, sh)
+
+
+# ---------- перемещение между площадками ----------
+class TransferIn(BaseModel):
+    item_id: int
+    order_line_id: int | None = None
+    from_site_id: int | None = None
+    to_site_id: int
+    qty: float = Field(gt=0)
+    note: str | None = Field(default=None, max_length=200)
+
+
+@router.post("/transfer", response_model=list[StockRow])
+def transfer(payload: TransferIn, db: Session = Depends(get_db), user: User = Depends(ship_fg)) -> list[StockRow]:
+    """Перевезти готовые двери с площадки на площадку (06.10: с Фабрики —
+    перевалки — на Северный): две записи «перемещение», заказ и счёт те же."""
+    if payload.to_site_id == payload.from_site_id:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Площадки откуда и куда совпадают")
+    to_site = db.get(Site, payload.to_site_id)
+    if to_site is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Площадка не найдена")
+    have = sum(
+        b.qty
+        for b in balances(db, item_ids=[payload.item_id])
+        if b.site_id == payload.from_site_id and b.order_line_id == payload.order_line_id
+    )
+    if payload.qty > have + 1e-9:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"На площадке {have:g} шт — перевезти {payload.qty:g} нельзя")
+    ol = db.get(ProductionOrderLine, payload.order_line_id) if payload.order_line_id else None
+    sites, _ = _names(db)
+    note = payload.note or f"{sites.get(payload.from_site_id, 'без площадки')} → {to_site.name}"
+    for site_id, qty in ((payload.from_site_id, -payload.qty), (payload.to_site_id, payload.qty)):
+        db.add(
+            FgMove(
+                item_id=payload.item_id, qty=qty, kind=FG_TRANSFER, site_id=site_id, order_line_id=payload.order_line_id,
+                invoice_no=ol.invoice_no if ol else None, note=note, user_id=user.id,
+            )
+        )
+    db.commit()
+    return stock(db, user)
 
 
 # ---------- корректировка ----------

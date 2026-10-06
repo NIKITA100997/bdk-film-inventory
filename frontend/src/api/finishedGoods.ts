@@ -17,7 +17,7 @@ export interface FgStockRow {
 export interface FgMoveRow {
   id: number;
   occurred_at: string;
-  kind: "receipt" | "shipment" | "unship" | "adjust";
+  kind: "receipt" | "shipment" | "unship" | "adjust" | "transfer";
   item_id: number;
   item_name: string;
   qty: number;
@@ -70,6 +70,7 @@ export const FG_KIND_LABEL: Record<FgMoveRow["kind"], string> = {
   shipment: "Отгружено",
   unship: "Отгрузка отменена",
   adjust: "Корректировка",
+  transfer: "Перемещение",
 };
 
 export const listFgStock = async (): Promise<FgStockRow[]> => (await apiClient.get<FgStockRow[]>("/finished-goods/stock")).data;
@@ -86,6 +87,15 @@ export const shipFg = async (payload: {
 
 export const cancelFgShipment = async (id: number): Promise<FgShipment> =>
   (await apiClient.post<FgShipment>(`/finished-goods/shipments/${id}/cancel`)).data;
+
+export const transferFg = async (payload: {
+  item_id: number;
+  order_line_id: number | null;
+  from_site_id: number | null;
+  to_site_id: number;
+  qty: number;
+  note?: string | null;
+}): Promise<FgStockRow[]> => (await apiClient.post<FgStockRow[]>("/finished-goods/transfer", payload)).data;
 
 export const adjustFg = async (payload: {
   item_id: number;

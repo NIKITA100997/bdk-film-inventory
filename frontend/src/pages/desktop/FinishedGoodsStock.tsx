@@ -8,6 +8,7 @@ import { listSites } from "../../api/sites";
 import {
   FG_KIND_LABEL,
   adjustFg,
+  transferFg,
   listFgInvoices,
   listFgMoves,
   listFgStock,
@@ -26,7 +27,12 @@ export function FgStockTab() {
   const [q, setQ] = useState("");
   const [adjust, setAdjust] = useState<FgStockRow | null>(null);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [move, setMove] = useState<FgStockRow | null>(null);
   const stockQuery = useQuery({ queryKey: ["fg-stock"], queryFn: listFgStock });
+  const sitesQuery = useQuery({ queryKey: ["sites"], queryFn: listSites });
+  // Основной склад готовой (Северный): с остальных площадок двери везут сюда.
+  const mainSite = (sitesQuery.data ?? []).find((s) => s.is_fg_main && s.is_active) ?? null;
+  const awaitingMove = mainSite ? (stockQuery.data ?? []).filter((r) => r.site_id !== mainSite.id).reduce((s, r) => s + r.qty, 0) : 0;
   const rows = useMemo(() => {
     const f = q.trim().toLowerCase();
     return (stockQuery.data ?? []).filter(
@@ -42,6 +48,7 @@ export function FgStockTab() {
           <Typography.Text type="secondary">
             На складе: {n(total)} шт · позиций {rows.length}
           </Typography.Text>
+          {mainSite && awaitingMove > 0 && <Tag color="orange">ждут перевозки на {mainSite.name}: {n(awaitingMove)} шт</Tag>}
         </Space>
         <Space wrap>
           <Button onClick={() => navigate("/shipments")}>Отгрузка по счёту →</Button>
@@ -60,14 +67,35 @@ export function FgStockTab() {
           { title: "Изделие", render: (_, r) => <a onClick={() => navigate(`/item/${r.item_id}`)}>{r.item_name}</a> },
           { title: "Счёт 1С", render: (_, r) => (r.invoice_no ? <Tag>{r.invoice_no}</Tag> : <Typography.Text type="secondary">на склад</Typography.Text>) },
           { title: "Заказ", render: (_, r) => (r.order_id ? <a onClick={() => navigate(`/production-orders/${r.order_id}`)}>№{r.order_id} «{r.order_name}»</a> : "—") },
-          { title: "Площадка", render: (_, r) => r.site_name ?? "—" },
+          {
+            title: "Площадка",
+            render: (_, r) => (
+              <Space size={4}>
+                {r.site_name ?? "—"}
+                {mainSite && r.site_id !== mainSite.id && <Tag color="orange">перевалка</Tag>}
+              </Space>
+            ),
+          },
           { title: "На складе, шт", align: "right", render: (_, r) => <b>{n(r.qty)}</b> },
           ...(canShip
-            ? [{ title: "", render: (_: unknown, r: FgStockRow) => <Button size="small" onClick={() => setAdjust(r)}>Скорректировать</Button> }]
+            ? [
+                {
+                  title: "",
+                  render: (_: unknown, r: FgStockRow) => (
+                    <Space size={4}>
+                      <Button size="small" type={mainSite && r.site_id !== mainSite.id ? "primary" : "default"} onClick={() => setMove(r)}>
+                        {mainSite && r.site_id !== mainSite.id ? `На ${mainSite.name}` : "Переместить"}
+                      </Button>
+                      <Button size="small" onClick={() => setAdjust(r)}>Скорректировать</Button>
+                    </Space>
+                  ),
+                },
+              ]
             : []),
         ]}
       />
       {adjust && <AdjustModal row={adjust} onClose={() => setAdjust(null)} />}
+      {move && <TransferModal row={move} defaultTo={mainSite && move.site_id !== mainSite.id ? mainSite.id : undefined} onClose={() => setMove(null)} />}
       {receiveOpen && <ReceiveModal stock={stockQuery.data ?? []} onClose={() => setReceiveOpen(false)} />}
     </Space>
   );
@@ -97,6 +125,42 @@ function AdjustModal({ row, onClose }: { row: FgStockRow; onClose: () => void })
         </Form.Item>
         <Form.Item name="reason" label="Причина" rules={[{ required: true, whitespace: true, message: "Укажите причину" }]}>
           <Input placeholder="например, пересчитали склад" />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
+/** Перевезти двери на другую площадку (с Фабрики — перевалки — на Северный). */
+function TransferModal({ row, defaultTo, onClose }: { row: FgStockRow; defaultTo?: number; onClose: () => void }) {
+  const qc = useQueryClient();
+  const sitesQuery = useQuery({ queryKey: ["sites"], queryFn: listSites });
+  const [form] = Form.useForm<{ to_site_id: number; qty: number }>();
+  const m = useMutation({
+    mutationFn: (v: { to_site_id: number; qty: number }) =>
+      transferFg({ item_id: row.item_id, order_line_id: row.order_line_id, from_site_id: row.site_id, to_site_id: v.to_site_id, qty: v.qty }),
+    onSuccess: () => {
+      for (const k of ["fg-stock", "fg-moves", "fg-invoices"]) qc.invalidateQueries({ queryKey: [k] });
+      message.success("Перемещено");
+      onClose();
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось переместить")),
+  });
+  return (
+    <Modal open title={`Переместить — ${row.item_name}`} okText="Переместить" cancelText="Отмена" onCancel={onClose} onOk={() => form.submit()} okButtonProps={{ loading: m.isPending }} destroyOnHidden>
+      <Typography.Paragraph type="secondary">
+        {row.invoice_no ? `Счёт ${row.invoice_no}` : "На склад"} · сейчас на «{row.site_name ?? "площадка не указана"}»: {n(row.qty)} шт. Заказ и счёт остаются те же.
+      </Typography.Paragraph>
+      <Form form={form} layout="vertical" initialValues={{ to_site_id: defaultTo, qty: row.qty }} onFinish={(v) => m.mutate(v)}>
+        <Form.Item name="to_site_id" label="Куда" rules={[{ required: true, message: "Выберите площадку" }]}>
+          <Select
+            options={(sitesQuery.data ?? [])
+              .filter((s) => s.is_active && s.id !== row.site_id)
+              .map((s) => ({ value: s.id, label: s.is_fg_main ? `${s.name} — основной склад` : s.name }))}
+          />
+        </Form.Item>
+        <Form.Item name="qty" label="Сколько штук" rules={[{ required: true, message: "Количество" }]}>
+          <InputNumber min={1} max={row.qty} precision={0} style={{ width: "100%" }} />
         </Form.Item>
       </Form>
     </Modal>

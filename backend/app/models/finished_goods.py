@@ -18,6 +18,7 @@ FG_RECEIPT = "receipt"  # упаковано — на склад
 FG_SHIPMENT = "shipment"  # отгружено
 FG_UNSHIP = "unship"  # отгрузка отменена — вернулось на склад
 FG_ADJUST = "adjust"  # корректировка (пересчёт, оприходование упакованного раньше)
+FG_TRANSFER = "transfer"  # перемещение между площадками: − на одной, + на другой
 
 SHIP_DONE = "shipped"
 SHIP_CANCELLED = "cancelled"

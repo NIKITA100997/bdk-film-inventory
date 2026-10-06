@@ -48,7 +48,7 @@ export default function AreaAdmin() {
   const [siteCreateOpen, setSiteCreateOpen] = useState(false);
   const [siteCreateForm] = Form.useForm<{ name: string; warehouse_id: number }>();
   const [editingSite, setEditingSite] = useState<Site | null>(null);
-  const [siteEditForm] = Form.useForm<{ name: string; warehouse_id: number }>();
+  const [siteEditForm] = Form.useForm<{ name: string; warehouse_id: number; is_fg_main?: boolean }>();
 
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const sitesQuery = useQuery({ queryKey: ["sites"], queryFn: listSites });
@@ -139,7 +139,7 @@ export default function AreaAdmin() {
   });
 
   const editSiteMutation = useMutation({
-    mutationFn: (v: { name: string; warehouse_id: number }) => updateSite(editingSite!.id, v),
+    mutationFn: (v: { name: string; warehouse_id: number; is_fg_main?: boolean }) => updateSite(editingSite!.id, v),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sites"] });
       setEditingSite(null);
@@ -182,6 +182,10 @@ export default function AreaAdmin() {
             { title: "Название", dataIndex: "name" },
             { title: "Домашний склад", render: (_, s) => warehouseLabel(s.warehouse_id) },
             {
+              title: "Готовая продукция",
+              render: (_, s) => (s.is_fg_main ? <Tag color="blue">основной склад</Tag> : <Typography.Text type="secondary">перевалка</Typography.Text>),
+            },
+            {
               title: "Статус",
               dataIndex: "is_active",
               render: (v: boolean) => (v ? <Tag color="green">Активна</Tag> : <Tag>В архиве</Tag>),
@@ -194,7 +198,7 @@ export default function AreaAdmin() {
                     size="small"
                     onClick={() => {
                       setEditingSite(s);
-                      siteEditForm.setFieldsValue({ name: s.name, warehouse_id: s.warehouse_id });
+                      siteEditForm.setFieldsValue({ name: s.name, warehouse_id: s.warehouse_id, is_fg_main: s.is_fg_main });
                     }}
                   >
                     Изменить
@@ -523,6 +527,9 @@ export default function AreaAdmin() {
               loading={warehousesQuery.isLoading}
               options={(warehousesQuery.data ?? []).map((w) => ({ value: w.id, label: w.name }))}
             />
+          </Form.Item>
+          <Form.Item name="is_fg_main" valuePropName="checked" extra="Сюда в итоге везут готовые двери; с других площадок их перемещают («Остатки → Изделия»). Основной склад — один.">
+            <Checkbox>Основной склад готовой продукции</Checkbox>
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={editSiteMutation.isPending}>
             Сохранить

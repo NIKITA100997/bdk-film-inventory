@@ -53,6 +53,11 @@ def update_site(site_id: int, payload: SiteUpdate, db: Session = Depends(get_db)
         site.warehouse_id = payload.warehouse_id
     if payload.is_active is not None:
         site.is_active = payload.is_active
+    if payload.is_fg_main is not None:
+        # основной склад готовой продукции — один
+        if payload.is_fg_main:
+            db.query(Site).filter(Site.id != site_id).update({Site.is_fg_main: False})
+        site.is_fg_main = payload.is_fg_main
     db.commit()
     db.refresh(site)
     return site

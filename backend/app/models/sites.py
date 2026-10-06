@@ -18,3 +18,7 @@ class Site(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True)
     warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Основной склад готовой продукции (06.10: Северный) — сюда в итоге
+    # везут готовые двери; с остальных площадок (Фабрика — перевалка)
+    # их перемещают.
+    is_fg_main: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

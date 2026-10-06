@@ -7,6 +7,7 @@ class SiteOut(BaseModel):
     name: str
     warehouse_id: int
     is_active: bool
+    is_fg_main: bool = False
 
 
 class SiteCreate(BaseModel):
@@ -18,3 +19,4 @@ class SiteUpdate(BaseModel):
     name: str | None = None
     warehouse_id: int | None = None
     is_active: bool | None = None
+    is_fg_main: bool | None = None

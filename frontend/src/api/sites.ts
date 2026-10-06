@@ -5,6 +5,8 @@ export interface Site {
   name: string;
   warehouse_id: number;
   is_active: boolean;
+  /** Основной склад готовой продукции (Северный); остальные — перевалка. */
+  is_fg_main: boolean;
 }
 
 export async function listSites(): Promise<Site[]> {
@@ -19,7 +21,7 @@ export async function createSite(name: string, warehouseId: number): Promise<Sit
 
 export async function updateSite(
   id: number,
-  payload: { name?: string; warehouse_id?: number; is_active?: boolean },
+  payload: { name?: string; warehouse_id?: number; is_active?: boolean; is_fg_main?: boolean },
 ): Promise<Site> {
   const { data } = await apiClient.patch<Site>(`/sites/${id}`, payload);
   return data;
