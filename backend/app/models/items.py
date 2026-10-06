@@ -349,15 +349,61 @@ def sku_item_name(material: str, color: str, thickness_mm: float, manufacturer: 
     return f"{material}, {color}, {float(thickness_mm):g} мм, {manufacturer}"
 
 
-def match_part_id(session: Session, part_name: str, width_mm: float | None, length_m: float | None) -> int | None:
+def strip_decor(name: str) -> str:
+    """«Добор телескоп 10х100х2070 (ПЭТ Бежевый (cream silk))» → «Добор
+    телескоп 10х100х2070»: у строки задания с плёнкой последняя скобка —
+    декор (он и так есть в плёнке строки), деталь — без неё."""
+    name = name.rstrip()
+    if not name.endswith(")"):
+        return name
+    depth = 0
+    for i in range(len(name) - 1, -1, -1):
+        if name[i] == ")":
+            depth += 1
+        elif name[i] == "(":
+            depth -= 1
+            if depth == 0:
+                base = name[:i].rstrip()
+                return base or name
+    return name
+
+
+class PartAlias(Base):
+    """Другое название детали (06.10): текст из нарядов, графиков, 1С, который
+    не совпадает с названием детали («Наличник телескоп 8х70х2150» ↔
+    «Наличник 8х70х2150 телескоп»). Запоминается при ручной связке строк —
+    следующие строки с таким текстом связываются сами. alias — нормализованный."""
+
+    __tablename__ = "part_aliases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    alias: Mapped[str] = mapped_column(String(255), unique=True)
+    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id", ondelete="CASCADE"), index=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+def match_part_id(
+    session: Session, part_name: str, width_mm: float | None, length_m: float | None, has_film: bool = False
+) -> int | None:
     """Деталь по названию строки; не нашлось — позиция на этот размер под
-    общим названием («Поперечная (МежКомн)» 110×404 → «… 110х404»)."""
+    общим названием («Поперечная (МежКомн)» 110×404 → «… 110х404»). У строки
+    с плёнкой — ещё и без декора в скобках (погонаж «… (Бьянко)»), и по
+    другим названиям детали (part_aliases)."""
     from app.models.dictionaries import Part
 
-    keys = [normalize_name(part_name)]
-    if width_mm is not None and length_m is not None:
-        keys.append(normalize_name(size_part_name(part_name, width_mm, length_m)))
-    for key in dict.fromkeys(keys):
+    names = [part_name]
+    if has_film:
+        base = strip_decor(part_name)
+        if base != part_name:
+            names.append(base)
+    keys: list[str] = []
+    for n in names:
+        keys.append(normalize_name(n))
+        if width_mm is not None and length_m is not None:
+            keys.append(normalize_name(size_part_name(n, width_mm, length_m)))
+    keys = list(dict.fromkeys(keys))
+    for key in keys:
         part_id = (
             session.query(Part.id)
             .filter(func.replace(func.lower(func.trim(Part.name)), "ё", "е") == key)
@@ -367,7 +413,8 @@ def match_part_id(session: Session, part_name: str, width_mm: float | None, leng
         )
         if part_id is not None:
             return part_id
-    return None
+    alias = session.query(PartAlias.part_id).filter(PartAlias.alias.in_(keys)).order_by(PartAlias.id).first()
+    return alias[0] if alias else None
 
 
 @event.listens_for(Session, "before_flush")
@@ -430,6 +477,7 @@ def _link_items_and_parts(session: Session, flush_context, instances) -> None:
             renamed = attributes.get_history(obj, "part_name").has_changes() and obj not in session.new
             if obj.part_id is not None and not renamed:
                 continue
-            part_id = match_part_id(session, obj.part_name, obj.width_mm, obj.length_m)
+            has_film = isinstance(obj, ProductionTaskLine) and obj.color_id is not None
+            part_id = match_part_id(session, obj.part_name, obj.width_mm, obj.length_m, has_film)
             if part_id is not None or renamed:
                 obj.part_id = part_id

@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from difflib import SequenceMatcher
 
@@ -10,7 +11,7 @@ from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import Color, Material, MaterialSku, Part
-from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, ItemType, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name
+from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, ItemType, PartAlias, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name, strip_decor
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
 from app.services import item_attrs
 from app.services.laminated import can_laminate, laminated_part
@@ -423,33 +424,35 @@ def set_items_pet(payload: SetPetIn, db: Session = Depends(get_db), user=Depends
     return {"updated": len(items)}
 
 
+_TOKEN = re.compile(r"\d+(?:[.,]\d+)?|[a-zа-я]+", re.IGNORECASE)
+
+
+def _tokens(name: str) -> tuple[set[str], set[str]]:
+    """Слова и числа названия: «Наличник телескоп 8х70х2150» → ({наличник,
+    телескоп}, {8, 70, 2150}); размеры через «х», «x», «*», «×» — одинаково."""
+    words, nums = set(), set()
+    for t in _TOKEN.findall(normalize_name(name).replace("×", " ").replace("*", " ")):
+        if t[0].isdigit():
+            nums.add(t.replace(",", "."))
+        elif len(t) > 1 or t in {"б"}:
+            words.add(t)
+    return words, nums
+
+
+def _similarity(a: str, b: str) -> float:
+    """Похожесть названий: посимвольно + те же слова и те же размеры в любом
+    порядке («Наличник телескоп 8х70х2150» ≈ «Наличник 8х70х2150 телескоп»)."""
+    seq = SequenceMatcher(None, normalize_name(a), normalize_name(b)).ratio()
+    wa, na = _tokens(a)
+    wb, nb = _tokens(b)
+    words = len(wa & wb) / len(wa | wb) if wa | wb else 0.0
+    nums = len(na & nb) / len(na | nb) if na | nb else 0.0
+    return 0.3 * seq + 0.35 * words + 0.35 * nums
+
+
 def _suggest(name: str, parts: list[Part]) -> list[PartSuggestion]:
-    key = normalize_name(name)
-    scored = sorted(
-        ((SequenceMatcher(None, key, normalize_name(p.name)).ratio(), p) for p in parts),
-        key=lambda x: x[0],
-        reverse=True,
-    )
-    return [PartSuggestion(part_id=p.id, part_name=p.name, score=round(r, 2)) for r, p in scored[:3] if r >= 0.5]
-
-
-def strip_decor(name: str) -> str:
-    """«Добор телескоп 10х100х2070 (ПЭТ Бежевый (cream silk))» → «Добор
-    телескоп 10х100х2070»: у строки задания с плёнкой последняя скобка —
-    декор (он и так есть в плёнке строки), деталь — без неё."""
-    name = name.rstrip()
-    if not name.endswith(")"):
-        return name
-    depth = 0
-    for i in range(len(name) - 1, -1, -1):
-        if name[i] == ")":
-            depth += 1
-        elif name[i] == "(":
-            depth -= 1
-            if depth == 0:
-                base = name[:i].rstrip()
-                return base or name
-    return name
+    scored = sorted(((_similarity(name, p.name), p) for p in parts), key=lambda x: x[0], reverse=True)
+    return [PartSuggestion(part_id=p.id, part_name=p.name, score=round(r, 2)) for r, p in scored[:3] if r >= 0.45]
 
 
 def _task_line_key(name: str, has_film: bool) -> str:
@@ -509,6 +512,9 @@ def link_unlinked_lines(payload: LinkLinesIn, db: Session = Depends(get_db), use
                 counts[label] += 1
                 if label == "bom":
                     touched_models.add(line.product_model_id)
+    # другое название детали — следующие строки с этим текстом свяжутся сами
+    if key != normalize_name(part.name) and not db.query(PartAlias).filter(PartAlias.alias == key).first():
+        db.add(PartAlias(alias=key, part_id=part.id, created_by=user.id))
     db.flush()
     sync_bom_components(db, touched_models)
     db.commit()
@@ -531,9 +537,11 @@ def list_manual_links(db: Session = Depends(get_db), user=Depends(view_items)) -
     parts = {p.id: p for p in db.query(Part)}
     groups: dict[tuple[str, int], dict] = {}
     for model, label in ((ProductModelPart, "bom"), (ProductionTaskLine, "task")):
-        for name, part_id in db.query(model.part_name, model.part_id).filter(
-            model.part_name.isnot(None), model.part_id.isnot(None)
-        ):
+        cols = (model.part_name, model.part_id, model.color_id) if model is ProductionTaskLine else (model.part_name, model.part_id)
+        for row in db.query(*cols).filter(model.part_name.isnot(None), model.part_id.isnot(None)):
+            name, part_id = row[0], row[1]
+            if len(row) > 2 and row[2] is not None:
+                name = strip_decor(name)
             part = parts.get(part_id)
             if part is None or normalize_name(part.name) == normalize_name(name):
                 continue
@@ -563,11 +571,14 @@ def unlink_lines(payload: LinkLinesIn, db: Session = Depends(get_db), user=Depen
     touched_models: set[int] = set()
     for model, label in ((ProductModelPart, "bom"), (ProductionTaskLine, "task")):
         for line in db.query(model).filter(model.part_id == payload.part_id, model.part_name.isnot(None)):
-            if normalize_name(line.part_name) == key:
+            has_film = label == "task" and line.color_id is not None
+            if normalize_name(line.part_name) == key or (has_film and _task_line_key(line.part_name, True) == key):
                 line.part_id = None
                 counts[label] += 1
                 if label == "bom":
                     touched_models.add(line.product_model_id)
+    # снятая связь — и другое название больше не связывает само
+    db.query(PartAlias).filter(PartAlias.alias == key, PartAlias.part_id == payload.part_id).delete()
     db.flush()
     sync_bom_components(db, touched_models)
     db.commit()
