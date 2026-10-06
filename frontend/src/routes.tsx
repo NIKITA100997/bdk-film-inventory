@@ -15,7 +15,7 @@ import OrderPage from "./pages/desktop/production/OrderPage";
 import { PricesPage } from "./pages/desktop/PricesTab";
 import ActionLog from "./pages/desktop/ActionLog";
 import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
-import InventoryDesktop from "./pages/desktop/InventoryDesktop";
+import Inventory from "./pages/desktop/Inventory";
 import UserAdmin from "./pages/desktop/UserAdmin";
 import RoleAdmin from "./pages/desktop/RoleAdmin";
 import Purchasing from "./pages/desktop/Purchasing";
@@ -133,7 +133,7 @@ const appPageRoutes = (
     />
     <Route
       path="/inventory"
-      element={<RequirePermission permissions={["inventory.manage"]}><InventoryDesktop /></RequirePermission>}
+      element={<RequirePermission permissions={["inventory.manage", "part_units.count"]}><Inventory /></RequirePermission>}
     />
     <Route
       path="/production-tasks"
