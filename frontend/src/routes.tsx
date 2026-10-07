@@ -35,6 +35,7 @@ import { ITEM_VIEW_PERMISSIONS } from "./api/items";
 import DeletionRequests from "./pages/desktop/DeletionRequests";
 import ActionRequests from "./pages/desktop/ActionRequests";
 import PeriodClosing from "./pages/desktop/PeriodClosing";
+import Productivity from "./pages/desktop/Productivity";
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
@@ -124,6 +125,10 @@ const appPageRoutes = (
     />
     {/* мои запросы — всем; ждущие решения — тем, кто подтверждает (проверяет сервер) */}
     <Route path="/action-requests" element={<ActionRequests />} />
+    <Route
+      path="/productivity"
+      element={<RequirePermission permissions={["reports.view", "production_tasks.view", "production_tasks.manage"]}><Productivity /></RequirePermission>}
+    />
     <Route
       path="/period-closing"
       element={<RequirePermission permissions={["period.manage"]}><PeriodClosing /></RequirePermission>}

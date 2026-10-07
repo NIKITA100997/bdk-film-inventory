@@ -15,3 +15,14 @@ export function exportToExcel<T>(filename: string, rows: T[], columns: { key: ke
   const xlsxName = filename.replace(/\.(csv|xlsx)$/i, "") + ".xlsx";
   XLSX.writeFile(book, xlsxName);
 }
+
+/** Книга из нескольких листов (07.10, «Производительность участков»): каждый
+ * лист — свои колонки. Имя листа Excel — до 31 символа. */
+export function exportBook(filename: string, sheets: { name: string; rows: Record<string, unknown>[]; columns: { key: string; header: string }[] }[]) {
+  const book = XLSX.utils.book_new();
+  for (const s of sheets) {
+    const data = s.rows.map((r) => s.columns.map((c) => r[c.key] ?? ""));
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([s.columns.map((c) => c.header), ...data]), s.name.slice(0, 31));
+  }
+  XLSX.writeFile(book, filename.replace(/\.xlsx$/i, "") + ".xlsx");
+}

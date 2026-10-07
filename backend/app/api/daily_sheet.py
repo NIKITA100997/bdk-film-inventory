@@ -119,7 +119,8 @@ def daily_sheet(
             .filter(MaterialEvent.unit_id.in_(unit_ids), MaterialEvent.event_type == EventType.VYDACHA_UCHASTKU, MaterialEvent.timestamp < end)
             .order_by(MaterialEvent.timestamp)
         ):
-            v = ev.to_length if ev.to_length is not None else ev.from_length
+            # выданная длина — списание метража со склада в событии выдачи
+            v = -float(ev.quantity_delta_m) if float(ev.quantity_delta_m or 0) < 0 else (ev.to_length if ev.to_length is not None else ev.from_length)
             if v is not None:
                 received[ev.unit_id] = float(v)
         for uid in unit_ids - set(received):

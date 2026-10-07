@@ -154,6 +154,7 @@ export const navTree: NavBlock[] = [
     items: [
       // Экономика производства — группа «Производство» в «Отчётах» (05.10).
       { key: "reports", path: "/reports", label: "Отчёты", permissions: ["reports.view"] },
+      { key: "productivity", path: "/productivity", label: "Производительность участков", permissions: ["reports.view", "production_tasks.view", "production_tasks.manage"] },
       { key: "action-log", path: "/action-log", label: "Журнал действий", permissions: ["reports.view"] },
     ],
   },
