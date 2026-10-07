@@ -47,9 +47,20 @@ from app.api.production_orders import router as production_orders_router
 from app.api.unified_stock import router as unified_stock_router
 from app.api.storage_places import router as storage_places_router
 from app.api.search import router as search_router
+from app.api.control import router as control_router
+from app.services.period_guard import PeriodClosedError
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from app.core.config import settings
 
 app = FastAPI(title="БДК — учёт плёнки")
+
+
+@app.exception_handler(PeriodClosedError)
+def _period_closed(request: Request, exc: PeriodClosedError) -> JSONResponse:
+    """Закрытый период (07.10): 423 с понятной причиной — фронт предложит
+    «Попросить администратора»."""
+    return JSONResponse(status_code=423, content={"detail": str(exc), "code": "period_closed"})
 
 Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
 # Под /api вместе с остальным бэкендом — frontend/src/api/dictionaries.ts
@@ -134,6 +145,7 @@ app.include_router(prices_router, prefix=API_PREFIX)
 app.include_router(part_counts_router, prefix=API_PREFIX)
 app.include_router(daily_sheet_router, prefix=API_PREFIX)
 app.include_router(finished_goods_router, prefix=API_PREFIX)
+app.include_router(control_router, prefix=API_PREFIX)
 
 
 @app.get("/health")

@@ -28,6 +28,15 @@ def create_access_token(*, subject: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+def create_action_token(*, subject: str, request_id: int) -> str:
+    """Короткий токен для выполнения подтверждённого запроса сотрудника
+    (07.10): от имени администратора, с номером запроса — даёт право
+    писать в закрытый период (см. services/period_guard.py)."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=2)
+    payload = {"sub": subject, "exp": expire, "act": request_id}
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     credentials_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -45,6 +54,15 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(User).filter(User.username == username).first()
     if user is None or not user.is_active:
         raise credentials_error
+    act = payload.get("act")
+    if act is not None:
+        from app.models.control import REQ_EXECUTING, ActionRequest
+
+        req = db.get(ActionRequest, int(act))
+        if req is None or req.status != REQ_EXECUTING or req.resolved_by != user.id:
+            raise credentials_error
+        db.info["period_override"] = True
+        db.info["action_request_id"] = req.id
     return user
 
 
