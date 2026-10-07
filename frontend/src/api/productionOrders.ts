@@ -268,6 +268,8 @@ export interface TaskPrintSheet {
     instruction: string | null;
     date_from: string | null;
     date_to: string | null;
+    /** панель щитовой двери — ведомость фрезеровки как в Excel (07.10) */
+    panel?: { mdf: string; sand: string; series: string; blank: string } | null;
   }[];
 }
 export const getTasksPrintData = async (taskIds: number[]): Promise<TaskPrintSheet[]> =>

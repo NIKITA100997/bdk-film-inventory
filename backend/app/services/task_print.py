@@ -17,6 +17,55 @@ from app.models.sites import Site
 from app.services.type_rules import item_chars_cached
 
 
+def _panel_info(db: Session, ln: ProductionTaskLine, ol, cache: dict) -> dict | None:
+    """Панель щитовой двери (07.10, ведомость фрезеровки как в Excel): МДФ,
+    шлифовка или цвет (у ПЭТ на Kastamonu), модель, размер заготовки
+    толщиной вперёд. Не панель — None."""
+    from app.models.dictionaries import Part, PartStage
+    from app.models.items import Item, ItemPropertyOption
+    from app.services import type_rules
+
+    if not ln.part_id:
+        return None
+    key = (ln.part_id, ln.task.production_order_id)
+    if key in cache:
+        return cache[key]
+    part = db.get(Part, ln.part_id)
+    item = db.get(Item, part.item_id) if part is not None and part.item_id else None
+    info = None
+    codes = {p.code for p in item.type.properties} if item is not None and item.type is not None else set()
+    if {"толщина", "ширина", "высота"} <= codes and codes & {"мдф", "пэт"}:
+        vals = type_rules.item_values(db, item)
+        by = {}
+        for p in item.type.properties:
+            v = vals.get(p.id)
+            by[p.code] = db.get(ItemPropertyOption, v).value if (p.value_type == "list" and v) else v
+        if by.get("толщина") and by.get("ширина") and by.get("высота"):
+            # ПЭТ-ветка панели с узором — всегда Kastamonu (ответ 07.10)
+            kast = by.get("мдф") == "Kastamonu" or bool(by.get("пэт"))
+            if kast:
+                color = by.get("цвет") or next((c["value"] for c in (item_chars_cached(db, ol.item_id) if ol else []) if c["code"] == "цвет"), "")
+                sand = color or "—"
+            else:
+                sanded = (
+                    db.query(ProductionTaskLine.id)
+                    .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+                    .join(PartStage, PartStage.id == ProductionTaskLine.part_stage_id)
+                    .filter(ProductionTask.production_order_id == ln.task.production_order_id, ProductionTaskLine.part_id == ln.part_id,
+                            PartStage.name.ilike("%шлиф%"))
+                    .first()
+                )
+                sand = "ДА" if sanded else "НЕТ"
+            info = {
+                "mdf": "Каст." if kast else ("Бел." if by.get("мдф") else ""),
+                "sand": sand,
+                "series": by.get("серия") or "",
+                "blank": f"{float(by['толщина']):g}х{float(by['ширина']):g}х{float(by['высота']):g}",
+            }
+    cache[key] = info
+    return info
+
+
 def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
     lines = [ln for t in tasks for ln in t.lines]
     ids = [ln.id for ln in lines]
@@ -35,6 +84,7 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
     cols = {c.id: c.name for c in db.query(Color)}
     ths = {t.id: float(t.value_mm) for t in db.query(Thickness)}
     by_area: dict[str, dict] = {}
+    panel_cache: dict = {}
     for t in sorted(tasks, key=lambda t: t.id):
         area = db.get(Area, t.area)
         site = db.get(Site, area.site_id) if area is not None and area.site_id else None
@@ -69,6 +119,7 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
                 "instruction": ln.instruction,
                 "date_from": days[0].isoformat() if days else None,
                 "date_to": days[-1].isoformat() if days else None,
+                "panel": _panel_info(db, ln, ol, panel_cache),
             })
     out = list(by_area.values())
     for s in out:

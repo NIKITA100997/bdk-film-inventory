@@ -21,12 +21,49 @@ function what(r: TaskPrintSheet["rows"][number]): string {
   return `<b>${esc(parts[0] ?? r.name)}</b>${parts.length > 1 ? ` · ${esc(parts.slice(1).join(" · "))}` : ""}`;
 }
 
+/** Ведомость панелей (07.10) — как лист «Панели фабрика / Северный» в Excel:
+ * МДФ, Шлифовка/Цвет, программа, модель, размер заготовки (толщина первой);
+ * одинаковые строки сложены. */
+function panelPage(s: TaskPrintSheet, now: string): string {
+  const groups = new Map<string, { mdf: string; sand: string; program: string; series: string; blank: string; qty: number; done: number; name: string }>();
+  for (const r of s.rows) {
+    const p = r.panel ?? { mdf: "", sand: "", series: "", blank: "" };
+    const k = [p.mdf, p.sand, r.program ?? "", p.series, p.blank, r.panel ? "" : r.name].join("|");
+    const g = groups.get(k) ?? { ...p, program: r.program ?? "", qty: 0, done: 0, name: r.panel ? "" : r.name };
+    g.qty += r.qty;
+    g.done += r.done;
+    groups.set(k, g);
+  }
+  const list = [...groups.values()].sort((a, b) =>
+    [a.mdf, a.program, a.series, a.blank].join("|").localeCompare([b.mdf, b.program, b.series, b.blank].join("|"), "ru"),
+  );
+  const rows = list
+    .map(
+      (g, i) => `<tr>
+<td class="n">${i + 1}</td><td>${esc(g.mdf)}</td><td>${esc(g.sand)}</td>
+<td>${g.program ? `<b>${esc(g.program)}</b>` : g.name ? esc(g.name) : '<span class="warn">уточнить у конструктора</span>'}</td>
+<td>${esc(g.series)}</td><td class="nw">${esc(g.blank)}</td>
+<td class="q">${Math.round(g.qty * 100) / 100}</td><td class="q">${g.done ? Math.round(g.done * 100) / 100 : ""}</td>
+<td class="w"></td><td class="w"></td><td class="w"></td>
+</tr>`,
+    )
+    .join("");
+  const head = ["№", "МДФ", "Шлифовка / цвет", "Программа фрезеровки", "Модель", "Размер заготовки", "Кол-во", "Готово", "Сделано", "Брак", "Подпись"];
+  return `<section class="page">
+<div class="top"><h1>Ведомость: ${esc(s.area_name)}</h1><div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}позиций ${list.length}, всего ${s.total} шт · напечатано ${esc(now)}</div></div>
+<div class="meta">Задания: ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
+<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
+<div class="sign">Выдал: ____________________ &nbsp;&nbsp; Принял (мастер): ____________________ &nbsp;&nbsp; Дата: ________</div>
+</section>`;
+}
+
 /** Пакетная печать заданий: лист на участок (новая страница), строки всех
  * выбранных заданий участка, графы «Сделано / Брак / Подпись» — от руки. */
 export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задания участкам") {
   const now = fmtDateTime(new Date());
   const pages = sheets
     .map((s) => {
+      if (s.rows.some((r) => r.panel)) return panelPage(s, now);
       const hasFilm = s.rows.some((r) => r.film);
       const hasProg = s.rows.some((r) => r.program || r.instruction);
       const hasInv = s.rows.some((r) => r.invoice_no);
