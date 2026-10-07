@@ -16,3 +16,11 @@ def test_lamis_is_any_pvc():
     assert is_lamis_film(N(name="ПВХ"), N(collection=None))
     assert not is_lamis_film(N(name="ПЭТ 3Д"), N(collection=None))
     assert is_lamis_film(N(name="ПЭТ 3Д"), N(collection="Ламис"))
+
+
+def test_color_tokens_order_and_tf_hyphen():
+    from app.services.sku_matching import color_tokens
+
+    assert color_tokens("TF-53 Бьянко") == color_tokens("ПВХ Бьянко TF53")
+    assert color_tokens("Бьянко") != color_tokens("Бьянко TF53")
+    assert color_tokens("ПЭТ Бежевый (cream silk)") == color_tokens("Бежевый")

@@ -104,6 +104,19 @@ def narrow_by_pet(candidates: list[MaterialSku], pet: str | None, color_text: st
     return None
 
 
+_MATERIAL_WORDS = {"пвх", "пэт", "полипропилен", "пп", "2д", "3д"}
+
+
+def color_tokens(text: str) -> frozenset[str]:
+    """Цвет как набор слов (07.10): без пояснения в скобках, регистра, ё,
+    дефиса внутри «TF-53» и названия материала — «TF-53 Бьянко» и
+    «ПВХ Бьянко TF53» совпадают, а «Бьянко» с ними нет."""
+    t = re.sub(r"\([^)]*\)", " ", (text or "").lower().replace("ё", "е"))
+    t = re.sub(r"(?<=[a-zа-я])-(?=\d)|(?<=\d)-(?=[a-zа-я])", "", t)
+    words = re.findall(r"[a-zа-я0-9.]+", t)
+    return frozenset(w for w in words if w not in _MATERIAL_WORDS)
+
+
 def _bare_color(text: str) -> str:
     t = re.sub(r"\([^)]*\)", " ", text.lower())
     t = re.sub(r"\bпэт\b|\b[23]д\b", " ", t)
@@ -127,6 +140,19 @@ def match_sku_by_color_text(index: SkuMatchIndex, color_text: str) -> tuple[Mate
     sku = exact_candidates[0] if exact_candidates and len(exact_candidates) == 1 else None
 
     sku_candidates: list[dict] = []
+    if sku is None and color is None:
+        # тот же цвет другими словами / в другом порядке («TF-53 Бьянко»)
+        toks = color_tokens(color_text)
+        same = [c for c in index.color_by_normalized.values() if toks and color_tokens(c.name) == toks]
+        cands = [x for c in same for x in index.skus_by_color_id.get(c.id, [])]
+        said = {w for w in re.findall(r"[a-zа-я0-9]+", color_text.lower()) if w in ("пвх", "пэт", "полипропилен", "пп")}
+        if said:
+            pref = {"пп": "полипропилен"}
+            cands = [x for x in cands if any(x.material.name.lower().startswith(pref.get(w, w)) for w in said)]
+        if len(cands) == 1:
+            return cands[0], []
+        if len(cands) > 1:
+            return None, [{"sku_id": x.id, "label": sku_label(x)} for x in cands[:_SKU_CANDIDATES_MAX]]
     if sku is None:
         combined_labels = list(index.combined_label_to_sku)
         fuzzy_labels = difflib.get_close_matches(color_key, combined_labels, n=_SKU_CANDIDATES_MAX, cutoff=_SKU_MATCH_CUTOFF)

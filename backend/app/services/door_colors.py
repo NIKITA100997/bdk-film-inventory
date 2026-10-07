@@ -46,6 +46,14 @@ def find_option(prop, text: str, db: Session | None = None) -> ItemPropertyOptio
     opt = next((o for o in opts if norm(o.value) == key), None) or next(
         (o for o in opts if any(norm(s) == key for s in synonyms(o))), None
     )
+    if opt is None:
+        # те же слова в другом порядке / «TF-53» и «TF53» (07.10)
+        from app.services.sku_matching import color_tokens
+
+        toks = color_tokens(text)
+        same = [o for o in opts if toks and (color_tokens(o.value) == toks or any(color_tokens(s) == toks for s in synonyms(o)))]
+        if len(same) == 1:
+            opt = same[0]
     if opt is None and db is not None:
         from app.models.dictionaries import Color, Material
         from app.services.film_aliases import find_alias
