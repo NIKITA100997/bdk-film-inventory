@@ -31,6 +31,18 @@ from app.models.production import ProductionTaskLine  # noqa: E402
 
 FACTORY = "fabrika"
 
+# Пары изделие 1С ← п/ф, которые не связаны составом (подтверждены 07.10 по
+# себестоимости погонажа: ширина заготовки «планки НЕтелескоп 40*10» — 43 мм
+# и т. п.). «Стык. планка телескоп 22х40х2070» заводится п/ф по А4 — до этого
+# скрипта.
+PAIRS = {
+    "Коробка мдф 79×36×2070 c уплотнителем": "Коробка 79х36 (мдф 10+16)",
+    "Планка для дверей купе 130×16×2070": "Планка купе 16х130х2070",
+    "Планка притворная 40×10×2070": "Планка притворная 10х43х2070",
+    "Плинтус МДФ 16×80×2070": "Плинтус 16х80х2070",
+    "Планка стартовая 22×40×2070": "Стык. планка телескоп 22х40х2070",
+}
+
 
 def _is_film(stage: PartStage) -> bool:
     return stage.role == "film" or "окут" in stage.name.lower() or "ламин" in stage.name.lower()
@@ -71,6 +83,20 @@ def main() -> None:
                 notes.append("признак «деталь в плёнке»")
             comps = db.query(ItemComponent).filter(ItemComponent.parent_item_id == it.id).all()
             pf = [c for c in comps if (b := db.get(Item, c.component_item_id)) is not None and b.kind_id == kinds["pf"]]
+            if not pf and it.name in PAIRS:
+                base = (
+                    db.query(Item)
+                    .filter(Item.kind_id == kinds["pf"], Item.name == PAIRS[it.name], Item.is_active.is_(True))
+                    .first()
+                )
+                if base is None:
+                    notes.append(f"п/ф «{PAIRS[it.name]}» не найден — заведите его (А4) и запустите снова")
+                else:
+                    comp = ItemComponent(parent_item_id=it.id, component_item_id=base.id, qty_per_unit=1, source="manual")
+                    db.add(comp)
+                    db.flush()
+                    pf = [comp]
+                    notes.append(f"в состав добавлен п/ф «{base.name}»")
             if len(pf) != 1:
                 unpaired.append(it.name)
                 print(f"  {it.name}: {', '.join(notes) or 'без изменений'}; пары-п/ф нет — выбрать вручную")
