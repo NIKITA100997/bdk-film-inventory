@@ -30,6 +30,47 @@ apiClient.interceptors.request.use((config) => {
 // середину сессии приёмки на партию из 9 рулонов).
 export const POST_LOGIN_REDIRECT_KEY = "post_login_redirect";
 
+/** «Попросить администратора» (07.10): действие отклонено — нет прав (403)
+ * или период закрыт (423). Окно с предложением показывает
+ * ActionRequestPrompt (в AppLayout) по событию ACTION_DENIED_EVENT. */
+export const ACTION_DENIED_EVENT = "bdk:action-denied";
+export interface ActionDenied {
+  method: string;
+  path: string;
+  body: unknown;
+  error: string | null;
+  kind: "forbidden" | "period_closed";
+}
+const NO_REQUEST_PATHS = ["/auth", "/action-requests", "/period-closing", "/users"];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function offerActionRequest(error: any) {
+  const status = error.response?.status;
+  if (status !== 403 && status !== 423) return;
+  const cfg = error.config;
+  const method = String(cfg?.method ?? "get").toUpperCase();
+  if (method === "GET") return;
+  const url = String(cfg?.url ?? "");
+  const path = url.startsWith("http") ? new URL(url).pathname.replace(/^\/api/, "") : url;
+  if (NO_REQUEST_PATHS.some((p) => path.startsWith(p))) return;
+  if (cfg?.data instanceof FormData) return; // файлы через запрос не проводим
+  let body: unknown = null;
+  try {
+    body = typeof cfg?.data === "string" ? JSON.parse(cfg.data) : (cfg?.data ?? null);
+  } catch {
+    body = null;
+  }
+  const detail = error.response?.data?.detail;
+  const denied: ActionDenied = {
+    method,
+    path,
+    body,
+    error: typeof detail === "string" ? detail : null,
+    kind: status === 423 ? "period_closed" : "forbidden",
+  };
+  window.dispatchEvent(new CustomEvent<ActionDenied>(ACTION_DENIED_EVENT, { detail: denied }));
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -44,6 +85,7 @@ apiClient.interceptors.response.use(
         window.location.assign("/login");
       }
     }
+    offerActionRequest(error);
     return Promise.reject(error);
   },
 );

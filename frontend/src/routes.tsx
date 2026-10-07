@@ -33,6 +33,8 @@ import Nomenclature from "./pages/desktop/Nomenclature";
 import ItemCard, { MaterialCardRedirect, PartCardRedirect } from "./pages/desktop/ItemCard";
 import { ITEM_VIEW_PERMISSIONS } from "./api/items";
 import DeletionRequests from "./pages/desktop/DeletionRequests";
+import ActionRequests from "./pages/desktop/ActionRequests";
+import PeriodClosing from "./pages/desktop/PeriodClosing";
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
@@ -119,6 +121,12 @@ const appPageRoutes = (
     <Route
       path="/areas"
       element={<RequirePermission permissions={["users.manage", "production_tasks.manage"]}><AreasAndLines /></RequirePermission>}
+    />
+    {/* мои запросы — всем; ждущие решения — тем, кто подтверждает (проверяет сервер) */}
+    <Route path="/action-requests" element={<ActionRequests />} />
+    <Route
+      path="/period-closing"
+      element={<RequirePermission permissions={["period.manage"]}><PeriodClosing /></RequirePermission>}
     />
     <Route
       path="/deletion-requests"

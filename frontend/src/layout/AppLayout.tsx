@@ -11,6 +11,8 @@ import { isVerticalPrint, setVerticalPrint } from "../utils/printLabel";
 import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
 import NotificationBell from "../components/NotificationBell";
+import ActionRequestsBadge from "../components/ActionRequestsBadge";
+import ActionRequestPrompt from "../components/ActionRequestPrompt";
 import PhoneTabBar from "./PhoneTabBar";
 import WorkspaceTabs from "./WorkspaceTabs";
 import ChangePasswordModal from "../components/ChangePasswordModal";
@@ -257,6 +259,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               tooltip="Сканировать QR камерой"
               type="primary"
             />
+            <ActionRequestsBadge />
             <NotificationBell />
             <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
               <Avatar
@@ -310,6 +313,8 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
       <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
       {/* После сброса администратором — сразу задать свой, окно не закрыть. */}
       <ChangePasswordModal open={!!user.must_change_password} onClose={() => undefined} forced />
+      {/* «Попросить администратора» на любое запрещённое действие (07.10) */}
+      <ActionRequestPrompt />
     </Layout>
   );
 }
