@@ -35,6 +35,7 @@ import {
   type WidthAnalogGroup,
 } from "../../api/widthAnalogs";
 import { apiErrorMessage } from "../../utils/apiError";
+import MillingProgramsTab from "./MillingProgramsTab";
 
 // Раздел про модуль "Брак и списания" — общая подпись категории, чтобы
 // не разъезжалась между таблицей причин и формой создания.
@@ -887,6 +888,7 @@ export default function DictionaryAdmin() {
           { key: "materials", label: "Материалы (тип)", children: <NameDictTab kind="materials" label="Материал" /> },
           { key: "colors", label: "Цвета", children: <NameDictTab kind="colors" label="Цвет" /> },
           { key: "film-aliases", label: "Сопоставления плёнки", children: <FilmAliasesTab /> },
+          { key: "milling-programs", label: "Программы фрезеровки", children: <MillingProgramsTab /> },
           { key: "manufacturers", label: "Производители", children: <NameDictTab kind="manufacturers" label="Производитель" /> },
           { key: "employees", label: "Сотрудники", children: <NameDictTab kind="employees" label="Сотрудник" /> },
           { key: "thicknesses", label: "Толщины", children: <ThicknessTab /> },

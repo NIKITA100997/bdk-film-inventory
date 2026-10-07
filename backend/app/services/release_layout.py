@@ -69,6 +69,9 @@ def build_release_layout(
 
     tasks = release_order(db, order, user_id)
     release_pf(db, order, tasks, picks, user_id)
+    from app.services.milling_programs import fill_programs
+
+    fill_programs(db, order)  # программы фрезеровки — до ручных правок
     skipped: set[str] = set()
     override_errors = apply_overrides(db, order, overrides or [], user_name, keep_skipped=skipped)
     sched = schedule_order(db, order, user_id)

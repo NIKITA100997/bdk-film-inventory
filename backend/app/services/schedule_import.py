@@ -302,6 +302,7 @@ def import_schedule(
         note = f"отгрузка {r.ship_date.strftime('%d.%m')}" if r.ship_date else None
         order.lines.append(ProductionOrderLine(
             item_id=item.id, quantity=r.qty, note=note, invoice_no=(r.invoice_no or "").strip() or None, sort_order=i,
+            source_text=(getattr(r, "name_text", "") or "").strip()[:500] or None,
         ))
     db.flush()
     return out, parse_errors, order

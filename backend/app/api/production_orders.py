@@ -711,6 +711,9 @@ def release(
         tasks = release_order(db, order, user.id)
         if payload and payload.pf:
             release_pf(db, order, tasks, [PfPick(**p.model_dump()) for p in payload.pf], user.id)
+        from app.services.milling_programs import fill_programs
+
+        fill_programs(db, order)  # программы фрезеровки — до ручных правок
         if payload and payload.overrides:
             from app.services.release_overrides import LineOverride, apply_overrides
 

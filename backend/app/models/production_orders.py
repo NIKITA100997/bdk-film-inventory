@@ -67,6 +67,9 @@ class ProductionOrderLine(Base):
     # Счёт / заказ 1С (02.10): в одном запуске — двери разных счетов; по
     # счетам продажники смотрят готовность.
     invoice_no: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Исходная строка графика (07.10): подверсия серии и молдинг для подбора
+    # программы фрезеровки — в позиции двери их нет.
+    source_text: Mapped[str | None] = mapped_column(String(500), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
     order: Mapped[ProductionOrder] = relationship(back_populates="lines")
