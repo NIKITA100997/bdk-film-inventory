@@ -857,6 +857,9 @@ class ScheduleImportIn(BaseModel):
     dry_run: bool = True
     # цвет из графика → выбранная позиция плёнки (сохраняется в привязку цвета)
     color_films: dict[str, int] = {}
+    # счёт 1С целиком (07.10): номер счёта и отгрузка — на все строки без своих
+    invoice_no: str | None = None
+    ship_date: date | None = None
 
 
 class ScheduleColorOut(BaseModel):
@@ -904,6 +907,7 @@ def order_from_schedule(
     rows, parse_errors, order = import_schedule(
         db, text=payload.text, type_=type_, order_name=payload.name, user_id=user.id, dry_run=payload.dry_run,
         color_films=payload.color_films, colors_out=colors,
+        invoice_no=(payload.invoice_no or "").strip() or None, ship_date=payload.ship_date,
     )
     colors_out = [ScheduleColorOut(**c.__dict__) for c in colors]
     if order is not None:

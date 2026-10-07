@@ -37,3 +37,21 @@ def test_milling_program_parse_and_suggest():
     assert suggest(progs, "В-5/Ф3", 800, None, None, True) == "В5_F3_800х2000_2"
     assert suggest(progs, "Е-14", 700, "2", "М5Х3", True) == "Е14.2_(М5х3)"
     assert suggest(progs, "В-10", 630, "2", "М5Х3", False) is None  # нестандарт — конструктор
+
+
+def test_invoice_1c_rows_name_and_qty():
+    from app.services.import_template import Template, fill_from_name, parse_rows
+
+    tpl = Template.of({"columns": [
+        {"title": "Дата отгрузки", "role": "ship_date"}, {"title": "№ счёта", "role": "invoice"},
+        {"title": "Серия", "role": "property", "code": "серия"}, {"title": "Размер", "role": "size", "codes": ["ширина", "высота"]},
+        {"title": "Цвет", "role": "property", "code": "цвет", "from_name": True}, {"title": "Наименование", "role": "name"},
+        {"title": "Кол-во дверей", "role": "qty"},
+    ]})
+    text = "В-19.1 (м5х3 кромка 4х) 700х2000 - Манхэттен кромка черная ABS 2мм    10\nВ-15 (м9 кромка 4х) 600х2000 - Полипропилен Аляска кромка черная ABS 2мм\t30"
+    rows, errors = parse_rows(text, tpl)
+    assert not errors and [r.qty for r in rows] == [10, 30]
+    for r in rows:
+        fill_from_name(tpl, r, "серия")
+    assert tpl.column_text(rows[0], "серия") == "В-19.1" and tpl.column_text(rows[0], "ширина") == "700х2000"
+    assert tpl.color_text(rows[1], "цвет") == "Полипропилен Аляска"

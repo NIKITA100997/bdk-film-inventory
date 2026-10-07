@@ -237,6 +237,7 @@ def _color_value(db: Session | None, prop, color: str, column_text: str, color_f
 def import_schedule(
     db: Session, *, text: str, type_: ItemType, order_name: str | None, user_id: int, dry_run: bool,
     color_films: dict[str, int] | None = None, colors_out: list | None = None,
+    invoice_no: str | None = None, ship_date=None,
 ) -> tuple[list[ImportRow], list[str], ProductionOrder | None]:
     """dry_run — только предпросмотр. Иначе — позиции по типу и черновик
     заказа; если хоть одна строка с ошибкой — ничего не создаётся."""
@@ -245,6 +246,14 @@ def import_schedule(
         return [], [f"У типа «{type_.name}» не настроен шаблон импорта графика — «Номенклатура → Типы и правила»"], None
     rows, parse_errors = parse_rows(text, tpl)
     model_code = next((p.code for p in type_.properties if p.id == type_.model_property_id), None)
+    from app.services.import_template import fill_from_name
+
+    for r in rows:
+        fill_from_name(tpl, r, model_code)  # счёт 1С: серия и размер — из наименования
+        if invoice_no and not r.invoice_no:
+            r.invoice_no = invoice_no
+        if ship_date and not r.ship_date:
+            r.ship_date = ship_date
     first_prop = next((c.get("code") for c in tpl.columns if c.get("role") == "property"), None)
     size_col = next((c for c in tpl.columns if c.get("role") == "size"), None)
     color_code = type_rules.COLOR_CODE
@@ -257,7 +266,7 @@ def import_schedule(
         ir = ImportRow(
             series=tpl.column_text(r, model_code or first_prop or ""),
             size=tpl.column_text(r, size_col["codes"][0]) if size_col else "",
-            color=tpl.column_text(r, color_code), name_text=r.name_text, qty=r.qty,
+            color=tpl.color_text(r, color_code) or tpl.column_text(r, color_code), name_text=r.name_text, qty=r.qty,
             invoice_no=r.invoice_no, ship_date=r.ship_date.isoformat() if r.ship_date else None,
         )
         _ROW_NOTES.clear()

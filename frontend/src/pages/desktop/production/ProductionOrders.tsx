@@ -158,7 +158,7 @@ function OrdersList() {
                     { key: "film", label: "Окутка / ламинация — из наряда, плана заготовок или вручную" },
                     { key: "ops", label: "Работы участка без плёнки (операции техкарт)" },
                     { key: "items", label: "Из позиций номенклатуры (по маршрутам)" },
-                    { key: "schedule", label: "Из графика запуска…" },
+                    { key: "schedule", label: "Из графика запуска или счёта 1С…" },
                   ],
                   onClick: ({ key }) => {
                     if (key === "film" || key === "ops") setTaskCreate({ kind: key });

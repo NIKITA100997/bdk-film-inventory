@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Alert, Button, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Alert, Button, DatePicker, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
+import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
 import { listMaterialSkus } from "../../../api/dictionaries";
@@ -33,6 +34,9 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
   const selectedType = gpTypes.find((t) => t.id === effectiveType);
   const [text, setText] = useState("");
   const [name, setName] = useState("");
+  // счёт из 1С целиком (07.10): строки «наименование — кол-во», номер и отгрузка — здесь
+  const [invoiceNo, setInvoiceNo] = useState("");
+  const [shipDate, setShipDate] = useState<Dayjs | null>(null);
   const [preview, setPreview] = useState<{ rows: ScheduleImportRow[]; parse_errors: string[]; colors?: ScheduleImportColor[] } | null>(null);
   // Сопоставление цвет графика → плёнка: выбор сохраняется в привязку цвета
   // типа и дальше подставляется сам (в заданиях на ламинацию — эта плёнка).
@@ -54,6 +58,8 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
         name: name.trim() || null,
         dry_run: dryRun,
         color_films: colorFilms,
+        invoice_no: invoiceNo.trim() || null,
+        ship_date: shipDate ? shipDate.format("YYYY-MM-DD") : null,
       }),
     onSuccess: (res, dryRun) => {
       setPreview(res);
@@ -74,7 +80,7 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
     <Modal
       open
       width={1100}
-      title="Заказ из графика запуска"
+      title="Заказ из графика запуска или счёта 1С"
       onCancel={onClose}
       footer={
         <Space>
@@ -114,10 +120,34 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
           />
           <Input style={{ width: 360 }} placeholder="Название заказа (по умолчанию — по дате отгрузки)" value={name} onChange={(e) => setName(e.target.value)} />
         </Space>
+        <Space wrap>
+          <Typography.Text type="secondary">Счёт из 1С целиком:</Typography.Text>
+          <Input
+            style={{ width: 180 }}
+            placeholder="№ счёта"
+            value={invoiceNo}
+            onChange={(e) => {
+              setInvoiceNo(e.target.value);
+              setPreview(null);
+            }}
+          />
+          <DatePicker
+            placeholder="Дата отгрузки"
+            format="DD.MM.YYYY"
+            value={shipDate}
+            onChange={(v) => {
+              setShipDate(v);
+              setPreview(null);
+            }}
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            строки вида «В-15 (м9 кромка 4х) 600х2000 - Полипропилен Аляска …   30» — серия, размер и цвет берутся из наименования
+          </Typography.Text>
+        </Space>
         <Input.TextArea
           rows={6}
           value={text}
-          placeholder="Вставьте строки графика…"
+          placeholder="Вставьте строки графика или счёта из 1С…"
           style={{ fontFamily: "monospace", fontSize: 12 }}
           onChange={(e) => {
             setText(e.target.value);

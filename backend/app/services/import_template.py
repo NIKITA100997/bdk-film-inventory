@@ -208,6 +208,39 @@ def _split_rows(text: str) -> list[tuple[int, list[str]]]:
     return out
 
 
+# Строка счёта из 1С (07.10): «В-15 (м9 кромка 4х) 600х2000 - Полипропилен
+# Аляска кромка черная ABS 2мм    30» — наименование и количество, серия и
+# размер — в наименовании.
+_TAIL_QTY_RE = re.compile(r"^(.*\S)\s{2,}(\d+)\s*$|^(.*\S)\s+(\d+)\s*(?:шт\.?)?\s*$")
+_NAME_SERIES_RE = re.compile(r"^\s*([АВЕНAВEH]{1,2}-?\d+(?:\.\d)?(?:/[ФF]\d)?(?:\s+[ВН]О)?)", re.I)
+_NAME_SIZE_RE = re.compile(r"(\d{3,4})\s*[хxX×*Х]\s*(\d{4})")
+
+
+def _split_name_qty(cells: list[str]) -> list[str]:
+    """Одна ячейка «наименование   кол-во» (скопировано без табуляции) —
+    на две."""
+    if len([c for c in cells if c]) == 1:
+        m = _TAIL_QTY_RE.match(cells[0] if cells[0] else next(c for c in cells if c))
+        if m and _NAME_SIZE_RE.search(m.group(1) or m.group(3) or ""):
+            return [m.group(1) or m.group(3), m.group(2) or m.group(4)]
+    return cells
+
+
+def fill_from_name(tpl: "Template", row: TemplateRow, model_code: str | None) -> None:
+    """Пустые колонки серии и размера — из наименования (счёт 1С)."""
+    for i, c in enumerate(tpl.columns):
+        if i >= len(row.cells) or row.cells[i]:
+            continue
+        if c.get("role") == "size":
+            m = _NAME_SIZE_RE.search(row.name_text)
+            if m:
+                row.cells[i] = f"{m.group(1)}х{m.group(2)}"
+        elif c.get("role") == "property" and c.get("code") == model_code:
+            m = _NAME_SERIES_RE.match(row.name_text)
+            if m:
+                row.cells[i] = m.group(1)
+
+
 def parse_rows(text: str, tpl: Template) -> tuple[list[TemplateRow], list[str]]:
     """Строки вставленного графика по колонкам шаблона. Шапку (тексты
     совпадают с названиями колонок), пустые строки и заглушки шаблона
@@ -220,7 +253,8 @@ def parse_rows(text: str, tpl: Template) -> tuple[list[TemplateRow], list[str]]:
     data_cols = [i for i, c in enumerate(tpl.columns) if c.get("role") in ("property", "size")]
     last_qty = bool(tpl.columns) and tpl.columns[-1].get("role") == "qty"
     for no, raw_cells in _split_rows(text):
-        cells = [" ".join(c.split()) for c in raw_cells]
+        cells = _split_name_qty([c.strip() for c in raw_cells])
+        cells = [" ".join(c.split()) for c in cells]
         if not any(cells):
             continue
         while cells and not cells[-1]:

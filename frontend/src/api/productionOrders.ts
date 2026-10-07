@@ -331,6 +331,9 @@ export const importOrderFromSchedule = async (payload: {
   dry_run: boolean;
   // цвет графика → выбранная позиция плёнки (сохраняется в привязку цвета)
   color_films?: Record<string, number>;
+  /** счёт 1С целиком: номер и отгрузка — на все строки без своих */
+  invoice_no?: string | null;
+  ship_date?: string | null;
 }): Promise<{ rows: ScheduleImportRow[]; parse_errors: string[]; colors?: ScheduleImportColor[]; order: ProductionOrder | null }> =>
   (await apiClient.post("/production-orders/from-schedule", payload)).data;
 
