@@ -17,7 +17,6 @@ import {
   Segmented,
   Select,
   Space,
-  Table,
   Tabs,
   Tag,
   Typography,
@@ -31,9 +30,9 @@ import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
 import ReleaseWorkspace from "./ReleaseWorkspace";
 import PrintTasksModal from "./PrintTasksModal";
-import { ItemChars } from "../../../components/ItemChars";
 import FastReportPanel from "./fastReport/FastReportPanel";
 import TaskCardDrawer from "./TaskCardDrawer";
+import OrderFlow from "./OrderFlow";
 import { OrderHistory, OrderMaterials, OrderPlan } from "./OrderTabs";
 import VariantPicker from "../../../components/VariantPicker";
 import { useAuth } from "../../../auth/AuthContext";
@@ -474,130 +473,7 @@ export function OrderView({
             </Typography.Text>
             {order.status !== "draft" && <PlanTag order={order} />}
           </Space>
-          {(order.tasks ?? []).length > 0 && (
-            <Card size="small" title="Задания участкам">
-              <Table<OrderTask>
-                size="small"
-                rowKey="id"
-                pagination={false}
-                dataSource={order.tasks}
-                scroll={{ x: "max-content" }}
-                columns={[
-                  {
-                    title: "Задание",
-                    render: (_, t) => (
-                      <Space size={4} wrap>
-                        <a onClick={() => setCardTask(t.id)}>
-                          №{t.id} · {t.name}
-                        </a>
-                        {t.with_film && <Tag color="blue">плёнка</Tag>}
-                        {t.for_task_id && <Tag color="geekblue">п/ф под №{t.for_task_id}</Tag>}
-                        {!t.is_active && <Tag>в архиве</Tag>}
-                      </Space>
-                    ),
-                  },
-                  { title: "Участок", render: (_, t) => t.area_name ?? t.area },
-                  {
-                    title: "План",
-                    render: (_, t) =>
-                      t.plan_from
-                        ? t.plan_from === t.plan_to
-                          ? dayjs(t.plan_from).format("DD.MM")
-                          : `${dayjs(t.plan_from).format("DD.MM")}–${dayjs(t.plan_to).format("DD.MM")}`
-                        : "—",
-                  },
-                  {
-                    title: "Сделано",
-                    render: (_, t) => (
-                      <Space size={8}>
-                        <Progress percent={t.planned ? Math.round((t.done / t.planned) * 100) : 0} size="small" style={{ width: 100 }} />
-                        <span>
-                          {t.done} из {t.planned}
-                        </span>
-                      </Space>
-                    ),
-                  },
-                  {
-                    title: "",
-                    render: (_, t) =>
-                      canManage && t.is_active && t.with_parts ? (
-                        <Button size="small" onClick={() => onSupply(t)}>
-                          Обеспечение п/ф
-                        </Button>
-                      ) : null,
-                  },
-                ]}
-              />
-            </Card>
-          )}
-          {order.lines.map((l) => (
-            <Card
-              key={l.id}
-              size="small"
-              title={
-                <Space wrap align="start">
-                  <ItemChars chars={l.item_chars} name={l.item_name} strong={false} />
-                  <Tag>{l.kind_name}</Tag>
-                  {l.invoice_no && <Tag color="purple">счёт {l.invoice_no}</Tag>}
-                </Space>
-              }
-              extra={
-                <Typography.Text strong>
-                  {order.status === "draft" ? `${l.quantity} шт` : `готово ${l.done} из ${l.quantity}`}
-                </Typography.Text>
-              }
-            >
-              <Space direction="vertical" style={{ width: "100%" }}>
-                {l.operations.length === 0 ? (
-                  <Typography.Text type="warning">Нет маршрута — задайте его в техкарте позиции, иначе заказ не запустится.</Typography.Text>
-                ) : (
-                  <Table
-                    size="small"
-                    rowKey="stage_id"
-                    pagination={false}
-                    dataSource={l.operations}
-                    columns={[
-                      { title: "Операция", dataIndex: "name" },
-                      { title: "Участок", render: (_, op) => op.area_name ?? "—" },
-                      {
-                        title: "Сделано",
-                        render: (_, op) =>
-                          order.status === "draft" ? (
-                            "—"
-                          ) : (
-                            <Space size={8}>
-                              <Progress percent={Math.round((Math.min(op.good, l.quantity) / l.quantity) * 100)} size="small" style={{ width: 100 }} />
-                              <span>
-                                {op.good} из {l.quantity}
-                              </span>
-                            </Space>
-                          ),
-                      },
-                      { title: "Брак", render: (_, op) => (op.defect ? <Typography.Text type="danger">{op.defect}</Typography.Text> : "—") },
-                    ]}
-                  />
-                )}
-                {l.components.length > 0 && (
-                  <div>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      КОМПЛЕКТУЮЩИЕ НА ЗАКАЗ
-                    </Typography.Text>
-                    <ul style={{ margin: "4px 0 0", paddingLeft: 20 }}>
-                      {l.components.map((c) => (
-                        <li key={c.item_id}>
-                          {c.name} — {c.total} {c.unit}
-                          <Typography.Text type="secondary">
-                            {" "}
-                            ({c.per_unit} на 1 шт{c.operation_name ? `, на «${c.operation_name}»` : ""})
-                          </Typography.Text>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </Space>
-            </Card>
-          ))}
+          <OrderFlow order={order} canManage={canManage} onOpenTask={setCardTask} onSupply={onSupply} />
                 </Space>
               ),
             },
