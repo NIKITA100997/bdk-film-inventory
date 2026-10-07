@@ -1,68 +1,58 @@
-import { useEffect, useMemo, useState } from "react";
-import { Card, Col, Row, Typography, Space, Button, Input } from "antd";
-import Statistic from "../../components/Statistic";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Button, Card, Col, Input, Row, Space, Typography } from "antd";
+import { CheckCircleTwoTone, RightOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
+import Statistic from "../../components/Statistic";
 import { useAuth } from "../../auth/AuthContext";
 import { getStockOverview, listPurchaseRequests } from "../../api/purchasing";
 import { listSessions } from "../../api/inventory";
-import { getDonorAccuracy, getStaleUnits, getDefectsOverview, getRollsVsStrips, getStockSummary, getCuttingDiscrepancies } from "../../api/reports";
-import { listMaterialSkus } from "../../api/dictionaries";
+import { getCuttingDiscrepancies, getDefectsOverview, getDonorAccuracy, getRollsVsStrips, getStaleUnits, getStockSummary } from "../../api/reports";
 import { getBlanksDemand, listProductionTasks } from "../../api/production";
 import { getOrdersReadiness, listProductionOrders } from "../../api/productionOrders";
 import { listPfDemand } from "../../api/pfDemand";
 import { searchUnits } from "../../api/units";
-import { listAreas } from "../../api/areas";
+import { listFgStock } from "../../api/finishedGoods";
+import { listSites } from "../../api/sites";
+import { actionRequestsSummary, getPeriod } from "../../api/control";
+import { getProductivity } from "../../api/productivity";
 import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
 import { isOnboardingSeen } from "../../utils/onboarding";
 import OnboardingCard from "../../components/OnboardingCard";
 import { UnplacedUnitsCard } from "./StorageMap";
 import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "../../components/ColumnSettings";
 
-// Раздел про настраиваемый обзор — тот же приём, что уже настройка
-// столбцов у таблиц (useColumnSettings полностью общий, ничего
-// специфичного для колонок в нём нет), тот же значок-шестерёнка вместо
-// нового UI-паттерна. Порядок — как карточки идут в разметке ниже.
-const TILE_OPTIONS: ColumnOption[] = [
-  { key: "my-tasks", label: "Открытые задания моего участка" },
-  { key: "drafts", label: "Черновики заказов" },
-  { key: "late", label: "Заказы не успевают к отгрузке" },
-  { key: "pf-shortage", label: "Не хватает п/ф" },
-  { key: "issued-work", label: "В работе у участков" },
-  { key: "purchase-requests", label: "Открытых заявок поставщику" },
-  { key: "reorder", label: "Пора заказывать (по расходу)" },
-  { key: "inventory-sessions", label: "Сессий инвентаризации в процессе" },
-  { key: "donor-accuracy", label: "Точность донор-рекомендаций" },
-  { key: "defects", label: "Реальный брак/повреждения" },
-  { key: "stale", label: "Остатков давно не двигалось" },
-  { key: "blanks", label: "Остатка не хватает по ширинам" },
-  { key: "skus", label: "Позиций в номенклатуре" },
-  { key: "rolls-strips", label: "Рулоны и штрипсы" },
-  { key: "total-stock", label: "Общий остаток, м²" },
-  { key: "cutting-discrepancies", label: "Отклонения при резке" },
-  { key: "unplaced", label: "Без места" },
+// Блоки «Обзора» (07.10): шестерёнка включает и выключает их, как столбцы таблиц.
+const BLOCKS: ColumnOption[] = [
+  { key: "attention", label: "Требует внимания" },
+  { key: "production", label: "Производство" },
+  { key: "film", label: "Склад плёнки" },
+  { key: "pf", label: "П/ф на участках" },
+  { key: "fg", label: "Готовая продукция" },
+  { key: "purchasing", label: "Закупки" },
+  { key: "unplaced", label: "Список рулонов без места" },
+  { key: "film-reports", label: "Отчётные показатели плёнки (донор-рекомендации, резка, брак)" },
 ];
+const HIDDEN_BY_DEFAULT = ["unplaced", "film-reports"];
 
-/** Обзор (5.5 ТЗ) — сводка сигналов по роли (05.10: и производство —
- * задания участка, черновики, «не успевает», дефицит п/ф): у каждой роли своя выборка
- * карточек, собранная из уже существующих отчётов/списков (без нового
- * бэкенда) — нехватка, буферы заказов, закупки, точность донор-рекомендаций.
- * Карточки кликабельны — ведут в раздел-источник (10 раздел бэклога
- * доработок). Настраиваемого набора виджетов пока нет — состав фиксирован
- * по роли, как и раньше. */
+const fmt = (v: number, digits = 0) => (Math.round(v * 10 ** digits) / 10 ** digits).toLocaleString("ru-RU");
+
+type Signal = { key: string; label: string; value: number | string; path: string; level: "critical" | "warning" | "info" };
+const LEVEL_COLOR = { critical: "#cf1322", warning: "#C97A2B", info: "#4b6584" };
+
+/** Обзор (переделан 07.10): сверху — только то, что требует внимания
+ * (ненулевые сигналы по срочности, каждый ведёт в свой раздел), ниже —
+ * компактные блоки по направлениям. Состав — по правам роли; мастер с
+ * участком сюда не попадает (Home → «Мой участок»). */
 export default function Overview() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const has = (permission: string) => !!user?.is_superuser || !!user?.permissions.includes(permission);
-  const tileSettings = useColumnSettings("dashboard-overview", TILE_OPTIONS, []);
+  const has = (p: string) => !!user?.is_superuser || !!user?.permissions.includes(p);
+  const blocks = useColumnSettings("dashboard-overview-v2", BLOCKS, HIDDEN_BY_DEFAULT);
+  const show = (k: string) => blocks.isVisible(k);
 
-  // Раздел 16 бэклога доработок — онбординг нового сотрудника. Авто-показ
-  // при первом входе (не видел ни разу — localStorage по userId) либо по
-  // явному флагу из навигации (повторное открытие через меню пользователя,
-  // AppLayout.tsx — тот же паттерн navigate(path,{state}), что и
-  // runUnitOrMaterialSearch/UnitCard.tsx).
   const [showOnboarding, setShowOnboarding] = useState(false);
   useEffect(() => {
     if (!user) return;
@@ -71,344 +61,276 @@ export default function Overview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state, user?.id]);
 
-  const showPurchasing = has("purchasing.manage");
-  const showInventory = has("inventory.manage");
-  const showDonorAccuracy = has("reports.view");
-  const showStale = has("reports.view");
-  const showDefects = has("reports.view");
-  const showBlanks = has("units.issue");
-  const showSales = has("sales_calculator.view");
+  const canReports = has("reports.view");
+  const canShop = has("production_tasks.manage") || has("production_tasks.view");
+  const canSales = has("sales_calculator.view");
+  const canLate = canShop || has("production_tasks.report") || canSales;
+  const canPf = has("production_tasks.manage") || has("part_units.manage");
+  const canPurch = has("purchasing.manage");
+  const canInv = has("inventory.manage");
   const hasReceive = has("units.receive");
   const hasIssue = has("units.issue");
-  const hasCut = has("units.cut");
-  const hasReturn = has("units.return");
   const hasPlace = has("units.place");
-  // "В работе у участков" полезен всем, кто хоть как-то соприкасается со
-  // складскими операциями или уже видит планирование/инвентаризацию — не
-  // привязано к одной роли, чтобы не плодить очередной хардкод по имени роли.
-  const showIssuedWork = hasReceive || hasIssue || hasCut || hasReturn || showInventory || showDonorAccuracy;
-  // Производство (05.10): «Обзор» был только про плёнку — у цеха, мастера
-  // и продаж теперь свои сигналы.
-  const showShop = has("production_tasks.manage") || has("production_tasks.view");
-  const showMyTasks = !!user?.area && (has("production_tasks.report") || has("production_tasks.manage") || has("production_tasks.view"));
-  const showLate = showShop || has("production_tasks.report") || showSales;
-  const showPfShortage = has("production_tasks.manage") || has("part_units.manage");
-  const [quickQuery, setQuickQuery] = useState("");
-  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas, enabled: showIssuedWork && !user?.area });
+  const canFilm = canReports || hasIssue || hasReceive;
+  const canFg = has("fg.ship") || canReports || canSales;
+  const canPeriod = has("period.manage");
+  const myArea = user?.area ?? null;
 
-  const ordersQuery = useQuery({ queryKey: ["production-orders", "overview"], queryFn: () => listProductionOrders(false), enabled: showShop });
-  const draftsCount = (ordersQuery.data ?? []).filter((o) => o.status === "draft").length;
-  const readinessQuery = useQuery({ queryKey: ["order-readiness", "overview"], queryFn: () => getOrdersReadiness(false), enabled: showLate });
-  const lateCount = (readinessQuery.data ?? []).filter((o) => o.plan_late || o.plan_overdue > 0).length;
-  const pfQuery = useQuery({ queryKey: ["pf-demand", "overview"], queryFn: () => listPfDemand(), enabled: showPfShortage });
-  const pfShortCount = (pfQuery.data ?? []).filter((r) => r.shortage > 0).length;
-  const tasksQuery = useQuery({ queryKey: ["production-tasks", "overview"], queryFn: listProductionTasks, enabled: showMyTasks });
-  const myTasksCount = (tasksQuery.data ?? []).filter((t) => t.is_active && t.area === user?.area).length;
+  const today = dayjs().format("YYYY-MM-DD");
+  const yesterday = dayjs().subtract(1, "day").format("YYYY-MM-DD");
+  const month30 = dayjs().subtract(30, "day").format("YYYY-MM-DD");
 
-  const purchasingQuery = useQuery({
-    queryKey: ["purchase-requests", "open"],
-    queryFn: () => listPurchaseRequests("open"),
-    enabled: showPurchasing,
+  // --- данные (каждый запрос — только тем, кому он виден)
+  const reqQ = useQuery({ queryKey: ["action-requests-summary"], queryFn: actionRequestsSummary });
+  const periodQ = useQuery({ queryKey: ["period-closing"], queryFn: getPeriod, enabled: canPeriod });
+  const ordersQ = useQuery({ queryKey: ["production-orders", "overview"], queryFn: () => listProductionOrders(false), enabled: canShop });
+  const readinessQ = useQuery({ queryKey: ["order-readiness", "overview"], queryFn: () => getOrdersReadiness(false), enabled: canLate });
+  const pfQ = useQuery({ queryKey: ["pf-demand", "overview"], queryFn: () => listPfDemand(), enabled: canPf });
+  const tasksQ = useQuery({ queryKey: ["production-tasks", "overview"], queryFn: listProductionTasks, enabled: canShop || !!myArea });
+  const prodQ = useQuery({
+    queryKey: ["productivity", "overview", yesterday, today],
+    queryFn: () => getProductivity({ date_from: yesterday, date_to: today }),
+    enabled: canShop || canReports,
   });
-  // Раздел про точку дозаказа по расходу — тот же showPurchasing, что и
-  // "Открытых заявок поставщику" (getStockOverview требует то же право
-  // purchasing.manage).
-  const reorderQuery = useQuery({
-    queryKey: ["stock-overview", "overview"],
-    queryFn: getStockOverview,
-    enabled: showPurchasing,
+  const purchQ = useQuery({ queryKey: ["purchase-requests", "open"], queryFn: () => listPurchaseRequests("open"), enabled: canPurch });
+  const reorderQ = useQuery({ queryKey: ["stock-overview", "overview"], queryFn: getStockOverview, enabled: canPurch });
+  const sessionsQ = useQuery({ queryKey: ["inventory-sessions"], queryFn: listSessions, enabled: canInv });
+  const staleQ = useQuery({ queryKey: ["stale-units", "overview"], queryFn: () => getStaleUnits(), enabled: canReports });
+  const blanksQ = useQuery({ queryKey: ["blanks-demand", "overview"], queryFn: getBlanksDemand, enabled: hasIssue });
+  const unplacedQ = useQuery({ queryKey: ["units-unplaced"], queryFn: () => searchUnits({ unplaced: true }), enabled: hasPlace });
+  const rollsQ = useQuery({ queryKey: ["rolls-vs-strips", "overview"], queryFn: () => getRollsVsStrips(), enabled: canFilm });
+  const stockSumQ = useQuery({ queryKey: ["stock-summary", "overview"], queryFn: () => getStockSummary(), enabled: canFilm });
+  const issuedQ = useQuery({
+    queryKey: ["units-issued", "overview", myArea],
+    queryFn: () => searchUnits({ status: "Выдан_участку", area: myArea ?? undefined }),
+    enabled: canFilm,
   });
-  const reorderCount = (reorderQuery.data ?? []).filter((r) => r.reorder_suggested).length;
-  const sessionsQuery = useQuery({ queryKey: ["inventory-sessions"], queryFn: listSessions, enabled: showInventory });
-  const donorQuery = useQuery({
-    queryKey: ["donor-accuracy", "overview"],
-    queryFn: () => getDonorAccuracy(dayjs().subtract(30, "day").format("YYYY-MM-DD"), dayjs().format("YYYY-MM-DD")),
-    enabled: showDonorAccuracy,
-  });
-  const staleQuery = useQuery({ queryKey: ["stale-units", "overview"], queryFn: () => getStaleUnits(), enabled: showStale });
-  // Раздел 16 бэклога доработок — «брак/списания» был одним из сигналов,
-  // разбросанных по разным местам без представления на «Обзоре» вовсе
-  // (в отличие от донор-рекомендаций, у которых карточка уже была).
-  const defectsQuery = useQuery({
-    queryKey: ["defects-overview", "overview"],
-    queryFn: () => getDefectsOverview(dayjs().subtract(30, "day").format("YYYY-MM-DD"), dayjs().format("YYYY-MM-DD")),
-    enabled: showDefects,
-  });
-  // Раздел 16 бэклога доработок — "Заготовки" не всплывали нигде, кроме
-  // своего пункта меню (та же ошибка, что раньше была с донор-рекомендациями,
-  // 2.2), источник потребности виден только тому, кто зашёл специально.
-  const blanksQuery = useQuery({ queryKey: ["blanks-demand", "overview"], queryFn: getBlanksDemand, enabled: showBlanks });
-  const blanksDeficitCount = (blanksQuery.data ?? []).filter((r) => r.deficit_length_m > 0).length;
-  const skusQuery = useQuery({ queryKey: ["material-skus", "overview"], queryFn: () => listMaterialSkus(), enabled: showSales });
-  // Раздел про недостающие показатели на "Обзоре" — рулоны/штрипсы,
-  // общий остаток и отклонения при резке уже считаются в отчётах, но
-  // нигде не всплывали как сигнал на главном экране (та же проблема,
-  // что раньше была у брака/заготовок).
-  const rollsStripsQuery = useQuery({ queryKey: ["rolls-vs-strips", "overview"], queryFn: () => getRollsVsStrips(), enabled: showDonorAccuracy });
-  const rollsCount = (rollsStripsQuery.data ?? []).reduce((sum, r) => sum + r.roll_count, 0);
-  const stripsCount = (rollsStripsQuery.data ?? []).reduce((sum, r) => sum + r.strip_count, 0);
-  const stockSummaryQuery = useQuery({ queryKey: ["stock-summary", "overview"], queryFn: () => getStockSummary(), enabled: showDonorAccuracy });
-  const totalStockAreaM2 = (stockSummaryQuery.data ?? []).reduce((sum, r) => sum + r.total_area_m2, 0);
-  const cuttingDiscrepancyQuery = useQuery({
-    queryKey: ["cutting-discrepancies", "overview"],
-    queryFn: () => getCuttingDiscrepancies(dayjs().subtract(30, "day").format("YYYY-MM-DD"), dayjs().format("YYYY-MM-DD")),
-    enabled: showDonorAccuracy,
-  });
-  // Начальнику участка (есть свой user.area) — только его участок; остальным
-  // ролям без привязки к конкретному участку — сразу все три, разбивкой.
-  const issuedUnitsQuery = useQuery({
-    queryKey: ["units-issued", "overview", user?.area],
-    queryFn: () => searchUnits({ status: "Выдан_участку", area: user?.area ?? undefined }),
-    enabled: showIssuedWork,
-  });
+  const fgQ = useQuery({ queryKey: ["fg-stock"], queryFn: listFgStock, enabled: canFg });
+  const sitesQ = useQuery({ queryKey: ["sites"], queryFn: listSites, enabled: canFg });
+  const extra = show("film-reports") && canReports;
+  const donorQ = useQuery({ queryKey: ["donor-accuracy", "overview"], queryFn: () => getDonorAccuracy(month30, today), enabled: extra });
+  const defectsQ = useQuery({ queryKey: ["defects-overview", "overview"], queryFn: () => getDefectsOverview(month30, today), enabled: extra });
+  const cutQ = useQuery({ queryKey: ["cutting-discrepancies", "overview"], queryFn: () => getCuttingDiscrepancies(month30, today), enabled: extra });
 
-  const openSessionsCount = (sessionsQuery.data ?? []).filter((s) => s.status === "in_progress").length;
-  const issuedByArea = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const u of issuedUnitsQuery.data ?? []) {
-      const key = u.area ?? "—";
-      counts[key] = (counts[key] ?? 0) + 1;
-    }
-    return counts;
-  }, [issuedUnitsQuery.data]);
+  // --- цифры
+  const draft = (ordersQ.data ?? []).filter((o) => o.status === "draft").length;
+  const released = (ordersQ.data ?? []).filter((o) => o.status === "released").length;
+  const late = (readinessQ.data ?? []).filter((o) => o.plan_late || o.plan_overdue > 0).length;
+  const pfShort = (pfQ.data ?? []).filter((r) => r.shortage > 0).length;
+  const pfStock = (pfQ.data ?? []).reduce((s, r) => s + (r.stock || 0), 0);
+  const pfInWork = (pfQ.data ?? []).reduce((s, r) => s + (r.in_work || 0), 0);
+  const openTasks = (tasksQ.data ?? []).filter((t) => t.is_active && (!myArea || canShop || t.area === myArea)).length;
+  const myTasks = myArea ? (tasksQ.data ?? []).filter((t) => t.is_active && t.area === myArea).length : 0;
+  const goodOn = (day: string) => (prodQ.data?.output ?? []).filter((o) => o.day === day).reduce((s, o) => s + o.good, 0);
+  const issuedTodayM = (prodQ.data?.issues ?? []).filter((i) => i.day === today).reduce((s, i) => s + i.length_m, 0);
+  const reorder = (reorderQ.data ?? []).filter((r) => r.reorder_suggested).length;
+  const blanksDeficit = (blanksQ.data ?? []).filter((r) => r.deficit_length_m > 0).length;
+  const rolls = (rollsQ.data ?? []).reduce((s, r) => s + r.roll_count, 0);
+  const strips = (rollsQ.data ?? []).reduce((s, r) => s + r.strip_count, 0);
+  const stockM2 = (stockSumQ.data ?? []).reduce((s, r) => s + r.total_area_m2, 0);
+  const openSessions = (sessionsQ.data ?? []).filter((s) => s.status === "in_progress").length;
+  const mainSite = (sitesQ.data ?? []).find((s) => s.is_fg_main && s.is_active);
+  const fgTotal = (fgQ.data ?? []).reduce((s, r) => s + r.qty, 0);
+  const fgToMove = mainSite ? (fgQ.data ?? []).filter((r) => r.site_id !== mainSite.id).reduce((s, r) => s + r.qty, 0) : 0;
+  const fgToShip = (fgQ.data ?? []).filter((r) => r.invoice_no).reduce((s, r) => s + r.qty, 0);
+  const lastMonthEnd = dayjs().startOf("month").subtract(1, "day");
+  const closedUntil = periodQ.data?.closed_until ? dayjs(periodQ.data.closed_until) : null;
+  const periodOpen = canPeriod && periodQ.data && (!closedUntil || closedUntil.isBefore(lastMonthEnd, "day"));
 
-  const clickableProps = (path: string) => ({
-    hoverable: true,
-    onClick: () => navigate(path),
-    style: { cursor: "pointer" },
-  });
+  const signals: Signal[] = useMemo(() => {
+    const s: Signal[] = [];
+    const add = (cond: boolean, sig: Signal) => cond && s.push(sig);
+    add((reqQ.data?.to_approve ?? 0) > 0, { key: "req", label: "Запросов сотрудников ждут решения", value: reqQ.data?.to_approve ?? 0, path: "/action-requests?tab=pending", level: "critical" });
+    add((reqQ.data?.mine_resolved ?? 0) > 0, { key: "mine", label: "По вашим запросам есть решение", value: reqQ.data?.mine_resolved ?? 0, path: "/action-requests?tab=mine", level: "info" });
+    add(late > 0, { key: "late", label: "Заказов не успевают к отгрузке", value: late, path: "/order-readiness", level: "critical" });
+    add(pfShort > 0, { key: "pf", label: "Деталей п/ф не хватает", value: pfShort, path: "/demand?tab=pf", level: "warning" });
+    add(draft > 0, { key: "draft", label: "Черновиков заказов ждут запуска", value: draft, path: "/production-orders", level: "warning" });
+    add(reorder > 0, { key: "reorder", label: "Пора заказывать плёнку", value: reorder, path: "/purchasing?tab=reorder", level: "warning" });
+    add(blanksDeficit > 0, { key: "blanks", label: "Плёнки не хватает по ширинам", value: blanksDeficit, path: "/blanks", level: "warning" });
+    add(fgToMove > 0, { key: "fgmove", label: `Готовых дверей ждут перевозки на ${mainSite?.name ?? "основной склад"}`, value: fgToMove, path: "/stock?kind=fg", level: "warning" });
+    add((unplacedQ.data?.length ?? 0) > 0, { key: "unplaced", label: "Рулонов без места на стеллаже", value: unplacedQ.data?.length ?? 0, path: "/stock?kind=film&tab=map", level: "warning" });
+    add(!!periodOpen, { key: "period", label: `Не закрыт ${lastMonthEnd.format("MMMM YYYY")} — закрыть период`, value: "", path: "/period-closing", level: "info" });
+    add((staleQ.data?.length ?? 0) > 0, { key: "stale", label: "Остатков давно не двигалось", value: staleQ.data?.length ?? 0, path: "/reports", level: "info" });
+    add(openSessions > 0, { key: "inv", label: "Инвентаризаций в процессе", value: openSessions, path: "/inventory", level: "info" });
+    return s;
+  }, [reqQ.data, late, pfShort, draft, reorder, blanksDeficit, fgToMove, mainSite, unplacedQ.data, periodOpen, lastMonthEnd, staleQ.data, openSessions]);
+
+  const anyLoading = [reqQ, ordersQ, readinessQ, pfQ, reorderQ, blanksQ, unplacedQ, staleQ].some((q) => q.isLoading && q.fetchStatus !== "idle");
+
+  const section = (key: string, title: string, path: string, items: ReactNode[], loading?: boolean) => (
+    <Col xs={24} md={12} xl={8} key={key}>
+      <Card
+        size="small"
+        title={title}
+        loading={loading}
+        extra={
+          <Button type="link" size="small" onClick={() => navigate(path)}>
+            открыть <RightOutlined />
+          </Button>
+        }
+        style={{ height: "100%" }}
+      >
+        <Row gutter={[12, 12]}>
+          {items.map((it, i) => (
+            <Col span={12} key={i}>
+              {it}
+            </Col>
+          ))}
+        </Row>
+      </Card>
+    </Col>
+  );
+
+  const sections: ReactNode[] = [];
+  if (show("production") && (canShop || myArea)) {
+    sections.push(
+      section("production", "Производство", "/productivity", [
+        ...(canShop ? [<Statistic key="r" title="Заказов в работе" value={released} />] : []),
+        <Statistic key="t" title={canShop ? "Открытых заданий" : "Заданий моего участка"} value={canShop ? openTasks : myTasks} />,
+        ...(prodQ.data
+          ? [
+              <Statistic key="y" title="Выпуск вчера, шт" value={fmt(goodOn(yesterday))} />,
+              <Statistic key="d" title="Выпуск сегодня, шт" value={fmt(goodOn(today))} />,
+            ]
+          : []),
+      ], ordersQ.isLoading || tasksQ.isLoading),
+    );
+  }
+  if (show("film") && canFilm) {
+    sections.push(
+      section("film", "Склад плёнки", "/stock?kind=film", [
+        <Statistic key="r" title="Рулонов / штрипсов" value={`${fmt(rolls)} / ${fmt(strips)}`} />,
+        <Statistic key="m" title="Остаток, м²" value={fmt(stockM2)} />,
+        <Statistic key="w" title={myArea ? "Выдано моему участку" : "Выдано участкам, ед."} value={fmt(issuedQ.data?.length ?? 0)} />,
+        ...(prodQ.data ? [<Statistic key="t" title="Выдано сегодня, м" value={fmt(issuedTodayM, 1)} />] : []),
+      ], rollsQ.isLoading || stockSumQ.isLoading),
+    );
+  }
+  if (show("pf") && canPf) {
+    sections.push(
+      section("pf", "П/ф на участках", "/demand?tab=pf", [
+        <Statistic key="s" title="На остатке, шт" value={fmt(pfStock)} />,
+        <Statistic key="w" title="Запущено в работу, шт" value={fmt(pfInWork)} />,
+        <Statistic key="d" title="Позиций с нехваткой" value={pfShort} valueStyle={{ color: pfShort ? LEVEL_COLOR.warning : undefined }} />,
+      ], pfQ.isLoading),
+    );
+  }
+  if (show("fg") && canFg) {
+    sections.push(
+      section("fg", "Готовая продукция", "/stock?kind=fg", [
+        <Statistic key="t" title="На складе, шт" value={fmt(fgTotal)} />,
+        <Statistic key="s" title="Под счета — к отгрузке, шт" value={fmt(fgToShip)} />,
+        ...(mainSite ? [<Statistic key="m" title={`Ждут перевозки на ${mainSite.name}`} value={fmt(fgToMove)} valueStyle={{ color: fgToMove ? LEVEL_COLOR.warning : undefined }} />] : []),
+      ], fgQ.isLoading),
+    );
+  }
+  if (show("purchasing") && canPurch) {
+    sections.push(
+      section("purchasing", "Закупки", "/purchasing", [
+        <Statistic key="o" title="Открытых заявок поставщику" value={(purchQ.data ?? []).length} />,
+        <Statistic key="r" title="Пора заказывать" value={reorder} valueStyle={{ color: reorder ? LEVEL_COLOR.warning : undefined }} />,
+      ], purchQ.isLoading),
+    );
+  }
+  if (extra) {
+    sections.push(
+      section("film-reports", "Плёнка: отчётные показатели, 30 дней", "/reports", [
+        <Statistic key="d" title="Точность донор-рекомендаций" value={donorQ.data?.accuracy_percent ?? "—"} suffix={donorQ.data ? "%" : undefined} />,
+        <Statistic key="c" title="Отклонений при резке" value={(cutQ.data ?? []).length} />,
+        <Statistic key="b" title="Реальный брак, м" value={fmt(defectsQ.data?.warehouse_real_defect_m ?? 0, 1)} />,
+      ]),
+    );
+  }
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Space align="center" style={{ justifyContent: "space-between", width: "100%" }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>Обзор</Typography.Title>
-        <ColumnSettingsButton columns={TILE_OPTIONS} settings={tileSettings} itemLabel="карточек" panelTitle="Карточки обзора" />
+        <Space align="baseline" size={12}>
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            Обзор
+          </Typography.Title>
+          <Typography.Text type="secondary">{dayjs().format("dddd, D MMMM")}</Typography.Text>
+        </Space>
+        <ColumnSettingsButton columns={BLOCKS} settings={blocks} itemLabel="блоков" panelTitle="Блоки обзора" />
       </Space>
 
       {showOnboarding && <OnboardingCard onClose={() => setShowOnboarding(false)} />}
 
-      <Row gutter={[16, 16]}>
-        {showMyTasks && tileSettings.isVisible("my-tasks") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={tasksQuery.isLoading} {...clickableProps("/production-tasks")}>
-              <Statistic title="Открытых заданий моего участка" value={myTasksCount} />
-            </Card>
-          </Col>
-        )}
-        {showShop && tileSettings.isVisible("drafts") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={ordersQuery.isLoading} {...clickableProps("/production-orders")}>
-              <Statistic title="Черновиков заказов — ждут запуска" value={draftsCount} valueStyle={{ color: draftsCount > 0 ? "#C97A2B" : undefined }} />
-            </Card>
-          </Col>
-        )}
-        {showLate && tileSettings.isVisible("late") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={readinessQuery.isLoading} {...clickableProps("/order-readiness")}>
-              <Statistic title="Заказов не успевает к отгрузке" value={lateCount} valueStyle={{ color: lateCount > 0 ? "#cf1322" : undefined }} />
-            </Card>
-          </Col>
-        )}
-        {showPfShortage && tileSettings.isVisible("pf-shortage") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={pfQuery.isLoading} {...clickableProps("/demand?tab=pf")}>
-              <Statistic title="Деталей п/ф не хватает" value={pfShortCount} valueStyle={{ color: pfShortCount > 0 ? "#C97A2B" : undefined }} />
-            </Card>
-          </Col>
-        )}
-        {showIssuedWork && user?.area && tileSettings.isVisible("issued-work") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={issuedUnitsQuery.isLoading} {...clickableProps("/stock")}>
-              <Statistic title="Выдано на участок — в работе" value={(issuedUnitsQuery.data ?? []).length} suffix="ед." />
-            </Card>
-          </Col>
-        )}
-        {showIssuedWork &&
-          !user?.area &&
-          tileSettings.isVisible("issued-work") &&
-          // только участки, где сейчас есть плёнка (у щитовых и п/ф-участков нули — шум)
-          (areasQuery.data ?? []).filter((a) => a.is_active && (issuedByArea[a.code] ?? 0) > 0).map((a) => (
-            <Col xs={12} sm={12} md={8} lg={6} key={a.code}>
-              <Card loading={issuedUnitsQuery.isLoading} {...clickableProps("/stock")}>
-                <Statistic title={`В работе: ${a.name}`} value={issuedByArea[a.code] ?? 0} suffix="ед." />
-              </Card>
-            </Col>
-          ))}
-        {showPurchasing && tileSettings.isVisible("purchase-requests") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={purchasingQuery.isLoading} {...clickableProps("/purchasing")}>
-              <Statistic title="Открытых заявок поставщику" value={(purchasingQuery.data ?? []).length} />
-            </Card>
-          </Col>
-        )}
-        {showPurchasing && tileSettings.isVisible("reorder") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={reorderQuery.isLoading} {...clickableProps("/purchasing?tab=reorder")}>
-              <Statistic
-                title="Пора заказывать (по расходу)"
-                value={reorderCount}
-                valueStyle={{ color: reorderCount > 0 ? "#C97A2B" : undefined }}
-              />
-            </Card>
-          </Col>
-        )}
-        {showInventory && tileSettings.isVisible("inventory-sessions") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={sessionsQuery.isLoading} {...clickableProps("/inventory")}>
-              <Statistic title="Сессий инвентаризации в процессе" value={openSessionsCount} />
-            </Card>
-          </Col>
-        )}
-        {showDonorAccuracy && donorQuery.data && tileSettings.isVisible("donor-accuracy") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={donorQuery.isLoading} {...clickableProps("/reports")}>
-              <Statistic title="Точность донор-рекомендаций, 30 дней" value={donorQuery.data.accuracy_percent} suffix="%" />
-            </Card>
-          </Col>
-        )}
-        {showDefects && defectsQuery.data && tileSettings.isVisible("defects") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={defectsQuery.isLoading} {...clickableProps("/defects")}>
-              <Statistic
-                title="Реальный брак/повреждения, 30 дней"
-                value={defectsQuery.data.warehouse_real_defect_m}
-                suffix="м"
-                precision={1}
-                valueStyle={{ color: (defectsQuery.data.warehouse_real_defect_m_delta_percent ?? 0) > 0 ? "#C97A2B" : undefined }}
-              />
-            </Card>
-          </Col>
-        )}
-        {showStale && tileSettings.isVisible("stale") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={staleQuery.isLoading} {...clickableProps("/reports")}>
-              <Statistic
-                title="Остатков давно не двигалось"
-                value={(staleQuery.data ?? []).length}
-                valueStyle={{ color: (staleQuery.data ?? []).length > 0 ? "#C97A2B" : undefined }}
-              />
-            </Card>
-          </Col>
-        )}
-        {showDonorAccuracy && tileSettings.isVisible("rolls-strips") && (
-          // xs=24 (не 12, как у остальных плиток) — внутри уже свой Row из
-          // двух колонок (Рулонов/Штрипсов); при xs=12 снаружи они сжимались
-          // ещё вдвое — на телефоне оставалась четверть экрана на каждую
-          // цифру, и подпись/число переносились как попало.
-          <Col xs={24} sm={12} md={8} lg={6}>
-            <Card loading={rollsStripsQuery.isLoading} {...clickableProps("/reports")}>
-              <Row gutter={8}>
-                <Col span={12}>
-                  <Statistic title="Рулонов" value={rollsCount} />
-                </Col>
-                <Col span={12}>
-                  <Statistic title="Штрипсов" value={stripsCount} />
-                </Col>
-              </Row>
-            </Card>
-          </Col>
-        )}
-        {showDonorAccuracy && tileSettings.isVisible("total-stock") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={stockSummaryQuery.isLoading} {...clickableProps("/reports")}>
-              <Statistic title="Общий остаток" value={totalStockAreaM2} suffix="м²" precision={1} />
-            </Card>
-          </Col>
-        )}
-        {showDonorAccuracy && tileSettings.isVisible("cutting-discrepancies") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={cuttingDiscrepancyQuery.isLoading} {...clickableProps("/reports")}>
-              <Statistic
-                title="Отклонений при резке, 30 дней"
-                value={(cuttingDiscrepancyQuery.data ?? []).length}
-                valueStyle={{ color: (cuttingDiscrepancyQuery.data ?? []).length > 0 ? "#C97A2B" : undefined }}
-              />
-            </Card>
-          </Col>
-        )}
-        {showBlanks && tileSettings.isVisible("blanks") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={blanksQuery.isLoading} {...clickableProps("/blanks")}>
-              <Statistic
-                title="Остатка не хватает по ширинам"
-                value={blanksDeficitCount}
-                valueStyle={{ color: blanksDeficitCount > 0 ? "#C97A2B" : undefined }}
-              />
-            </Card>
-          </Col>
-        )}
-        {showSales && tileSettings.isVisible("skus") && (
-          <Col xs={12} sm={12} md={8} lg={6}>
-            <Card loading={skusQuery.isLoading} {...clickableProps("/sales-calculator")}>
-              <Statistic title="Позиций в номенклатуре — открыть калькулятор" value={(skusQuery.data ?? []).length} />
-            </Card>
-          </Col>
-        )}
-      </Row>
-
-      {/* Раздел про единый рабочий экран — тот же список "без места", что
-          уже есть на "Стеллажах и полках" (UnplacedUnitsCard оттуда же,
-          просто переиспользован), но прямо на "Обзоре" — куда оператор и
-          так попадает по входу, без отдельного похода в "Стеллажи". */}
-      {hasPlace && tileSettings.isVisible("unplaced") && <UnplacedUnitsCard />}
-
-      {/* Быстрые действия — не привязаны к тому, есть ли другие сигналы: это
-      основные действия оператора склада (приёмка/выдача), нужны ему
-      независимо от того, что ещё показано выше. */}
-      {(hasReceive || hasIssue) && (
-        <Card>
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-            <Space wrap>
-              {hasReceive && (
-                <Button type="primary" onClick={() => navigate("/m/receive")}>
-                  Начать приёмку
-                </Button>
-              )}
-              {hasIssue && (
-                <Button type="primary" onClick={() => navigate("/m/issue")}>
-                  Выдача участку
-                </Button>
-              )}
+      {show("attention") && (
+        <Card size="small" title="Требует внимания" loading={anyLoading && signals.length === 0}>
+          {signals.length === 0 ? (
+            <Space>
+              <CheckCircleTwoTone twoToneColor="#52c41a" />
+              <Typography.Text>Всё в порядке — срочного нет</Typography.Text>
             </Space>
-            <Input.Search
-              placeholder="Номер (рулон, партия, задание, заказ) или материал…"
-              enterButton="Найти"
-              style={{ maxWidth: 360 }}
-              value={quickQuery}
-              onChange={(e) => setQuickQuery(e.target.value)}
-              onSearch={(v) => runUnitOrMaterialSearch(v, navigate)}
-            />
-          </Space>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
+              {signals.map((sg) => (
+                <button
+                  key={sg.key}
+                  type="button"
+                  onClick={() => navigate(sg.path)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 12px",
+                    border: "1px solid #ececec",
+                    borderLeft: `4px solid ${LEVEL_COLOR[sg.level]}`,
+                    borderRadius: 6,
+                    background: "#fff",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    font: "inherit",
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 18, color: LEVEL_COLOR[sg.level], minWidth: 36, fontVariantNumeric: "tabular-nums" }}>
+                    {typeof sg.value === "number" ? fmt(sg.value) : sg.value}
+                  </span>
+                  <span style={{ flex: 1 }}>{sg.label}</span>
+                  <RightOutlined style={{ color: "#bbb", fontSize: 11 }} />
+                </button>
+              ))}
+            </div>
+          )}
         </Card>
       )}
 
-      {!showPurchasing &&
-        !showInventory &&
-        !showDonorAccuracy &&
-        !showStale &&
-        !showDefects &&
-        !showBlanks &&
-        !showSales &&
-        !showIssuedWork &&
-        !showShop &&
-        !showMyTasks &&
-        !showLate &&
-        !hasReceive &&
-        !hasIssue && (
-          <Card>
-            <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-              <Typography.Text type="secondary">Для вашей роли пока нет отдельных сигналов на обзорном экране.</Typography.Text>
-              <Input.Search
-                placeholder="Номер (рулон, партия, задание, заказ) или материал…"
-                enterButton="Найти"
-                style={{ maxWidth: 360 }}
-                value={quickQuery}
-                onChange={(e) => setQuickQuery(e.target.value)}
-                onSearch={(v) => runUnitOrMaterialSearch(v, navigate)}
-              />
-            </Space>
-          </Card>
-        )}
+      {sections.length > 0 && <Row gutter={[16, 16]}>{sections}</Row>}
+
+      {hasPlace && show("unplaced") && <UnplacedUnitsCard />}
+
+      <Card size="small">
+        <Space wrap size="middle">
+          {hasReceive && (
+            <Button type="primary" onClick={() => navigate("/m/receive")}>
+              Начать приёмку
+            </Button>
+          )}
+          {hasIssue && (
+            <Button type="primary" onClick={() => navigate("/m/issue")}>
+              Выдача участку
+            </Button>
+          )}
+          {(canShop || canReports) && <Button onClick={() => navigate("/productivity")}>Производительность участков</Button>}
+          <SearchBox />
+        </Space>
+      </Card>
     </Space>
+  );
+}
+
+function SearchBox() {
+  const navigate = useNavigate();
+  const [q, setQ] = useState("");
+  return (
+    <Input.Search
+      placeholder="Номер (рулон, партия, задание, заказ) или материал…"
+      enterButton="Найти"
+      style={{ width: 380, maxWidth: "100%" }}
+      value={q}
+      onChange={(e) => setQ(e.target.value)}
+      onSearch={(v) => runUnitOrMaterialSearch(v, navigate)}
+    />
   );
 }
