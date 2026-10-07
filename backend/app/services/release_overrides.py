@@ -34,8 +34,12 @@ def line_key(ln: ProductionTaskLine) -> str:
     return f"{ln.order_line_id or 0}:{ln.part_id or 0}:{ln.part_stage_id or 0}"
 
 
-def apply_overrides(db: Session, order: ProductionOrder, overrides: list[LineOverride], user_name: str) -> list[str]:
-    """Применить правки (без commit). Возвращает ошибки (ключ не найден и т.п.)."""
+def apply_overrides(
+    db: Session, order: ProductionOrder, overrides: list[LineOverride], user_name: str, keep_skipped: set[str] | None = None
+) -> list[str]:
+    """Применить правки (без commit). Возвращает ошибки (ключ не найден и т.п.).
+    keep_skipped — предпросмотр раскладки: строки «не делать» не удаляются,
+    их ключи собираются сюда (черновик показывает их серыми, 07.10)."""
     if not overrides:
         return []
     tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).all()
@@ -52,6 +56,9 @@ def apply_overrides(db: Session, order: ProductionOrder, overrides: list[LineOve
             continue
         for ln in lines:
             changes: list[str] = []
+            if ov.skip and keep_skipped is not None:
+                keep_skipped.add(ov.key)
+                continue
             if ov.skip:
                 task = ln.task
                 task.lines.remove(ln)

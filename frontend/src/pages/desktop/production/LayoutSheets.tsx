@@ -152,12 +152,15 @@ export function SheetTable({
   sheet,
   overrides,
   onEdit,
+  onSkip,
   date,
   onDate,
 }: {
   sheet: ReleaseLayoutSheet;
   overrides: Overrides;
   onEdit?: (row: Agg) => void;
+  /** шлифовка «Да/Нет» (07.10): skip=true — этап не делать */
+  onSkip?: (keys: string[], skip: boolean) => void;
   // ручной срок участка: всё по нему — на этот день (следующие — за ним)
   date: string | undefined;
   onDate?: (d: string | null) => void;
@@ -168,7 +171,7 @@ export function SheetTable({
     if (mode === "rows") return sheet.rows.map((r, i) => ({ ...r, rowKey: `${r.key}#${i}`, keys: [r.key], lines: 1 }));
     const m = new Map<string, Agg>();
     for (const r of sheet.rows) {
-      const k = `${r.operation ?? ""}|${r.name}|${r.film?.label ?? ""}|${r.film?.strip_width_mm ?? ""}|${r.program ?? ""}|${r.instruction ?? ""}`;
+      const k = `${r.operation ?? ""}|${r.name}|${r.film?.label ?? ""}|${r.film?.strip_width_mm ?? ""}|${r.program ?? ""}|${r.instruction ?? ""}|${r.skipped ? 1 : 0}`;
       const a = m.get(k);
       if (a) {
         a.qty += r.qty;
@@ -189,7 +192,7 @@ export function SheetTable({
     for (const r of sheet.rows) if (!order.includes(r.operation ?? "")) order.push(r.operation ?? "");
     return order.map((op) => {
       const rows = data.filter((r) => (r.operation ?? "") === op);
-      return { op, rows, total: Math.round(rows.reduce((t, r) => t + r.qty, 0) * 100) / 100 };
+      return { op, rows, total: Math.round(rows.filter((r) => !r.skipped).reduce((t, r) => t + r.qty, 0) * 100) / 100 };
     });
   }, [sheet, data]);
 
@@ -222,12 +225,30 @@ export function SheetTable({
           </Space>
         )}
       </Space>
-      {groups.map((g) => (
+      {groups.map((g) => {
+        const sanding = !!onSkip && /шлифов/i.test(g.op);
+        const allKeys = g.rows.flatMap((r) => r.keys);
+        return (
         <div key={g.op || "-"} style={{ display: "grid", gap: 6 }}>
-          {groups.length > 1 && (
-            <Typography.Text strong>
-              Операция «{g.op || "—"}» · {g.total} шт
-            </Typography.Text>
+          {(groups.length > 1 || sanding) && (
+            <Space wrap>
+              <Typography.Text strong>
+                Операция «{g.op || "—"}» · {g.total} шт
+              </Typography.Text>
+              {sanding && (
+                <>
+                  <Button size="small" onClick={() => onSkip!(allKeys, false)}>
+                    Шлифуем все
+                  </Button>
+                  <Button size="small" onClick={() => onSkip!(allKeys, true)}>
+                    Не шлифуем ничего
+                  </Button>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    МДФ Kastamonu (под ПЭТ) не шлифуется — его здесь нет
+                  </Typography.Text>
+                </>
+              )}
+            </Space>
           )}
           <ResponsiveTable<Agg>
             // ширины столбцов заданы явно, таблица пересоздаётся при смене
@@ -242,7 +263,22 @@ export function SheetTable({
             pagination={false}
             scroll={{ x: 360 + 80 + (mode === "rows" ? 240 : 70) + (hasFilm ? 230 : 0) + 100 + (onEdit ? 56 : 0), y: 420 }}
             dataSource={g.rows}
+            rowClassName={(r) => (r.skipped ? "row-skipped" : "")}
             columns={[
+              ...(sanding
+                ? [
+                    {
+                      title: "Шлифовка",
+                      width: 90,
+                      align: "center" as const,
+                      render: (_: unknown, r: Agg) => (
+                        <Checkbox checked={!r.skipped} onChange={(e) => onSkip!(r.keys, !e.target.checked)}>
+                          {r.skipped ? "нет" : "да"}
+                        </Checkbox>
+                      ),
+                    },
+                  ]
+                : []),
               {
                 title: "Наименование",
                 width: 360,
@@ -250,7 +286,8 @@ export function SheetTable({
                 // крупно, длинное название мелко (модель, цвет, кромка отдельно).
                 render: (_, r) => (
                   <Space direction="vertical" size={2} style={{ wordBreak: "break-word" }}>
-                    {r.door == null && r.chars.length ? <ItemChars chars={r.chars} name={r.name} strong={false} /> : <span>{r.name}</span>}
+                    {r.door == null && r.chars.length ? <ItemChars chars={r.chars} name={r.name} strong={false} /> : <span style={r.skipped ? { opacity: 0.5, textDecoration: "line-through" } : undefined}>{r.name}</span>}
+                    {r.skipped && <Tag>не делаем</Tag>}
                     <Space size={4} wrap>
                       {r.program && <Tag color="geekblue">программа {r.program}</Tag>}
                       {r.instruction && <Typography.Text type="warning">⚑ {r.instruction}</Typography.Text>}
@@ -309,7 +346,8 @@ export function SheetTable({
             ]}
           />
         </div>
-      ))}
+        );
+      })}
     </Space>
   );
 }

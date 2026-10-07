@@ -192,6 +192,8 @@ export interface ReleaseLayoutRow {
   film: { sku_id: number | null; label: string; strip_width_mm: number | null; width_mm: number; need_m: number } | null;
   /** операция маршрута, к которой относится строка */
   operation?: string | null;
+  /** «не делать этот этап» — в задание не попадёт (07.10) */
+  skipped?: boolean;
 }
 export interface ReleaseLayoutSheet {
   area: string;

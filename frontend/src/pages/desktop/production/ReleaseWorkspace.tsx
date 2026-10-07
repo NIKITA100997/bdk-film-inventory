@@ -168,6 +168,19 @@ export default function ReleaseWorkspace({
     });
     setEditing(null);
   };
+  // шлифовка «Да/Нет» (07.10): пометка «не делать» у строк, прочие правки строки сохраняются
+  const setSkip = (keys: string[], skip: boolean) =>
+    setOverrides((prev) => {
+      const next = { ...prev };
+      for (const k of keys) {
+        const cur = next[k] ?? ({ key: k } as LineOverride);
+        const ov = { ...cur, key: k, skip };
+        const empty = !skip && Object.entries(ov).every(([f, v]) => f === "key" || f === "skip" || v == null || v === "");
+        if (empty) delete next[k];
+        else next[k] = ov;
+      }
+      return next;
+    });
   const [shiftDraft, setShiftDraft] = useState<number | null>(null);
 
   // --- запуск
@@ -447,6 +460,7 @@ export default function ReleaseWorkspace({
             sheet={s}
             overrides={overrides}
             onEdit={canManage ? (row) => setEditing({ row, sheet: s }) : undefined}
+            onSkip={canManage ? setSkip : undefined}
             date={plan.dates[s.area]}
             onDate={
               canManage

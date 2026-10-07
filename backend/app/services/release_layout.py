@@ -69,7 +69,8 @@ def build_release_layout(
 
     tasks = release_order(db, order, user_id)
     release_pf(db, order, tasks, picks, user_id)
-    override_errors = apply_overrides(db, order, overrides or [], user_name)
+    skipped: set[str] = set()
+    override_errors = apply_overrides(db, order, overrides or [], user_name, keep_skipped=skipped)
     sched = schedule_order(db, order, user_id)
     if area_dates or shift_days:
         from app.services.planning import apply_release_dates, order_plan_status
@@ -103,6 +104,17 @@ def build_release_layout(
         })
         for ln in t.lines:
             stage = db.get(PartStage, ln.part_stage_id) if ln.part_stage_id else None
+            if line_key(ln) in skipped:
+                # «не делать этот этап» — видна серой, в итоги и потребность не идёт
+                part = db.get(Part, ln.part_id) if ln.part_id else None
+                sheet["rows"].append({
+                    "key": line_key(ln), "area": t.area, "program": ln.program, "instruction": ln.instruction, "manual": True,
+                    "name": ln.part_name or (part.name if part else ""), "qty": float(ln.quantity_pieces), "chars": [],
+                    "door": items[ln.order_line_id].name if ln.order_line_id in items else None, "note": None,
+                    "date_from": None, "date_to": None, "film": None, "operation": stage.name if stage is not None else None,
+                    "skipped": True,
+                })
+                continue
             if needs_program(stage) and ln.order_line_id:
                 milled_lines.add(ln.order_line_id)
                 programmed[ln.order_line_id] = programmed.get(ln.order_line_id, True) and bool(ln.program)
@@ -218,7 +230,7 @@ def build_release_layout(
         d = sorted(s.pop("dates"))
         s["date_from"] = d[0].isoformat() if d else None
         s["date_to"] = d[-1].isoformat() if d else None
-        s["total"] = round(sum(r["qty"] for r in s["rows"]), 2)
+        s["total"] = round(sum(r["qty"] for r in s["rows"] if not r.get("skipped")), 2)
         seq.append(s)
     seq.sort(key=lambda s: (s["date_from"] or "9999", s["name"]))
     return {
