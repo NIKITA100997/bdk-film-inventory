@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import OverProductionTag, { overExcess } from "../../../components/OverProductionTag";
 import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form, Checkbox, Radio } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
@@ -484,6 +485,10 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                         {lineFilmLabel(r.line)} — произведено {r.line.produced_good_pieces} из{" "}
                         {r.line.quantity_pieces} шт
                       </Typography.Text>
+                      <OverProductionTag line={r.line} produced={r.line.produced_good_pieces} />
+                      {r.goodPieces > 0 && !overExcess(r.line, r.line.produced_good_pieces) && (
+                        <OverProductionTag line={r.line} produced={r.line.produced_good_pieces + r.goodPieces} planned />
+                      )}
                       {available != null && (
                         <Space size={4}>
                           <Tag

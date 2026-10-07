@@ -1,4 +1,5 @@
 import { useState } from "react";
+import OverProductionTag from "../../../components/OverProductionTag";
 import { Alert, Modal, Form, Select, InputNumber, Input, Button, Table, Typography, message, Radio, Tag, Space } from "antd";
 import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -257,7 +258,8 @@ export default function ReportModal({
         <Alert key={w} type="warning" showIcon message={w} style={{ marginBottom: 8 }} />
       ))}
       <Typography.Paragraph type="secondary">
-        Нужно: {line.quantity_pieces} шт, уже произведено: {line.produced_good_pieces} шт, остаток: {line.remaining_pieces} шт.
+        Нужно: {line.quantity_pieces} шт, уже произведено: {line.produced_good_pieces} шт, остаток: {line.remaining_pieces} шт.{" "}
+        <OverProductionTag line={line} produced={line.produced_good_pieces} />
         {requiresRoll && (
           <>
             {" "}Партия п/ф не выбирается вручную ни для готовых деталей, ни для брака — списывается автоматически от

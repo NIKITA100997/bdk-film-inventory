@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import OverProductionTag from "../../../../components/OverProductionTag";
 import { ItemChars } from "../../../../components/ItemChars";
 import {
   Alert,
@@ -328,12 +329,15 @@ function EntryBadge({ r, line }: { r: R; line: ProductionTaskLine }) {
   if (!isFilled(e)) return null;
   const defect = e.pusk + e.defects.reduce((s, d) => s + d.qty, 0);
   return (
-    <Tag color="green" style={{ marginInlineEnd: 0, fontWeight: 700 }}>
-      {+e.good || 0}
-      {defect ? ` · брак ${defect}` : ""}
-      {e.meters != null ? ` · ${e.meters} м` : ""}
-      {e.close ? " · закрыть" : ""}
-    </Tag>
+    <Space size={4} wrap>
+      <Tag color="green" style={{ marginInlineEnd: 0, fontWeight: 700 }}>
+        {+e.good || 0}
+        {defect ? ` · брак ${defect}` : ""}
+        {e.meters != null ? ` · ${e.meters} м` : ""}
+        {e.close ? " · закрыть" : ""}
+      </Tag>
+      <OverProductionTag line={line} produced={line.produced_good_pieces + (+e.good || 0)} planned={+e.good > 0} />
+    </Space>
   );
 }
 
@@ -441,6 +445,7 @@ function Tiles({
                     {fl.today ? " · на сегодня" : ""}
                     {warn}
                   </Typography.Text>
+                  <OverProductionTag line={fl.line} produced={fl.line.produced_good_pieces} />
                 </div>
               );
             })}
@@ -522,6 +527,7 @@ function TableView({
                     {fl.task.production_order_name ?? fl.task.name} · осталось{" "}
                     {fmt(fl.line.remaining_pieces)}
                   </div>
+                  <OverProductionTag line={fl.line} produced={fl.line.produced_good_pieces} />
                 </td>
                 <td style={cell}>
                   <div style={{ fontSize: 13 }}>{filmLabel(fl.line)}</div>
@@ -701,6 +707,7 @@ function LineSheet({
             {fmt(fl.line.produced_good_pieces)}, осталось{" "}
             {fmt(fl.line.remaining_pieces)} · {filmLabel(fl.line)}
           </Typography.Text>
+          <OverProductionTag line={fl.line} produced={fl.line.produced_good_pieces + (+e.good || 0)} planned={+e.good > 0} />
           {(fl.line.film_warnings ?? []).map((w) => (
             <Alert key={w} type="warning" showIcon message={w} />
           ))}

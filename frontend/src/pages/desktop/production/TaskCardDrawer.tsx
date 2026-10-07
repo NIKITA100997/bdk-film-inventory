@@ -1,4 +1,5 @@
 import { useState } from "react";
+import OverProductionTag, { overExcess } from "../../../components/OverProductionTag";
 import { ItemChars } from "../../../components/ItemChars";
 import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Tabs, Tag, Typography, message, Tooltip } from "antd";
 import dayjs from "dayjs";
@@ -179,6 +180,8 @@ function TaskCardBody({
   const isPf = t.for_task_id != null || (t.lines.length > 0 && t.lines.every((l) => l.material === null && l.part_id != null));
   const plan = t.lines.reduce((s, l) => s + l.quantity_pieces, 0);
   const done = t.lines.reduce((s, l) => s + Math.min(l.produced_good_pieces, l.quantity_pieces), 0);
+  // строки, сделанные сверх задания больше допуска (ламинация: 3 шт, стоевые — 5)
+  const overLines = t.lines.filter((l) => overExcess(l, l.produced_good_pieces) > 0).length;
   const pfTasks = card?.pf_tasks ?? [];
   const pfAllReady = pfTasks.every(pfReady);
   // Задание другого участка (связанное п/ф ↔ окутка) — только просмотр.
@@ -291,6 +294,7 @@ function TaskCardBody({
               <span>
                 сделано {done} из {plan}
               </span>
+              {overLines > 0 && <Tag color="red">сверх задания: {overLines} {overLines === 1 ? "строка" : "строк"}</Tag>}
               <Progress percent={plan ? Math.round((done / plan) * 100) : 0} size="small" style={{ width: 120, margin: 0 }} />
               {card?.order && (
                 <a
@@ -427,6 +431,7 @@ function LinesTab({
                 <span>
                   {l.produced_good_pieces} из {l.quantity_pieces}
                 </span>
+                <OverProductionTag line={l} produced={l.produced_good_pieces} />
                 {l.production_closed && <Tag>закрыта</Tag>}
               </Space>
             ),
