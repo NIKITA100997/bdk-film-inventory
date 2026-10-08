@@ -351,8 +351,15 @@ def _inherit_pf_cost(session: Session, flush_context, instances) -> None:
 def order_line_unit_cost(db: Session, order_line_id: int) -> float | None:
     from sqlalchemy import func
 
+    from app.models.dictionaries import PartStage
     from app.models.production import ProductionTaskLine, ProductionTaskLineReport
+    from app.models.production_orders import ProductionOrderLine
 
+    ol = db.get(ProductionOrderLine, order_line_id)
+    if ol is None:
+        return None
+    # только операции самой позиции заказа: строки п/ф под эту строку (каркас,
+    # панели) уже вошли через списание комплектующих — иначе двойной счёт
     rows = (
         db.query(
             ProductionTaskLine.part_stage_id,
@@ -360,7 +367,11 @@ def order_line_unit_cost(db: Session, order_line_id: int) -> float | None:
             func.sum(ProductionTaskLineReport.good_pieces),
         )
         .join(ProductionTaskLine, ProductionTaskLine.id == ProductionTaskLineReport.task_line_id)
-        .filter(ProductionTaskLine.order_line_id == order_line_id, ProductionTaskLineReport.cost_rub.isnot(None))
+        .join(PartStage, PartStage.id == ProductionTaskLine.part_stage_id)
+        .filter(
+            ProductionTaskLine.order_line_id == order_line_id, PartStage.item_id == ol.item_id,
+            ProductionTaskLineReport.cost_rub.isnot(None),
+        )
         .group_by(ProductionTaskLine.part_stage_id)
         .all()
     )
