@@ -29,9 +29,18 @@ def upgrade() -> None:
     # шаг 1б — материалы: цена единицы движения и сумма
     op.add_column("material_moves", sa.Column("price_rub", sa.Numeric(14, 4), nullable=True))
     op.add_column("material_moves", sa.Column("amount_rub", sa.Numeric(14, 2), nullable=True))
+    # шаг 1в — п/ф: себестоимость отчёта (с разбивкой), штуки партии и сумма события
+    op.add_column("production_task_line_reports", sa.Column("cost_rub", sa.Numeric(14, 2), nullable=True))
+    op.add_column("production_task_line_reports", sa.Column("cost_parts", sa.JSON, nullable=True))
+    op.add_column("part_units", sa.Column("unit_cost_rub", sa.Numeric(14, 4), nullable=True))
+    op.add_column("part_unit_events", sa.Column("amount_rub", sa.Numeric(14, 2), nullable=True))
 
 
 def downgrade() -> None:
+    op.drop_column("part_unit_events", "amount_rub")
+    op.drop_column("part_units", "unit_cost_rub")
+    op.drop_column("production_task_line_reports", "cost_parts")
+    op.drop_column("production_task_line_reports", "cost_rub")
     op.drop_column("material_moves", "amount_rub")
     op.drop_column("material_moves", "price_rub")
     op.drop_column("material_events", "amount_rub")

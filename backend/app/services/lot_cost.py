@@ -165,3 +165,167 @@ def _stamp(session: Session, flush_context, instances) -> None:
             e.amount_rub = event_amount(e.quantity_delta_m, e.width_mm, unit.price_per_m2)
         for mv in sorted(new_moves, key=lambda x: x.occurred_at or datetime.max):
             stamp_material_move(session, mv)
+
+
+# ---------- шаг 1в: себестоимость отчёта и партии п/ф ----------
+#
+# Отчёт мастера получает себестоимость при сохранении (before_commit — к
+# этому моменту в транзакции уже записаны его расход материалов и списание
+# комплектующих): плёнка (метры отчёта × ширина рулона × цена м²) +
+# материалы (расход по строке в этой транзакции) + комплектующие п/ф
+# (списанные партии × их себестоимость штуки) + работа (сдельно: годные ×
+# расценка операции или участка; за смену — в отчёт по участкам, не в
+# партию). Стоимость отчёта ÷ годные прибавляется к себестоимости штуки
+# партии, которую отчёт сделал или перевёл на этап. Расход нескольких
+# отчётов одной строки в одной транзакции делится по штукам.
+
+_SKIP_KINDS = {"close"}  # «сделано полностью» без отчёта — производства нет
+
+
+def note_component_cost(db: Session, task_line_id: int | None, qty: float, unit_cost: float | None) -> None:
+    """Списание комплектующего п/ф в производство (consume_components_at_operation)
+    — запомнить его стоимость для отчёта этой строки."""
+    if task_line_id is None:
+        return
+    acc = db.info.setdefault("lc_components", {})
+    a = acc.setdefault(task_line_id, [0.0, 0.0])  # [₽, шт без себестоимости]
+    if unit_cost is None:
+        a[1] += float(qty)
+    else:
+        a[0] += float(qty) * float(unit_cost)
+
+
+@event.listens_for(Session, "after_flush")
+def _collect(session: Session, flush_context) -> None:
+    from app.models.items import MaterialMove
+    from app.models.part_units import PartUnitEvent
+    from app.models.production import ProductionTaskLineReport
+
+    info = session.info
+    for o in session.new:
+        if isinstance(o, ProductionTaskLineReport):
+            info.setdefault("lc_reports", set()).add(o.id)
+        elif isinstance(o, MaterialMove) and o.task_line_id is not None:
+            info.setdefault("lc_moves", set()).add(o.id)
+        elif isinstance(o, PartUnitEvent):
+            info.setdefault("lc_pf_events", set()).add(o.id)
+
+
+def _clear(session: Session) -> None:
+    for k in ("lc_reports", "lc_moves", "lc_pf_events", "lc_components"):
+        session.info.pop(k, None)
+
+
+@event.listens_for(Session, "after_rollback")
+def _after_rollback(session: Session) -> None:
+    _clear(session)
+
+
+def _report_rate(stage, area) -> float | None:
+    if stage is not None and stage.piece_rate is not None:
+        return float(stage.piece_rate)
+    if area is not None and area.pay_mode == "piece" and area.piece_rate is not None:
+        return float(area.piece_rate)
+    return None
+
+
+@event.listens_for(Session, "before_commit")
+def _cost_reports(session: Session) -> None:
+    info = session.info
+    if not any(info.get(k) for k in ("lc_reports", "lc_pf_events")):
+        _clear(session)
+        return
+    from app.models.areas import Area
+    from app.models.dictionaries import PartStage
+    from app.models.items import MaterialMove
+    from app.models.part_units import PartUnit, PartUnitEvent
+    from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+    from app.services.production import report_film_m
+
+    with session.no_autoflush:
+        reports = [r for r in (session.get(ProductionTaskLineReport, i) for i in info.get("lc_reports", ())) if r is not None]
+        reports = [r for r in reports if r.kind not in _SKIP_KINDS and r.cost_rub is None]
+        moves = [m for m in (session.get(MaterialMove, i) for i in info.get("lc_moves", ())) if m is not None]
+        comps = info.get("lc_components", {})
+        by_line: dict[int, list] = {}
+        for r in reports:
+            by_line.setdefault(r.task_line_id, []).append(r)
+        mat_by_line: dict[int, list[float]] = {}
+        for m in moves:
+            if m.kind != "consumption":
+                continue
+            a = mat_by_line.setdefault(m.task_line_id, [0.0, 0])
+            if m.amount_rub is None:
+                a[1] += 1
+            else:
+                a[0] += -float(m.amount_rub)
+        for line_id, reps in by_line.items():
+            line = session.get(ProductionTaskLine, line_id)
+            if line is None:
+                continue
+            task = session.get(ProductionTask, line.task_id)
+            area = session.get(Area, task.area) if task else None
+            stage = session.get(PartStage, line.part_stage_id) if line.part_stage_id else None
+            rate = _report_rate(stage, area)
+            weight = {r.id: float(r.good_pieces) + float(r.defect_pieces or 0) for r in reps}
+            total_w = sum(weight.values())
+            mat_rub, mat_unpriced = mat_by_line.get(line_id, [0.0, 0])
+            comp_rub, comp_unpriced = comps.get(line_id, [0.0, 0.0])
+            for r in reps:
+                share = weight[r.id] / total_w if total_w > 0 else 1.0 / len(reps)
+                parts: dict = {
+                    "film": 0.0, "materials": round(mat_rub * share, 2), "components": round(comp_rub * share, 2), "labor": 0.0,
+                }
+                missing = []
+                if mat_unpriced:
+                    missing.append("материалы без цены")
+                if comp_unpriced:
+                    missing.append("комплектующие без себестоимости")
+                if r.material_unit_id:
+                    unit = session.get(MaterialUnit, r.material_unit_id)
+                    meters = report_film_m(
+                        float(r.good_pieces), float(r.defect_pieces or 0), float(line.length_m),
+                        float(r.film_used_m) if r.film_used_m is not None else None,
+                    )
+                    if unit is not None and unit.price_per_m2 is not None:
+                        parts["film"] = round(meters * float(unit.width_mm) / 1000 * float(unit.price_per_m2), 2)
+                    elif meters:
+                        missing.append("плёнка без цены")
+                if r.kind is None and float(r.good_pieces) > 0:
+                    if rate is not None:
+                        parts["labor"] = round(float(r.good_pieces) * rate, 2)
+                    elif area is not None and area.pay_mode != "shift":
+                        missing.append("нет расценки")
+                if missing:
+                    parts["missing"] = missing
+                r.cost_rub = round(parts["film"] + parts["materials"] + parts["components"] + parts["labor"], 2)
+                r.cost_parts = parts
+                good = float(r.good_pieces)
+                if r.part_unit_id and good > 0 and r.cost_rub:
+                    lot = session.get(PartUnit, r.part_unit_id)
+                    if lot is not None:
+                        lot.unit_cost_rub = round(float(lot.unit_cost_rub or 0) + r.cost_rub / good, 4)
+        # суммы событий п/ф — по себестоимости штуки партии
+        for i in info.get("lc_pf_events", ()):
+            ev = session.get(PartUnitEvent, i)
+            if ev is None or ev.amount_rub is not None or not ev.quantity_delta:
+                continue
+            lot = session.get(PartUnit, ev.part_unit_id)
+            if lot is not None and lot.unit_cost_rub is not None:
+                ev.amount_rub = round(float(ev.quantity_delta) * float(lot.unit_cost_rub), 2)
+    _clear(session)
+    session.flush()
+
+
+@event.listens_for(Session, "before_flush")
+def _inherit_pf_cost(session: Session, flush_context, instances) -> None:
+    """Кусок партии п/ф (дробление при переходе этапа, расходе) — та же
+    себестоимость штуки, что у родителя."""
+    from app.models.part_units import PartUnit
+
+    for o in session.new:
+        if isinstance(o, PartUnit) and o.unit_cost_rub is None and o.parent_id:
+            with session.no_autoflush:
+                parent = session.get(PartUnit, o.parent_id)
+            if parent is not None:
+                o.unit_cost_rub = parent.unit_cost_rub

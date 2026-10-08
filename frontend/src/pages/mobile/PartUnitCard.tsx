@@ -47,6 +47,8 @@ export default function PartUnitCard() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("part_units.correct");
+  const canSeePrice = !!user?.is_superuser || ["prices.view", "prices.manage"].some((c) => user?.permissions.includes(c));
+  const rub = (n: number) => `${Math.round(n).toLocaleString("ru-RU")} ₽`;
   const [unit, setUnit] = useState<PartUnit | null>(null);
   const [makeOpen, setMakeOpen] = useState(false);
   const [issueOpen, setIssueOpen] = useState(false);
@@ -167,6 +169,18 @@ export default function PartUnitCard() {
               {unit.quantity_available} шт
               {unit.quantity_available !== unit.quantity_pieces && ` (из ${unit.quantity_pieces})`}
             </Descriptions.Item>
+            {canSeePrice && (
+              <Descriptions.Item label="Себестоимость">
+                {unit.unit_cost_rub != null ? (
+                  <>
+                    {rub(unit.unit_cost_rub)} за шт{" "}
+                    <Typography.Text type="secondary">· партия {rub(unit.unit_cost_rub * unit.quantity_available)}</Typography.Text>
+                  </>
+                ) : (
+                  <Typography.Text type="secondary">не считалась</Typography.Text>
+                )}
+              </Descriptions.Item>
+            )}
             <Descriptions.Item label="Этап">{unit.stage_name}</Descriptions.Item>
             <Descriptions.Item label="Статус">
               <Tag color={unit.status === "Выдан_участку" ? "green" : unit.status === "Списан" ? "red" : "blue"}>

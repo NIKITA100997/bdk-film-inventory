@@ -130,6 +130,8 @@ class PartUnitOut(BaseModel):
     manufactured_at: date
     created_at: datetime
     updated_at: datetime
+    # Себестоимость штуки, ₽ (08.10, services/lot_cost.py) — копится с отчётов.
+    unit_cost_rub: float | None = None
 
 
 class PartUnitEventOut(BaseModel):

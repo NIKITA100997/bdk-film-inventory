@@ -32,7 +32,7 @@ UNION ALL
 SELECT 'pf', pe.id, pe.part_unit_id, p.item_id,
        pe.occurred_at, pe.event_type::text,
        pe.quantity_delta, 'шт', NULL,
-       NULL::numeric, pe.area, pe.from_cell, pe.to_cell,
+       pe.amount_rub, pe.area, pe.from_cell, pe.to_cell,
        pe.user_id, pe.production_task_line_id, pe.write_off_reason,
        coalesce(pe.write_off_note, pe.note), NULL::numeric, pe.from_stage_id, pe.to_stage_id
   FROM part_unit_events pe JOIN part_units pu ON pu.id = pe.part_unit_id JOIN parts p ON p.id = pu.part_id

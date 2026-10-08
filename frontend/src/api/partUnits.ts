@@ -35,6 +35,8 @@ export interface PartUnit {
   // систему), по ней партии теперь расходуются автоматически при
   // отчёте о готовых деталях (ISO-дата, "YYYY-MM-DD").
   manufactured_at: string;
+  /** себестоимость штуки, ₽ (08.10) — копится с отчётов, которые делали партию */
+  unit_cost_rub?: number | null;
   created_at: string;
   updated_at: string;
 }

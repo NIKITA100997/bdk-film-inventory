@@ -255,6 +255,11 @@ class ProductionTaskLineReport(Base):
     # Фактический расход плёнки, м (06.10, прессы: мастер вводит штуки и
     # метры). Пусто — расход по норме: длина детали × (годные + брак).
     film_used_m: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Себестоимость отчёта, ₽ (08.10, services/lot_cost.py): плёнка + материалы
+    # + комплектующие п/ф + работа (сдельно); cost_parts — разбивка и чего
+    # не хватило для расчёта. Пусто — не считалась (старые отчёты).
+    cost_rub: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    cost_parts: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Раздел про окутку в 2 захода — засчитывается ли good_pieces/
     # defect_pieces этого отчёта в остаток СТРОКИ ЗАДАНИЯ участка
     # (produced_good_pieces/remaining_pieces, api/production.py::

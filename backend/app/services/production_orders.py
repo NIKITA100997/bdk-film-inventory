@@ -25,6 +25,7 @@ from app.services.part_units import mint_part_unit, write_off_part_unit
 from app.services.materials import KIND_MATERIAL
 from app.services.materials import consume as consume_material
 from app.services.pf_demand import check_foreign_reserve
+from app.services.lot_cost import note_component_cost
 
 
 class OrderError(ValueError):
@@ -310,6 +311,7 @@ def make_detail_from_unit(
     return new_unit
 
 
+
 def consume_components_at_operation(
     db: Session, *, stage: PartStage, area: str, quantity: float, user_id: int, note: str | None = None,
     task_id: int | None = None, task_line_id: int | None = None,
@@ -428,6 +430,8 @@ def consume_components_at_operation(
                     note=note or (f"Из брака в производство: {stage.name}" if comp.from_defect else f"В производство: {stage.name}"),
                 )
                 written.append((unit, take))
+                # себестоимость комплектующих — отчёту этой строки (lot_cost)
+                note_component_cost(db, task_line_id, take, unit.unit_cost_rub)
                 remaining -= take
         db.flush()
     return written

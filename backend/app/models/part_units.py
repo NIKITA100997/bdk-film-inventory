@@ -81,6 +81,10 @@ class PartUnit(Base):
     # дроблении — иначе FIFO-порядок ломался бы на первом же частичном
     # расходе (дочерняя партия получила бы "сегодня").
     manufactured_at: Mapped[date] = mapped_column(Date, server_default=func.current_date())
+    # Себестоимость штуки, ₽ (08.10, services/lot_cost.py): копится с
+    # отчётов, которые делали и переводили эту партию по этапам; куски
+    # наследуют от родителя. Пусто — не считалась.
+    unit_cost_rub: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -182,3 +186,5 @@ class PartUnitEvent(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Сумма события, ₽ (08.10): количество × себестоимость штуки партии.
+    amount_rub: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
