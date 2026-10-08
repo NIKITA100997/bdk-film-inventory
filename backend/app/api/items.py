@@ -957,7 +957,7 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
             TechInput(
                 name=names.get(c.component_item_id, "—"), part_id=cp.id if cp else None,
                 qty_per_unit=float(c.qty_per_unit), unit=(ci.unit or kinds[ci.kind_id].unit) if ci else "шт",
-                note=f"{_fmt(cp.width_mm)}×{_fmt(round(float(cp.length_m) * 1000, 1))} мм" if cp else None,
+                note=f"{_fmt(cp.width_mm)}х{_fmt(round(float(cp.length_m) * 1000, 1))} мм" if cp else None,
                 component_item_id=c.component_item_id, source=c.source, stage_id=c.stage_id,
                 operation_name=stage_names.get(c.stage_id) if c.stage_id else None,
                 alt_group=c.alt_group, from_defect=bool(c.from_defect),
@@ -970,7 +970,7 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
                 inputs.append(
                     TechInput(
                         name=b.part_name or "—", part_id=None, qty_per_unit=float(b.qty_per_unit), unit="шт",
-                        note=f"{_fmt(b.width_mm)}×{_fmt(round(float(b.length_m) * 1000, 1))} мм, {area_names.get(b.area, b.area)}",
+                        note=f"{_fmt(b.width_mm)}х{_fmt(round(float(b.length_m) * 1000, 1))} мм, {area_names.get(b.area, b.area)}",
                         source="bom",
                     )
                 )

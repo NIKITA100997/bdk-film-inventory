@@ -27,11 +27,18 @@ export function ItemChars({
 }) {
   if (!chars || chars.length === 0) return strong ? <Typography.Text strong>{name ?? "—"}</Typography.Text> : <span>{name ?? "—"}</span>;
   const by = Object.fromEntries(chars.map((c) => [c.code, c]));
-  const used = new Set(["серия", "ширина", "высота", "цвет", "кромка", "цвет_кромки", "стекло"]);
-  const size = by["ширина"] && by["высота"] ? `${num(by["ширина"].value)}×${num(by["высота"].value)}` : "";
-  const head = [by["серия"]?.value, size].filter(Boolean).join(" ");
+  const used = new Set(["серия", "толщина", "ширина", "высота", "цвет", "кромка", "цвет_кромки", "стекло"]);
+  // размер — как в названиях позиций: толщина первой, через «х» (6х810х2010, 800х2000)
+  const size =
+    by["ширина"] && by["высота"]
+      ? [by["толщина"]?.value, by["ширина"].value, by["высота"].value].filter(Boolean).map((v) => num(v)).join("х")
+      : "";
+  // позиция без серии (заготовка, деталь) — заголовок её название: в нём и вид, и размер
+  const head = by["серия"] ? [by["серия"].value, size].filter(Boolean).join(" ") : (name ?? size);
   const edge = [by["кромка"] ? `кромка ${by["кромка"].value}` : "", by["цвет_кромки"]?.value ?? ""].filter(Boolean).join(" · ");
-  const flags = chars.filter((c) => !used.has(c.code));
+  // у позиции без серии заголовок — название: метки, которые в нём уже есть, не повторяем
+  const inName = (v: string) => !by["серия"] && !!name && name.toLowerCase().includes(v.toLowerCase());
+  const flags = chars.filter((c) => !used.has(c.code) && !inName(c.value));
   return (
     <Space direction="vertical" size={2}>
       <Space size={[6, 4]} wrap>
@@ -57,7 +64,7 @@ export function ItemChars({
           </Tag>
         )}
       </Space>
-      {showName && name && (
+      {showName && name && by["серия"] && (
         <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
           {name}
         </Typography.Text>
