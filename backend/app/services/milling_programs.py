@@ -6,7 +6,10 @@
   «Е17.2_(М5х3)»          → Е-17, подверсия 2, любая ширина
   «В5_F3_700х2000_1»      → В-5/Ф3, ширина 700, вариант 1
   «Grafiti_5_800х2000_2»  → В-34 (Графити 5), ширина 800, вариант 2
-Вариант «_1» — все плёнки, кроме ПЭТ; «_2» — ПЭТ (ответ пользователя).
+Подверсия «.2» — ПЭТ, «.1» — остальные плёнки; «_1» и «_2» — первая и
+вторая сторона двери с несимметричными сторонами: у такой двери одна панель
+фрезеруется по «_1», другая — по «_2» (ответ пользователя 08.10; во всех
+запусках «_1» и «_2» идут поровну). Е-6 работает по программам Е16.
 
 Дверь даёт серию (вариант свойства «серия»), ширину и ПЭТ — из позиции;
 подверсию («В-10.2») и молдинг («(м5х3 …», «(м9 …») — из исходной строки
@@ -21,6 +24,9 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 GRAFITI_SERIES = {"2": "В-28", "5": "В-34"}
+# Модель → серия программ, если не совпадает с названием (ответ 08.10:
+# у Е-6 программы «Е16.2_(М5х3/М3х3)_1/_2»).
+PROGRAM_SERIES = {"Е-6": "Е-16"}
 
 _RE_GRAFITI = re.compile(r"^grafiti_(\d)_(\d{3})х2000(?:_([12]))?$", re.I)
 _RE_PROG = re.compile(
@@ -74,9 +80,14 @@ def door_spec_from_text(text: str | None) -> tuple[str | None, str | None]:
     return (v.group(1) if v else None), mold
 
 
-def suggest(programs: list, series: str, width: int | None, version: str | None, molding: str | None, pet: bool) -> str | None:
-    """Ровно одна подходящая программа — её название, иначе None."""
-    want_variant = 2 if pet else 1
+def suggest_sides(
+    programs: list, series: str, width: int | None, version: str | None, molding: str | None, pet: bool
+) -> list[str] | None:
+    """Программы двери: [одна] — обе стороны одинаковые; [«_1», «_2»] — стороны
+    разные (несимметричная дверь); None — не подобрать однозначно."""
+    series = PROGRAM_SERIES.get(series, series)
+    # подверсия: из графика («В-10.2»), иначе по плёнке — .2 ПЭТ, .1 остальные
+    want_version = version or ("2" if pet else "1")
     cands = []
     for p in programs:
         spec = parse_program(p.name)
@@ -84,20 +95,30 @@ def suggest(programs: list, series: str, width: int | None, version: str | None,
             continue
         if spec.width is not None and spec.width != width:
             continue
-        if spec.variant is not None and spec.variant != want_variant:
+        # молдинг из графика входит в набор программы («м5х3» ⊂ «М5х3/М3х3»)
+        if spec.molding is not None and molding is not None and molding not in spec.molding.split("/"):
             continue
-        if spec.molding is not None and molding is not None and spec.molding != molding:
-            continue
-        if spec.version is not None and version is not None and spec.version != version:
+        if spec.version is not None and spec.version != want_version:
             continue
         cands.append((p, spec))
-    if len(cands) > 1 and version is not None:
-        exact = [c for c in cands if c[1].version == version]
-        cands = exact or cands
+    if len(cands) > 1 and any(c[1].version == want_version for c in cands):
+        cands = [c for c in cands if c[1].version == want_version or c[1].version is None]
     if len(cands) > 1 and molding is not None:
         exact = [c for c in cands if c[1].molding == molding]
         cands = exact or cands
-    return cands[0][0].name if len(cands) == 1 else None
+    if len(cands) == 1:
+        return [cands[0][0].name]
+    sides = {c[1].variant: c[0].name for c in cands}
+    if len(cands) == 2 and set(sides) == {1, 2}:
+        return [sides[1], sides[2]]
+    return None
+
+
+def suggest(programs: list, series: str, width: int | None, version: str | None, molding: str | None, pet: bool) -> str | None:
+    """Программа, если у двери одна на обе стороны; иначе None (для двух
+    сторон — suggest_sides)."""
+    r = suggest_sides(programs, series, width, version, molding, pet)
+    return r[0] if r and len(r) == 1 else None
 
 
 def fill_programs(db: Session, order) -> int:
@@ -146,8 +167,30 @@ def fill_programs(db: Session, order) -> int:
             series, width, version, molding, pet = cache[ol.id]
             if not series:
                 continue
-            name = suggest(programs, series, width, version, molding, pet)
-            if name:
-                ln.program = name
-                n += 1
+            names = suggest_sides(programs, series, width, version, molding, pet)
+            if not names:
+                continue
+            ln.program = names[0]
+            n += 1
+            if len(names) == 2:
+                # несимметричная дверь: половина панелей — сторона 1, половина — сторона 2
+                total = float(ln.quantity_pieces)
+                second = total // 2
+                ln.quantity_pieces = total - second
+                if second > 0:
+                    _split_side(db, t, ln, second, names[1])
+                    n += 1
     return n
+
+
+def _split_side(db: Session, task, ln, qty: float, program: str) -> None:
+    """Строка второй стороны — копия строки с другой программой."""
+    from app.models.production import ProductionTaskLine
+
+    copy = ProductionTaskLine(
+        **{c.key: getattr(ln, c.key) for c in ProductionTaskLine.__table__.columns if c.key not in ("id", "task_id")}
+    )
+    copy.quantity_pieces = qty
+    copy.program = program
+    task.lines.append(copy)
+    db.flush()

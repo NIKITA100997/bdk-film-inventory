@@ -33,7 +33,11 @@ class LineOverride:
 
 
 def line_key(ln: ProductionTaskLine) -> str:
-    return f"{ln.order_line_id or 0}:{ln.part_id or 0}:{ln.part_stage_id or 0}"
+    key = f"{ln.order_line_id or 0}:{ln.part_id or 0}:{ln.part_stage_id or 0}"
+    # вторая сторона несимметричной двери (программа «…_2», milling_programs)
+    if ln.program and ln.program.endswith("_2"):
+        key += ":s2"
+    return key
 
 
 def _distribute_quantity(lines: list[ProductionTaskLine], total: float, stamp: str) -> None:

@@ -26,15 +26,25 @@ def test_as_date_moscow():
 def test_milling_program_parse_and_suggest():
     from types import SimpleNamespace
 
-    from app.services.milling_programs import door_spec_from_text, parse_program, suggest
+    from app.services.milling_programs import door_spec_from_text, parse_program, suggest, suggest_sides
 
     assert parse_program("Grafiti_5_800х2000_2").series == "В-34"
     assert parse_program("В5_F3_700х2000_1").series == "В-5/Ф3"
-    progs = [SimpleNamespace(name=n) for n in ("В10.1_800х2000_(М5х3)", "В10.2_800х2000_(М5х3)", "В5_F3_800х2000_1", "В5_F3_800х2000_2", "Е14.2_(М5х3)")]
+    progs = [SimpleNamespace(name=n) for n in (
+        "В10.1_800х2000_(М5х3)", "В10.2_800х2000_(М5х3)", "В5_F3_800х2000_1", "В5_F3_800х2000_2", "Е14.2_(М5х3)",
+        "Е16.2_(М5х3/М3х3)_1", "Е16.2_(М5х3/М3х3)_2",
+    )]
     ver, mold = door_spec_from_text("В-10.2 (м5х3 кромка 4х) 800х2000 - ПЭТ Бежевый")
     assert suggest(progs, "В-10", 800, ver, mold, True) == "В10.2_800х2000_(М5х3)"
-    assert suggest(progs, "В-5/Ф3", 800, None, None, False) == "В5_F3_800х2000_1"
-    assert suggest(progs, "В-5/Ф3", 800, None, None, True) == "В5_F3_800х2000_2"
+    # подверсия по плёнке, если в графике её нет: ПЭТ — .2, остальные — .1
+    assert suggest(progs, "В-10", 800, None, "М5Х3", True) == "В10.2_800х2000_(М5х3)"
+    assert suggest(progs, "В-10", 800, None, "М5Х3", False) == "В10.1_800х2000_(М5х3)"
+    # «_1/_2» — стороны двери (08.10): обе программы, плёнка не важна
+    assert suggest_sides(progs, "В-5/Ф3", 800, None, None, False) == ["В5_F3_800х2000_1", "В5_F3_800х2000_2"]
+    assert suggest(progs, "В-5/Ф3", 800, None, None, True) is None
+    # Е-6 — по программам Е16.2, две стороны
+    ver6, mold6 = door_spec_from_text("Е-6.2 (м5х3 кромка 4х под ПЭТ) 600х2000 - ПЭТ Бежевый")
+    assert suggest_sides(progs, "Е-6", 600, ver6, mold6, True) == ["Е16.2_(М5х3/М3х3)_1", "Е16.2_(М5х3/М3х3)_2"]
     assert suggest(progs, "Е-14", 700, "2", "М5Х3", True) == "Е14.2_(М5х3)"
     assert suggest(progs, "В-10", 630, "2", "М5Х3", False) is None  # нестандарт — конструктор
 
