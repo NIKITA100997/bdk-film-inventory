@@ -10,6 +10,9 @@ class StockSummaryLine(BaseModel):
     thickness: float
     total_area_m2: float
     unit_count: int
+    # Стоимость остатка по ценам рулонов (08.10) и сколько м² без цены.
+    value_rub: float | None = None
+    unpriced_area_m2: float = 0.0
 
 
 class StockByWidthLine(BaseModel):

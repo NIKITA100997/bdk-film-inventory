@@ -79,6 +79,10 @@ def stock_summary(
             Thickness.value_mm,
             func.sum(MaterialUnit.width_mm * MaterialUnit.length_m / 1000).label("area"),
             func.count(MaterialUnit.id).label("unit_count"),
+            func.sum(MaterialUnit.width_mm * MaterialUnit.length_m / 1000 * MaterialUnit.price_per_m2).label("value"),
+            func.sum(
+                case((MaterialUnit.price_per_m2.is_(None), MaterialUnit.width_mm * MaterialUnit.length_m / 1000), else_=0)
+            ).label("unpriced"),
         )
         .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
         .join(Material, MaterialSku.material_id == Material.id)
@@ -93,8 +97,11 @@ def stock_summary(
     query = _filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
     rows = query.group_by(Material.name, Color.name, Thickness.value_mm).order_by(Material.name, Color.name, Thickness.value_mm).all()
     return [
-        StockSummaryLine(material=m, color=c, thickness=float(t), total_area_m2=round(float(area or 0), 3), unit_count=cnt)
-        for m, c, t, area, cnt in rows
+        StockSummaryLine(
+            material=m, color=c, thickness=float(t), total_area_m2=round(float(area or 0), 3), unit_count=cnt,
+            value_rub=round(float(value), 2) if value is not None else None, unpriced_area_m2=round(float(unpriced or 0), 3),
+        )
+        for m, c, t, area, cnt, value, unpriced in rows
     ]
 
 

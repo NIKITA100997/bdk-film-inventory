@@ -52,6 +52,7 @@ from app.api.productivity import router as productivity_router
 from app.api.production_monitor import router as production_monitor_router
 from app.api.milling_programs import router as milling_programs_router
 from app.services.period_guard import PeriodClosedError
+from app.services import lot_cost  # noqa: F401 — цена у рулона и сумма движения (before_flush)
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from app.core.config import settings

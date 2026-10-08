@@ -51,11 +51,22 @@ class MaterialUnitOut(BaseModel):
     # search_units в api/units.py), заполняется только там, где реально
     # разрешается; в остальных ответах остаётся None.
     warehouse_name: str | None = None
+    # Цена м² в рублях и откуда (08.10, services/lot_cost.py).
+    price_per_m2: float | None = None
+    price_source: str | None = None
 
     @computed_field
     @property
     def area_m2(self) -> float:
         return round(float(self.width_mm) * float(self.length_m) / 1000, 3)
+
+    @computed_field
+    @property
+    def value_rub(self) -> float | None:
+        """Сколько рублей в рулоне сейчас."""
+        if self.price_per_m2 is None:
+            return None
+        return round(float(self.width_mm) * float(self.length_m) / 1000 * float(self.price_per_m2), 2)
 
 
 class ReceiptUnitOut(BaseModel):
@@ -492,6 +503,7 @@ class UnitEventOut(BaseModel):
     from_cell: str | None
     to_cell: str | None
     quantity_delta_m: float
+    amount_rub: float | None = None  # сумма движения, ₽ (08.10)
     write_off_reason: str | None
     write_off_note: str | None
     expected_length_m: float | None

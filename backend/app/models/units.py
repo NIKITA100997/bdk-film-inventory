@@ -91,6 +91,14 @@ class MaterialUnit(Base):
         ForeignKey("cutting_operations.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    # Цена м² в рублях (08.10, services/lot_cost.py): ставится при приходе
+    # (цена позиции на дату — 1С, УПД, вручную — иначе последняя заявка
+    # поставщику), куски наследуют от родителя. price_source: "price",
+    # "request" или "estimate" (оценка: цены на дату не было, заполнено
+    # задним числом). Пусто — цены нет нигде.
+    price_per_m2: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
+    price_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
     parent: Mapped["MaterialUnit | None"] = relationship(remote_side=[id])
 
     @property

@@ -35,7 +35,20 @@ export interface MaterialUnit {
   // Раздел про остатки по конкретному складу — не прямое поле в БД,
   // заполняется бэкендом только в /units/search/available.
   warehouse_name: string | null;
+  /** цена м², ₽ и откуда (08.10): price — на дату прихода, request — по заявке, estimate — оценка */
+  price_per_m2?: number | null;
+  price_source?: string | null;
+  /** сколько рублей в рулоне сейчас */
+  value_rub?: number | null;
 }
+
+export const PRICE_SOURCE_LABEL: Record<string, string> = {
+  price: "цена на дату прихода",
+  request: "по заявке поставщику",
+  estimate: "оценка",
+};
+
+export const rub = (n: number) => `${Math.round(n).toLocaleString("ru-RU")} ₽`;
 
 export function skuLabel(sku: MaterialSku): string {
   return `${sku.material.name}, ${sku.color.name}, ${sku.thickness.value_mm} мм, ${sku.manufacturer.name}`;
@@ -498,6 +511,8 @@ export interface UnitEvent {
   from_cell: string | null;
   to_cell: string | null;
   quantity_delta_m: number;
+  /** сумма движения, ₽ (08.10) */
+  amount_rub?: number | null;
   write_off_reason: string | null;
   write_off_note: string | null;
 }

@@ -25,6 +25,8 @@ import {
   getReturnPreview,
   placeUnit,
   getUnitEvents,
+  PRICE_SOURCE_LABEL,
+  rub,
   getUnitReconciliation,
   linkTaskLine,
   setLegacyTaskNote,
@@ -145,6 +147,7 @@ export default function UnitCard() {
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
   const canLinkTask = canIssue; // units.issue — то же право, что "Выдать участку"
   const canMarkLegacy = hasPermission("production_tasks.manage");
+  const canSeePrice = hasPermission("prices.view") || hasPermission("prices.manage");
 
   const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
   const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
@@ -425,6 +428,20 @@ export default function UnitCard() {
               {unit.upd_number} / {unit.pallet_number}
             </Descriptions.Item>
             {unit.parent_id && <Descriptions.Item label="Из рулона">№ {unit.parent_id}</Descriptions.Item>}
+            {canSeePrice && (
+              <Descriptions.Item label="Стоимость">
+                {unit.price_per_m2 != null ? (
+                  <>
+                    {rub(unit.value_rub ?? 0)}{" "}
+                    <Typography.Text type="secondary">
+                      ({unit.price_per_m2} ₽/м², {PRICE_SOURCE_LABEL[unit.price_source ?? ""] ?? "—"})
+                    </Typography.Text>
+                  </>
+                ) : (
+                  <Typography.Text type="secondary">цены нет</Typography.Text>
+                )}
+              </Descriptions.Item>
+            )}
             <Descriptions.Item label="Задание">
               {reconciliationQuery.isLoading ? (
                 "…"
@@ -697,6 +714,13 @@ export default function UnitCard() {
                     <Tag>{ev.event_type.replace(/_/g, " ")}</Tag>
                     {fmtDateTime(ev.timestamp)} — {userName(ev.user_id)}
                   </span>
+                  {canSeePrice && !!ev.amount_rub && (
+                    <Typography.Text type="secondary">
+                      {ev.quantity_delta_m > 0 ? "+" : ""}
+                      {ev.quantity_delta_m} м · {ev.amount_rub > 0 ? "+" : ""}
+                      {rub(ev.amount_rub)}
+                    </Typography.Text>
+                  )}
                   {(ev.from_cell || ev.to_cell) && (
                     <Typography.Text type="secondary">
                       {ev.from_cell ?? "—"} → {ev.to_cell ?? "—"}

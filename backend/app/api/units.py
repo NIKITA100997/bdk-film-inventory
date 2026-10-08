@@ -194,9 +194,15 @@ def receive(
     )
     _validate_zone_rule(db, payload.location_code, sku)
 
+    # цена из УПД — сначала: рулоны ниже получают цену м² на дату прихода
+    # (services/lot_cost.py), в том числе эту
+    if payload.price is not None:
+        _receipt_price(db, sku, payload, user.id)
+        db.flush()
     created: list[MaterialUnit] = []
     for _ in range(payload.quantity):
         unit = MaterialUnit(
+            **({"created_at": payload.occurred_at} if payload.occurred_at is not None else {}),
             upd_number=payload.upd_number,
             pallet_number=payload.pallet_number,
             material_sku_id=sku.id,
@@ -232,8 +238,6 @@ def receive(
     auto_close_on_receipt(
         db, material_id=sku.material_id, color_id=sku.color_id, thickness_id=sku.thickness_id
     )
-    if payload.price is not None:
-        _receipt_price(db, sku, payload, user.id)
     db.commit()
     ids = [u.id for u in created]
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id.in_(ids)).all()

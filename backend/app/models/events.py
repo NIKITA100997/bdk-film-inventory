@@ -79,6 +79,9 @@ class MaterialEvent(Base):
 
     # Знак: положительный для приходов, отрицательный для списаний/выдач.
     quantity_delta_m: Mapped[float] = mapped_column(Numeric(12, 3))
+    # Сумма движения в рублях со знаком (08.10): Δм × ширина × цена м²
+    # рулона. Пусто — у рулона нет цены.
+    amount_rub: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
 
     # Раздел про учёт брака — только у SPISANIE-событий, причина списания
     # (раздел про администрирование причин — управляемый справочник, не enum).

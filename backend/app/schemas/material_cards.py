@@ -21,6 +21,7 @@ class MaterialEventOut(BaseModel):
     from_cell: str | None
     to_cell: str | None
     quantity_delta_m: float
+    amount_rub: float | None = None  # сумма движения, ₽ (08.10)
 
 
 class MaterialCardOut(BaseModel):

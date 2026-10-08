@@ -37,6 +37,7 @@ import {
   getUnit,
   cutUnit,
   skuLabel,
+  rub,
   type MaterialUnit,
   type SearchParams,
   type UnitStatusValue,
@@ -98,6 +99,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
   const canPlace = !!user?.is_superuser || !!user?.permissions.includes("units.place");
   const canEditSku = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
   const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("units.correct");
+  const canSeePrice = !!user?.is_superuser || ["prices.view", "prices.manage"].some((c) => user?.permissions.includes(c));
   // Правка единицы и массовые действия — у кого есть право хоть на одно из них.
   const canEditUnit = canEditSku || canCorrect || canPlace;
   const canIssue = !!user?.is_superuser || !!user?.permissions.includes("units.issue");
@@ -501,6 +503,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                     { key: "color", header: "Цвет" },
                     { key: "thickness", header: "Толщина, мм" },
                     { key: "total_area_m2", header: "Остаток, м²" },
+                    ...(canSeePrice ? [{ key: "value_rub" as const, header: "Стоимость, ₽" }] : []),
                     { key: "unit_count", header: "Единиц" },
                     { key: "roll_count", header: "Рулонов, шт" },
                     { key: "roll_length_m", header: "Рулонов, м" },
@@ -540,6 +543,25 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                 sorter: (a, b) => a.material.localeCompare(b.material),
               },
               { title: "Остаток, м²", dataIndex: "total_area_m2", sorter: (a, b) => a.total_area_m2 - b.total_area_m2 },
+              ...(canSeePrice
+                ? [
+                    {
+                      // по ценам рулонов (08.10); часть без цены — отдельно
+                      title: "Стоимость, ₽",
+                      sorter: (a: StockSummaryLine, b: StockSummaryLine) => (a.value_rub ?? 0) - (b.value_rub ?? 0),
+                      render: (_: unknown, r: StockSummaryLine) => (
+                        <Space direction="vertical" size={0}>
+                          <span style={{ fontVariantNumeric: "tabular-nums" }}>{r.value_rub != null ? rub(r.value_rub) : "—"}</span>
+                          {(r.unpriced_area_m2 ?? 0) > 0 && (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              без цены {Math.round(r.unpriced_area_m2! * 10) / 10} м²
+                            </Typography.Text>
+                          )}
+                        </Space>
+                      ),
+                    },
+                  ]
+                : []),
               { title: "Единиц", dataIndex: "unit_count", sorter: (a, b) => a.unit_count - b.unit_count },
               {
                 title: "Рулонов",

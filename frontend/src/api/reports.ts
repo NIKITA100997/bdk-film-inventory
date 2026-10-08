@@ -6,6 +6,9 @@ export interface StockSummaryLine {
   thickness: number;
   total_area_m2: number;
   unit_count: number;
+  /** стоимость по ценам рулонов (08.10) и сколько м² без цены */
+  value_rub?: number | null;
+  unpriced_area_m2?: number;
 }
 
 export interface StockByWidthLine {
