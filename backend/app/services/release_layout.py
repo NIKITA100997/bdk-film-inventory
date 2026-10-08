@@ -74,6 +74,9 @@ def build_release_layout(
     fill_programs(db, order)  # программы фрезеровки — до ручных правок
     skipped: set[str] = set()
     override_errors = apply_overrides(db, order, overrides or [], user_name, keep_skipped=skipped)
+    from app.services.release_merge import merge_pf_lines
+
+    merged_keys = merge_pf_lines(db, order, skipped)  # одинаковые строки п/ф — одной (08.10)
     sched = schedule_order(db, order, user_id)
     if area_dates or shift_days:
         from app.services.planning import apply_release_dates, order_plan_status
@@ -127,7 +130,7 @@ def build_release_layout(
             item = db.get(Item, part.item_id) if part is not None and part.item_id else items.get(ln.order_line_id)
             ol = lines_by_id.get(ln.order_line_id)
             row = {
-                "key": line_key(ln),
+                "key": "|".join(merged_keys[ln.id]) if ln.id in merged_keys else line_key(ln),
                 "area": t.area,
                 "program": ln.program,
                 "instruction": ln.instruction,

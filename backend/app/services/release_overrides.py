@@ -5,7 +5,9 @@
 раскладки, и для настоящего запуска), в строке остаётся, что поменяли и кто.
 
 Ключ строки — «строка заказа : деталь : операция»: одинаков в раскладке и в
-запуске, не зависит от участка (участок как раз можно поменять)."""
+запуске, не зависит от участка (участок как раз можно поменять). Строка п/ф,
+объединённая из нескольких (services/release_merge.py), — составной ключ
+«k1|k2|…»: правка идёт всем её строкам, изменение количества — последней."""
 
 from dataclasses import dataclass
 from datetime import date
@@ -34,6 +36,24 @@ def line_key(ln: ProductionTaskLine) -> str:
     return f"{ln.order_line_id or 0}:{ln.part_id or 0}:{ln.part_stage_id or 0}"
 
 
+def _distribute_quantity(lines: list[ProductionTaskLine], total: float, stamp: str) -> None:
+    """Объединённая строка: новое общее количество — разница уходит в
+    последние строки (уменьшение — с конца, не ниже нуля)."""
+    current = sum(float(ln.quantity_pieces) for ln in lines)
+    diff = round(total - current, 4)
+    if abs(diff) < 1e-9:
+        return
+    for ln in reversed(lines):
+        q = float(ln.quantity_pieces)
+        new = max(0.0, q + diff)
+        diff -= new - q
+        if new != q:
+            ln.quantity_pieces = new
+            ln.manual_changes = [*(ln.manual_changes or []), f"кол-во {q:g} → {new:g} (общая строка) · {stamp}"]
+        if abs(diff) < 1e-9:
+            break
+
+
 def apply_overrides(
     db: Session, order: ProductionOrder, overrides: list[LineOverride], user_name: str, keep_skipped: set[str] | None = None
 ) -> list[str]:
@@ -50,14 +70,18 @@ def apply_overrides(
     stamp = f"{user_name}, {date.today().strftime('%d.%m')}"
     errors: list[str] = []
     for ov in overrides:
-        lines = by_key.get(ov.key)
+        members = ov.key.split("|")
+        lines = [ln for k in members for ln in by_key.get(k, [])]
         if not lines:
             errors.append(f"строка {ov.key} не найдена — раскладка изменилась, проверьте правки")
             continue
+        if len(members) > 1 and ov.quantity is not None and not ov.skip:
+            _distribute_quantity(lines, float(ov.quantity), stamp)
+            ov = LineOverride(**{**ov.__dict__, "quantity": None})
         for ln in lines:
             changes: list[str] = []
             if ov.skip and keep_skipped is not None:
-                keep_skipped.add(ov.key)
+                keep_skipped.add(line_key(ln))
                 continue
             if ov.skip:
                 task = ln.task

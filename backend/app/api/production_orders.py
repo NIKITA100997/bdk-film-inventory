@@ -720,6 +720,9 @@ def release(
             errs = apply_overrides(db, order, [LineOverride(**o.model_dump()) for o in payload.overrides], user.full_name or user.username)
             if errs:
                 raise OrderError("; ".join(errs))
+        from app.services.release_merge import merge_pf_lines
+
+        merge_pf_lines(db, order)  # одинаковые строки п/ф — одной (08.10)
         schedule_order(db, order, user.id)
         if payload and (payload.dates or payload.shift_days):
             from app.services.planning import apply_release_dates
