@@ -39,6 +39,10 @@ router = APIRouter(prefix="/part-units", tags=["part-units"])
 
 manage_part_units = require_permission("part_units.manage")
 view_part_units = require_permission("part_units.manage", "part_units.view")
+# список партий — ещё и цеху: отчёт мастера показывает «доступно партий» на участке (08.10)
+list_part_units_perm = require_permission(
+    "part_units.manage", "part_units.view", "production_tasks.report", "production_tasks.manage", "production_tasks.view"
+)
 # Раздел про ревизию путей плёнки/п/ф — узкое право, отдельное от
 # part_units.manage: обычная выдача/списание доступны начальнику цеха,
 # а формальная корректировка/возврат-без-повода — только тому, кому это
@@ -87,7 +91,7 @@ def list_part_units(
     stage_id: int | None = None,
     production_task_line_id: int | None = None,
     db: Session = Depends(get_db),
-    user: User = Depends(view_part_units),
+    user: User = Depends(list_part_units_perm),
 ) -> list[PartUnitOut]:
     query = db.query(PartUnit)
     if part_id is not None:

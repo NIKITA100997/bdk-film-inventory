@@ -566,7 +566,7 @@ def list_material_skus(
 
 
 @router.get("/material-skus/all", response_model=list[MaterialSkuOut])
-def list_all_material_skus(db: Session = Depends(get_db), user=Depends(manage_dicts)) -> list[MaterialSku]:
+def list_all_material_skus(db: Session = Depends(get_db), user=Depends(get_current_user)) -> list[MaterialSku]:
     """Номенклатура целиком, включая архивные (1 раздел бэклога доработок,
     пояснение по разделу 6 — это и есть каталог позиций, справочники
     материала/цвета/толщины/производителя — только его 4 составляющих)."""
