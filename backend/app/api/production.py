@@ -386,9 +386,14 @@ def _assignment_report_aggregates(
 
 def _unit_consumed_length_m(db: Session, unit_id: int) -> float:
     """Раздел про цифровой аналог "Ежедневки" — сколько метров этого
-    рулона уже израсходовано, совокупно по всем отчётам, где бы и когда
-    бы они ни были поданы (не только за один день/строку задания)."""
-    rows = (
+    рулона уже израсходовано за ТЕКУЩУЮ выдачу, по всем отчётам с момента
+    выдачи (не только за один день/строку задания). Отчёты прошлых выдач
+    не считаются (08.10, штрипс №3264): длина рулона после прошлого
+    возврата их расход уже учла."""
+    from app.services.events import unit_issued_since
+
+    since = unit_issued_since(db, unit_id)
+    q = (
         db.query(
             ProductionTaskLineReport.good_pieces,
             ProductionTaskLineReport.defect_pieces,
@@ -397,8 +402,10 @@ def _unit_consumed_length_m(db: Session, unit_id: int) -> float:
         )
         .join(ProductionTaskLine, ProductionTaskLineReport.task_line_id == ProductionTaskLine.id)
         .filter(ProductionTaskLineReport.material_unit_id == unit_id)
-        .all()
     )
+    if since is not None:
+        q = q.filter(ProductionTaskLineReport.reported_at >= since)
+    rows = q.all()
     return compute_unit_consumed_length_m(
         [(float(g), float(d), float(l), None if f is None else float(f)) for g, d, l, f in rows]
     )

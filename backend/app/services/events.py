@@ -51,3 +51,20 @@ def record_event(
     )
     db.add(event)
     return event
+
+
+def unit_issued_since(db, unit_id: int):
+    """Когда рулон/штрипс выдали участку в последний раз (08.10, штрипс
+    №3264). Отчёты раньше этой отметки — от прошлых выдач: их нельзя
+    засчитывать ни в «отчёт есть — можно вернуть», ни в расход текущей
+    выдачи (длина рулона после возврата уже уменьшена на тот расход).
+    None — выдач не было, берутся все отчёты."""
+    from sqlalchemy import func
+
+    from app.models.events import EventType, MaterialEvent
+
+    return (
+        db.query(func.max(MaterialEvent.timestamp))
+        .filter(MaterialEvent.unit_id == unit_id, MaterialEvent.event_type == EventType.VYDACHA_UCHASTKU)
+        .scalar()
+    )

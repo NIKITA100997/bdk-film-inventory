@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi import Query as FastAPIQuery
-from sqlalchemy import false, func, or_
+from sqlalchemy import and_, false, func, or_, true
 from sqlalchemy.orm import Query, Session, joinedload
 
 from app.api.production import view_tasks
@@ -56,7 +56,7 @@ from app.services.cutting_plan import DonorCandidate, build_cutting_plan
 from app.services.cutting_undo import check_undo_eligibility, has_undo_permission, undo_cutting_operation
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_sku, find_sku
-from app.services.events import record_event
+from app.services.events import record_event, unit_issued_since
 from app.services.placement import rule_matches, rules_for_location
 from app.services.production import calc_default_strip_width, compute_expected_return_length_m
 from app.services.purchasing import auto_close_on_receipt
@@ -339,7 +339,14 @@ def reconciliation_rows(
                 func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
                 func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
             )
-            .filter(ProductionTaskLineReport.material_unit_id.in_(unit_ids))
+            .join(MaterialUnit, MaterialUnit.id == ProductionTaskLineReport.material_unit_id)
+            # «Отчёты по строке» — по строке, к которой рулон привязан
+            # сейчас; отчёты прошлых выдач по другим заданиям сюда не
+            # идут (08.10, штрипс №3264 показывал чужие 73 шт)
+            .filter(
+                ProductionTaskLineReport.material_unit_id.in_(unit_ids),
+                ProductionTaskLineReport.task_line_id == MaterialUnit.production_task_line_id,
+            )
             .group_by(ProductionTaskLineReport.material_unit_id)
             .all()
         )
@@ -1742,6 +1749,7 @@ def return_preview(
     if not unit.production_task_line_id:
         return ReturnPreviewOut(expected_return_length_m=None, good_pieces=0.0, defect_pieces=0.0)
     line = db.get(ProductionTaskLine, unit.production_task_line_id)
+    since = unit_issued_since(db, unit_id)
     good, defect = (
         db.query(
             func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
@@ -1755,7 +1763,14 @@ def return_preview(
             # этого рулона плюс старые без привязки к рулону вообще (там,
             # где выбор рулона не включён — весь расход всё ещё общий на
             # строку, как раньше).
-            or_(ProductionTaskLineReport.material_unit_id == unit_id, ProductionTaskLineReport.material_unit_id.is_(None)),
+            or_(
+                and_(
+                    ProductionTaskLineReport.material_unit_id == unit_id,
+                    # только отчёты этой выдачи (08.10)
+                    ProductionTaskLineReport.reported_at >= since if since is not None else true(),
+                ),
+                ProductionTaskLineReport.material_unit_id.is_(None),
+            ),
         )
         .one()
     )
@@ -1805,12 +1820,17 @@ def return_unit(
     if unit.status != UnitStatus.VYDAN_UCHASTKU:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Вернуть можно только единицу, выданную участку")
     unit_area = db.get(Area, unit.area) if unit.area else None
+    # отчёты только этой выдачи (08.10, штрипс №3264: отчёт прошлой выдачи
+    # пропускал возврат без отчёта и съедал досчёт расхода)
+    since = unit_issued_since(db, unit_id)
+
+    def this_issue(q):
+        return q.filter(ProductionTaskLineReport.reported_at >= since) if since is not None else q
+
     if unit_area is not None and unit_area.requires_roll_on_report and unit.production_task_line_id is not None:
-        has_report = (
-            db.query(ProductionTaskLineReport.id)
-            .filter(ProductionTaskLineReport.material_unit_id == unit_id)
-            .first()
-        )
+        has_report = this_issue(
+            db.query(ProductionTaskLineReport.id).filter(ProductionTaskLineReport.material_unit_id == unit_id)
+        ).first()
         if has_report is None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -1851,14 +1871,12 @@ def return_unit(
     if unit.production_task_line_id is not None:
         recon_line = db.get(ProductionTaskLine, unit.production_task_line_id)
         if recon_line is not None and float(recon_line.length_m) > 0:
-            g, d = (
+            g, d = this_issue(
                 db.query(
                     func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
                     func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
-                )
-                .filter(ProductionTaskLineReport.material_unit_id == unit_id)
-                .one()
-            )
+                ).filter(ProductionTaskLineReport.material_unit_id == unit_id)
+            ).one()
             current_consumed = (float(g) + float(d)) * float(recon_line.length_m)
             gap_m = round((old_length - float(payload.actual_length_m)) - current_consumed, 2)
             if gap_m > 0.01:
