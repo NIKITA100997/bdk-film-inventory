@@ -40,7 +40,7 @@ UNION ALL
 SELECT 'material', m.id, NULL, m.item_id,
        m.occurred_at, m.kind,
        m.qty, coalesce(i.unit, k.unit), NULL,
-       NULL::numeric, NULL, NULL, NULL,
+       m.amount_rub, NULL, NULL, NULL,
        m.user_id, m.task_line_id, NULL,
        coalesce(m.note, m.doc), NULL::numeric, NULL::integer, NULL::integer
   FROM material_moves m JOIN items i ON i.id = m.item_id JOIN item_kinds k ON k.id = i.kind_id

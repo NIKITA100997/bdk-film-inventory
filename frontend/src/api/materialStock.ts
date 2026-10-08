@@ -14,6 +14,9 @@ export interface MaterialStockRow {
   last_move_at: string | null;
   /** норматив (08.10): ниже — пора пополнять */
   min_stock?: number | null;
+  /** средняя цена остатка, ₽ за единицу, и стоимость остатка (08.10) */
+  avg_price_rub?: number | null;
+  value_rub?: number | null;
 }
 
 /** Потребность и пополнение материала (08.10) — те же нормативы, что у
@@ -58,6 +61,9 @@ export interface MaterialMove {
   task_id: number | null;
   user_name: string;
   occurred_at: string;
+  /** цена единицы и сумма движения, ₽ (08.10) */
+  price_rub?: number | null;
+  amount_rub?: number | null;
 }
 
 export const listMaterialStock = async (includeInactive = false): Promise<MaterialStockRow[]> =>

@@ -49,11 +49,19 @@ function useCanManage() {
 
 type ManualKind = Exclude<MaterialMoveKind, "consumption">;
 
+/** Суммы видят те, у кого права на цены (08.10). */
+function useCanSeePrice() {
+  const { user } = useAuth();
+  return !!user?.is_superuser || ["prices.view", "prices.manage"].some((p) => user?.permissions.includes(p));
+}
+const rub = (n: number) => `${Math.round(n).toLocaleString("ru-RU")} ₽`;
+
 /** Остатки материалов (МДФ, пенопласт, клей, кромка…) — одним числом на
  * склад: приход, списание, инвентаризация здесь; расход в производство —
  * сам, по отчёту операции (в минус тоже — подсвечено «не оприходовано»). */
 export function MaterialsStockTab() {
   const navigate = useNavigate();
+  const canSeePrice = useCanSeePrice();
   const canManage = useCanManage();
   const [q, setQ] = useState("");
   const [withArchived, setWithArchived] = useState(false);
@@ -163,6 +171,25 @@ export function MaterialsStockTab() {
             title: "Ед.",
             render: (_, r) => (canManage ? <UnitCell row={r} /> : r.unit),
           },
+          ...(canSeePrice
+            ? [
+                {
+                  // по средней цене остатка (08.10)
+                  title: "Стоимость",
+                  render: (_: unknown, r: MaterialStockRow) =>
+                    r.value_rub != null ? (
+                      <Space direction="vertical" size={0}>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>{rub(r.value_rub)}</span>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          по {fmt(r.avg_price_rub ?? 0)} ₽/{r.unit}
+                        </Typography.Text>
+                      </Space>
+                    ) : (
+                      "—"
+                    ),
+                },
+              ]
+            : []),
           {
             title: "Последнее движение",
             render: (_, r) => (r.last_move_at ? dayjs(r.last_move_at).format("DD.MM.YYYY HH:mm") : "—"),
@@ -324,6 +351,7 @@ function NewMaterialModal({ onClose }: { onClose: () => void }) {
 /** Журнал движений материалов за период. */
 export function MaterialMovesTab() {
   const navigate = useNavigate();
+  const canSeePrice = useCanSeePrice();
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>([dayjs().subtract(30, "day"), dayjs()]);
   const [itemId, setItemId] = useState<number | undefined>();
   const stockQuery = useQuery({ queryKey: ["material-stock", true], queryFn: () => listMaterialStock(true) });
@@ -409,6 +437,22 @@ export function MaterialMovesTab() {
               </Typography.Text>
             ),
           },
+          ...(canSeePrice
+            ? [
+                {
+                  title: "Сумма",
+                  render: (_: unknown, m: MaterialMove) =>
+                    m.amount_rub != null ? (
+                      <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                        {m.amount_rub > 0 ? "+" : ""}
+                        {rub(m.amount_rub)}
+                      </span>
+                    ) : (
+                      "—"
+                    ),
+                },
+              ]
+            : []),
           { title: "Документ", render: (_, m) => m.doc ?? "—" },
           {
             title: "Задание",

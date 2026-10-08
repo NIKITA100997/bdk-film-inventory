@@ -315,6 +315,11 @@ class MaterialMove(Base):
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
     kind: Mapped[str] = mapped_column(String(16))
     qty: Mapped[float] = mapped_column(Numeric(14, 4))  # со знаком: приход +, расход −
+    # Учёт по сумме (08.10, services/lot_cost.py): цена единицы, ₽, и сумма
+    # со знаком. Приход — по цене позиции на дату; расход, списание и
+    # инвентаризация — по средней цене остатка. Пусто — цены нет.
+    price_rub: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
+    amount_rub: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     task_line_id: Mapped[int | None] = mapped_column(
         ForeignKey("production_task_lines.id", ondelete="SET NULL"), nullable=True, index=True
     )

@@ -4,6 +4,8 @@
 Рулон без родителя — цена м² на дату прихода (services/lot_cost.film_price_at:
 цена позиции → заявка поставщику → ближайшая более поздняя как «оценка»);
 кусок — цена родителя; движение — Δм × ширина × цена м² рулона.
+Материалы — по порядку движений: приход по цене позиции на дату, расход,
+списание и инвентаризация по средней цене остатка на тот момент.
 Уже проставленное не трогает. Без --apply только показывает итог.
 
     .venv\\Scripts\\python scripts\\backfill_lot_prices.py [--apply]
@@ -20,7 +22,8 @@ from app.db.session import SessionLocal  # noqa: E402
 from app.models.dictionaries import MaterialSku  # noqa: E402
 from app.models.events import MaterialEvent  # noqa: E402
 from app.models.units import MaterialUnit, UnitStatus  # noqa: E402
-from app.services.lot_cost import event_amount, film_price_at, unit_value  # noqa: E402
+from app.models.items import MOVE_RECEIPT, Item, MaterialMove  # noqa: E402
+from app.services.lot_cost import event_amount, film_price_at, material_list_price, unit_value  # noqa: E402
 
 
 def main() -> None:
@@ -63,6 +66,24 @@ def main() -> None:
                 continue
             e.amount_rub = amt
             ev_done += 1
+        # материалы — скользящая средняя по порядку движений
+        run: dict[int, list[float]] = {}  # позиция → [сумма, количество] по движениям с ценой
+        items = {i.id: i for i in db.query(Item).filter(Item.id.in_({m.item_id for m in db.query(MaterialMove.item_id)}))}
+        mat_done = mat_none = 0
+        for m in db.query(MaterialMove).order_by(MaterialMove.occurred_at, MaterialMove.id):
+            acc = run.setdefault(m.item_id, [0.0, 0.0])
+            if m.amount_rub is None:
+                avg = acc[0] / acc[1] if acc[1] > 1e-9 and acc[0] >= 0 else None
+                listp = material_list_price(db, items[m.item_id], m.occurred_at.date())
+                price = (listp or avg) if m.kind == MOVE_RECEIPT else (avg or listp)
+                if price is None:
+                    mat_none += 1
+                    continue
+                m.price_rub, m.amount_rub = round(price, 4), round(float(m.qty) * price, 2)
+                mat_done += 1
+            acc[0] += float(m.amount_rub)
+            acc[1] += float(m.qty)
+        print(f"Движений материалов: суммы проставлены {mat_done}, без цены {mat_none}")
         live = [u for u in units if u.status != UnitStatus.SPISAN]
         total = sum(unit_value(u) or 0 for u in live)
         priced = sum(1 for u in live if u.price_per_m2 is not None)

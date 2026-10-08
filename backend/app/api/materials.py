@@ -31,6 +31,8 @@ class MaterialOut(BaseModel):
     balance: float
     last_move_at: datetime | None
     min_stock: float | None = None  # норматив (08.10): ниже — пора пополнять
+    avg_price_rub: float | None = None  # средняя цена остатка, ₽ за единицу (08.10)
+    value_rub: float | None = None  # стоимость остатка
 
 
 def _kind(db: Session) -> ItemKind:
@@ -47,6 +49,13 @@ def _get(db: Session, item_id: int) -> Item:
     return item
 
 
+def _value(db: Session, item_id: int, balance: float) -> dict:
+    from app.services.lot_cost import material_avg_price
+
+    avg = material_avg_price(db, item_id)
+    return {"avg_price_rub": avg, "value_rub": round(balance * avg, 2) if avg is not None and balance > 0 else None}
+
+
 def _out(db: Session, items: list[Item]) -> list[MaterialOut]:
     ids = [i.id for i in items]
     bal = materials.balances(db, ids)
@@ -61,6 +70,7 @@ def _out(db: Session, items: list[Item]) -> list[MaterialOut]:
             item_id=i.id, name=i.name, unit=item_unit(i), group_id=i.group_id, group_name=groups.get(i.group_id),
             is_active=i.is_active, balance=round(bal[i.id], 4), last_move_at=last.get(i.id),
             min_stock=normatives.norms_of(i).min_stock,
+            **_value(db, i.id, bal[i.id]),
         )
         for i in items
     ]
@@ -198,6 +208,8 @@ class MoveOut(BaseModel):
     task_id: int | None
     user_name: str
     occurred_at: datetime
+    price_rub: float | None = None  # цена единицы, ₽ (08.10)
+    amount_rub: float | None = None
 
 
 def _moves_out(db: Session, moves: list[MaterialMove]) -> list[MoveOut]:
@@ -213,6 +225,8 @@ def _moves_out(db: Session, moves: list[MaterialMove]) -> list[MoveOut]:
             id=m.id, item_id=m.item_id, item_name=items[m.item_id].name, unit=item_unit(items[m.item_id]), kind=m.kind,
             qty=float(m.qty), doc=m.doc, note=m.note, task_id=lines.get(m.task_line_id), user_name=users.get(m.user_id, "—"),
             occurred_at=m.occurred_at,
+            price_rub=float(m.price_rub) if m.price_rub is not None else None,
+            amount_rub=float(m.amount_rub) if m.amount_rub is not None else None,
         )
         for m in moves
     ]
@@ -226,14 +240,7 @@ def create_move(payload: MoveIn, db: Session = Depends(get_db), user: User = Dep
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Расход в производство пишется отчётом операции")
     item = _get(db, payload.item_id)
     when = datetime.combine(payload.occurred_at, time(12)) if payload.occurred_at else None
-    try:
-        move = materials.manual_move(
-            db, item=item, kind=payload.kind, qty=payload.qty, user_id=user.id, doc=payload.doc, note=payload.note,
-            occurred_at=when,
-        )
-    except ValueError as e:
-        db.rollback()
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    # цена УПД — сначала: приход получает сумму по цене на дату (lot_cost)
     if payload.price is not None and payload.kind == "receipt":
         from app.models.prices import PRICE_UPD
         from app.services.prices import add_price
@@ -242,9 +249,18 @@ def create_move(payload: MoveIn, db: Session = Depends(get_db), user: User = Dep
             add_price(db, item, price=payload.price, currency=payload.price_currency, unit=None, source=PRICE_UPD,
                       valid_from=payload.occurred_at or date.today(), user_id=user.id,
                       doc=f"УПД {payload.doc}" if payload.doc else None)
+            db.flush()
         except ValueError as e:
             db.rollback()
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    try:
+        move = materials.manual_move(
+            db, item=item, kind=payload.kind, qty=payload.qty, user_id=user.id, doc=payload.doc, note=payload.note,
+            occurred_at=when,
+        )
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     db.commit()
     db.refresh(move)
     return _moves_out(db, [move])[0]
