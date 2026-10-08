@@ -107,6 +107,13 @@ export const navTree: NavBlock[] = [
         label: "Планировщик",
         permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report"],
       },
+      // по всем открытым заданиям: участки, заказы × участки, лист участка (08.10)
+      {
+        key: "production-monitor",
+        path: "/production-monitor",
+        label: "Монитор производства",
+        permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report", "reports.view"],
+      },
       {
         key: "production-tasks",
         path: "/production-tasks",

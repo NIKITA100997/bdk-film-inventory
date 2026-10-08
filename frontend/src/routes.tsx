@@ -36,6 +36,7 @@ import DeletionRequests from "./pages/desktop/DeletionRequests";
 import ActionRequests from "./pages/desktop/ActionRequests";
 import PeriodClosing from "./pages/desktop/PeriodClosing";
 import Productivity from "./pages/desktop/Productivity";
+import ProductionMonitor from "./pages/desktop/production/ProductionMonitor";
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
@@ -247,6 +248,14 @@ const appPageRoutes = (
       element={
         <RequirePermission permissions={["fg.ship", "sales_calculator.view", "production_tasks.manage", "production_tasks.view"]}>
           <Shipments />
+        </RequirePermission>
+      }
+    />
+    <Route
+      path="/production-monitor"
+      element={
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "reports.view"]}>
+          <ProductionMonitor />
         </RequirePermission>
       }
     />
