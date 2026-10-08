@@ -271,6 +271,9 @@ export interface TaskPrintSheet {
     /** панель щитовой двери — ведомость фрезеровки как в Excel (07.10) */
     panel?: { mdf: string; sand: string; series: string; blank: string } | null;
   }[];
+  /** комплектующие без своего маршрута на все строки (детали каркаса на
+   * сборке); comment — «Пилим 25 мм / шлифуем 24 мм» (07.10) */
+  components?: { name: string; qty: number; comment: string | null }[];
 }
 export const getTasksPrintData = async (taskIds: number[]): Promise<TaskPrintSheet[]> =>
   (await apiClient.post<TaskPrintSheet[]>("/production-tasks/print-data", { task_ids: taskIds })).data;

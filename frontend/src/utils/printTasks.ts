@@ -57,6 +57,23 @@ function panelPage(s: TaskPrintSheet, now: string): string {
 </section>`;
 }
 
+/** Комплектующие на все строки листа (детали каркаса): сколько напилить
+ * и в какую толщину — как лист «Каркас» в Excel. */
+function componentsTable(s: TaskPrintSheet): string {
+  const list = s.components ?? [];
+  if (!list.length) return "";
+  const hasCut = list.some((c) => c.comment);
+  const rows = list
+    .map(
+      (c, i) => `<tr><td class="n">${i + 1}</td><td>${esc(c.name)}</td><td class="q">${c.qty}</td>${
+        hasCut ? `<td><b>${esc(c.comment ?? "")}</b></td>` : ""
+      }<td class="w"></td></tr>`,
+    )
+    .join("");
+  return `<h2 style="font-size:14px;margin:12px 0 4px">Комплектующие</h2>
+<table><thead><tr><th>№</th><th>Деталь</th><th>Кол-во</th>${hasCut ? "<th>Пилим / шлифуем</th>" : ""}<th>Готово</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
 /** Пакетная печать заданий: лист на участок (новая страница), строки всех
  * выбранных заданий участка, графы «Сделано / Брак / Подпись» — от руки. */
 export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задания участкам") {
@@ -101,6 +118,7 @@ ${hasProg ? `<td>${r.program ? `<b>${esc(r.program)}</b>` : ""}${r.instruction ?
 ${orders ? `<div class="meta">${esc(orders)}</div>` : ""}
 <div class="meta">Задания: ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
 <table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
+${componentsTable(s)}
 <div class="sign">Выдал: ____________________ &nbsp;&nbsp; Принял (мастер): ____________________ &nbsp;&nbsp; Дата: ________</div>
 </section>`;
     })

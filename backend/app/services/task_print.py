@@ -66,6 +66,41 @@ def _panel_info(db: Session, ln: ProductionTaskLine, ol, cache: dict) -> dict | 
     return info
 
 
+def _cut_comment(name: str) -> str | None:
+    """Деталь каркаса пилят толще и вышлифовывают (07.10): целая толщина —
+    +1 мм, дробная — +1,5 мм. «Стойка каркаса 24х50х2010» → «Пилим 25 мм /
+    шлифуем 24 мм»."""
+    import re
+
+    if "каркас" not in name.lower():
+        return None
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*х", name)
+    if not m:
+        return None
+    t = float(m.group(1).replace(",", "."))
+    cut = t + (1 if t == int(t) else 1.5)
+    f = lambda v: f"{v:g}".replace(".", ",")  # noqa: E731
+    return f"Пилим {f(cut)} мм / шлифуем {f(t)} мм"
+
+
+def _components(db: Session, ln: ProductionTaskLine) -> list[tuple[str, float]]:
+    """Комплектующие без своего маршрута, которые расходуются на этой строке
+    (детали каркаса на сборке): (название, всего на строку)."""
+    from app.models.dictionaries import Part
+    from app.models.items import Item, ItemComponent
+
+    part = db.get(Part, ln.part_id) if ln.part_id else None
+    if part is None or not part.item_id:
+        return []
+    out = []
+    for c in db.query(ItemComponent).filter(ItemComponent.parent_item_id == part.item_id):
+        ci = db.get(Item, c.component_item_id)
+        if ci is None or ci.stages or ci.kind.code != "pf":
+            continue
+        out.append((ci.name, float(c.qty_per_unit) * float(ln.quantity_pieces)))
+    return out
+
+
 def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
     lines = [ln for t in tasks for ln in t.lines]
     ids = [ln.id for ln in lines]
@@ -90,7 +125,7 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
         site = db.get(Site, area.site_id) if area is not None and area.site_id else None
         sheet = by_area.setdefault(t.area, {
             "area": t.area, "area_name": area.name if area else t.area, "site": site.name if site else None,
-            "tasks": [], "rows": [],
+            "tasks": [], "rows": [], "components": {},
         })
         order = db.get(ProductionOrder, t.production_order_id) if t.production_order_id else None
         sheet["tasks"].append({
@@ -121,8 +156,13 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
                 "date_to": days[-1].isoformat() if days else None,
                 "panel": _panel_info(db, ln, ol, panel_cache),
             })
+            for name, qty in _components(db, ln):
+                sheet["components"][name] = sheet["components"].get(name, 0.0) + qty
     out = list(by_area.values())
     for s in out:
         s["rows"].sort(key=lambda r: (r["date_from"] or "9999", r["name"]))
         s["total"] = round(sum(r["qty"] for r in s["rows"]), 2)
+        s["components"] = [
+            {"name": n, "qty": round(q, 2), "comment": _cut_comment(n)} for n, q in sorted(s["components"].items())
+        ]
     return sorted(out, key=lambda s: (min((r["date_from"] or "9999") for r in s["rows"]) if s["rows"] else "9999", s["area_name"]))
