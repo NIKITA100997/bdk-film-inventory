@@ -34,9 +34,12 @@ def upgrade() -> None:
     op.add_column("production_task_line_reports", sa.Column("cost_parts", sa.JSON, nullable=True))
     op.add_column("part_units", sa.Column("unit_cost_rub", sa.Numeric(14, 4), nullable=True))
     op.add_column("part_unit_events", sa.Column("amount_rub", sa.Numeric(14, 2), nullable=True))
+    # шаг 1г — готовые изделия: сумма движения
+    op.add_column("fg_moves", sa.Column("amount_rub", sa.Numeric(14, 2), nullable=True))
 
 
 def downgrade() -> None:
+    op.drop_column("fg_moves", "amount_rub")
     op.drop_column("part_unit_events", "amount_rub")
     op.drop_column("part_units", "unit_cost_rub")
     op.drop_column("production_task_line_reports", "cost_parts")

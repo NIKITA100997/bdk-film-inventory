@@ -12,6 +12,9 @@ export interface FgStockRow {
   order_name: string | null;
   invoice_no: string | null;
   qty: number;
+  /** себестоимость штуки и остатка, ₽ (08.10) — тем, у кого права на цены */
+  unit_cost_rub?: number | null;
+  value_rub?: number | null;
 }
 
 export interface FgMoveRow {

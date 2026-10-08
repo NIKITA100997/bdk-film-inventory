@@ -197,13 +197,16 @@ def note_component_cost(db: Session, task_line_id: int | None, qty: float, unit_
 
 @event.listens_for(Session, "after_flush")
 def _collect(session: Session, flush_context) -> None:
+    from app.models.finished_goods import FgMove
     from app.models.items import MaterialMove
     from app.models.part_units import PartUnitEvent
     from app.models.production import ProductionTaskLineReport
 
     info = session.info
     for o in session.new:
-        if isinstance(o, ProductionTaskLineReport):
+        if isinstance(o, FgMove):
+            info.setdefault("lc_fg", set()).add(o.id)
+        elif isinstance(o, ProductionTaskLineReport):
             info.setdefault("lc_reports", set()).add(o.id)
         elif isinstance(o, MaterialMove) and o.task_line_id is not None:
             info.setdefault("lc_moves", set()).add(o.id)
@@ -212,7 +215,7 @@ def _collect(session: Session, flush_context) -> None:
 
 
 def _clear(session: Session) -> None:
-    for k in ("lc_reports", "lc_moves", "lc_pf_events", "lc_components"):
+    for k in ("lc_reports", "lc_moves", "lc_pf_events", "lc_components", "lc_fg"):
         session.info.pop(k, None)
 
 
@@ -232,7 +235,7 @@ def _report_rate(stage, area) -> float | None:
 @event.listens_for(Session, "before_commit")
 def _cost_reports(session: Session) -> None:
     info = session.info
-    if not any(info.get(k) for k in ("lc_reports", "lc_pf_events")):
+    if not any(info.get(k) for k in ("lc_reports", "lc_pf_events", "lc_fg")):
         _clear(session)
         return
     from app.models.areas import Area
@@ -313,6 +316,10 @@ def _cost_reports(session: Session) -> None:
             lot = session.get(PartUnit, ev.part_unit_id)
             if lot is not None and lot.unit_cost_rub is not None:
                 ev.amount_rub = round(float(ev.quantity_delta) * float(lot.unit_cost_rub), 2)
+        # готовые изделия — после отчётов: приход берёт их себестоимость
+        if info.get("lc_fg"):
+            session.flush()
+            stamp_fg_moves(session, set(info["lc_fg"]))
     _clear(session)
     session.flush()
 
@@ -329,3 +336,74 @@ def _inherit_pf_cost(session: Session, flush_context, instances) -> None:
                 parent = session.get(PartUnit, o.parent_id)
             if parent is not None:
                 o.unit_cost_rub = parent.unit_cost_rub
+
+
+# ---------- шаг 1г: себестоимость готового изделия ----------
+#
+# Дверь — без партий, на строке заказа. Приход на склад (упаковка,
+# «Закрыть: всё сделано») — по себестоимости штуки строки заказа: по каждой
+# операции её маршрута стоимость отчётов ÷ годные, сложенные по операциям
+# (так верно, даже если склеено больше, чем упаковано). Отгрузка,
+# перемещение, возврат, корректировка — по средней себестоимости остатка
+# позиции (сумма ÷ количество по движениям с суммой).
+
+
+def order_line_unit_cost(db: Session, order_line_id: int) -> float | None:
+    from sqlalchemy import func
+
+    from app.models.production import ProductionTaskLine, ProductionTaskLineReport
+
+    rows = (
+        db.query(
+            ProductionTaskLine.part_stage_id,
+            func.sum(ProductionTaskLineReport.cost_rub),
+            func.sum(ProductionTaskLineReport.good_pieces),
+        )
+        .join(ProductionTaskLine, ProductionTaskLine.id == ProductionTaskLineReport.task_line_id)
+        .filter(ProductionTaskLine.order_line_id == order_line_id, ProductionTaskLineReport.cost_rub.isnot(None))
+        .group_by(ProductionTaskLine.part_stage_id)
+        .all()
+    )
+    total = 0.0
+    found = False
+    for _stage, cost, good in rows:
+        if good and float(good) > 0 and cost is not None:
+            total += float(cost) / float(good)
+            found = True
+    return round(total, 4) if found else None
+
+
+def fg_avg_cost(db: Session, item_id: int, exclude_ids: set[int]) -> float | None:
+    from sqlalchemy import func
+
+    from app.models.finished_goods import FgMove
+
+    q = db.query(func.sum(FgMove.amount_rub), func.sum(FgMove.qty)).filter(
+        FgMove.item_id == item_id, FgMove.amount_rub.isnot(None)
+    )
+    if exclude_ids:
+        q = q.filter(FgMove.id.notin_(exclude_ids))
+    amount, qty = q.one()
+    if amount is None or qty is None or float(qty) <= 1e-9 or float(amount) < 0:
+        return None
+    return round(float(amount) / float(qty), 4)
+
+
+def stamp_fg_moves(session: Session, ids: set[int]) -> None:
+    from app.models.finished_goods import FgMove
+
+    moves = [m for m in (session.get(FgMove, i) for i in ids) if m is not None and m.amount_rub is None]
+    # сначала приходы — по ним считается средняя для расходов той же транзакции
+    moves.sort(key=lambda m: (float(m.qty) < 0, m.id))
+    done: set[int] = set()
+    for m in moves:
+        unit = None
+        if float(m.qty) > 0 and m.order_line_id and m.kind == "receipt":
+            unit = order_line_unit_cost(session, m.order_line_id)
+        if unit is None:
+            unit = fg_avg_cost(session, m.item_id, {x.id for x in moves if x.id not in done})
+            if unit is None and float(m.qty) > 0 and m.order_line_id:
+                unit = order_line_unit_cost(session, m.order_line_id)
+        if unit is not None:
+            m.amount_rub = round(float(m.qty) * unit, 2)
+        done.add(m.id)

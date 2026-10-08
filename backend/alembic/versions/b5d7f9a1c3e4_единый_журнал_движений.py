@@ -48,7 +48,7 @@ UNION ALL
 SELECT 'fg', f.id, NULL, f.item_id,
        f.occurred_at, f.kind,
        f.qty, 'шт', NULL,
-       NULL::numeric, NULL, NULL, NULL,
+       f.amount_rub, NULL, NULL, NULL,
        f.user_id, NULL, NULL,
        concat_ws(' · ', 'счёт ' || f.invoice_no, f.note), NULL::numeric, NULL::integer, NULL::integer
   FROM fg_moves f

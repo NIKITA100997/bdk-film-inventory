@@ -77,6 +77,26 @@ export function FgStockTab() {
             ),
           },
           { title: "На складе, шт", align: "right", render: (_, r) => <b>{n(r.qty)}</b> },
+          ...((stockQuery.data ?? []).some((r) => r.value_rub != null)
+            ? [
+                {
+                  // себестоимость (08.10): по отчётам операций строки заказа
+                  title: "Себестоимость",
+                  align: "right" as const,
+                  render: (_: unknown, r: FgStockRow) =>
+                    r.value_rub != null ? (
+                      <Space direction="vertical" size={0} style={{ alignItems: "flex-end" }}>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>{Math.round(r.value_rub).toLocaleString("ru-RU")} ₽</span>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {Math.round(r.unit_cost_rub ?? 0).toLocaleString("ru-RU")} ₽/шт
+                        </Typography.Text>
+                      </Space>
+                    ) : (
+                      "—"
+                    ),
+                },
+              ]
+            : []),
           ...(canShip
             ? [
                 {

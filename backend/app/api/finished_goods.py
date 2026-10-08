@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_user, require_permission
+from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.finished_goods import (
     FG_ADJUST,
@@ -47,6 +47,10 @@ class StockRow(BaseModel):
     order_name: str | None
     invoice_no: str | None
     qty: float
+    # Себестоимость (08.10, services/lot_cost.py) — тем, у кого права на цены:
+    # под заказ — по строке заказа, на склад — средняя по позиции.
+    unit_cost_rub: float | None = None
+    value_rub: float | None = None
 
 
 @router.get("/stock", response_model=list[StockRow])
@@ -61,14 +65,21 @@ def stock(db: Session = Depends(get_db), user: User = Depends(get_current_user))
     )
     orders = {o.id: o.name for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_({ol.order_id for ol in ols.values()}))} if ols else {}
     sites, _ = _names(db)
+    from app.services.lot_cost import fg_avg_cost, order_line_unit_cost
+
+    see_cost = user.is_superuser or bool({"prices.view", "prices.manage"} & get_permission_codes(user))
     out = []
     for b in bals:
         ol = ols.get(b.order_line_id) if b.order_line_id else None
+        unit = None
+        if see_cost:
+            unit = (order_line_unit_cost(db, b.order_line_id) if b.order_line_id else None) or fg_avg_cost(db, b.item_id, set())
         out.append(
             StockRow(
                 item_id=b.item_id, item_name=items.get(b.item_id, f"#{b.item_id}"), site_id=b.site_id, site_name=sites.get(b.site_id),
                 order_line_id=b.order_line_id, order_id=ol.order_id if ol else None, order_name=orders.get(ol.order_id) if ol else None,
                 invoice_no=ol.invoice_no if ol else None, qty=b.qty,
+                unit_cost_rub=unit, value_rub=round(unit * b.qty, 2) if unit is not None else None,
             )
         )
     return sorted(out, key=lambda r: (r.invoice_no or "яяя", r.item_name))
