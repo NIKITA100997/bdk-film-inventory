@@ -282,11 +282,12 @@ export function SheetTable({
               {
                 title: "Наименование",
                 width: 360,
-                // п/ф — название (размер в нём уже есть); дверь — характеристики
-                // крупно, длинное название мелко (модель, цвет, кромка отдельно).
+                // п/ф — название (размер в нём уже есть) и признаки, которых в нём
+                // нет; дверь — характеристики крупно, длинное название мелко. Одинаково
+                // у строки под одну дверь и у объединённой (08.10).
                 render: (_, r) => (
                   <Space direction="vertical" size={2} style={{ wordBreak: "break-word" }}>
-                    {r.door == null && r.chars.length ? <ItemChars chars={r.chars} name={r.name} strong={false} /> : <span style={r.skipped ? { opacity: 0.5, textDecoration: "line-through" } : undefined}>{r.name}</span>}
+                    {!r.skipped && r.chars.length ? <ItemChars chars={r.chars} name={r.name} strong={false} /> : <span style={r.skipped ? { opacity: 0.5, textDecoration: "line-through" } : undefined}>{r.name}</span>}
                     {r.skipped && <Tag>не делаем</Tag>}
                     <Space size={4} wrap>
                       {r.program && <Tag color="geekblue">программа {r.program}</Tag>}
