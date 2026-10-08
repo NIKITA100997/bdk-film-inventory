@@ -74,6 +74,32 @@ function componentsTable(s: TaskPrintSheet): string {
 <table><thead><tr><th>№</th><th>Деталь</th><th>Кол-во</th>${hasCut ? "<th>Пилим / шлифуем</th>" : ""}<th>Готово</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
+/** Лист участка по группам (08.10): одинаковые признаки — одна строка,
+ * счета — списком; подробные строки заказов — на экране задания. */
+function groupsPage(s: TaskPrintSheet, now: string): string {
+  const groups = s.groups ?? [];
+  const rows = groups
+    .map(
+      (g, i) => `<tr>
+<td class="n">${i + 1}</td>
+<td><b>${esc(g.label)}</b>${g.lines > 1 ? `<div class="sub">${g.lines} строк заказов</div>` : ""}</td>
+<td>${esc(g.invoices.join(", "))}</td>
+<td class="nw">${esc(period(g.date_from, g.date_to))}</td>
+<td class="q">${g.qty}${g.done ? `<div class="sub">сделано ${g.done}</div>` : ""}</td>
+<td class="w"></td><td class="w"></td><td class="w"></td>
+</tr>`,
+    )
+    .join("");
+  const total = groups.reduce((a, g) => a + g.qty, 0);
+  return `<section class="page">
+<div class="top"><h1>${esc(s.area_name)}</h1><div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}групп ${groups.length}, всего ${total} шт · напечатано ${esc(now)}</div></div>
+<div class="meta">Задания: ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
+<table><thead><tr>${["№", "Что делать", "Счета", "Срок", "Кол-во", "Сделано", "Брак", "Подпись"].map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
+${componentsTable(s)}
+<div class="sign">Выдал: ____________________ &nbsp;&nbsp; Принял (мастер): ____________________ &nbsp;&nbsp; Дата: ________</div>
+</section>`;
+}
+
 /** Пакетная печать заданий: лист на участок (новая страница), строки всех
  * выбранных заданий участка, графы «Сделано / Брак / Подпись» — от руки. */
 export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задания участкам") {
@@ -81,6 +107,7 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
   const pages = sheets
     .map((s) => {
       if (s.rows.some((r) => r.panel)) return panelPage(s, now);
+      if ((s.groups ?? []).length > 0 && (s.groups ?? []).length < s.rows.length) return groupsPage(s, now);
       const hasFilm = s.rows.some((r) => r.film);
       const hasProg = s.rows.some((r) => r.program || r.instruction);
       const hasInv = s.rows.some((r) => r.invoice_no);

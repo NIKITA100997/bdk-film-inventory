@@ -102,6 +102,8 @@ def _components(db: Session, ln: ProductionTaskLine) -> list[tuple[str, float]]:
 
 
 def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
+    from app.services.line_groups import line_group
+
     lines = [ln for t in tasks for ln in t.lines]
     ids = [ln.id for ln in lines]
     good: dict[int, float] = {}
@@ -125,7 +127,7 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
         site = db.get(Site, area.site_id) if area is not None and area.site_id else None
         sheet = by_area.setdefault(t.area, {
             "area": t.area, "area_name": area.name if area else t.area, "site": site.name if site else None,
-            "tasks": [], "rows": [], "components": {},
+            "tasks": [], "rows": [], "components": {}, "groups": {},
         })
         order = db.get(ProductionOrder, t.production_order_id) if t.production_order_id else None
         sheet["tasks"].append({
@@ -156,12 +158,29 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
                 "date_to": days[-1].isoformat() if days else None,
                 "panel": _panel_info(db, ln, ol, panel_cache),
             })
+            # группа участка (08.10, services/line_groups.py)
+            grp = line_group(db, ln, t.area, [] if ln.part_id else (item_chars_cached(db, ol.item_id) if ol else []))
+            if grp is not None:
+                gk, gl = grp
+                g = sheet["groups"].setdefault(gk, {"label": gl, "qty": 0.0, "done": 0.0, "lines": 0, "invoices": set(), "date_from": None, "date_to": None})
+                g["qty"] += float(ln.quantity_pieces)
+                g["done"] += min(good.get(ln.id, 0.0), float(ln.quantity_pieces))
+                g["lines"] += 1
+                if ol is not None and ol.invoice_no:
+                    g["invoices"].add(ol.invoice_no)
+                if days:
+                    g["date_from"] = min(filter(None, [g["date_from"], days[0].isoformat()]))
+                    g["date_to"] = max(filter(None, [g["date_to"], days[-1].isoformat()]))
             for name, qty in _components(db, ln):
                 sheet["components"][name] = sheet["components"].get(name, 0.0) + qty
     out = list(by_area.values())
     for s in out:
         s["rows"].sort(key=lambda r: (r["date_from"] or "9999", r["name"]))
         s["total"] = round(sum(r["qty"] for r in s["rows"]), 2)
+        s["groups"] = [
+            {**g, "qty": round(g["qty"], 2), "done": round(g["done"], 2), "invoices": sorted(g["invoices"])}
+            for g in sorted(s["groups"].values(), key=lambda g: g["label"])
+        ]
         s["components"] = [
             {"name": n, "qty": round(q, 2), "comment": _cut_comment(n)} for n, q in sorted(s["components"].items())
         ]

@@ -456,7 +456,140 @@ function Tiles({
   );
 }
 
-function TableView({
+/** Строки одной группы участка (08.10): одинаковые признаки, которые задал
+ * участок (серия, размер, цвет, кромка…). Сначала старшие задания и строки. */
+type Group = { key: string; label: string; lines: FastLine[] };
+
+function groupLines(lines: FastLine[]): Group[] {
+  const m = new Map<string, Group>();
+  for (const fl of lines) {
+    const key = fl.line.group_key ?? `line:${fl.line.id}`;
+    const g = m.get(key) ?? { key, label: fl.line.group_label ?? fl.line.part_name ?? "", lines: [] };
+    g.lines.push(fl);
+    m.set(key, g);
+  }
+  for (const g of m.values()) g.lines.sort((a, b) => a.task.id - b.task.id || a.line.id - b.line.id);
+  return [...m.values()];
+}
+
+/** Число по группе — по её строкам: каждой до её остатка, излишек — последней. */
+function distribute(g: Group, total: number): Map<number, number> {
+  const out = new Map<number, number>();
+  let left = total;
+  g.lines.forEach((fl, i) => {
+    const last = i === g.lines.length - 1;
+    const take = last ? left : Math.min(left, Math.max(0, fl.line.remaining_pieces));
+    out.set(fl.line.id, take);
+    left -= take;
+  });
+  return out;
+}
+
+function GroupTableView({ lines, r, onDefect }: { lines: FastLine[]; r: R; onDefect: (fl: FastLine) => void }) {
+  const groups = groupLines(lines);
+  const [open, setOpen] = useState<Group | null>(null);
+  const [value, setValue] = useState("");
+  const cell: React.CSSProperties = { padding: "6px 8px", borderBottom: "1px solid #DEDEDA", verticalAlign: "middle" };
+  const entered = (g: Group) => g.lines.reduce((s, fl) => s + (+r.entryOf(fl.line).good || 0), 0);
+  const save = () => {
+    if (!open) return;
+    const parts = distribute(open, +value || 0);
+    for (const fl of open.lines) r.setEntry(fl.line, { good: parts.get(fl.line.id) ? String(parts.get(fl.line.id)) : "" });
+    setOpen(null);
+  };
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640, fontSize: 14 }}>
+        <thead>
+          <tr>
+            {["Группа", "Строк", "Осталось", "Годные", "Брак"].map((h) => (
+              <th key={h} style={{ ...cell, textAlign: "left", fontSize: 12, color: "#6B6B68", textTransform: "uppercase" }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((g) => {
+            const defect = g.lines.reduce((s, fl) => s + r.entryOf(fl.line).defects.reduce((x, d) => x + d.qty, 0), 0);
+            const remaining = g.lines.reduce((s, fl) => s + Math.max(0, fl.line.remaining_pieces), 0);
+            const orders = [...new Set(g.lines.map((fl) => fl.task.production_order_name ?? fl.task.name))];
+            return (
+              <tr key={g.key}>
+                <td style={cell}>
+                  <b>{g.label}</b>
+                  <div style={{ fontSize: 12, color: "#6B6B68" }}>{orders.join(" · ")}</div>
+                </td>
+                <td style={cell}>{g.lines.length}</td>
+                <td style={cell}>{fmt(remaining)}</td>
+                <td style={cell}>
+                  <Button
+                    size="large"
+                    style={{ minWidth: 80, fontWeight: 700 }}
+                    onClick={() => {
+                      setValue(entered(g) ? String(entered(g)) : "");
+                      setOpen(g);
+                    }}
+                  >
+                    {entered(g)}
+                  </Button>
+                </td>
+                <td style={cell}>
+                  <Badge count={defect} size="small">
+                    <Button onClick={() => onDefect(g.lines[0])}>Брак…</Button>
+                  </Badge>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <Modal
+        open={!!open}
+        title={open ? `${open.label} — годные` : ""}
+        okText="Готово"
+        cancelText="Отмена"
+        onOk={save}
+        onCancel={() => setOpen(null)}
+        width={360}
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12.5 }}>
+          Разложится по {open?.lines.length} строкам группы: каждой до её остатка, сначала старшие задания; излишек — последней.
+        </Typography.Paragraph>
+        <NumPad value={value} onChange={setValue} />
+      </Modal>
+    </div>
+  );
+}
+
+function TableView(props: {
+  lines: FastLine[];
+  r: R;
+  onOpen: (fl: FastLine) => void;
+  onDefect: (fl: FastLine) => void;
+  onDetail: (fl: FastLine) => void;
+  pinnable: boolean;
+}) {
+  const hasGroups = props.lines.some((fl) => fl.line.group_key);
+  const [grouped, setGrouped] = useState(true);
+  if (!hasGroups) return <LinesTableView {...props} />;
+  return (
+    <Space direction="vertical" style={{ width: "100%" }}>
+      <Segmented
+        value={grouped ? "groups" : "lines"}
+        onChange={(v) => setGrouped(v === "groups")}
+        options={[
+          { value: "groups", label: "По группам участка" },
+          { value: "lines", label: "По строкам заказов" },
+        ]}
+      />
+      {grouped ? <GroupTableView lines={props.lines} r={props.r} onDefect={props.onDefect} /> : <LinesTableView {...props} />}
+    </Space>
+  );
+}
+
+function LinesTableView({
   lines,
   r,
   onOpen,

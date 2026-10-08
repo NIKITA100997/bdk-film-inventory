@@ -274,6 +274,16 @@ export interface TaskPrintSheet {
   /** комплектующие без своего маршрута на все строки (детали каркаса на
    * сборке); comment — «Пилим 25 мм / шлифуем 24 мм» (07.10) */
   components?: { name: string; qty: number; comment: string | null }[];
+  /** группы участка (08.10): строки с одинаковыми признаками, которые задал участок */
+  groups?: {
+    label: string;
+    qty: number;
+    done: number;
+    lines: number;
+    invoices: string[];
+    date_from: string | null;
+    date_to: string | null;
+  }[];
 }
 export const getTasksPrintData = async (taskIds: number[]): Promise<TaskPrintSheet[]> =>
   (await apiClient.post<TaskPrintSheet[]>("/production-tasks/print-data", { task_ids: taskIds })).data;

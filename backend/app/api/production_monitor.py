@@ -57,6 +57,7 @@ class MonitorRow(BaseModel):
     last_report: datetime | None
     date_from: date | None
     date_to: date | None
+    group: str | None = None  # группа участка (08.10, services/line_groups.py)
 
 
 class MonitorOut(BaseModel):
@@ -119,6 +120,10 @@ def production_monitor(db: Session = Depends(get_db)) -> MonitorOut:
         film = None
         if ln.material_id:
             film = f"{mats.get(ln.material_id, '')} {cols.get(ln.color_id, '')} {ths.get(ln.thickness_id, 0):g}".strip()
+        from app.services.line_groups import line_group
+        from app.services.type_rules import item_chars_cached
+
+        grp = line_group(db, ln, t.area, [] if ln.part_id else (item_chars_cached(db, ol.item_id) if ol else []))
         g, d, last = agg.get(ln.id, (0.0, 0.0, None))
         days = sorted(slots.get(ln.id, []))
         rows.append(
@@ -129,6 +134,7 @@ def production_monitor(db: Session = Depends(get_db)) -> MonitorOut:
                 film=film, program=ln.program, plan=float(ln.quantity_pieces), good=g, defect=d,
                 closed=bool(ln.production_closed), last_report=last,
                 date_from=days[0] if days else None, date_to=days[-1] if days else None,
+                group=grp[1] if grp else None,
             )
         )
         area_codes.add(t.area)

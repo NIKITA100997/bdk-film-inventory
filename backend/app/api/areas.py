@@ -101,6 +101,8 @@ def update_area(code: str, payload: AreaUpdate, db: Session = Depends(get_db), u
         area.close_without_reports = payload.close_without_reports
     if payload.film_no_return is not None:
         area.film_no_return = payload.film_no_return
+    if payload.group_props is not None:
+        area.group_props = [c.strip() for c in payload.group_props if c and c.strip()] or None
     if payload.pay_mode is not None:
         if payload.pay_mode not in ("", "piece", "shift"):
             raise HTTPException(status_code=422, detail="Вид оплаты — сдельно или за смену")

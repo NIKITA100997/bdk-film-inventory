@@ -129,8 +129,9 @@ export default function ProductionMonitor() {
   const byPosition = useMemo(() => {
     const m = new Map<string, { key: string; position: string; film: string | null; program: string | null; rows: MonitorRow[] }>();
     for (const r of sheetRows) {
-      const key = `${r.position}|${r.film ?? ""}|${r.program ?? ""}`;
-      if (!m.has(key)) m.set(key, { key, position: r.position, film: r.film, program: r.program, rows: [] });
+      // группа участка (08.10), если участок её задал, иначе — позиция
+      const key = r.group ? `g|${r.group}` : `${r.position}|${r.film ?? ""}|${r.program ?? ""}`;
+      if (!m.has(key)) m.set(key, { key, position: r.group ?? r.position, film: r.group ? null : r.film, program: r.group ? null : r.program, rows: [] });
       m.get(key)!.rows.push(r);
     }
     return [...m.values()].map((g) => ({ ...g, ...sum(g.rows), orders: new Set(g.rows.map((r) => r.order_id ?? NO_ORDER)).size }));
@@ -377,7 +378,7 @@ export default function ProductionMonitor() {
                     onChange={(v) => setGrouped(v as "rows" | "position")}
                     options={[
                       { value: "rows", label: "По строкам заказов" },
-                      { value: "position", label: "Сводно по позициям" },
+                      { value: "position", label: "Сводно (по группам участка)" },
                     ]}
                   />
                 </Space>

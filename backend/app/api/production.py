@@ -235,7 +235,13 @@ def _task_line_out(
             float(line.quantity_pieces), float(line.length_m), defect, issued_length_m
         )
     sw = _line_effective_strip_width(line)
+    chars = _line_item_chars(db, line)
+    from app.services.line_groups import line_group
+
+    group = line_group(db, line, line.task.area, chars) if line.task is not None else None
     return ProductionTaskLineOut(
+        group_key=group[0] if group else None,
+        group_label=group[1] if group else None,
         id=line.id,
         line_id=line.line_id,
         line_name=prod_line.name if prod_line else "—",
@@ -247,7 +253,7 @@ def _task_line_out(
         length_m=float(line.length_m),
         strip_width_mm=sw,
         part_name=line.part_name,
-        item_chars=_line_item_chars(db, line),
+        item_chars=chars,
         part_id=line.part_id,
         program=line.program,
         instruction=line.instruction,

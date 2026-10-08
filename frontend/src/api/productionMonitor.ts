@@ -35,6 +35,8 @@ export interface MonitorRow {
   last_report: string | null;
   date_from: string | null;
   date_to: string | null;
+  /** группа участка (08.10) */
+  group?: string | null;
 }
 
 export interface Monitor {

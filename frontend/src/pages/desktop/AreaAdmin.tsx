@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { InputNumber, Card, Tag, Button, Modal, Form, Input, Select, Space, Typography, Checkbox, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas, createArea, updateArea, type Area } from "../../api/areas";
 import { listSites, createSite, updateSite, type Site } from "../../api/sites";
 import { listWarehouses } from "../../api/storage";
+import { listItemTypes } from "../../api/itemTypes";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { apiErrorMessage } from "../../utils/apiError";
 
@@ -38,11 +39,19 @@ export default function AreaAdmin() {
     big_batch_min_pieces?: number | null;
     close_without_reports?: boolean;
     film_no_return?: boolean;
+    group_props?: string[];
     pay_mode?: "piece" | "shift" | null;
     piece_rate?: number | null;
     shift_rate?: number | null;
     shift_headcount?: number | null;
   }>();
+  // признаки для объединения строк — свойства типов позиций + «позиция» (08.10)
+  const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
+  const groupPropOptions = useMemo(() => {
+    const m = new Map<string, string>([["позиция", "Позиция целиком"]]);
+    for (const t of typesQuery.data ?? []) for (const p of t.properties) if (!m.has(p.code)) m.set(p.code, p.name);
+    return [...m.entries()].map(([value, label]) => ({ value, label }));
+  }, [typesQuery.data]);
   const [showArchived, setShowArchived] = useState(false);
 
   const [siteCreateOpen, setSiteCreateOpen] = useState(false);
@@ -92,6 +101,7 @@ export default function AreaAdmin() {
       big_batch_min_pieces?: number | null;
       close_without_reports?: boolean;
       film_no_return?: boolean;
+      group_props?: string[];
       pay_mode?: "piece" | "shift" | null;
       piece_rate?: number | null;
       shift_rate?: number | null;
@@ -104,6 +114,7 @@ export default function AreaAdmin() {
         big_batch_min_pieces: v.big_batch_min_pieces ?? 0,
         close_without_reports: v.close_without_reports,
         film_no_return: v.film_no_return,
+        group_props: v.group_props ?? [],
         // пусто — снять (на сервере "" / 0 — «не задано»)
         pay_mode: v.pay_mode ?? "",
         piece_rate: v.piece_rate ?? 0,
@@ -266,6 +277,7 @@ export default function AreaAdmin() {
                   {!!a.film_allowance_mm && <Tag>припуск +{a.film_allowance_mm} мм</Tag>}
                   {a.close_without_reports && <Tag color="default">без отчётов — закрытие целиком</Tag>}
                   {a.film_no_return && <Tag color="default">остатки плёнки не возвращают</Tag>}
+                  {(a.group_props ?? []).length > 0 && <Tag color="purple">объединяет по: {(a.group_props ?? []).join(", ")}</Tag>}
                   {a.pay_mode === "piece" && <Tag color="green">сдельно{a.piece_rate ? ` ${a.piece_rate} ₽/шт` : ""}</Tag>}
                   {a.pay_mode === "shift" && (
                     <Tag color="green">
@@ -308,6 +320,7 @@ export default function AreaAdmin() {
                         big_batch_min_pieces: a.big_batch_min_pieces,
                         close_without_reports: a.close_without_reports,
                         film_no_return: a.film_no_return,
+                        group_props: a.group_props ?? [],
                         pay_mode: a.pay_mode,
                         piece_rate: a.piece_rate,
                         shift_rate: a.shift_rate,
@@ -436,6 +449,13 @@ export default function AreaAdmin() {
             Как на Фабрике: мастер не вносит отчёты, плёнка списывается метражом; когда сделано — «Закрыть: всё
             сделано», строки засчитываются, задание уходит в архив.
           </Typography.Paragraph>
+          <Form.Item
+            name="group_props"
+            label="Объединять строки заданий по"
+            extra="Строки заказов с одинаковыми признаками — одна группа: в отчёте мастера, на печатном листе и в мониторе. Отчёт по группе раскладывается по строкам (сначала старшие задания). Пусто — каждая строка отдельно."
+          >
+            <Select mode="multiple" allowClear options={groupPropOptions} placeholder="не объединять" optionFilterProp="label" />
+          </Form.Item>
           <Form.Item name="film_no_return" valuePropName="checked">
             <Checkbox>Остатки плёнки на склад не возвращаются</Checkbox>
           </Form.Item>
