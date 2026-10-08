@@ -119,6 +119,14 @@ class StockOverviewLine(BaseModel):
     # этого поставщика (не гадаем на пустом месте).
     days_of_stock_remaining: float | None
     reorder_suggested: bool
+    # Нормативы группы (08.10, services/normatives.py): мин. остаток, мин.
+    # партия, кратность — м²; «заказать» = резерв + мин. остаток − (остаток +
+    # открытые заявки), не меньше партии, вверх до кратного.
+    min_stock_m2: float | None = None
+    min_batch_m2: float | None = None
+    batch_multiple_m2: float | None = None
+    shortage_m2: float = 0.0
+    to_order_m2: float = 0.0
 
 
 class StockForSkusRequest(BaseModel):

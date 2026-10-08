@@ -58,6 +58,12 @@ export interface StockOverviewLine {
   usual_supplier: string | null;
   days_of_stock_remaining: number | null;
   reorder_suggested: boolean;
+  /** нормативы группы (08.10), м² */
+  min_stock_m2?: number | null;
+  min_batch_m2?: number | null;
+  batch_multiple_m2?: number | null;
+  shortage_m2?: number;
+  to_order_m2?: number;
 }
 
 export interface PurchaseRequestCreate {

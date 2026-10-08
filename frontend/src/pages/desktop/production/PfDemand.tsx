@@ -8,10 +8,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { useAuth } from "../../../auth/AuthContext";
 import { listAreas } from "../../../api/areas";
-import { listParts, updatePart } from "../../../api/dictionaries";
+import { listParts } from "../../../api/dictionaries";
+import { setNormatives } from "../../../api/items";
 import { createPfTasks, listPfDemand, suggestLaminationArea, type PfDemandRow } from "../../../api/pfDemand";
 import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { normsLabel } from "../../../utils/normatives";
 
 const fmt = (n: number) => Math.round(n * 100) / 100;
 
@@ -126,7 +128,7 @@ export default function PfDemand() {
           Нужно = остаток плана по открытым заданиям цеха и заказам на производство (комплектующие по составу) +
           минимальный остаток. Есть = все живые партии детали + уже запущенное в работу. В резерве — остаток,
           закреплённый за заданиями цеха (кнопка «Обеспечение п/ф» у задания), свободно — остальное. К производству — нехватка, но
-          не меньше минимальной партии. Задания уходят на участки всех операций маршрута детали.
+          не меньше минимальной партии и вверх до кратного. Задания уходят на участки всех операций маршрута детали.
         </Typography.Paragraph>
         <Space wrap size={[12, 12]}>
           <Select
@@ -242,13 +244,11 @@ export default function PfDemand() {
         columns={[
           { title: "Деталь", dataIndex: "part_name" },
           {
-            title: "Мин. остаток / партия",
+            title: "Нормативы",
             render: (_, r) => (
               <Space size={4}>
-                <span>
-                  {r.min_stock != null ? fmt(r.min_stock) : "—"} / {r.min_batch != null ? fmt(r.min_batch) : "—"}
-                </span>
-                {canManage && (
+                <span>{normsLabel(r.min_stock, r.min_batch, r.batch_multiple)}</span>
+                {canManage && r.item_id != null && (
                   <Button size="small" type="link" onClick={() => setEditTarget(r)}>
                     изменить
                   </Button>
@@ -318,15 +318,20 @@ export default function PfDemand() {
   );
 }
 
+type NormForm = { min_stock?: number | null; min_batch?: number | null; batch_multiple?: number | null };
+
+/** Нормативы детали — у её позиции номенклатуры, как у плёнки и материалов
+ * (08.10). */
 function MinValuesModal({ row, onClose }: { row: PfDemandRow; onClose: () => void }) {
   const qc = useQueryClient();
-  const [form] = Form.useForm<{ min_stock_pieces?: number | null; min_batch_pieces?: number | null }>();
+  const [form] = Form.useForm<NormForm>();
   const mutation = useMutation({
-    mutationFn: (v: { min_stock_pieces?: number | null; min_batch_pieces?: number | null }) =>
-      updatePart(row.part_id, { min_stock_pieces: v.min_stock_pieces ?? null, min_batch_pieces: v.min_batch_pieces ?? null }),
+    mutationFn: (v: NormForm) =>
+      setNormatives(row.item_id!, { min_stock: v.min_stock ?? null, min_batch: v.min_batch ?? null, batch_multiple: v.batch_multiple ?? null }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pf-demand"] });
       qc.invalidateQueries({ queryKey: ["parts"] });
+      qc.invalidateQueries({ queryKey: ["item-normatives", row.item_id] });
       message.success("Сохранено");
       onClose();
     },
@@ -337,13 +342,20 @@ function MinValuesModal({ row, onClose }: { row: PfDemandRow; onClose: () => voi
       <Form
         form={form}
         layout="vertical"
-        initialValues={{ min_stock_pieces: row.min_stock ?? undefined, min_batch_pieces: row.min_batch ?? undefined }}
+        initialValues={{
+          min_stock: row.min_stock ?? undefined,
+          min_batch: row.min_batch ?? undefined,
+          batch_multiple: row.batch_multiple ?? undefined,
+        }}
         onFinish={(v) => mutation.mutate(v)}
       >
-        <Form.Item name="min_stock_pieces" label="Минимальный остаток, шт" extra="Пусто — не держать запас сверх заданий">
+        <Form.Item name="min_stock" label="Минимальный остаток, шт" extra="Пусто — не держать запас сверх заданий">
           <InputNumber min={0} style={{ width: "100%" }} />
         </Form.Item>
-        <Form.Item name="min_batch_pieces" label="Минимальная партия производства, шт" extra="Пусто — производить ровно нехватку">
+        <Form.Item name="min_batch" label="Минимальная партия производства, шт" extra="Пусто — производить ровно нехватку">
+          <InputNumber min={1} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="batch_multiple" label="Кратность партии, шт" extra="Партия округляется вверх до кратного; пусто — любая">
           <InputNumber min={1} style={{ width: "100%" }} />
         </Form.Item>
         <Button type="primary" htmlType="submit" block loading={mutation.isPending}>

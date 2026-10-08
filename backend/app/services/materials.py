@@ -83,3 +83,67 @@ def consume(
     if qty <= 0:
         return None
     return record(db, item=item, kind=MOVE_CONSUMPTION, qty=-qty, user_id=user_id, task_line_id=task_line_id, note=note)
+
+
+def demand_by_item(db: Session) -> dict[int, list[tuple[int, str, int | None, float]]]:
+    """Потребность в материалах по открытым операциям (08.10): строка задания
+    с операцией (заказ на производство или задание на п/ф) × состав позиции
+    на этой операции × ещё не сделанное по строке. То же правило, по
+    которому материал списывается при отчёте
+    (production_orders.consume_components_at_operation): компонент без
+    операции — на первой операции позиции; из группы «или» — основной
+    вариант. → {материал: [(задание, название, заказ, сколько)]}."""
+    from app.models.dictionaries import PartStage
+    from app.models.items import ItemComponent, ItemKind
+    from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+    from app.services.components import planned_components
+
+    mat_kind = db.query(ItemKind).filter(ItemKind.code == KIND_MATERIAL).first()
+    if mat_kind is None:
+        return {}
+    lines = (
+        db.query(ProductionTaskLine, ProductionTask)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(
+            ProductionTask.is_active.is_(True),
+            ProductionTaskLine.part_stage_id.isnot(None),
+            ProductionTaskLine.production_closed.is_(False),
+        )
+        .all()
+    )
+    if not lines:
+        return {}
+    done = dict(
+        db.query(
+            ProductionTaskLineReport.task_line_id,
+            func.coalesce(func.sum(ProductionTaskLineReport.good_pieces + ProductionTaskLineReport.defect_pieces), 0),
+        )
+        .filter(ProductionTaskLineReport.task_line_id.in_([ln.id for ln, _ in lines]))
+        .group_by(ProductionTaskLineReport.task_line_id)
+    )
+    stages = {s.id: s for s in db.query(PartStage).filter(PartStage.id.in_({ln.part_stage_id for ln, _ in lines}))}
+    item_ids = {s.item_id for s in stages.values()}
+    first_stage = dict(
+        db.query(PartStage.item_id, func.min(PartStage.sequence_order)).filter(PartStage.item_id.in_(item_ids)).group_by(PartStage.item_id)
+    )
+    materials = {i.id for i in db.query(Item.id).filter(Item.kind_id == mat_kind.id)}
+    raw: dict[int, list] = defaultdict(list)
+    for c in db.query(ItemComponent).filter(ItemComponent.parent_item_id.in_(item_ids)):
+        raw[c.parent_item_id].append(c)
+    # группы «или» — у каждой позиции свои, поэтому по позициям отдельно
+    comps_by_item = {
+        pid: [c for c in planned_components(cs) if c.component_item_id in materials] for pid, cs in raw.items()
+    }
+    out: dict[int, list[tuple[int, str, int | None, float]]] = defaultdict(list)
+    for ln, t in lines:
+        st = stages.get(ln.part_stage_id)
+        if st is None:
+            continue
+        left = max(0.0, float(ln.quantity_pieces) - float(done.get(ln.id, 0)))
+        if left <= 0:
+            continue
+        is_first = first_stage.get(st.item_id) == st.sequence_order
+        for c in comps_by_item.get(st.item_id, []):
+            if c.stage_id == st.id or (c.stage_id is None and is_first):
+                out[c.component_item_id].append((t.id, t.name or f"Задание №{t.id}", t.production_order_id, float(c.qty_per_unit) * left))
+    return out

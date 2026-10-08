@@ -12,7 +12,30 @@ export interface MaterialStockRow {
   is_active: boolean;
   balance: number;
   last_move_at: string | null;
+  /** норматив (08.10): ниже — пора пополнять */
+  min_stock?: number | null;
 }
+
+/** Потребность и пополнение материала (08.10) — те же нормативы, что у
+ * плёнки и п/ф. */
+export interface MaterialDemandRow {
+  item_id: number;
+  name: string;
+  unit: string;
+  group_name: string | null;
+  stock: number;
+  demand: number;
+  sources: { task_id: number; task_name: string; order_id: number | null; qty: number }[];
+  min_stock: number | null;
+  min_batch: number | null;
+  batch_multiple: number | null;
+  need: number;
+  shortage: number;
+  to_order: number;
+}
+
+export const listMaterialDemand = async (): Promise<MaterialDemandRow[]> =>
+  (await apiClient.get<MaterialDemandRow[]>("/material-stock/demand")).data;
 
 export type MaterialMoveKind = "receipt" | "consumption" | "writeoff" | "adjust";
 

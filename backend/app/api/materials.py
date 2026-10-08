@@ -13,7 +13,7 @@ from app.db.session import get_db
 from app.models.items import MOVE_KINDS, Item, ItemGroup, ItemKind, MaterialMove, item_unit
 from app.models.production import ProductionTaskLine
 from app.models.users import User
-from app.services import materials
+from app.services import materials, normatives
 
 # /materials занят справочником материалов плёнки (ПВХ, ПЭТ…) — отсюда свой адрес.
 router = APIRouter(prefix="/material-stock", tags=["material-stock"])
@@ -30,6 +30,7 @@ class MaterialOut(BaseModel):
     is_active: bool
     balance: float
     last_move_at: datetime | None
+    min_stock: float | None = None  # норматив (08.10): ниже — пора пополнять
 
 
 def _kind(db: Session) -> ItemKind:
@@ -59,6 +60,7 @@ def _out(db: Session, items: list[Item]) -> list[MaterialOut]:
         MaterialOut(
             item_id=i.id, name=i.name, unit=item_unit(i), group_id=i.group_id, group_name=groups.get(i.group_id),
             is_active=i.is_active, balance=round(bal[i.id], 4), last_move_at=last.get(i.id),
+            min_stock=normatives.norms_of(i).min_stock,
         )
         for i in items
     ]
@@ -72,6 +74,57 @@ def list_materials(
     if not include_inactive:
         q = q.filter(Item.is_active.is_(True))
     return _out(db, q.order_by(Item.name).all())
+
+
+class DemandSource(BaseModel):
+    task_id: int
+    task_name: str
+    order_id: int | None
+    qty: float
+
+
+class MaterialDemandOut(BaseModel):
+    item_id: int
+    name: str
+    unit: str
+    group_name: str | None
+    stock: float
+    demand: float  # по открытым операциям (ещё не сделанное × состав)
+    sources: list[DemandSource]
+    min_stock: float | None
+    min_batch: float | None
+    batch_multiple: float | None
+    need: float
+    shortage: float
+    to_order: float
+
+
+@router.get("/demand", response_model=list[MaterialDemandOut])
+def material_demand(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[MaterialDemandOut]:
+    """Потребность и пополнение материалов (08.10) — по тем же нормативам,
+    что у плёнки и п/ф (services/normatives.py): нужно = открытые операции
+    + мин. остаток, есть = остаток, заказать — не меньше партии, кратно."""
+    by_item = materials.demand_by_item(db)
+    items = db.query(Item).filter(Item.kind_id == _kind(db).id, Item.is_model.is_(False))
+    items = [i for i in items if i.is_active or i.id in by_item]
+    bal = materials.balances(db, [i.id for i in items])
+    groups = {g.id: g.name for g in db.query(ItemGroup)}
+    out = []
+    for i in items:
+        src = by_item.get(i.id, [])
+        demand = round(sum(q for *_, q in src), 4)
+        norms = normatives.norms_of(i)
+        need, shortage, to_order = normatives.suggest(demand=demand, have=bal[i.id], norms=norms)
+        agg: dict[int, DemandSource] = {}
+        for tid, tname, oid, q in src:
+            prev = agg.get(tid)
+            agg[tid] = DemandSource(task_id=tid, task_name=tname, order_id=oid, qty=round((prev.qty if prev else 0) + q, 4))
+        out.append(MaterialDemandOut(
+            item_id=i.id, name=i.name, unit=item_unit(i), group_name=groups.get(i.group_id), stock=round(bal[i.id], 4),
+            demand=demand, sources=sorted(agg.values(), key=lambda x: -x.qty), min_stock=norms.min_stock,
+            min_batch=norms.min_batch, batch_multiple=norms.batch_multiple, need=need, shortage=shortage, to_order=to_order,
+        ))
+    return sorted(out, key=lambda r: (-r.to_order, r.name))
 
 
 class MaterialIn(BaseModel):

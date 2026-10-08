@@ -6,16 +6,17 @@ import { listAreas } from "../../../api/areas";
 import { createPfTasks, listPfDemand, setPfReservation, suggestLaminationArea, type PfDemandRow } from "../../../api/pfDemand";
 import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { roundBatch } from "../../../utils/normatives";
 
 const fmt = (n: number) => Math.round(n * 100) / 100;
 
 /** Сколько запустить в производство: нехватка сверх свободного остатка (его
- * можно просто зарезервировать), не меньше минимальной партии. */
+ * можно просто зарезервировать), не меньше минимальной партии, кратно. */
 function suggestedQty(r: PfDemandRow): number {
   const s = r.sources[0];
   if (!s) return 0;
   const toMake = Math.max(0, s.shortage - r.free);
-  return toMake > 0 ? Math.max(toMake, r.min_batch ?? 0) : 0;
+  return roundBatch(toMake, r.min_batch, r.batch_multiple);
 }
 
 /** Обеспечение п/ф одного задания цеха (окутка): что нужно по заданию, что

@@ -9,6 +9,7 @@ import LaminatedBar from "./LaminatedBar";
 import ItemEditModal from "./ItemEditModal";
 import ItemPriceSection from "./ItemPriceSection";
 import { useAuth } from "../../../auth/AuthContext";
+import { getNormatives } from "../../../api/items";
 import { DIRECTIONS, MODES, STAGES } from "../../../utils/itemAttrs";
 
 /** Заголовок раздела карточки: название слева, одно действие справа — во
@@ -75,11 +76,28 @@ export default function ItemOverview({
               ? <span>{routeAreas.join(" → ")} <Typography.Text type="secondary">(по маршруту)</Typography.Text></span>
               : "—",
         },
-        { label: "Мин. остаток", value: part.min_stock_pieces != null ? `${part.min_stock_pieces} шт` : "—" },
-        { label: "Мин. партия", value: part.min_batch_pieces != null ? `${part.min_batch_pieces} шт` : "—" },
         { label: "Закреплённая плёнка", value: part.default_material_sku_id ? "закреплена" : "подбирается по цвету" },
       ]
     : [];
+  // Нормативы запаса (08.10) — у любой позиции, не только у детали.
+  const normsQuery = useQuery({ queryKey: ["item-normatives", card.item_id], queryFn: () => getNormatives(card.item_id), enabled: !card.is_model });
+  const n = normsQuery.data;
+  const canEditNorms = has("production_tasks.manage") || has("materials.manage") || has("purchasing.manage");
+  const normRows =
+    n && (n.min_stock != null || n.min_batch != null || n.batch_multiple != null)
+      ? [
+          {
+            label: "Нормативы",
+            value: [
+              n.min_stock != null ? `мин. остаток ${n.min_stock} ${n.unit ?? ""}` : null,
+              n.min_batch != null ? `партия от ${n.min_batch}` : null,
+              n.batch_multiple != null ? `кратно ${n.batch_multiple}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          },
+        ]
+      : [];
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -89,8 +107,8 @@ export default function ItemOverview({
           kindCode={card.kind_code}
           canEdit={canEditTypes}
           title="Характеристики"
-          extra={[...attrRows, ...partRows]}
-          onEdit={canEditTypes || (part && canEditPart) ? () => setEditing(true) : undefined}
+          extra={[...attrRows, ...partRows, ...normRows]}
+          onEdit={canEditTypes || (part && canEditPart) || (canEditNorms && !card.is_model) ? () => setEditing(true) : undefined}
         />
       </section>
 

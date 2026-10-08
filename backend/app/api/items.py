@@ -13,7 +13,7 @@ from app.models.areas import Area
 from app.models.dictionaries import Color, Material, MaterialSku, Part
 from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, ItemType, PartAlias, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name, strip_decor
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
-from app.services import item_attrs
+from app.services import item_attrs, normatives
 from app.services.laminated import can_laminate, laminated_part
 from app.services.components import live_item_names, sync_bom_components
 from app.services.routes import RouteInUseError, RouteStep, apply_route
@@ -64,6 +64,11 @@ class ItemOut(BaseModel):
     make_mode: str | None = None
     # Задано у самой позиции (а не взято у типа / по правилу).
     own_attrs: list[str] = []
+    # Нормативы запаса (08.10, services/normatives.py) и их единица.
+    min_stock: float | None = None
+    min_batch: float | None = None
+    batch_multiple: float | None = None
+    norms_unit: str | None = None
 
 
 class PartSuggestion(BaseModel):
@@ -95,6 +100,53 @@ def list_item_kinds(db: Session = Depends(get_db), user=Depends(view_items)) -> 
     return db.query(ItemKind).filter(ItemKind.is_active.is_(True)).order_by(ItemKind.sort_order).all()
 
 
+def _norm_fields(item: Item, kind: ItemKind) -> dict:
+    n = normatives.norms_of(item)
+    unit = normatives.FILM_UNIT if kind.code == "plenka" else (item.unit or kind.unit)
+    return {"min_stock": n.min_stock, "min_batch": n.min_batch, "batch_multiple": n.batch_multiple, "norms_unit": unit}
+
+
+class NormativesIn(BaseModel):
+    min_stock: float | None = Field(default=None, ge=0)
+    min_batch: float | None = Field(default=None, gt=0)
+    batch_multiple: float | None = Field(default=None, gt=0)
+
+
+class NormativesOut(NormativesIn):
+    unit: str
+
+
+# Нормативы задаёт тот, кто ведёт пополнение этого вида: производство (п/ф,
+# изделия), склад и снабжение (материалы, плёнка).
+manage_norms = require_permission("production_tasks.manage", "materials.manage", "purchasing.manage")
+
+
+@router.get("/items/{item_id}/normatives", response_model=NormativesOut)
+def get_normatives(item_id: int, db: Session = Depends(get_db), user=Depends(view_items)) -> NormativesOut:
+    item = db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    n = normatives.norms_of(item)
+    return NormativesOut(min_stock=n.min_stock, min_batch=n.min_batch, batch_multiple=n.batch_multiple, unit=normatives.norms_unit(item))
+
+
+@router.put("/items/{item_id}/normatives", response_model=NormativesOut)
+def set_normatives(
+    item_id: int, payload: NormativesIn, db: Session = Depends(get_db), user=Depends(manage_norms)
+) -> NormativesOut:
+    """Мин. остаток, мин. партия, кратность — одинаково для любого вида
+    (этап 4 пересборки). У п/ф дублируется в деталь (старые поля)."""
+    item = db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    item.min_stock, item.min_batch, item.batch_multiple = payload.min_stock, payload.min_batch, payload.batch_multiple
+    part = db.query(Part).filter(Part.item_id == item.id).first()
+    if part is not None:
+        part.min_stock_pieces, part.min_batch_pieces = payload.min_stock, payload.min_batch
+    db.commit()
+    return get_normatives(item_id, db, user)
+
+
 @router.get("/items", response_model=list[ItemOut])
 def list_items(
     kind: str | None = Query(default=None),
@@ -121,7 +173,8 @@ def list_items(
             ItemOut(
                 id=item.id, kind_code=kind.code, kind_name=kind.name, unit=item.unit or kind.unit, name=name,
                 code_1c=item.code_1c, is_active=active, source_type=source_type, source_id=source_id,
-                group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id, pet_type=item.pet_type, **_attrs(item, kind.code, types), **extra,
+                group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id, pet_type=item.pet_type, **_attrs(item, kind.code, types),
+                **_norm_fields(item, kind), **extra,
             )
         )
 
@@ -152,7 +205,7 @@ def list_items(
                     id=item.id, kind_code=item_kind.code, kind_name=item_kind.name, unit=item.unit or item_kind.unit, name=item.name,
                     code_1c=item.code_1c, is_active=item.is_active, source_type=None, source_id=None,
                     group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id,
-                    pet_type=item.pet_type, **_attrs(item, item_kind.code, types),
+                    pet_type=item.pet_type, **_attrs(item, item_kind.code, types), **_norm_fields(item, item_kind),
                 )
             )
 

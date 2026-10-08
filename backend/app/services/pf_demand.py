@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.models.dictionaries import Part, PartStage
 from app.models.part_units import PartReservation, PartUnit, PartUnitStatus
 from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+from app.services import normatives
 from app.services.part_units import reported_good_pieces_by_unit
 
 
@@ -51,6 +52,7 @@ class PfDemandRow:
     part_name: str
     min_stock: float | None
     min_batch: float | None
+    batch_multiple: float | None
     task_demand: float
     stock: float
     in_work: float
@@ -63,16 +65,23 @@ class PfDemandRow:
     sources: list[PfDemandSource]
     reserved: float = 0.0  # остатка в резерве под задания
     free: float = 0.0  # остаток без резервов
+    item_id: int | None = None  # позиция номенклатуры — у неё нормативы
 
 
 def compute_suggestion(
-    *, task_demand: float, min_stock: float | None, stock: float, in_work: float, min_batch: float | None
+    *, task_demand: float, min_stock: float | None, stock: float, in_work: float, min_batch: float | None,
+    batch_multiple: float | None = None,
 ) -> tuple[float, float, float]:
-    """(нужно, не хватает, произвести)."""
-    need = task_demand + (min_stock or 0.0)
-    shortage = max(0.0, need - stock - in_work)
-    suggested = max(shortage, min_batch or 0.0) if shortage > 0 else 0.0
-    return need, shortage, suggested
+    """(нужно, не хватает, произвести) — общий расчёт нормативов
+    (services/normatives.py), как у плёнки и материалов."""
+    return normatives.suggest(
+        demand=task_demand, have=stock + in_work, norms=normatives.Norms(min_stock, min_batch, batch_multiple)
+    )
+
+
+def part_norms(p: Part) -> "normatives.Norms":
+    """Нормативы детали — у её позиции номенклатуры (с 08.10)."""
+    return normatives.norms_of(p.item)
 
 
 def task_part_remaining(lines: list[tuple[float, float, bool]]) -> float:
@@ -278,18 +287,20 @@ def _state(db: Session) -> _State:
 
 def _row(st: _State, p: Part, *, sources, task_demand, stock, in_work, min_stock) -> PfDemandRow:
     fs = st.first_stage[p.id]
-    min_batch = float(p.min_batch_pieces) if p.min_batch_pieces is not None else None
+    norms = part_norms(p)
+    min_batch = norms.min_batch
     need, shortage, suggested = compute_suggestion(
-        task_demand=task_demand, min_stock=min_stock, stock=stock, in_work=in_work, min_batch=min_batch
+        task_demand=task_demand, min_stock=min_stock, stock=stock, in_work=in_work, min_batch=min_batch,
+        batch_multiple=norms.batch_multiple,
     )
     total = st.stock.get(p.id, 0.0)
     reserved = st.reserved.get(p.id, 0.0)
     return PfDemandRow(
         part_id=p.id, part_name=p.name,
-        min_stock=float(p.min_stock_pieces) if p.min_stock_pieces is not None else None, min_batch=min_batch,
+        min_stock=norms.min_stock, min_batch=min_batch, batch_multiple=norms.batch_multiple,
         task_demand=task_demand, stock=stock, in_work=in_work, need=need, shortage=shortage, suggested=suggested,
         first_stage_id=fs.id, first_stage_name=fs.name, first_stage_area=fs.area, sources=sources,
-        reserved=round(reserved, 2), free=round(max(0.0, total - reserved), 2),
+        reserved=round(reserved, 2), free=round(max(0.0, total - reserved), 2), item_id=p.item_id,
     )
 
 
@@ -449,7 +460,7 @@ def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[Pf
             continue
         d = sum(s.remaining for s in sources)
         w = st.in_work.get(p.id, 0.0)
-        min_stock = float(p.min_stock_pieces) if p.min_stock_pieces is not None else None
+        min_stock = part_norms(p).min_stock
         if min_stock is None and d <= 0 and w <= 0:
             continue
         rows.append(

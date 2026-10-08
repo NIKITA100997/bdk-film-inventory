@@ -45,6 +45,8 @@ class PfDemandOut(BaseModel):
     part_name: str
     min_stock: float | None
     min_batch: float | None
+    batch_multiple: float | None = None
+    item_id: int | None = None
     task_demand: float
     stock: float
     in_work: float

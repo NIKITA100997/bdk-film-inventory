@@ -20,6 +20,8 @@ export interface PfDemandRow {
   part_name: string;
   min_stock: number | null;
   min_batch: number | null;
+  batch_multiple?: number | null;
+  item_id?: number | null;
   task_demand: number;
   stock: number;
   in_work: number;

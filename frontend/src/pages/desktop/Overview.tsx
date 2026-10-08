@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import Statistic from "../../components/Statistic";
 import { useAuth } from "../../auth/AuthContext";
+import { listMaterialDemand } from "../../api/materialStock";
 import { getStockOverview, listPurchaseRequests } from "../../api/purchasing";
 import { listSessions } from "../../api/inventory";
 import { getCuttingDiscrepancies, getDefectsOverview, getDonorAccuracy, getRollsVsStrips, getStaleUnits, getStockSummary } from "../../api/reports";
@@ -94,6 +95,7 @@ export default function Overview() {
   });
   const purchQ = useQuery({ queryKey: ["purchase-requests", "open"], queryFn: () => listPurchaseRequests("open"), enabled: canPurch });
   const reorderQ = useQuery({ queryKey: ["stock-overview", "overview"], queryFn: getStockOverview, enabled: canPurch });
+  const matQ = useQuery({ queryKey: ["material-demand", "overview"], queryFn: listMaterialDemand, enabled: canShop || canPurch });
   const sessionsQ = useQuery({ queryKey: ["inventory-sessions"], queryFn: listSessions, enabled: canInv });
   const staleQ = useQuery({ queryKey: ["stale-units", "overview"], queryFn: () => getStaleUnits(), enabled: canReports });
   const blanksQ = useQuery({ queryKey: ["blanks-demand", "overview"], queryFn: getBlanksDemand, enabled: hasIssue });
@@ -123,7 +125,9 @@ export default function Overview() {
   const myTasks = myArea ? (tasksQ.data ?? []).filter((t) => t.is_active && t.area === myArea).length : 0;
   const goodOn = (day: string) => (prodQ.data?.output ?? []).filter((o) => o.day === day).reduce((s, o) => s + o.good, 0);
   const issuedTodayM = (prodQ.data?.issues ?? []).filter((i) => i.day === today).reduce((s, i) => s + i.length_m, 0);
-  const reorder = (reorderQ.data ?? []).filter((r) => r.reorder_suggested).length;
+  // по расходу или ниже норматива (08.10)
+  const reorder = (reorderQ.data ?? []).filter((r) => r.reorder_suggested || (r.min_stock_m2 != null && (r.to_order_m2 ?? 0) > 0)).length;
+  const matShort = (matQ.data ?? []).filter((r) => r.to_order > 0).length;
   const blanksDeficit = (blanksQ.data ?? []).filter((r) => r.deficit_length_m > 0).length;
   const rolls = (rollsQ.data ?? []).reduce((s, r) => s + r.roll_count, 0);
   const strips = (rollsQ.data ?? []).reduce((s, r) => s + r.strip_count, 0);
@@ -146,6 +150,7 @@ export default function Overview() {
     add(pfShort > 0, { key: "pf", label: "Деталей п/ф не хватает", value: pfShort, path: "/demand?tab=pf", level: "warning" });
     add(draft > 0, { key: "draft", label: "Черновиков заказов ждут запуска", value: draft, path: "/production-orders", level: "warning" });
     add(reorder > 0, { key: "reorder", label: "Пора заказывать плёнку", value: reorder, path: "/purchasing?tab=reorder", level: "warning" });
+    add(matShort > 0, { key: "mat", label: "Материалов пора пополнить", value: matShort, path: "/demand?tab=components", level: "warning" });
     add(blanksDeficit > 0, { key: "blanks", label: "Плёнки не хватает по ширинам", value: blanksDeficit, path: "/blanks", level: "warning" });
     add(fgToMove > 0, { key: "fgmove", label: `Готовых дверей ждут перевозки на ${mainSite?.name ?? "основной склад"}`, value: fgToMove, path: "/stock?kind=fg", level: "warning" });
     add((unplacedQ.data?.length ?? 0) > 0, { key: "unplaced", label: "Рулонов без места на стеллаже", value: unplacedQ.data?.length ?? 0, path: "/stock?kind=film&tab=map", level: "warning" });
@@ -153,7 +158,7 @@ export default function Overview() {
     add((staleQ.data?.length ?? 0) > 0, { key: "stale", label: "Остатков давно не двигалось", value: staleQ.data?.length ?? 0, path: "/reports", level: "info" });
     add(openSessions > 0, { key: "inv", label: "Инвентаризаций в процессе", value: openSessions, path: "/inventory", level: "info" });
     return s;
-  }, [reqQ.data, late, pfShort, draft, reorder, blanksDeficit, fgToMove, mainSite, unplacedQ.data, periodOpen, lastMonthEnd, staleQ.data, openSessions]);
+  }, [reqQ.data, late, pfShort, draft, reorder, matShort, blanksDeficit, fgToMove, mainSite, unplacedQ.data, periodOpen, lastMonthEnd, staleQ.data, openSessions]);
 
   const anyLoading = [reqQ, ordersQ, readinessQ, pfQ, reorderQ, blanksQ, unplacedQ, staleQ].some((q) => q.isLoading && q.fetchStatus !== "idle");
 

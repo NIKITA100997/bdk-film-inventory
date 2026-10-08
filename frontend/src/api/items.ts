@@ -255,3 +255,19 @@ export const getItemLaminated = async (itemId: number): Promise<ItemLaminated> =
   (await apiClient.get<ItemLaminated>(`/items/${itemId}/laminated`)).data;
 export const createItemLaminated = async (itemId: number, payload: { material_id?: number; color_id: number }): Promise<LaminatedRef> =>
   (await apiClient.post<LaminatedRef>(`/items/${itemId}/laminated`, payload)).data;
+
+
+/** Нормативы запаса позиции (08.10) — одинаково для любого вида, в единице
+ * позиции (плёнка — м²). */
+export interface Normatives {
+  min_stock: number | null;
+  min_batch: number | null;
+  batch_multiple: number | null;
+  unit?: string;
+}
+
+export const getNormatives = async (itemId: number): Promise<Normatives> =>
+  (await apiClient.get<Normatives>(`/items/${itemId}/normatives`)).data;
+
+export const setNormatives = async (itemId: number, v: Normatives): Promise<Normatives> =>
+  (await apiClient.put<Normatives>(`/items/${itemId}/normatives`, v)).data;

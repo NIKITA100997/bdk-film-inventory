@@ -44,6 +44,7 @@ import {
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { getStockSummary, getRollsVsStrips, type StockSummaryLine, type RollsVsStripsLine } from "../../api/reports";
 import { getStockOverview, type StockOverviewLine } from "../../api/purchasing";
+import { normsLabel } from "../../utils/normatives";
 import { listAbcClasses, recomputeAbc } from "../../api/abc";
 import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionaries";
 import { listRacks, suggestLocation } from "../../api/storage";
@@ -594,6 +595,20 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                       },
                     },
                     {
+                      // нормативы группы (08.10): мин. остаток, партия, кратность — м²
+                      title: "Нормативы / заказать, м²",
+                      render: (_: unknown, r: StockSummaryLine) => {
+                        const o = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
+                        const label = normsLabel(o?.min_stock_m2, o?.min_batch_m2, o?.batch_multiple_m2);
+                        return (
+                          <Space direction="vertical" size={0}>
+                            {label !== "—" && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{label}</Typography.Text>}
+                            {(o?.to_order_m2 ?? 0) > 0 ? <Tag color="orange">заказать {o!.to_order_m2}</Tag> : label === "—" ? "—" : <Tag color="green">хватает</Tag>}
+                          </Space>
+                        );
+                      },
+                    },
+                    {
                       title: "Обычно берут у",
                       render: (_: unknown, r: StockSummaryLine) =>
                         overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`)?.usual_supplier ?? "—",
@@ -616,7 +631,10 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                           size="small"
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate("/purchasing", { state: { material: r.material, color: r.color, thickness: r.thickness } });
+                            const toOrder = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`)?.to_order_m2 ?? 0;
+                            navigate("/purchasing", {
+                              state: { material: r.material, color: r.color, thickness: r.thickness, ...(toOrder > 0 ? { requested_area_m2: toOrder } : {}) },
+                            });
                           }}
                         >
                           Заказать

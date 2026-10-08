@@ -150,9 +150,13 @@ export function MaterialsStockTab() {
                   <Tag color="red">не оприходовано</Tag>
                 </Space>
               ) : (
-                <Typography.Text strong style={{ fontVariantNumeric: "tabular-nums" }}>
-                  {fmt(r.balance)} {r.unit}
-                </Typography.Text>
+                <Space size={4}>
+                  <Typography.Text strong style={{ fontVariantNumeric: "tabular-nums" }}>
+                    {fmt(r.balance)} {r.unit}
+                  </Typography.Text>
+                  {/* норматив (08.10): ниже мин. остатка — пора пополнять */}
+                  {r.min_stock != null && r.balance < r.min_stock && <Tag color="orange">ниже мин. {fmt(r.min_stock)}</Tag>}
+                </Space>
               ),
           },
           {

@@ -25,6 +25,7 @@ from app.schemas.purchasing import (
     StockForSkusRequest,
     StockOverviewLine,
 )
+from app.services import normatives
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import current_stock_m2, find_or_create_material_color_thickness, find_or_create_supplier
 from app.services.panel_film import panel_film_by_group, panel_film_demand
@@ -216,9 +217,17 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
     )
     avg_lead_time_by_supplier = {s.supplier_id: s.avg_lead_time_days for s in supplier_stats}
 
-    all_groups = set(stock_by_group) | set(reserved_by_group) | set(open_requested_by_group)
+    group_norms = normatives.film_group_norms(db)
+    all_groups = set(stock_by_group) | set(reserved_by_group) | set(open_requested_by_group) | set(group_norms)
     result: list[StockOverviewLine] = []
     for material_id, color_id, thickness_id in all_groups:
+        g = (material_id, color_id, thickness_id)
+        norms = group_norms.get(g, normatives.Norms())
+        _, shortage, to_order = normatives.suggest(
+            demand=reserved_by_group.get(g, 0.0),
+            have=stock_by_group.get(g, 0.0) + open_requested_by_group.get(g, 0.0),
+            norms=norms,
+        )
         supplier_id = usual_supplier_id_by_group.get((material_id, color_id, thickness_id))
         reorder = compute_reorder_signal(
             ReorderInput(
@@ -241,6 +250,8 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
                 usual_supplier=db.get(Supplier, supplier_id).name if supplier_id else None,
                 days_of_stock_remaining=reorder.days_of_stock_remaining,
                 reorder_suggested=reorder.reorder_suggested,
+                min_stock_m2=norms.min_stock, min_batch_m2=norms.min_batch, batch_multiple_m2=norms.batch_multiple,
+                shortage_m2=shortage, to_order_m2=to_order,
             )
         )
     result.sort(key=lambda r: (r.material, r.color, r.thickness))

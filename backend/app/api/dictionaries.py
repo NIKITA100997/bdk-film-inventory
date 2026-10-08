@@ -419,6 +419,9 @@ def create_part(payload: PartCreate, db: Session = Depends(get_db), user=Depends
     )
     db.add(obj)
     try:
+        db.flush()
+        if obj.item is not None:
+            obj.item.min_stock, obj.item.min_batch = payload.min_stock_pieces, payload.min_batch_pieces
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -454,6 +457,9 @@ def update_part(part_id: int, payload: PartUpdate, db: Session = Depends(get_db)
     for field in ("min_stock_pieces", "min_batch_pieces"):
         if field in payload.model_fields_set:
             setattr(obj, field, getattr(payload, field))
+            # нормативы живут у позиции номенклатуры (08.10) — держим вместе
+            if obj.item is not None:
+                setattr(obj.item, "min_stock" if field == "min_stock_pieces" else "min_batch", getattr(payload, field))
     if payload.is_active is not None:
         obj.is_active = payload.is_active
     try:

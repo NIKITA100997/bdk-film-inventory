@@ -82,6 +82,12 @@ class Item(Base):
     # рубли и единица позиции (у плёнки — м²).
     price_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     price_unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Нормативы запаса (08.10, services/normatives.py) — одинаково для
+    # любого вида, в единице позиции (плёнка — м²): мин. остаток, мин.
+    # партия и кратность партии. Пусто — не задано.
+    min_stock: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
+    min_batch: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
+    batch_multiple: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
     # Деталь в плёнке («деталь · декор», services/laminated.py): от какой
     # детали без плёнки и в каком декоре (материал + цвет плёнки).
     base_item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)
