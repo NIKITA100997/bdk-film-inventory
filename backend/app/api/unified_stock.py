@@ -13,7 +13,11 @@ from app.models.areas import Area
 from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.users import User
 from app.models.write_off_reasons import WriteOffReasonEntry
-from app.services.unified_stock import list_lots, list_movements
+from app.models.dictionaries import PartStage
+from app.models.events import EventType
+from app.models.part_units import PartEventType
+from app.services.components import live_item_names
+from app.services.unified_stock import list_lots
 
 router = APIRouter(prefix="/unified-stock", tags=["unified-stock"])
 
@@ -38,10 +42,10 @@ class LotOut(BaseModel):
 
 
 class MovementOut(BaseModel):
-    kind: str
+    kind: str  # plenka / pf / material / fg
     at: datetime
     event: str
-    lot_id: int
+    lot_id: int | None  # у материалов и готовых изделий партий нет
     item_id: int | None
     item_name: str
     qty_delta: float | None
@@ -58,6 +62,9 @@ class MovementOut(BaseModel):
     task_name: str | None = None
     reason_name: str | None = None
     to_length: float | None = None
+    # Учёт по сумме (08.10): сумма движения, ₽ — тем, у кого права на цены.
+    amount_rub: float | None = None
+    lot_no: str | None = None
 
 
 def _can(user: User, *codes: str) -> bool:
@@ -90,18 +97,33 @@ def get_movements(
     item_id: int | None = Query(default=None),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
-    limit: int = Query(default=500, le=2000),
+    limit: int = Query(default=500, le=5000),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[MovementOut]:
-    """Движения партий всех видов одной лентой, новые сверху. Это же и
-    «Журнал действий» — п/ф в нём видели с правом на отчёты."""
-    if not _can(user, "part_units.view", "part_units.manage", "reports.view"):
-        kind = "plenka"
+    """Движения партий всех видов одной лентой, новые сверху — из единого
+    журнала (представление lot_movements, 08.10): плёнка, п/ф, материалы,
+    готовые изделия. Это же и «Журнал действий». Плёнку видят все; прочие
+    виды — с правами на учёт п/ф или отчёты; суммы — с правами на цены."""
+    from app.services import movements as mv
+
+    others = _can(user, "part_units.view", "part_units.manage", "reports.view")
+    view_kind = {"plenka": "film"}.get(kind or "", kind)
+    kinds = [view_kind] if view_kind else (None if others else ["film"])
+    if not others and view_kind and view_kind != "film":
+        kinds = ["film"]
+    show_amounts = _can(user, "prices.view", "prices.manage")
+    f = mv.Filters(
+        date_from=date_from or date(2000, 1, 1), date_to=date_to or date.today(), kinds=kinds, item_id=item_id,
+        only_qty=False,
+    )
+    rows = mv.query_rows(db, f, limit, 0)
     areas = {a.code: a.name for a in db.query(Area)}
     users = {u.id: u.full_name or u.username for u in db.query(User)}
-    rows = list_movements(db, kind=kind, item_id=item_id, date_from=date_from, date_to=date_to, limit=limit)
-    line_ids = {r.task_line_id for r in rows if r.task_line_id}
+    names = live_item_names(db, {r["item_id"] for r in rows if r["item_id"]})
+    stage_ids = {r["stage_from"] for r in rows if r["stage_from"]} | {r["stage_to"] for r in rows if r["stage_to"]}
+    stages = {st.id: st.name for st in db.query(PartStage).filter(PartStage.id.in_(stage_ids))} if stage_ids else {}
+    line_ids = {r["task_line_id"] for r in rows if r["task_line_id"]}
     task_of_line = (
         {
             ln_id: t_name
@@ -113,14 +135,33 @@ def get_movements(
         else {}
     )
     reasons = {r.code: r.name for r in db.query(WriteOffReasonEntry)}
-    return [
-        MovementOut(
-            kind=r.kind, at=r.at, event=r.event, lot_id=r.lot_id, item_id=r.item_id, item_name=r.item_name,
-            qty_delta=r.qty_delta, unit=r.unit, area_name=areas.get(r.area) if r.area else None,
-            from_place=r.from_place, to_place=r.to_place, user_name=users.get(r.user_id) if r.user_id else None,
-            note=r.note, event_code=r.event_code, area=r.area,
-            task_name=task_of_line.get(r.task_line_id) if r.task_line_id else None,
-            reason_name=reasons.get(r.reason_code) if r.reason_code else None, to_length=r.to_length,
-        )
-        for r in rows
-    ]
+
+    def code(kind_: str, op: str) -> str:
+        # прежний event_code — значение перечисления («Выдача_участку»)
+        try:
+            if kind_ == "film":
+                return EventType[op].value
+            if kind_ == "pf":
+                return PartEventType[op].value
+        except KeyError:
+            pass
+        return op
+
+    out = []
+    for r in rows:
+        k = r["kind"]
+        out.append(MovementOut(
+            kind="plenka" if k == "film" else k, at=r["occurred_at"], event=mv.op_label(k, r["op"]), lot_id=r["lot_id"],
+            item_id=r["item_id"], item_name=names.get(r["item_id"], "—"),
+            qty_delta=float(r["qty"]) if r["qty"] is not None else None, unit=r["unit"],
+            area_name=areas.get(r["area"]) if r["area"] else None,
+            from_place=r["cell_from"] or (stages.get(r["stage_from"]) if r["stage_from"] else None),
+            to_place=r["cell_to"] or (stages.get(r["stage_to"]) if r["stage_to"] else None),
+            user_name=users.get(r["user_id"]) if r["user_id"] else None, note=r["note"], event_code=code(k, r["op"]),
+            area=r["area"], task_name=task_of_line.get(r["task_line_id"]) if r["task_line_id"] else None,
+            reason_name=reasons.get(r["reason"], r["reason"]) if r["reason"] else None,
+            to_length=float(r["to_length"]) if r["to_length"] is not None else None,
+            amount_rub=float(r["amount_rub"]) if (show_amounts and r["amount_rub"] is not None) else None,
+            lot_no=mv.lot_no(k, r["lot_id"]),
+        ))
+    return out

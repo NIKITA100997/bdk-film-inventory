@@ -23,10 +23,15 @@ export interface Lot {
 }
 
 export interface Movement {
-  kind: "plenka" | "pf";
+  /** единый журнал (08.10): плёнка, п/ф, материалы, готовые изделия */
+  kind: "plenka" | "pf" | "material" | "fg";
   at: string;
   event: string;
-  lot_id: number;
+  /** у материалов и готовых изделий партий нет */
+  lot_id: number | null;
+  lot_no?: string | null;
+  /** сумма движения, ₽ — тем, у кого права на цены */
+  amount_rub?: number | null;
   item_id: number | null;
   item_name: string;
   qty_delta: number | null;
@@ -59,4 +64,4 @@ export const listMovements = async (params: {
   limit?: number;
 }): Promise<Movement[]> => (await apiClient.get<Movement[]>("/unified-stock/movements", { params })).data;
 
-export const KIND_LABEL: Record<string, string> = { plenka: "Плёнка", pf: "П/ф" };
+export const KIND_LABEL: Record<string, string> = { plenka: "Плёнка", pf: "П/ф", material: "Материалы", fg: "Изделия" };

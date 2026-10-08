@@ -8,15 +8,14 @@ PartUnit) сводятся в одни строки «партия позици�
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.dictionaries import MaterialSku, Part, PartStage
-from app.models.events import MaterialEvent
+from app.models.dictionaries import MaterialSku, Part
 from app.models.items import sku_item_name
-from app.models.part_units import PartUnit, PartUnitEvent, PartUnitStatus
+from app.models.part_units import PartUnit, PartUnitStatus
 from app.models.production import ProductionTaskLine, ProductionTaskLineReport
 from app.models.units import MaterialUnit, UnitStatus
 from app.services.part_units import reported_good_pieces_by_unit
@@ -128,88 +127,6 @@ def list_lots(
                 )
             )
     return out
-
-
-@dataclass
-class MovementRow:
-    kind: str
-    at: datetime
-    event: str
-    lot_id: int
-    item_id: int | None
-    item_name: str
-    qty_delta: float | None
-    unit: str
-    area: str | None
-    from_place: str | None
-    to_place: str | None
-    user_id: int | None
-    note: str | None
-    # Для журнала действий (объединение «Движения» + «Журнал действий», 29.09).
-    event_code: str = ""  # значение enum как есть — для фильтра
-    task_line_id: int | None = None
-    reason_code: str | None = None
-    to_length: float | None = None  # плёнка: длина после события
-
-
-def list_movements(
-    db: Session,
-    *,
-    kind: str | None = None,
-    item_id: int | None = None,
-    date_from: date | None = None,
-    date_to: date | None = None,
-    limit: int = 500,
-) -> list[MovementRow]:
-    out: list[MovementRow] = []
-    if kind in (None, KIND_FILM):
-        q = db.query(MaterialEvent, MaterialSku).join(MaterialSku, MaterialSku.id == MaterialEvent.material_sku_id).options(
-            joinedload(MaterialSku.material), joinedload(MaterialSku.color),
-            joinedload(MaterialSku.thickness), joinedload(MaterialSku.manufacturer),
-        )
-        if item_id is not None:
-            q = q.filter(MaterialSku.item_id == item_id)
-        if date_from:
-            q = q.filter(MaterialEvent.timestamp >= datetime.combine(date_from, datetime.min.time()))
-        if date_to:
-            q = q.filter(MaterialEvent.timestamp < datetime.combine(date_to, datetime.max.time()))
-        for e, sku in q.order_by(MaterialEvent.timestamp.desc()).limit(limit):
-            out.append(
-                MovementRow(
-                    kind=KIND_FILM, at=e.timestamp, event=_label(e.event_type.value), lot_id=e.unit_id, item_id=sku.item_id,
-                    item_name=sku_item_name(sku.material.name, sku.color.name, sku.thickness.value_mm, sku.manufacturer.name),
-                    qty_delta=float(e.quantity_delta_m) if e.quantity_delta_m is not None else None, unit="м",
-                    area=e.area, from_place=e.from_cell, to_place=e.to_cell, user_id=e.user_id,
-                    note=e.write_off_note, event_code=e.event_type.value, task_line_id=e.production_task_line_id,
-                    reason_code=e.write_off_reason,
-                    to_length=float(e.to_length) if e.to_length is not None else None,
-                )
-            )
-    if kind in (None, KIND_PF):
-        stages = {s.id: s.name for s in db.query(PartStage)}
-        q = db.query(PartUnitEvent, PartUnit, Part).join(PartUnit, PartUnit.id == PartUnitEvent.part_unit_id).join(
-            Part, Part.id == PartUnit.part_id
-        )
-        if item_id is not None:
-            q = q.filter(Part.item_id == item_id)
-        if date_from:
-            q = q.filter(PartUnitEvent.occurred_at >= datetime.combine(date_from, datetime.min.time()))
-        if date_to:
-            q = q.filter(PartUnitEvent.occurred_at < datetime.combine(date_to, datetime.max.time()))
-        for e, u, p in q.order_by(PartUnitEvent.occurred_at.desc()).limit(limit):
-            from_place = e.from_cell or (stages.get(e.from_stage_id) if e.from_stage_id else None)
-            to_place = e.to_cell or (stages.get(e.to_stage_id) if e.to_stage_id else None)
-            out.append(
-                MovementRow(
-                    kind=KIND_PF, at=e.occurred_at, event=_label(e.event_type.value), lot_id=u.id, item_id=p.item_id,
-                    item_name=p.name, qty_delta=float(e.quantity_delta) if e.quantity_delta is not None else None,
-                    unit="шт", area=e.area, from_place=from_place, to_place=to_place, user_id=e.user_id,
-                    note=e.note or e.write_off_note, event_code=e.event_type.value,
-                    task_line_id=e.production_task_line_id, reason_code=e.write_off_reason,
-                )
-            )
-    out.sort(key=lambda r: r.at, reverse=True)
-    return out[:limit]
 
 
 def totals_by_item(rows: list[LotRow]) -> dict[int | None, dict]:

@@ -13,7 +13,9 @@ import { listAreas } from "../../api/areas";
 import { KIND_LABEL, listLots, listMovements, type Lot, type Movement } from "../../api/unifiedStock";
 import { lotNo } from "../../utils/lotNo";
 
-const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange" };
+const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", material: "green", fg: "purple" };
+const rub = (n: number) => `${Math.round(n).toLocaleString("ru-RU")} ₽`;
+const num = (n: number) => String(Math.round(n * 100) / 100).replace(".", ",");
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
 
 /** Выгрузка строк-словарей: колонки — ключи первой строки. */
@@ -151,7 +153,9 @@ export function LotsTab() {
 
 /** Единый журнал движений; itemId — только по одной позиции (карточка
  * позиции). Он же «Журнал действий» (объединение экранов, 29.09): фильтры
- * по событию, участку и партии, задание, причина и исправление ошибок. */
+ * по событию, участку и партии, задание, причина и исправление ошибок.
+ * С 08.10 — из одного журнала в базе (lot_movements): плёнка, п/ф,
+ * материалы и готовые изделия, с суммами и итогами по отбору. */
 export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?: number; fixedKind?: "plenka" | "pf"; defaultDays?: number }) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -195,9 +199,28 @@ export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?
         (areas.length === 0 || (m.area != null && areas.includes(m.area))) &&
         (lot == null || m.lot_id === lot) &&
         (!needle ||
-          [m.item_name, m.event, m.user_name ?? "", m.note ?? "", m.task_name ?? "", m.reason_name ?? ""].some((s) => norm(s).includes(needle))),
+          [m.item_name, m.event, m.user_name ?? "", m.note ?? "", m.task_name ?? "", m.reason_name ?? "", m.lot_no ?? ""].some((s) =>
+            norm(s).includes(needle),
+          )),
     );
   }, [ofKind, events, areas, lot, q]);
+  // Итоги отбора: по виду и единице — плюс и минус; сумма ₽, если видна.
+  const totals = useMemo(() => {
+    const m = new Map<string, { unit: string; kind: string; plus: number; minus: number }>();
+    let amount = 0;
+    for (const r of rows) {
+      if (r.qty_delta) {
+        const key = `${r.kind}|${r.unit}`;
+        const t = m.get(key) ?? { unit: r.unit, kind: r.kind, plus: 0, minus: 0 };
+        if (r.qty_delta > 0) t.plus += r.qty_delta;
+        else t.minus += r.qty_delta;
+        m.set(key, t);
+      }
+      amount += r.amount_rub ?? 0;
+    }
+    return { byUnit: [...m.values()], amount };
+  }, [rows]);
+  const showAmount = rows.some((r) => r.amount_rub != null);
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -210,6 +233,8 @@ export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?
               { label: "Все", value: "all" },
               { label: "Плёнка", value: "plenka" },
               { label: "П/ф", value: "pf" },
+              { label: "Материалы", value: "material" },
+              { label: "Изделия", value: "fg" },
             ]}
           />
         )}
@@ -239,7 +264,8 @@ export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?
                 Когда: dayjs(m.at).format("DD.MM.YYYY HH:mm"),
                 Вид: KIND_LABEL[m.kind],
                 Позиция: m.item_name,
-                Партия: m.lot_id,
+                Партия: m.lot_no ?? "",
+                ...(showAmount ? { "Сумма, ₽": m.amount_rub ?? "" } : {}),
                 Событие: m.event,
                 Количество: m.qty_delta ?? "",
                 Ед: m.unit,
@@ -258,6 +284,23 @@ export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?
           Экспорт в Excel
         </Button>
       </Space>
+      {totals.byUnit.length > 0 && (
+        <Space wrap size={[16, 4]}>
+          <Typography.Text type="secondary">Итого по отбору ({rows.length} строк):</Typography.Text>
+          {totals.byUnit.map((t) => (
+            <Typography.Text key={`${t.kind}|${t.unit}`}>
+              {KIND_LABEL[t.kind]}: <Typography.Text type="success">+{num(t.plus)}</Typography.Text> /{" "}
+              <Typography.Text type="danger">{num(t.minus)}</Typography.Text> {t.unit}
+            </Typography.Text>
+          ))}
+          {showAmount && (
+            <Typography.Text strong>
+              сумма {totals.amount > 0 ? "+" : ""}
+              {rub(totals.amount)}
+            </Typography.Text>
+          )}
+        </Space>
+      )}
       <ResponsiveTable<Movement>
         tableKey={itemId ? "item-movements" : "unified-movements"}
         lockedColumns={["Когда"]}
@@ -279,7 +322,14 @@ export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?
                     m.item_id ? <a onClick={() => navigate(`/item/${m.item_id}`)}>{m.item_name}</a> : m.item_name,
                 },
               ]),
-          { title: "Партия", render: (_, m) => (m.kind === "plenka" ? <UnitLink id={m.lot_id} /> : <PartUnitLink id={m.lot_id} />) },
+          ...(!itemId && kind === "all"
+            ? [{ title: "Вид", render: (_: unknown, m: Movement) => <Tag color={KIND_COLOR[m.kind]}>{KIND_LABEL[m.kind]}</Tag> }]
+            : []),
+          {
+            title: "Партия",
+            render: (_, m) =>
+              m.lot_id == null ? "—" : m.kind === "plenka" ? <UnitLink id={m.lot_id} /> : <PartUnitLink id={m.lot_id} />,
+          },
           { title: "Событие", render: (_, m) => <Tag>{m.event}</Tag> },
           {
             title: "Количество",
@@ -293,6 +343,22 @@ export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?
                 </Typography.Text>
               ),
           },
+          ...(showAmount
+            ? [
+                {
+                  title: "Сумма",
+                  render: (_: unknown, m: Movement) =>
+                    m.amount_rub ? (
+                      <span style={{ fontVariantNumeric: "tabular-nums", color: m.amount_rub < 0 ? "#cf1322" : undefined }}>
+                        {m.amount_rub > 0 ? "+" : ""}
+                        {rub(m.amount_rub)}
+                      </span>
+                    ) : (
+                      "—"
+                    ),
+                },
+              ]
+            : []),
           { title: "Участок", render: (_, m) => m.area_name ?? "—" },
           { title: "Откуда → куда", render: (_, m) => (m.from_place || m.to_place ? `${m.from_place ?? "—"} → ${m.to_place ?? "—"}` : "—") },
           { title: "Кто", render: (_, m) => m.user_name ?? "—" },
@@ -306,7 +372,7 @@ export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?
                 {
                   title: "",
                   render: (_: unknown, m: Movement) =>
-                    canCorrect(m.kind) ? (
+                    (m.kind === "plenka" || m.kind === "pf") && m.lot_id != null && canCorrect(m.kind) ? (
                       <Button size="small" onClick={() => setAdjust(m)}>
                         Скорректировать
                       </Button>
@@ -316,7 +382,9 @@ export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?
             : []),
         ]}
       />
-      {adjust && <LotOperationById kind={adjust.kind} id={adjust.lot_id} op="adjust" onClose={() => setAdjust(null)} />}
+      {adjust && adjust.lot_id != null && (adjust.kind === "plenka" || adjust.kind === "pf") && (
+        <LotOperationById kind={adjust.kind} id={adjust.lot_id} op="adjust" onClose={() => setAdjust(null)} />
+      )}
     </Space>
   );
 }
