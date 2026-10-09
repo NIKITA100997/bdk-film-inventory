@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
+  Alert,
   Button,
   Card,
   Checkbox,
@@ -29,6 +30,7 @@ import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
 import ReleaseWorkspace from "./ReleaseWorkspace";
+import LaminationPrelaunchModal from "./LaminationPrelaunchModal";
 import PrintTasksModal from "./PrintTasksModal";
 import FastReportPanel from "./fastReport/FastReportPanel";
 import TaskCardDrawer from "./TaskCardDrawer";
@@ -330,6 +332,7 @@ export function OrderView({
   };
   const [printing, setPrinting] = useState(false);
   const [cardTask, setCardTask] = useState<number | null>(null);
+  const [lamOpen, setLamOpen] = useState(false);
   const [orderTab, setOrderTab] = useState("flow");
   // Открыли другой заказ — с вкладки «Ход».
   const [tabFor, setTabFor] = useState<number | null>(order?.id ?? null);
@@ -391,12 +394,13 @@ export function OrderView({
             {order.status === "draft" && (
               <>
                 <Button onClick={() => onEdit(order)}>Изменить строки</Button>
+                <Button onClick={() => setLamOpen(true)}>Окутка панелей отдельно…</Button>
                 <Popconfirm title="Удалить черновик?" okText="Удалить" cancelText="Отмена" onConfirm={() => deleteMutation.mutate(order.id)}>
                   <Button danger>Удалить черновик</Button>
                 </Popconfirm>
               </>
             )}
-            {order.status !== "draft" && (order.tasks ?? []).length > 0 && (
+            {(order.tasks ?? []).length > 0 && (
               <Button onClick={() => setPrinting(true)}>Печать заданий…</Button>
             )}
             {order.status === "released" && (
@@ -455,7 +459,25 @@ export function OrderView({
       }
     >
       {order && order.status === "draft" ? (
-        <ReleaseWorkspace order={order} canManage={canManage} onEditLines={() => onEdit(order)} />
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          {(order.tasks ?? []).length > 0 && (
+            <Alert
+              type="info"
+              showIcon
+              message="Окутка панелей запущена отдельно — при запуске заказа она не повторится"
+              description={
+                <Space wrap>
+                  {(order.tasks ?? []).map((t) => (
+                    <Button key={t.id} size="small" type="link" style={{ padding: 0 }} onClick={() => setCardTask(t.id)}>
+                      №{t.id} {t.area_name ?? t.area}: {t.planned} шт{t.done ? `, сделано ${t.done}` : ""}
+                    </Button>
+                  ))}
+                </Space>
+              }
+            />
+          )}
+          <ReleaseWorkspace order={order} canManage={canManage} onEditLines={() => onEdit(order)} />
+        </Space>
       ) : order && (
         <Tabs
           activeKey={orderTab}
@@ -495,6 +517,7 @@ export function OrderView({
           onClose={() => setPrinting(false)}
         />
       )}
+      {lamOpen && order && <LaminationPrelaunchModal order={order} onClose={() => setLamOpen(false)} />}
       <TaskCardDrawer taskId={cardTask} onClose={() => setCardTask(null)} canManage={canManage} canReport={canManage} />
     </Card>
   );

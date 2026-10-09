@@ -21,6 +21,7 @@ import { listAreas } from "../../../api/areas";
 import {
   EMPTY_PLAN,
   getReleaseLayout,
+  getOrderLamination,
   getReleasePreview,
   getReleaseSettings,
   releaseProductionOrder,
@@ -65,6 +66,18 @@ export default function ReleaseWorkspace({
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaName = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : null);
   const needs = useMemo(() => needsQuery.data ?? [], [needsQuery.data]);
+  // Окутка, запущенная отдельно (09.10): эти панели площадку уже получили —
+  // при запуске их окутка не повторяется, выбирать её здесь не нужно.
+  const hasPrelaunch = (order.tasks ?? []).length > 0;
+  const lamQuery = useQuery({
+    queryKey: ["order-lamination", order.id],
+    queryFn: () => getOrderLamination(order.id),
+    enabled: hasPrelaunch,
+  });
+  const prelaunched = useMemo(
+    () => new Set((lamQuery.data ?? []).filter((r) => r.launched > 0 && r.launched >= r.quantity).map((r) => r.part_id)),
+    [lamQuery.data],
+  );
 
   // --- настройка: из сохранённой в черновике, недостающее — по расчёту
   const [pf, setPf] = useState<Record<string, PfState>>({});
@@ -108,7 +121,7 @@ export default function ReleaseWorkspace({
   // --- п/ф и площадки
   const st = (n: PfNeed) => pf[keyOf(n)] ?? { picked: true, qty: n.quantity, stock: 0, lam: null };
   const patchPf = (n: PfNeed, p: Partial<PfState>) => setPf((prev) => ({ ...prev, [keyOf(n)]: { ...st(n), ...p } }));
-  const lamRows = needs.filter((n) => n.lamination_area && st(n).picked && (st(n).qty ?? 0) > 0);
+  const lamRows = needs.filter((n) => n.lamination_area && st(n).picked && (st(n).qty ?? 0) > 0 && !prelaunched.has(n.part_id));
   const unassigned = lamRows.filter((n) => !st(n).lam);
   const factoryCode = needs.find((n) => n.factory_area)?.factory_area ?? null;
   const pressCode = needs.find((n) => n.lamination_area)?.lamination_area ?? null;

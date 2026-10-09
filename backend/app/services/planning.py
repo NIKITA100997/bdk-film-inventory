@@ -185,6 +185,18 @@ def release_pf(
     from app.services.panel_film import lamination_line_film
 
     area_names = {a.code: a.name for a in db.query(Area)}
+    # Окутка, запущенная отдельно до заказа (09.10, lamination_prelaunch):
+    # столько штук панели уже в заданиях — повторно не запускаем, а строки
+    # её комплектующих идут «под» то задание.
+    from app.services.lamination_prelaunch import prelaunched_film
+
+    pre = prelaunched_film(db, order)
+    pre_task: dict[int, ProductionTask] = {}
+    if pre:
+        for t in db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id):
+            for ln in t.lines:
+                if ln.part_id in pre:
+                    pre_task.setdefault(ln.part_id, t)
     # (строка заказа, этап) → задание, где этот этап выполняется
     stage_task: dict[tuple[int, int], ProductionTask] = {}
     for t in door_tasks:
@@ -210,8 +222,17 @@ def release_pf(
         ops = stages[:-1] if len(stages) > 1 else stages
         for stage in ops:
             area = stage.area
-            if pick.lamination_area and stage is film_stage(part.stages):
-                area = pick.lamination_area
+            qty = pick.quantity
+            if stage is film_stage(part.stages):
+                if pick.lamination_area:
+                    area = pick.lamination_area
+                took = min(qty, pre.get(part.id, 0.0))
+                if took > 0:
+                    pre[part.id] -= took
+                    qty = round(qty - took, 2)
+                    stage_task[(pick.order_line_id, stage.id)] = pre_task[part.id]
+                    if qty <= 0:
+                        continue
             if area is None:
                 continue
             key = (area, for_task.id if for_task else None)
@@ -229,7 +250,7 @@ def release_pf(
             # списывает метраж (02.10).
             film = lamination_line_film(db, part, stage, area) if is_film(stage) else {}
             line = ProductionTaskLine(
-                quantity_pieces=pick.quantity, part_stage_id=stage.id, part_id=part.id, part_name=part.name,
+                quantity_pieces=qty, part_stage_id=stage.id, part_id=part.id, part_name=part.name,
                 width_mm=float(part.width_mm or 0), length_m=film.pop("length_m", 0), order_line_id=pick.order_line_id,
                 **film,
             )

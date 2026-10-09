@@ -636,6 +636,11 @@ def delete_order(order_id: int, db: Session = Depends(get_db), user: User = Depe
     order = _get_order(db, order_id)
     if order.status != ORDER_DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, "Удалить можно только черновик; запущенный — закройте")
+    if db.query(ProductionTask.id).filter(ProductionTask.production_order_id == order.id).first():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "По заказу уже запущена окутка панелей — сначала уберите её задания (или запустите и закройте заказ)",
+        )
     db.delete(order)
     db.commit()
 
@@ -761,6 +766,57 @@ def release_layout(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     finally:
         db.rollback()
+
+
+class LamRowOut(BaseModel):
+    part_id: int
+    part_name: str
+    quantity: float
+    launched: float
+    press_area: str | None
+    factory_area: str | None
+    factory_min_pieces: float | None
+    film: str | None
+    strip_mm: dict[str, float | None]
+
+
+@router.get("/production-orders/{order_id}/lamination", response_model=list[LamRowOut])
+def lamination_preview(order_id: int, db: Session = Depends(get_db), user: User = Depends(view_orders)) -> list[LamRowOut]:
+    """Панели заказа с операцией плёнки: сколько нужно и сколько окутки уже
+    запущено отдельно (09.10)."""
+    from app.services.lamination_prelaunch import lamination_rows
+
+    return [LamRowOut(**r.__dict__) for r in lamination_rows(db, _get_order(db, order_id))]
+
+
+class LamPickIn(BaseModel):
+    part_id: int
+    quantity: float = Field(gt=0)
+    area: str
+
+
+class LamReleaseIn(BaseModel):
+    items: list[LamPickIn]
+
+
+@router.post("/production-orders/{order_id}/release-lamination", response_model=OrderOut)
+def release_lamination_only(
+    order_id: int, payload: LamReleaseIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+) -> OrderOut:
+    """Окутка панелей отдельно: задания на ламинацию до запуска заказа
+    (Фабрика — широкоформатная окутка, или прессы). Заказ остаётся
+    черновиком; при его запуске эта окутка не повторяется."""
+    from app.services.lamination_prelaunch import LamPick, release_lamination
+
+    order = _get_order(db, order_id)
+    try:
+        release_lamination(db, order, [LamPick(**i.model_dump()) for i in payload.items], user.id)
+    except OrderError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    db.commit()
+    db.refresh(order)
+    return _order_out(db, order)
 
 
 class TaskDateIn(BaseModel):

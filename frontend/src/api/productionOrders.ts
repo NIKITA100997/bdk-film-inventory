@@ -104,6 +104,28 @@ export interface PfPick {
 export const getReleasePreview = async (orderId: number): Promise<PfNeed[]> =>
   (await apiClient.get<PfNeed[]>(`/production-orders/${orderId}/release-preview`)).data;
 
+/** Окутка панелей отдельно (09.10): панели заказа с операцией плёнки. */
+export interface LamRow {
+  part_id: number;
+  part_name: string;
+  quantity: number;
+  launched: number;
+  press_area: string | null;
+  factory_area: string | null;
+  factory_min_pieces: number | null;
+  film: string | null;
+  strip_mm: Record<string, number | null>;
+}
+
+export const getOrderLamination = async (orderId: number): Promise<LamRow[]> =>
+  (await apiClient.get<LamRow[]>(`/production-orders/${orderId}/lamination`)).data;
+
+export const releaseOrderLamination = async (
+  orderId: number,
+  items: { part_id: number; quantity: number; area: string }[],
+): Promise<ProductionOrder> =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${orderId}/release-lamination`, { items })).data;
+
 export const rescheduleOrder = async (orderId: number): Promise<ProductionOrder> =>
   (await apiClient.post<ProductionOrder>(`/production-orders/${orderId}/schedule`)).data;
 
