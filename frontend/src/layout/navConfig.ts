@@ -145,6 +145,13 @@ export const navTree: NavBlock[] = [
     label: "Продажи и заказы",
     items: [
       { key: "sales-calculator", path: "/sales-calculator", label: "Калькулятор заказа", permissions: ["sales_calculator.view"] },
+      // график отгрузок: заказы и заявки по дням (09.10)
+      {
+        key: "shipment-schedule",
+        path: "/shipment-schedule",
+        label: "График отгрузок",
+        permissions: ["orders.request", "sales_calculator.view", "production_tasks.manage", "production_tasks.view"],
+      },
       // склад готовой продукции и отгрузка по счёту (06.10)
       { key: "shipments", path: "/shipments", label: "Отгрузка", permissions: ["fg.ship", "sales_calculator.view", "production_tasks.manage", "production_tasks.view"] },
       {

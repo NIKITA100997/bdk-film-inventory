@@ -97,7 +97,7 @@ function ShipCell({ order: o }: { order: ProductionOrder }) {
 
 // Заказ с позициями — готовность по последней операции позиций; заказ
 // из заданий (окутка из наряда, операции участка, п/ф) — по строкам заданий.
-const orderTotals = (o: ProductionOrder) => {
+export const orderTotals = (o: ProductionOrder) => {
   if (o.lines.length === 0) {
     const tasks = o.tasks ?? [];
     return { qty: tasks.reduce((s, t) => s + t.planned, 0), done: tasks.reduce((s, t) => s + t.done, 0) };

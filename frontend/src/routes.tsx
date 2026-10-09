@@ -38,6 +38,7 @@ import PeriodClosing from "./pages/desktop/PeriodClosing";
 import Productivity from "./pages/desktop/Productivity";
 import ProductionMonitor from "./pages/desktop/production/ProductionMonitor";
 import SearchPage from "./pages/desktop/SearchPage";
+import ShipmentSchedule from "./pages/desktop/ShipmentSchedule";
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
@@ -75,6 +76,14 @@ const appPageRoutes = (
     {/* Единые «Остатки» (плёнка и п/ф); старые адреса ведут сюда же. */}
     <Route path="/stock" element={<Stock />} />
     <Route path="/search" element={<SearchPage />} />
+    <Route
+      path="/shipment-schedule"
+      element={
+        <RequirePermission permissions={["orders.request", "sales_calculator.view", "production_tasks.manage", "production_tasks.view"]}>
+          <ShipmentSchedule />
+        </RequirePermission>
+      }
+    />
     <Route path="/materials" element={<MaterialCardRedirect />} />
     {/* Раздел 6 плана «Детали/П/ф остатки» — сквозной ERP-справочник
     по всем доменам сразу, виден так же широко, как сам /stock (сам
