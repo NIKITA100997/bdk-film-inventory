@@ -158,5 +158,8 @@ export async function runUnitOrMaterialSearch(
     return;
   }
 
-  navigate("/stock", { state: { globalQuery: trimmed } });
+  // Скан — как раньше, в остатки плёнки; набранный текст — общий поиск
+  // по названию (09.10): детали, позиции, задания, заказы, счета.
+  if (mode === "scan") navigate("/stock", { state: { globalQuery: trimmed } });
+  else navigate(`/search?q=${encodeURIComponent(trimmed)}`);
 }

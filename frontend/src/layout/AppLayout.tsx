@@ -221,7 +221,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               // странице ниже есть другие поля, т.е. на "Остатках").
               enterKeyHint="search"
               prefix={<SearchOutlined />}
-              placeholder="Номер (рулон, партия, задание, заказ) или материал…"
+              placeholder="Номер или название: деталь, задание, заказ, счёт, плёнка…"
               value={headerQuery}
               onChange={(e) => setHeaderQuery(e.target.value)}
               onPressEnter={() => {
@@ -252,7 +252,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               type="text"
               icon={<SearchOutlined style={{ color: "#fff" }} />}
               onClick={() => setSearchOpen(true)}
-              aria-label="Поиск по ID/материалу"
+              aria-label="Поиск"
             />
             <QrScanButton
               onScan={(code) => runUnitOrMaterialSearch(code, navigate, "scan")}

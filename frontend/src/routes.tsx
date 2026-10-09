@@ -37,6 +37,7 @@ import ActionRequests from "./pages/desktop/ActionRequests";
 import PeriodClosing from "./pages/desktop/PeriodClosing";
 import Productivity from "./pages/desktop/Productivity";
 import ProductionMonitor from "./pages/desktop/production/ProductionMonitor";
+import SearchPage from "./pages/desktop/SearchPage";
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
@@ -73,6 +74,7 @@ const appPageRoutes = (
     поэтому доступ держим таким же широким, как у самого /stock. */}
     {/* Единые «Остатки» (плёнка и п/ф); старые адреса ведут сюда же. */}
     <Route path="/stock" element={<Stock />} />
+    <Route path="/search" element={<SearchPage />} />
     <Route path="/materials" element={<MaterialCardRedirect />} />
     {/* Раздел 6 плана «Детали/П/ф остатки» — сквозной ERP-справочник
     по всем доменам сразу, виден так же широко, как сам /stock (сам
