@@ -201,6 +201,7 @@ export default function ReportModal({
           counts_toward_line: false,
           note: `Остаток указан вручную: ${extra.remainingM} м`,
           kind: "remainder",
+          used_up: extra.remainingM === 0,
         });
       }
       // Фактический расход основного рулона (прессы) — на первую запись,

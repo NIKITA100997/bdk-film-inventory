@@ -878,7 +878,7 @@ function LineSheet({
                       <Button
                         key={u.id}
                         size="small"
-                        onClick={() => r.setEntry(fl.line, { extra: [...(e.extra ?? []), { id: u.id, left: null }] })}
+                        onClick={() => r.setEntry(fl.line, { extra: [...(e.extra ?? []), { id: u.id, left: 0 }] })}
                       >
                         {rollNo(u.id)} · {fmt(u.left)} м
                       </Button>
@@ -893,6 +893,11 @@ function LineSheet({
                     <Typography.Text>
                       + {rollNo(x.id)}: осталось на рулоне, м
                     </Typography.Text>
+                    {/* Обычно доп. штрипс уходит в ноль, остаток — на одном (09.10). */}
+                    <Button size="large" type={x.left === 0 ? "primary" : "default"}
+                      onClick={() => r.setEntry(fl.line, { extra: (e.extra ?? []).map((y) => (y.id === x.id ? { ...y, left: 0 } : y)) })}>
+                      в ноль
+                    </Button>
                     <InputNumber
                       min={0}
                       max={u?.left}
@@ -908,7 +913,9 @@ function LineSheet({
                       }
                     />
                     {u && x.left != null && (
-                      <Typography.Text type="secondary">расход {fmt(Math.max(0, u.left - x.left))} м</Typography.Text>
+                      <Typography.Text type="secondary">
+                        расход {fmt(Math.max(0, u.left - x.left))} м{x.left === 0 ? " · штрипс закроется как израсходованный" : ""}
+                      </Typography.Text>
                     )}
                     <Button
                       type="link"

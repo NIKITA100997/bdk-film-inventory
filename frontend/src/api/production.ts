@@ -258,6 +258,8 @@ export interface ProductionTaskLineReportCreate {
   counts_toward_line?: boolean;
   /** "remainder" — доп. рулон / остаток указан вручную (штуки под остаток рулона). */
   kind?: "remainder" | null;
+  // доп. рулон израсходован в ноль — закрыть сразу (09.10)
+  used_up?: boolean;
   /** Фактический расход плёнки, м (прессы, 06.10). Пусто — по норме. */
   film_used_m?: number | null;
 }

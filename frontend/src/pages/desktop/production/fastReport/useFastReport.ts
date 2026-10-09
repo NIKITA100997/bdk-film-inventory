@@ -242,6 +242,7 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
               assignment_id: null, material_unit_id: x.id,
               good_pieces: fl.line.length_m > 0 ? consumed / fl.line.length_m : 0, defect_pieces: 0,
               counts_toward_line: false, note: `Остаток указан вручную: ${x.left} м`, kind: "remainder",
+              used_up: x.left === 0,
             });
           }
           if (lineForReport) for (const pl of payloads) pl.line_id = lineForReport;

@@ -336,6 +336,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               counts_toward_line: false,
               note: `Остаток указан вручную: ${extra.remainingM} м`,
               kind: "remainder",
+              used_up: extra.remainingM === 0,
             });
           }
           if (payloads.length > 0) await createTaskLineReportsBatch(r.taskId, r.line.id, payloads);

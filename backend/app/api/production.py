@@ -1637,10 +1637,34 @@ def create_task_line_report(
     reports = _build_task_line_report(task_id, line_id, payload, db, user)
     _stamp_report_line(db, task_id, payload, reports)
     _stamp_report_film(payload, reports)
+    db.flush()
+    _close_used_up(db, payload, user)
     db.commit()
     for r in reports:
         db.refresh(r)
     return reports[-1]
+
+
+def _close_used_up(db: Session, payload: ProductionTaskLineReportCreate, user: User) -> None:
+    """Доп. рулон, израсходованный в ноль (09.10): раскрой до нуля — расход,
+    не брак (как «израсходован» на Фабрике и прессах), штрипс уходит с
+    участка без возврата на склад."""
+    if payload.kind != "remainder" or not payload.used_up or payload.material_unit_id is None:
+        return
+    from app.services.events import record_event
+    from app.services.splitting import cut_to_length
+
+    unit = db.get(MaterialUnit, payload.material_unit_id)
+    if unit is None or unit.status != UnitStatus.VYDAN_UCHASTKU or float(unit.length_m) <= 0:
+        return
+    outcome = cut_to_length(unit, float(unit.length_m))
+    unit.length_m = outcome.parent_length_m
+    unit.status = outcome.parent_status
+    record_event(
+        db, unit=unit, event_type=outcome.parent_event.event_type, user_id=user.id,
+        quantity_delta_m=outcome.parent_event.quantity_delta_m,
+        from_length=outcome.parent_event.from_length, to_length=outcome.parent_event.to_length,
+    )
 
 
 @router.post(
@@ -1677,6 +1701,8 @@ def create_task_line_reports_batch(
         _stamp_report_line(db, task_id, payload, built)
         _stamp_report_film(payload, built)
         reports.extend(built)
+        db.flush()
+        _close_used_up(db, payload, user)
     db.commit()
     for r in reports:
         db.refresh(r)
