@@ -5,6 +5,7 @@ import { listAreas, createArea, updateArea, type Area } from "../../api/areas";
 import { listSites, createSite, updateSite, type Site } from "../../api/sites";
 import { listWarehouses } from "../../api/storage";
 import { listItemTypes } from "../../api/itemTypes";
+import { listProductionLines } from "../../api/production";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { apiErrorMessage } from "../../utils/apiError";
 
@@ -62,6 +63,17 @@ export default function AreaAdmin() {
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const sitesQuery = useQuery({ queryKey: ["sites"], queryFn: listSites });
   const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  // Мощность по линиям (09.10): если задана у линий — участок считается их суммой.
+  const linesQuery = useQuery({ queryKey: ["production-lines"], queryFn: listProductionLines });
+  const lineCapacity = useMemo(() => {
+    const m = new Map<string, { sum: number; n: number }>();
+    for (const l of linesQuery.data ?? []) {
+      if (!l.is_active || !l.capacity_per_shift) continue;
+      const cur = m.get(l.area) ?? { sum: 0, n: 0 };
+      m.set(l.area, { sum: cur.sum + Number(l.capacity_per_shift), n: cur.n + 1 });
+    }
+    return m;
+  }, [linesQuery.data]);
 
   const siteLabel = (siteId: number | null) => (sitesQuery.data ?? []).find((s) => s.id === siteId)?.name ?? "—";
   const warehouseLabel = (warehouseId: number) => (warehousesQuery.data ?? []).find((w) => w.id === warehouseId)?.name ?? "—";
@@ -261,7 +273,9 @@ export default function AreaAdmin() {
             {
               title: "Мощность",
               render: (_, a) =>
-                a.capacity_per_shift ? (
+                lineCapacity.get(a.code) ? (
+                  `${lineCapacity.get(a.code)!.sum} шт × ${a.shifts_per_day} см. (линий: ${lineCapacity.get(a.code)!.n})`
+                ) : a.capacity_per_shift ? (
                   `${a.capacity_per_shift} шт × ${a.shifts_per_day} см.`
                 ) : (
                   <Typography.Text type="secondary">не задана</Typography.Text>

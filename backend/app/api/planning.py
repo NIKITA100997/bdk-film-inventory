@@ -140,10 +140,13 @@ def board(
         b.quantity = round(b.quantity + left, 2)
         backlog[t.area] = b
     used = {a for a, _ in cells} | set(backlog)
+    from app.services.areas import area_capacities
+
+    caps = area_capacities(db)
     areas = [
         AreaOut(
             code=a.code, name=a.name, site=sites.get(a.site_id),
-            capacity=round(float(a.capacity_per_shift) * (a.shifts_per_day or 1), 2) if a.capacity_per_shift else None,
+            capacity=caps.get(a.code),
         )
         for a in sorted(areas_all.values(), key=lambda a: (sites.get(a.site_id) or "я", a.name))
         if a.code in used and (site_id is None or a.site_id == site_id)

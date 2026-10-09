@@ -150,10 +150,13 @@ def production_monitor(db: Session = Depends(get_db)) -> MonitorOut:
     sites = {s.id: s.name for s in db.query(Site)}
     found = db.query(Area).filter(Area.code.in_(area_codes)).all() if area_codes else []
     found.sort(key=lambda a: (sum(starts[a.code]) / len(starts[a.code]) if starts[a.code] else 10**9, a.name))
+    from app.services.areas import area_capacities
+
+    caps = area_capacities(db)
     areas = [
         MonitorArea(
             code=a.code, name=a.name, site=sites.get(a.site_id) if a.site_id else None, sort=i,
-            per_day=float(a.capacity_per_shift) * (a.shifts_per_day or 1) if a.capacity_per_shift else None,
+            per_day=caps.get(a.code),
         )
         for i, a in enumerate(found)
     ]

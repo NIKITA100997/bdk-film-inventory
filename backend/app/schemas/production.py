@@ -13,6 +13,8 @@ class ProductionLineUpdate(BaseModel):
     name: str | None = None
     area: str | None = None
     is_active: bool | None = None
+    # 0 — сбросить
+    capacity_per_shift: float | None = Field(default=None, ge=0)
 
 
 class ProductionLineOut(BaseModel):
@@ -21,6 +23,7 @@ class ProductionLineOut(BaseModel):
     name: str
     area: str
     is_active: bool
+    capacity_per_shift: float | None = None
 
 
 class ProductModelCreate(BaseModel):

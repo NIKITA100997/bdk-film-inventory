@@ -31,6 +31,15 @@ from app.models.users import User
 from app.services.production import report_film_m
 
 
+def _caps(db: Session) -> dict[str, float]:
+    """Мощность участков в день (сумма линий или участка) — раз на запрос."""
+    from app.services.areas import area_capacities
+
+    if "_area_caps" not in db.info:
+        db.info["_area_caps"] = area_capacities(db)
+    return db.info["_area_caps"]
+
+
 def _period(date_from: date, date_to: date):
     start = datetime.combine(date_from, time.min).astimezone(timezone.utc)
     end = datetime.combine(date_to, time.max).astimezone(timezone.utc)
@@ -209,8 +218,7 @@ def output_report(db: Session, date_from: date, date_to: date, area: str | None 
             "user": users.get(rep.reported_by, "—"), "area": t.area,
             "area_name": areas[t.area].name if t.area in areas else t.area, "date": day.isoformat(),
             "good": 0.0, "defect": 0.0, "reports": 0, "lines": set(),
-            "capacity": float(areas[t.area].capacity_per_shift or 0) * int(areas[t.area].shifts_per_day or 1)
-            if t.area in areas and areas[t.area].capacity_per_shift else None,
+            "capacity": _caps(db).get(t.area),
         })
         if rep.counts_toward_line:
             r["good"] += float(rep.good_pieces)
@@ -277,7 +285,7 @@ def daily_output(db: Session, date_from: date, date_to: date) -> dict:
         rows.setdefault(key, {
             "group": "production", "key": key, "label": area.name if area else t.area,
             "value_label": "годных, шт", "extra_label": "брак, шт", "by_day": {},
-            "capacity": float(area.capacity_per_shift) * int(area.shifts_per_day or 1) if area and area.capacity_per_shift else None,
+            "capacity": _caps(db).get(t.area),
         })
         c = cell(key, rep.reported_at.astimezone().date().isoformat())
         c["value"] += g

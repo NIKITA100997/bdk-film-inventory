@@ -8,6 +8,8 @@ export interface ProductionLine {
   name: string;
   area: AreaValue;
   is_active: boolean;
+  // шт за смену (09.10); мощность участка — сумма его активных линий
+  capacity_per_shift?: number | null;
 }
 
 export interface ProductionLineCreate {
@@ -19,6 +21,7 @@ export interface ProductionLineUpdate {
   name?: string;
   area?: AreaValue;
   is_active?: boolean;
+  capacity_per_shift?: number;
 }
 
 export interface ProductModelPart {

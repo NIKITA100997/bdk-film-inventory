@@ -53,3 +53,20 @@ def cuts_film_on_site(db: Session, area_code: str | None) -> bool:
         return False
     area = db.get(Area, area_code)
     return bool(area is not None and area.film_cut_on_site)
+
+
+def area_capacities(db: Session) -> dict[str, float]:
+    """Мощность участков в день, шт: сумма активных линий участка с
+    заданной мощностью (09.10, аудит по станкам), иначе — мощность самого
+    участка; × смен в день. Участок без мощности в словарь не попадает."""
+    from app.models.production import ProductionLine
+
+    by_lines: dict[str, float] = {}
+    for ln in db.query(ProductionLine).filter(ProductionLine.is_active.is_(True), ProductionLine.capacity_per_shift.isnot(None)):
+        by_lines[ln.area] = by_lines.get(ln.area, 0.0) + float(ln.capacity_per_shift)
+    out: dict[str, float] = {}
+    for a in db.query(Area):
+        per_shift = by_lines.get(a.code) or (float(a.capacity_per_shift) if a.capacity_per_shift else None)
+        if per_shift:
+            out[a.code] = round(per_shift * (a.shifts_per_day or 1), 2)
+    return out

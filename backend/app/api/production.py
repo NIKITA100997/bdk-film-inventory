@@ -667,6 +667,8 @@ def update_production_line(
         line.area = payload.area
     if payload.is_active is not None:
         line.is_active = payload.is_active
+    if payload.capacity_per_shift is not None:
+        line.capacity_per_shift = payload.capacity_per_shift or None
     db.commit()
     db.refresh(line)
     return line

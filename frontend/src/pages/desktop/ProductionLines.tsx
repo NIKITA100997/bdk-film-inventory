@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Tag, Button, Modal, Form, Input, Select, Space, Typography, DatePicker, Empty, Checkbox, message } from "antd";
+import { Card, Tag, Button, Modal, Form, Input, InputNumber, Select, Space, Typography, DatePicker, Empty, Checkbox, message } from "antd";
 import dayjs from "dayjs";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { useNavigate } from "react-router-dom";
@@ -115,6 +115,12 @@ export default function ProductionLines() {
             { title: "Название", dataIndex: "name" },
             { title: "Участок", dataIndex: "area", render: (v: string) => areaLabel(v) },
             {
+              title: "Мощность, шт/смену",
+              dataIndex: "capacity_per_shift",
+              align: "right",
+              render: (v: number | null | undefined) => (v ? v : <Typography.Text type="secondary">—</Typography.Text>),
+            },
+            {
               title: "Статус",
               dataIndex: "is_active",
               render: (v: boolean) => (v ? <Tag color="green">Активна</Tag> : <Tag>В архиве</Tag>),
@@ -136,7 +142,7 @@ export default function ProductionLines() {
               title: "",
               render: (_, l) => (
                 <Space>
-                  <Button size="small" onClick={() => { setEditingLine(l); editForm.setFieldsValue({ name: l.name, area: l.area }); }}>
+                  <Button size="small" onClick={() => { setEditingLine(l); editForm.setFieldsValue({ name: l.name, area: l.area, capacity_per_shift: l.capacity_per_shift ?? undefined }); }}>
                     Изменить
                   </Button>
                   <Button size="small" onClick={() => updateMutation.mutate({ id: l.id, payload: { is_active: !l.is_active } })}>
@@ -196,12 +202,23 @@ export default function ProductionLines() {
       </Modal>
 
       <Modal title={`Изменить линию ${editingLine?.name ?? ""}`} open={!!editingLine} onCancel={() => setEditingLine(null)} footer={null} destroyOnHidden>
-        <Form form={editForm} layout="vertical" onFinish={(v) => editingLine && updateMutation.mutate({ id: editingLine.id, payload: v })}>
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={(v) => editingLine && updateMutation.mutate({ id: editingLine.id, payload: { ...v, capacity_per_shift: v.capacity_per_shift ?? 0 } })}
+        >
           <Form.Item name="name" label="Название" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <Form.Item name="area" label="Участок" rules={[{ required: true }]}>
             <Select options={areaOptions} />
+          </Form.Item>
+          <Form.Item
+            name="capacity_per_shift"
+            label="Мощность, шт за смену"
+            extra="Мощность участка в планировщике и мониторе — сумма его активных линий. Пусто — линия не считается."
+          >
+            <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={updateMutation.isPending}>
             Сохранить

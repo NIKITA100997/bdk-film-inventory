@@ -23,6 +23,9 @@ class ProductionLine(Base):
     name: Mapped[str] = mapped_column(String(64), unique=True)  # "Поперечная-1", "Продольная-2"
     area: Mapped[str] = mapped_column(ForeignKey("areas.code"))
     is_active: Mapped[bool] = mapped_column(default=True)
+    # Мощность линии, шт за смену (09.10, аудит по станкам). Мощность
+    # участка — сумма активных линий с заданной мощностью (services/areas.py).
+    capacity_per_shift: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
 
 
 class ProductModel(Base):
