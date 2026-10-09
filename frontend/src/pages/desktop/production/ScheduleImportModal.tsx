@@ -1,3 +1,4 @@
+import { useAuth } from "../../../auth/AuthContext";
 import { useState } from "react";
 import { Alert, Button, DatePicker, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import type { Dayjs } from "dayjs";
@@ -37,6 +38,10 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
   // счёт из 1С целиком (07.10): строки «наименование — кол-во», номер и отгрузка — здесь
   const [invoiceNo, setInvoiceNo] = useState("");
   const [shipDate, setShipDate] = useState<Dayjs | null>(null);
+  // Вилка отгрузки менеджера (09.10)
+  const [shipWindow, setShipWindow] = useState<[Dayjs | null, Dayjs | null]>([null, null]);
+  const { user: me } = useAuth();
+  const isManager = !!me?.is_superuser || !!me?.permissions.includes("production_tasks.manage");
   const [preview, setPreview] = useState<{ rows: ScheduleImportRow[]; parse_errors: string[]; colors?: ScheduleImportColor[] } | null>(null);
   // Сопоставление цвет графика → плёнка: выбор сохраняется в привязку цвета
   // типа и дальше подставляется сам (в заданиях на ламинацию — эта плёнка).
@@ -60,6 +65,8 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
         color_films: colorFilms,
         invoice_no: invoiceNo.trim() || null,
         ship_date: shipDate ? shipDate.format("YYYY-MM-DD") : null,
+        ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
+        ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
       }),
     onSuccess: (res, dryRun) => {
       setPreview(res);
@@ -131,14 +138,23 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
               setPreview(null);
             }}
           />
-          <DatePicker
-            placeholder="Дата отгрузки"
+          {isManager && (
+            <DatePicker
+              placeholder="Дата отгрузки"
+              format="DD.MM.YYYY"
+              value={shipDate}
+              onChange={(v) => {
+                setShipDate(v);
+                setPreview(null);
+              }}
+            />
+          )}
+          <DatePicker.RangePicker
+            placeholder={["Вилка отгрузки: с", "по"]}
             format="DD.MM.YYYY"
-            value={shipDate}
-            onChange={(v) => {
-              setShipDate(v);
-              setPreview(null);
-            }}
+            allowEmpty={[true, false]}
+            value={shipWindow}
+            onChange={(v) => setShipWindow([v?.[0] ?? null, v?.[1] ?? null])}
           />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             строки вида «В-15 (м9 кромка 4х) 600х2000 - Полипропилен Аляска …   30» — серия, размер и цвет берутся из наименования

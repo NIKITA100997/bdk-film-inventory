@@ -45,6 +45,18 @@ class ProductionOrder(Base):
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Заявка менеджера (09.10): вилка отгрузки, в которую готов клиент;
+    # ship_date — твёрдая дата (100%), её ставит производство при приёме.
+    # request_status: submitted — отправлена, returned — возвращена с
+    # комментарием, accepted — принята; пусто — обычный черновик.
+    ship_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ship_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    request_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    request_comment: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    decided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("order_categories.id"), nullable=True)
     # Настройки запуска черновика (05.10): п/ф (со склада / в работу),
     # площадки ламинации, ручные правки строк, сроки — сохраняются по ходу

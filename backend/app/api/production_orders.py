@@ -31,12 +31,30 @@ from app.services.planning import PfPick, order_pf_needs, order_plan_status, rel
 from app.services.production_orders import OrderError, close_order, complete_tasks, release_order
 from app.services.schedule_import import import_schedule
 from app.services.type_rules import item_chars_cached
+from app.services.order_requests import REQ_ACCEPTED, REQ_RETURNED, REQ_SUBMITTED
 from app.models.items import ItemType
 
 router = APIRouter(tags=["production-orders"])
 
-view_orders = require_permission("production_tasks.manage", "production_tasks.view", "production_tasks.report")
+view_orders = require_permission(
+    "production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view"
+)
 manage_orders = require_permission("production_tasks.manage")
+# Заявки (09.10): продажник заводит и правит черновики, отправляет в
+# производство; запускает и принимает срок — только производство.
+edit_orders = require_permission("production_tasks.manage", "orders.request")
+
+
+def _can_manage(user: User) -> bool:
+    return user.is_superuser or "production_tasks.manage" in get_permission_codes(user)
+
+
+def _check_editable(order: ProductionOrder, user: User) -> None:
+    """Продажник правит только свой этап: черновик до отправки или возвращённый."""
+    if _can_manage(user):
+        return
+    if order.status != ORDER_DRAFT or order.request_status in (REQ_SUBMITTED, REQ_ACCEPTED):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Заявка уже у производства — изменить её может начальник цеха")
 
 
 class OrderLineIn(BaseModel):
@@ -49,6 +67,9 @@ class OrderLineIn(BaseModel):
 class OrderIn(BaseModel):
     name: str
     ship_date: date | None = None
+    # вилка отгрузки менеджера (09.10)
+    ship_from: date | None = None
+    ship_to: date | None = None
     note: str | None = None
     kind: str = ORDER_KIND_CUSTOMER  # customer | stock
     category_id: int | None = None
@@ -123,6 +144,13 @@ class OrderOut(BaseModel):
     released_at: datetime | None
     task_ids: list[int]
     lines: list[OrderLineOut]
+    ship_from: date | None = None
+    ship_to: date | None = None
+    request_status: str | None = None
+    request_comment: str | None = None
+    submitted_at: datetime | None = None
+    submitted_by_name: str | None = None
+    decided_by_name: str | None = None
     tasks: list[OrderTaskOut] = []
     # План: последний день плана, не успевает к отгрузке, просрочено штук.
     plan_finish: date | None = None
@@ -203,9 +231,22 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
         category_name=(db.get(OrderCategory, order.category_id).name if order.category_id else None),
         created_by_name=(author.full_name or author.username) if author else "—", created_at=order.created_at,
         released_at=order.released_at, task_ids=[t.id for t in tasks], lines=out_lines,
+        ship_from=order.ship_from, ship_to=order.ship_to, request_status=order.request_status,
+        request_comment=order.request_comment, submitted_at=order.submitted_at,
+        submitted_by_name=_user_name(db, order.submitted_by), decided_by_name=_user_name(db, order.decided_by),
         tasks=_tasks_out(db, tasks, area_names),
         **_plan_fields(db, order),
     )
+
+
+def _user_name(db: Session, user_id: int | None) -> str | None:
+    u = db.get(User, user_id) if user_id else None
+    return (u.full_name or u.username) if u else None
+
+
+def _window(ship_from: date | None, ship_to: date | None) -> None:
+    if ship_from and ship_to and ship_from > ship_to:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Вилка отгрузки: «с» позже, чем «по»")
 
 
 def _plan_fields(db: Session, order: ProductionOrder) -> dict:
@@ -596,15 +637,23 @@ def _kind(value: str) -> str:
 
 
 @router.post("/production-orders", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
-def create_order(payload: OrderIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderOut:
+def create_order(payload: OrderIn, db: Session = Depends(get_db), user: User = Depends(edit_orders)) -> OrderOut:
     name = " ".join(payload.name.split())
     if not name:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите название заказа")
-    if payload.ship_date is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите дату отгрузки — от неё считаются сроки операций")
+    manager = _can_manage(user)
+    # Твёрдую дату ставит производство; продажник — вилку.
+    ship_date = payload.ship_date if manager else None
+    if ship_date is None and payload.ship_to is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Укажите дату отгрузки — от неё считаются сроки операций" if manager else "Укажите вилку отгрузки: с какого и по какое число",
+        )
+    _window(payload.ship_from, payload.ship_to)
     order = ProductionOrder(
-        name=name, ship_date=payload.ship_date, note=(payload.note or "").strip() or None, status=ORDER_DRAFT, created_by=user.id,
+        name=name, ship_date=ship_date, note=(payload.note or "").strip() or None, status=ORDER_DRAFT, created_by=user.id,
         kind=_kind(payload.kind), category_id=_category(db, payload.category_id),
+        ship_from=payload.ship_from, ship_to=payload.ship_to,
     )
     db.add(order)
     db.flush()
@@ -615,14 +664,19 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db), user: User = D
 
 
 @router.put("/production-orders/{order_id}", response_model=OrderOut)
-def update_order(order_id: int, payload: OrderIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderOut:
+def update_order(order_id: int, payload: OrderIn, db: Session = Depends(get_db), user: User = Depends(edit_orders)) -> OrderOut:
     order = _get_order(db, order_id)
     if order.status != ORDER_DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, "Запущенный заказ не правится — задания уже выданы участкам")
+    _check_editable(order, user)
     name = " ".join(payload.name.split())
     if not name:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите название заказа")
-    order.name, order.ship_date, order.note = name, payload.ship_date, (payload.note or "").strip() or None
+    _window(payload.ship_from, payload.ship_to)
+    if _can_manage(user):
+        order.ship_date = payload.ship_date
+    order.name, order.note = name, (payload.note or "").strip() or None
+    order.ship_from, order.ship_to = payload.ship_from, payload.ship_to
     order.kind = _kind(payload.kind)
     order.category_id = _category(db, payload.category_id)
     _write_lines(db, order, payload.lines)
@@ -632,8 +686,9 @@ def update_order(order_id: int, payload: OrderIn, db: Session = Depends(get_db),
 
 
 @router.delete("/production-orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_order(order_id: int, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> None:
+def delete_order(order_id: int, db: Session = Depends(get_db), user: User = Depends(edit_orders)) -> None:
     order = _get_order(db, order_id)
+    _check_editable(order, user)
     if order.status != ORDER_DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, "Удалить можно только черновик; запущенный — закройте")
     if db.query(ProductionTask.id).filter(ProductionTask.production_order_id == order.id).first():
@@ -712,6 +767,8 @@ def release(
     """Запуск: задания участкам по маршрутам, п/ф под заказ (что выбрано в
     окне запуска) и сроки операций назад от отгрузки."""
     order = _get_order(db, order_id)
+    if order.request_status == REQ_SUBMITTED and order.ship_date is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Сначала примите заявку — поставьте дату отгрузки")
     try:
         tasks = release_order(db, order, user.id)
         if payload and payload.pf:
@@ -819,6 +876,106 @@ def release_lamination_only(
     return _order_out(db, order)
 
 
+class PlanCheckAreaOut(BaseModel):
+    area: str
+    name: str
+    order_pieces: float
+    queue_pieces: float
+    per_day: float | None
+    days: int | None
+
+
+class PlanCheckOut(BaseModel):
+    earliest: date | None
+    by_route: date | None
+    bottleneck: str | None
+    fits: bool | None
+    areas: list[PlanCheckAreaOut]
+    error: str | None = None
+
+
+@router.get("/production-orders/{order_id}/plan-check", response_model=PlanCheckOut)
+def order_plan_check(order_id: int, db: Session = Depends(get_db), user: User = Depends(view_orders)) -> PlanCheckOut:
+    """Заявка (09.10): когда раньше всего может быть готово — по срокам
+    операций и загрузке участков. Запуск выполняется и откатывается."""
+    from app.services.order_requests import plan_check
+
+    order = _get_order(db, order_id)
+    if order.status != ORDER_DRAFT:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Заказ уже запущен — смотрите план")
+    try:
+        r = plan_check(db, order, user.id)
+        return PlanCheckOut(
+            earliest=r.earliest, by_route=r.by_route, bottleneck=r.bottleneck, fits=r.fits, error=r.error,
+            areas=[PlanCheckAreaOut(**a.__dict__) for a in r.areas],
+        )
+    finally:
+        db.rollback()
+
+
+class RequestDecisionIn(BaseModel):
+    comment: str | None = Field(default=None, max_length=500)
+    ship_date: date | None = None
+
+
+@router.post("/production-orders/{order_id}/submit", response_model=OrderOut)
+def submit_request(
+    order_id: int, payload: RequestDecisionIn | None = None, db: Session = Depends(get_db), user: User = Depends(edit_orders)
+) -> OrderOut:
+    """Менеджер отправляет заявку в производство."""
+    order = _get_order(db, order_id)
+    _check_editable(order, user)
+    if order.status != ORDER_DRAFT or not order.lines:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Отправить можно черновик со строками")
+    if order.ship_to is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите вилку отгрузки")
+    order.request_status = REQ_SUBMITTED
+    order.request_comment = ((payload.comment or "").strip() or None) if payload else None
+    order.submitted_at, order.submitted_by = datetime.now(timezone.utc), user.id
+    order.decided_by = None
+    order.decided_at = None
+    db.commit()
+    db.refresh(order)
+    return _order_out(db, order)
+
+
+@router.post("/production-orders/{order_id}/return", response_model=OrderOut)
+def return_request(
+    order_id: int, payload: RequestDecisionIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+) -> OrderOut:
+    """Производство возвращает заявку менеджеру с комментарием."""
+    order = _get_order(db, order_id)
+    if order.request_status != REQ_SUBMITTED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Вернуть можно только отправленную заявку")
+    comment = (payload.comment or "").strip()
+    if not comment:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Напишите, почему возвращаете")
+    order.request_status, order.request_comment = REQ_RETURNED, comment
+    order.decided_by, order.decided_at = user.id, datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(order)
+    return _order_out(db, order)
+
+
+@router.post("/production-orders/{order_id}/accept", response_model=OrderOut)
+def accept_request(
+    order_id: int, payload: RequestDecisionIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+) -> OrderOut:
+    """Производство принимает заявку: твёрдая дата отгрузки (100%)."""
+    order = _get_order(db, order_id)
+    if order.request_status != REQ_SUBMITTED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Принять можно только отправленную заявку")
+    if payload.ship_date is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите дату отгрузки")
+    order.ship_date = payload.ship_date
+    order.request_status = REQ_ACCEPTED
+    order.request_comment = (payload.comment or "").strip() or None
+    order.decided_by, order.decided_at = user.id, datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(order)
+    return _order_out(db, order)
+
+
 class TaskDateIn(BaseModel):
     task_id: int
     date: date
@@ -919,6 +1076,8 @@ class ScheduleImportIn(BaseModel):
     # счёт 1С целиком (07.10): номер счёта и отгрузка — на все строки без своих
     invoice_no: str | None = None
     ship_date: date | None = None
+    ship_from: date | None = None
+    ship_to: date | None = None
 
 
 class ScheduleColorOut(BaseModel):
@@ -953,7 +1112,7 @@ class ScheduleImportOut(BaseModel):
 
 @router.post("/production-orders/from-schedule", response_model=ScheduleImportOut)
 def order_from_schedule(
-    payload: ScheduleImportIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+    payload: ScheduleImportIn, db: Session = Depends(get_db), user: User = Depends(edit_orders)
 ) -> ScheduleImportOut:
     """График запуска (вставлен из Excel) → черновик заказа: строка графика
     — позиция по типу (находится или создаётся с техкартой по правилам) и
@@ -966,8 +1125,17 @@ def order_from_schedule(
     rows, parse_errors, order = import_schedule(
         db, text=payload.text, type_=type_, order_name=payload.name, user_id=user.id, dry_run=payload.dry_run,
         color_films=payload.color_films, colors_out=colors,
-        invoice_no=(payload.invoice_no or "").strip() or None, ship_date=payload.ship_date,
+        invoice_no=(payload.invoice_no or "").strip() or None,
+        ship_date=payload.ship_date if _can_manage(user) else None,
     )
+    if order is not None and (payload.ship_from or payload.ship_to):
+        _window(payload.ship_from, payload.ship_to)
+        order.ship_from, order.ship_to = payload.ship_from, payload.ship_to
+    if order is not None and not _can_manage(user):
+        # у продажника дата из графика — конец вилки, твёрдую ставит производство
+        if order.ship_to is None:
+            order.ship_to = order.ship_date
+        order.ship_date = None
     colors_out = [ScheduleColorOut(**c.__dict__) for c in colors]
     if order is not None:
         db.commit()

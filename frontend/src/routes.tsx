@@ -182,12 +182,12 @@ const appPageRoutes = (
     />
     <Route
       path="/production-orders/:id"
-      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "sales_calculator.view"]}><OrderPage /></RequirePermission>}
+      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "sales_calculator.view", "orders.request"]}><OrderPage /></RequirePermission>}
     />
     <Route
       path="/production-orders"
       element={
-        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "sales_calculator.view"]}>
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "sales_calculator.view", "orders.request"]}>
           <ProductionOrders />
         </RequirePermission>
       }

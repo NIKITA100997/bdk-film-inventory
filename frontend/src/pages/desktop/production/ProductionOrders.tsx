@@ -26,6 +26,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import ScheduleImportModal from "./ScheduleImportModal";
+import RequestPanel from "./RequestPanel";
 import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
@@ -60,7 +61,7 @@ import { apiErrorMessage } from "../../../utils/apiError";
 
 const STATUS_COLOR: Record<OrderStatus, string> = { draft: "default", released: "blue", closed: "green" };
 
-type ListFilter = "all" | "late" | "pf" | "stock" | "draft";
+type ListFilter = "all" | "late" | "pf" | "stock" | "draft" | "requests";
 // Отборы списка заказов (30.09): что не успевает, что ждёт п/ф, на склад,
 // черновики; участок — выбором (раньше — только «Фабрика»).
 const LIST_FILTERS: [ListFilter, string, (o: ProductionOrder) => boolean][] = [
@@ -69,7 +70,30 @@ const LIST_FILTERS: [ListFilter, string, (o: ProductionOrder) => boolean][] = [
   ["pf", "Ждёт п/ф", (o) => (o.tasks ?? []).some((t) => t.for_task_id != null && t.is_active && t.done < t.planned)],
   ["stock", "На склад", (o) => o.kind === "stock"],
   ["draft", "Черновики", (o) => o.status === "draft"],
+  ["requests", "Заявки ждут решения", (o) => o.request_status === "submitted"],
 ];
+
+// Право продажника (09.10): заводить заявки, видеть все заказы.
+const canRequestOrders = (user: { is_superuser?: boolean; permissions: string[] } | null | undefined) =>
+  !!user && !user.is_superuser && user.permissions.includes("orders.request");
+
+function ShipCell({ order: o }: { order: ProductionOrder }) {
+  const window = o.ship_from || o.ship_to ? `${o.ship_from ? dayjs(o.ship_from).format("DD.MM") : "…"}–${o.ship_to ? dayjs(o.ship_to).format("DD.MM") : "…"}` : null;
+  const req =
+    o.request_status === "submitted" ? <Tag color="gold">заявка ждёт</Tag> : o.request_status === "returned" ? <Tag color="red">возвращена</Tag> : null;
+  return (
+    <Space direction="vertical" size={0}>
+      <span>
+        {o.ship_date && o.request_status !== "submitted" ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—"} {req}
+      </span>
+      {window && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          вилка {window}
+        </Typography.Text>
+      )}
+    </Space>
+  );
+}
 
 // Заказ с позициями — готовность по последней операции позиций; заказ
 // из заданий (окутка из наряда, операции участка, п/ф) — по строкам заданий.
@@ -108,6 +132,7 @@ export default function ProductionOrders() {
 function OrdersList() {
   const { user } = useAuth();
   const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canRequest = canRequestOrders(user);
   const [includeClosed, setIncludeClosed] = useState(false);
   // ?order=ID (сквозной поиск по номеру) — сразу открыть страницу заказа.
   const [params] = useSearchParams();
@@ -152,15 +177,19 @@ function OrdersList() {
             <Checkbox checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)}>
               С закрытыми
             </Checkbox>
-            {canManage && (
+            {(canManage || canRequest) && (
               <Dropdown
                 trigger={["click"]}
                 menu={{
                   items: [
-                    { key: "film", label: "Окутка / ламинация — из наряда, плана заготовок или вручную" },
-                    { key: "ops", label: "Работы участка без плёнки (операции техкарт)" },
-                    { key: "items", label: "Из позиций номенклатуры (по маршрутам)" },
-                    { key: "schedule", label: "Из графика запуска или счёта 1С…" },
+                    ...(canManage
+                      ? [
+                          { key: "film", label: "Окутка / ламинация — из наряда, плана заготовок или вручную" },
+                          { key: "ops", label: "Работы участка без плёнки (операции техкарт)" },
+                        ]
+                      : []),
+                    { key: "items", label: canManage ? "Из позиций номенклатуры (по маршрутам)" : "Заявка: позиции вручную" },
+                    { key: "schedule", label: canManage ? "Из графика запуска или счёта 1С…" : "Заявка: из графика или счёта 1С…" },
                   ],
                   onClick: ({ key }) => {
                     if (key === "film" || key === "ops") setTaskCreate({ kind: key });
@@ -169,7 +198,7 @@ function OrdersList() {
                   },
                 }}
               >
-                <Button type="primary">Новый заказ ▾</Button>
+                <Button type="primary">{canManage ? "Новый заказ ▾" : "Новая заявка ▾"}</Button>
               </Dropdown>
             )}
           </Space>
@@ -240,7 +269,7 @@ function OrdersList() {
           { title: "Статус", render: (_, o) => <Tag color={STATUS_COLOR[o.status]}>{ORDER_STATUS_LABEL[o.status]}</Tag> },
           {
             title: "Отгрузка / готово к",
-            render: (_, o) => (o.ship_date ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—"),
+            render: (_, o) => <ShipCell order={o} />,
           },
           { title: "Срок по плану", render: (_, o) => <PlanTag order={o} /> },
           {
@@ -333,6 +362,10 @@ export function OrderView({
   const [printing, setPrinting] = useState(false);
   const [cardTask, setCardTask] = useState<number | null>(null);
   const [lamOpen, setLamOpen] = useState(false);
+  const { user } = useAuth();
+  const canRequest = canRequestOrders(user);
+  // Продажник правит заявку до отправки и после возврата.
+  const requesterEdits = canRequest && !!order && order.status === "draft" && order.request_status !== "submitted" && order.request_status !== "accepted";
   const [orderTab, setOrderTab] = useState("flow");
   // Открыли другой заказ — с вкладки «Ход».
   const [tabFor, setTabFor] = useState<number | null>(order?.id ?? null);
@@ -389,6 +422,15 @@ export function OrderView({
       }
       extra={
         order &&
+        !canManage &&
+        requesterEdits ? (
+          <Space>
+            <Button onClick={() => onEdit(order)}>Изменить заявку</Button>
+            <Popconfirm title="Удалить заявку?" okText="Удалить" cancelText="Отмена" onConfirm={() => deleteMutation.mutate(order.id)}>
+              <Button danger>Удалить</Button>
+            </Popconfirm>
+          </Space>
+        ) : order &&
         canManage && (
           <Space>
             {order.status === "draft" && (
@@ -476,7 +518,28 @@ export function OrderView({
               }
             />
           )}
-          <ReleaseWorkspace order={order} canManage={canManage} onEditLines={() => onEdit(order)} />
+          {(order.ship_to || order.request_status || canRequest) && (
+            <RequestPanel order={order} canManage={canManage} canRequest={canRequest} />
+          )}
+          {canManage ? (
+            <ReleaseWorkspace order={order} canManage={canManage} onEditLines={() => onEdit(order)} />
+          ) : (
+            <Card size="small" title={`Позиции — ${order.lines.length}, ${order.lines.reduce((s, l) => s + l.quantity, 0)} шт`}>
+              <ResponsiveTable
+                tableKey="request-lines"
+                size="small"
+                rowKey="id"
+                pagination={false}
+                dataSource={order.lines}
+                columns={[
+                  { title: "Позиция", dataIndex: "item_name" },
+                  { title: "Кол-во", dataIndex: "quantity", align: "right" },
+                  { title: "Счёт", dataIndex: "invoice_no", render: (v: string | null) => v ?? "—" },
+                  { title: "Примечание", dataIndex: "note", render: (v: string | null) => v ?? "" },
+                ]}
+              />
+            </Card>
+          )}
         </Space>
       ) : order && (
         <Tabs
@@ -572,6 +635,13 @@ export function OrderModal({
   const itemsQuery = useQuery({ queryKey: ["items", false], queryFn: () => listItems({ include_inactive: false }) });
   const [name, setName] = useState(order?.name ?? "");
   const [shipDate, setShipDate] = useState<Dayjs | null>(order?.ship_date ? dayjs(order.ship_date) : null);
+  // Вилка отгрузки менеджера (09.10); твёрдую дату ставит производство.
+  const { user: me } = useAuth();
+  const isManager = !!me?.is_superuser || !!me?.permissions.includes("production_tasks.manage");
+  const [shipWindow, setShipWindow] = useState<[Dayjs | null, Dayjs | null]>([
+    order?.ship_from ? dayjs(order.ship_from) : null,
+    order?.ship_to ? dayjs(order.ship_to) : null,
+  ]);
   const [note, setNote] = useState(order?.note ?? "");
   const [kind, setKind] = useState<OrderKind>(order?.kind ?? "customer");
   const [categoryId, setCategoryId] = useState<number | undefined>(order?.category_id ?? undefined);
@@ -650,6 +720,8 @@ export function OrderModal({
       const payload: OrderInput = {
         name: name.trim(),
         ship_date: shipDate ? shipDate.format("YYYY-MM-DD") : null,
+        ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
+        ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
         note: note.trim() || null,
         kind,
         category_id: categoryId ?? null,
@@ -670,7 +742,7 @@ export function OrderModal({
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить заказ")),
   });
   const invalid =
-    !name.trim() || !shipDate || lines.length === 0 || lines.some((l) => !l.item_id || !l.quantity || l.quantity <= 0);
+    !name.trim() || (isManager ? !shipDate && !shipWindow[1] : !shipWindow[1]) || lines.length === 0 || lines.some((l) => !l.item_id || !l.quantity || l.quantity <= 0);
 
   return (
     <Modal
@@ -698,13 +770,25 @@ export function OrderModal({
               ]}
             />
           </Form.Item>
-          <Form.Item
-            label={kind === "stock" ? "Готово к" : "Отгрузка"}
-            required
-            extra={kind === "stock" ? "Пополнение остатка — продажникам не показывается; от даты считаются сроки" : "От неё считаются сроки операций"}
-          >
-            <DatePicker format="DD.MM.YYYY" value={shipDate} onChange={setShipDate} />
-          </Form.Item>
+          {isManager && (
+            <Form.Item
+              label={kind === "stock" ? "Готово к" : "Отгрузка (100%)"}
+              required={!shipWindow[1]}
+              extra={kind === "stock" ? "Пополнение остатка — продажникам не показывается; от даты считаются сроки" : "От неё считаются сроки операций"}
+            >
+              <DatePicker format="DD.MM.YYYY" value={shipDate} onChange={setShipDate} />
+            </Form.Item>
+          )}
+          {kind === "customer" && (
+            <Form.Item label="Вилка отгрузки" required={!isManager} extra="Когда клиент готов забрать: с — по">
+              <DatePicker.RangePicker
+                format="DD.MM.YYYY"
+                allowEmpty={[true, false]}
+                value={shipWindow}
+                onChange={(v) => setShipWindow([v?.[0] ?? null, v?.[1] ?? null])}
+              />
+            </Form.Item>
+          )}
         </Space>
         <Form.Item label="Категория" extra="Для аналитики; список пополняется прямо здесь">
           <Select

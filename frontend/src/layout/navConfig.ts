@@ -99,7 +99,7 @@ export const navTree: NavBlock[] = [
         key: "production-orders",
         path: "/production-orders",
         label: "Заказы на производство",
-        permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report"],
+        permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view"],
       },
       {
         key: "planner",

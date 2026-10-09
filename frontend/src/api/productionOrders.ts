@@ -71,7 +71,35 @@ export interface ProductionOrder {
   plan_late?: boolean;
   plan_overdue?: number;
   planned?: boolean;
+  /** Заявка менеджера (09.10): вилка отгрузки и статус; ship_date — твёрдая дата. */
+  ship_from?: string | null;
+  ship_to?: string | null;
+  request_status?: RequestStatus | null;
+  request_comment?: string | null;
+  submitted_at?: string | null;
+  submitted_by_name?: string | null;
+  decided_by_name?: string | null;
 }
+
+export type RequestStatus = "submitted" | "returned" | "accepted";
+
+export interface PlanCheck {
+  earliest: string | null;
+  by_route: string | null;
+  bottleneck: string | null;
+  fits: boolean | null;
+  areas: { area: string; name: string; order_pieces: number; queue_pieces: number; per_day: number | null; days: number | null }[];
+  error: string | null;
+}
+
+export const getPlanCheck = async (id: number): Promise<PlanCheck> =>
+  (await apiClient.get<PlanCheck>(`/production-orders/${id}/plan-check`)).data;
+export const submitOrderRequest = async (id: number, comment: string | null): Promise<ProductionOrder> =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/submit`, { comment })).data;
+export const returnOrderRequest = async (id: number, comment: string): Promise<ProductionOrder> =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/return`, { comment })).data;
+export const acceptOrderRequest = async (id: number, shipDate: string, comment: string | null): Promise<ProductionOrder> =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/accept`, { ship_date: shipDate, comment })).data;
 
 /** П/ф под заказ — что запустить вместе с ним (по составу вглубь). */
 export interface PfNeed {
@@ -150,6 +178,8 @@ export type OrderKind = "customer" | "stock";
 export interface OrderInput {
   name: string;
   ship_date: string | null;
+  ship_from?: string | null;
+  ship_to?: string | null;
   note: string | null;
   kind?: OrderKind;
   category_id?: number | null;
@@ -369,6 +399,8 @@ export const importOrderFromSchedule = async (payload: {
   /** счёт 1С целиком: номер и отгрузка — на все строки без своих */
   invoice_no?: string | null;
   ship_date?: string | null;
+  ship_from?: string | null;
+  ship_to?: string | null;
 }): Promise<{ rows: ScheduleImportRow[]; parse_errors: string[]; colors?: ScheduleImportColor[]; order: ProductionOrder | null }> =>
   (await apiClient.post("/production-orders/from-schedule", payload)).data;
 
