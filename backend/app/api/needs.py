@@ -150,8 +150,7 @@ def purchase_shortages(payload: PurchaseIn, db: Session = Depends(get_db), user:
             else:
                 not_sent.append(title)
     if film_lines:
-        bitrix.message_to_chat(db, "purchase_task", "chat_purchasing", "Заявки на закупку плёнки (дефицит по заказам):
-" + "
-".join(film_lines))
+        text = "Заявки на закупку плёнки (дефицит по заказам):\n" + "\n".join(film_lines)
+        bitrix.message_to_chat(db, "purchase_task", "chat_purchasing", text)
     db.commit()
     return PurchaseOut(film_requests=film_ids, bitrix_tasks=tasks, not_sent=not_sent)
