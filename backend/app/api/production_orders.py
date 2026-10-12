@@ -22,6 +22,8 @@ from app.models.production_orders import (
     ORDER_DRAFT,
     ORDER_KIND_CUSTOMER,
     ORDER_KIND_STOCK,
+    ORDER_RELEASED,
+    OrderDateChange,
     ProductionOrder,
     ProductionOrderLine,
 )
@@ -70,6 +72,12 @@ class OrderIn(BaseModel):
     # вилка отгрузки менеджера (09.10)
     ship_from: date | None = None
     ship_to: date | None = None
+    # из счёта и от менеджера (12.10)
+    customer: str | None = Field(default=None, max_length=255)
+    amount_rub: float | None = Field(default=None, ge=0)
+    priority: int = Field(default=0, ge=0, le=2)
+    # обещанная готовность — ставит производство
+    promised_ready: date | None = None
     note: str | None = None
     kind: str = ORDER_KIND_CUSTOMER  # customer | stock
     category_id: int | None = None
@@ -151,6 +159,17 @@ class OrderOut(BaseModel):
     submitted_at: datetime | None = None
     submitted_by_name: str | None = None
     decided_by_name: str | None = None
+    customer: str | None = None
+    amount_rub: float | None = None
+    priority: int = 0
+    promised_ready: date | None = None
+    # факт (12.10): готовность — вручную или по приходу всего на склад ГП;
+    # принято на склад и отгружено, шт; последняя отгрузка
+    ready_fact: date | None = None
+    received_qty: float = 0
+    shipped_qty: float = 0
+    last_shipped_at: date | None = None
+    date_changes: list["DateChangeOut"] = []
     tasks: list[OrderTaskOut] = []
     # План: последний день плана, не успевает к отгрузке, просрочено штук.
     plan_finish: date | None = None
@@ -234,9 +253,85 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
         ship_from=order.ship_from, ship_to=order.ship_to, request_status=order.request_status,
         request_comment=order.request_comment, submitted_at=order.submitted_at,
         submitted_by_name=_user_name(db, order.submitted_by), decided_by_name=_user_name(db, order.decided_by),
+        customer=order.customer, amount_rub=float(order.amount_rub) if order.amount_rub is not None else None,
+        priority=order.priority or 0, promised_ready=order.promised_ready,
+        **_fact_fields(db, order),
         tasks=_tasks_out(db, tasks, area_names),
         **_plan_fields(db, order),
     )
+
+
+class DateChangeOut(BaseModel):
+    field: str
+    old_date: date | None
+    new_date: date | None
+    reason: str | None
+    reason_name: str | None
+    comment: str | None
+    user_name: str | None
+    created_at: datetime
+
+
+DATE_CHANGE_REASONS = {
+    "material": "Нет материала",
+    "capacity": "Перегруз участка",
+    "client": "Просьба клиента",
+    "defect": "Брак, переделка",
+    "equipment": "Поломка оборудования",
+    "calendar": "Нерабочий день",
+    "urgent": "Вставили срочный заказ",
+    "other": "Другое",
+}
+
+
+def _fact_fields(db: Session, order: ProductionOrder) -> dict:
+    """Факт по складу ГП: принято, отгружено, дата готовности и последней отгрузки."""
+    from app.models.finished_goods import FG_RECEIPT, FgMove
+
+    ol_ids = [ln.id for ln in order.lines]
+    received = shipped = 0.0
+    ready = order.ready_at
+    last_ship = None
+    if ol_ids:
+        rec_by_line: dict[int, float] = defaultdict(float)
+        last_rec = None
+        for m in db.query(FgMove).filter(FgMove.order_line_id.in_(ol_ids)):
+            q = float(m.qty)
+            if m.kind == FG_RECEIPT:
+                rec_by_line[m.order_line_id] += q
+                last_rec = max(last_rec, m.occurred_at) if last_rec else m.occurred_at
+            elif m.kind in ("shipment", "unship", "return"):
+                shipped -= q
+                if m.kind == "shipment":
+                    last_ship = max(last_ship, m.occurred_at) if last_ship else m.occurred_at
+        received = sum(rec_by_line.values())
+        if ready is None and last_rec and all(rec_by_line.get(ln.id, 0.0) >= float(ln.quantity) for ln in order.lines):
+            ready = last_rec.astimezone().date()
+    changes = (
+        db.query(OrderDateChange).filter(OrderDateChange.order_id == order.id).order_by(OrderDateChange.created_at.desc()).all()
+    )
+    return {
+        "ready_fact": ready,
+        "received_qty": round(received, 2),
+        "shipped_qty": round(shipped, 2),
+        "last_shipped_at": last_ship.astimezone().date() if last_ship else None,
+        "date_changes": [
+            DateChangeOut(
+                field=c.field, old_date=c.old_date, new_date=c.new_date, reason=c.reason,
+                reason_name=DATE_CHANGE_REASONS.get(c.reason or ""), comment=c.comment,
+                user_name=_user_name(db, c.user_id), created_at=c.created_at,
+            )
+            for c in changes
+        ],
+    }
+
+
+def _log_date(db: Session, order: ProductionOrder, field: str, old: date | None, new: date | None, user_id: int,
+              reason: str | None = None, comment: str | None = None) -> None:
+    if old == new:
+        return
+    db.add(OrderDateChange(order_id=order.id, field=field, old_date=old, new_date=new, reason=reason,
+                           comment=(comment or "").strip() or None, user_id=user_id))
 
 
 def _user_name(db: Session, user_id: int | None) -> str | None:
@@ -654,6 +749,8 @@ def create_order(payload: OrderIn, db: Session = Depends(get_db), user: User = D
         name=name, ship_date=ship_date, note=(payload.note or "").strip() or None, status=ORDER_DRAFT, created_by=user.id,
         kind=_kind(payload.kind), category_id=_category(db, payload.category_id),
         ship_from=payload.ship_from, ship_to=payload.ship_to,
+        customer=(payload.customer or "").strip() or None, amount_rub=payload.amount_rub, priority=payload.priority,
+        promised_ready=payload.promised_ready if manager else None,
     )
     db.add(order)
     db.flush()
@@ -677,6 +774,10 @@ def update_order(order_id: int, payload: OrderIn, db: Session = Depends(get_db),
         order.ship_date = payload.ship_date
     order.name, order.note = name, (payload.note or "").strip() or None
     order.ship_from, order.ship_to = payload.ship_from, payload.ship_to
+    order.customer, order.amount_rub = (payload.customer or "").strip() or None, payload.amount_rub
+    order.priority = payload.priority
+    if _can_manage(user):
+        order.promised_ready = payload.promised_ready
     order.kind = _kind(payload.kind)
     order.category_id = _category(db, payload.category_id)
     _write_lines(db, order, payload.lines)
@@ -916,6 +1017,7 @@ def order_plan_check(order_id: int, db: Session = Depends(get_db), user: User = 
 class RequestDecisionIn(BaseModel):
     comment: str | None = Field(default=None, max_length=500)
     ship_date: date | None = None
+    ready_date: date | None = None  # обещанная готовность (12.10)
 
 
 @router.post("/production-orders/{order_id}/submit", response_model=OrderOut)
@@ -967,10 +1069,65 @@ def accept_request(
         raise HTTPException(status.HTTP_409_CONFLICT, "Принять можно только отправленную заявку")
     if payload.ship_date is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите дату отгрузки")
+    if payload.ready_date and payload.ready_date > payload.ship_date:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Готовность позже отгрузки")
+    _log_date(db, order, "ship", order.ship_date, payload.ship_date, user.id, comment="заявка принята")
+    _log_date(db, order, "ready", order.promised_ready, payload.ready_date, user.id, comment="заявка принята")
     order.ship_date = payload.ship_date
+    order.promised_ready = payload.ready_date
     order.request_status = REQ_ACCEPTED
     order.request_comment = (payload.comment or "").strip() or None
     order.decided_by, order.decided_at = user.id, datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(order)
+    return _order_out(db, order)
+
+
+class PromiseIn(BaseModel):
+    ship_date: date | None = None
+    ready_date: date | None = None
+    reason: str | None = None
+    comment: str | None = Field(default=None, max_length=500)
+    ready_fact: date | None = None  # поправить фактическую готовность
+    clear_ready_fact: bool = False
+
+
+@router.post("/production-orders/{order_id}/promise", response_model=OrderOut)
+def change_promise(
+    order_id: int, payload: PromiseIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+) -> OrderOut:
+    """Перенос обещанных дат (12.10): после приёма или запуска — только с
+    причиной, каждое изменение в истории; запущенный заказ пересчитывает сроки."""
+    order = _get_order(db, order_id)
+    if order.status == ORDER_CLOSED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Заказ закрыт")
+    committed = order.status == ORDER_RELEASED or order.request_status == REQ_ACCEPTED
+    ship = payload.ship_date or order.ship_date
+    ready = payload.ready_date if payload.ready_date is not None else order.promised_ready
+    if ship and ready and ready > ship:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Готовность позже отгрузки")
+    moved = (payload.ship_date and payload.ship_date != order.ship_date) or (
+        payload.ready_date and payload.ready_date != order.promised_ready
+    )
+    if moved and committed:
+        if payload.reason not in DATE_CHANGE_REASONS:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите причину переноса")
+        if payload.reason == "other" and not (payload.comment or "").strip():
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Опишите причину в комментарии")
+    if payload.ship_date:
+        _log_date(db, order, "ship", order.ship_date, payload.ship_date, user.id, payload.reason, payload.comment)
+        order.ship_date = payload.ship_date
+    if payload.ready_date:
+        _log_date(db, order, "ready", order.promised_ready, payload.ready_date, user.id, payload.reason, payload.comment)
+        order.promised_ready = payload.ready_date
+    if payload.clear_ready_fact:
+        order.ready_at = None
+    elif payload.ready_fact:
+        _log_date(db, order, "ready_fact", order.ready_at, payload.ready_fact, user.id, payload.reason, payload.comment)
+        order.ready_at = payload.ready_fact
+    db.flush()
+    if moved and order.status == ORDER_RELEASED:
+        schedule_order(db, order, user.id)
     db.commit()
     db.refresh(order)
     return _order_out(db, order)

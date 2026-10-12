@@ -78,6 +78,9 @@ def _queue(db: Session, exclude_order: int) -> dict[str, float]:
 def plan_check(db: Session, order: ProductionOrder, user_id: int, today: date | None = None) -> PlanCheck:
     """Оценка ранней готовности заказа-черновика. Ничего не сохраняет —
     вызывающий обязан откатить сессию."""
+    from app.services.planning import load_calendar
+
+    load_calendar(db)
     today = to_workday(today or date.today())
     queue = _queue(db, order.id)
     caps = area_capacities(db)

@@ -34,29 +34,59 @@ MAX_DEPTH = 6
 # ─── рабочие дни ──────────────────────────────────────────────────────────
 
 
-def is_workday(d: date) -> bool:
+# Производственный календарь (12.10): пятидневка + исключения из таблицы
+# production_calendar — праздники, рабочие субботы, «отключили свет»; для
+# всех участков (area пусто) или для одного. Держится в памяти процесса и
+# перечитывается раз в минуту и сразу после правки (invalidate_calendar).
+_CAL: dict[tuple[date, str | None], bool] = {}
+_CAL_AT = [0.0]
+_CAL_TTL = 60.0
+
+
+def load_calendar(db: Session, force: bool = False) -> None:
+    import time
+
+    from app.models.production_orders import ProductionCalendarDay
+
+    if not force and time.monotonic() - _CAL_AT[0] < _CAL_TTL:
+        return
+    _CAL.clear()
+    for c in db.query(ProductionCalendarDay):
+        _CAL[(c.day, c.area)] = bool(c.is_workday)
+    _CAL_AT[0] = time.monotonic()
+
+
+def invalidate_calendar() -> None:
+    _CAL_AT[0] = 0.0
+
+
+def is_workday(d: date, area: str | None = None) -> bool:
+    if area is not None and (d, area) in _CAL:
+        return _CAL[(d, area)]
+    if (d, None) in _CAL:
+        return _CAL[(d, None)]
     return d.weekday() < 5
 
 
-def to_workday(d: date, forward: bool = True) -> date:
+def to_workday(d: date, forward: bool = True, area: str | None = None) -> date:
     step = timedelta(days=1 if forward else -1)
-    while not is_workday(d):
+    while not is_workday(d, area):
         d += step
     return d
 
 
-def add_workdays(d: date, n: int) -> date:
+def add_workdays(d: date, n: int, area: str | None = None) -> date:
     """n рабочих дней вперёд (n < 0 — назад) от рабочего дня d."""
     step = timedelta(days=1 if n >= 0 else -1)
-    d = to_workday(d, forward=n >= 0)
+    d = to_workday(d, forward=n >= 0, area=area)
     for _ in range(abs(n)):
         d += step
-        while not is_workday(d):
+        while not is_workday(d, area):
             d += step
     return d
 
 
-def workdays_between(a: date, b: date) -> int:
+def workdays_between(a: date, b: date, area: str | None = None) -> int:
     """Сколько рабочих дней от a до b (b позже — положительно)."""
     if a == b:
         return 0
@@ -65,7 +95,7 @@ def workdays_between(a: date, b: date) -> int:
     n, d = 0, lo
     while d < hi:
         d += timedelta(days=1)
-        if is_workday(d):
+        if is_workday(d, area):
             n += 1
     return sign * n
 
@@ -362,14 +392,21 @@ def order_edges(oc: OrderChains) -> list[tuple[int, int]]:
 def schedule_order(db: Session, order: ProductionOrder, user_id: int, today: date | None = None) -> ScheduleResult:
     """Расставить сроки строк заданий заказа (без commit) и записать
     автоматические слоты плана на невыполненный остаток."""
+    load_calendar(db)
     today = to_workday(today or date.today())
     oc = order_chains(db, order)
     lines, stage_of, task_of, chains = oc.lines, oc.stage_of, oc.task_of, oc.chains
     if not lines:
         return ScheduleResult(finish=None, late=False)
     lead = {a.code: max(0, int(a.lead_days or 0)) for a in db.query(Area)}
+    # Обещанная готовность (12.10) — последний день работ; иначе — день
+    # перед отгрузкой, как раньше.
+    ready = getattr(order, "promised_ready", None)
     anchor = order.ship_date and add_workdays(to_workday(order.ship_date, forward=False), 0)
-    last_day = add_workdays(anchor, -1) if anchor else add_workdays(today, FAR_AHEAD_WORKDAYS)
+    if ready:
+        last_day = to_workday(ready, forward=False)
+    else:
+        last_day = add_workdays(anchor, -1) if anchor else add_workdays(today, FAR_AHEAD_WORKDAYS)
 
     dates: dict[int, date] = {}
 
@@ -377,8 +414,10 @@ def schedule_order(db: Session, order: ProductionOrder, user_id: int, today: dat
         d = end
         for i in range(len(chain) - 1, -1, -1):
             ln = chain[i]
+            area = task_of[ln.id].area
+            d = to_workday(d, forward=False, area=area)
             dates[ln.id] = d
-            d = add_workdays(d, -max(1, lead.get(task_of[ln.id].area, 1)))
+            d = add_workdays(d, -max(1, lead.get(area, 1)), area)
 
     # Двери и строки без операций — от последнего дня.
     for (ol, owner), chain in chains.items():
@@ -406,9 +445,10 @@ def schedule_order(db: Session, order: ProductionOrder, user_id: int, today: dat
     earliest = min(dates.values())
     shift = workdays_between(earliest, today) if earliest < today or not anchor else 0
     if shift:
-        dates = {k: add_workdays(v, shift) for k, v in dates.items()}
+        area_of = {ln.id: task_of[ln.id].area for ln in lines}
+        dates = {k: add_workdays(v, shift, area_of.get(k)) for k, v in dates.items()}
     finish = max(dates.values())
-    late = bool(anchor and finish >= anchor)
+    late = bool(finish > ready) if ready else bool(anchor and finish >= anchor)
 
     good = _good_by_line(db, [ln.id for ln in lines])
     manual = defaultdict(float)
@@ -452,9 +492,9 @@ def order_plan_status(db: Session, order: ProductionOrder, today: date | None = 
         if s.date < today:
             past[s.task_line_id] += float(s.quantity)
     overdue = sum(max(0.0, q - good.get(lid, 0.0)) for lid, q in past.items())
-    return OrderPlanStatus(
-        finish=finish, late=bool(order.ship_date and finish >= order.ship_date), overdue=round(overdue, 2), planned=True
-    )
+    ready = getattr(order, "promised_ready", None)
+    late = finish > ready if ready else bool(order.ship_date and finish >= order.ship_date)
+    return OrderPlanStatus(finish=finish, late=bool(late), overdue=round(overdue, 2), planned=True)
 
 
 # ─── связанные этапы при переносе ─────────────────────────────────────────

@@ -23,7 +23,7 @@ from app.models.production import (
 from app.models.production_orders import ProductionOrder
 from app.models.sites import Site
 from app.models.users import User
-from app.services.planning import check_move, is_workday, shift_following, to_workday
+from app.services.planning import check_move, is_workday, load_calendar, shift_following, to_workday
 
 # Поле моделей называется date — тип под другим именем, чтобы не перекрывать.
 Day = date
@@ -92,6 +92,7 @@ def board(
     db: Session = Depends(get_db),
     user: User = Depends(view),
 ) -> BoardOut:
+    load_calendar(db)
     start = to_workday(date_from or date.today())
     end = date_to or start + timedelta(days=20)
     days = [start + timedelta(days=i) for i in range((end - start).days + 1) if is_workday(start + timedelta(days=i))]
