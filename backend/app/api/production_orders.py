@@ -1085,8 +1085,10 @@ def accept_request(
     order.request_comment = (payload.comment or "").strip() or None
     order.decided_by, order.decided_at = user.id, datetime.now(timezone.utc)
     from app.services import bitrix
+    from app.services.weekly_plan import note_change, order_day
 
     bitrix.on_request_decided(db, order, accepted=True)
+    note_change(db, order, None, order_day(order), ("СРОЧНЫЙ, " if order.priority == 2 else "") + "принята заявка", user.id)
     db.commit()
     db.refresh(order)
     return _order_out(db, order)
@@ -1123,6 +1125,9 @@ def change_promise(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите причину переноса")
         if payload.reason == "other" and not (payload.comment or "").strip():
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Опишите причину в комментарии")
+    from app.services.weekly_plan import note_change, order_day
+
+    old_day = order_day(order)
     changes = []
     if payload.ship_date and payload.ship_date != order.ship_date:
         changes.append(("ship", order.ship_date, payload.ship_date))
@@ -1144,6 +1149,10 @@ def change_promise(
         schedule_order(db, order, user.id)
     if changes and committed:
         from app.services import bitrix
+
+        note_change(db, order, old_day, order_day(order),
+                    "перенос: " + ", ".join(f"{'готовность' if f == 'ready' else 'отгрузка'} {a:%d.%m}→{b:%d.%m}" if a and b else f for f, a, b in changes)
+                    + (f" ({DATE_CHANGE_REASONS.get(payload.reason or '', '')})" if payload.reason else ""), user.id)
 
         bitrix.on_promise_changed(db, order, changes, DATE_CHANGE_REASONS.get(payload.reason or ""), payload.comment)
     db.commit()

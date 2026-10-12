@@ -102,6 +102,12 @@ export const navTree: NavBlock[] = [
         permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view"],
       },
       {
+        key: "weekly-plan",
+        path: "/weekly-plan",
+        label: "План недели",
+        permissions: ["production_tasks.manage", "production_tasks.view", "plan.approve"],
+      },
+      {
         key: "production-calendar",
         path: "/production-calendar",
         label: "Производственный календарь",
