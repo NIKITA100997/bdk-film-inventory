@@ -217,7 +217,7 @@ const appPageRoutes = (
     <Route
       path="/demand"
       element={
-        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view", "units.issue"]}>
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view", "units.issue", "purchasing.manage", "orders.request"]}>
           <Demand />
         </RequirePermission>
       }

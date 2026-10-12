@@ -131,7 +131,7 @@ export const navTree: NavBlock[] = [
         key: "demand",
         path: "/demand",
         label: "Потребность",
-        permissions: ["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view", "units.issue"],
+        permissions: ["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view", "units.issue", "purchasing.manage", "orders.request"],
       },
       // Участки и линии — один экран устройства цеха (30.09; участки раньше были в «Администрировании»).
       { key: "areas", path: "/areas", label: "Участки и линии", permissions: ["users.manage", "production_tasks.manage"] },

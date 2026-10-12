@@ -6,10 +6,11 @@ import { useAuth } from "../../../auth/AuthContext";
 import { listMaterialDemand, type MaterialDemandRow } from "../../../api/materialStock";
 import { normsLabel } from "../../../utils/normatives";
 import PfDemand from "./PfDemand";
+import { ShortagesTab } from "./NeedsViews";
 import { BlanksDemandTab } from "../Blanks";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 
-type Tab = "pf" | "film" | "components";
+type Tab = "orders" | "pf" | "film" | "components";
 
 /** Потребность — «чего не хватает и что запустить» одним экраном:
  * п/ф (создать задания), плёнка (что резать заранее под открытые задания)
@@ -20,6 +21,10 @@ export default function Demand() {
   const has = (...codes: string[]) => !!user?.is_superuser || codes.some((c) => user?.permissions.includes(c));
   const [params, setParams] = useSearchParams();
   const tabs = [
+    // дефицит по заказам с очередью (12.10, планирование, этап 2)
+    ...(has("production_tasks.manage", "production_tasks.view", "purchasing.manage", "orders.request")
+      ? [{ key: "orders" as Tab, label: "Дефицит по заказам", children: <ShortagesTab /> }]
+      : []),
     ...(has("production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view")
       ? [{ key: "pf" as Tab, label: "П/ф", children: <PfDemand /> }]
       : []),

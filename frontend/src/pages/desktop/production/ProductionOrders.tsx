@@ -28,6 +28,7 @@ import ResponsiveTable from "../../../components/ResponsiveTable";
 import ScheduleImportModal from "./ScheduleImportModal";
 import RequestPanel from "./RequestPanel";
 import OrderDatesCard from "./OrderDatesCard";
+import { OrderNeedsCard } from "./NeedsViews";
 import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
@@ -527,6 +528,7 @@ export function OrderView({
             <RequestPanel order={order} canManage={canManage} canRequest={canRequest} />
           )}
           {order.request_status === "accepted" && <OrderDatesCard order={order} canManage={canManage} totalQty={orderTotals(order).qty} />}
+          {(order.request_status || order.ship_date || order.promised_ready) && <OrderNeedsCard orderId={order.id} />}
           {canManage ? (
             <ReleaseWorkspace order={order} canManage={canManage} onEditLines={() => onEdit(order)} />
           ) : (
@@ -550,6 +552,7 @@ export function OrderView({
       ) : order && (
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         {order.kind !== "stock" && <OrderDatesCard order={order} canManage={canManage} totalQty={orderTotals(order).qty} />}
+        {order.status === "released" && <OrderNeedsCard orderId={order.id} />}
         <Tabs
           activeKey={orderTab}
           onChange={setOrderTab}
