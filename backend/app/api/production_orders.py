@@ -578,6 +578,12 @@ class InvoiceReadinessOut(BaseModel):
     closed: bool
     lines: list[ReadinessLineOut]
     stages: list[ReadinessStageOut] = []
+    # монитор по счетам (12.10, этап 4): клиент, обещанная готовность,
+    # отгружено; state — в работе / принят, не запущен / заявка ждёт приёма
+    customer: str | None = None
+    promised_ready: date | None = None
+    shipped: float = 0
+    state: str = "в работе"
 
 
 @router.get("/production-orders/readiness-invoices", response_model=list[InvoiceReadinessOut])
@@ -586,19 +592,34 @@ def invoices_readiness(
 ) -> list[InvoiceReadinessOut]:
     """Готовность по счетам: этапы, срок по плану и «успевает ли» — по строкам
     счёта во всех запусках. Строки без счёта — по своему заказу."""
-    q = db.query(ProductionOrder).filter(ProductionOrder.status != ORDER_DRAFT, ProductionOrder.kind != ORDER_KIND_STOCK)
+    from sqlalchemy import or_ as _or
+
+    from app.services.finished_goods import totals_by_order_line
+
+    q = db.query(ProductionOrder).filter(
+        _or(ProductionOrder.status != ORDER_DRAFT, ProductionOrder.request_status.in_(["accepted", "submitted"])),
+        ProductionOrder.kind != ORDER_KIND_STOCK,
+    )
     if not include_closed:
         q = q.filter(ProductionOrder.status != ORDER_CLOSED)
     groups: dict[str, dict] = {}
     for order in q:
         full = _order_out(db, order)
         by_line = {ln.id: ln for ln in full.lines}
+        fg = totals_by_order_line(db, [ln.id for ln in order.lines])
         keys: dict[str, set[int]] = defaultdict(set)
         for ln in order.lines:
             keys[ln.invoice_no or f"без счёта · №{order.id} «{order.name}»"].add(ln.id)
+        state = "в работе" if order.status != ORDER_DRAFT else ("принят, не запущен" if order.request_status == "accepted" else "заявка ждёт приёма")
         for key, ids in keys.items():
-            g = groups.setdefault(key, {"orders": [], "ship": None, "lines": [], "stages": [], "closed": True})
+            g = groups.setdefault(key, {"orders": [], "ship": None, "lines": [], "stages": [], "closed": True,
+                                        "customer": None, "ready": None, "shipped": 0.0, "states": set()})
             g["orders"].append(f"№{order.id} «{order.name}»")
+            g["customer"] = g["customer"] or order.customer
+            g["states"].add(state)
+            g["shipped"] += sum(fg.get(i, {}).get("shipped", 0.0) for i in ids)
+            if order.promised_ready and (g["ready"] is None or order.promised_ready > g["ready"]):
+                g["ready"] = order.promised_ready
             if order.ship_date and (g["ship"] is None or order.ship_date < g["ship"]):
                 g["ship"] = order.ship_date
             g["closed"] = g["closed"] and order.status == ORDER_CLOSED
@@ -633,6 +654,8 @@ def invoices_readiness(
             plan_late=bool(finish and g["ship"] and finish > g["ship"]), plan_overdue=round(overdue, 2), planned=bool(dates),
             quantity=round(sum(ln.quantity for ln in g["lines"]), 2), done=round(sum(ln.done for ln in g["lines"]), 2),
             closed=g["closed"], lines=g["lines"], stages=stages,
+            customer=g["customer"], promised_ready=g["ready"], shipped=round(g["shipped"], 2),
+            state="заявка ждёт приёма" if "заявка ждёт приёма" in g["states"] else "принят, не запущен" if "принят, не запущен" in g["states"] else "в работе",
         ))
     return sorted(out, key=lambda x: (x.ship_date or date.max, x.invoice))
 
