@@ -63,6 +63,7 @@ class PurchaseRequestOut(BaseModel):
     price_per_m2: float | None
     promised_delivery_date: date | None
     order_id: int | None
+    need_by: date | None = None  # нужно к (дефицит по заказам, 12.10)
 
 
 class SupplierOrderCreate(BaseModel):

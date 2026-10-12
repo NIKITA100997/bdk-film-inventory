@@ -18,6 +18,7 @@ export interface PurchaseRequest {
   supplier: string | null;
   price_per_m2: number | null;
   promised_delivery_date: string | null;
+  need_by?: string | null;
   order_id: number | null;
 }
 

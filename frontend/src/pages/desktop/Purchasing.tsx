@@ -293,12 +293,17 @@ export default function Purchasing() {
                       dataIndex: "price_per_m2",
                       render: (v: number | null) => v ?? "—",
                     },
+                    {
+                      title: "Нужно к",
+                      dataIndex: "need_by",
+                      render: (v: string | null | undefined) => (v ? dayjs(v).format("DD.MM.YYYY") : "—"),
+                    },
                     { title: "Комментарий", dataIndex: "note", render: (v: string | null) => v ?? "—" },
                     {
                       title: "Происхождение",
                       dataIndex: "origin",
                       render: (v: string) =>
-                        v === "shop_floor" ? <Tag color="blue">С цеха</Tag> : <Tag>Плановая</Tag>,
+                        v === "shop_floor" ? <Tag color="blue">С цеха</Tag> : v === "needs" ? <Tag color="purple">Дефицит по заказам</Tag> : <Tag>Плановая</Tag>,
                     },
                     {
                       title: "Заказ",

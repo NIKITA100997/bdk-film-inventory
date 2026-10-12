@@ -67,6 +67,7 @@ def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:
         price_per_m2=float(req.price_per_m2) if req.price_per_m2 is not None else None,
         promised_delivery_date=req.promised_delivery_date,
         order_id=req.order_id,
+        need_by=req.need_by,
     )
 
 
