@@ -53,6 +53,7 @@ from app.api.production_monitor import router as production_monitor_router
 from app.api.movements import router as movements_router
 from app.api.milling_programs import router as milling_programs_router
 from app.api.calendar import router as calendar_router
+from app.api.bitrix import router as bitrix_router
 from app.services.period_guard import PeriodClosedError
 from app.services import lot_cost  # noqa: F401 — цена у рулона и сумма движения (before_flush)
 from fastapi import Request
@@ -157,6 +158,7 @@ app.include_router(production_monitor_router, prefix=API_PREFIX)
 app.include_router(movements_router, prefix=API_PREFIX)
 app.include_router(milling_programs_router, prefix=API_PREFIX)
 app.include_router(calendar_router, prefix=API_PREFIX)
+app.include_router(bitrix_router, prefix=API_PREFIX)
 
 
 @app.get("/health")

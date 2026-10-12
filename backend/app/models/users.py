@@ -45,6 +45,8 @@ class User(Base):
     # раскрою на цельнолистовых, см. 2.4/6.4 ТЗ).
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Пользователь Битрикс24 (12.10) — кому слать личные сообщения и задачи.
+    bitrix_user_id: Mapped[int | None] = mapped_column(nullable=True)
     # После сброса администратором (временный пароль) — при входе сразу
     # просим задать свой; снимается сменой пароля.
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

@@ -160,7 +160,7 @@ const appPageRoutes = (
     />
     <Route
       path="/settings"
-      element={<RequirePermission permissions={["labels.manage", "calc_settings.manage"]}><Settings /></RequirePermission>}
+      element={<RequirePermission permissions={["labels.manage", "calc_settings.manage", "prices.manage", "users.manage"]}><Settings /></RequirePermission>}
     />
     <Route
       path="/inventory"

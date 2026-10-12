@@ -188,7 +188,7 @@ export const navTree: NavBlock[] = [
       { key: "action-requests", path: "/action-requests", label: "Запросы сотрудников", permissions: ["requests.approve"] },
       { key: "period-closing", path: "/period-closing", label: "Закрытие периода", permissions: ["period.manage"] },
       // Настройки: параметры расчётов и макет этикетки — вкладками (30.09).
-      { key: "settings", path: "/settings", label: "Настройки", permissions: ["calc_settings.manage", "labels.manage", "prices.manage"] },
+      { key: "settings", path: "/settings", label: "Настройки", permissions: ["calc_settings.manage", "labels.manage", "prices.manage", "users.manage"] },
     ],
   },
 ];

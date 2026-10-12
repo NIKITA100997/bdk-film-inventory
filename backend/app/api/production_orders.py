@@ -1036,6 +1036,9 @@ def submit_request(
     order.submitted_at, order.submitted_by = datetime.now(timezone.utc), user.id
     order.decided_by = None
     order.decided_at = None
+    from app.services import bitrix
+
+    bitrix.on_request_submitted(db, order, user)
     db.commit()
     db.refresh(order)
     return _order_out(db, order)
@@ -1054,6 +1057,9 @@ def return_request(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Напишите, почему возвращаете")
     order.request_status, order.request_comment = REQ_RETURNED, comment
     order.decided_by, order.decided_at = user.id, datetime.now(timezone.utc)
+    from app.services import bitrix
+
+    bitrix.on_request_decided(db, order, accepted=False)
     db.commit()
     db.refresh(order)
     return _order_out(db, order)
@@ -1078,6 +1084,9 @@ def accept_request(
     order.request_status = REQ_ACCEPTED
     order.request_comment = (payload.comment or "").strip() or None
     order.decided_by, order.decided_at = user.id, datetime.now(timezone.utc)
+    from app.services import bitrix
+
+    bitrix.on_request_decided(db, order, accepted=True)
     db.commit()
     db.refresh(order)
     return _order_out(db, order)
@@ -1114,6 +1123,11 @@ def change_promise(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите причину переноса")
         if payload.reason == "other" and not (payload.comment or "").strip():
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Опишите причину в комментарии")
+    changes = []
+    if payload.ship_date and payload.ship_date != order.ship_date:
+        changes.append(("ship", order.ship_date, payload.ship_date))
+    if payload.ready_date and payload.ready_date != order.promised_ready:
+        changes.append(("ready", order.promised_ready, payload.ready_date))
     if payload.ship_date:
         _log_date(db, order, "ship", order.ship_date, payload.ship_date, user.id, payload.reason, payload.comment)
         order.ship_date = payload.ship_date
@@ -1128,6 +1142,10 @@ def change_promise(
     db.flush()
     if moved and order.status == ORDER_RELEASED:
         schedule_order(db, order, user.id)
+    if changes and committed:
+        from app.services import bitrix
+
+        bitrix.on_promise_changed(db, order, changes, DATE_CHANGE_REASONS.get(payload.reason or ""), payload.comment)
     db.commit()
     db.refresh(order)
     return _order_out(db, order)

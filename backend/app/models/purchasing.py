@@ -68,6 +68,8 @@ class PurchaseRequest(Base):
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"), nullable=True)
     price_per_m2: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     promised_delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Потребность, этап 2 (12.10): к какому дню нужна плёнка (первая операция заказа).
+    need_by: Mapped[date | None] = mapped_column(Date, nullable=True)
     # "planner" — обычная заявка снабженца (создание вручную на этом
     # экране); "shop_floor" — создана кнопкой на "Выдаче участку" по
     # нехватке остатка под конкретную строку задания (раздел про замену
