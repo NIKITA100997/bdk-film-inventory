@@ -39,6 +39,7 @@ import Productivity from "./pages/desktop/Productivity";
 import ProductionMonitor from "./pages/desktop/production/ProductionMonitor";
 import SearchPage from "./pages/desktop/SearchPage";
 import ShipmentSchedule from "./pages/desktop/ShipmentSchedule";
+import ProductionCalendar from "./pages/desktop/production/ProductionCalendar";
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
@@ -76,6 +77,10 @@ const appPageRoutes = (
     {/* Единые «Остатки» (плёнка и п/ф); старые адреса ведут сюда же. */}
     <Route path="/stock" element={<Stock />} />
     <Route path="/search" element={<SearchPage />} />
+    <Route
+      path="/production-calendar"
+      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view"]}><ProductionCalendar /></RequirePermission>}
+    />
     <Route
       path="/shipment-schedule"
       element={

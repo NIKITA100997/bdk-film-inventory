@@ -79,7 +79,47 @@ export interface ProductionOrder {
   submitted_at?: string | null;
   submitted_by_name?: string | null;
   decided_by_name?: string | null;
+  /** Этап 1 планирования (12.10): из счёта и от менеджера; обещанная готовность; факт по складу ГП. */
+  customer?: string | null;
+  amount_rub?: number | null;
+  priority?: number;
+  promised_ready?: string | null;
+  ready_fact?: string | null;
+  received_qty?: number;
+  shipped_qty?: number;
+  last_shipped_at?: string | null;
+  date_changes?: DateChange[];
 }
+
+export interface DateChange {
+  field: "ship" | "ready" | "ready_fact";
+  old_date: string | null;
+  new_date: string | null;
+  reason: string | null;
+  reason_name: string | null;
+  comment: string | null;
+  user_name: string | null;
+  created_at: string;
+}
+
+export const PRIORITY_LABEL = ["обычный", "высокий", "срочный"] as const;
+export const PRIORITY_COLOR = ["default", "orange", "red"] as const;
+
+export const DATE_CHANGE_REASONS: { value: string; label: string }[] = [
+  { value: "material", label: "Нет материала" },
+  { value: "capacity", label: "Перегруз участка" },
+  { value: "client", label: "Просьба клиента" },
+  { value: "defect", label: "Брак, переделка" },
+  { value: "equipment", label: "Поломка оборудования" },
+  { value: "calendar", label: "Нерабочий день" },
+  { value: "urgent", label: "Вставили срочный заказ" },
+  { value: "other", label: "Другое" },
+];
+
+export const changeOrderPromise = async (
+  id: number,
+  payload: { ship_date?: string | null; ready_date?: string | null; reason?: string | null; comment?: string | null; ready_fact?: string | null; clear_ready_fact?: boolean },
+): Promise<ProductionOrder> => (await apiClient.post<ProductionOrder>(`/production-orders/${id}/promise`, payload)).data;
 
 export type RequestStatus = "submitted" | "returned" | "accepted";
 
@@ -98,8 +138,8 @@ export const submitOrderRequest = async (id: number, comment: string | null): Pr
   (await apiClient.post<ProductionOrder>(`/production-orders/${id}/submit`, { comment })).data;
 export const returnOrderRequest = async (id: number, comment: string): Promise<ProductionOrder> =>
   (await apiClient.post<ProductionOrder>(`/production-orders/${id}/return`, { comment })).data;
-export const acceptOrderRequest = async (id: number, shipDate: string, comment: string | null): Promise<ProductionOrder> =>
-  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/accept`, { ship_date: shipDate, comment })).data;
+export const acceptOrderRequest = async (id: number, shipDate: string, comment: string | null, readyDate: string | null = null): Promise<ProductionOrder> =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${id}/accept`, { ship_date: shipDate, comment, ready_date: readyDate })).data;
 
 /** П/ф под заказ — что запустить вместе с ним (по составу вглубь). */
 export interface PfNeed {
@@ -180,6 +220,10 @@ export interface OrderInput {
   ship_date: string | null;
   ship_from?: string | null;
   ship_to?: string | null;
+  customer?: string | null;
+  amount_rub?: number | null;
+  priority?: number;
+  promised_ready?: string | null;
   note: string | null;
   kind?: OrderKind;
   category_id?: number | null;

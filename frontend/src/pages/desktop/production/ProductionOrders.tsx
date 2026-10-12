@@ -27,6 +27,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import ScheduleImportModal from "./ScheduleImportModal";
 import RequestPanel from "./RequestPanel";
+import OrderDatesCard from "./OrderDatesCard";
 import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
@@ -56,6 +57,8 @@ import { listOrderCategories, createOrderCategory,
   type OrderStatus,
   type OrderTask,
   type ProductionOrder,
+  PRIORITY_COLOR,
+  PRIORITY_LABEL,
 } from "../../../api/productionOrders";
 import { apiErrorMessage } from "../../../utils/apiError";
 
@@ -252,6 +255,8 @@ function OrdersList() {
               <Space direction="vertical" size={0}>
                 <span>
                   №{o.id} «{o.name}» {o.kind === "stock" && <Tag color="green">на склад</Tag>}
+                  {(o.priority ?? 0) > 0 && <Tag color={PRIORITY_COLOR[o.priority ?? 0]}>{PRIORITY_LABEL[o.priority ?? 0]}</Tag>}
+                  {o.customer && <Typography.Text type="secondary"> · {o.customer}</Typography.Text>}
                 </span>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {o.lines.length > 0 ? (
@@ -521,6 +526,7 @@ export function OrderView({
           {(order.ship_to || order.request_status || canRequest) && (
             <RequestPanel order={order} canManage={canManage} canRequest={canRequest} />
           )}
+          {order.request_status === "accepted" && <OrderDatesCard order={order} canManage={canManage} totalQty={orderTotals(order).qty} />}
           {canManage ? (
             <ReleaseWorkspace order={order} canManage={canManage} onEditLines={() => onEdit(order)} />
           ) : (
@@ -542,6 +548,8 @@ export function OrderView({
           )}
         </Space>
       ) : order && (
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        {order.kind !== "stock" && <OrderDatesCard order={order} canManage={canManage} totalQty={orderTotals(order).qty} />}
         <Tabs
           activeKey={orderTab}
           onChange={setOrderTab}
@@ -572,6 +580,7 @@ export function OrderView({
             { key: "history", label: "История", children: <OrderHistory order={order} /> },
           ]}
         />
+        </Space>
       )}
       {printing && order && (
         <PrintTasksModal
@@ -643,6 +652,10 @@ export function OrderModal({
     order?.ship_to ? dayjs(order.ship_to) : null,
   ]);
   const [note, setNote] = useState(order?.note ?? "");
+  const [customer, setCustomer] = useState(order?.customer ?? "");
+  const [amount, setAmount] = useState<number | null>(order?.amount_rub ?? null);
+  const [priority, setPriority] = useState<number>(order?.priority ?? 0);
+  const [promisedReady, setPromisedReady] = useState<Dayjs | null>(order?.promised_ready ? dayjs(order.promised_ready) : null);
   const [kind, setKind] = useState<OrderKind>(order?.kind ?? "customer");
   const [categoryId, setCategoryId] = useState<number | undefined>(order?.category_id ?? undefined);
   const categoriesQuery = useQuery({ queryKey: ["order-categories"], queryFn: listOrderCategories });
@@ -722,6 +735,10 @@ export function OrderModal({
         ship_date: shipDate ? shipDate.format("YYYY-MM-DD") : null,
         ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
         ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
+        customer: customer.trim() || null,
+        amount_rub: amount,
+        priority,
+        promised_ready: promisedReady ? promisedReady.format("YYYY-MM-DD") : null,
         note: note.trim() || null,
         kind,
         category_id: categoryId ?? null,
@@ -789,7 +806,33 @@ export function OrderModal({
               />
             </Form.Item>
           )}
+          {isManager && kind === "customer" && (
+            <Form.Item label="Готовность (обещанная)" extra="Всё на складе ГП; от неё сроки этапов">
+              <DatePicker format="DD.MM.YYYY" value={promisedReady} onChange={setPromisedReady} />
+            </Form.Item>
+          )}
         </Space>
+        {kind === "customer" && (
+          <Space size={12} style={{ display: "flex" }} wrap>
+            <Form.Item label="Клиент" style={{ width: 300 }}>
+              <Input value={customer} placeholder="Как в счёте 1С" onChange={(e) => setCustomer(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Сумма счёта, ₽">
+              <InputNumber min={0} style={{ width: 160 }} value={amount} onChange={(v) => setAmount(v ?? null)} />
+            </Form.Item>
+            <Form.Item label="Приоритет">
+              <Segmented
+                value={priority}
+                onChange={(v) => setPriority(v as number)}
+                options={[
+                  { value: 0, label: "Обычный" },
+                  { value: 1, label: "Высокий" },
+                  { value: 2, label: "Срочный" },
+                ]}
+              />
+            </Form.Item>
+          </Space>
+        )}
         <Form.Item label="Категория" extra="Для аналитики; список пополняется прямо здесь">
           <Select
             allowClear

@@ -3,7 +3,7 @@ import { Button, Card, DatePicker, Empty, Grid, Input, Segmented, Space, Spin, T
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs, { type Dayjs } from "dayjs";
-import { listProductionOrders, type ProductionOrder } from "../../api/productionOrders";
+import { PRIORITY_COLOR, PRIORITY_LABEL, listProductionOrders, type ProductionOrder } from "../../api/productionOrders";
 import { orderTotals } from "./production/ProductionOrders";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -147,6 +147,7 @@ export default function ShipmentSchedule() {
             вилка клиента
           </Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>■ отгрузка (цвет — состояние)</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>◆ обещанная готовность</Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>▲ готово по плану</Typography.Text>
           {(Object.keys(STATE_LABEL) as State[]).map((s) => (
             <Tag key={s} color={STATE_COLOR[s]} style={{ marginInlineEnd: 0 }}>
@@ -202,7 +203,12 @@ export default function ShipmentSchedule() {
                   <tr key={o.id} style={{ borderTop: `1px solid ${token.colorBorderSecondary}`, cursor: "pointer" }} onClick={() => navigate(`/production-orders/${o.id}`)}>
                     <td style={{ position: "sticky", left: 0, zIndex: 1, background: token.colorBgContainer, padding: "4px 8px", maxWidth: LEFT_W }}>
                       <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        №{o.id} «{o.name}»
+                        {(o.priority ?? 0) > 0 && (
+                          <Tag color={PRIORITY_COLOR[o.priority ?? 0]} style={{ fontSize: 11, lineHeight: "16px", marginInlineEnd: 4 }}>
+                            {PRIORITY_LABEL[o.priority ?? 0]}
+                          </Tag>
+                        )}
+                        №{o.id} «{o.name}»{o.customer ? ` · ${o.customer}` : ""}
                       </div>
                       <Space size={4} wrap>
                         <Tag color={STATE_COLOR[s]} style={{ fontSize: 11, lineHeight: "16px", marginInlineEnd: 0 }}>
@@ -210,6 +216,7 @@ export default function ShipmentSchedule() {
                         </Tag>
                         <Typography.Text type="secondary" style={{ fontSize: 11 }}>
                           {o.status === "draft" ? `${qty} шт` : `${done}/${qty} шт`}
+                          {(o.shipped_qty ?? 0) > 0 ? ` · отгружено ${o.shipped_qty}` : ""}
                           {invoices.length ? ` · сч. ${invoices.slice(0, 2).join(", ")}${invoices.length > 2 ? "…" : ""}` : ""}
                         </Typography.Text>
                       </Space>
@@ -219,10 +226,12 @@ export default function ShipmentSchedule() {
                       const inWindow = !!from && !!o.ship_to && key >= from && key <= o.ship_to;
                       const isShip = o.ship_date === key && s !== "submitted";
                       const isPlan = o.plan_finish === key && o.status === "released";
+                      const isReady = o.promised_ready === key;
                       const tip = [
                         inWindow ? `вилка ${dayjs(from).format("DD.MM")}–${dayjs(o.ship_to).format("DD.MM")}` : null,
                         isShip ? `отгрузка ${dayjs(key).format("DD.MM")}: ${qty} шт` : null,
                         isPlan ? `готово по плану ${dayjs(key).format("DD.MM")}` : null,
+                        isReady ? `обещанная готовность ${dayjs(key).format("DD.MM")}` : null,
                       ]
                         .filter(Boolean)
                         .join(" · ");
@@ -238,6 +247,11 @@ export default function ShipmentSchedule() {
                         >
                           {isShip && (
                             <div style={{ position: "absolute", inset: "8px 3px", borderRadius: 3, background: stateBg[s] }} />
+                          )}
+                          {isReady && (
+                            <div style={{ position: "absolute", top: 0, left: 0, right: 0, textAlign: "center", fontSize: 10, lineHeight: "11px", color: token.colorText }}>
+                              ◆
+                            </div>
                           )}
                           {isPlan && (
                             <div

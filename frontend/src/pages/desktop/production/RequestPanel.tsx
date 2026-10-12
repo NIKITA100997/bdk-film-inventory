@@ -30,6 +30,7 @@ export default function RequestPanel({
   const [check, setCheck] = useState<PlanCheck | null>(null);
   const [comment, setComment] = useState("");
   const [shipDate, setShipDate] = useState<Dayjs | null>(null);
+  const [readyDate, setReadyDate] = useState<Dayjs | null>(null);
   const status = order.request_status ?? null;
   const editable = canManage || (canRequest && status !== "submitted" && status !== "accepted");
   const done = (o: ProductionOrder, text: string) => {
@@ -48,6 +49,7 @@ export default function RequestPanel({
         let best = dayjs(c.earliest).add(1, "day");
         if (order.ship_from && best.isBefore(dayjs(order.ship_from))) best = dayjs(order.ship_from);
         setShipDate(best);
+        if (!readyDate) setReadyDate(dayjs(c.earliest));
       }
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось оценить срок")),
@@ -58,7 +60,8 @@ export default function RequestPanel({
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось отправить")),
   });
   const accept = useMutation({
-    mutationFn: () => acceptOrderRequest(order.id, shipDate!.format("YYYY-MM-DD"), comment.trim() || null),
+    mutationFn: () =>
+      acceptOrderRequest(order.id, shipDate!.format("YYYY-MM-DD"), comment.trim() || null, readyDate ? readyDate.format("YYYY-MM-DD") : null),
     onSuccess: (o) => done(o, `Заявка принята: отгрузка ${d(o.ship_date)}`),
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось принять")),
   });
@@ -157,10 +160,17 @@ export default function RequestPanel({
         )}
         {canManage && status === "submitted" && (
           <Space wrap>
+            <span>Готовность:</span>
+            <DatePicker format="DD.MM.YYYY" value={readyDate} onChange={setReadyDate} />
             <span>Отгрузка (100%):</span>
             <DatePicker format="DD.MM.YYYY" value={shipDate} onChange={setShipDate} />
             <Input style={{ width: 300 }} placeholder="Комментарий менеджеру" value={comment} onChange={(e) => setComment(e.target.value)} />
-            <Button type="primary" disabled={!shipDate} loading={accept.isPending} onClick={() => accept.mutate()}>
+            <Button
+              type="primary"
+              disabled={!shipDate || (!!readyDate && readyDate.isAfter(shipDate))}
+              loading={accept.isPending}
+              onClick={() => accept.mutate()}
+            >
               Принять
             </Button>
             <Button danger disabled={!comment.trim()} loading={ret.isPending} onClick={() => ret.mutate()}>
