@@ -6,6 +6,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import { PRIORITY_COLOR, PRIORITY_LABEL, listProductionOrders, type ProductionOrder } from "../../api/productionOrders";
 import { orderTotals } from "./production/ProductionOrders";
 import { useAuth } from "../../auth/AuthContext";
+import { exportToExcel } from "../../utils/excel";
 
 /** График отгрузок (09.10, «Продажи и заказы»): заказы клиентов и заявки
  * менеджеров по дням. На строке — вилка клиента (светлая полоса), твёрдая
@@ -135,6 +136,32 @@ export default function ShipmentSchedule() {
           <Segmented value={weeks} onChange={(v) => setWeeks(v as number)} options={[{ value: 4, label: "4 нед." }, { value: 6, label: "6 нед." }, { value: 10, label: "10 нед." }]} />
           <Segmented value={filter} onChange={(v) => setFilter(v as Filter)} options={FILTERS.map(([value, label]) => ({ value, label }))} />
           <Input.Search allowClear placeholder="№, название, позиция, счёт, менеджер" style={{ width: 300 }} value={q} onChange={(e) => setQ(e.target.value)} />
+          <Button
+            disabled={!rows.length}
+            onClick={() =>
+              exportToExcel(
+                `График отгрузок ${start.format("DD.MM")}-${end.format("DD.MM.YYYY")}`,
+                rows.map((o) => {
+                  const { qty, done } = orderTotals(o);
+                  const f = (v: string | null | undefined) => (v ? dayjs(v).format("DD.MM.YYYY") : "");
+                  return {
+                    id: o.id, name: o.name, customer: o.customer ?? "", state: STATE_LABEL[stateOf(o)], priority: PRIORITY_LABEL[o.priority ?? 0],
+                    window: o.ship_from || o.ship_to ? `${f(o.ship_from)} — ${f(o.ship_to)}` : "", ready: f(o.promised_ready), ship: f(o.ship_date),
+                    plan: f(o.plan_finish), qty, done, shipped: o.shipped_qty ?? 0,
+                  };
+                }),
+                [
+                  { key: "id", header: "№" }, { key: "name", header: "Заказ" }, { key: "customer", header: "Клиент" },
+                  { key: "state", header: "Состояние" }, { key: "priority", header: "Приоритет" }, { key: "window", header: "Вилка" },
+                  { key: "ready", header: "Готовность" }, { key: "ship", header: "Отгрузка" }, { key: "plan", header: "По плану" },
+                  { key: "qty", header: "Шт" }, { key: "done", header: "Сделано" }, { key: "shipped", header: "Отгружено" },
+                ],
+              )
+            }
+          >
+            Excel
+          </Button>
+          <Button onClick={() => window.print()}>Печать</Button>
           {canManage || user?.permissions.includes("orders.request") ? (
             <Button type="primary" onClick={() => navigate("/production-orders")}>
               Новая заявка / заказ →

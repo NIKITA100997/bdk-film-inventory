@@ -14,6 +14,8 @@ import {
 } from "../../../api/weeklyPlan";
 import { PRIORITY_COLOR, PRIORITY_LABEL } from "../../../api/productionOrders";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { exportBook } from "../../../utils/excel";
+import { LaggingCard } from "./OrderControl";
 
 const STATUS: Record<Plan["status"], [string, string]> = {
   draft: ["черновик", "default"],
@@ -128,6 +130,36 @@ export default function WeeklyPlan() {
                 </Button>
               </>
             )}
+            <Button
+              onClick={() =>
+                exportBook(`План недели ${dayjs(p.week_start).format("DD.MM.YYYY")}`, [
+                  {
+                    name: "Заказы",
+                    rows: p.orders.map((o) => ({
+                      id: o.id, name: o.name, customer: o.customer ?? "", priority: PRIORITY_LABEL[o.priority], state: o.state, qty: o.qty,
+                      ready: d(o.promised_ready), ship: d(o.ship_date), plan: d(o.plan_finish), late: o.plan_late ? "не успевает" : "",
+                    })),
+                    columns: [
+                      { key: "id", header: "№" }, { key: "name", header: "Заказ" }, { key: "customer", header: "Клиент" },
+                      { key: "priority", header: "Приоритет" }, { key: "state", header: "Состояние" }, { key: "qty", header: "Шт" },
+                      { key: "ready", header: "Готовность" }, { key: "ship", header: "Отгрузка" }, { key: "plan", header: "По плану" },
+                      { key: "late", header: "" },
+                    ],
+                  },
+                  {
+                    name: "Загрузка участков",
+                    rows: p.areas.map((a) => ({
+                      name: a.name,
+                      ...Object.fromEntries(p.days.map((day, i) => [day, a.capacity[i] ? `${a.by_day[i]} / ${a.capacity[i]}` : a.by_day[i]])),
+                    })),
+                    columns: [{ key: "name", header: "Участок" }, ...p.days.map((day) => ({ key: day, header: dayjs(day).format("dd DD.MM") }))],
+                  },
+                ])
+              }
+            >
+              Excel
+            </Button>
+            <Button onClick={() => window.print()}>Печать</Button>
             {p.can_manage && p.status === "approved" && (
               <Button
                 loading={launch.isPending}
@@ -217,6 +249,7 @@ export default function WeeklyPlan() {
               Запущенные — по дням плана, принятые — по расчёту сроков. Красное — больше мощности; «вых» — нерабочий день по календарю.
             </Typography.Paragraph>
           </Card>
+          <LaggingCard canManage={p.can_manage} />
           <Card size="small" title="Журнал плана">
             {p.events.length === 0 ? (
               <Typography.Text type="secondary">Пока пусто</Typography.Text>

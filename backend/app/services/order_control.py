@@ -123,17 +123,20 @@ def reduce_line(db: Session, order: ProductionOrder, ol: ProductionOrderLine, ne
         .filter(ProductionTaskLineReport.task_line_id.in_([ln.id for ln, _ in lines] or [-1]))
         .group_by(ProductionTaskLineReport.task_line_id)
     )
+    from app.models.areas import Area
+
+    area_names = {a.code: a.name for a in db.query(Area)}
     plan = ReducePlan()
     for ln, t in lines:
         if ln.order_line_id != ol.id:
             if ln.order_line_id is None and ln.part_id is not None:
-                plan.merged.append(f"{ln.part_name} ({t.area})")
+                plan.merged.append(f"{ln.part_name} ({area_names.get(t.area, t.area)})")
             continue
         q = float(ln.quantity_pieces)
         target = round(q * new_qty / old_qty, 2) if old_qty else new_qty
         d = float(done.get(ln.id, 0))
         new = max(d, target)
-        plan.rows.append(ReduceRow(task_line_id=ln.id, area=t.area, what=ln.part_name or "", old=q, new=new, done=d,
+        plan.rows.append(ReduceRow(task_line_id=ln.id, area=area_names.get(t.area, t.area), what=ln.part_name or "", old=q, new=new, done=d,
                                    surplus=round(max(0.0, d - target), 2)))
         if apply:
             ln.quantity_pieces = new

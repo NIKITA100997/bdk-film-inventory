@@ -208,17 +208,35 @@ function InvoiceTable({ q, withClosed, onlyRisk }: { q: string; withClosed: bool
           fixed: "left",
           render: (_, o) => (
             <Space direction="vertical" size={0}>
-              <Typography.Text strong>{o.invoice}</Typography.Text>
+              <Typography.Text strong>
+                {o.invoice}
+                {o.customer ? <Typography.Text type="secondary"> · {o.customer}</Typography.Text> : null}
+              </Typography.Text>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 {o.orders.join(", ")}
               </Typography.Text>
+              {o.state && o.state !== "в работе" && <Tag color={o.state.startsWith("заявка") ? "gold" : "cyan"}>{o.state}</Tag>}
             </Space>
           ),
         },
         {
           title: "Отгрузка",
           sorter: (a, b) => (a.ship_date ?? "9").localeCompare(b.ship_date ?? "9"),
-          render: (_, o) => (o.ship_date ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—"),
+          render: (_, o) => (
+            <Space direction="vertical" size={0}>
+              <span>{o.ship_date ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—"}</span>
+              {o.promised_ready && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  готовность {dayjs(o.promised_ready).format("DD.MM")}
+                </Typography.Text>
+              )}
+              {(o.shipped ?? 0) > 0 && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  отгружено {fmt(o.shipped ?? 0)} из {fmt(o.quantity)}
+                </Typography.Text>
+              )}
+            </Space>
+          ),
         },
         ...stageCols.map((name) => ({
           title: name,

@@ -29,6 +29,7 @@ import ScheduleImportModal from "./ScheduleImportModal";
 import RequestPanel from "./RequestPanel";
 import OrderDatesCard from "./OrderDatesCard";
 import { OrderNeedsCard } from "./NeedsViews";
+import { ReduceModal, useCancelOrder } from "./OrderControl";
 import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
@@ -368,6 +369,8 @@ export function OrderView({
   const [printing, setPrinting] = useState(false);
   const [cardTask, setCardTask] = useState<number | null>(null);
   const [lamOpen, setLamOpen] = useState(false);
+  const [reduceOpen, setReduceOpen] = useState(false);
+  const cancelOrder = useCancelOrder(order);
   const { user } = useAuth();
   const canRequest = canRequestOrders(user);
   // Продажник правит заявку до отправки и после возврата.
@@ -472,12 +475,17 @@ export function OrderView({
                       { key: "reschedule", label: "Пересчитать сроки" },
                       { key: "planner", label: "Открыть в планировщике →" },
                       { type: "divider" },
+                      { key: "reduce", label: "Уменьшить количество…" },
+                      { key: "cancel", label: "Отменить заказ…", danger: true },
+                      { type: "divider" },
                       { key: "complete", label: "Закрыть: всё сделано" },
                       { key: "close", label: "Закрыть заказ" },
                     ],
                     onClick: ({ key }) => {
                       if (key === "reschedule") rescheduleMutation.mutate(order.id);
                       else if (key === "planner") navigate("/planner");
+                      else if (key === "reduce") setReduceOpen(true);
+                      else if (key === "cancel") cancelOrder();
                       else if (key === "complete")
                         Modal.confirm({
                           title: "Закрыть: всё сделано?",
@@ -593,6 +601,7 @@ export function OrderView({
         />
       )}
       {lamOpen && order && <LaminationPrelaunchModal order={order} onClose={() => setLamOpen(false)} />}
+      {reduceOpen && order && <ReduceModal order={order} onClose={() => setReduceOpen(false)} />}
       <TaskCardDrawer taskId={cardTask} onClose={() => setCardTask(null)} canManage={canManage} canReport={canManage} />
     </Card>
   );

@@ -488,6 +488,10 @@ export interface InvoiceReadiness {
   closed: boolean;
   lines: { item_name: string; quantity: number; done: number }[];
   stages: ReadinessStage[];
+  customer?: string | null;
+  promised_ready?: string | null;
+  shipped?: number;
+  state?: string;
 }
 export const getInvoicesReadiness = async (includeClosed = false): Promise<InvoiceReadiness[]> =>
   (await apiClient.get<InvoiceReadiness[]>("/production-orders/readiness-invoices", { params: { include_closed: includeClosed } })).data;
