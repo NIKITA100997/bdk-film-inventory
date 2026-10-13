@@ -100,7 +100,10 @@ function ItemsTab() {
     const inGroup = group != null && group !== NO_GROUP ? groupWithDescendants(groups, group) : null;
     const all = itemsQuery.data ?? [];
     const matches = (i: Item) =>
-      !needle || i.name.toLowerCase().replace(/ё/g, "е").includes(needle) || (i.code_1c ?? "").toLowerCase().includes(needle);
+      !needle ||
+      i.name.toLowerCase().replace(/ё/g, "е").includes(needle) ||
+      (i.code_1c ?? "").toLowerCase().includes(needle) ||
+      (i.aliases ?? []).some((a) => a.toLowerCase().replace(/ё/g, "е").includes(needle));
     const models = new Set(all.filter((i) => i.is_model).map((i) => i.id));
     const variants = new Map<number, Item[]>();
     for (const i of all) if (i.model_id != null && models.has(i.model_id)) variants.set(i.model_id, [...(variants.get(i.model_id) ?? []), i]);

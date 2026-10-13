@@ -17,6 +17,7 @@ import MaterialCard, { type MaterialCardPrefill } from "./MaterialCard";
 import PartCard from "./production/PartCard";
 import { MovementsPanel } from "./StockLotsMovements";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import ItemAliases from "../../components/ItemAliases";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
 
@@ -189,6 +190,7 @@ export default function ItemCard() {
               Вариант модели <a onClick={() => navigate(`/item/${card.model_id}`)}>{card.model_name}</a>
             </Typography.Text>
           )}
+          {!card.is_model && <ItemAliases itemId={itemId} />}
         </Space>
       </Card>
       <Tabs activeKey={active} onChange={(k) => setParams({ tab: k })} items={tabs} destroyOnHidden />

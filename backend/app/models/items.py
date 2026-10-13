@@ -382,17 +382,21 @@ def strip_decor(name: str) -> str:
     return name
 
 
-class PartAlias(Base):
-    """Другое название детали (06.10): текст из нарядов, графиков, 1С, который
-    не совпадает с названием детали («Наличник телескоп 8х70х2150» ↔
-    «Наличник 8х70х2150 телескоп»). Запоминается при ручной связке строк —
-    следующие строки с таким текстом связываются сами. alias — нормализованный."""
+class ItemAlias(Base):
+    """Другое название позиции (14.10, для любого вида; раньше — только у
+    деталей, part_aliases): текст из нарядов, графиков, счетов и прайсов 1С,
+    который не совпадает с названием («Наличник телескоп 8х70х2150» ↔
+    «Наличник 8х70х2150 телескоп»). Заводится вручную в карточке позиции или
+    сам при ручной связке строк — дальше такой текст узнаётся везде, где
+    позиция ищется по тексту. alias — нормализованный (normalize_name)."""
 
-    __tablename__ = "part_aliases"
+    __tablename__ = "item_aliases"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     alias: Mapped[str] = mapped_column(String(255), unique=True)
-    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(String(255))  # как написано в источнике
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str | None] = mapped_column(String(64), nullable=True)  # откуда: «вручную», «связка строк», «1С»
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -403,7 +407,7 @@ def match_part_id(
     """Деталь по названию строки; не нашлось — позиция на этот размер под
     общим названием («Поперечная (МежКомн)» 110×404 → «… 110х404»). У строки
     с плёнкой — ещё и без декора в скобках (погонаж «… (Бьянко)»), и по
-    другим названиям детали (part_aliases)."""
+    другим названиям детали (item_aliases)."""
     from app.models.dictionaries import Part
 
     names = [part_name]
@@ -427,7 +431,13 @@ def match_part_id(
         )
         if part_id is not None:
             return part_id
-    alias = session.query(PartAlias.part_id).filter(PartAlias.alias.in_(keys)).order_by(PartAlias.id).first()
+    alias = (
+        session.query(Part.id)
+        .join(ItemAlias, ItemAlias.item_id == Part.item_id)
+        .filter(ItemAlias.alias.in_(keys))
+        .order_by(ItemAlias.id)
+        .first()
+    )
     return alias[0] if alias else None
 
 

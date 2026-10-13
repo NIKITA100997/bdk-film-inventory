@@ -19,6 +19,8 @@ export interface Item {
   source_type: "sku" | "part" | "model" | null;
   source_id: number | null;
   group_id: number | null;
+  /** Синонимы (14.10) — поиск находит и по ним. */
+  aliases?: string[];
   /** Модель (серия) — варианты ссылаются на неё через model_id. */
   is_model: boolean;
   model_id: number | null;
@@ -271,3 +273,17 @@ export const getNormatives = async (itemId: number): Promise<Normatives> =>
 
 export const setNormatives = async (itemId: number, v: Normatives): Promise<Normatives> =>
   (await apiClient.put<Normatives>(`/items/${itemId}/normatives`, v)).data;
+
+/** Синонимы позиции (14.10): другие названия из нарядов, графиков, 1С. film — сопоставление цвета плёнки (правится в «Справочниках»). */
+export interface ItemAlias {
+  id: number | null;
+  text: string;
+  source: string | null;
+  created_at: string | null;
+  film: boolean;
+}
+export const listItemAliases = async (itemId: number): Promise<ItemAlias[]> => (await apiClient.get<ItemAlias[]>(`/items/${itemId}/aliases`)).data;
+export const addItemAlias = async (itemId: number, text: string): Promise<ItemAlias[]> =>
+  (await apiClient.post<ItemAlias[]>(`/items/${itemId}/aliases`, { text })).data;
+export const deleteItemAlias = async (itemId: number, aliasId: number): Promise<ItemAlias[]> =>
+  (await apiClient.delete<ItemAlias[]>(`/items/${itemId}/aliases/${aliasId}`)).data;

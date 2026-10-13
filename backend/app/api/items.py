@@ -1,6 +1,7 @@
 import re
 from collections import defaultdict
 from difflib import SequenceMatcher
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -11,7 +12,7 @@ from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import Color, Material, MaterialSku, Part
-from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, ItemType, PartAlias, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name, strip_decor
+from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, ItemType, ItemAlias, fmt_num as _fmt, normalize_name, size_part_name, sku_item_name, strip_decor
 from app.models.production import ProductionTask, ProductionTaskLine, ProductModel, ProductModelPart
 from app.services import item_attrs, normatives
 from app.services.laminated import can_laminate, laminated_part
@@ -70,6 +71,8 @@ class ItemOut(BaseModel):
     min_batch: float | None = None
     batch_multiple: float | None = None
     norms_unit: str | None = None
+    # Синонимы (14.10) — поиск по номенклатуре находит и по ним.
+    aliases: list[str] = []
 
 
 class PartSuggestion(BaseModel):
@@ -210,13 +213,21 @@ def list_items(
                 )
             )
 
+    al: dict[int, list[str]] = defaultdict(list)
+    for item_id, text in db.query(ItemAlias.item_id, ItemAlias.text):
+        al[item_id].append(text)
+    for o in out:
+        o.aliases = al.get(o.id, [])
     if kind:
         out = [i for i in out if i.kind_code == kind]
     if not include_inactive:
         out = [i for i in out if i.is_active]
     if q and q.strip():
         needle = normalize_name(q)
-        out = [i for i in out if needle in normalize_name(i.name) or (i.code_1c and needle in i.code_1c.lower())]
+        out = [
+            i for i in out
+            if needle in normalize_name(i.name) or (i.code_1c and needle in i.code_1c.lower()) or any(needle in normalize_name(a) for a in i.aliases)
+        ]
     order = {k.code: k.sort_order for k in kinds.values()}
     return sorted(out, key=lambda i: (order.get(i.kind_code, 99), i.name.lower()))
 
@@ -567,8 +578,14 @@ def link_unlinked_lines(payload: LinkLinesIn, db: Session = Depends(get_db), use
                 if label == "bom":
                     touched_models.add(line.product_model_id)
     # другое название детали — следующие строки с этим текстом свяжутся сами
-    if key != normalize_name(part.name) and not db.query(PartAlias).filter(PartAlias.alias == key).first():
-        db.add(PartAlias(alias=key, part_id=part.id, created_by=user.id))
+    if part.item_id is not None:
+        from app.services.item_aliases import add_alias
+
+        item = db.get(Item, part.item_id)
+        try:
+            add_alias(db, item, payload.part_name, source="связка строк", user_id=user.id)
+        except ValueError:
+            pass  # этот текст уже значит другую позицию — связка строк всё равно сделана
     db.flush()
     sync_bom_components(db, touched_models)
     db.commit()
@@ -632,7 +649,11 @@ def unlink_lines(payload: LinkLinesIn, db: Session = Depends(get_db), user=Depen
                 if label == "bom":
                     touched_models.add(line.product_model_id)
     # снятая связь — и другое название больше не связывает само
-    db.query(PartAlias).filter(PartAlias.alias == key, PartAlias.part_id == payload.part_id).delete()
+    part = db.get(Part, payload.part_id)
+    if part is not None and part.item_id is not None:
+        from app.services.item_aliases import alias_key
+
+        db.query(ItemAlias).filter(ItemAlias.alias == alias_key(payload.part_name), ItemAlias.item_id == part.item_id).delete()
     db.flush()
     sync_bom_components(db, touched_models)
     db.commit()
@@ -1127,3 +1148,68 @@ def set_item_route(
             piece_rate=float(s.piece_rate) if s.piece_rate is not None else None)
         for s in item.stages
     ]
+
+
+# ─── синонимы любой позиции (14.10) ─────────────────────────────────────────
+
+manage_aliases = require_permission("production_tasks.manage", "materials.manage", "part_units.manage", "purchasing.manage")
+
+
+class AliasOut(BaseModel):
+    id: int | None  # None — сопоставление плёнки (общее для цвета, правится в «Справочниках»)
+    text: str
+    source: str | None
+    created_at: datetime | None = None
+    film: bool = False
+
+
+class AliasIn(BaseModel):
+    text: str = Field(min_length=1, max_length=255)
+
+
+@router.get("/items/{item_id}/aliases", response_model=list[AliasOut])
+def item_aliases(item_id: int, db: Session = Depends(get_db), user=Depends(view_items)) -> list[AliasOut]:
+    """Синонимы позиции; у плёнки — ещё сопоставления её цвета плёнки."""
+    from app.models.dictionaries import MaterialSku
+    from app.models.film_aliases import FilmAlias
+
+    item = db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    out = [
+        AliasOut(id=a.id, text=a.text, source=a.source, created_at=a.created_at)
+        for a in db.query(ItemAlias).filter(ItemAlias.item_id == item_id).order_by(ItemAlias.id)
+    ]
+    sku = db.query(MaterialSku).filter(MaterialSku.item_id == item_id).first()
+    if sku is not None:
+        for fa in db.query(FilmAlias).filter(FilmAlias.material_id == sku.material_id, FilmAlias.color_id == sku.color_id):
+            if fa.thickness_id in (None, sku.thickness_id):
+                out.append(AliasOut(id=None, text=fa.text, source=fa.source or "сопоставление плёнки", created_at=fa.created_at, film=True))
+    return out
+
+
+@router.post("/items/{item_id}/aliases", response_model=list[AliasOut])
+def add_item_alias(item_id: int, payload: AliasIn, db: Session = Depends(get_db), user=Depends(manage_aliases)) -> list[AliasOut]:
+    from app.services.item_aliases import add_alias
+
+    item = db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    try:
+        if add_alias(db, item, payload.text, source="вручную", user_id=user.id) is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Совпадает с названием позиции — синоним не нужен")
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    db.commit()
+    return item_aliases(item_id, db, user)
+
+
+@router.delete("/items/{item_id}/aliases/{alias_id}", response_model=list[AliasOut])
+def delete_item_alias(item_id: int, alias_id: int, db: Session = Depends(get_db), user=Depends(manage_aliases)) -> list[AliasOut]:
+    a = db.get(ItemAlias, alias_id)
+    if a is None or a.item_id != item_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Синоним не найден")
+    db.delete(a)
+    db.commit()
+    return item_aliases(item_id, db, user)

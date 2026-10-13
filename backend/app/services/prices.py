@@ -161,6 +161,12 @@ def import_1c(db: Session, rows: list[dict], *, default_currency_code: str | Non
         elif name and normalize_name(name) in by_name:
             item = by_name[normalize_name(name)]
             row.matched_by = "название"
+        elif name:
+            from app.services.item_aliases import find_item
+
+            item = find_item(db, name)
+            if item is not None:
+                row.matched_by = "синоним"
         if item is None:
             row.errors.append("позиция не найдена")
         if row.price is None:
