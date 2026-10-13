@@ -26,6 +26,7 @@ router = APIRouter(tags=["items"])
 view_items = require_permission(
     "materials.manage", "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view",
     "units.receive", "units.issue", "units.return",
+    "orders.request",  # менеджер подбирает позиции в заказ клиента (14.10)
 )
 link_lines = require_permission("production_tasks.manage")
 manage_groups = require_permission("production_tasks.manage", "materials.manage")

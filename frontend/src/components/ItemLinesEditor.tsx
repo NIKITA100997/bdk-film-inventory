@@ -3,7 +3,9 @@ import { Button, Empty, Input, InputNumber, Segmented, Select, Space, Typography
 import { useQuery } from "@tanstack/react-query";
 import VariantPicker from "./VariantPicker";
 import { listItems, type Item } from "../api/items";
-import { listItemTypes } from "../api/itemTypes";
+import { listItemTypes, type ItemType } from "../api/itemTypes";
+import { listAreas } from "../api/areas";
+import { CheckModal } from "../pages/desktop/nomenclature/TypeRulesPanel";
 
 export type LineDraft = { item_id: number | null; quantity: number | null; note: string; invoice_no: string };
 
@@ -28,6 +30,13 @@ export default function ItemLinesEditor({
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
   const [picking, setPicking] = useState<{ line: number; model: Item } | null>(null);
   const [pickKind, setPickKind] = useState<"izdelie" | "other">(initialKind);
+  // Позиции нет и модели нет — «Новая позиция по типу» прямо отсюда; без
+  // права на номенклатуру сохранение уйдёт запросом администратору.
+  const [newOfType, setNewOfType] = useState<ItemType | null>(null);
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas, enabled: !!newOfType });
+  const creatableTypes = (typesQuery.data ?? []).filter(
+    (t) => t.is_active && !!t.name_template && (pickKind === "izdelie" ? t.kind_code === "izdelie" : t.kind_code !== "izdelie"),
+  );
   const patch = (i: number, p: Partial<LineDraft>) => onChange(lines.map((l, j) => (j === i ? { ...l, ...p } : l)));
   const items = itemsQuery.data ?? [];
   const typeName = (id: number | null | undefined) => (id ? typesQuery.data?.find((t) => t.id === id)?.name : undefined);
@@ -120,8 +129,32 @@ export default function ItemLinesEditor({
               )}
             </Space>
           ))}
-          <Button onClick={() => onChange([...lines, emptyLine()])}>+ позиция</Button>
+          <Space wrap>
+            <Button onClick={() => onChange([...lines, emptyLine()])}>+ позиция</Button>
+            {creatableTypes.length > 0 && (
+              <Select
+                style={{ width: 300 }}
+                placeholder="Нет в списке — новая позиция по типу…"
+                value={null}
+                options={creatableTypes.map((t) => ({ value: t.id, label: `Новая: ${t.name}` }))}
+                onChange={(id) => setNewOfType(creatableTypes.find((t) => t.id === id) ?? null)}
+              />
+            )}
+          </Space>
         </Space>
+      )}
+      {newOfType && (
+        <CheckModal
+          type={newOfType}
+          mode="create"
+          areaName={(code) => (areasQuery.data ?? []).find((a) => a.code === code)?.name ?? code ?? "—"}
+          onClose={() => setNewOfType(null)}
+          onCreated={(itemId) => {
+            const empty = lines.findIndex((l) => !l.item_id);
+            if (empty >= 0) patch(empty, { item_id: itemId });
+            else onChange([...lines, { ...emptyLine(), item_id: itemId }]);
+          }}
+        />
       )}
       {picking && (
         <VariantPicker

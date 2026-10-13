@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.api.item_types import _get_type, manage_types
 from app.api.items import view_items
+from app.core.security import require_permission
+
+_create_variant = require_permission("production_tasks.manage", "materials.manage", "orders.request")
 from app.db.session import get_db
 from app.models.items import Item, ItemPropertyOption
 from app.services import model_builder
@@ -88,8 +91,10 @@ def variants_batch(type_id: int, payload: BatchIn, db: Session = Depends(get_db)
     (нужно право на номенклатуру)."""
     t = _get_type(db, type_id)
     if payload.create:
-        # Право на создание — то же, что у «Новая позиция по типу».
-        manage_types(user)  # type: ignore[call-arg]
+        # Вариант существующей модели по правилам типа — как при импорте
+        # счёта: может и менеджер (14.10). Новая позиция без модели —
+        # «Новая позиция по типу», право на номенклатуру.
+        _create_variant(user)  # type: ignore[call-arg]
     props = {p.id: p for p in t.properties}
     choices: dict[int, list] = {}
     for pid, vals in payload.choices.items():
