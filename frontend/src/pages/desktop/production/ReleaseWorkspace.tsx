@@ -214,6 +214,8 @@ export default function ReleaseWorkspace({
   if (!ready) return <Spin style={{ display: "block", margin: "48px auto" }} />;
 
   const doors = order.lines.reduce((s, l) => s + l.quantity, 0);
+  // общий заказ — в названии и шапке всех печатных форм и Excel (13.10)
+  const orderTitle = `Заказ №${order.id} «${order.name}»`;
   const noRoute = order.lines.filter((l) => l.operations.length === 0);
   const warnings = [
     ...noRoute.map((l) => `Нет маршрута — позиция не запустится: ${l.item_name}`),
@@ -471,6 +473,8 @@ export default function ReleaseWorkspace({
         children: (
           <SheetTable
             sheet={s}
+            orderTitle={orderTitle}
+            orderNote={order.note}
             overrides={overrides}
             onEdit={canManage ? (row) => setEditing({ row, sheet: s }) : undefined}
             onSkip={canManage ? setSkip : undefined}
@@ -497,7 +501,8 @@ export default function ReleaseWorkspace({
       mark: lay?.film.some((f) => f.stock_m < f.need_m) ? "не хватает" : undefined,
       children: lay?.film.length ? (
         <ResponsiveTable
-          exportTitle={`Запуск заказа №${order.id}: плёнка`}
+          exportTitle={`${orderTitle}: плёнка`}
+          exportNote={order.note ? `Комментарий: ${order.note}` : undefined}
           cardBreakpoint="xs"
           size="small"
           rowKey={(r) => `${r.area}|${r.label}`}
@@ -532,20 +537,41 @@ export default function ReleaseWorkspace({
       group: "Итог",
       label: "Материалы и комплектующие",
       sub: lay ? `${lay.materials.length} позиций` : "",
+      // 13.10: каждая группа (комплектующие, МДФ, пенопласт…) — отдельным
+      // блоком со своей печатью и Excel
       children: (
-        <ResponsiveTable
-          exportTitle={`Запуск заказа №${order.id}: материалы и комплектующие`}
-          cardBreakpoint="xs"
-          size="small"
-          rowKey="name"
-          pagination={false}
-          scroll={{ y: 560 }}
-          dataSource={lay?.materials ?? []}
-          columns={[
-            { title: "Наименование", dataIndex: "name" },
-            { title: "Количество", align: "right", render: (_, r) => `${Math.round(r.qty * 100) / 100} ${r.unit ?? "шт"}` },
-          ]}
-        />
+        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+          {[...new Set((lay?.materials ?? []).map((m) => m.group ?? "Прочее"))].map((g) => {
+            const rows = (lay?.materials ?? []).filter((m) => (m.group ?? "Прочее") === g);
+            return (
+              <div key={g}>
+                <Typography.Title level={5} style={{ marginTop: 0 }}>
+                  {g} <Typography.Text type="secondary">· {rows.length}</Typography.Text>
+                </Typography.Title>
+                <ResponsiveTable
+                  exportTitle={`${orderTitle}: ${g.toLowerCase()}`}
+                  exportNote={order.note ? `Комментарий: ${order.note}` : undefined}
+                  cardBreakpoint="xs"
+                  size="small"
+                  rowKey="name"
+                  pagination={false}
+                  dataSource={rows}
+                  columns={[
+                    { title: "Наименование", dataIndex: "name" },
+                    { title: "Количество", align: "right", render: (_, r) => `${Math.round(r.qty * 100) / 100} ${r.unit ?? "шт"}` },
+                    {
+                      title: "Где расходуется",
+                      render: (_, r) =>
+                        (r.areas ?? [])
+                          .map((a) => `${a.area_name ?? "—"}${(r.areas ?? []).length > 1 ? `: ${Math.round(a.qty * 100) / 100}` : ""}`)
+                          .join("; "),
+                    },
+                  ]}
+                />
+              </div>
+            );
+          })}
+        </Space>
       ),
     },
     {

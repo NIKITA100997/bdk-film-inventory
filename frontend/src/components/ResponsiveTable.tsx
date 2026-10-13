@@ -50,6 +50,7 @@ export default function ResponsiveTable<T extends object>({
   lockedColumns,
   defaultHiddenColumns,
   exportTitle,
+  exportNote,
   stickyColumns = 0,
   ...rest
 }: TableProps<T> & {
@@ -60,6 +61,8 @@ export default function ResponsiveTable<T extends object>({
   /** Отчёт (05.10): над таблицей «Excel» и «Печать» — по видимым столбцам,
    * значения — как на экране. Заголовок печатной формы и имя файла. */
   exportTitle?: string;
+  /** Строка под заголовком печати и в шапке Excel (13.10: комментарий заказа). */
+  exportNote?: string;
   /** Сколько первых видимых столбцов закрепить слева при прокрутке вбок
    * (05.10: на планшете широкая таблица теряла, о какой строке речь). */
   stickyColumns?: number;
@@ -166,7 +169,7 @@ export default function ResponsiveTable<T extends object>({
               disabled={!(dataSource ?? []).length}
               onClick={() => {
                 const { cols, rows } = exportData();
-                exportToExcel(fileName, rows, cols as { key: keyof (typeof rows)[number]; header: string }[]);
+                exportToExcel(fileName, rows, cols as { key: keyof (typeof rows)[number]; header: string }[], [exportTitle, exportNote ?? ""]);
               }}
             >
               Excel
@@ -177,7 +180,7 @@ export default function ResponsiveTable<T extends object>({
               disabled={!(dataSource ?? []).length}
               onClick={() => {
                 const { cols, rows } = exportData();
-                printReport(exportTitle, cols, rows);
+                printReport(exportTitle, cols, rows, exportNote);
               }}
             >
               Печать

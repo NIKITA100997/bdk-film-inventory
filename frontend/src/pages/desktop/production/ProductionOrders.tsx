@@ -492,6 +492,8 @@ export function OrderView({
         )
       }
     >
+      {/* комментарий заказа (13.10) — виден сразу и печатается в шапке каждого задания */}
+      {order?.note && <Alert type="info" showIcon style={{ marginBottom: 12 }} message={<span>Комментарий к заказу: <b>{order.note}</b></span>} />}
       {order && order.status === "draft" ? (
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
           {(order.tasks ?? []).length > 0 && (
@@ -800,7 +802,7 @@ export function OrderModal({
             )}
           />
         </Form.Item>
-        <Form.Item label="Комментарий">
+        <Form.Item label="Комментарий" extra="Печатается в шапке каждого задания и в Excel">
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Form.Item>
         <ItemLinesEditor lines={lines} onChange={setLines} withInvoice initialKind={initialKind} />

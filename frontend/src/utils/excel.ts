@@ -6,10 +6,12 @@ import * as XLSX from "xlsx";
  * Excel просили подтвердить формат при открытии). SheetJS (`xlsx`) пишет
  * файл сам, включая скачивание в браузере — без ручного Blob/URL, как
  * было в CSV-варианте. */
-export function exportToExcel<T>(filename: string, rows: T[], columns: { key: keyof T; header: string }[]) {
+export function exportToExcel<T>(filename: string, rows: T[], columns: { key: keyof T; header: string }[], heading: string[] = []) {
   const header = columns.map((c) => c.header);
   const data = rows.map((r) => columns.map((c) => r[c.key] ?? ""));
-  const sheet = XLSX.utils.aoa_to_sheet([header, ...data]);
+  // шапка над таблицей (13.10): название (общий заказ), комментарий
+  const top = heading.filter(Boolean).map((h) => [h]);
+  const sheet = XLSX.utils.aoa_to_sheet([...top, ...(top.length ? [[]] : []), header, ...data]);
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "Данные");
   const xlsxName = filename.replace(/\.(csv|xlsx)$/i, "") + ".xlsx";

@@ -6,7 +6,7 @@ import { fmtDateTime } from "./dates";
  * не встречалась). Печатает только те столбцы, что выбраны в конструкторе
  * — состав печатной формы регулируется тем же списком, что и видимость
  * столбцов на экране. */
-export function printReport(title: string, columns: { key: string; header: string }[], rows: Record<string, unknown>[]) {
+export function printReport(title: string, columns: { key: string; header: string }[], rows: Record<string, unknown>[], note?: string) {
   const escapeHtml = (v: unknown) =>
     String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -32,6 +32,7 @@ export function printReport(title: string, columns: { key: string; header: strin
 </head>
 <body>
   <h1>${escapeHtml(title)}</h1>
+  ${note ? `<div style="font-size:13px;margin:2px 0 8px;padding:4px 6px;border:1px solid #c9a36b;background:#fff7e8">${escapeHtml(note)}</div>` : ""}
   <div class="meta">${escapeHtml(fmtDateTime(new Date()))} · строк: ${rows.length}</div>
   <table>
     <thead><tr>${headerRow}</tr></thead>

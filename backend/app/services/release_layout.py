@@ -20,6 +20,7 @@ from app.models.units import MaterialUnit, UnitStatus
 from app.services import type_rules
 from app.services.areas import cuts_film_on_site
 from app.services.components import live_item_names, planned_components
+from app.services.door_cols import door_cols
 from app.services.operation_roles import is_film, needs_program
 
 
@@ -144,7 +145,11 @@ def build_release_layout(
                 "date_to": dates[-1].isoformat() if dates else None,
                 "film": None,
                 "operation": stage.name if stage is not None else None,
+                "invoice_no": ol.invoice_no if ol is not None else None,
             }
+            if not ln.part_id and ol is not None:
+                # дверь — столбцы как в Excel (13.10)
+                row.update(door_cols(row["chars"], ol.source_text, item.name if item else None))
             if ln.material_id:
                 sku = db.query(MaterialSku).filter(
                     MaterialSku.material_id == ln.material_id, MaterialSku.color_id == ln.color_id,
@@ -190,9 +195,20 @@ def build_release_layout(
             continue
         warnings.append(f"Нестандартное изделие — программу станка делает конструктор: {item.name}")
 
-    # материалы и комплектующие по составу (без своего маршрута — не задания)
-    totals: dict[str, float] = defaultdict(float)
+    # материалы и комплектующие по составу (без своего маршрута — не задания).
+    # 13.10: у каждой — группа (комплектующие п/ф отдельно, материалы — по
+    # своей группе: МДФ, пенопласт, клей…) и участок, где расходуется, —
+    # блоками на печать и вкладкой на листе участка (детали каркаса — на сборке каркаса)
+    from app.models.items import ItemGroup
+
+    totals: dict[tuple[str, str | None], float] = defaultdict(float)
     units: dict[str, str | None] = {}
+    groups_of: dict[str, str] = {}
+    group_names = {g.id: g.name for g in db.query(ItemGroup)}
+
+    def first_area(item_id: int) -> str | None:
+        st = db.query(PartStage).filter(PartStage.item_id == item_id).order_by(PartStage.sequence_order).first()
+        return st.area if st is not None else None
 
     def walk(item_id: int, k: float, depth: int = 0) -> None:
         comps = planned_components(db.query(ItemComponent).filter(ItemComponent.parent_item_id == item_id).all())
@@ -202,15 +218,39 @@ def build_release_layout(
             part = db.query(Part).filter(Part.item_id == c.component_item_id).first()
             if part is None or not part.stages:
                 nm = names.get(c.component_item_id) or "?"
-                totals[nm] += q
+                st = db.get(PartStage, c.stage_id) if c.stage_id else None
+                area = st.area if st is not None else first_area(item_id)
+                totals[(nm, area)] += q
                 it = db.get(Item, c.component_item_id)
                 units[nm] = it.unit if it else None
+                if it is not None and it.kind is not None and it.kind.code == "pf":
+                    groups_of[nm] = "Комплектующие"
+                else:
+                    groups_of[nm] = (group_names.get(it.group_id) if it and it.group_id else None) or (nm.split()[0] if nm else "Прочее")
             if depth < 4:
                 walk(c.component_item_id, q, depth + 1)
 
     for l in order.lines:
         walk(l.item_id, float(l.quantity))
-    materials = [{"name": n, "qty": round(q, 3), "unit": units.get(n)} for n, q in sorted(totals.items())]
+    by_name: dict[str, dict] = {}
+    for (nm, area), q in totals.items():
+        m = by_name.setdefault(nm, {"name": nm, "qty": 0.0, "unit": units.get(nm), "group": groups_of.get(nm, "Прочее"), "areas": {}})
+        m["qty"] += q
+        m["areas"][area] = m["areas"].get(area, 0.0) + q
+    materials = [
+        {"name": m["name"], "qty": round(m["qty"], 3), "unit": m["unit"], "group": m["group"],
+         "areas": [{"area": a, "area_name": areas[a].name if a in areas else None, "qty": round(q, 3)} for a, q in m["areas"].items()]}
+        for m in sorted(by_name.values(), key=lambda m: (m["group"] != "Комплектующие", m["group"], m["name"]))
+    ]
+    # на лист участка — что на нём расходуется (вкладка «Комплектующие»)
+    from app.services.task_print import _cut_comment
+
+    for m in materials:
+        for a in m["areas"]:
+            if a["area"] in sheets:
+                sheets[a["area"]].setdefault("components", []).append(
+                    {"name": m["name"], "qty": a["qty"], "unit": m["unit"], "group": m["group"], "comment": _cut_comment(m["name"])}
+                )
 
     # п/ф заказа: сколько нужно, сколько со склада, сколько в работу и для
     # скольких строк заказа — откуда берутся детали на листах участков

@@ -290,6 +290,13 @@ export interface ReleaseLayoutRow {
   operation?: string | null;
   /** «не делать этот этап» — в задание не попадёт (07.10) */
   skipped?: boolean;
+  /** дверь — столбцы как в Excel (13.10) */
+  invoice_no?: string | null;
+  series?: string;
+  size?: string;
+  color?: string;
+  source?: string;
+  edge?: string;
 }
 export interface ReleaseLayoutSheet {
   area: string;
@@ -300,11 +307,13 @@ export interface ReleaseLayoutSheet {
   total: number;
   date_from: string | null;
   date_to: string | null;
+  /** что расходуется на участке (13.10): детали каркаса, пенопласт… */
+  components?: { name: string; qty: number; unit: string | null; group: string; comment: string | null }[];
 }
 export interface ReleaseLayout {
   sheets: ReleaseLayoutSheet[];
   film: { area: string; area_name: string; label: string; need_m: number; stock_m: number; min_width_mm: number; cut_on_site: boolean }[];
-  materials: { name: string; qty: number; unit: string | null }[];
+  materials: { name: string; qty: number; unit: string | null; group?: string; areas?: { area: string | null; area_name: string | null; qty: number }[] }[];
   /** п/ф заказа: нужно, со склада, в работу, для скольких строк заказа */
   pf: { name: string; need: number; from_stock: number; launch: number; order_lines: number; lamination_area: string | null }[];
   warnings: string[];
@@ -351,7 +360,7 @@ export interface TaskPrintSheet {
   area_name: string;
   site: string | null;
   total: number;
-  tasks: { id: number; name: string; order: string | null; ship_date: string | null }[];
+  tasks: { id: number; name: string; order: string | null; ship_date: string | null; order_note?: string | null }[];
   rows: {
     task_id: number;
     name: string;
@@ -364,6 +373,12 @@ export interface TaskPrintSheet {
     instruction: string | null;
     date_from: string | null;
     date_to: string | null;
+    /** столбцы двери как в Excel (13.10): серия, размер, цвет, наименование из графика/1С, кромка */
+    series?: string;
+    size?: string;
+    color?: string;
+    source?: string;
+    edge?: string;
     /** панель щитовой двери — ведомость фрезеровки как в Excel (07.10) */
     panel?: { mdf: string; sand: string; series: string; blank: string } | null;
   }[];

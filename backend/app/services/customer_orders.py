@@ -131,6 +131,8 @@ def build_production_order(db: Session, orders: list[CustomerOrder], user_id: in
         ship_from=min(froms) if froms else None, ship_to=min(tos) if tos else None,
         priority=max((co.priority or 0) for co in orders),
         customer=orders[0].customer if len({co.customer for co in orders}) == 1 else None,
+        # комментарии заказов клиентов — в комментарий запуска (печатается в шапке заданий, 13.10)
+        note="; ".join(f"{co.invoice_no}: {co.note}" for co in orders if (co.note or "").strip())[:255] or None,
     )
     for i, (co, ln, left) in enumerate(rows, start=1):
         po.lines.append(ProductionOrderLine(

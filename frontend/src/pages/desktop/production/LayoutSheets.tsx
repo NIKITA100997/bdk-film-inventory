@@ -23,7 +23,6 @@ import {
 } from "../../../api/productionOrders";
 import { listAreas } from "../../../api/areas";
 import { listMaterialSkus } from "../../../api/dictionaries";
-import { ItemChars } from "../../../components/ItemChars";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 
 export const d = (s: string | null) => (s ? dayjs(s).format("DD.MM") : "—");
@@ -155,8 +154,13 @@ export function SheetTable({
   onSkip,
   date,
   onDate,
+  orderTitle,
+  orderNote,
 }: {
   sheet: ReleaseLayoutSheet;
+  /** шапка печати и Excel (13.10): общий заказ и его комментарий */
+  orderTitle?: string;
+  orderNote?: string | null;
   overrides: Overrides;
   onEdit?: (row: Agg) => void;
   /** шлифовка «Да/Нет» (07.10): skip=true — этап не делать */
@@ -166,12 +170,19 @@ export function SheetTable({
   onDate?: (d: string | null) => void;
 }) {
   const [mode, setMode] = useState<"sum" | "rows">("sum");
+  // вкладки листа (13.10): задание и что на нём расходуется (детали каркаса, пенопласт…)
+  const [view, setView] = useState<"task" | "components">("task");
   const hasFilm = sheet.rows.some((r) => r.film);
+  // двери — столбцы как в Excel: № счёта | Серия | Размер | Цвет | Наименование
+  const doors = sheet.rows.some((r) => r.series || r.size);
+  const hasEdge = doors && /периметр/i.test(sheet.name);
+  const hasProg = sheet.rows.some((r) => r.program || r.instruction);
+  const title = (op: string) => `${orderTitle ? `${orderTitle} — ` : ""}${sheet.name}${op ? ` — ${op}` : ""}`;
   const data: Agg[] = useMemo(() => {
     if (mode === "rows") return sheet.rows.map((r, i) => ({ ...r, rowKey: `${r.key}#${i}`, keys: [r.key], lines: 1 }));
     const m = new Map<string, Agg>();
     for (const r of sheet.rows) {
-      const k = `${r.operation ?? ""}|${r.name}|${r.film?.label ?? ""}|${r.film?.strip_width_mm ?? ""}|${r.program ?? ""}|${r.instruction ?? ""}|${r.skipped ? 1 : 0}`;
+      const k = `${r.operation ?? ""}|${r.series ? r.invoice_no ?? "" : ""}|${r.name}|${r.film?.label ?? ""}|${r.film?.strip_width_mm ?? ""}|${r.program ?? ""}|${r.instruction ?? ""}|${r.skipped ? 1 : 0}`;
       const a = m.get(k);
       if (a) {
         a.qty += r.qty;
@@ -196,8 +207,37 @@ export function SheetTable({
     });
   }, [sheet, data]);
 
+  const comps = sheet.components ?? [];
   return (
     <Space direction="vertical" size="small" style={{ width: "100%" }}>
+      {comps.length > 0 && (
+        <Segmented
+          value={view}
+          onChange={(v) => setView(v as "task" | "components")}
+          options={[
+            { value: "task", label: "Задание" },
+            { value: "components", label: `Комплектующие и материалы (${comps.length})` },
+          ]}
+        />
+      )}
+      {view === "components" && comps.length > 0 ? (
+        <ResponsiveTable
+          exportTitle={title("комплектующие и материалы")}
+          exportNote={orderNote ? `Комментарий: ${orderNote}` : undefined}
+          cardBreakpoint="xs"
+          size="small"
+          rowKey="name"
+          pagination={false}
+          dataSource={comps}
+          columns={[
+            { title: "Группа", dataIndex: "group", width: 140 },
+            { title: "Номенклатура", dataIndex: "name" },
+            { title: "Кол-во", align: "right", render: (_, c) => `${Math.round(c.qty * 100) / 100} ${c.unit ?? "шт"}` },
+            ...(comps.some((c) => c.comment) ? [{ title: "Пилим / шлифуем", render: (_: unknown, c: (typeof comps)[number]) => c.comment ?? "" }] : []),
+          ]}
+        />
+      ) : (
+      <>
       <Space wrap>
         <Segmented
           size="small"
@@ -256,12 +296,13 @@ export function SheetTable({
             // ширину широкого режима и рос при каждом переключении (05.10)
             key={mode}
             tableLayout="fixed"
-            exportTitle={`Раскладка запуска: ${sheet.name}${g.op ? ` — ${g.op}` : ""}`}
+            exportTitle={title(g.op)}
+            exportNote={orderNote ? `Комментарий: ${orderNote}` : undefined}
             cardBreakpoint="xs"
             size="small"
             rowKey="rowKey"
             pagination={false}
-            scroll={{ x: 360 + 80 + (mode === "rows" ? 240 : 70) + (hasFilm ? 230 : 0) + 100 + (onEdit ? 56 : 0), y: 420 }}
+            scroll={{ x: (doors ? 110 + 80 + 90 + 150 + 300 : 360) + 80 + (mode === "rows" && !doors ? 240 : 70) + (hasEdge ? 150 : 0) + (hasProg ? 200 : 0) + (hasFilm ? 230 : 0) + 100 + (onEdit ? 56 : 0), y: 420 }}
             dataSource={g.rows}
             rowClassName={(r) => (r.skipped ? "row-skipped" : "")}
             columns={[
@@ -279,26 +320,56 @@ export function SheetTable({
                     },
                   ]
                 : []),
+              ...(doors
+                ? [
+                    { title: "№ счёта", width: 110, render: (_: unknown, r: Agg) => r.invoice_no ?? "" },
+                    { title: "Серия", width: 80, render: (_: unknown, r: Agg) => r.series ?? "" },
+                    { title: "Размер", width: 90, render: (_: unknown, r: Agg) => r.size ?? "" },
+                    { title: "Цвет", width: 150, render: (_: unknown, r: Agg) => r.color ?? "" },
+                  ]
+                : []),
               {
                 title: "Наименование",
-                width: 360,
+                width: doors ? 300 : 360,
                 // п/ф — название (размер в нём уже есть) и признаки, которых в нём
                 // нет; дверь — характеристики крупно, длинное название мелко. Одинаково
                 // у строки под одну дверь и у объединённой (08.10).
+                // дверь — наименование как в графике/1С (серия, размер, цвет — своими
+                // столбцами); п/ф — название детали (13.10: без повторов)
                 render: (_, r) => (
                   <Space direction="vertical" size={2} style={{ wordBreak: "break-word" }}>
-                    {!r.skipped && r.chars.length ? <ItemChars chars={r.chars} name={r.name} strong={false} /> : <span style={r.skipped ? { opacity: 0.5, textDecoration: "line-through" } : undefined}>{r.name}</span>}
+                    <span style={r.skipped ? { opacity: 0.5, textDecoration: "line-through" } : undefined}>{r.series ? r.source || r.name : r.name}</span>
                     {r.skipped && <Tag>не делаем</Tag>}
-                    <Space size={4} wrap>
-                      {r.program && <Tag color="geekblue">программа {r.program}</Tag>}
-                      {r.instruction && <Typography.Text type="warning">⚑ {r.instruction}</Typography.Text>}
-                      {(r.manual || r.keys.some((k) => overrides[k])) && <Tag color="orange">изменено вручную</Tag>}
-                    </Space>
+                    {(r.manual || r.keys.some((k) => overrides[k])) && <Tag color="orange">изменено вручную</Tag>}
                   </Space>
                 ),
               },
-              { title: "Кол-во", dataIndex: "qty", align: "right", width: 80, render: (v: number) => <b>{v}</b> },
-              ...(mode === "rows"
+              { title: doors ? "Кол-во дверей" : "Кол-во", dataIndex: "qty", align: "right", width: 80, render: (v: number) => <b>{v}</b> },
+              ...(hasEdge
+                ? [
+                    {
+                      title: "Кромка",
+                      width: 150,
+                      render: (_: unknown, r: Agg) =>
+                        r.edge?.includes("?") ? <Typography.Text type="warning">{r.edge}</Typography.Text> : <b>{r.edge ?? ""}</b>,
+                    },
+                  ]
+                : []),
+              ...(hasProg
+                ? [
+                    {
+                      title: "Программа / указание",
+                      width: 200,
+                      render: (_: unknown, r: Agg) => (
+                        <Space direction="vertical" size={0}>
+                          {r.program && <b>{r.program}</b>}
+                          {r.instruction && <Typography.Text type="warning">⚑ {r.instruction}</Typography.Text>}
+                        </Space>
+                      ),
+                    },
+                  ]
+                : []),
+              ...(mode === "rows" && !doors
                 ? [
                     {
                       title: "Для двери / счёт",
@@ -310,7 +381,9 @@ export function SheetTable({
                       ),
                     },
                   ]
-                : [{ title: "Строк", dataIndex: "lines", width: 70, align: "right" as const }]),
+                : mode === "rows" || doors
+                  ? []
+                  : [{ title: "Строк", dataIndex: "lines", width: 70, align: "right" as const }]),
               ...(hasFilm
                 ? [
                     {
@@ -349,6 +422,8 @@ export function SheetTable({
         </div>
         );
       })}
+      </>
+      )}
     </Space>
   );
 }

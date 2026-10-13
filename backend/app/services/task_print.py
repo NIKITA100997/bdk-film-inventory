@@ -14,6 +14,7 @@ from app.models.dictionaries import Color, Material, Thickness
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.production_orders import ProductionOrder, ProductionOrderLine
 from app.models.sites import Site
+from app.services.door_cols import door_cols
 from app.services.type_rules import item_chars_cached
 
 
@@ -134,6 +135,8 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
             "id": t.id, "name": t.name,
             "order": f"№{order.id} «{order.name}»" if order else None,
             "ship_date": order.ship_date.isoformat() if order and order.ship_date else None,
+            # шапка каждого задания (13.10): общий заказ и его комментарий
+            "order_note": (order.note or "").strip() or None if order else None,
         })
         for ln in t.lines:
             if ln.production_closed:
@@ -144,10 +147,13 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
             if ln.material_id:
                 film = f"{mats.get(ln.material_id, '')} {cols.get(ln.color_id, '')} {ths.get(ln.thickness_id, 0):g}".strip()
                 film += f" · штрипс {float(ln.strip_width_mm):g} мм" if ln.strip_width_mm else " · рулон"
+            row_chars = [] if ln.part_id else (item_chars_cached(db, ol.item_id) if ol else [])
             sheet["rows"].append({
                 "task_id": t.id,
                 "name": ln.part_name or "",
-                "chars": [] if ln.part_id else (item_chars_cached(db, ol.item_id) if ol else []),
+                "chars": row_chars,
+                # столбцы как в Excel (13.10): серия, размер, цвет, наименование из графика/1С, кромка
+                **(door_cols(row_chars, ol.source_text if ol else None, ln.part_name) if row_chars else {}),
                 "invoice_no": ol.invoice_no if ol else None,
                 "qty": float(ln.quantity_pieces),
                 "done": round(min(good.get(ln.id, 0.0), float(ln.quantity_pieces)), 2),
