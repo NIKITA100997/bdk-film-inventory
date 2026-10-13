@@ -19,6 +19,7 @@ from app.models.items import Item, ItemType
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.production_orders import ProductionOrder, ProductionOrderLine
 from app.models.sites import Site
+from app.services.door_cols import door_cols
 from app.services.item_attrs import effective_direction
 
 router = APIRouter(prefix="/production-monitor", tags=["production-monitor"])
@@ -58,6 +59,13 @@ class MonitorRow(BaseModel):
     date_from: date | None
     date_to: date | None
     group: str | None = None  # группа участка (08.10, services/line_groups.py)
+    # строка заказа (13.10): раскрытие заказа по строкам с участками
+    order_line_id: int | None = None
+    line_qty: float | None = None
+    series: str = ""
+    size: str = ""
+    color: str = ""
+    source: str = ""
 
 
 class MonitorOut(BaseModel):
@@ -126,6 +134,7 @@ def production_monitor(db: Session = Depends(get_db)) -> MonitorOut:
         grp = line_group(db, ln, t.area, [] if ln.part_id else (item_chars_cached(db, ol.item_id) if ol else []))
         g, d, last = agg.get(ln.id, (0.0, 0.0, None))
         days = sorted(slots.get(ln.id, []))
+        dc = door_cols(item_chars_cached(db, ol.item_id), ol.source_text, items[ol.item_id].name if ol.item_id in items else None) if ol else {}
         rows.append(
             MonitorRow(
                 task_line_id=ln.id, task_id=t.id, area=t.area, order_id=t.production_order_id,
@@ -135,6 +144,8 @@ def production_monitor(db: Session = Depends(get_db)) -> MonitorOut:
                 closed=bool(ln.production_closed), last_report=last,
                 date_from=days[0] if days else None, date_to=days[-1] if days else None,
                 group=grp[1] if grp else None,
+                order_line_id=ol.id if ol else None, line_qty=float(ol.quantity) if ol else None,
+                series=dc.get("series", ""), size=dc.get("size", ""), color=dc.get("color", ""), source=dc.get("source", ""),
             )
         )
         area_codes.add(t.area)

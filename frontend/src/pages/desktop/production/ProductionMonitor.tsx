@@ -115,6 +115,77 @@ export default function ProductionMonitor() {
     return rs.length ? sum(rs) : null;
   };
 
+  // Раскрытие заказа (13.10): каждая строка заказа — со всеми столбцами двери
+  // и статусом по каждому участку; фильтры — по данным столбцов.
+  type LineRow = { key: string; invoice: string; series: string; size: string; color: string; name: string; qty: number | null; rows: MonitorRow[] };
+  const statusOf = (s: Sum | null) => (!s ? null : s.done >= s.plan - 1e-9 ? "готово" : s.done > 0 ? "в работе" : "не начато");
+  const orderLines = (orderId: number) => {
+    const m = new Map<string, LineRow>();
+    for (const r of rows.filter((x) => (x.order_id ?? NO_ORDER) === orderId)) {
+      const key = r.order_line_id ? `l${r.order_line_id}` : `p|${r.position}`;
+      const g =
+        m.get(key) ??
+        ({
+          key,
+          invoice: r.invoice_no ?? "",
+          series: r.order_line_id ? r.series ?? "" : "",
+          size: r.order_line_id ? r.size ?? "" : "",
+          color: r.order_line_id ? r.color ?? "" : "",
+          name: r.order_line_id ? r.source || r.position : `${r.position} (п/ф на несколько строк)`,
+          qty: r.order_line_id ? r.line_qty ?? null : null,
+          rows: [],
+        } as LineRow);
+      g.rows.push(r);
+      m.set(key, g);
+    }
+    const list = [...m.values()].sort((a, b) => a.invoice.localeCompare(b.invoice, "ru") || a.name.localeCompare(b.name, "ru"));
+    const at = (l: LineRow, area: string) => {
+      const rs = l.rows.filter((r) => r.area === area);
+      return rs.length ? sum(rs) : null;
+    };
+    const used = areas.filter((a) => list.some((l) => at(l, a.code)));
+    const opts = (f: (l: LineRow) => string) => [...new Set(list.map(f).filter(Boolean))].sort().map((v) => ({ text: v, value: v }));
+    return (
+      <Table<LineRow>
+        size="small"
+        bordered
+        rowKey="key"
+        pagination={false}
+        dataSource={list}
+        scroll={{ x: "max-content" }}
+        columns={[
+          { title: "№ счёта", dataIndex: "invoice", filters: opts((l) => l.invoice), onFilter: (v, l) => l.invoice === v, filterSearch: true },
+          { title: "Серия", dataIndex: "series", filters: opts((l) => l.series), onFilter: (v, l) => l.series === v, filterSearch: true },
+          { title: "Размер", dataIndex: "size", filters: opts((l) => l.size), onFilter: (v, l) => l.size === v },
+          { title: "Цвет", dataIndex: "color", filters: opts((l) => l.color), onFilter: (v, l) => l.color === v, filterSearch: true },
+          {
+            title: "Наименование",
+            dataIndex: "name",
+            render: (v: string) => <div style={{ whiteSpace: "normal", maxWidth: 320 }}>{v}</div>,
+            filters: opts((l) => l.name),
+            onFilter: (v, l) => l.name === v,
+            filterSearch: true,
+          },
+          { title: "Кол-во", align: "right", render: (_, l) => (l.qty != null ? r2(l.qty) : "") },
+          ...used.map((a) => ({
+            title: areaTitle(a),
+            key: a.code,
+            filters: [
+              { text: "не начато", value: "не начато" },
+              { text: "в работе", value: "в работе" },
+              { text: "готово", value: "готово" },
+            ],
+            onFilter: (v: boolean | React.Key, l: LineRow) => statusOf(at(l, a.code)) === v,
+            render: (_: unknown, l: LineRow) => {
+              const c = at(l, a.code);
+              return c ? progressCell(c) : null;
+            },
+          })),
+        ]}
+      />
+    );
+  };
+
   // ── По участку ──
   const sheetArea = areaParam && areaBy.has(areaParam) ? areaParam : areas[0]?.code;
   const [grouped, setGrouped] = useState<"rows" | "position">("rows");
@@ -317,6 +388,7 @@ export default function ProductionMonitor() {
                 pagination={false}
                 rowKey="id"
                 dataSource={matrixOrders}
+                expandable={{ expandedRowRender: (o) => orderLines(o.id), rowExpandable: () => true }}
                 scroll={{ x: "max-content", y: "calc(100vh - 330px)" }}
                 locale={{ emptyText: "Открытых заданий нет" }}
                 columns={[

@@ -37,6 +37,13 @@ export interface MonitorRow {
   date_to: string | null;
   /** группа участка (08.10) */
   group?: string | null;
+  /** строка заказа (13.10): раскрытие заказа по строкам */
+  order_line_id?: number | null;
+  line_qty?: number | null;
+  series?: string;
+  size?: string;
+  color?: string;
+  source?: string;
 }
 
 export interface Monitor {
