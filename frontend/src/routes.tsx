@@ -39,6 +39,8 @@ import Productivity from "./pages/desktop/Productivity";
 import ProductionMonitor from "./pages/desktop/production/ProductionMonitor";
 import SearchPage from "./pages/desktop/SearchPage";
 import ShipmentSchedule from "./pages/desktop/ShipmentSchedule";
+import CustomerOrders from "./pages/desktop/customerOrders/CustomerOrders";
+import CustomerOrderPage from "./pages/desktop/customerOrders/CustomerOrderPage";
 import ProductionCalendar from "./pages/desktop/production/ProductionCalendar";
 import WeeklyPlan from "./pages/desktop/production/WeeklyPlan";
 import OrderDeadlines from "./pages/desktop/production/OrderDeadlines";
@@ -90,6 +92,14 @@ const appPageRoutes = (
     <Route
       path="/production-calendar"
       element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view"]}><ProductionCalendar /></RequirePermission>}
+    />
+    <Route
+      path="/customer-orders/:id"
+      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve"]}><CustomerOrderPage /></RequirePermission>}
+    />
+    <Route
+      path="/customer-orders"
+      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve"]}><CustomerOrders /></RequirePermission>}
     />
     <Route
       path="/shipment-schedule"

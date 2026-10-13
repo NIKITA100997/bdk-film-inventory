@@ -3,10 +3,13 @@ import { apiClient } from "./client";
 /** План недели (12.10, этап 3). */
 export interface PlanOrder {
   id: number;
+  /** po — заказ на производство, co — заказ клиента (незапущенный остаток). */
+  kind: "po" | "co";
+  key: string;
   name: string;
   customer: string | null;
   priority: number;
-  state: "запущен" | "принят" | "заявка";
+  state: "запущен" | "собран" | "принят" | "заявка";
   qty: number;
   promised_ready: string | null;
   ship_date: string | null;

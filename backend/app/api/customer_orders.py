@@ -424,8 +424,11 @@ def cancel(order_id: int, payload: CancelIn, db: Session = Depends(get_db), user
     co = _get(db, order_id)
     if not _is_production(user) and co.status == CO_ACCEPTED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Принятый заказ отменяет производство")
-    if cos.progress(db, co).in_work > 0:
+    p = cos.progress(db, co)
+    if p.in_work > 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Заказ в производстве — сначала уменьшите или отмените его в заказе на производство")
+    if p.launched > 0:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Заказ собран в черновик запуска — сначала уберите его строки из черновика или удалите черновик")
     old = co.promised_ready or co.ship_date
     co.status = CO_CANCELLED
     co.note = (f"Отменён: {payload.reason}. " + (co.note or ""))[:500]
@@ -501,7 +504,7 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
         db, text=payload.text, type_=type_, order_name="импорт заказов клиентов", user_id=user.id, dry_run=payload.dry_run,
         color_films=payload.color_films, colors_out=colors, invoice_no=(payload.invoice_no or "").strip() or None,
     )
-    out_rows = [{k: getattr(r, k) for k in ("series", "size", "color", "name_text", "qty", "invoice_no", "item_name", "exists", "errors", "notes")} for r in rows]
+    out_rows = [{k: getattr(r, k) for k in ("series", "size", "color", "name_text", "qty", "invoice_no", "ship_date", "item_name", "exists", "errors", "notes")} for r in rows]
     invoices = sorted({(r.invoice_no or "").strip() for r in rows if (r.invoice_no or "").strip()})
     no_inv = [r.name_text for r in rows if not (r.invoice_no or "").strip()]
     taken = [i for (i,) in db.query(CustomerOrder.invoice_no).filter(CustomerOrder.invoice_no.in_(invoices))] if invoices else []

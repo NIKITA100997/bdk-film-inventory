@@ -68,7 +68,7 @@ export default function WeeklyPlan() {
 
   const p = q.data;
   const [statusLabel, statusColor] = p ? STATUS[p.status] : ["", "default"];
-  const toLaunch = (p?.orders ?? []).filter((o) => o.state === "принят").length;
+  const toLaunch = (p?.orders ?? []).filter((o) => o.state === "принят" || o.state === "собран").length;
 
   const orderCols = [
     {
@@ -76,16 +76,20 @@ export default function WeeklyPlan() {
       render: (_: unknown, o: PlanOrder) => (
         <Space size={4} wrap>
           {o.priority > 0 && <Tag color={PRIORITY_COLOR[o.priority]}>{PRIORITY_LABEL[o.priority]}</Tag>}
-          <Link to={`/production-orders/${o.id}`}>
-            №{o.id} «{o.name}»
-          </Link>
+          {o.kind === "co" ? (
+            <Link to={`/customer-orders/${o.id}`}>Заказ клиента: {o.name}</Link>
+          ) : (
+            <Link to={`/production-orders/${o.id}`}>
+              №{o.id} «{o.name}»
+            </Link>
+          )}
           {o.customer && <Typography.Text type="secondary">· {o.customer}</Typography.Text>}
           {p && p.version > 0 && !o.in_approved && <Tag color="volcano">новый после утверждения</Tag>}
           {o.moved && <Tag color="orange">даты изменены</Tag>}
         </Space>
       ),
     },
-    { title: "Состояние", render: (_: unknown, o: PlanOrder) => <Tag color={o.state === "запущен" ? "blue" : o.state === "принят" ? "cyan" : "gold"}>{o.state}</Tag> },
+    { title: "Состояние", render: (_: unknown, o: PlanOrder) => <Tag color={o.state === "запущен" ? "blue" : o.state === "принят" || o.state === "собран" ? "cyan" : "gold"}>{o.state}</Tag> },
     { title: "Шт", align: "right" as const, dataIndex: "qty" },
     { title: "Готовность", render: (_: unknown, o: PlanOrder) => d(o.promised_ready) },
     { title: "Отгрузка", render: (_: unknown, o: PlanOrder) => d(o.ship_date) },
@@ -190,11 +194,11 @@ export default function WeeklyPlan() {
           )}
           {p.removed.length > 0 && <Alert type="info" showIcon message={`Ушли с недели после утверждения: ${p.removed.join(", ")}`} />}
           <Card size="small" title={`Заказы недели — ${p.orders.length}`}>
-            <Table<PlanOrder> size="small" rowKey="id" pagination={false} dataSource={p.orders} columns={orderCols} locale={{ emptyText: "На этой неделе нет заказов с готовностью" }} />
+            <Table<PlanOrder> size="small" rowKey="key" pagination={false} dataSource={p.orders} columns={orderCols} locale={{ emptyText: "На этой неделе нет заказов с готовностью" }} />
           </Card>
           {p.requests.length > 0 && (
             <Card size="small" title={`Заявки на эту неделю ждут приёма — ${p.requests.length}`}>
-              <Table<PlanOrder> size="small" rowKey="id" pagination={false} dataSource={p.requests} columns={orderCols} />
+              <Table<PlanOrder> size="small" rowKey="key" pagination={false} dataSource={p.requests} columns={orderCols} />
             </Card>
           )}
           <Card size="small" title="Загрузка участков, шт">

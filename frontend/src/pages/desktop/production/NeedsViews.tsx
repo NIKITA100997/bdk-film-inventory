@@ -3,7 +3,7 @@ import { Alert, Button, Card, InputNumber, Modal, Space, Table, Tag, Typography,
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import dayjs from "dayjs";
-import { getNeedsOverview, getOrderNeeds, purchaseShortages, type NeedRow, type ShortageRow } from "../../../api/needs";
+import { getCustomerOrderNeeds, getNeedsOverview, getOrderNeeds, purchaseShortages, type NeedRow, type ShortageRow } from "../../../api/needs";
 import { useAuth } from "../../../auth/AuthContext";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { hasPerm } from "../../../auth/permissions";
@@ -39,14 +39,26 @@ function reportPurchase(r: { film_requests: number[]; bitrix_tasks: number; not_
 
 /** Потребность заказа (12.10): плёнка и материалы с учётом очереди заказов —
  * склад сначала отдан тем, кто впереди. Дефицит — заказать одной кнопкой. */
-export function OrderNeedsCard({ orderId }: { orderId: number }) {
+export function OrderNeedsCard({ orderId, customer = false }: { orderId: number; customer?: boolean }) {
   const qc = useQueryClient();
   const canPurchase = useCanPurchase();
-  const q = useQuery({ queryKey: ["order-needs", orderId], queryFn: () => getOrderNeeds(orderId) });
+  const q = useQuery({
+    queryKey: ["order-needs", customer ? "co" : "po", orderId],
+    queryFn: () => (customer ? getCustomerOrderNeeds(orderId) : getOrderNeeds(orderId)),
+  });
   const data = q.data;
   const short = (data?.rows ?? []).filter((r) => r.shortage > 0.001);
   const buy = useMutation({
-    mutationFn: () => purchaseShortages(short.map((r) => ({ key: r.key, qty: Math.ceil(r.shortage), need_by: r.need_by, order_ids: [orderId] }))),
+    mutationFn: () =>
+      purchaseShortages(
+        short.map((r) => ({
+          key: r.key,
+          qty: Math.ceil(r.shortage),
+          need_by: r.need_by,
+          order_ids: customer ? [] : [orderId],
+          labels: customer && data ? [data.name] : undefined,
+        })),
+      ),
     onSuccess: (r) => {
       reportPurchase(r);
       qc.invalidateQueries({ queryKey: ["order-needs"] });
@@ -130,7 +142,13 @@ export function ShortagesTab() {
       purchaseShortages(
         rows
           .filter((r) => picked.includes(r.key))
-          .map((r) => ({ key: r.key, qty: qty[r.key] ?? Math.ceil(r.shortage), need_by: r.need_by, order_ids: r.orders.map((o) => o.order_id) })),
+          .map((r) => ({
+            key: r.key,
+            qty: qty[r.key] ?? Math.ceil(r.shortage),
+            need_by: r.need_by,
+            order_ids: r.orders.filter((o) => !o.customer_order_id).map((o) => o.order_id),
+            labels: r.orders.map((o) => (o.customer_order_id ? o.name : `№${o.order_id}`)),
+          })),
       ),
     onSuccess: (r) => {
       reportPurchase(r);
@@ -168,9 +186,13 @@ export function ShortagesTab() {
             <Space direction="vertical" size={2}>
               {r.orders.map((o) => (
                 <span key={o.order_id}>
-                  <Link to={`/production-orders/${o.order_id}`}>
-                    №{o.order_id} «{o.name}»
-                  </Link>{" "}
+                  {o.customer_order_id ? (
+                    <Link to={`/customer-orders/${o.customer_order_id}`}>{o.name}</Link>
+                  ) : (
+                    <Link to={`/production-orders/${o.order_id}`}>
+                      №{o.order_id} «{o.name}»
+                    </Link>
+                  )}{" "}
                   <Tag>{o.group}</Tag> {n(o.shortage)} {r.unit}, нужно к {d(o.need_by)}
                 </span>
               ))}

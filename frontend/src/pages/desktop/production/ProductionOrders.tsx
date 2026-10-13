@@ -8,7 +8,6 @@ import {
   Checkbox,
   DatePicker,
   Dropdown,
-  Empty,
   Form,
   Input,
   InputNumber,
@@ -26,7 +25,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import ScheduleImportModal from "./ScheduleImportModal";
-import RequestPanel from "./RequestPanel";
 import OrderDatesCard from "./OrderDatesCard";
 import { OrderNeedsCard } from "./NeedsViews";
 import { ReduceModal, useCancelOrder } from "./OrderControl";
@@ -40,11 +38,9 @@ import FastReportPanel from "./fastReport/FastReportPanel";
 import TaskCardDrawer from "./TaskCardDrawer";
 import OrderFlow from "./OrderFlow";
 import { OrderHistory, OrderMaterials, OrderPlan } from "./OrderTabs";
-import VariantPicker from "../../../components/VariantPicker";
+import ItemLinesEditor, { emptyLine, type LineDraft } from "../../../components/ItemLinesEditor";
 import { useAuth } from "../../../auth/AuthContext";
 import { listAreas } from "../../../api/areas";
-import { listItems, type Item } from "../../../api/items";
-import { listItemTypes } from "../../../api/itemTypes";
 import { listOrderCategories, createOrderCategory,
   ORDER_STATUS_LABEL,
   closeProductionOrder,
@@ -67,7 +63,7 @@ import { hasPerm } from "../../../auth/permissions";
 
 const STATUS_COLOR: Record<OrderStatus, string> = { draft: "default", released: "blue", closed: "green" };
 
-type ListFilter = "all" | "late" | "pf" | "stock" | "draft" | "requests";
+type ListFilter = "all" | "late" | "pf" | "stock" | "draft";
 // Отборы списка заказов (30.09): что не успевает, что ждёт п/ф, на склад,
 // черновики; участок — выбором (раньше — только «Фабрика»).
 const LIST_FILTERS: [ListFilter, string, (o: ProductionOrder) => boolean][] = [
@@ -76,12 +72,7 @@ const LIST_FILTERS: [ListFilter, string, (o: ProductionOrder) => boolean][] = [
   ["pf", "Ждёт п/ф", (o) => (o.tasks ?? []).some((t) => t.for_task_id != null && t.is_active && t.done < t.planned)],
   ["stock", "На склад", (o) => o.kind === "stock"],
   ["draft", "Черновики", (o) => o.status === "draft"],
-  ["requests", "Заявки ждут решения", (o) => o.request_status === "submitted"],
 ];
-
-// Право продажника (09.10): заводить заявки, видеть все заказы.
-const canRequestOrders = (user: { is_superuser?: boolean; permissions: string[] } | null | undefined) =>
-  !!user && !user.is_superuser && user.permissions.includes("orders.request");
 
 function ShipCell({ order: o }: { order: ProductionOrder }) {
   const window = o.ship_from || o.ship_to ? `${o.ship_from ? dayjs(o.ship_from).format("DD.MM") : "…"}–${o.ship_to ? dayjs(o.ship_to).format("DD.MM") : "…"}` : null;
@@ -138,7 +129,6 @@ export default function ProductionOrders() {
 function OrdersList() {
   const { user } = useAuth();
   const canManage = hasPerm(user, "production_tasks.manage");
-  const canRequest = canRequestOrders(user);
   const [includeClosed, setIncludeClosed] = useState(false);
   // ?order=ID (сквозной поиск по номеру) — сразу открыть страницу заказа.
   const [params] = useSearchParams();
@@ -183,34 +173,34 @@ function OrdersList() {
             <Checkbox checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)}>
               С закрытыми
             </Checkbox>
-            {(canManage || canRequest) && (
+            {canManage && (
               <Dropdown
                 trigger={["click"]}
                 menu={{
                   items: [
-                    ...(canManage
-                      ? [
-                          { key: "film", label: "Окутка / ламинация — из наряда, плана заготовок или вручную" },
-                          { key: "ops", label: "Работы участка без плёнки (операции техкарт)" },
-                        ]
-                      : []),
-                    { key: "items", label: canManage ? "Из позиций номенклатуры (по маршрутам)" : "Заявка: позиции вручную" },
-                    { key: "schedule", label: canManage ? "Из графика запуска или счёта 1С…" : "Заявка: из графика или счёта 1С…" },
+                    { key: "customer", label: "Из заказов клиентов (принятые счета) →" },
+                    { type: "divider" },
+                    { key: "film", label: "Окутка / ламинация — из наряда, плана заготовок или вручную" },
+                    { key: "ops", label: "Работы участка без плёнки (операции техкарт)" },
+                    { key: "items", label: "Из позиций номенклатуры (по маршрутам)" },
+                    { key: "schedule", label: "Из графика запуска или счёта 1С…" },
                   ],
                   onClick: ({ key }) => {
-                    if (key === "film" || key === "ops") setTaskCreate({ kind: key });
+                    if (key === "customer") navigate("/customer-orders");
+                    else if (key === "film" || key === "ops") setTaskCreate({ kind: key });
                     else if (key === "items") setEditing("new");
                     else setImportOpen(true);
                   },
                 }}
               >
-                <Button type="primary">{canManage ? "Новый заказ ▾" : "Новая заявка ▾"}</Button>
+                <Button type="primary">Новый заказ ▾</Button>
               </Dropdown>
             )}
           </Space>
         }
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+          Заказы клиентов (счета 1С) принимаются в «Продажи и заказы → Заказы клиентов» и оттуда собираются в запуск.
           Вся работа цеху заводится здесь. Новый заказ (вручную или из графика) — черновик: на его странице видно, что
           получит каждый участок; там же выбираются п/ф со склада, площадки ламинации и сроки — настройка сохраняется,
           к ней можно вернуться. «Запустить заказ» создаёт задания участкам, их выполняют в «Заданиях цеха». Окутка из
@@ -372,10 +362,6 @@ export function OrderView({
   const [lamOpen, setLamOpen] = useState(false);
   const [reduceOpen, setReduceOpen] = useState(false);
   const cancelOrder = useCancelOrder(order);
-  const { user } = useAuth();
-  const canRequest = canRequestOrders(user);
-  // Продажник правит заявку до отправки и после возврата.
-  const requesterEdits = canRequest && !!order && order.status === "draft" && order.request_status !== "submitted" && order.request_status !== "accepted";
   const [orderTab, setOrderTab] = useState("flow");
   // Открыли другой заказ — с вкладки «Ход».
   const [tabFor, setTabFor] = useState<number | null>(order?.id ?? null);
@@ -432,15 +418,6 @@ export function OrderView({
       }
       extra={
         order &&
-        !canManage &&
-        requesterEdits ? (
-          <Space>
-            <Button onClick={() => onEdit(order)}>Изменить заявку</Button>
-            <Popconfirm title="Удалить заявку?" okText="Удалить" cancelText="Отмена" onConfirm={() => deleteMutation.mutate(order.id)}>
-              <Button danger>Удалить</Button>
-            </Popconfirm>
-          </Space>
-        ) : order &&
         canManage && (
           <Space>
             {order.status === "draft" && (
@@ -533,11 +510,10 @@ export function OrderView({
               }
             />
           )}
-          {(order.ship_to || order.request_status || canRequest) && (
-            <RequestPanel order={order} canManage={canManage} canRequest={canRequest} />
+          {order.kind !== "stock" && (order.ship_date || order.promised_ready) && (
+            <OrderDatesCard order={order} canManage={canManage} totalQty={orderTotals(order).qty} />
           )}
-          {order.request_status === "accepted" && <OrderDatesCard order={order} canManage={canManage} totalQty={orderTotals(order).qty} />}
-          {(order.request_status || order.ship_date || order.promised_ready) && <OrderNeedsCard orderId={order.id} />}
+          {(order.ship_date || order.promised_ready) && <OrderNeedsCard orderId={order.id} />}
           {canManage ? (
             <ReleaseWorkspace order={order} canManage={canManage} onEditLines={() => onEdit(order)} />
           ) : (
@@ -642,7 +618,6 @@ function PlanTag({ order }: { order: ProductionOrder }) {
   );
 }
 
-type LineDraft = { item_id: number | null; quantity: number | null; note: string; invoice_no: string };
 
 export function OrderModal({
   order,
@@ -654,7 +629,6 @@ export function OrderModal({
   onSaved: (o: ProductionOrder) => void;
 }) {
   const qc = useQueryClient();
-  const itemsQuery = useQuery({ queryKey: ["items", false], queryFn: () => listItems({ include_inactive: false }) });
   const [name, setName] = useState(order?.name ?? "");
   const [shipDate, setShipDate] = useState<Dayjs | null>(order?.ship_date ? dayjs(order.ship_date) : null);
   // Вилка отгрузки менеджера (09.10); твёрдую дату ставит производство.
@@ -685,61 +659,10 @@ export function OrderModal({
   const [lines, setLines] = useState<LineDraft[]>(
     order
       ? order.lines.map((l) => ({ item_id: l.item_id, quantity: l.quantity, note: l.note ?? "", invoice_no: l.invoice_no ?? "" }))
-      : [{ item_id: null, quantity: null, note: "", invoice_no: "" }],
+      : [emptyLine()],
   );
-  const patch = (i: number, p: Partial<LineDraft>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...p } : l)));
-  // Модель в заказ не идёт — по ней выбирается вариант (размер, цвет,
-  // кромка): есть — берётся, нет — заводится сам (VariantPicker).
-  const [picking, setPicking] = useState<{ line: number; model: Item } | null>(null);
-  const items = itemsQuery.data ?? [];
-  const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
-  const typeName = (id: number | null | undefined) => (id ? typesQuery.data?.find((t) => t.id === id)?.name : undefined);
-  // Двери и п/ф в одном заказе почти не встречаются — список делится:
-  // изделия по моделям (модель → её варианты), п/ф и прочее по типу.
-  const orderable = items.filter((i) => i.kind_code !== "plenka" && i.kind_code !== "material");
-  const isProduct = (i: Item) => i.kind_code === "izdelie";
-  const [pickKind, setPickKind] = useState<"izdelie" | "other">(() => {
-    const ls = order?.lines ?? [];
-    return ls.length > 0 && ls.every((l) => l.kind_name !== "Изделие") ? "other" : "izdelie";
-  });
-  const groupBy = (list: Item[], key: (i: Item) => string) => {
-    const m = new Map<string, Item[]>();
-    for (const i of list) m.set(key(i), [...(m.get(key(i)) ?? []), i]);
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], "ru"));
-  };
-  const modelName = (id: number | null) => items.find((m) => m.id === id)?.name;
-  const itemOptions =
-    pickKind === "izdelie"
-      ? [
-          {
-            label: "Модели — выбрать размер и цвет",
-            options: orderable
-              .filter((i) => isProduct(i) && i.is_model && i.type_id)
-              .map((i) => ({ value: i.id, label: `${i.name} — выбрать вариант…` })),
-          },
-          ...groupBy(
-            orderable.filter((i) => isProduct(i) && !i.is_model),
-            (i) => modelName(i.model_id) ?? typeName(i.type_id) ?? "Без модели",
-          ).map(([label, list]) => ({ label, options: list.map((i) => ({ value: i.id, label: i.name })) })),
-        ]
-      : [
-          {
-            label: "Модели — выбрать вариант",
-            options: orderable
-              .filter((i) => !isProduct(i) && i.is_model && i.type_id)
-              .map((i) => ({ value: i.id, label: `${i.name} — выбрать вариант…` })),
-          },
-          ...groupBy(
-            orderable.filter((i) => !isProduct(i) && !i.is_model),
-            (i) => typeName(i.type_id) ?? i.kind_name,
-          ).map(([label, list]) => ({ label, options: list.map((i) => ({ value: i.id, label: i.name })) })),
-        ].filter((g) => g.options.length > 0);
-  // Уже выбранная позиция из другой половины списка — показываем подписью.
-  const optionsFor = (itemId: number | null) => {
-    const it = itemId != null ? items.find((x) => x.id === itemId) : undefined;
-    if (!it || itemOptions.some((g) => g.options.some((o) => o.value === it.id))) return itemOptions;
-    return [{ label: "Выбрано", options: [{ value: it.id, label: it.name }] }, ...itemOptions];
-  };
+  const initialKind: "izdelie" | "other" =
+    (order?.lines ?? []).length > 0 && (order?.lines ?? []).every((l) => l.kind_name !== "Изделие") ? "other" : "izdelie";
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -876,64 +799,8 @@ export function OrderModal({
         <Form.Item label="Комментарий">
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Form.Item>
-        <Space wrap>
-          <Typography.Text strong>Позиции</Typography.Text>
-          <Segmented
-            size="small"
-            value={pickKind}
-            onChange={(v) => setPickKind(v as "izdelie" | "other")}
-            options={[
-              { value: "izdelie", label: "Изделия" },
-              { value: "other", label: "П/ф и прочее" },
-            ]}
-          />
-        </Space>
-        {items.length === 0 && !itemsQuery.isLoading ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Нет позиций" />
-        ) : (
-          <Space direction="vertical" style={{ width: "100%", marginTop: 8 }}>
-            {lines.map((l, i) => (
-              <Space key={i} wrap>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder={pickKind === "izdelie" ? "Изделие: модель или готовый вариант" : "П/ф или прочая позиция"}
-                  style={{ width: 360 }}
-                  loading={itemsQuery.isLoading}
-                  value={l.item_id ?? undefined}
-                  options={optionsFor(l.item_id)}
-                  onChange={(v) => {
-                    const picked = items.find((x) => x.id === v);
-                    if (picked?.is_model) setPicking({ line: i, model: picked });
-                    else patch(i, { item_id: v });
-                  }}
-                />
-                <InputNumber min={1} placeholder="шт" style={{ width: 80 }} value={l.quantity} onChange={(v) => patch(i, { quantity: v })} />
-                <Input placeholder="счёт 1С" style={{ width: 110 }} value={l.invoice_no} onChange={(e) => patch(i, { invoice_no: e.target.value })} />
-                <Input placeholder="примечание" style={{ width: 140 }} value={l.note} onChange={(e) => patch(i, { note: e.target.value })} />
-                {lines.length > 1 && (
-                  <Button size="small" danger onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>
-                    Убрать
-                  </Button>
-                )}
-              </Space>
-            ))}
-            <Button onClick={() => setLines((ls) => [...ls, { item_id: null, quantity: null, note: "", invoice_no: "" }])}>+ позиция</Button>
-          </Space>
-        )}
+        <ItemLinesEditor lines={lines} onChange={setLines} withInvoice initialKind={initialKind} />
       </Form>
-      {picking && (
-        <VariantPicker
-          modelId={picking.model.id}
-          modelName={picking.model.name}
-          typeId={picking.model.type_id as number}
-          onClose={() => setPicking(null)}
-          onPicked={(itemId) => {
-            patch(picking.line, { item_id: itemId });
-            setPicking(null);
-          }}
-        />
-      )}
     </Modal>
   );
 }

@@ -1,0 +1,145 @@
+import { apiClient } from "./client";
+import type { PlanCheck, ScheduleImportColor, ScheduleImportRow } from "./productionOrders";
+
+// Заказ клиента (13.10) — один счёт 1С. Менеджер заводит и отправляет в
+// производство; производство принимает с датами и собирает принятые заказы
+// в заказ на производство (запуск).
+
+export type CustomerOrderStatus = "draft" | "submitted" | "returned" | "accepted" | "cancelled";
+export type CustomerOrderStage =
+  | "draft"
+  | "submitted"
+  | "returned"
+  | "accepted"
+  | "assembled"
+  | "in_production"
+  | "ready"
+  | "shipped_part"
+  | "shipped"
+  | "cancelled";
+
+export const STAGE_COLOR: Record<CustomerOrderStage, string> = {
+  draft: "default",
+  submitted: "gold",
+  returned: "volcano",
+  accepted: "cyan",
+  assembled: "geekblue",
+  in_production: "blue",
+  ready: "green",
+  shipped_part: "purple",
+  shipped: "default",
+  cancelled: "default",
+};
+
+export interface CustomerOrderLine {
+  id: number;
+  item_id: number;
+  item_name: string;
+  quantity: number;
+  /** Сколько уже в заказах на производство. */
+  launched: number;
+  note: string | null;
+}
+
+export interface CustomerDateChange {
+  field: "ship" | "ready" | "ready_fact";
+  old_date: string | null;
+  new_date: string | null;
+  reason_name: string | null;
+  comment: string | null;
+  user_name: string | null;
+  created_at: string;
+}
+
+export interface CustomerOrder {
+  id: number;
+  invoice_no: string;
+  invoice_date: string | null;
+  customer: string | null;
+  manager_id: number | null;
+  manager_name: string | null;
+  amount_rub: number | null;
+  priority: number;
+  ship_from: string | null;
+  ship_to: string | null;
+  promised_ready: string | null;
+  ship_date: string | null;
+  status: CustomerOrderStatus;
+  stage: CustomerOrderStage;
+  stage_label: string;
+  request_comment: string | null;
+  submitted_at: string | null;
+  decided_by_name: string | null;
+  note: string | null;
+  created_at: string;
+  qty: number;
+  launched: number;
+  in_work: number;
+  received: number;
+  shipped: number;
+  ready_fact: string | null;
+  last_shipped_at: string | null;
+  plan_finish: string | null;
+  plan_late: boolean;
+  production_orders: { id: number; name: string; status: string }[];
+  lines: CustomerOrderLine[];
+  date_changes: CustomerDateChange[];
+}
+
+export interface CustomerOrderInput {
+  invoice_no: string;
+  invoice_date: string | null;
+  customer: string | null;
+  amount_rub: number | null;
+  priority: number;
+  ship_from: string | null;
+  ship_to: string | null;
+  note: string | null;
+  lines: { item_id: number; quantity: number; note: string | null }[];
+}
+
+const base = "/customer-orders";
+
+export const listCustomerOrders = async (includeClosed = false): Promise<CustomerOrder[]> =>
+  (await apiClient.get<CustomerOrder[]>(base, { params: { include_closed: includeClosed } })).data;
+export const getCustomerOrder = async (id: number): Promise<CustomerOrder> => (await apiClient.get<CustomerOrder>(`${base}/${id}`)).data;
+export const createCustomerOrder = async (p: CustomerOrderInput): Promise<CustomerOrder> => (await apiClient.post<CustomerOrder>(base, p)).data;
+export const updateCustomerOrder = async (id: number, p: CustomerOrderInput): Promise<CustomerOrder> =>
+  (await apiClient.put<CustomerOrder>(`${base}/${id}`, p)).data;
+export const deleteCustomerOrder = async (id: number): Promise<void> => {
+  await apiClient.delete(`${base}/${id}`);
+};
+export const submitCustomerOrder = async (id: number, comment: string | null): Promise<CustomerOrder> =>
+  (await apiClient.post<CustomerOrder>(`${base}/${id}/submit`, { comment })).data;
+export const returnCustomerOrder = async (id: number, comment: string): Promise<CustomerOrder> =>
+  (await apiClient.post<CustomerOrder>(`${base}/${id}/return`, { comment })).data;
+export const acceptCustomerOrder = async (id: number, shipDate: string, readyDate: string | null, comment: string | null): Promise<CustomerOrder> =>
+  (await apiClient.post<CustomerOrder>(`${base}/${id}/accept`, { ship_date: shipDate, ready_date: readyDate, comment })).data;
+/** Менеджер — вилку (до приёма); производство — обещанные даты, после приёма с причиной. */
+export const moveCustomerOrder = async (
+  id: number,
+  p: { ship_from?: string | null; ship_to?: string | null; ship_date?: string | null; ready_date?: string | null; ready_fact?: string | null; reason?: string | null; comment?: string | null },
+): Promise<CustomerOrder> => (await apiClient.post<CustomerOrder>(`${base}/${id}/promise`, p)).data;
+export const cancelCustomerOrder = async (id: number, reason: string): Promise<CustomerOrder> =>
+  (await apiClient.post<CustomerOrder>(`${base}/${id}/cancel`, { reason })).data;
+export const getCustomerPlanCheck = async (id: number): Promise<PlanCheck> => (await apiClient.get<PlanCheck>(`${base}/${id}/plan-check`)).data;
+export const launchCustomerOrders = async (orderIds: number[], name: string | null): Promise<{ production_order_id: number }> =>
+  (await apiClient.post<{ production_order_id: number }>(`${base}/launch`, { order_ids: orderIds, name })).data;
+
+export interface CustomerImportResult {
+  rows: ScheduleImportRow[];
+  problems: string[];
+  invoices: string[];
+  colors: ScheduleImportColor[];
+  created: number[];
+}
+export const importCustomerOrders = async (p: {
+  text: string;
+  type_id: number;
+  invoice_no: string | null;
+  customer: string | null;
+  ship_from: string | null;
+  ship_to: string | null;
+  dry_run: boolean;
+  color_films: Record<string, number>;
+}): Promise<CustomerImportResult> => (await apiClient.post<CustomerImportResult>(`${base}/import`, p)).data;

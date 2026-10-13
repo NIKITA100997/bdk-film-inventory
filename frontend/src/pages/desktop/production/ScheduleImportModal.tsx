@@ -12,6 +12,7 @@ import {
   type ScheduleImportColor,
   type ScheduleImportRow,
 } from "../../../api/productionOrders";
+import { importCustomerOrders } from "../../../api/customerOrders";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { hasPerm } from "../../../auth/permissions";
 
@@ -26,7 +27,19 @@ const COLOR_STATUS: Record<ScheduleImportColor["status"], { color: string; text:
  * Серия, Размер, Цвет, Наименование, Кол-во дверей) → черновик заказа.
  * Строка — позиция по типу (находится или создаётся с техкартой по
  * правилам типа) и строка заказа. Сначала «Разобрать» — предпросмотр. */
-export default function ScheduleImportModal({ onClose, onCreated }: { onClose: () => void; onCreated: (o: ProductionOrder) => void }) {
+export default function ScheduleImportModal({
+  onClose,
+  onCreated,
+  target = "production",
+  onCustomerCreated,
+}: {
+  onClose: () => void;
+  onCreated?: (o: ProductionOrder) => void;
+  /** customer — заказы клиентов (13.10): по одному на счёт, без запуска. */
+  target?: "production" | "customer";
+  onCustomerCreated?: (ids: number[]) => void;
+}) {
+  const forCustomer = target === "customer";
   const qc = useQueryClient();
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
   // Типы с шаблоном импорта (колонки графика и признаки — настройка типа).
@@ -38,6 +51,7 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
   const [name, setName] = useState("");
   // счёт из 1С целиком (07.10): строки «наименование — кол-во», номер и отгрузка — здесь
   const [invoiceNo, setInvoiceNo] = useState("");
+  const [customer, setCustomer] = useState("");
   const [shipDate, setShipDate] = useState<Dayjs | null>(null);
   // Вилка отгрузки менеджера (09.10)
   const [shipWindow, setShipWindow] = useState<[Dayjs | null, Dayjs | null]>([null, null]);
@@ -57,8 +71,21 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
     .sort((a, b) => a.label.localeCompare(b.label, "ru"));
 
   const run = useMutation({
-    mutationFn: (dryRun: boolean) =>
-      importOrderFromSchedule({
+    mutationFn: async (dryRun: boolean) => {
+      if (forCustomer) {
+        const r = await importCustomerOrders({
+          text,
+          type_id: effectiveType as number,
+          invoice_no: invoiceNo.trim() || null,
+          customer: customer.trim() || null,
+          ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
+          ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
+          dry_run: dryRun,
+          color_films: colorFilms,
+        });
+        return { rows: r.rows, parse_errors: r.problems, colors: r.colors, order: null, created: r.created };
+      }
+      return importOrderFromSchedule({
         text,
         type_id: effectiveType as number,
         name: name.trim() || null,
@@ -68,14 +95,20 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
         ship_date: shipDate ? shipDate.format("YYYY-MM-DD") : null,
         ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
         ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
-      }),
+      }).then((r) => ({ ...r, created: [] as number[] }));
+    },
     onSuccess: (res, dryRun) => {
       setPreview(res);
-      if (!dryRun && res.order) {
+      if (!dryRun && forCustomer && res.created.length) {
+        qc.invalidateQueries({ queryKey: ["customer-orders"] });
+        qc.invalidateQueries({ queryKey: ["items"] });
+        message.success(`Заказов клиентов создано: ${res.created.length}`);
+        onCustomerCreated?.(res.created);
+      } else if (!dryRun && res.order) {
         qc.invalidateQueries({ queryKey: ["production-orders"] });
         qc.invalidateQueries({ queryKey: ["items"] });
         message.success(`Черновик заказа №${res.order.id} создан: ${res.order.lines.length} строк`);
-        onCreated(res.order);
+        onCreated?.(res.order);
       }
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось разобрать график")),
@@ -88,7 +121,7 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
     <Modal
       open
       width={1100}
-      title="Заказ из графика запуска или счёта 1С"
+      title={forCustomer ? "Заказы клиентов из счёта 1С или графика" : "Заказ из графика запуска или счёта 1С"}
       onCancel={onClose}
       footer={
         <Space>
@@ -100,10 +133,14 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
             type="primary"
             disabled={!preview || bad > 0 || preview.rows.length === 0}
             loading={run.isPending && run.variables === false}
-            title="Создать черновик и открыть его страницу: там — настройка запуска (п/ф, площадки, сроки, раскладка по участкам)"
+            title={
+              forCustomer
+                ? "Заказ клиента на каждый счёт — черновиком; дальше отправить в производство"
+                : "Создать черновик и открыть его страницу: там — настройка запуска (п/ф, площадки, сроки, раскладка по участкам)"
+            }
             onClick={() => run.mutate(false)}
           >
-            Создать черновик и перейти к запуску
+            {forCustomer ? "Создать заказы клиентов" : "Создать черновик и перейти к запуску"}
           </Button>
         </Space>
       }
@@ -126,7 +163,11 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
             }}
             options={gpTypes.map((t) => ({ value: t.id, label: t.name }))}
           />
-          <Input style={{ width: 360 }} placeholder="Название заказа (по умолчанию — по дате отгрузки)" value={name} onChange={(e) => setName(e.target.value)} />
+          {forCustomer ? (
+            <Input style={{ width: 360 }} placeholder="Клиент (как в счёте 1С)" value={customer} onChange={(e) => setCustomer(e.target.value)} />
+          ) : (
+            <Input style={{ width: 360 }} placeholder="Название заказа (по умолчанию — по дате отгрузки)" value={name} onChange={(e) => setName(e.target.value)} />
+          )}
         </Space>
         <Space wrap>
           <Typography.Text type="secondary">Счёт из 1С целиком:</Typography.Text>
@@ -139,7 +180,7 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
               setPreview(null);
             }}
           />
-          {isManager && (
+          {isManager && !forCustomer && (
             <DatePicker
               placeholder="Дата отгрузки"
               format="DD.MM.YYYY"
@@ -235,7 +276,15 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
         {preview && (
           <>
             {bad > 0 ? (
-              <Alert type="error" showIcon message={`Строк с ошибками: ${bad} — поправьте в графике или настройке типа, заказ не создаётся`} />
+              <Alert
+                type="error"
+                showIcon
+                message={
+                  forCustomer
+                    ? `Есть замечания: ${bad} — поправьте, заказы не создаются`
+                    : `Строк с ошибками: ${bad} — поправьте в графике или настройке типа, заказ не создаётся`
+                }
+              />
             ) : (
               <Alert
                 type="success"

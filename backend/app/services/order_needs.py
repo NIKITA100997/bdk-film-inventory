@@ -274,7 +274,7 @@ def summary(needs: list[OrderNeeds]) -> list[ShortageSummary]:
             s.shortage = round(s.shortage + r.shortage, 3)
             if r.need_by and (s.need_by is None or r.need_by < s.need_by):
                 s.need_by = r.need_by
-            s.orders.append({"order_id": on.order_id, "name": on.name, "group": on.group, "shortage": r.shortage,
+            s.orders.append({"order_id": on.order_id, "customer_order_id": on.customer_order_id, "name": on.name, "group": on.group, "shortage": r.shortage,
                              "need_by": r.need_by.isoformat() if r.need_by else None})
             agg[r.key] = s
     return sorted(agg.values(), key=lambda s: (s.need_by or date(2100, 1, 1), s.name))

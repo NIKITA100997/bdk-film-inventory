@@ -162,6 +162,8 @@ export const navTree: NavBlock[] = [
     key: "sales",
     label: "Продажи и заказы",
     items: [
+      // заказ клиента = счёт 1С; из принятых собирается запуск (13.10)
+      { key: "customer-orders", path: "/customer-orders", label: "Заказы клиентов", permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve"] },
       { key: "sales-calculator", path: "/sales-calculator", label: "Калькулятор заказа", permissions: ["sales_calculator.view"] },
       // график отгрузок: заказы и заявки по дням (09.10)
       {

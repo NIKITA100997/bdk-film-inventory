@@ -21,6 +21,7 @@ STAGE_LABEL = {
     "submitted": "отправлен в производство",
     "returned": "возвращён",
     "accepted": "принят, не запущен",
+    "assembled": "собран в запуск",
     "in_production": "в производстве",
     "ready": "готов",
     "shipped_part": "отгружен частично",
@@ -91,6 +92,8 @@ def progress(db: Session, co: CustomerOrder) -> Progress:
         p.stage = "ready"
     elif p.in_work > 0:
         p.stage = "in_production"
+    elif p.launched > 0:
+        p.stage = "assembled"  # в черновике заказа на производство, ещё не запущен
     else:
         p.stage = "accepted"
     p.received, p.shipped = round(p.received, 2), round(p.shipped, 2)
@@ -120,9 +123,12 @@ def build_production_order(db: Session, orders: list[CustomerOrder], user_id: in
     invoices = ", ".join(dict.fromkeys(co.invoice_no for co in orders))
     ready = [co.promised_ready for co in orders if co.promised_ready]
     ships = [co.ship_date for co in orders if co.ship_date]
+    froms = [co.ship_from or co.ship_to for co in orders if co.ship_from or co.ship_to]
+    tos = [co.ship_to for co in orders if co.ship_to]
     po = ProductionOrder(
         name=(name or f"Запуск {_date.today():%d.%m}: {invoices}")[:255], status=ORDER_DRAFT, created_by=user_id,
         ship_date=min(ships) if ships else None, promised_ready=min(ready) if ready else None,
+        ship_from=min(froms) if froms else None, ship_to=min(tos) if tos else None,
         priority=max((co.priority or 0) for co in orders),
         customer=orders[0].customer if len({co.customer for co in orders}) == 1 else None,
     )
