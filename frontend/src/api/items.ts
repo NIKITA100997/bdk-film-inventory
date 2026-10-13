@@ -287,3 +287,14 @@ export const addItemAlias = async (itemId: number, text: string): Promise<ItemAl
   (await apiClient.post<ItemAlias[]>(`/items/${itemId}/aliases`, { text })).data;
 export const deleteItemAlias = async (itemId: number, aliasId: number): Promise<ItemAlias[]> =>
   (await apiClient.delete<ItemAlias[]>(`/items/${itemId}/aliases/${aliasId}`)).data;
+
+/** Слияние дублей (14.10): apply=false — пробный прогон (что и сколько переедет). */
+export interface MergeResult {
+  src: string;
+  dst: string;
+  moved: Record<string, number>;
+  notes: string[];
+  applied: boolean;
+}
+export const mergeItem = async (itemId: number, intoItemId: number, apply: boolean): Promise<MergeResult> =>
+  (await apiClient.post<MergeResult>(`/items/${itemId}/merge`, { into_item_id: intoItemId, apply })).data;

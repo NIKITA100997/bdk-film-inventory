@@ -18,6 +18,7 @@ import PartCard from "./production/PartCard";
 import { MovementsPanel } from "./StockLotsMovements";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import ItemAliases from "../../components/ItemAliases";
+import ItemMergeModal from "../../components/ItemMergeModal";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
 
@@ -63,6 +64,9 @@ export default function ItemCard() {
   // Состав и маршрут правит тот же, кто и в техкарте (production_tasks.manage).
   const canEditTech = has("production_tasks.manage");
   const canEditTypes = has("production_tasks.manage") || has("materials.manage");
+  // слияние дублей (14.10) — тот же круг, что правит справочник
+  const canMerge = canEditTypes;
+  const [merging, setMerging] = useState(false);
   const itemTreeQuery = useQuery({
     queryKey: ["item-tree", itemId],
     queryFn: () => getItemTree(itemId),
@@ -184,6 +188,11 @@ export default function ItemCard() {
             {card.type_name && <Tag color="purple">{card.type_name}</Tag>}
             {card.is_model && <Tag color="gold">модель</Tag>}
             {!card.is_active && <Tag>архив</Tag>}
+            {canMerge && !card.is_model && card.is_active && card.source_type !== "sku" && (
+              <Button size="small" onClick={() => setMerging(true)}>
+                Слить с другой позицией…
+              </Button>
+            )}
           </Space>
           {card.model_id != null && (
             <Typography.Text type="secondary">
@@ -194,6 +203,7 @@ export default function ItemCard() {
         </Space>
       </Card>
       <Tabs activeKey={active} onChange={(k) => setParams({ tab: k })} items={tabs} destroyOnHidden />
+      {merging && <ItemMergeModal itemId={itemId} itemName={card.name} kindCode={card.kind_code} onClose={() => setMerging(false)} />}
     </Space>
   );
 }

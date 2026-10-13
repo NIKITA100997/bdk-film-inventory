@@ -1213,3 +1213,43 @@ def delete_item_alias(item_id: int, alias_id: int, db: Session = Depends(get_db)
     db.delete(a)
     db.commit()
     return item_aliases(item_id, db, user)
+
+
+# ─── слияние дублей любой позиции (14.10) ────────────────────────────────────
+
+merge_perm = require_permission("production_tasks.manage", "materials.manage")
+
+
+class MergeIn(BaseModel):
+    into_item_id: int
+    apply: bool = False  # false — пробный прогон: что и сколько переедет
+
+
+class MergeOut(BaseModel):
+    src: str
+    dst: str
+    moved: dict[str, int]
+    notes: list[str]
+    applied: bool
+
+
+@router.post("/items/{item_id}/merge", response_model=MergeOut)
+def merge_item(item_id: int, payload: MergeIn, db: Session = Depends(get_db), user=Depends(merge_perm)) -> MergeOut:
+    """Слить дубль (эту позицию) в основную: ссылки — на основную, дубль — в
+    архив, его название — синоним основной. Сначала пробный прогон."""
+    from app.services.item_merge import MergeError, merge_items
+
+    src, dst = db.get(Item, item_id), db.get(Item, payload.into_item_id)
+    if src is None or dst is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    try:
+        rep = merge_items(db, src, dst, user.id)
+    except MergeError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    out = MergeOut(src=rep.src, dst=rep.dst, moved=dict(rep.moved), notes=rep.notes, applied=payload.apply)
+    if payload.apply:
+        db.commit()
+    else:
+        db.rollback()
+    return out
