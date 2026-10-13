@@ -120,9 +120,27 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
       const doors = s.rows.some((r) => r.series || r.size);
       const hasFilm = s.rows.some((r) => r.film);
       const hasProg = s.rows.some((r) => r.program || r.instruction);
-      const hasInv = s.rows.some((r) => r.invoice_no);
+      const hasInv = doors && s.rows.some((r) => r.invoice_no);
       // фрезеровка периметра: кромка обязательна, у ABS — с толщиной
       const hasEdge = doors && /периметр/i.test(s.area_name) && s.rows.some((r) => r.edge);
+      // лист деталей (каркас, заготовки) — как лист «Каркас» в Excel: одинаковая
+      // деталь одной строкой по размеру, без счетов
+      const src = doors
+        ? s.rows
+        : [...s.rows
+            .reduce((m, r) => {
+              const k = [r.name, r.film ?? "", r.program ?? "", r.instruction ?? ""].join("|");
+              const g = m.get(k);
+              if (g) {
+                g.qty += r.qty;
+                g.done += r.done;
+                if (r.date_from && (!g.date_from || r.date_from < g.date_from)) g.date_from = r.date_from;
+                if (r.date_to && (!g.date_to || r.date_to > g.date_to)) g.date_to = r.date_to;
+              } else m.set(k, { ...r, invoice_no: null });
+              return m;
+            }, new Map<string, TaskPrintSheet["rows"][number]>())
+            .values()]
+            .sort((a, b) => a.name.localeCompare(b.name, "ru"));
       const head = [
         "№",
         ...(hasInv ? ["№ счёта"] : []),
@@ -138,19 +156,19 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
         "Брак",
         "Подпись",
       ];
-      const rows = s.rows
+      const rows = src
         .map(
           (r, i) => `<tr>
 <td class="n">${i + 1}</td>
 ${hasInv ? `<td class="nw">${esc(r.invoice_no ?? "")}</td>` : ""}
 ${doors ? `<td class="nw">${esc(r.series ?? "")}</td><td class="nw">${esc(r.size ?? "")}</td><td>${esc(r.color ?? "")}</td>` : ""}
 <td>${esc(r.source || r.name)}</td>
-<td class="q">${r.qty}</td>
+<td class="q">${Math.round(r.qty * 100) / 100}</td>
 ${hasEdge ? `<td class="nw">${r.edge?.includes("?") ? `<span class="warn">${esc(r.edge)}</span>` : `<b>${esc(r.edge ?? "")}</b>`}</td>` : ""}
 ${hasFilm ? `<td>${esc(r.film ?? "")}</td>` : ""}
 ${hasProg ? `<td>${r.program ? `<b>${esc(r.program)}</b>` : ""}${r.instruction ? `<div class="warn">⚑ ${esc(r.instruction)}</div>` : ""}</td>` : ""}
 <td class="nw">${esc(period(r.date_from, r.date_to))}</td>
-<td class="q">${r.done ? r.done : ""}</td>
+<td class="q">${r.done ? Math.round(r.done * 100) / 100 : ""}</td>
 <td class="w"></td><td class="w"></td><td class="w"></td>
 </tr>`,
         )
@@ -158,7 +176,7 @@ ${hasProg ? `<td>${r.program ? `<b>${esc(r.program)}</b>` : ""}${r.instruction ?
       const oh = orderHead(s);
       return `<section class="page">
 ${oh.html}
-<div class="top"><h1>${esc(s.area_name)}</h1><div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}строк ${s.rows.length}, всего ${s.total} шт · напечатано ${esc(now)}</div></div>
+<div class="top"><h1>${esc(s.area_name)}</h1><div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}строк ${src.length}, всего ${s.total} шт · напечатано ${esc(now)}</div></div>
 <div class="meta">Задания: ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
 <table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
 ${componentsTable(s)}

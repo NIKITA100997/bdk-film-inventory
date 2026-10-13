@@ -58,7 +58,8 @@ def _panel_info(db: Session, ln: ProductionTaskLine, ol, cache: dict) -> dict | 
                 )
                 sand = "ДА" if sanded else "НЕТ"
             info = {
-                "mdf": "Каст." if kast else ("Бел." if by.get("мдф") else ""),
+                # производитель МДФ — полностью, как в названиях (13.10)
+                "mdf": "Kastamonu" if kast else (str(by.get("мдф")) if by.get("мдф") else ""),
                 "sand": sand,
                 "series": by.get("серия") or "",
                 "blank": f"{float(by['толщина']):g}х{float(by['ширина']):g}х{float(by['высота']):g}",
