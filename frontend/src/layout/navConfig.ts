@@ -101,12 +101,6 @@ export const navTree: NavBlock[] = [
         label: "Заказы на производство",
         permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view"],
       },
-      {
-        key: "order-deadlines",
-        path: "/order-deadlines",
-        label: "Сроки заказов",
-        permissions: ["production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "plan.approve"],
-      },
       // планировщик, план недели, производственный календарь — вкладками (14.10)
       {
         key: "planning",
@@ -150,6 +144,7 @@ export const navTree: NavBlock[] = [
     label: "Продажи и заказы",
     items: [
       // заказ клиента = счёт 1С; из принятых собирается запуск (13.10)
+      // заказы, готовность по этапам, сроки и переносы — вкладками (14.10)
       { key: "customer-orders", path: "/customer-orders", label: "Заказы клиентов", permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve"] },
       { key: "sales-calculator", path: "/sales-calculator", label: "Калькулятор заказа", permissions: ["sales_calculator.view"] },
       // график отгрузок: заказы и заявки по дням (09.10)
@@ -161,12 +156,6 @@ export const navTree: NavBlock[] = [
       },
       // склад готовой продукции и отгрузка по счёту (06.10)
       { key: "shipments", path: "/shipments", label: "Отгрузка", permissions: ["fg.ship", "sales_calculator.view", "production_tasks.manage", "production_tasks.view"] },
-      {
-        key: "order-readiness",
-        path: "/order-readiness",
-        label: "Готовность заказов",
-        permissions: ["sales_calculator.view", "production_tasks.manage", "production_tasks.view", "production_tasks.report"],
-      },
     ],
   },
   {

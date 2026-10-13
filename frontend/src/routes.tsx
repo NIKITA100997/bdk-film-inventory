@@ -25,7 +25,6 @@ import Demand from "./pages/desktop/production/Demand";
 import Settings from "./pages/desktop/Settings";
 import Reconciliation from "./pages/desktop/Reconciliation";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
-import OrderReadiness from "./pages/desktop/OrderReadiness";
 import Shipments from "./pages/desktop/Shipments";
 import Planning from "./pages/desktop/Planning";
 import Requests from "./pages/desktop/Requests";
@@ -38,9 +37,8 @@ import Productivity from "./pages/desktop/Productivity";
 import ProductionMonitor from "./pages/desktop/production/ProductionMonitor";
 import SearchPage from "./pages/desktop/SearchPage";
 import ShipmentSchedule from "./pages/desktop/ShipmentSchedule";
-import CustomerOrders from "./pages/desktop/customerOrders/CustomerOrders";
+import CustomerOrdersHub from "./pages/desktop/customerOrders/CustomerOrdersHub";
 import CustomerOrderPage from "./pages/desktop/customerOrders/CustomerOrderPage";
-import OrderDeadlines from "./pages/desktop/production/OrderDeadlines";
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
@@ -78,10 +76,8 @@ const appPageRoutes = (
     {/* Единые «Остатки» (плёнка и п/ф); старые адреса ведут сюда же. */}
     <Route path="/stock" element={<Stock />} />
     <Route path="/search" element={<SearchPage />} />
-    <Route
-      path="/order-deadlines"
-      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "plan.approve"]}><OrderDeadlines /></RequirePermission>}
-    />
+    {/* 14.10: сроки и готовность — вкладками «Заказов клиентов» */}
+    <Route path="/order-deadlines" element={<RedirectToSection to="/customer-orders" section="deadlines" />} />
     <Route
       path="/planning"
       element={
@@ -100,7 +96,7 @@ const appPageRoutes = (
     />
     <Route
       path="/customer-orders"
-      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve"]}><CustomerOrders /></RequirePermission>}
+      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve"]}><CustomerOrdersHub /></RequirePermission>}
     />
     <Route
       path="/shipment-schedule"
@@ -285,16 +281,7 @@ const appPageRoutes = (
         </RequirePermission>
       }
     />
-    <Route
-      path="/order-readiness"
-      element={
-        <RequirePermission
-          permissions={["sales_calculator.view", "production_tasks.manage", "production_tasks.view", "production_tasks.report"]}
-        >
-          <OrderReadiness />
-        </RequirePermission>
-      }
-    />
+    <Route path="/order-readiness" element={<RedirectToSection to="/customer-orders" section="readiness" />} />
     <Route
       path="/sales-calculator"
       element={<RequirePermission permissions={["sales_calculator.view"]}><SalesCalculator /></RequirePermission>}
