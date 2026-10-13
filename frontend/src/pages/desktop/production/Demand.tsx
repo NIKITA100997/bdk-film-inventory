@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Empty, Space, Switch, Tabs, Tag, Typography } from "antd";
+import { Button, Card, Empty, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../../auth/AuthContext";
@@ -10,6 +10,8 @@ import PfConsumption from "./PfConsumption";
 import { ShortagesTab } from "./NeedsViews";
 import { BlanksDemandTab } from "../Blanks";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import ItemPurchaseModal from "../../../components/ItemPurchaseModal";
+import { hasPerm } from "../../../auth/permissions";
 
 type Tab = "orders" | "pf" | "consumption" | "film" | "components";
 
@@ -66,6 +68,9 @@ export default function Demand() {
 function MaterialsDemand() {
   const q = useQuery({ queryKey: ["material-demand"], queryFn: listMaterialDemand });
   const [onlyShort, setOnlyShort] = useState(true);
+  const [buy, setBuy] = useState<MaterialDemandRow | null>(null);
+  const { user } = useAuth();
+  const canBuy = hasPerm(user, "purchasing.manage");
   const rows = (q.data ?? []).filter((r) => !onlyShort || r.to_order > 0 || r.demand > 0);
   const fmt = (n: number) => Math.round(n * 100) / 100;
   return (
@@ -95,12 +100,25 @@ function MaterialsDemand() {
             { title: "Материал", render: (_, r) => <Link to={`/item/${r.item_id}`}>{r.name}</Link> },
             { title: "Остаток", render: (_, r) => <span style={{ color: r.stock < 0 ? "#cf1322" : undefined }}>{`${fmt(r.stock)} ${r.unit}`}</span> },
             { title: "По заданиям", render: (_, r) => (r.demand ? `${fmt(r.demand)} ${r.unit}` : "—") },
+            { title: "В заявках", render: (_, r) => (r.ordered ? `${fmt(r.ordered)} ${r.unit}` : "—") },
             { title: "Нормативы", render: (_, r) => normsLabel(r.min_stock, r.min_batch, r.batch_multiple) },
             { title: "Не хватает", render: (_, r) => (r.shortage ? `${fmt(r.shortage)} ${r.unit}` : "—") },
             {
               title: "Заказать",
               sorter: (a, b) => a.to_order - b.to_order,
-              render: (_, r) => (r.to_order > 0 ? <Tag color="orange">{`${fmt(r.to_order)} ${r.unit}`}</Tag> : <Tag color="green">хватает</Tag>),
+              render: (_, r) =>
+                r.to_order > 0 ? (
+                  <Space size={4}>
+                    <Tag color="orange">{`${fmt(r.to_order)} ${r.unit}`}</Tag>
+                    {canBuy && (
+                      <Button size="small" onClick={() => setBuy(r)}>
+                        Заявка
+                      </Button>
+                    )}
+                  </Space>
+                ) : (
+                  <Tag color="green">хватает</Tag>
+                ),
             },
             {
               title: "Задания",
@@ -118,6 +136,13 @@ function MaterialsDemand() {
           ]}
         />
       )}
+      <ItemPurchaseModal
+        open={!!buy}
+        onClose={() => setBuy(null)}
+        item={buy ? { id: buy.item_id, name: buy.name, unit: buy.unit } : null}
+        qty={buy?.to_order}
+        note={buy ? "По потребности в материалах" : undefined}
+      />
     </Space>
   );
 }

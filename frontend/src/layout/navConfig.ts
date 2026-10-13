@@ -134,7 +134,7 @@ export const navTree: NavBlock[] = [
     key: "purchasing",
     label: "Закупки",
     items: [
-      { key: "purchasing", path: "/purchasing", label: "Закупки плёнки", permissions: ["purchasing.manage"] },
+      { key: "purchasing", path: "/purchasing", label: "Заявки и заказы поставщикам", permissions: ["purchasing.manage"] },
       // Прайс плёнки и материалов, загрузка цен из 1С (05.10).
       { key: "prices", path: "/prices", label: "Цены", permissions: ["prices.view", "prices.manage"] },
     ],

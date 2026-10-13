@@ -1,13 +1,21 @@
 import { apiClient } from "./client";
 import type { DeleteResult } from "./deletionRequests";
 
+/** Заявка на закупку: плёнка (material/color/thickness, м²) или любая другая
+ * позиция — материал, комплектующее (item_*, в её единице; 14.10). */
 export interface PurchaseRequest {
   id: number;
-  material: string;
-  color: string;
-  thickness: number;
-  requested_area_m2: number;
-  current_stock_m2: number;
+  material: string | null;
+  color: string | null;
+  thickness: number | null;
+  requested_area_m2: number | null;
+  current_stock_m2: number | null;
+  item_id?: number | null;
+  item_name?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  current_stock?: number | null;
+  price_per_unit?: number | null;
   note: string | null;
   status: string;
   origin: string;
@@ -23,11 +31,14 @@ export interface PurchaseRequest {
 }
 
 export interface SupplierOrderLine {
-  material: string;
-  color: string;
-  thickness: number;
-  requested_area_m2: number;
-  current_stock_m2: number;
+  material: string | null;
+  color: string | null;
+  thickness: number | null;
+  requested_area_m2: number | null;
+  current_stock_m2: number | null;
+  item_name?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
   request_ids: number[];
 }
 
@@ -90,6 +101,34 @@ export interface PurchaseRequestUpdate {
   supplier?: string;
   price_per_m2?: number;
   promised_delivery_date?: string;
+}
+
+/** Название позиции заявки/строки заказа — плёнка или материал. */
+export const purchaseLabel = (r: { material: string | null; color: string | null; thickness: number | null; item_name?: string | null }) =>
+  r.item_name ?? `${r.material}, ${r.color}, ${r.thickness} мм`;
+/** Количество с единицей — «120 м²» у плёнки, «12 листов» у материала. */
+export const purchaseQty = (r: { requested_area_m2: number | null; quantity?: number | null; unit?: string | null; item_name?: string | null }) =>
+  r.item_name ? `${r.quantity ?? 0} ${r.unit ?? ""}`.trim() : `${r.requested_area_m2 ?? 0} м²`;
+
+export async function createItemPurchaseRequest(payload: {
+  item_id: number;
+  quantity: number;
+  need_by?: string | null;
+  note?: string;
+  supplier?: string;
+  price_per_unit?: number;
+}): Promise<PurchaseRequest> {
+  const { data } = await apiClient.post<PurchaseRequest>("/purchase-requests/items", payload);
+  return data;
+}
+
+/** Поставка по заявке на материал: приход на склад + закрытие заявки. */
+export async function receiveItemPurchaseRequest(
+  id: number,
+  payload: { quantity: number; doc?: string; price?: number; close: boolean },
+): Promise<PurchaseRequest> {
+  const { data } = await apiClient.post<PurchaseRequest>(`/purchase-requests/${id}/receive-item`, payload);
+  return data;
 }
 
 export async function listPurchaseRequests(statusFilter?: string): Promise<PurchaseRequest[]> {

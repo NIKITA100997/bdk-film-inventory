@@ -99,6 +99,7 @@ class MaterialDemandOut(BaseModel):
     unit: str
     group_name: str | None
     stock: float
+    ordered: float = 0.0  # в открытых заявках на закупку (14.10) — едет
     demand: float  # по открытым операциям (ещё не сделанное × состав)
     sources: list[DemandSource]
     min_stock: float | None
@@ -119,18 +120,29 @@ def material_demand(db: Session = Depends(get_db), user: User = Depends(get_curr
     items = [i for i in items if i.is_active or i.id in by_item]
     bal = materials.balances(db, [i.id for i in items])
     groups = {g.id: g.name for g in db.query(ItemGroup)}
+    from app.models.purchasing import PurchaseRequest
+    from sqlalchemy import func as _f
+
+    ordered = {
+        iid: float(q or 0)
+        for iid, q in db.query(PurchaseRequest.item_id, _f.sum(PurchaseRequest.quantity))
+        .filter(PurchaseRequest.status == "open", PurchaseRequest.item_id.isnot(None))
+        .group_by(PurchaseRequest.item_id)
+    }
     out = []
     for i in items:
         src = by_item.get(i.id, [])
         demand = round(sum(q for *_, q in src), 4)
         norms = normatives.norms_of(i)
-        need, shortage, to_order = normatives.suggest(demand=demand, have=bal[i.id], norms=norms)
+        # заказанное (открытые заявки) уже едет — повторно не предлагаем
+        need, shortage, to_order = normatives.suggest(demand=demand, have=bal[i.id] + ordered.get(i.id, 0.0), norms=norms)
         agg: dict[int, DemandSource] = {}
         for tid, tname, oid, q in src:
             prev = agg.get(tid)
             agg[tid] = DemandSource(task_id=tid, task_name=tname, order_id=oid, qty=round((prev.qty if prev else 0) + q, 4))
         out.append(MaterialDemandOut(
             item_id=i.id, name=i.name, unit=item_unit(i), group_name=groups.get(i.group_id), stock=round(bal[i.id], 4),
+            ordered=round(ordered.get(i.id, 0.0), 4),
             demand=demand, sources=sorted(agg.values(), key=lambda x: -x.qty), min_stock=norms.min_stock,
             min_batch=norms.min_batch, batch_multiple=norms.batch_multiple, need=need, shortage=shortage, to_order=to_order,
         ))

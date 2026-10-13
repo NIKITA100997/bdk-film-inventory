@@ -29,7 +29,7 @@ def requests_closed_by_receipt(
 
 
 def auto_close_on_receipt(db: Session, *, material_id: int, color_id: int, thickness_id: int) -> int:
-    open_reqs = db.query(PurchaseRequest).filter(PurchaseRequest.status == "open").all()
+    open_reqs = db.query(PurchaseRequest).filter(PurchaseRequest.status == "open", PurchaseRequest.material_id.isnot(None)).all()
     groups = [OpenRequestGroup(r.id, r.material_id, r.color_id, r.thickness_id) for r in open_reqs]
     ids_to_close = set(
         requests_closed_by_receipt(groups, material_id=material_id, color_id=color_id, thickness_id=thickness_id)

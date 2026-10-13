@@ -56,7 +56,7 @@ def _last_prices(db: Session, at: date | None = None) -> dict[tuple[int, int, in
     out: dict[tuple[int, int, int], float] = {}
     for r in (
         db.query(PurchaseRequest)
-        .filter(PurchaseRequest.price_per_m2.isnot(None))
+        .filter(PurchaseRequest.price_per_m2.isnot(None), PurchaseRequest.material_id.isnot(None))
         .order_by(PurchaseRequest.created_at.asc())
     ):
         out[(r.material_id, r.color_id, r.thickness_id)] = float(r.price_per_m2)

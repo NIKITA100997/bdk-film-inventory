@@ -44,5 +44,5 @@ export const getNeedsOverview = async (): Promise<{ shortages: ShortageRow[]; or
 export const purchaseShortages = async (
   items: { key: string; qty: number; need_by: string | null; order_ids: number[]; labels?: string[] }[],
   comment: string | null = null,
-): Promise<{ film_requests: number[]; bitrix_tasks: number; not_sent: string[] }> =>
+): Promise<{ film_requests: number[]; item_requests?: number[]; bitrix_tasks: number; not_sent: string[] }> =>
   (await apiClient.post("/needs/purchase", { items, comment })).data;

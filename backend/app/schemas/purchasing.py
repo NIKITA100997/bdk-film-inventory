@@ -47,11 +47,18 @@ class PurchaseRequestFulfillRequest(BaseModel):
 
 class PurchaseRequestOut(BaseModel):
     id: int
-    material: str
-    color: str
-    thickness: float
-    requested_area_m2: float
-    current_stock_m2: float
+    # плёнка — material/color/thickness, м²; другая позиция (14.10) — item_*
+    material: str | None = None
+    color: str | None = None
+    thickness: float | None = None
+    requested_area_m2: float | None = None
+    current_stock_m2: float | None = None
+    item_id: int | None = None
+    item_name: str | None = None
+    quantity: float | None = None
+    unit: str | None = None
+    current_stock: float | None = None  # остаток позиции в её единице
+    price_per_unit: float | None = None
     note: str | None
     status: str
     origin: str
@@ -81,11 +88,15 @@ class SupplierOrderLineOut(BaseModel):
     суммой — сама группировка на уровне ответа API, не в БД (заявки
     остаются раздельными)."""
 
-    material: str
-    color: str
-    thickness: float
-    requested_area_m2: float
-    current_stock_m2: float
+    material: str | None = None
+    color: str | None = None
+    thickness: float | None = None
+    requested_area_m2: float | None = None
+    current_stock_m2: float | None = None
+    # позиция не-плёнка (14.10): название, количество, единица
+    item_name: str | None = None
+    quantity: float | None = None
+    unit: str | None = None
     request_ids: list[int]
 
 

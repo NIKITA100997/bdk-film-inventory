@@ -1,6 +1,6 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -48,14 +48,29 @@ fulfill_purchase_request_perm = require_permission("units.receive")
 
 
 def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:
-    stock = current_stock_m2(db, material_id=req.material_id, color_id=req.color_id, thickness_id=req.thickness_id)
+    if req.item_id is not None:
+        # позиция не-плёнка (14.10): материал, комплектующее…
+        from app.models.items import Item
+        from app.services import materials as mat
+
+        it = db.get(Item, req.item_id)
+        film: dict = {
+            "item_id": req.item_id, "item_name": it.name if it else f"#{req.item_id}",
+            "quantity": float(req.quantity or 0), "unit": (it.unit or (it.kind.unit if it and it.kind else None)) if it else None,
+            "current_stock": round(float(mat.balances(db, [req.item_id]).get(req.item_id, 0.0)), 3),
+            "price_per_unit": float(req.price_per_unit) if req.price_per_unit is not None else None,
+        }
+    else:
+        film = {
+            "material": db.get(Material, req.material_id).name,
+            "color": db.get(Color, req.color_id).name,
+            "thickness": float(db.get(Thickness, req.thickness_id).value_mm),
+            "requested_area_m2": float(req.requested_area_m2),
+            "current_stock_m2": current_stock_m2(db, material_id=req.material_id, color_id=req.color_id, thickness_id=req.thickness_id),
+        }
     return PurchaseRequestOut(
         id=req.id,
-        material=db.get(Material, req.material_id).name,
-        color=db.get(Color, req.color_id).name,
-        thickness=float(db.get(Thickness, req.thickness_id).value_mm),
-        requested_area_m2=float(req.requested_area_m2),
-        current_stock_m2=stock,
+        **film,
         note=req.note,
         status=req.status,
         origin=req.origin,
@@ -154,7 +169,7 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
             PurchaseRequest.thickness_id,
             func.sum(PurchaseRequest.requested_area_m2),
         )
-        .filter(PurchaseRequest.status == "open")
+        .filter(PurchaseRequest.status == "open", PurchaseRequest.material_id.isnot(None))
         .group_by(PurchaseRequest.material_id, PurchaseRequest.color_id, PurchaseRequest.thickness_id)
         .all()
     )
@@ -164,7 +179,7 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
     # поставщик для этой группы), не жёсткая связка поставщик↔номенклатура.
     supplier_history_rows = (
         db.query(PurchaseRequest.material_id, PurchaseRequest.color_id, PurchaseRequest.thickness_id, PurchaseRequest.supplier_id)
-        .filter(PurchaseRequest.supplier_id.is_not(None))
+        .filter(PurchaseRequest.supplier_id.is_not(None), PurchaseRequest.material_id.isnot(None))
         .order_by(PurchaseRequest.created_at.desc())
         .all()
     )
@@ -443,7 +458,10 @@ def update_purchase_request(
     if payload.supplier is not None:
         req.supplier_id = find_or_create_supplier(db, payload.supplier).id
     if payload.price_per_m2 is not None:
-        req.price_per_m2 = payload.price_per_m2
+        if req.item_id is not None:
+            req.price_per_unit = payload.price_per_m2  # у позиции — цена за её единицу
+        else:
+            req.price_per_m2 = payload.price_per_m2
     if payload.promised_delivery_date is not None:
         req.promised_delivery_date = payload.promised_delivery_date
     db.commit()
@@ -487,10 +505,104 @@ def delete_purchase_request(
     if req is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Заявка не найдена")
     if not user.is_superuser:
-        label = f"Заявка №{req.id} — {db.get(Material, req.material_id).name}, {db.get(Color, req.color_id).name}, {float(db.get(Thickness, req.thickness_id).value_mm)} мм, {float(req.requested_area_m2)} м²"
+        o = _out(db, req)
+        label = (
+            f"Заявка №{req.id} — {o.item_name}, {o.quantity:g} {o.unit or ''}"
+            if req.item_id is not None
+            else f"Заявка №{req.id} — {o.material}, {o.color}, {o.thickness} мм, {o.requested_area_m2} м²"
+        )
         request_deletion(db, entity_type="purchase_request", entity_id=req.id, entity_label=label, requested_by=user.id)
         db.commit()
         return DeleteResultOut(deleted=False, requested=True)
     delete_purchase_request_impl(db, req)
     db.commit()
     return DeleteResultOut(deleted=True, requested=False)
+
+
+
+# ─── заявки на закупку любой позиции (14.10): материалы, комплектующие ───────
+
+
+class ItemRequestIn(BaseModel):
+    item_id: int
+    quantity: float = Field(gt=0)
+    need_by: date | None = None
+    note: str | None = Field(default=None, max_length=255)
+    supplier: str | None = None
+    price_per_unit: float | None = Field(default=None, gt=0)
+    promised_delivery_date: date | None = None
+
+
+@router.post("/items", response_model=PurchaseRequestOut, status_code=status.HTTP_201_CREATED)
+def create_item_request(payload: ItemRequestIn, db: Session = Depends(get_db), user: User = Depends(manage_purchasing)) -> PurchaseRequestOut:
+    """Заявка на материал (МДФ, пенопласт, клей…) — так же, как на плёнку:
+    в «Заявках поставщику», в заказе поставщику, с «нужно к»."""
+    from app.models.items import Item
+
+    item = db.get(Item, payload.item_id)
+    if item is None or item.is_model:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Позиция не найдена")
+    if db.query(MaterialSku.id).filter(MaterialSku.item_id == item.id).first():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Плёнка заказывается по материалу, цвету и толщине — обычной заявкой")
+    supplier = find_or_create_supplier(db, payload.supplier) if payload.supplier else None
+    req = PurchaseRequest(
+        item_id=item.id, quantity=payload.quantity, need_by=payload.need_by, note=(payload.note or "").strip() or None,
+        origin="planner", created_by=user.id, supplier_id=supplier.id if supplier else None,
+        price_per_unit=payload.price_per_unit, promised_delivery_date=payload.promised_delivery_date,
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+    return _out(db, req)
+
+
+class ItemReceiveIn(BaseModel):
+    quantity: float = Field(gt=0)
+    doc: str | None = None  # УПД / накладная
+    price: float | None = Field(default=None, ge=0)
+    close: bool = True  # пришло не всё — оставить заявку открытой
+
+
+@router.post("/{request_id}/receive-item", response_model=PurchaseRequestOut)
+def receive_item_request(
+    request_id: int, payload: ItemReceiveIn, db: Session = Depends(get_db),
+    user: User = Depends(require_permission("purchasing.manage", "units.receive", "materials.manage")),
+) -> PurchaseRequestOut:
+    """Поставка по заявке на материал: приход на склад (движение «приход» с
+    документом и ценой) и закрытие заявки — одним действием."""
+    from datetime import date as _date
+
+    from app.models.items import Item
+    from app.services import materials as mat
+
+    req = db.get(PurchaseRequest, request_id)
+    if req is None or req.item_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Заявка на позицию не найдена")
+    if req.status == "closed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Заявка уже закрыта")
+    item = db.get(Item, req.item_id)
+    price = payload.price if payload.price is not None else (float(req.price_per_unit) if req.price_per_unit is not None else None)
+    if price is not None:
+        from app.models.prices import PRICE_UPD
+        from app.services.prices import add_price
+
+        try:
+            add_price(db, item, price=price, currency=None, unit=None, source=PRICE_UPD, valid_from=_date.today(), user_id=user.id,
+                      doc=f"УПД {payload.doc}" if payload.doc else None)
+            db.flush()
+        except ValueError as e:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+    try:
+        mat.manual_move(db, item=item, kind="receipt", qty=payload.quantity, user_id=user.id, doc=payload.doc,
+                        note=f"По заявке на закупку №{req.id}")
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+    if payload.close:
+        req.status = "closed"
+        req.closed_at = datetime.now(timezone.utc)
+        req.linked_upd_number = payload.doc
+    db.commit()
+    db.refresh(req)
+    return _out(db, req)

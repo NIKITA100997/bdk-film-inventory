@@ -16,6 +16,9 @@ import {
   deleteSupplierOrder,
   listSupplierOrders,
   createSupplierOrder,
+  purchaseLabel,
+  purchaseQty,
+  receiveItemPurchaseRequest,
   type PurchaseRequest,
   type PurchaseRequestCreate,
   type PurchaseRequestUpdate,
@@ -23,6 +26,7 @@ import {
 } from "../../api/purchasing";
 import { getSupplierStats, type SupplierStats } from "../../api/suppliers";
 import DictAutoComplete from "../../components/DictAutoComplete";
+import ItemPurchaseModal from "../../components/ItemPurchaseModal";
 import PanelFilmTable from "../../components/PanelFilmTable";
 import { useAuth } from "../../auth/AuthContext";
 import { apiErrorMessage } from "../../utils/apiError";
@@ -34,6 +38,8 @@ interface EditingPriceTarget {
   label: string;
   supplier?: string | null;
   price_per_m2?: number | null;
+  /** единица цены: у плёнки м², у материала — его единица (14.10) */
+  unit?: string | null;
 }
 
 /** Экран снабженца — три вкладки: "Заявки поставщику" (чекбоксы и
@@ -59,6 +65,9 @@ export default function Purchasing() {
   const [onlyUngrouped, setOnlyUngrouped] = useState(false);
   const [showClosedRequests, setShowClosedRequests] = useState(false);
   const [showClosedOrders, setShowClosedOrders] = useState(false);
+  const [itemBuyOpen, setItemBuyOpen] = useState(false);
+  const [receiving, setReceiving] = useState<PurchaseRequest | null>(null);
+  const [receiveForm] = Form.useForm<{ quantity: number; doc?: string; price?: number; close: boolean }>();
   const [form] = Form.useForm<PurchaseRequestCreate>();
   const [editForm] = Form.useForm<PurchaseRequestUpdate>();
   const [orderForm] = Form.useForm<{ supplier: string; note?: string }>();
@@ -141,6 +150,20 @@ export default function Purchasing() {
     onError: () => message.error("Не удалось сохранить"),
   });
 
+  // Поставка по заявке на материал (14.10): приход на склад и закрытие заявки
+  const receiveMutation = useMutation({
+    mutationFn: (v: { quantity: number; doc?: string; price?: number; close: boolean }) => receiveItemPurchaseRequest(receiving!.id, v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["purchase-requests"] });
+      qc.invalidateQueries({ queryKey: ["supplier-orders"] });
+      qc.invalidateQueries({ queryKey: ["material-stock"] });
+      qc.invalidateQueries({ queryKey: ["material-demand"] });
+      setReceiving(null);
+      message.success("Приход записан на склад");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось записать поставку")),
+  });
+
   const createOrderMutation = useMutation({
     mutationFn: createSupplierOrder,
     onSuccess: () => {
@@ -172,18 +195,19 @@ export default function Purchasing() {
     .filter((r) => showClosedRequests || r.status !== "closed")
     .filter((r) => {
       if (!requestSearchNeedle) return true;
-      const haystack = [r.material, r.color, r.supplier ?? "", r.note ?? ""].join(" ").toLowerCase();
+      const haystack = [r.material ?? "", r.color ?? "", r.item_name ?? "", r.supplier ?? "", r.note ?? ""].join(" ").toLowerCase();
       return haystack.includes(requestSearchNeedle);
     });
   const visibleOrders = (ordersQuery.data ?? []).filter((o) => showClosedOrders || o.is_open);
   const selectedRequests = selectableRows.filter((r) => selectedIds.has(r.id));
   const selectedLines = (() => {
-    const byKey = new Map<string, { material: string; color: string; thickness: number; total: number }>();
+    const byKey = new Map<string, { label: string; total: number; unit: string }>();
     for (const r of selectedRequests) {
-      const key = `${r.material}__${r.color}__${r.thickness}`;
+      const key = purchaseLabel(r);
+      const q = r.item_name ? r.quantity ?? 0 : r.requested_area_m2 ?? 0;
       const existing = byKey.get(key);
-      if (existing) existing.total += r.requested_area_m2;
-      else byKey.set(key, { material: r.material, color: r.color, thickness: r.thickness, total: r.requested_area_m2 });
+      if (existing) existing.total += q;
+      else byKey.set(key, { label: key, total: q, unit: r.item_name ? r.unit ?? "" : "м²" });
     }
     return Array.from(byKey.values());
   })();
@@ -213,21 +237,21 @@ export default function Purchasing() {
                         exportToExcel(
                           "zayavki-postavshchiku.xlsx",
                           visibleRequests.map((r) => ({
-                            material: `${r.material}, ${r.color}, ${r.thickness} мм`,
-                            requested_area_m2: r.requested_area_m2,
-                            current_stock_m2: r.current_stock_m2,
+                            material: purchaseLabel(r),
+                            requested_area_m2: purchaseQty(r),
+                            current_stock_m2: r.item_name ? `${r.current_stock ?? 0} ${r.unit ?? ""}` : r.current_stock_m2,
                             supplier: r.supplier ?? "",
-                            price_per_m2: r.price_per_m2 ?? "",
+                            price_per_m2: (r.item_name ? r.price_per_unit : r.price_per_m2) ?? "",
                             note: r.note ?? "",
                             status: r.status === "open" ? "Открыта" : "Закрыта",
                             created_at: fmtDate(r.created_at),
                           })),
                           [
                             { key: "material", header: "Материал" },
-                            { key: "requested_area_m2", header: "Запрошено, м²" },
-                            { key: "current_stock_m2", header: "Остаток на складе, м²" },
+                            { key: "requested_area_m2", header: "Запрошено" },
+                            { key: "current_stock_m2", header: "Остаток на складе" },
                             { key: "supplier", header: "Поставщик" },
-                            { key: "price_per_m2", header: "Цена, ₽/м²" },
+                            { key: "price_per_m2", header: "Цена, ₽ за ед. (плёнка — за м²)" },
                             { key: "note", header: "Комментарий" },
                             { key: "status", header: "Статус" },
                             { key: "created_at", header: "Создана" },
@@ -237,6 +261,7 @@ export default function Purchasing() {
                     >
                       Excel
                     </Button>
+                    <Button onClick={() => setItemBuyOpen(true)}>Заявка на материал</Button>
                     <Button
                       type="primary"
                       onClick={() => {
@@ -244,7 +269,7 @@ export default function Purchasing() {
                         setCreateOpen(true);
                       }}
                     >
-                      Новая заявка
+                      Заявка на плёнку
                     </Button>
                   </Space>
                 }
@@ -284,14 +309,28 @@ export default function Purchasing() {
                           <Checkbox checked={selectedIds.has(r.id)} onChange={() => toggleSelect(r.id)} />
                         ) : null,
                     },
-                    { title: "Материал", render: (_, r) => `${r.material}, ${r.color}, ${r.thickness} мм` },
-                    { title: "Запрошено, м²", dataIndex: "requested_area_m2" },
-                    { title: "Остаток на складе, м²", dataIndex: "current_stock_m2" },
+                    {
+                      title: "Материал",
+                      render: (_, r) =>
+                        r.item_name ? (
+                          <Space size={4}>
+                            {r.item_name}
+                            <Tag>материал</Tag>
+                          </Space>
+                        ) : (
+                          purchaseLabel(r)
+                        ),
+                    },
+                    { title: "Запрошено", render: (_, r) => purchaseQty(r) },
+                    {
+                      title: "Остаток на складе",
+                      render: (_, r) => (r.item_name ? `${r.current_stock ?? 0} ${r.unit ?? ""}` : `${r.current_stock_m2 ?? 0} м²`),
+                    },
                     { title: "Поставщик", dataIndex: "supplier", render: (v: string | null) => v ?? "—" },
                     {
                       title: "Цена, ₽/м²",
-                      dataIndex: "price_per_m2",
-                      render: (v: number | null) => v ?? "—",
+                      render: (_, r) =>
+                        r.item_name ? (r.price_per_unit != null ? `${r.price_per_unit} за ${r.unit ?? "ед."}` : "—") : r.price_per_m2 ?? "—",
                     },
                     {
                       title: "Нужно к",
@@ -336,21 +375,35 @@ export default function Purchasing() {
                           <Button
                             size="small"
                             onClick={() => {
+                              const price = r.item_name ? r.price_per_unit : r.price_per_m2;
                               setEditingPrice({
                                 requestIds: [r.id],
                                 label: `заявка №${r.id}`,
                                 supplier: r.supplier,
-                                price_per_m2: r.price_per_m2,
+                                price_per_m2: price,
+                                unit: r.item_name ? r.unit ?? "ед." : "м²",
                               });
                               editForm.setFieldsValue({
                                 supplier: r.supplier ?? undefined,
-                                price_per_m2: r.price_per_m2 ?? undefined,
+                                price_per_m2: price ?? undefined,
                                 promised_delivery_date: r.promised_delivery_date ?? undefined,
                               });
                             }}
                           >
                             Поставщик/цена
                           </Button>
+                          {r.status === "open" && r.item_name && (
+                            <Button
+                              size="small"
+                              type="primary"
+                              onClick={() => {
+                                setReceiving(r);
+                                receiveForm.setFieldsValue({ quantity: r.quantity ?? undefined, doc: undefined, price: r.price_per_unit ?? undefined, close: true });
+                              }}
+                            >
+                              Поступило
+                            </Button>
+                          )}
                           {r.status === "open" && (
                             <Button size="small" loading={closeMutation.isPending} onClick={() => closeMutation.mutate(r.id)}>
                               Закрыть вручную
@@ -417,9 +470,9 @@ export default function Purchasing() {
                               status: order.is_open ? "Открыт" : "Закрыт",
                               supplier: order.supplier,
                               created_at: fmtDate(order.created_at),
-                              material: `${line.material}, ${line.color}, ${line.thickness} мм`,
-                              requested_area_m2: line.requested_area_m2,
-                              current_stock_m2: line.current_stock_m2,
+                              material: purchaseLabel(line),
+                              requested_area_m2: purchaseQty(line),
+                              current_stock_m2: line.item_name ? "" : line.current_stock_m2,
                               request_count: line.request_ids.length,
                             })),
                           ),
@@ -429,8 +482,8 @@ export default function Purchasing() {
                             { key: "supplier", header: "Поставщик" },
                             { key: "created_at", header: "Создан" },
                             { key: "material", header: "Материал" },
-                            { key: "requested_area_m2", header: "Запрошено, м²" },
-                            { key: "current_stock_m2", header: "Остаток на складе, м²" },
+                            { key: "requested_area_m2", header: "Запрошено" },
+                            { key: "current_stock_m2", header: "Остаток плёнки на складе, м²" },
                             { key: "request_count", header: "Из заявок" },
                           ],
                         )
@@ -449,7 +502,7 @@ export default function Purchasing() {
                 ) : (
                   <Collapse
                     items={visibleOrders.map((order: SupplierOrder) => {
-                      const totalArea = order.lines.reduce((sum, l) => sum + l.requested_area_m2, 0);
+                      const totalArea = order.lines.reduce((sum, l) => sum + (l.requested_area_m2 ?? 0), 0);
                       return {
                         key: order.id,
                         label: (
@@ -457,7 +510,8 @@ export default function Purchasing() {
                             {order.is_open ? <Tag color="orange">Открыт</Tag> : <Tag color="green">Закрыт</Tag>}
                             <Typography.Text strong>{order.supplier}</Typography.Text>
                             <Typography.Text type="secondary">
-                              {order.lines.length} {order.lines.length === 1 ? "позиция" : "позиций"} · {totalArea.toFixed(1)} м² ·{" "}
+                              {order.lines.length} {order.lines.length === 1 ? "позиция" : "позиций"}
+                              {totalArea > 0 ? ` · плёнки ${totalArea.toFixed(1)} м²` : ""} ·{" "}
                               {fmtDate(order.created_at)}
                             </Typography.Text>
                           </Space>
@@ -478,24 +532,23 @@ export default function Purchasing() {
                                 }}
                               >
                                 <div>
-                                  <div>
-                                    {line.material}, {line.color}, {line.thickness} мм
-                                  </div>
+                                  <div>{purchaseLabel(line)}</div>
                                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                                    остаток на складе {line.current_stock_m2} м² · из {line.request_ids.length}{" "}
+                                    {line.item_name ? "" : `остаток на складе ${line.current_stock_m2} м² · `}из {line.request_ids.length}{" "}
                                     {line.request_ids.length === 1 ? "заявки" : "заявок"}
                                   </Typography.Text>
                                 </div>
                                 <Space>
-                                  <span>{line.requested_area_m2} м²</span>
+                                  <span>{purchaseQty(line)}</span>
                                   <Button
                                     size="small"
                                     onClick={() => {
                                       setEditingPrice({
                                         requestIds: line.request_ids,
-                                        label: `${line.material}, ${line.color}, ${line.thickness} мм`,
+                                        label: purchaseLabel(line),
                                         supplier: order.supplier,
                                         price_per_m2: null,
+                                        unit: line.item_name ? line.unit ?? "ед." : "м²",
                                       });
                                       editForm.setFieldsValue({ supplier: order.supplier, price_per_m2: undefined });
                                     }}
@@ -683,7 +736,7 @@ export default function Purchasing() {
           <Form.Item name="supplier" label="Поставщик">
             <DictAutoComplete kind="suppliers" />
           </Form.Item>
-          <Form.Item name="price_per_m2" label="Цена, ₽/м²">
+          <Form.Item name="price_per_m2" label={`Цена, ₽/${editingPrice?.unit ?? "м²"}`}>
             <InputNumber min={0.01} step={1} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item
@@ -710,10 +763,10 @@ export default function Purchasing() {
         <Space direction="vertical" size="small" style={{ width: "100%", marginBottom: 16 }}>
           {selectedLines.map((line, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px dashed #E2DFD6", paddingBottom: 6 }}>
+              <span>{line.label}</span>
               <span>
-                {line.material}, {line.color}, {line.thickness} мм
+                {Math.round(line.total * 1000) / 1000} {line.unit}
               </span>
-              <span>{line.total} м²</span>
             </div>
           ))}
         </Space>
@@ -731,6 +784,36 @@ export default function Purchasing() {
           <Button type="primary" htmlType="submit" block loading={createOrderMutation.isPending}>
             Создать заказ
           </Button>
+        </Form>
+      </Modal>
+
+      <ItemPurchaseModal open={itemBuyOpen} onClose={() => setItemBuyOpen(false)} />
+
+      <Modal
+        title={receiving ? `Поступило: ${receiving.item_name} (заявка №${receiving.id})` : ""}
+        open={!!receiving}
+        onCancel={() => setReceiving(null)}
+        onOk={() => receiveForm.submit()}
+        okText="Записать приход"
+        confirmLoading={receiveMutation.isPending}
+        destroyOnHidden
+      >
+        <Typography.Paragraph type="secondary">
+          Приход на склад материалов с документом и ценой; заявка закрывается. Пришло не всё — снимите галочку, заявка останется открытой.
+        </Typography.Paragraph>
+        <Form form={receiveForm} layout="vertical" onFinish={(v) => receiveMutation.mutate(v)}>
+          <Form.Item name="quantity" label={`Пришло, ${receiving?.unit ?? ""}`} rules={[{ required: true, message: "Сколько пришло" }]}>
+            <InputNumber min={0.001} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="doc" label="УПД / накладная">
+            <Input />
+          </Form.Item>
+          <Form.Item name="price" label={`Цена, ₽ за ${receiving?.unit ?? "ед."} (по УПД)`}>
+            <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="close" valuePropName="checked">
+            <Checkbox>Закрыть заявку</Checkbox>
+          </Form.Item>
         </Form>
       </Modal>
     </Space>

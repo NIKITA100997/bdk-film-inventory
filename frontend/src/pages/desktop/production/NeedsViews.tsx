@@ -16,9 +16,10 @@ function useCanPurchase() {
   return hasPerm(user, "production_tasks.manage", "purchasing.manage");
 }
 
-function reportPurchase(r: { film_requests: number[]; bitrix_tasks: number; not_sent: string[] }) {
+function reportPurchase(r: { film_requests: number[]; item_requests?: number[]; bitrix_tasks: number; not_sent: string[] }) {
   const parts = [];
   if (r.film_requests.length) parts.push(`заявок на плёнку: ${r.film_requests.length}`);
+  if (r.item_requests?.length) parts.push(`заявок на материалы: ${r.item_requests.length}`);
   if (r.bitrix_tasks) parts.push(`задач закупщику в Битрикс24: ${r.bitrix_tasks}`);
   if (parts.length) message.success(`Создано — ${parts.join(", ")}`);
   if (r.not_sent.length)

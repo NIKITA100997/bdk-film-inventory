@@ -125,16 +125,18 @@ class PurchaseIn(BaseModel):
 
 class PurchaseOut(BaseModel):
     film_requests: list[int]
+    item_requests: list[int] = []  # заявки на материалы (14.10)
     bitrix_tasks: int
     not_sent: list[str]
 
 
 @router.post("/purchase", response_model=PurchaseOut)
 def purchase_shortages(payload: PurchaseIn, db: Session = Depends(get_db), user: User = Depends(order_purchase)) -> PurchaseOut:
-    """Дефицит → закупка: плёнка — заявка на закупку (м², «нужно к», под
-    какие заказы), материал — задача закупщику в Битрикс24 и сообщение в
-    чат закупок."""
+    """Дефицит → закупка: заявка на закупку (плёнка — м², материал — в его
+    единице; «нужно к», под какие заказы) в «Заявках поставщику». По
+    материалу ещё и задача закупщику в Битрикс24, если он подключён."""
     film_ids: list[int] = []
+    item_ids: list[int] = []
     tasks = 0
     not_sent: list[str] = []
     s = bitrix.get_settings(db)
@@ -158,14 +160,18 @@ def purchase_shortages(payload: PurchaseIn, db: Session = Depends(get_db), user:
             if item is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Материал не найден")
             unit = item.unit or (item.kind.unit if item.kind else "")
-            title = f"Закупить: {item.name} — {it.qty:g} {unit}{by}"
+            pr = PurchaseRequest(
+                item_id=item.id, quantity=round(it.qty, 3), note=note[:255], created_by=user.id, origin="needs", need_by=it.need_by,
+            )
+            db.add(pr)
+            db.flush()
+            item_ids.append(pr.id)
+            title = f"Закупить: {item.name} — {it.qty:g} {unit}{by} (заявка №{pr.id})"
             if s.get("enabled") and s.get("webhook") and (s.get("purchaser") or s.get("chat_purchasing")):
                 bitrix.task_for_purchase(db, title, note, it.need_by)
                 tasks += 1
-            else:
-                not_sent.append(title)
     if film_lines:
         text = "Заявки на закупку плёнки (дефицит по заказам):\n" + "\n".join(film_lines)
         bitrix.message_to_chat(db, "purchase_task", "chat_purchasing", text)
     db.commit()
-    return PurchaseOut(film_requests=film_ids, bitrix_tasks=tasks, not_sent=not_sent)
+    return PurchaseOut(film_requests=film_ids, item_requests=item_ids, bitrix_tasks=tasks, not_sent=not_sent)

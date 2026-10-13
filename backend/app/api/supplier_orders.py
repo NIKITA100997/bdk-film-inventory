@@ -24,8 +24,23 @@ manage_purchasing = require_permission("purchasing.manage")
 
 def _order_out(db: Session, order: SupplierOrder) -> SupplierOrderOut:
     requests = db.query(PurchaseRequest).filter(PurchaseRequest.order_id == order.id).all()
-    lines: dict[tuple[int, int, int], SupplierOrderLineOut] = {}
+    lines: dict[tuple, SupplierOrderLineOut] = {}
     for req in requests:
+        if req.item_id is not None:
+            # позиция не-плёнка (14.10)
+            from app.models.items import Item
+
+            key = ("item", req.item_id)
+            if key in lines:
+                lines[key].quantity = round((lines[key].quantity or 0) + float(req.quantity or 0), 3)
+                lines[key].request_ids.append(req.id)
+            else:
+                it = db.get(Item, req.item_id)
+                lines[key] = SupplierOrderLineOut(
+                    item_name=it.name if it else f"#{req.item_id}", quantity=float(req.quantity or 0),
+                    unit=(it.unit or (it.kind.unit if it.kind else None)) if it else None, request_ids=[req.id],
+                )
+            continue
         key = (req.material_id, req.color_id, req.thickness_id)
         if key in lines:
             existing = lines[key]

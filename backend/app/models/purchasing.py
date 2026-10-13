@@ -48,10 +48,15 @@ class PurchaseRequest(Base):
     __tablename__ = "purchase_requests"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    material_id: Mapped[int] = mapped_column(ForeignKey("materials.id"))
-    color_id: Mapped[int] = mapped_column(ForeignKey("colors.id"))
-    thickness_id: Mapped[int] = mapped_column(ForeignKey("thicknesses.id"))
-    requested_area_m2: Mapped[float] = mapped_column(Numeric(12, 2))
+    # плёнка — материал+цвет+толщина и м²; любая другая позиция (14.10) —
+    # item_id, quantity в её единице, price_per_unit; поля плёнки тогда пусты
+    material_id: Mapped[int | None] = mapped_column(ForeignKey("materials.id"), nullable=True)
+    color_id: Mapped[int | None] = mapped_column(ForeignKey("colors.id"), nullable=True)
+    thickness_id: Mapped[int | None] = mapped_column(ForeignKey("thicknesses.id"), nullable=True)
+    requested_area_m2: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)
+    quantity: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
+    price_per_unit: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="open")  # open / closed
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))

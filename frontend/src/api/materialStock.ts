@@ -27,6 +27,8 @@ export interface MaterialDemandRow {
   unit: string;
   group_name: string | null;
   stock: number;
+  /** в открытых заявках на закупку (14.10) — уже учтено в «заказать» */
+  ordered?: number;
   demand: number;
   sources: { task_id: number; task_name: string; order_id: number | null; qty: number }[];
   min_stock: number | null;

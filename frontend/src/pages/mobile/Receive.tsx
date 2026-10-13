@@ -179,7 +179,7 @@ export default function Receive() {
                   <Select size="large" options={activeWarehouses.map((w) => ({ value: w.id, label: w.name }))} />
                 </Form.Item>
               )}
-              {(openRequestsQuery.data ?? []).length > 0 && (
+              {(openRequestsQuery.data ?? []).some((r) => r.material) && (
                 <Form.Item name="purchase_request_id" label="Открытая заявка на закупку (опционально)">
                   <Select
                     size="large"
@@ -187,7 +187,7 @@ export default function Receive() {
                     showSearch
                     placeholder="Эта поставка закрывает заявку…"
                     optionFilterProp="label"
-                    options={(openRequestsQuery.data ?? []).map((r) => ({
+                    options={(openRequestsQuery.data ?? []).filter((r) => r.material).map((r) => ({
                       value: r.id,
                       label: `${r.material}, ${r.color}, ${r.thickness} мм — ${r.requested_area_m2} м²`,
                     }))}

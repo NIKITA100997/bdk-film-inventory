@@ -192,7 +192,10 @@ def compute(db: Session, user_id: int) -> list[OrderNeeds]:
         film_stock[f"film:{m}-{c}-{t}"] = float(area or 0)
     incoming: dict[str, list[list]] = defaultdict(list)  # key → [[м², дата], …]
     for pr in db.query(PurchaseRequest).filter(PurchaseRequest.status == "open"):
-        incoming[f"film:{pr.material_id}-{pr.color_id}-{pr.thickness_id}"].append([float(pr.requested_area_m2), pr.promised_delivery_date])
+        if pr.item_id is not None:  # заявка на материал (14.10)
+            incoming[f"item:{pr.item_id}"].append([float(pr.quantity or 0), pr.promised_delivery_date])
+        else:
+            incoming[f"film:{pr.material_id}-{pr.color_id}-{pr.thickness_id}"].append([float(pr.requested_area_m2), pr.promised_delivery_date])
     for v in incoming.values():
         v.sort(key=lambda x: x[1] or date(2100, 1, 1))
 
