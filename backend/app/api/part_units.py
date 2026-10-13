@@ -542,3 +542,74 @@ def regrade(unit_id: int, payload: RegradeIn, db: Session = Depends(get_db), use
     db.commit()
     db.refresh(unit)
     return _part_unit_out(unit, reported_good_pieces_by_unit(db, [unit.id]).get(unit.id, 0.0))
+
+
+# ─── удалить ошибочную партию, разделить партию (14.10, как у рулона) ────────
+
+
+def delete_part_unit_impl(db: Session, unit: PartUnit) -> None:
+    """Ошибочно заведённая партия — удаляется вместе со своим журналом (как
+    рулон). Нельзя, если от неё отделены другие партии или по ней уже
+    были отчёты — тогда это не ошибка ввода, а история производства."""
+    from app.models.production import ProductionTaskLineReport
+
+    if db.query(PartUnit.id).filter(PartUnit.parent_id == unit.id).first():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Нельзя удалить — от партии отделены другие, удалите сначала их")
+    if db.query(ProductionTaskLineReport.id).filter(ProductionTaskLineReport.part_unit_id == unit.id).first():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Нельзя удалить — по партии есть отчёты производства; спишите её")
+    db.query(PartUnitEvent).filter(PartUnitEvent.part_unit_id == unit.id).delete()
+    db.delete(unit)
+
+
+class DeleteOut(BaseModel):
+    deleted: bool
+    requested: bool
+
+
+@router.delete("/{unit_id}", response_model=DeleteOut)
+def delete_part_unit(unit_id: int, db: Session = Depends(get_db), user: User = Depends(manage_part_units)) -> DeleteOut:
+    """Администратор удаляет сразу, остальные — заявкой на удаление."""
+    from app.services.deletion_requests import request_deletion
+
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    if not user.is_superuser:
+        request_deletion(db, entity_type="part_unit", entity_id=unit.id,
+                         entity_label=f"Партия п/ф №{unit.id} — {unit.part.name}, {float(unit.quantity_pieces):g} шт", requested_by=user.id)
+        db.commit()
+        return DeleteOut(deleted=False, requested=True)
+    delete_part_unit_impl(db, unit)
+    db.commit()
+    return DeleteOut(deleted=True, requested=False)
+
+
+class SplitIn(BaseModel):
+    quantity_pieces: float = Field(gt=0)
+    location_code: str | None = None
+
+
+@router.post("/{unit_id}/split", response_model=PartUnitOut)
+def split_part_unit(unit_id: int, payload: SplitIn, db: Session = Depends(get_db), user: User = Depends(manage_part_units)) -> PartUnitOut:
+    """Разделить партию: часть — отдельной партией (своё место, своя
+    этикетка), как отрезать остаток рулона. Делится только свободное
+    (не отчитанное в производстве)."""
+    from app.models.part_units import PartEventType
+    from app.services.part_units import _split_or_reuse, record_part_event
+
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    if unit.status not in (PartUnitStatus.NA_KHRANENII, PartUnitStatus.VYDAN_UCHASTKU):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Делить можно партию на хранении или на участке")
+    free = float(unit.quantity_pieces) - reported_good_pieces_by_unit(db, [unit.id]).get(unit.id, 0.0)
+    if payload.quantity_pieces >= free - 1e-9:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Отделить можно меньше, чем свободно в партии ({free:g} шт)")
+    child = _split_or_reuse(db, unit, payload.quantity_pieces)
+    loc = (payload.location_code or "").strip() or None
+    child.location_code = loc if loc else unit.location_code
+    record_part_event(db, unit=child, event_type=PartEventType.RAZMESHCHENIE, user_id=user.id, quantity_delta=0,
+                      from_cell=unit.location_code, to_cell=child.location_code, note=f"Отделено от партии №{unit.id}", related_part_unit_id=unit.id)
+    db.commit()
+    db.refresh(child)
+    return _part_unit_out(child, 0.0)

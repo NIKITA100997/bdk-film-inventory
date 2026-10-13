@@ -8,8 +8,18 @@ import LocationSelect from "../LocationSelect";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { apiErrorMessage } from "../../utils/apiError";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
-import { adjustUnit, getReturnPreview, getUnit, placeUnit, reassignUnitSku, returnUnit, skuLabel, writeOffUnit, type MaterialUnit } from "../../api/units";
-import { adjustPartUnit, getPartUnit, regradePartUnit, returnPartUnit, writeOffPartUnit, type PartUnit } from "../../api/partUnits";
+import { adjustUnit, deleteUnit, getReturnPreview, getUnit, issueUnitDirect, placeUnit, reassignUnitSku, returnUnit, skuLabel, writeOffUnit, type MaterialUnit } from "../../api/units";
+import {
+  adjustPartUnit,
+  deletePartUnit,
+  getPartUnit,
+  issuePartUnit,
+  regradePartUnit,
+  returnPartUnit,
+  splitPartUnit,
+  writeOffPartUnit,
+  type PartUnit,
+} from "../../api/partUnits";
 import { listMaterialSkus, listParts } from "../../api/dictionaries";
 import { placePartUnit } from "../../api/partStorage";
 import { suggestLocation } from "../../api/storage";
@@ -28,6 +38,8 @@ interface Values {
   /** возврат рулона: остаток сразу списать */
   write_off?: boolean;
   occurred_at?: Dayjs | null;
+  /** выдача рулона: участок */
+  area?: string;
   /** пересорт: новая позиция плёнки / деталь и этап */
   target_id?: number;
   stage_id?: number | null;
@@ -138,6 +150,14 @@ export default function LotOperationModal({
         return film
           ? writeOffUnit(id, v.reason!, v.note || undefined, at)
           : writeOffPartUnit(id, { quantity_pieces: v.qty!, reason: v.reason!, note: v.note || undefined, occurred_at: at });
+      if (op === "issue")
+        return film ? issueUnitDirect(id, v.area!, undefined, at ?? undefined) : issuePartUnit(id, v.qty && v.qty < lot.qty ? v.qty : null);
+      if (op === "split") return splitPartUnit(id, v.qty!, v.location_code || null);
+      if (op === "delete") {
+        const r = film ? await deleteUnit(id) : await deletePartUnit(id);
+        if (r.requested) message.info("Заявка на удаление отправлена администратору — «Администрирование → Заявки на удаление»");
+        return undefined as unknown as PartUnit;
+      }
       if (op === "regrade") {
         if (film) {
           const sku = (skusQuery.data ?? []).find((s) => s.id === v.target_id);
@@ -175,7 +195,7 @@ export default function LotOperationModal({
       // остатки, движения и карточки обоих видов
       for (const key of ["unified-lots", "unified-movements", "materials-explorer", "units", "unit", "part-units", "part-unit", "part-stock", "material-card", "storage", "part-rack-occupancy", "rack-occupancy", "storage-places", "lot-full", "return-preview"])
         qc.invalidateQueries({ queryKey: [key] });
-      onDone?.(updated);
+      if (updated) onDone?.(updated);
       onClose();
     },
     onError: (e) => message.error(apiErrorMessage(e, `Не удалось: ${OP_LABEL[op].toLowerCase()}`)),
@@ -190,7 +210,7 @@ export default function LotOperationModal({
       title={`${OP_LABEL[op]} — ${lotTitle(lot)}`}
       onCancel={onClose}
       okText={OP_LABEL[op]}
-      okButtonProps={{ danger: op === "writeoff", loading: run.isPending, disabled: op === "adjust" && !full }}
+      okButtonProps={{ danger: op === "writeoff" || op === "delete", loading: run.isPending, disabled: op === "adjust" && !full }}
       cancelText="Отмена"
       onOk={() => form.submit()}
       destroyOnHidden
@@ -335,6 +355,47 @@ export default function LotOperationModal({
           </>
         )}
 
+        {op === "issue" &&
+          (film ? (
+            <Form.Item name="area" label="Участок" rules={[{ required: true, message: "Выберите участок" }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                loading={areasQuery.isLoading}
+                options={(areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }))}
+              />
+            </Form.Item>
+          ) : (
+            <Form.Item name="qty" label="Выдать, шт" extra={`Пусто — всю партию (${fmt(lot.qty)} шт), на участок её этапа`}>
+              <InputNumber min={1} max={lot.qty} style={{ width: "100%" }} inputMode="numeric" />
+            </Form.Item>
+          ))}
+        {op === "issue" && film && (
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
+            Под конкретную строку задания — выдача из «Склад → Выдача участку» или из задания.
+          </Typography.Paragraph>
+        )}
+
+        {op === "split" && (
+          <>
+            <Form.Item name="qty" label="Отделить, шт" rules={[{ required: true, message: "Укажите количество" }]} extra={`Сейчас свободно ${fmt(lot.qty)} шт`}>
+              <InputNumber min={1} max={Math.max(1, lot.qty - 1)} style={{ width: "100%" }} inputMode="numeric" autoFocus />
+            </Form.Item>
+            <Form.Item name="location_code" label="Место новой партии" extra="Пусто — то же место">
+              <Input placeholder="например, ЗГ-1-02" />
+            </Form.Item>
+          </>
+        )}
+
+        {op === "delete" && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Только для ошибочно заведённой партии"
+            description="Партия удаляется вместе с журналом, как будто её не было. Израсходованную или бракованную — не удалять, а списать. У администратора удаляется сразу, у остальных уходит заявкой."
+          />
+        )}
+
         {op === "regrade" && (
           <>
             <Typography.Paragraph type="secondary" style={{ marginTop: -4 }}>
@@ -365,7 +426,7 @@ export default function LotOperationModal({
           </>
         )}
 
-        {op !== "regrade" && <OccurredAtField />}
+        {!["regrade", "split", "delete"].includes(op) && <OccurredAtField />}
       </Form>
     </Modal>
   );

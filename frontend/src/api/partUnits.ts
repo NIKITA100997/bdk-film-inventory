@@ -175,3 +175,10 @@ export const recyclePartUnits = async (payload: {
 /** Пересорт (14.10): партия заведена не той деталью — сменить деталь; этап — тот же по порядку или выбранный. */
 export const regradePartUnit = async (id: number, payload: { part_id: number; reason: string; stage_id?: number | null }): Promise<PartUnit> =>
   (await apiClient.post<PartUnit>(`/part-units/${id}/regrade`, payload)).data;
+
+/** Удалить ошибочную партию (14.10): администратор — сразу, остальные — заявкой. */
+export const deletePartUnit = async (id: number): Promise<{ deleted: boolean; requested: boolean }> =>
+  (await apiClient.delete<{ deleted: boolean; requested: boolean }>(`/part-units/${id}`)).data;
+/** Разделить партию (14.10): часть — отдельной партией на своё место. */
+export const splitPartUnit = async (id: number, quantityPieces: number, locationCode?: string | null): Promise<PartUnit> =>
+  (await apiClient.post<PartUnit>(`/part-units/${id}/split`, { quantity_pieces: quantityPieces, location_code: locationCode ?? null })).data;

@@ -14,6 +14,7 @@ from app.api.production import delete_production_task_impl
 from app.api.purchasing import delete_purchase_request_impl
 from app.api.supplier_orders import delete_supplier_order_impl
 from app.api.units import delete_unit_impl
+from app.api.part_units import delete_part_unit_impl
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.deletion_requests import DeletionRequest
@@ -21,6 +22,7 @@ from app.models.dictionaries import MaterialSku
 from app.models.production import ProductionTask
 from app.models.purchasing import PurchaseRequest, SupplierOrder
 from app.models.units import MaterialUnit
+from app.models.part_units import PartUnit
 from app.models.users import User
 from app.schemas.deletion_requests import DeletionRequestOut, DeletionRequestReject
 
@@ -36,6 +38,7 @@ _DISPATCH: dict[str, tuple[type, Callable[[Session, object], None]]] = {
     "purchase_request": (PurchaseRequest, delete_purchase_request_impl),
     "material_sku": (MaterialSku, delete_material_sku_impl),
     "material_unit": (MaterialUnit, delete_unit_impl),
+    "part_unit": (PartUnit, delete_part_unit_impl),  # 14.10
 }
 
 
