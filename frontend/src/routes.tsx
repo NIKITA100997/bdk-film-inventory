@@ -13,7 +13,6 @@ import Stock, { StockRedirect } from "./pages/desktop/Stock";
 import Reports from "./pages/desktop/Reports";
 import OrderPage from "./pages/desktop/production/OrderPage";
 import { PricesPage } from "./pages/desktop/PricesTab";
-import ActionLog from "./pages/desktop/ActionLog";
 import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
 import Inventory from "./pages/desktop/Inventory";
 import UserAdmin from "./pages/desktop/UserAdmin";
@@ -122,10 +121,8 @@ const appPageRoutes = (
       path="/defects"
       element={<Navigate to="/reports?group=defects" replace />}
     />
-    <Route
-      path="/action-log"
-      element={<RequirePermission permissions={["reports.view"]}><ActionLog /></RequirePermission>}
-    />
+    {/* 14.10: журнал действий — это общий журнал движений («Остатки → Всё → Движения») */}
+    <Route path="/action-log" element={<Navigate to="/stock?kind=all&tab=movements" replace />} />
     {/* "Стеллажи" видны всем (как "Остатки") — вкладка "Управление" внутри
     сама решает, показываться ли, по storage.manage. */}
     <Route path="/storage" element={<StockRedirect kind="film" tab="map" />} />
