@@ -260,3 +260,89 @@ def create_pf_tasks(
         )
     db.commit()
     return PfDemandTasksOut(task_ids=task_ids)
+
+
+# ─── средний расход и мин. остаток (14.10) ─────────────────────────────────
+
+manage_norms = require_permission("production_tasks.manage", "part_units.manage")
+
+
+class ConsumptionRowOut(BaseModel):
+    item_id: int
+    part_id: int
+    name: str
+    consumed: float
+    to_work: float
+    per_week: float
+    per_day: float
+    reserve_days: float | None
+    min_stock: float | None
+    suggested_min: float | None
+
+
+class ConsumptionOut(BaseModel):
+    weeks: int
+    workdays: int
+    date_from: date
+    date_to: date
+    rows: list[ConsumptionRowOut]
+
+
+@router.get("/consumption", response_model=ConsumptionOut)
+def consumption(weeks: int = Query(default=4, ge=1, le=26), db: Session = Depends(get_db), user: User = Depends(view)) -> ConsumptionOut:
+    """Средний расход п/ф за последние недели и мин. остаток от него."""
+    from app.services.consumption import pf_consumption
+
+    rows, days, start, end = pf_consumption(db, weeks)
+    return ConsumptionOut(weeks=weeks, workdays=days, date_from=start, date_to=end, rows=[ConsumptionRowOut(**r.__dict__) for r in rows])
+
+
+class ReserveDaysIn(BaseModel):
+    item_id: int
+    reserve_days: float | None = Field(default=None, ge=0, le=365)
+    weeks: int = Field(default=4, ge=1, le=26)
+    apply: bool = True  # сразу поставить мин. остаток = расход в день × дни
+
+
+class ApplyIn(BaseModel):
+    weeks: int = Field(default=4, ge=1, le=26)
+    item_ids: list[int] = []  # пусто — все, у кого заданы дни запаса
+
+
+@router.put("/consumption/reserve-days", response_model=ConsumptionRowOut | None)
+def set_reserve_days(payload: ReserveDaysIn, db: Session = Depends(get_db), user: User = Depends(manage_norms)) -> ConsumptionRowOut | None:
+    """Дни запаса — вручную; мин. остаток — от среднего расхода за период."""
+    from app.models.items import Item
+    from app.services.consumption import apply_min_stock, pf_consumption
+
+    item = db.get(Item, payload.item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    item.reserve_days = payload.reserve_days
+    db.flush()
+    rows, *_ = pf_consumption(db, payload.weeks)
+    row = next((r for r in rows if r.item_id == item.id), None)
+    if payload.apply and row is not None:
+        apply_min_stock(db, item, row.suggested_min)
+        row.min_stock = row.suggested_min
+    db.commit()
+    return ConsumptionRowOut(**row.__dict__) if row else None
+
+
+@router.post("/consumption/apply")
+def apply_reserve(payload: ApplyIn, db: Session = Depends(get_db), user: User = Depends(manage_norms)) -> dict:
+    """Пересчитать мин. остатки по текущему расходу у всех (или выбранных)
+    позиций с заданными днями запаса."""
+    from app.models.items import Item
+    from app.services.consumption import apply_min_stock, pf_consumption
+
+    rows, *_ = pf_consumption(db, payload.weeks)
+    changed = 0
+    for r in rows:
+        if r.reserve_days is None or (payload.item_ids and r.item_id not in payload.item_ids):
+            continue
+        if r.min_stock != r.suggested_min:
+            apply_min_stock(db, db.get(Item, r.item_id), r.suggested_min)
+            changed += 1
+    db.commit()
+    return {"changed": changed}

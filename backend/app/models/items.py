@@ -88,6 +88,9 @@ class Item(Base):
     min_stock: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
     min_batch: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
     batch_multiple: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
+    # Дни запаса (14.10, services/consumption.py): задаются вручную; мин.
+    # остаток = средний расход за рабочий день × дни запаса.
+    reserve_days: Mapped[float | None] = mapped_column(Numeric(6, 1), nullable=True)
     # Деталь в плёнке («деталь · декор», services/laminated.py): от какой
     # детали без плёнки и в каком декоре (материал + цвет плёнки).
     base_item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)

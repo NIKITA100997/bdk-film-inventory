@@ -6,11 +6,12 @@ import { useAuth } from "../../../auth/AuthContext";
 import { listMaterialDemand, type MaterialDemandRow } from "../../../api/materialStock";
 import { normsLabel } from "../../../utils/normatives";
 import PfDemand from "./PfDemand";
+import PfConsumption from "./PfConsumption";
 import { ShortagesTab } from "./NeedsViews";
 import { BlanksDemandTab } from "../Blanks";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 
-type Tab = "orders" | "pf" | "film" | "components";
+type Tab = "orders" | "pf" | "consumption" | "film" | "components";
 
 /** Потребность — «чего не хватает и что запустить» одним экраном:
  * п/ф (создать задания), плёнка (что резать заранее под открытые задания)
@@ -26,7 +27,11 @@ export default function Demand() {
       ? [{ key: "orders" as Tab, label: "Дефицит по заказам", children: <ShortagesTab /> }]
       : []),
     ...(has("production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view")
-      ? [{ key: "pf" as Tab, label: "П/ф", children: <PfDemand /> }]
+      ? [
+          { key: "pf" as Tab, label: "П/ф", children: <PfDemand /> },
+          // средний расход → мин. остаток (14.10)
+          { key: "consumption" as Tab, label: "Расход и мин. остаток п/ф", children: <PfConsumption /> },
+        ]
       : []),
     ...(has("units.issue", "production_tasks.manage", "production_tasks.view")
       ? [{ key: "film" as Tab, label: "Плёнка", children: <BlanksDemandTab /> }]

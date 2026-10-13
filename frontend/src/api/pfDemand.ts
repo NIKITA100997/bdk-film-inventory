@@ -89,3 +89,30 @@ export interface PartReserve {
 /** Резерв п/ф по деталям (только детали, у которых он есть). */
 export const listPfReserves = async (): Promise<PartReserve[]> =>
   (await apiClient.get<PartReserve[]>("/pf-demand/reserves")).data;
+
+/** Средний расход п/ф и мин. остаток от него (14.10). */
+export interface ConsumptionRow {
+  item_id: number;
+  part_id: number;
+  name: string;
+  consumed: number;
+  to_work: number;
+  per_week: number;
+  per_day: number;
+  reserve_days: number | null;
+  min_stock: number | null;
+  suggested_min: number | null;
+}
+export interface ConsumptionOut {
+  weeks: number;
+  workdays: number;
+  date_from: string;
+  date_to: string;
+  rows: ConsumptionRow[];
+}
+export const getPfConsumption = async (weeks: number): Promise<ConsumptionOut> =>
+  (await apiClient.get<ConsumptionOut>("/pf-demand/consumption", { params: { weeks } })).data;
+export const setReserveDays = async (p: { item_id: number; reserve_days: number | null; weeks: number; apply?: boolean }): Promise<ConsumptionRow | null> =>
+  (await apiClient.put<ConsumptionRow | null>("/pf-demand/consumption/reserve-days", p)).data;
+export const applyReserveDays = async (weeks: number, itemIds: number[] = []): Promise<{ changed: number }> =>
+  (await apiClient.post<{ changed: number }>("/pf-demand/consumption/apply", { weeks, item_ids: itemIds })).data;
