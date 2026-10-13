@@ -3,7 +3,7 @@ from collections import defaultdict
 from difflib import SequenceMatcher
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
@@ -839,6 +839,7 @@ class TechUsage(BaseModel):
 class TechCardOut(BaseModel):
     item_id: int
     name: str
+    photo_path: str | None = None  # фото позиции (14.10); у плёнки — своё
     kind_code: str
     kind_name: str
     source_type: str | None
@@ -1014,7 +1015,7 @@ def get_techcard(item_id: int, db: Session = Depends(get_db), user=Depends(view_
         part.is_active if part is not None else model.is_active if model is not None else sku.is_active if sku is not None else item.is_active
     )
     return TechCardOut(
-        item_id=item.id, name=name, kind_code=kind.code, kind_name=kind.name, source_type=source_type,
+        item_id=item.id, name=name, photo_path=item.photo_path, kind_code=kind.code, kind_name=kind.name, source_type=source_type,
         source_id=source_id, operations=operations, inputs=inputs, used_in=used_in,
         material=sku.material.name if sku is not None else None, color=sku.color.name if sku is not None else None,
         thickness=float(sku.thickness.value_mm) if sku is not None else None, is_active=active,
@@ -1253,3 +1254,138 @@ def merge_item(item_id: int, payload: MergeIn, db: Session = Depends(get_db), us
     else:
         db.rollback()
     return out
+
+
+# ─── аналоги и фото любой позиции (14.10; у плёнки — свои, в её карточке) ────
+
+_PHOTO_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+
+
+class ItemAnalogOut(BaseModel):
+    link_id: int
+    item_id: int
+    name: str
+    kind_name: str
+    note: str | None
+    stock: float | None  # остаток аналога на складе, в его единице
+    unit: str
+
+
+class ItemAnalogIn(BaseModel):
+    analog_item_id: int
+    note: str | None = Field(default=None, max_length=255)
+
+
+def _item_stock(db: Session, item: Item) -> float | None:
+    """Остаток позиции одним числом: материал — по движениям, п/ф — живые
+    партии, изделие — склад ГП. У плёнки — свой (в её карточке)."""
+    from app.models.finished_goods import FgMove
+    from app.models.part_units import PartUnit, PartUnitStatus
+    from app.services import materials as mat
+
+    code = item.kind.code if item.kind else None
+    if code == "material":
+        return round(float(mat.balances(db, [item.id]).get(item.id, 0.0)), 3)
+    if code == "pf":
+        part = db.query(Part).filter(Part.item_id == item.id).first()
+        if part is None:
+            return None
+        q = db.query(func.coalesce(func.sum(PartUnit.quantity_pieces), 0)).filter(
+            PartUnit.part_id == part.id, PartUnit.status.in_([PartUnitStatus.NA_KHRANENII, PartUnitStatus.VYDAN_UCHASTKU])
+        )
+        return float(q.scalar() or 0)
+    if code == "izdelie":
+        return float(db.query(func.coalesce(func.sum(FgMove.qty), 0)).filter(FgMove.item_id == item.id).scalar() or 0)
+    return None
+
+
+def _not_film(db: Session, item: Item | None) -> Item:
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    if db.query(MaterialSku.id).filter(MaterialSku.item_id == item.id).first():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "У плёнки аналоги и фото — в её карточке (вкладка «Склад»)")
+    return item
+
+
+@router.get("/items/{item_id}/analogs", response_model=list[ItemAnalogOut])
+def item_analogs(item_id: int, db: Session = Depends(get_db), user=Depends(view_items)) -> list[ItemAnalogOut]:
+    from app.models.items import ItemAnalog
+
+    out = []
+    for link in db.query(ItemAnalog).filter((ItemAnalog.item_id == item_id) | (ItemAnalog.analog_item_id == item_id)).order_by(ItemAnalog.id):
+        other = db.get(Item, link.analog_item_id if link.item_id == item_id else link.item_id)
+        if other is None:
+            continue
+        out.append(ItemAnalogOut(
+            link_id=link.id, item_id=other.id, name=other.name, kind_name=other.kind.name if other.kind else "",
+            note=link.note, stock=_item_stock(db, other), unit=other.unit or (other.kind.unit if other.kind else ""),
+        ))
+    return out
+
+
+@router.post("/items/{item_id}/analogs", response_model=list[ItemAnalogOut])
+def add_item_analog(item_id: int, payload: ItemAnalogIn, db: Session = Depends(get_db), user=Depends(manage_aliases)) -> list[ItemAnalogOut]:
+    from app.models.items import ItemAnalog
+
+    a, b = _not_film(db, db.get(Item, item_id)), _not_film(db, db.get(Item, payload.analog_item_id))
+    if a.id == b.id:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Позиция не может быть аналогом самой себе")
+    exists = db.query(ItemAnalog.id).filter(
+        ((ItemAnalog.item_id == a.id) & (ItemAnalog.analog_item_id == b.id)) | ((ItemAnalog.item_id == b.id) & (ItemAnalog.analog_item_id == a.id))
+    ).first()
+    if exists is None:
+        db.add(ItemAnalog(item_id=a.id, analog_item_id=b.id, note=(payload.note or "").strip() or None, created_by=user.id))
+        db.commit()
+    return item_analogs(item_id, db, user)
+
+
+@router.delete("/items/{item_id}/analogs/{link_id}", response_model=list[ItemAnalogOut])
+def delete_item_analog(item_id: int, link_id: int, db: Session = Depends(get_db), user=Depends(manage_aliases)) -> list[ItemAnalogOut]:
+    from app.models.items import ItemAnalog
+
+    link = db.get(ItemAnalog, link_id)
+    if link is None or item_id not in (link.item_id, link.analog_item_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Связь не найдена")
+    db.delete(link)
+    db.commit()
+    return item_analogs(item_id, db, user)
+
+
+class PhotoOut(BaseModel):
+    photo_path: str | None
+
+
+@router.post("/items/{item_id}/photo", response_model=PhotoOut)
+async def upload_item_photo(item_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(manage_aliases)) -> PhotoOut:
+    import uuid
+    from pathlib import Path
+
+    from app.core.config import settings
+
+    item = _not_film(db, db.get(Item, item_id))
+    ext = _PHOTO_EXT.get(file.content_type or "")
+    if ext is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Допустимы только изображения JPEG/PNG/WebP")
+    root = Path(settings.upload_dir) / "items"
+    root.mkdir(parents=True, exist_ok=True)
+    if item.photo_path:
+        (Path(settings.upload_dir) / item.photo_path).unlink(missing_ok=True)
+    rel = f"items/{item_id}_{uuid.uuid4().hex}{ext}"
+    (Path(settings.upload_dir) / rel).write_bytes(await file.read())
+    item.photo_path = rel
+    db.commit()
+    return PhotoOut(photo_path=rel)
+
+
+@router.delete("/items/{item_id}/photo", response_model=PhotoOut)
+def delete_item_photo(item_id: int, db: Session = Depends(get_db), user=Depends(manage_aliases)) -> PhotoOut:
+    from pathlib import Path
+
+    from app.core.config import settings
+
+    item = _not_film(db, db.get(Item, item_id))
+    if item.photo_path:
+        (Path(settings.upload_dir) / item.photo_path).unlink(missing_ok=True)
+        item.photo_path = None
+        db.commit()
+    return PhotoOut(photo_path=None)

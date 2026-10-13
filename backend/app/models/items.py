@@ -91,6 +91,9 @@ class Item(Base):
     # Дни запаса (14.10, services/consumption.py): задаются вручную; мин.
     # остаток = средний расход за рабочий день × дни запаса.
     reserve_days: Mapped[float | None] = mapped_column(Numeric(6, 1), nullable=True)
+    # Фото позиции (14.10; у плёнки — своё, material_skus.photo_path),
+    # относительно UPLOAD_DIR, отдаётся статикой /api/uploads.
+    photo_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Деталь в плёнке («деталь · декор», services/laminated.py): от какой
     # детали без плёнки и в каком декоре (материал + цвет плёнки).
     base_item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)
@@ -380,6 +383,21 @@ def strip_decor(name: str) -> str:
                 base = name[:i].rstrip()
                 return base or name
     return name
+
+
+class ItemAnalog(Base):
+    """Аналог позиции (14.10; у плёнки — свои sku_analogs): ручная пара «чем
+    можно заменить», связь в обе стороны, хранится один раз."""
+
+    __tablename__ = "item_analogs"
+    __table_args__ = (UniqueConstraint("item_id", "analog_item_id", name="uq_item_analog_pair"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    analog_item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ItemAlias(Base):

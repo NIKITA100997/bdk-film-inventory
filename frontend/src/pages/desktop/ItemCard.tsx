@@ -19,6 +19,7 @@ import { MovementsPanel } from "./StockLotsMovements";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import ItemAliases from "../../components/ItemAliases";
 import ItemMergeModal from "../../components/ItemMergeModal";
+import ItemAnalogsPhoto from "../../components/ItemAnalogsPhoto";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
 
@@ -200,6 +201,7 @@ export default function ItemCard() {
             </Typography.Text>
           )}
           {!card.is_model && <ItemAliases itemId={itemId} />}
+          {!card.is_model && card.source_type !== "sku" && <ItemAnalogsPhoto itemId={itemId} photoPath={card.photo_path} />}
         </Space>
       </Card>
       <Tabs activeKey={active} onChange={(k) => setParams({ tab: k })} items={tabs} destroyOnHidden />

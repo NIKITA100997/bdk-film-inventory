@@ -155,6 +155,8 @@ export const unlinkLines = async (payload: { part_name: string; part_id: number 
   (await apiClient.post<{ bom_lines: number; task_lines: number }>("/items/unlink-lines", payload)).data;
 
 export interface TechCard {
+  /** Фото позиции (14.10); у плёнки — своё, в её карточке. */
+  photo_path?: string | null;
   /** Признаки: действующие; own_attrs — заданные у самой позиции (остальные — от типа). */
   direction?: string | null;
   stage?: string | null;
@@ -298,3 +300,26 @@ export interface MergeResult {
 }
 export const mergeItem = async (itemId: number, intoItemId: number, apply: boolean): Promise<MergeResult> =>
   (await apiClient.post<MergeResult>(`/items/${itemId}/merge`, { into_item_id: intoItemId, apply })).data;
+
+/** Аналоги любой позиции (14.10; у плёнки — свои в её карточке) с остатком аналога. */
+export interface ItemAnalog {
+  link_id: number;
+  item_id: number;
+  name: string;
+  kind_name: string;
+  note: string | null;
+  stock: number | null;
+  unit: string;
+}
+export const listItemAnalogs = async (itemId: number): Promise<ItemAnalog[]> => (await apiClient.get<ItemAnalog[]>(`/items/${itemId}/analogs`)).data;
+export const addItemAnalog = async (itemId: number, analogItemId: number, note: string | null): Promise<ItemAnalog[]> =>
+  (await apiClient.post<ItemAnalog[]>(`/items/${itemId}/analogs`, { analog_item_id: analogItemId, note })).data;
+export const deleteItemAnalog = async (itemId: number, linkId: number): Promise<ItemAnalog[]> =>
+  (await apiClient.delete<ItemAnalog[]>(`/items/${itemId}/analogs/${linkId}`)).data;
+export const uploadItemPhoto = async (itemId: number, file: File): Promise<{ photo_path: string | null }> => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return (await apiClient.post<{ photo_path: string | null }>(`/items/${itemId}/photo`, fd)).data;
+};
+export const deleteItemPhoto = async (itemId: number): Promise<{ photo_path: string | null }> =>
+  (await apiClient.delete<{ photo_path: string | null }>(`/items/${itemId}/photo`)).data;
