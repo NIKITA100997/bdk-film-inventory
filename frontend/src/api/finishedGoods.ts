@@ -114,3 +114,9 @@ export const adjustFg = async (payload: {
   actual_qty: number;
   reason: string;
 }): Promise<FgStockRow[]> => (await apiClient.post<FgStockRow[]>("/finished-goods/adjust", payload)).data;
+
+/** Пересчёт склада ГП листом (14.10): факт по строкам остатка, разница — одним документом. */
+export const countFg = async (
+  doc: string,
+  lines: { item_id: number; site_id: number | null; order_line_id: number | null; actual_qty: number }[],
+): Promise<{ changed: number; checked: number }> => (await apiClient.post<{ changed: number; checked: number }>("/finished-goods/count", { doc, lines })).data;

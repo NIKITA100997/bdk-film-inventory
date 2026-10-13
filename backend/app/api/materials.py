@@ -303,3 +303,33 @@ def regrade(payload: RegradeIn, db: Session = Depends(get_db), user: User = Depe
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     db.commit()
     return _moves_out(db, list(moves))
+
+
+# ─── пересчёт листом (14.10): инвентаризация материалов одним документом ────
+
+
+class CountLineIn(BaseModel):
+    item_id: int
+    fact: float = Field(ge=0)
+
+
+class CountIn(BaseModel):
+    doc: str = Field(min_length=1, max_length=64)  # «Инвентаризация 14.10»
+    lines: list[CountLineIn] = Field(min_length=1)
+
+
+@router.post("/count")
+def count_materials(payload: CountIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> dict:
+    """Факт по всем пересчитанным позициям — разница записью «инвентаризация»
+    с одним документом; совпавшие — без записи."""
+    bal = materials.balances(db, [ln.item_id for ln in payload.lines])
+    changed = 0
+    for ln in payload.lines:
+        item = _get(db, ln.item_id)
+        if abs(ln.fact - bal.get(ln.item_id, 0.0)) < 1e-9:
+            continue
+        materials.manual_move(db, item=item, kind="adjust", qty=ln.fact, user_id=user.id, doc=payload.doc.strip(),
+                              note=f"{payload.doc.strip()}: факт {ln.fact:g}")
+        changed += 1
+    db.commit()
+    return {"changed": changed, "checked": len(payload.lines)}

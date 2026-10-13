@@ -88,7 +88,7 @@ export const navTree: NavBlock[] = [
         label: "Перемещения между складами",
         permissions: ["warehouse_transfers.manage"],
       },
-      { key: "inventory", path: "/inventory", label: "Инвентаризация", permissions: ["inventory.manage", "part_units.count"] },
+      { key: "inventory", path: "/inventory", label: "Инвентаризация", permissions: ["inventory.manage", "part_units.count", "units.receive", "materials.manage", "production_tasks.manage", "part_units.manage", "fg.ship"] },
     ],
   },
   {

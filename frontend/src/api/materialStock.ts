@@ -98,3 +98,7 @@ export const listMaterialMoves = async (params: {
 /** Пересорт материала (14.10): часть остатка числилась не той позицией. */
 export const regradeMaterial = async (payload: { src_item_id: number; dst_item_id: number; qty: number; reason: string }) =>
   (await apiClient.post("/materials/regrade", payload)).data;
+
+/** Пересчёт материалов листом (14.10): факт по позициям, разница — одним документом. */
+export const countMaterials = async (doc: string, lines: { item_id: number; fact: number }[]): Promise<{ changed: number; checked: number }> =>
+  (await apiClient.post<{ changed: number; checked: number }>("/materials/count", { doc, lines })).data;

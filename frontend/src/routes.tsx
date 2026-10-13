@@ -184,7 +184,7 @@ const appPageRoutes = (
     />
     <Route
       path="/inventory"
-      element={<RequirePermission permissions={["inventory.manage", "part_units.count"]}><Inventory /></RequirePermission>}
+      element={<RequirePermission permissions={["inventory.manage", "part_units.count", "units.receive", "materials.manage", "production_tasks.manage", "part_units.manage", "fg.ship"]}><Inventory /></RequirePermission>}
     />
     <Route
       path="/production-tasks"

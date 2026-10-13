@@ -435,3 +435,35 @@ def adjust(payload: AdjustIn, db: Session = Depends(get_db), user: User = Depend
         )
         db.commit()
     return stock(db, user)
+
+
+# ---------- пересчёт листом (14.10): инвентаризация склада ГП одним документом ----------
+class CountLineIn(BaseModel):
+    item_id: int
+    site_id: int | None = None
+    order_line_id: int | None = None
+    actual_qty: float = Field(ge=0)
+
+
+class CountIn(BaseModel):
+    doc: str = Field(min_length=1, max_length=64)
+    lines: list[CountLineIn] = Field(min_length=1)
+
+
+@router.post("/count")
+def count_fg(payload: CountIn, db: Session = Depends(get_db), user: User = Depends(ship_fg)) -> dict:
+    """Факт по строкам склада ГП (позиция × площадка × строка заказа) —
+    разница записью «корректировка» с одним документом."""
+    bals = balances(db, item_ids=list({ln.item_id for ln in payload.lines}))
+    changed = 0
+    for ln in payload.lines:
+        cur = sum(b.qty for b in bals if b.item_id == ln.item_id and b.site_id == ln.site_id and b.order_line_id == ln.order_line_id)
+        diff = round(ln.actual_qty - cur, 2)
+        if not diff:
+            continue
+        ol = db.get(ProductionOrderLine, ln.order_line_id) if ln.order_line_id else None
+        db.add(FgMove(item_id=ln.item_id, qty=diff, kind=FG_ADJUST, site_id=ln.site_id, order_line_id=ln.order_line_id,
+                      invoice_no=ol.invoice_no if ol else None, note=f"{payload.doc.strip()}: факт {ln.actual_qty:g}", user_id=user.id))
+        changed += 1
+    db.commit()
+    return {"changed": changed, "checked": len(payload.lines)}
