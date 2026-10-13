@@ -24,15 +24,11 @@ from app.models.production import ProductionTask
 from app.models.production_orders import ProductionOrder
 from app.services.areas import area_capacities
 from app.services.planning import (
-    PfPick,
     _good_by_line,  # noqa: PLC2701
     add_workdays,
-    order_pf_needs,
-    release_pf,
-    schedule_order,
     to_workday,
 )
-from app.services.production_orders import OrderError, release_order
+from app.services.production_orders import OrderError
 
 REQ_SUBMITTED = "submitted"
 REQ_RETURNED = "returned"
@@ -85,20 +81,13 @@ def plan_check(db: Session, order: ProductionOrder, user_id: int, today: date | 
     queue = _queue(db, order.id)
     caps = area_capacities(db)
     names = {a.code: a.name for a in db.query(Area)}
+    from app.services.trial_release import trial_release
+
     try:
-        tasks = release_order(db, order, user_id)
+        # от сегодня, а не назад от обещанной даты — «когда раньше всего»
+        sched = trial_release(db, order, user_id, from_today=True, today=today)
     except OrderError as e:
         return PlanCheck(earliest=None, by_route=None, bottleneck=None, fits=None, error=str(e))
-    picks = [
-        PfPick(order_line_id=n.order_line_id, part_id=n.part_id, quantity=n.launch,
-               consumer_part_id=n.consumer_part_id, from_stock=n.from_stock)
-        for n in order_pf_needs(db, order)
-    ]
-    tasks += release_pf(db, order, tasks, picks, user_id)
-    ship = order.ship_date
-    order.ship_date = None  # от сегодня, а не назад от отгрузки
-    sched = schedule_order(db, order, user_id, today=today)
-    order.ship_date = ship
 
     own: dict[str, float] = defaultdict(float)
     for t in db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id):

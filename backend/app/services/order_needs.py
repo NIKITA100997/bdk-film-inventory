@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.models.dictionaries import Color, Material, MaterialSku, Thickness
 from app.models.finished_goods import FgMove
 from app.models.items import Item
-from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+from app.models.production import PlanSlot, ProductionTask, ProductionTaskLineReport
 from app.models.production_orders import ORDER_DRAFT, ORDER_RELEASED, ProductionOrder
 from app.models.purchasing import PurchaseRequest
 from app.models.units import MaterialUnit, UnitStatus
@@ -149,19 +149,13 @@ def _released_dates(db: Session, order: ProductionOrder) -> dict[int, date]:
 
 def _draft_needs(db: Session, order: ProductionOrder, user_id: int) -> tuple[dict[str, NeedRow], str | None]:
     """Запуск в точке сохранения → потребность → откат."""
-    from app.services.planning import PfPick, order_pf_needs, release_pf, schedule_order
-    from app.services.production_orders import OrderError, release_order
+    from app.services.production_orders import OrderError
+    from app.services.trial_release import trial_release
 
     sp = db.begin_nested()
     try:
-        tasks = release_order(db, order, user_id)
-        picks = [
-            PfPick(order_line_id=n.order_line_id, part_id=n.part_id, quantity=n.launch, consumer_part_id=n.consumer_part_id, from_stock=n.from_stock)
-            for n in order_pf_needs(db, order)
-        ]
-        release_pf(db, order, tasks, picks, user_id)
-        sched = schedule_order(db, order, user_id)
-        return _line_needs(db, order, sched.dates), None
+        trial = trial_release(db, order, user_id)
+        return _line_needs(db, order, trial.dates), None
     except OrderError as e:
         return {}, str(e)
     finally:

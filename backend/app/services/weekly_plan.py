@@ -11,7 +11,6 @@
 принятая заявка) — «изменён», запись в журнал; начатые заказы не
 двигаются — сроки пересчитываются только у изменённого заказа."""
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
@@ -71,8 +70,9 @@ class Load:
 
 def week_load(db: Session, ws: date, orders: list[ProductionOrder], user_id: int) -> Load:
     from app.services.areas import area_capacities
-    from app.services.planning import PfPick, is_workday, load_calendar, order_pf_needs, release_pf, schedule_order
-    from app.services.production_orders import OrderError, release_order
+    from app.services.planning import is_workday, load_calendar
+    from app.services.production_orders import OrderError
+    from app.services.trial_release import trial_release
 
     load_calendar(db)
     days = [ws + timedelta(days=i) for i in range(7)]
@@ -114,14 +114,7 @@ def week_load(db: Session, ws: date, orders: list[ProductionOrder], user_id: int
             new_tasks: set[int] = set()
             for o in drafts:
                 try:
-                    tasks = release_order(db, o, user_id)
-                    picks = [
-                        PfPick(order_line_id=n.order_line_id, part_id=n.part_id, quantity=n.launch,
-                               consumer_part_id=n.consumer_part_id, from_stock=n.from_stock)
-                        for n in order_pf_needs(db, o)
-                    ]
-                    tasks += release_pf(db, o, tasks, picks, user_id)
-                    schedule_order(db, o, user_id)
+                    tasks = trial_release(db, o, user_id).tasks
                     for t in tasks:
                         new_tasks.add(t.id)
                         task_area[t.id] = t.area
@@ -184,21 +177,4 @@ def return_plan(db: Session, plan: ProductionPlan, user_id: int, comment: str) -
     event(db, plan, "return", f"Возвращён: {comment}", user_id)
 
 
-def default_picks(db: Session, order: ProductionOrder) -> list:
-    """П/ф для запуска недели без окна запуска: как предлагает расчёт;
-    ламинация — на Фабрику при партии панели от порога участка, иначе по маршруту."""
-    from app.services.planning import PfPick, order_pf_needs
-
-    needs = order_pf_needs(db, order)
-    per_part: dict[int, float] = defaultdict(float)
-    for n in needs:
-        per_part[n.part_id] += n.launch
-    picks = []
-    for n in needs:
-        lam = None
-        if n.lamination_area:
-            big = n.factory_area and n.factory_min_pieces and per_part[n.part_id] >= n.factory_min_pieces
-            lam = n.factory_area if big else n.lamination_area
-        picks.append(PfPick(order_line_id=n.order_line_id, part_id=n.part_id, quantity=n.launch,
-                            consumer_part_id=n.consumer_part_id, lamination_area=lam, from_stock=n.from_stock))
-    return picks
+from app.services.trial_release import default_picks  # noqa: E402,F401 — «Запустить неделю» берёт отсюда
