@@ -536,8 +536,11 @@ export function OrderView({
         </Space>
       ) : order && (
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-        {order.kind !== "stock" && <OrderDatesCard order={order} canManage={canManage} totalQty={orderTotals(order).qty} />}
-        {order.status === "released" && <OrderNeedsCard orderId={order.id} />}
+        {/* заказ без строк (окутка из наряда, заготовки) — сразу задание; даты — если заданы, потребность — под заданием */}
+        {order.kind !== "stock" && (order.lines.length > 0 || order.ship_date || order.promised_ready) && (
+          <OrderDatesCard order={order} canManage={canManage} totalQty={orderTotals(order).qty} />
+        )}
+        {order.status === "released" && order.lines.length > 0 && <OrderNeedsCard orderId={order.id} />}
         <Tabs
           activeKey={orderTab}
           onChange={setOrderTab}
@@ -568,6 +571,7 @@ export function OrderView({
             { key: "history", label: "История", children: <OrderHistory order={order} /> },
           ]}
         />
+        {order.status === "released" && order.lines.length === 0 && <OrderNeedsCard orderId={order.id} />}
         </Space>
       )}
       {printing && order && (

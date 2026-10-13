@@ -2,6 +2,7 @@ import { Button, Progress, Space, Table, Tag, Typography } from "antd";
 import { ItemChars } from "../../../components/ItemChars";
 import type { OrderLine, OrderTask, ProductionOrder } from "../../../api/productionOrders";
 import { SectionsView, period, type SectionItem } from "./LayoutSheets";
+import { TaskCardPanel } from "./TaskCardDrawer";
 
 const pct = (a: number, b: number) => (b ? Math.round((Math.min(a, b) / b) * 100) : 0);
 const color = (a: number, b: number) => (a >= b && b > 0 ? "#389e0d" : a > 0 ? "#C97A2B" : undefined);
@@ -107,18 +108,19 @@ export default function OrderFlow({
     return (
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <Space wrap>
-          <Button type="primary" onClick={() => onOpenTask(t.id)}>
-            Открыть задание №{t.id}
-          </Button>
+          {rows.length > 0 && (
+            <Button type="primary" onClick={() => onOpenTask(t.id)}>
+              Открыть задание №{t.id}
+            </Button>
+          )}
           {canManage && t.is_active && t.with_parts && <Button onClick={() => onSupply(t)}>Обеспечение п/ф</Button>}
           <Typography.Text type="secondary">
             {t.name} · план {period(t.plan_from ?? null, t.plan_to ?? null)}
           </Typography.Text>
         </Space>
         {rows.length === 0 ? (
-          <Typography.Text type="secondary">
-            Строки этого задания — детали п/ф и другие позиции, не строки заказа: откройте задание.
-          </Typography.Text>
+          // строки задания — детали п/ф (окутка из наряда, заготовки): карточка задания прямо здесь
+          <TaskCardPanel taskId={t.id} canManage={canManage} canReport={canManage} />
         ) : (
           <Table
             size="small"
@@ -150,12 +152,12 @@ export default function OrderFlow({
   };
 
   const items: SectionItem[] = [
-    {
+    ...(order.lines.length === 0 ? [] : [{
       key: "all",
       label: "Все строки",
       sub: `${order.lines.length} строк · готово ${totalDone} из ${totalQty}`,
       children: matrix,
-    },
+    }]),
     ...(order.tasks ?? []).map((t) => ({
       key: `t${t.id}`,
       group: "Задания участкам",
@@ -165,5 +167,6 @@ export default function OrderFlow({
       children: taskTable(t),
     })),
   ];
-  return <SectionsView items={items} initial="all" />;
+  // заказ без строк (задание на окутку, заготовки) — сразу первое задание
+  return <SectionsView items={items} initial={items[0]?.key ?? "all"} />;
 }
