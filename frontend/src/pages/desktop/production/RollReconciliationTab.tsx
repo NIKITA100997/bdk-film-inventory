@@ -27,8 +27,7 @@ import { rollNo } from "../../../utils/lotNo";
 // заданию или без единого отчёта о производстве. Один список вместо трёх,
 // с точечными действиями, чтобы дозаполнить связи задним числом.
 // Участок сверки — первый с настройкой «рулон обязателен в отчёте»
-// (единая модель, п.5); пока такой один — окутка царговых.
-const DEFAULT_ROLL_AREA = "okutka_tsargovykh";
+// (единая модель, п.5); код участка в программе не зашит (13.10).
 
 type Bucket = "all" | "no_task" | "no_report" | "legacy";
 
@@ -59,10 +58,11 @@ export default function RollReconciliationTab() {
   const [reportTarget, setReportTarget] = useState<{ taskId: number; line: ProductionTaskLine } | null>(null);
 
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
-  const AREA = areasQuery.data?.find((a) => a.requires_roll_on_report && a.is_active)?.code ?? DEFAULT_ROLL_AREA;
+  const AREA = areasQuery.data?.find((a) => a.requires_roll_on_report && a.is_active)?.code ?? "";
   const reconciliationQuery = useQuery({
     queryKey: ["units-reconciliation", AREA],
     queryFn: () => getReconciliation(AREA),
+    enabled: !!AREA,
   });
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const writeOffReasonsQuery = useQuery({

@@ -30,15 +30,11 @@ import {
   type PlanSlot,
 } from "../../../api/planning";
 import { useMoveGuard } from "./MoveGuard";
+import { listSites } from "../../../api/sites";
 import { apiErrorMessage } from "../../../utils/apiError";
 
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
 const WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
-const SITES: { value: string; label: string; id?: number }[] = [
-  { value: "all", label: "Все площадки" },
-  { value: "1", label: "Северный", id: 1 },
-  { value: "2", label: "Фабрика", id: 2 },
-];
 
 type Target = { area: PlanArea; date: string | null; first: boolean; unplanned: boolean };
 
@@ -66,6 +62,12 @@ export default function Planner() {
   });
   const [start, setStart] = useState<Dayjs>(dayjs().startOf("day"));
   const [site, setSite] = useState("all");
+  // Площадки — из справочника (13.10, раньше были зашиты «Северный»/«Фабрика»).
+  const sitesQuery = useQuery({ queryKey: ["sites"], queryFn: listSites });
+  const SITES: { value: string; label: string; id?: number }[] = [
+    { value: "all", label: "Все площадки" },
+    ...(sitesQuery.data ?? []).filter((s) => s.is_active).map((s) => ({ value: String(s.id), label: s.name, id: s.id })),
+  ];
   const [target, setTarget] = useState<Target | null>(null);
   const siteId = SITES.find((s) => s.value === site)?.id;
   const from = start.format("YYYY-MM-DD");
