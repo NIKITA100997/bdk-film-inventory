@@ -151,7 +151,7 @@ class ReassignSkuRequest(BaseModel):
     material: str
     color: str
     thickness: float
-    manufacturer: str
+    manufacturer: str
     reason: str | None = None  # пересорт с причиной — в журнал рулона (14.10)
 
 
