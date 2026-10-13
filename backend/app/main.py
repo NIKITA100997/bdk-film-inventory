@@ -22,7 +22,7 @@ from app.api.inventory import router as inventory_router
 from app.api.labels import router as labels_router
 from app.api.material_cards import router as material_cards_router
 from app.api.production import router as production_router
-from app.api.part_units import router as part_units_router
+from app.api.part_units import lots_router as part_lots_router, router as part_units_router
 from app.api.part_storage import router as part_storage_router
 from app.api.part_labels import router as part_labels_router
 from app.api.purchasing import router as purchasing_router
@@ -128,6 +128,7 @@ app.include_router(inventory_router, prefix=API_PREFIX)
 app.include_router(material_cards_router, prefix=API_PREFIX)
 app.include_router(production_router, prefix=API_PREFIX)
 app.include_router(part_units_router, prefix=API_PREFIX)
+app.include_router(part_lots_router, prefix=API_PREFIX)
 app.include_router(part_film_restrictions_router, prefix=API_PREFIX)
 app.include_router(part_storage_router, prefix=API_PREFIX)
 app.include_router(part_labels_router, prefix=API_PREFIX)

@@ -394,3 +394,127 @@ def list_part_unit_events(
         .order_by(PartUnitEvent.occurred_at.desc())
         .all()
     )
+
+
+# ─── сверка партий п/ф: засчитать готовую партию в задание (14.10) ───────────
+# Партию оприходовали без задания (сделали раньше, завели вручную) — её
+# можно засчитать в задание на эту деталь: строка задания считается
+# сделанной на эти штуки (служебный отчёт «сделано без отчёта» — в выработку
+# и себестоимость не идёт), партия помечается заданием и остаётся в
+# остатке — её дальше расходует тот, для кого её делали (окутка по FIFO).
+
+credit_perm = require_permission("part_units.manage", "production_tasks.manage")
+# отдельный префикс: /part-units/{unit_id} перехватил бы «/part-units/unassigned»
+lots_router = APIRouter(prefix="/part-lots", tags=["part-units"])
+_ALIVE = (PartUnitStatus.NA_KHRANENII, PartUnitStatus.VYDAN_UCHASTKU)
+
+
+class CreditLineOut(BaseModel):
+    task_line_id: int
+    task_id: int
+    task_name: str
+    area: str
+    planned: float
+    done: float
+    remaining: float
+    for_task_id: int | None = None
+
+
+class UnassignedLotOut(BaseModel):
+    id: int
+    part_id: int
+    part_name: str
+    quantity_pieces: float
+    stage_name: str
+    status: str
+    area: str | None
+    manufactured_at: datetime | None = None
+    created_at: datetime
+    lines: list[CreditLineOut]
+
+
+def _open_lines_by_part(db: Session, part_ids: set[int]) -> dict[int, list[CreditLineOut]]:
+    from app.api.production import _line_report_aggregates
+    from app.models.production import ProductionTask, ProductionTaskLine
+
+    if not part_ids:
+        return {}
+    lines = (
+        db.query(ProductionTaskLine, ProductionTask)
+        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .filter(ProductionTask.is_active.is_(True), ProductionTaskLine.part_id.in_(part_ids))
+        .all()
+    )
+    agg = _line_report_aggregates(db, [ln.id for ln, _ in lines])
+    out: dict[int, list[CreditLineOut]] = {}
+    for ln, t in lines:
+        done = agg.get(ln.id, (0.0, 0.0))[0]
+        left = float(ln.quantity_pieces) - done
+        if left <= 0.001:
+            continue
+        out.setdefault(ln.part_id, []).append(CreditLineOut(
+            task_line_id=ln.id, task_id=t.id, task_name=t.name or f"№{t.id}", area=t.area, planned=float(ln.quantity_pieces),
+            done=round(done, 2), remaining=round(left, 2), for_task_id=t.for_task_id,
+        ))
+    for v in out.values():
+        v.sort(key=lambda x: (x.for_task_id is None, -x.task_id))  # задания на п/ф — первыми, новые выше
+    return out
+
+
+@lots_router.get("/unassigned", response_model=list[UnassignedLotOut])
+def unassigned_lots(db: Session = Depends(get_db), user: User = Depends(view_part_units)) -> list[UnassignedLotOut]:
+    """Живые партии без задания и открытые строки заданий на ту же деталь."""
+    units = (
+        db.query(PartUnit)
+        .filter(PartUnit.production_task_line_id.is_(None), PartUnit.status.in_(_ALIVE), PartUnit.quantity_pieces > 0)
+        .order_by(PartUnit.created_at.desc())
+        .all()
+    )
+    by_part = _open_lines_by_part(db, {u.part_id for u in units})
+    return [
+        UnassignedLotOut(
+            id=u.id, part_id=u.part_id, part_name=u.part.name, quantity_pieces=float(u.quantity_pieces), stage_name=u.stage.name,
+            status=u.status.value if hasattr(u.status, "value") else str(u.status), area=u.area,
+            manufactured_at=datetime.combine(u.manufactured_at, datetime.min.time()) if u.manufactured_at else None,
+            created_at=u.created_at, lines=by_part.get(u.part_id, []),
+        )
+        for u in units
+    ]
+
+
+class CreditIn(BaseModel):
+    task_line_id: int
+    quantity_pieces: float = Field(gt=0)
+
+
+@lots_router.post("/{unit_id}/credit")
+def credit_to_line(unit_id: int, payload: CreditIn, db: Session = Depends(get_db), user: User = Depends(credit_perm)) -> dict:
+    from app.api.production import _line_report_aggregates
+    from app.models.production import REPORT_CLOSE, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    if unit.production_task_line_id is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Партия уже привязана к заданию")
+    if unit.status not in _ALIVE:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Партия списана или отложена в переработку")
+    line = db.get(ProductionTaskLine, payload.task_line_id)
+    task = db.get(ProductionTask, line.task_id) if line else None
+    if line is None or task is None or not task.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Открытая строка задания не найдена")
+    if line.part_id != unit.part_id:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "В строке задания другая деталь")
+    if payload.quantity_pieces > float(unit.quantity_pieces) + 0.001:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"В партии только {float(unit.quantity_pieces):g} шт")
+    done = _line_report_aggregates(db, [line.id]).get(line.id, (0.0, 0.0))[0]
+    left = float(line.quantity_pieces) - done
+    if payload.quantity_pieces > left + 0.001:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"По строке осталось сделать {left:g} шт")
+    db.add(ProductionTaskLineReport(
+        task_line_id=line.id, good_pieces=payload.quantity_pieces, defect_pieces=0, counts_toward_line=True, film_used_m=0,
+        kind=REPORT_CLOSE, note=f"Засчитана готовая партия п/ф №{unit.id}", reported_by=user.id,
+    ))
+    unit.production_task_line_id = line.id
+    db.commit()
+    return {"ok": True, "task_id": task.id, "remaining": round(left - payload.quantity_pieces, 2)}

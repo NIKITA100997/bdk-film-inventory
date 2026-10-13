@@ -2,6 +2,7 @@ import { Card, Tabs } from "antd";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import RollReconciliationTab from "./production/RollReconciliationTab";
+import PartLotCreditTab from "./production/PartLotCreditTab";
 import { PartUnitReconciliationTab, UnitReconciliationTab } from "./Reports";
 
 /** Сверка — всё, что «не сходится», одним экраном склада: рулоны к разбору
@@ -14,6 +15,10 @@ export default function Reconciliation() {
   const tabs = [
     ...(has("units.issue", "units.return", "production_tasks.manage")
       ? [{ key: "rolls", label: "Рулоны: к разбору", children: <RollReconciliationTab /> }]
+      : []),
+    // партии п/ф без задания — засчитать в задание (14.10)
+    ...(has("part_units.manage", "part_units.view", "production_tasks.manage")
+      ? [{ key: "lots", label: "Партии п/ф: без задания", children: <PartLotCreditTab /> }]
       : []),
     ...(has("reports.view")
       ? [
