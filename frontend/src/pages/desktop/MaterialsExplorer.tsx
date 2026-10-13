@@ -65,6 +65,7 @@ import { useWarehouseFilter } from "../../hooks/useWarehouseFilter";
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDateTime } from "../../utils/dates";
 import { rollNo } from "../../utils/lotNo";
+import { hasPerm } from "../../auth/permissions";
 
 const statusOptions: { value: UnitStatusValue; label: string }[] = [
   { value: "Принят", label: "Принят" },
@@ -93,29 +94,29 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
   const navigate = useNavigate();
   const location = useLocation();
   const qc = useQueryClient();
-  const canManageAbc = !!user?.is_superuser || !!user?.permissions.includes("calc_settings.manage");
-  const canWriteOff = !!user?.is_superuser || !!user?.permissions.includes("units.writeoff");
-  const canCut = !!user?.is_superuser || !!user?.permissions.includes("units.cut");
-  const canPlace = !!user?.is_superuser || !!user?.permissions.includes("units.place");
-  const canEditSku = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
-  const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("units.correct");
+  const canManageAbc = hasPerm(user, "calc_settings.manage");
+  const canWriteOff = hasPerm(user, "units.writeoff");
+  const canCut = hasPerm(user, "units.cut");
+  const canPlace = hasPerm(user, "units.place");
+  const canEditSku = hasPerm(user, "materials.manage");
+  const canCorrect = hasPerm(user, "units.correct");
   const canSeePrice = !!user?.is_superuser || ["prices.view", "prices.manage"].some((c) => user?.permissions.includes(c));
   // Правка единицы и массовые действия — у кого есть право хоть на одно из них.
   const canEditUnit = canEditSku || canCorrect || canPlace;
-  const canIssue = !!user?.is_superuser || !!user?.permissions.includes("units.issue");
-  const canReturn = !!user?.is_superuser || !!user?.permissions.includes("units.return");
-  const canTransfer = !!user?.is_superuser || !!user?.permissions.includes("warehouse_transfers.manage");
+  const canIssue = hasPerm(user, "units.issue");
+  const canReturn = hasPerm(user, "units.return");
+  const canTransfer = hasPerm(user, "warehouse_transfers.manage");
   // Раздел про аудит прав — "+ Новое" показывалось всем на этой намеренно
   // открытой всем странице (/stock), хотя оба пункта — мутирующие действия
   // с реальной проверкой на бэкенде (dictionaries.py:378, units.py:116).
-  const canReceive = !!user?.is_superuser || !!user?.permissions.includes("units.receive");
+  const canReceive = hasPerm(user, "units.receive");
   const canCreatePosition = canReceive || canEditSku;
   // Раздел про объединение "Остатков" с "Остатками и резервом" снабженца
   // (раньше отдельная вкладка на "Закупках", дублировавшая эту же таблицу
   // без фильтров) — резерв/заявки/дозаказ подмешиваются сюда только тем,
   // у кого есть право видеть эти данные, чтобы не звать привилегированный
   // эндпоинт от лица кладовщика без этого права (получил бы 403).
-  const canViewPurchasing = !!user?.is_superuser || !!user?.permissions.includes("purchasing.manage");
+  const canViewPurchasing = hasPerm(user, "purchasing.manage");
   const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
 
   const [ownViewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");

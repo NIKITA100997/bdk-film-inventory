@@ -31,6 +31,7 @@ import { useAuth } from "../../../auth/AuthContext";
 import { fmtDate, fmtDateTime } from "../../../utils/dates";
 import { FileExcelOutlined } from "@ant-design/icons";
 import { pfNo } from "../../../utils/lotNo";
+import { hasPerm } from "../../../auth/permissions";
 
 const STATUS_LABEL: Record<PartUnitStatus, string> = {
   На_хранении: "На хранении",
@@ -79,12 +80,12 @@ interface MintFormValues {
 export default function PartUnits() {
   const { user } = useAuth();
   const location = useLocation();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_units.manage");
+  const canManage = hasPerm(user, "part_units.manage");
   // Раздел про ревизию путей плёнки/п/ф — узкое право, отдельное от
   // part_units.manage: обычная выдача/списание доступны начальнику
   // цеха, формальный возврат/корректировка — только тому, кому явно
   // доверили (обычно админ/начальник склада).
-  const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("part_units.correct");
+  const canCorrect = hasPerm(user, "part_units.correct");
   const qc = useQueryClient();
   const [form] = Form.useForm<MintFormValues>();
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);

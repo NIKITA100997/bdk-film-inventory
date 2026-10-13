@@ -12,6 +12,7 @@ import {
 import { listPlanSlots, type PlanSlot } from "../../../api/planning";
 import { setOrderPlanDates, type ProductionOrder } from "../../../api/productionOrders";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import { hasPerm } from "../../../auth/permissions";
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -297,7 +298,7 @@ function PlanDatesEditor({ order }: { order: ProductionOrder }) {
 
 export function OrderPlan({ order }: { order: ProductionOrder }) {
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canManage = hasPerm(user, "production_tasks.manage");
   const areas = [...new Set((order.tasks ?? []).map((t) => t.area))];
   const from = dayjs().subtract(14, "day").format("YYYY-MM-DD");
   const to = dayjs().add(60, "day").format("YYYY-MM-DD");

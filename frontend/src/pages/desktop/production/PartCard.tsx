@@ -21,6 +21,7 @@ import { lotFromPartUnit } from "../../../components/lotOps/lotOps";
 import { useAuth } from "../../../auth/AuthContext";
 import { fmtDate, fmtDateTime } from "../../../utils/dates";
 import { pfNo } from "../../../utils/lotNo";
+import { hasPerm } from "../../../auth/permissions";
 
 const STATUS_LABEL: Record<string, string> = {
   На_хранении: "На хранении",
@@ -47,7 +48,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_units.manage");
+  const canManage = hasPerm(user, "part_units.manage");
   const partId = partIdProp ?? (location.state as { partId?: number } | null)?.partId;
 
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });

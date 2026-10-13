@@ -7,6 +7,7 @@ import { closePeriod, getPeriod, reopenPeriod, type PeriodRow } from "../../api/
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDate, fmtDateTime } from "../../utils/dates";
 import { useTabTitle } from "../../layout/tabTitle";
+import { hasPerm } from "../../auth/permissions";
 
 /** Закрытие периода (07.10): по закрытую дату задним числом ничего не
  * записывается и не правится — движения рулонов и партий, готовая
@@ -17,7 +18,7 @@ export default function PeriodClosing() {
   useTabTitle("Закрытие периода");
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("period.manage");
+  const canManage = hasPerm(user, "period.manage");
   const q = useQuery({ queryKey: ["period-closing"], queryFn: getPeriod });
   const current = q.data?.closed_until ? dayjs(q.data.closed_until) : null;
   const lastMonthEnd = dayjs().startOf("month").subtract(1, "day");

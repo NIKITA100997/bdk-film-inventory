@@ -6,6 +6,7 @@ import { deleteCalendarDay, listCalendarDays, rescheduleOpenOrders, setCalendarD
 import { listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { hasPerm } from "../../../auth/permissions";
 
 /** Производственный календарь (12.10): пятидневка с праздниками; день можно
  * сделать рабочим или нерабочим для всех участков или для одного (суббота
@@ -15,7 +16,7 @@ export default function ProductionCalendar() {
   const { token } = theme.useToken();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canManage = hasPerm(user, "production_tasks.manage");
   const [month, setMonth] = useState<Dayjs>(() => dayjs().startOf("month"));
   const from = month.startOf("week");
   const to = month.endOf("month").endOf("week");

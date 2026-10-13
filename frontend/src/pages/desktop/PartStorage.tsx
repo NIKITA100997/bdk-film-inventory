@@ -11,6 +11,7 @@ import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
 import { apiErrorMessage } from "../../utils/apiError";
 import { pfNo } from "../../utils/lotNo";
+import { hasPerm } from "../../auth/permissions";
 
 /** Без адреса (раздел про адресное хранение деталей) — зеркалит
  * UnplacedUnitsCard у плёнки (StorageMap.tsx): партии физически на
@@ -90,7 +91,7 @@ function UnplacedPartUnitRow({
 export default function PartStorage() {
   const { user } = useAuth();
   const location = useLocation();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_storage.manage");
+  const canManage = hasPerm(user, "part_storage.manage");
   const qc = useQueryClient();
   const [rackId, setRackId] = useState<number | null>(null);
   const [highlightShelf, setHighlightShelf] = useState<number | null>(null);

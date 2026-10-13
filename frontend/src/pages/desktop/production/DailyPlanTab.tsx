@@ -10,6 +10,7 @@ import ReportModal from "./ReportModal";
 import FastReportPanel from "./fastReport/FastReportPanel";
 import TaskCardDrawer from "./TaskCardDrawer";
 import { listPlanSlots } from "../../../api/planning";
+import { hasPerm } from "../../../auth/permissions";
 
 /** План на день (мастер) — суточный срез уже распределённых по линиям
  * строк заданий, с отчётом о браке прямо из строки. Раздел про
@@ -29,7 +30,7 @@ export default function DailyPlanTab() {
     !!user?.is_superuser ||
     !!user?.permissions.includes("production_tasks.manage") ||
     !!user?.permissions.includes("production_tasks.report");
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canManage = hasPerm(user, "production_tasks.manage");
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
   const [viewArea, setViewArea] = useState<string | null>(null);
   // Карточка задания — из панели ввода быстрого отчёта («Задание №… →»).

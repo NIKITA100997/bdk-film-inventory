@@ -51,6 +51,7 @@ import { useAuth } from "../../auth/AuthContext";
 import QrScanModal from "../../components/QrScanModal";
 import { apiErrorMessage } from "../../utils/apiError";
 import { rollNo } from "../../utils/lotNo";
+import { hasPerm } from "../../auth/permissions";
 
 const typeLabels: Record<RackType, string> = { roll: "рулонный", strip: "штрипсовый" };
 
@@ -73,7 +74,7 @@ function RacksConsole() {
   const location = useLocation();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("storage.manage");
+  const canManage = hasPerm(user, "storage.manage");
 
   const [typeFilter, setTypeFilter] = useState<RackType | "all">("all");
   const [warehouseId, setWarehouseId] = useState<number | null>(null);
@@ -923,7 +924,7 @@ function WarehousesTab() {
 
 export default function StorageMap() {
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("storage.manage");
+  const canManage = hasPerm(user, "storage.manage");
 
   return (
     <Card>

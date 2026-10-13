@@ -8,6 +8,7 @@ import { getItemProperties, listItemTypes } from "../../../api/itemTypes";
 import { getModelSummary, type VariantStat } from "../../../api/modelBuilder";
 import NewModelWizard from "./NewModelWizard";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import { hasPerm } from "../../../auth/permissions";
 
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
 
@@ -19,7 +20,7 @@ const fmt = (n: number) => String(Math.round(n * 100) / 100);
 export default function ModelVariants({ modelId, typeId }: { modelId: number; typeId: number | null }) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canCreate = !!user?.is_superuser || !!user?.permissions.some((c) => c === "production_tasks.manage" || c === "materials.manage");
+  const canCreate = hasPerm(user, "production_tasks.manage", "materials.manage");
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
   const summaryQuery = useQuery({ queryKey: ["model-summary", modelId], queryFn: () => getModelSummary(modelId) });

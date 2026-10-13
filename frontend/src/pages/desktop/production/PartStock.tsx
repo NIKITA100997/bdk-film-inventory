@@ -16,6 +16,7 @@ import { usePfReserves } from "../../../components/usePfReserves";
 import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
 import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
 import { FileExcelOutlined } from "@ant-design/icons";
+import { hasPerm } from "../../../auth/permissions";
 
 interface PartStockGroup {
   partId: number;
@@ -34,7 +35,7 @@ interface PartStockGroup {
 export default function PartStock() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("part_units.manage");
+  const canManage = hasPerm(user, "part_units.manage");
   // Раздел про "в остатки и стеллажи нужно добавить возможность ставить
   // на учёт новые партии" — раньше единственный вход в регистрацию был
   // через "Учёт п/ф", а деталь без единой партии вообще не попадала в

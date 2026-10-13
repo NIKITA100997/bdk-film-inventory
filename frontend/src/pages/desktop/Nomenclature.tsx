@@ -33,6 +33,7 @@ import {
   type UnlinkedLineGroup,
 } from "../../api/items";
 import { apiErrorMessage } from "../../utils/apiError";
+import { hasPerm } from "../../auth/permissions";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
 
@@ -43,8 +44,8 @@ const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdel
 export default function Nomenclature() {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
-  const canConfigure = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
-  const canDicts = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
+  const canConfigure = hasPerm(user, "production_tasks.manage");
+  const canDicts = hasPerm(user, "materials.manage");
   const tabs = [
     { key: "items", label: "Номенклатура", children: <ItemsTab /> },
     { key: "types", label: "Типы и правила", children: <TypesTab /> },
@@ -66,7 +67,7 @@ const NO_GROUP = -1;
 
 function ItemsTab() {
   const { user } = useAuth();
-  const canGroup = !!user?.is_superuser || !!user?.permissions.some((c) => c === "production_tasks.manage" || c === "materials.manage");
+  const canGroup = hasPerm(user, "production_tasks.manage", "materials.manage");
   const qc = useQueryClient();
   // ?kind=pf — старый адрес /parts (бывшая вкладка «Детали п/ф») ведёт сюда.
   const [urlParams] = useSearchParams();
@@ -426,7 +427,7 @@ function AttrsModal({ itemIds, pf, onClose }: { itemIds: number[]; pf: boolean; 
 function UnlinkedTab() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canLink = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canLink = hasPerm(user, "production_tasks.manage");
   const [choice, setChoice] = useState<Record<string, number | undefined>>({});
   const [sizesOpen, setSizesOpen] = useState(false);
   const unlinkedQuery = useQuery({ queryKey: ["items-unlinked"], queryFn: listUnlinkedLines });
@@ -522,7 +523,7 @@ function UnlinkedTab() {
 function ManualLinksTab() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canLink = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canLink = hasPerm(user, "production_tasks.manage");
   const manualQuery = useQuery({ queryKey: ["items-manual"], queryFn: listManualLinks });
 
   const mutation = useMutation({

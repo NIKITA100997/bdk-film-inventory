@@ -44,6 +44,7 @@ import type { Dayjs } from "dayjs";
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDateTime } from "../../utils/dates";
 import { rollNo } from "../../utils/lotNo";
+import { hasPerm } from "../../auth/permissions";
 
 export interface MaterialCardPrefill {
   material?: string;
@@ -302,13 +303,13 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
   const areaName = (code: string | null | undefined) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : null);
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canEdit = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
+  const canEdit = hasPerm(user, "materials.manage");
   // Раздел про кнопку "+ Добавить единицу" — сама операция бьёт в тот же
   // /units/receive, что и обычная "Приёмка плёнки" (units.receive), а не
   // в справочники (materials.manage) — раньше кнопка была спрятана за
   // materials.manage, из-за чего кладовщик с units.receive (у него и так
   // есть доступ к "Приёмке") не видел её на карточке материала вообще.
-  const canAddUnit = !!user?.is_superuser || !!user?.permissions.includes("units.receive");
+  const canAddUnit = hasPerm(user, "units.receive");
 
   const [groupKey, setGroupKey] = useState<{ material: string; color: string } | null>(null);
   const [showArchived, setShowArchived] = useState(false);

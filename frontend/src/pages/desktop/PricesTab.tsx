@@ -10,6 +10,7 @@ import { fmtMoney, importPrices1C, listCurrencies, listPrices, type Import1CRow,
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDate } from "../../utils/dates";
+import { hasPerm } from "../../auth/permissions";
 
 /** Прайс (05.10): плёнка и материалы с действующей ценой — в своей валюте
  * и в рублях по курсу; загрузка цен из 1С. Цена позиции правится в её
@@ -284,7 +285,7 @@ function Import1CModal({ onClose }: { onClose: () => void }) {
 /** Экран «Цены» (меню «Закупки»). */
 export function PricesPage() {
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("prices.manage");
+  const canManage = hasPerm(user, "prices.manage");
   return (
     <Card title="Цены">
       <PricesTab canManage={canManage} />

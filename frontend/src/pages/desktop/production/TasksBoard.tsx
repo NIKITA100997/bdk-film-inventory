@@ -9,6 +9,7 @@ import { listParts } from "../../../api/dictionaries";
 import { useAuth } from "../../../auth/AuthContext";
 import TaskCardDrawer, { TaskCardPanel } from "./TaskCardDrawer";
 import PrintTasksModal from "./PrintTasksModal";
+import { hasPerm } from "../../../auth/permissions";
 
 type Filter = "all" | "film" | "pf" | "wait" | "late";
 
@@ -30,7 +31,7 @@ const ready = (t: ProductionTask) => t.lines.every((l) => l.production_closed ||
  * какие задания в заказах, которые не успевают к отгрузке. */
 export default function TasksBoard() {
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canManage = hasPerm(user, "production_tasks.manage");
   const canReport = canManage || !!user?.permissions.includes("production_tasks.report");
   const screens = Grid.useBreakpoint();
   const [params] = useSearchParams();

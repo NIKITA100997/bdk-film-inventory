@@ -32,6 +32,7 @@ import {
 import { useMoveGuard } from "./MoveGuard";
 import { listSites } from "../../../api/sites";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { hasPerm } from "../../../auth/permissions";
 
 const fmt = (n: number) => String(Math.round(n * 100) / 100);
 const WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
@@ -46,7 +47,7 @@ export default function Planner() {
   const { token } = theme.useToken();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canManage = hasPerm(user, "production_tasks.manage");
   // Перетаскивание клетки на другой день той же строки (участка).
   const [drag, setDrag] = useState<{ area: string; date: string; first: boolean } | null>(null);
   const [dropOver, setDropOver] = useState<string | null>(null);
@@ -270,7 +271,7 @@ function SlotsDrawer({ target, onClose }: { target: Target; onClose: () => void 
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canManage = hasPerm(user, "production_tasks.manage");
   const slotsQuery = useQuery({
     queryKey: ["plan-slots", target.area.code, target.date, target.unplanned],
     queryFn: () =>

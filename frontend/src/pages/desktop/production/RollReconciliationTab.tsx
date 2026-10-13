@@ -20,6 +20,7 @@ import { apiErrorMessage } from "../../../utils/apiError";
 import { fmtDateTime } from "../../../utils/dates";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { rollNo } from "../../../utils/lotNo";
+import { hasPerm } from "../../../auth/permissions";
 
 // Раздел про сверку рулонов на окутке — пилот "Ежедневки" вскрыл разрыв
 // между тремя вкладками (Выдача участку, карточка единицы, отчёт по
@@ -41,10 +42,10 @@ function bucketOf(row: ReconciliationRow): Bucket {
 export default function RollReconciliationTab() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const canLink = !!user?.is_superuser || !!user?.permissions.includes("units.issue");
-  const canMarkLegacy = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
-  const canReturn = !!user?.is_superuser || !!user?.permissions.includes("units.return");
-  const canWriteOff = !!user?.is_superuser || !!user?.permissions.includes("units.writeoff");
+  const canLink = hasPerm(user, "units.issue");
+  const canMarkLegacy = hasPerm(user, "production_tasks.manage");
+  const canReturn = hasPerm(user, "units.return");
+  const canWriteOff = hasPerm(user, "units.writeoff");
 
   const [bucket, setBucket] = useState<Bucket>("all");
   // Раздел про поиск в сверке рулонов — список легко разрастается до

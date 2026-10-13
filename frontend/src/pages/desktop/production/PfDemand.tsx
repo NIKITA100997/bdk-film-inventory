@@ -14,6 +14,7 @@ import { createPfTasks, listPfDemand, suggestLaminationArea, type PfDemandRow } 
 import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { normsLabel } from "../../../utils/normatives";
+import { hasPerm } from "../../../auth/permissions";
 
 const fmt = (n: number) => Math.round(n * 100) / 100;
 
@@ -25,7 +26,7 @@ export default function PfDemand() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canManage = hasPerm(user, "production_tasks.manage");
   const [onlyShortage, setOnlyShortage] = useState(true);
   // Мастер участка: по умолчанию — только детали, у которых в маршруте
   // есть операция на его участке (что делать ему).

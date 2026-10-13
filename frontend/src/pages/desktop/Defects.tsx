@@ -30,6 +30,7 @@ import { WriteOffReasonsTab } from "./DictionaryAdmin";
 import { UnitLink } from "../../components/EntityLink";
 import { fmtDate, fmtDateTime } from "../../utils/dates";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import { hasPerm } from "../../auth/permissions";
 
 function DeltaTag({ value, goodDirection }: { value: number | null; goodDirection: "down" | "up" }) {
   if (value === null) return <Tag>нет данных за пред. период</Tag>;
@@ -484,7 +485,7 @@ function ProductionDefectsTab() {
 
 export default function Defects() {
   const { user } = useAuth();
-  const canManageReasons = !!user?.is_superuser || !!user?.permissions.includes("materials.manage");
+  const canManageReasons = hasPerm(user, "materials.manage");
 
   return (
     <Card title="Брак и списания">

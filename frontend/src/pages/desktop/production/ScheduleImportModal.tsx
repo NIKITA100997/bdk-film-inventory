@@ -13,6 +13,7 @@ import {
   type ScheduleImportRow,
 } from "../../../api/productionOrders";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { hasPerm } from "../../../auth/permissions";
 
 const COLOR_STATUS: Record<ScheduleImportColor["status"], { color: string; text: string }> = {
   ok: { color: "green", text: "плёнка подобрана" },
@@ -41,7 +42,7 @@ export default function ScheduleImportModal({ onClose, onCreated }: { onClose: (
   // Вилка отгрузки менеджера (09.10)
   const [shipWindow, setShipWindow] = useState<[Dayjs | null, Dayjs | null]>([null, null]);
   const { user: me } = useAuth();
-  const isManager = !!me?.is_superuser || !!me?.permissions.includes("production_tasks.manage");
+  const isManager = hasPerm(me, "production_tasks.manage");
   const [preview, setPreview] = useState<{ rows: ScheduleImportRow[]; parse_errors: string[]; colors?: ScheduleImportColor[] } | null>(null);
   // Сопоставление цвет графика → плёнка: выбор сохраняется в привязку цвета
   // типа и дальше подставляется сам (в заданиях на ламинацию — эта плёнка).

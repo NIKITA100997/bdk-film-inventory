@@ -7,6 +7,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { listAreas } from "../../api/areas";
 import Statistic from "../../components/Statistic";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import { hasPerm } from "../../auth/permissions";
 
 const f1 = (n: number | null | undefined) => (n == null ? "—" : (Math.round(n * 10) / 10).toLocaleString("ru-RU"));
 const rub = (n: number | null | undefined) => (n == null ? "—" : `${Math.round(n).toLocaleString("ru-RU")} ₽`);
@@ -386,7 +387,7 @@ function CostTab({ rows, loading }: { rows: AreaCostRow[]; loading: boolean }) {
 
 export default function Economics({ embedded = false }: { embedded?: boolean }) {
   const { user } = useAuth();
-  const seesPrices = !!user?.is_superuser || !!user?.permissions.some((p) => p === "prices.view" || p === "prices.manage");
+  const seesPrices = hasPerm(user, "prices.view", "prices.manage");
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(30, "day"), dayjs()]);
   const [area, setArea] = useState<string | undefined>();
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });

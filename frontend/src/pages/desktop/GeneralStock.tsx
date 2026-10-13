@@ -11,6 +11,7 @@ import { exportToExcel } from "../../utils/excel";
 import PfReserveCell from "../../components/PfReserveCell";
 import { usePfReserves } from "../../components/usePfReserves";
 import { FileExcelOutlined } from "@ant-design/icons";
+import { hasPerm } from "../../auth/permissions";
 
 type Domain = "film" | "part";
 
@@ -63,7 +64,7 @@ export default function GeneralStock() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const canViewParts =
-    !!user?.is_superuser || !!user?.permissions.includes("part_units.view") || !!user?.permissions.includes("part_units.manage");
+    hasPerm(user, "part_units.view") || !!user?.permissions.includes("part_units.manage");
 
   const [domainFilter, setDomainFilter] = useState<"all" | Domain>("all");
   const [search, setSearch] = useState("");

@@ -60,6 +60,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { apiErrorMessage } from "../../utils/apiError";
 import { fmtDateTime } from "../../utils/dates";
 import { rollNo } from "../../utils/lotNo";
+import { hasPerm } from "../../auth/permissions";
 
 type ActionKind = "place" | "cut" | "return" | "writeoff" | "transfer" | "adjust" | null;
 
@@ -295,7 +296,7 @@ export default function UnitCard() {
         // Запрет лишнего перемещения: на складе назначения уже хватает.
         const text = homeStockBlockText(e);
         if (!text) throw e;
-        const canOverride = !!user?.is_superuser || !!user?.permissions.includes("units.transfer_override");
+        const canOverride = hasPerm(user, "units.transfer_override");
         if (!canOverride) {
           showHomeStockBlock(text);
           throw new Error("blocked");

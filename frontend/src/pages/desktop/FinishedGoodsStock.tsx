@@ -15,6 +15,7 @@ import {
   type FgStockRow,
 } from "../../api/finishedGoods";
 import { apiErrorMessage } from "../../utils/apiError";
+import { hasPerm } from "../../auth/permissions";
 
 const n = (v: number) => `${Math.round(v * 100) / 100}`;
 
@@ -23,7 +24,7 @@ const n = (v: number) => `${Math.round(v * 100) / 100}`;
 export function FgStockTab() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const canShip = !!user?.is_superuser || !!user?.permissions.includes("fg.ship");
+  const canShip = hasPerm(user, "fg.ship");
   const [q, setQ] = useState("");
   const [adjust, setAdjust] = useState<FgStockRow | null>(null);
   const [receiveOpen, setReceiveOpen] = useState(false);

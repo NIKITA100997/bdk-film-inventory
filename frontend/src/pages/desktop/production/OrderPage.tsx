@@ -9,6 +9,7 @@ import { OrderModal, OrderView } from "./ProductionOrders";
 import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
+import { hasPerm } from "../../../auth/permissions";
 
 /** Страница заказа на производство (05.10): во всю ширину вместо боковой
  * панели; у черновика — рабочее место запуска, к которому можно вернуться. */
@@ -17,7 +18,7 @@ export default function OrderPage() {
   const orderId = Number(id);
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canManage = hasPerm(user, "production_tasks.manage");
   const q = useQuery({ queryKey: ["production-order", orderId], queryFn: () => getProductionOrder(orderId), enabled: orderId > 0 });
   const [editing, setEditing] = useState<ProductionOrder | null>(null);
   const [taskCreate, setTaskCreate] = useState<{ kind: "film" | "ops"; orderId: number } | null>(null);

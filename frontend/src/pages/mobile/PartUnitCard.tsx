@@ -26,6 +26,7 @@ import { toOccurredAtIso } from "../../utils/occurredAt";
 import { useAuth } from "../../auth/AuthContext";
 import { fmtDateTime } from "../../utils/dates";
 import { pfNo } from "../../utils/lotNo";
+import { hasPerm } from "../../auth/permissions";
 
 type ActionKind = "place" | "advance" | null;
 
@@ -46,7 +47,7 @@ export default function PartUnitCard() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canCorrect = !!user?.is_superuser || !!user?.permissions.includes("part_units.correct");
+  const canCorrect = hasPerm(user, "part_units.correct");
   const canSeePrice = !!user?.is_superuser || ["prices.view", "prices.manage"].some((c) => user?.permissions.includes(c));
   const rub = (n: number) => `${Math.round(n).toLocaleString("ru-RU")} ₽`;
   const [unit, setUnit] = useState<PartUnit | null>(null);

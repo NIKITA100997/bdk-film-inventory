@@ -34,6 +34,7 @@ import {
 import { printReport } from "../../utils/printReport";
 import { apiErrorMessage } from "../../utils/apiError";
 import { useTabTitle } from "../../layout/tabTitle";
+import { hasPerm } from "../../auth/permissions";
 
 const n = (v: number) => `${Math.round(v * 100) / 100}`;
 
@@ -76,7 +77,7 @@ function printSheet(sh: FgShipment) {
 
 function ShipByInvoice() {
   const { user } = useAuth();
-  const canShip = !!user?.is_superuser || !!user?.permissions.includes("fg.ship");
+  const canShip = hasPerm(user, "fg.ship");
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | null>(null);
@@ -223,7 +224,7 @@ function InvoicePanel({ inv, canShip, onShipped }: { inv: FgInvoice; canShip: bo
 
 function History() {
   const { user } = useAuth();
-  const canShip = !!user?.is_superuser || !!user?.permissions.includes("fg.ship");
+  const canShip = hasPerm(user, "fg.ship");
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["fg-shipments"], queryFn: listFgShipments });
   const [returning, setReturning] = useState<FgShipment | null>(null);

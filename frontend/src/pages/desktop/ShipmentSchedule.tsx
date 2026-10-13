@@ -7,6 +7,7 @@ import { PRIORITY_COLOR, PRIORITY_LABEL, listProductionOrders, type ProductionOr
 import { orderTotals } from "./production/ProductionOrders";
 import { useAuth } from "../../auth/AuthContext";
 import { exportToExcel } from "../../utils/excel";
+import { hasPerm } from "../../auth/permissions";
 
 /** График отгрузок (09.10, «Продажи и заказы»): заказы клиентов и заявки
  * менеджеров по дням. На строке — вилка клиента (светлая полоса), твёрдая
@@ -61,7 +62,7 @@ export default function ShipmentSchedule() {
   const LEFT_W = screens.sm ? 300 : 150;
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canManage = hasPerm(user, "production_tasks.manage");
   const [start, setStart] = useState<Dayjs>(() => dayjs().startOf("week").subtract(1, "week"));
   const [weeks, setWeeks] = useState(6);
   const [filter, setFilter] = useState<Filter>("all");

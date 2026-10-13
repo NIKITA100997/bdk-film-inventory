@@ -6,13 +6,14 @@ import dayjs from "dayjs";
 import { getNeedsOverview, getOrderNeeds, purchaseShortages, type NeedRow, type ShortageRow } from "../../../api/needs";
 import { useAuth } from "../../../auth/AuthContext";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { hasPerm } from "../../../auth/permissions";
 
 const d = (v: string | null | undefined) => (v ? dayjs(v).format("DD.MM") : "—");
 const n = (v: number) => (Math.round(v * 10) / 10).toLocaleString("ru-RU");
 
 function useCanPurchase() {
   const { user } = useAuth();
-  return !!user?.is_superuser || !!user?.permissions.some((p) => p === "production_tasks.manage" || p === "purchasing.manage");
+  return hasPerm(user, "production_tasks.manage", "purchasing.manage");
 }
 
 function reportPurchase(r: { film_requests: number[]; bitrix_tasks: number; not_sent: string[] }) {

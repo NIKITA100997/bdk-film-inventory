@@ -63,6 +63,7 @@ import { listOrderCategories, createOrderCategory,
   PRIORITY_LABEL,
 } from "../../../api/productionOrders";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { hasPerm } from "../../../auth/permissions";
 
 const STATUS_COLOR: Record<OrderStatus, string> = { draft: "default", released: "blue", closed: "green" };
 
@@ -136,7 +137,7 @@ export default function ProductionOrders() {
 
 function OrdersList() {
   const { user } = useAuth();
-  const canManage = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canManage = hasPerm(user, "production_tasks.manage");
   const canRequest = canRequestOrders(user);
   const [includeClosed, setIncludeClosed] = useState(false);
   // ?order=ID (сквозной поиск по номеру) — сразу открыть страницу заказа.
@@ -658,7 +659,7 @@ export function OrderModal({
   const [shipDate, setShipDate] = useState<Dayjs | null>(order?.ship_date ? dayjs(order.ship_date) : null);
   // Вилка отгрузки менеджера (09.10); твёрдую дату ставит производство.
   const { user: me } = useAuth();
-  const isManager = !!me?.is_superuser || !!me?.permissions.includes("production_tasks.manage");
+  const isManager = hasPerm(me, "production_tasks.manage");
   const [shipWindow, setShipWindow] = useState<[Dayjs | null, Dayjs | null]>([
     order?.ship_from ? dayjs(order.ship_from) : null,
     order?.ship_to ? dayjs(order.ship_to) : null,

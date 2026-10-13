@@ -41,6 +41,7 @@ import { useAuth } from "../../../auth/AuthContext";
 import { listWidthAnalogGroups, isWidthMatch } from "../../../api/widthAnalogs";
 import { rollNo } from "../../../utils/lotNo";
 import { issueErrorMessage, type CuttingBatchEntry, type StockDecision, type RowStatus, type RowInfo, type StatusFilterValue, type NeedTableRow, type ManualTableRow, type TableRow, findSku, type IssuePrefill, type QueueSelection, type QueueRowData, neededLengthM, groupQueueRows, type IssuedResult } from "./model";
+import { hasPerm } from "../../../auth/permissions";
 
 
 /** Вся логика экрана «Выдача участку» (06.10: вынесена из Issue.tsx без
@@ -51,7 +52,7 @@ export function useIssue() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const canReturn = !!user?.is_superuser || !!user?.permissions.includes("units.return");
+  const canReturn = hasPerm(user, "units.return");
   // Раздел про мастера участка на этом же экране — у него есть units.return
   // (принимать возврат своего участка), но не units.issue: без этого флага
   // кнопки "Выдать"/"Разрезать и выдать"/подбор донора и т.п. были видны и
@@ -59,13 +60,13 @@ export function useIssue() {
   // units.issue ИЛИ units.return), а по клику падал сырой 403 с бэкенда
   // (require_permission("units.issue")) — мастер не поймёт эту ошибку, ему
   // только принимать возврат здесь и нужно (см. banner "Готово к возврату").
-  const canIssue = !!user?.is_superuser || !!user?.permissions.includes("units.issue");
+  const canIssue = hasPerm(user, "units.issue");
   // Раздел про замену плёнки на выдаче — той же номенклатуры может не быть
   // в наличии, точный аналог по цвету/толщине оператор решает подобрать
   // сам вместо заявки на закупку; сервер запомнит расхождение в строке
   // задания только при наличии этого права (units.py::_validate_matches_
   // task_line), иначе как раньше — жёсткий отказ.
-  const canOverrideMaterial = !!user?.is_superuser || !!user?.permissions.includes("production_tasks.manage");
+  const canOverrideMaterial = hasPerm(user, "production_tasks.manage");
   // Раздел про закрытие строки задания по выдаче — то же право, что и
   // override материала выше (управленческое решение, не рутинная выдача
   // складом); отдельное имя здесь только для ясности у места вызова.
