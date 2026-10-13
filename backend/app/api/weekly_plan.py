@@ -26,10 +26,12 @@ approver = require_permission("plan.approve")
 
 class PlanOrderOut(BaseModel):
     id: int
+    kind: str = "po"  # po — заказ на производство, co — заказ клиента (незапущенный остаток)
+    key: str = ""
     name: str
     customer: str | None
     priority: int
-    state: str  # запущен / принят / заявка
+    state: str  # запущен / собран / принят / заявка
     qty: float
     promised_ready: date | None
     ship_date: date | None
@@ -91,8 +93,8 @@ def get_week(week: date | None = Query(default=None), db: Session = Depends(get_
     ws = _ws(week)
     plan = wp.get_plan(db, ws)
     all_orders = wp.week_orders(db, ws)
-    orders = [o for o in all_orders if o.request_status != "submitted" or o.status != ORDER_DRAFT]
-    requests = [o for o in all_orders if o not in orders]
+    orders = [o for o in all_orders if not wp.is_request(o)]
+    requests = [o for o in all_orders if wp.is_request(o)]
     try:
         load = wp.week_load(db, ws, orders, user.id)
     finally:
@@ -100,19 +102,20 @@ def get_week(week: date | None = Query(default=None), db: Session = Depends(get_
     snap = {}
     if plan and plan.version:
         snap = {
-            i.order_id: i for i in db.query(ProductionPlanItem).filter(ProductionPlanItem.plan_id == plan.id, ProductionPlanItem.version == plan.version)
+            wp.item_key(i): i
+            for i in db.query(ProductionPlanItem).filter(ProductionPlanItem.plan_id == plan.id, ProductionPlanItem.version == plan.version)
         }
 
     def out(o) -> PlanOrderOut:
-        ps = order_plan_status(db, o)
-        s = snap.get(o.id)
+        key = wp.entry_key(o)
+        ps = None if wp.is_co(o) else order_plan_status(db, o)
+        s = snap.get(key) or next((snap[k] for k in sorted(wp.covered_keys(db, o)) if k in snap), None)
         return PlanOrderOut(
-            id=o.id, name=o.name, customer=o.customer, priority=o.priority or 0,
-            state="запущен" if o.status != ORDER_DRAFT else ("принят" if o.request_status == "accepted" else "заявка"),
-            qty=sum(float(ln.quantity) for ln in o.lines), promised_ready=o.promised_ready, ship_date=o.ship_date,
-            plan_finish=ps.finish, plan_late=ps.late, in_approved=s is not None,
+            id=o.id, kind="co" if wp.is_co(o) else "po", key=key, name=o.name, customer=o.customer, priority=o.priority or 0,
+            state=wp.entry_state(o), qty=wp.entry_qty(db, o), promised_ready=o.promised_ready, ship_date=o.ship_date,
+            plan_finish=ps.finish if ps else None, plan_late=ps.late if ps else False, in_approved=s is not None,
             moved=bool(s and (s.promised_ready != o.promised_ready or s.ship_date != o.ship_date)),
-            load={k: round(v, 1) for k, v in load.by_order.get(o.id, {}).items()},
+            load={k: round(v, 1) for k, v in load.by_order.get(key, {}).items()},
         )
 
     names = {a.code: a.name for a in db.query(Area)}
@@ -121,7 +124,7 @@ def get_week(week: date | None = Query(default=None), db: Session = Depends(get_
                     capacity=[load.capacity.get(a, {}).get(d) for d in load.days])
         for a in sorted(load.areas, key=lambda x: names.get(x, x))
     ]
-    current = {o.id for o in all_orders}
+    current = {k for o in all_orders for k in wp.covered_keys(db, o)}
     events = (
         db.query(ProductionPlanEvent).filter(ProductionPlanEvent.plan_id == plan.id).order_by(ProductionPlanEvent.id.desc()).limit(50).all()
         if plan else []
@@ -133,7 +136,7 @@ def get_week(week: date | None = Query(default=None), db: Session = Depends(get_
         approved_by_name=_name(db, plan.approved_by) if plan else None, approved_at=plan.approved_at if plan else None,
         can_approve=_can(user, "plan.approve"), can_manage=_can(user, "production_tasks.manage"),
         days=load.days, orders=[out(o) for o in orders], requests=[out(o) for o in requests],
-        removed=[f"№{i.order_id} «{i.order_name}»" for oid, i in snap.items() if oid not in current],
+        removed=[(f"заказ клиента {i.order_name}" if i.customer_order_id else f"№{i.order_id} «{i.order_name}»") for k, i in snap.items() if k not in current],
         areas=areas,
         events=[EventOut(kind=e.kind, text=e.text, user_name=_name(db, e.user_id), created_at=e.created_at) for e in events],
     )
@@ -167,7 +170,7 @@ def submit_week(week: date, payload: CommentIn, db: Session = Depends(get_db), u
     plan = wp.get_plan(db, ws, create=True)
     if plan.status == PLAN_SUBMITTED:
         raise HTTPException(status.HTTP_409_CONFLICT, "План уже на утверждении")
-    orders = [o for o in wp.week_orders(db, ws) if not (o.status == ORDER_DRAFT and o.request_status == "submitted")]
+    orders = [o for o in wp.week_orders(db, ws) if not wp.is_request(o)]
     wp.submit(db, plan, orders, user.id, (payload.comment or "").strip() or None)
     for a in _approvers(db):
         bitrix.message_to_user(db, "plan_submitted", a.id, f"На утверждение: {_link(db, ws)} — заказов {len(orders)}"
@@ -182,7 +185,7 @@ def approve_week(week: date, payload: CommentIn, db: Session = Depends(get_db), 
     plan = wp.get_plan(db, ws)
     if plan is None or plan.status not in (PLAN_SUBMITTED, PLAN_CHANGED):
         raise HTTPException(status.HTTP_409_CONFLICT, "Утвердить можно план на утверждении или изменённый")
-    orders = [o for o in wp.week_orders(db, ws) if not (o.status == ORDER_DRAFT and o.request_status == "submitted")]
+    orders = [o for o in wp.week_orders(db, ws) if not wp.is_request(o)]
     wp.approve(db, plan, orders, user.id, (payload.comment or "").strip() or None)
     bitrix.message_to_user(db, "plan_approved", plan.submitted_by, f"Утверждён: {_link(db, ws)}, версия {plan.version}"
                            + (f"\nКомментарий: {payload.comment}" if payload.comment else ""))
@@ -212,18 +215,28 @@ class LaunchOut(BaseModel):
 
 @router.post("/{week}/launch", response_model=LaunchOut)
 def launch_week(week: date, db: Session = Depends(get_db), user: User = Depends(manage)) -> LaunchOut:
-    """Запустить принятые заказы утверждённой недели — каждый своей
-    транзакцией: что не запустилось, остаётся черновиком с причиной."""
+    """Запустить принятое утверждённой недели: заказы клиентов без запуска
+    собираются в один заказ на производство «Запуск недели», затем каждый
+    черновик запускается своей транзакцией — что не запустилось, остаётся
+    черновиком с причиной."""
     from app.api.production_orders import PfPickIn, ReleaseIn, release
+    from app.services.customer_orders import build_production_order
 
     ws = _ws(week)
     plan = wp.get_plan(db, ws)
     if plan is None or plan.status != PLAN_APPROVED:
         raise HTTPException(status.HTTP_409_CONFLICT, "Запускается только утверждённый план")
     launched, failed = [], []
-    for o in wp.week_orders(db, ws):
-        if o.status != ORDER_DRAFT or o.request_status != "accepted":
-            continue
+    entries = wp.week_orders(db, ws)
+    drafts = [o for o in entries if not wp.is_co(o) and o.status == ORDER_DRAFT and wp.entry_state(o) in ("принят", "собран")]
+    cos_ = [o for o in entries if wp.is_co(o) and wp.entry_state(o) == "принят"]
+    if cos_:
+        try:
+            drafts.append(build_production_order(db, cos_, user.id, f"Запуск недели с {ws:%d.%m}"))
+            db.commit()
+        except ValueError:
+            db.rollback()
+    for o in drafts:
         picks = [PfPickIn(**p.__dict__) for p in wp.default_picks(db, o)]
         try:
             release(o.id, ReleaseIn(pf=picks), db, user)

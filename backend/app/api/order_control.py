@@ -35,7 +35,11 @@ class LagOut(BaseModel):
 @router.get("/order-control/lagging", response_model=list[LagOut])
 def list_lagging(db: Session = Depends(get_db), user: User = Depends(view)) -> list[LagOut]:
     names = {u.id: (u.full_name or u.username) for u in db.query(User)}
-    return [LagOut(manager=names.get(x.manager_id), **{k: v for k, v in x.__dict__.items() if k != "manager_id"}) for x in oc.lagging(db)]
+    return [
+        LagOut(manager=", ".join(filter(None, (names.get(u) for u in x.manager_ids))) or None,
+               **{k: v for k, v in x.__dict__.items() if k not in ("manager_id", "manager_ids")})
+        for x in oc.lagging(db)
+    ]
 
 
 @router.post("/order-control/lag-digest")
@@ -95,8 +99,9 @@ def reduce_order_line(order_id: int, line_id: int, payload: ReduceIn, db: Sessio
         schedule_order(db, order, user.id)
         d = order_day(order)
         note_change(db, order, d, d, f"уменьшено {old:g} → {payload.quantity:g} шт ({payload.reason})", user.id)
-        bitrix.message_to_user(db, "order_reduced", order.submitted_by or order.created_by,
-                               f"Уменьшен заказ: {bitrix.order_title(db, order)}\nСтрока: {old:g} → {payload.quantity:g} шт. Причина: {payload.reason}")
+        for uid in oc.managers_of(db, order):
+            bitrix.message_to_user(db, "order_reduced", uid,
+                                   f"Уменьшен заказ: {bitrix.order_title(db, order)}\nСтрока: {old:g} → {payload.quantity:g} шт. Причина: {payload.reason}")
         db.commit()
     else:
         db.rollback()
@@ -123,8 +128,8 @@ def cancel_order(order_id: int, payload: CancelIn, db: Session = Depends(get_db)
 
     d = order_day(order)
     note_change(db, order, d, None, f"отменён ({payload.reason})", user.id)
-    bitrix.message_to_user(db, "order_cancelled", order.submitted_by or order.created_by,
-                           f"Отменён заказ: {bitrix.order_title(db, order)}\nПричина: {payload.reason}")
+    for uid in oc.managers_of(db, order):
+        bitrix.message_to_user(db, "order_cancelled", uid, f"Отменён заказ: {bitrix.order_title(db, order)}\nПричина: {payload.reason}")
     db.commit()
     return {"ok": True}
 

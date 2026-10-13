@@ -35,6 +35,18 @@ class Lag:
     plan_finish: date | None
     promised_ready: date | None
     late: bool
+    manager_ids: list[int] = field(default_factory=list)  # менеджеры заказов клиентов в запуске
+
+
+def managers_of(db: Session, o: ProductionOrder) -> list[int]:
+    """Кому сообщать о заказе на производство: менеджеры его заказов
+    клиентов; запуск не из заказов клиентов — кто отправил или создал."""
+    from app.services.customer_orders import manager_ids_of_production_order
+
+    if any(ln.customer_order_line_id for ln in o.lines):
+        return sorted(manager_ids_of_production_order(db, o))
+    uid = o.submitted_by or o.created_by
+    return [uid] if uid else []
 
 
 def lagging(db: Session) -> list[Lag]:
@@ -42,7 +54,8 @@ def lagging(db: Session) -> list[Lag]:
     for o in db.query(ProductionOrder).filter(ProductionOrder.status == ORDER_RELEASED, ProductionOrder.kind != "stock"):
         ps = order_plan_status(db, o)
         if ps.overdue > 0 or ps.late:
-            out.append(Lag(order_id=o.id, name=o.name, customer=o.customer, manager_id=o.submitted_by or o.created_by,
+            mgr = managers_of(db, o)
+            out.append(Lag(order_id=o.id, name=o.name, customer=o.customer, manager_id=mgr[0] if mgr else None, manager_ids=mgr,
                            overdue=ps.overdue, plan_finish=ps.finish, promised_ready=o.promised_ready or o.ship_date, late=ps.late))
     out.sort(key=lambda x: (not x.late, -x.overdue))
     return out
@@ -86,8 +99,8 @@ def lag_digest(db: Session, today: date | None = None) -> int:
     bitrix.message_to_chat(db, "lag_digest", "chat_production", f"Отстают от плана ({today:%d.%m}): {len(lags)}\n" + "\n".join(line(x) for x in lags[:30]))
     by_manager: dict[int, list[Lag]] = defaultdict(list)
     for x in lags:
-        if x.manager_id:
-            by_manager[x.manager_id].append(x)
+        for uid in x.manager_ids:
+            by_manager[uid].append(x)
     for uid, xs in by_manager.items():
         bitrix.message_to_user(db, "lag_digest", uid, "Ваши заказы отстают от плана:\n" + "\n".join(line(x) for x in xs))
     db.commit()
@@ -182,7 +195,8 @@ def deadlines(db: Session, date_from: date, date_to: date) -> tuple[list[Deadlin
         shipped_all = qty > 0 and f["shipped_qty"] >= qty - 0.001
         rf, sa = f["ready_fact"], f["last_shipped_at"]
         rows.append(DeadlineRow(
-            order_id=o.id, name=o.name, customer=o.customer, manager=names.get(o.submitted_by or o.created_by), status=o.status,
+            order_id=o.id, name=o.name, customer=o.customer, manager=", ".join(filter(None, (names.get(u) for u in managers_of(db, o)))) or None,
+            status=o.status,
             promised_ready=o.promised_ready, ready_fact=rf,
             ready_on_time=(rf <= o.promised_ready) if (rf and o.promised_ready) else None,
             ship_date=o.ship_date, shipped_at=sa, shipped_all=shipped_all,

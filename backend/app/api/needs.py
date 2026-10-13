@@ -51,11 +51,13 @@ class OrderNeedsOut(BaseModel):
     rows: list[NeedRowOut]
     fg: list[FgFreeOut]
     error: str | None = None
+    customer_order_id: int | None = None  # строка — заказ клиента (order_id = его id)
 
 
 def _rows(on) -> OrderNeedsOut:
     return OrderNeedsOut(
         order_id=on.order_id, name=on.name, group=on.group, priority=on.priority, date=on.date, error=on.error,
+        customer_order_id=on.customer_order_id,
         rows=[NeedRowOut(**r.__dict__) for r in on.rows], fg=[FgFreeOut(**f.__dict__) for f in on.fg],
     )
 
@@ -65,7 +67,19 @@ def order_needs(order_id: int, db: Session = Depends(get_db), user: User = Depen
     """Потребность заказа с учётом очереди: склад сначала отдан заказам впереди."""
     try:
         for on in compute(db, user.id):
-            if on.order_id == order_id:
+            if on.order_id == order_id and on.customer_order_id is None:
+                return _rows(on)
+        return None
+    finally:
+        db.rollback()
+
+
+@router.get("/customer-orders/{order_id}", response_model=OrderNeedsOut | None)
+def customer_order_needs(order_id: int, db: Session = Depends(get_db), user: User = Depends(view)) -> OrderNeedsOut | None:
+    """Потребность незапущенного остатка заказа клиента — с учётом очереди."""
+    try:
+        for on in compute(db, user.id):
+            if on.customer_order_id == order_id:
                 return _rows(on)
         return None
     finally:
@@ -101,6 +115,7 @@ class PurchaseItemIn(BaseModel):
     qty: float = Field(gt=0)
     need_by: date | None = None
     order_ids: list[int] = []
+    labels: list[str] = []  # подписи заказов для заметки (заказы клиентов — по счёту)
 
 
 class PurchaseIn(BaseModel):
@@ -125,7 +140,7 @@ def purchase_shortages(payload: PurchaseIn, db: Session = Depends(get_db), user:
     s = bitrix.get_settings(db)
     film_lines: list[str] = []
     for it in payload.items:
-        orders = ", ".join(f"№{i}" for i in it.order_ids)
+        orders = ", ".join(it.labels or [f"№{i}" for i in it.order_ids])
         by = f" к {it.need_by:%d.%m}" if it.need_by else ""
         note = f"Дефицит под заказы {orders}{by}" + (f". {payload.comment}" if payload.comment else "")
         if it.key.startswith("film:"):

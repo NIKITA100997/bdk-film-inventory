@@ -21,6 +21,7 @@ from datetime import date
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.customer_orders import CO_ACCEPTED, CO_SUBMITTED, CustomerOrder
 from app.models.dictionaries import Color, Material, MaterialSku, Thickness
 from app.models.finished_goods import FgMove
 from app.models.items import Item
@@ -65,14 +66,24 @@ class OrderNeeds:
     rows: list[NeedRow] = field(default_factory=list)
     fg: list[FgFree] = field(default_factory=list)
     error: str | None = None
+    customer_order_id: int | None = None  # строка — незапущенный остаток заказа клиента (order_id = его id)
 
 
-def _open_orders(db: Session) -> list[tuple[int, ProductionOrder]]:
-    out = []
+def _open_orders(db: Session) -> list[tuple[int, ProductionOrder | CustomerOrder]]:
+    """Очередь: запущенные → принятые (заказы клиентов без запуска и
+    собранные из них черновики) → отправленные → прочие черновики с датой.
+    У заказа клиента — только незапущенный остаток: запущенное считается в
+    его заказе на производство."""
+    from app.services.customer_orders import remaining_lines
+
+    out: list[tuple[int, ProductionOrder | CustomerOrder]] = []
+    for co in db.query(CustomerOrder).filter(CustomerOrder.status.in_([CO_ACCEPTED, CO_SUBMITTED])):
+        if remaining_lines(db, co):
+            out.append((1 if co.status == CO_ACCEPTED else 2, co))
     for o in db.query(ProductionOrder).filter(ProductionOrder.status.in_([ORDER_DRAFT, ORDER_RELEASED])):
         if o.status == ORDER_RELEASED:
             rank = 0
-        elif o.request_status == "accepted":
+        elif o.request_status == "accepted" or any(ln.customer_order_line_id for ln in o.lines):
             rank = 1
         elif o.request_status == "submitted":
             rank = 2
@@ -82,7 +93,8 @@ def _open_orders(db: Session) -> list[tuple[int, ProductionOrder]]:
             continue
         out.append((rank, o))
     far = date(2100, 1, 1)
-    out.sort(key=lambda x: (x[0], -(x[1].priority or 0), x[1].promised_ready or x[1].ship_date or x[1].ship_to or far, x[1].id))
+    out.sort(key=lambda x: (x[0], -(x[1].priority or 0), x[1].promised_ready or x[1].ship_date or x[1].ship_to or far,
+                            isinstance(x[1], CustomerOrder), x[1].id))
     return out
 
 
@@ -147,15 +159,20 @@ def _released_dates(db: Session, order: ProductionOrder) -> dict[int, date]:
     return {lid: d for lid, d in db.query(PlanSlot.task_line_id, func.min(PlanSlot.date)).filter(PlanSlot.task_line_id.in_(ids)).group_by(PlanSlot.task_line_id)}
 
 
-def _draft_needs(db: Session, order: ProductionOrder, user_id: int) -> tuple[dict[str, NeedRow], str | None]:
-    """Запуск в точке сохранения → потребность → откат."""
+def _draft_needs(db: Session, order: ProductionOrder | CustomerOrder, user_id: int) -> tuple[dict[str, NeedRow], str | None]:
+    """Запуск в точке сохранения → потребность → откат. Заказ клиента —
+    пробный заказ на производство из его незапущенного остатка."""
+    from app.services.customer_orders import transient_production_order
     from app.services.production_orders import OrderError
     from app.services.trial_release import trial_release
 
     sp = db.begin_nested()
     try:
-        trial = trial_release(db, order, user_id)
-        return _line_needs(db, order, trial.dates), None
+        po = transient_production_order(db, order, user_id) if isinstance(order, CustomerOrder) else order
+        if po is None:
+            return {}, None
+        trial = trial_release(db, po, user_id)
+        return _line_needs(db, po, trial.dates), None
     except OrderError as e:
         return {}, str(e)
     finally:
@@ -182,9 +199,11 @@ def compute(db: Session, user_id: int) -> list[OrderNeeds]:
     mat_stock: dict[int, float] = {}  # остаток материала, общий на все заказы
     result: list[OrderNeeds] = []
     for rank, order in _open_orders(db):
-        on = OrderNeeds(order_id=order.id, name=order.name, group=GROUP_NAMES[rank], priority=order.priority or 0,
-                        date=order.promised_ready or order.ship_date or order.ship_to)
-        if order.status == ORDER_RELEASED:
+        is_co = isinstance(order, CustomerOrder)
+        on = OrderNeeds(order_id=order.id, name=("Заказ клиента: " + order.name) if is_co else order.name, group=GROUP_NAMES[rank],
+                        priority=order.priority or 0, date=order.promised_ready or order.ship_date or order.ship_to,
+                        customer_order_id=order.id if is_co else None)
+        if not is_co and order.status == ORDER_RELEASED:
             rows = _line_needs(db, order, _released_dates(db, order))
         else:
             rows, on.error = _draft_needs(db, order, user_id)
