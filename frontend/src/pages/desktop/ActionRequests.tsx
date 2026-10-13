@@ -41,7 +41,15 @@ export default function ActionRequests() {
       </Typography.Paragraph>
       <Tabs
         activeKey={tab}
-        onChange={(k) => setParams({ tab: k }, { replace: true })}
+        onChange={(k) =>
+          setParams(
+            (p) => {
+              p.set("tab", k);
+              return p;
+            },
+            { replace: true },
+          )
+        }
         items={tabs.map((t) => ({ ...t, children: <RequestsTable scope={t.key as "pending" | "all" | "mine"} canApprove={canApprove} /> }))}
       />
     </Card>

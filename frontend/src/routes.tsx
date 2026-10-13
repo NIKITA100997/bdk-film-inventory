@@ -24,16 +24,15 @@ import ProductionTasks from "./pages/desktop/ProductionTasks";
 import Demand from "./pages/desktop/production/Demand";
 import Settings from "./pages/desktop/Settings";
 import Reconciliation from "./pages/desktop/Reconciliation";
-import AreasAndLines from "./pages/desktop/AreasAndLines";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
 import OrderReadiness from "./pages/desktop/OrderReadiness";
 import Shipments from "./pages/desktop/Shipments";
-import Planner from "./pages/desktop/production/Planner";
+import Planning from "./pages/desktop/Planning";
+import Requests from "./pages/desktop/Requests";
+import { RedirectToSection } from "./components/SectionTabs";
 import Nomenclature from "./pages/desktop/Nomenclature";
 import ItemCard, { MaterialCardRedirect, PartCardRedirect } from "./pages/desktop/ItemCard";
 import { ITEM_VIEW_PERMISSIONS } from "./api/items";
-import DeletionRequests from "./pages/desktop/DeletionRequests";
-import ActionRequests from "./pages/desktop/ActionRequests";
 import PeriodClosing from "./pages/desktop/PeriodClosing";
 import Productivity from "./pages/desktop/Productivity";
 import ProductionMonitor from "./pages/desktop/production/ProductionMonitor";
@@ -41,8 +40,6 @@ import SearchPage from "./pages/desktop/SearchPage";
 import ShipmentSchedule from "./pages/desktop/ShipmentSchedule";
 import CustomerOrders from "./pages/desktop/customerOrders/CustomerOrders";
 import CustomerOrderPage from "./pages/desktop/customerOrders/CustomerOrderPage";
-import ProductionCalendar from "./pages/desktop/production/ProductionCalendar";
-import WeeklyPlan from "./pages/desktop/production/WeeklyPlan";
 import OrderDeadlines from "./pages/desktop/production/OrderDeadlines";
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
@@ -86,13 +83,17 @@ const appPageRoutes = (
       element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "plan.approve"]}><OrderDeadlines /></RequirePermission>}
     />
     <Route
-      path="/weekly-plan"
-      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "plan.approve"]}><WeeklyPlan /></RequirePermission>}
+      path="/planning"
+      element={
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "plan.approve"]}>
+          <Planning />
+        </RequirePermission>
+      }
     />
-    <Route
-      path="/production-calendar"
-      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view"]}><ProductionCalendar /></RequirePermission>}
-    />
+    {/* 14.10: планирование — одним пунктом; старые адреса ведут на вкладки */}
+    <Route path="/weekly-plan" element={<RedirectToSection to="/planning" section="week" />} />
+    <Route path="/planner" element={<RedirectToSection to="/planning" section="planner" />} />
+    <Route path="/production-calendar" element={<RedirectToSection to="/planning" section="calendar" />} />
     <Route
       path="/customer-orders/:id"
       element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve"]}><CustomerOrderPage /></RequirePermission>}
@@ -156,12 +157,11 @@ const appPageRoutes = (
       path="/roles"
       element={<RequirePermission permissions={["users.manage"]}><RoleAdmin /></RequirePermission>}
     />
-    <Route
-      path="/areas"
-      element={<RequirePermission permissions={["users.manage", "production_tasks.manage"]}><AreasAndLines /></RequirePermission>}
-    />
+    {/* 14.10: участки и линии — в «Настройках»; запросы — одним пунктом */}
+    <Route path="/areas" element={<RedirectToSection to="/settings" section="areas" />} />
     {/* мои запросы — всем; ждущие решения — тем, кто подтверждает (проверяет сервер) */}
-    <Route path="/action-requests" element={<ActionRequests />} />
+    <Route path="/requests" element={<Requests />} />
+    <Route path="/action-requests" element={<RedirectToSection to="/requests" section="actions" />} />
     <Route
       path="/productivity"
       element={<RequirePermission permissions={["reports.view", "production_tasks.view", "production_tasks.manage"]}><Productivity /></RequirePermission>}
@@ -170,17 +170,14 @@ const appPageRoutes = (
       path="/period-closing"
       element={<RequirePermission permissions={["period.manage"]}><PeriodClosing /></RequirePermission>}
     />
-    <Route
-      path="/deletion-requests"
-      element={<RequirePermission permissions={["users.manage"]}><DeletionRequests /></RequirePermission>}
-    />
+    <Route path="/deletion-requests" element={<RedirectToSection to="/requests" section="deletions" />} />
     <Route
       path="/label-template"
       element={<Navigate to="/settings?tab=label" replace />}
     />
     <Route
       path="/settings"
-      element={<RequirePermission permissions={["labels.manage", "calc_settings.manage", "prices.manage", "users.manage"]}><Settings /></RequirePermission>}
+      element={<RequirePermission permissions={["labels.manage", "calc_settings.manage", "prices.manage", "users.manage", "production_tasks.manage"]}><Settings /></RequirePermission>}
     />
     <Route
       path="/inventory"
@@ -226,14 +223,7 @@ const appPageRoutes = (
         </RequirePermission>
       }
     />
-    <Route
-      path="/planner"
-      element={
-        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report"]}>
-          <Planner />
-        </RequirePermission>
-      }
-    />
+
     <Route
       path="/demand"
       element={

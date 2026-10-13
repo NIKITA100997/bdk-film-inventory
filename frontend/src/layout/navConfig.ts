@@ -107,23 +107,12 @@ export const navTree: NavBlock[] = [
         label: "Сроки заказов",
         permissions: ["production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "plan.approve"],
       },
+      // планировщик, план недели, производственный календарь — вкладками (14.10)
       {
-        key: "weekly-plan",
-        path: "/weekly-plan",
-        label: "План недели",
-        permissions: ["production_tasks.manage", "production_tasks.view", "plan.approve"],
-      },
-      {
-        key: "production-calendar",
-        path: "/production-calendar",
-        label: "Производственный календарь",
-        permissions: ["production_tasks.manage", "production_tasks.view"],
-      },
-      {
-        key: "planner",
-        path: "/planner",
-        label: "Планировщик",
-        permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report"],
+        key: "planning",
+        path: "/planning",
+        label: "Планирование",
+        permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report", "plan.approve"],
       },
       // по всем открытым заданиям: участки, заказы × участки, лист участка (08.10)
       {
@@ -145,8 +134,6 @@ export const navTree: NavBlock[] = [
         label: "Потребность",
         permissions: ["production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view", "units.issue", "purchasing.manage", "orders.request"],
       },
-      // Участки и линии — один экран устройства цеха (30.09; участки раньше были в «Администрировании»).
-      { key: "areas", path: "/areas", label: "Участки и линии", permissions: ["users.manage", "production_tasks.manage"] },
     ],
   },
   {
@@ -198,11 +185,11 @@ export const navTree: NavBlock[] = [
     items: [
       { key: "users", path: "/users", label: "Пользователи", permissions: ["users.manage"] },
       { key: "roles", path: "/roles", label: "Роли и права", permissions: ["users.manage"] },
-      { key: "deletion-requests", path: "/deletion-requests", label: "Заявки на удаление", permissions: ["users.manage"] },
-      { key: "action-requests", path: "/action-requests", label: "Запросы сотрудников", permissions: ["requests.approve"] },
+      // запросы сотрудников и заявки на удаление — вкладками (14.10)
+      { key: "requests", path: "/requests", label: "Запросы", permissions: ["requests.approve", "users.manage"] },
       { key: "period-closing", path: "/period-closing", label: "Закрытие периода", permissions: ["period.manage"] },
-      // Настройки: параметры расчётов и макет этикетки — вкладками (30.09).
-      { key: "settings", path: "/settings", label: "Настройки", permissions: ["calc_settings.manage", "labels.manage", "prices.manage", "users.manage"] },
+      // Настройки: параметры расчётов, этикетка, валюты, Битрикс24, участки и линии (14.10) — вкладками.
+      { key: "settings", path: "/settings", label: "Настройки", permissions: ["calc_settings.manage", "labels.manage", "prices.manage", "users.manage", "production_tasks.manage"] },
     ],
   },
 ];

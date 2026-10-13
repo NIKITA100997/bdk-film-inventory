@@ -16,5 +16,20 @@ export default function AreasAndLines() {
   ];
   const wanted = params.get("tab");
   const active = tabs.some((t) => t.key === wanted) ? (wanted as string) : tabs[0]?.key;
-  return <Tabs activeKey={active} onChange={(k) => setParams({ tab: k }, { replace: true })} items={tabs} destroyOnHidden />;
+  return (
+    <Tabs
+      activeKey={active}
+      onChange={(k) =>
+        setParams(
+          (p) => {
+            p.set("tab", k);
+            return p;
+          },
+          { replace: true },
+        )
+      }
+      items={tabs}
+      destroyOnHidden
+    />
+  );
 }

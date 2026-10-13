@@ -34,7 +34,15 @@ export default function WeeklyPlan() {
   const [params, setParams] = useSearchParams();
   const week = dayjs(params.get("week") ?? undefined).startOf("week");
   const wk = week.format("YYYY-MM-DD");
-  const setWeek = (w: Dayjs) => setParams({ week: w.startOf("week").format("YYYY-MM-DD") }, { replace: true });
+  // меняем только неделю — вкладка «Планирования» (section) остаётся
+  const setWeek = (w: Dayjs) =>
+    setParams(
+      (p) => {
+        p.set("week", w.startOf("week").format("YYYY-MM-DD"));
+        return p;
+      },
+      { replace: true },
+    );
   const q = useQuery({ queryKey: ["weekly-plan", wk], queryFn: () => getWeeklyPlan(wk) });
   const [dialog, setDialog] = useState<"submit" | "approve" | "return" | null>(null);
   const [comment, setComment] = useState("");
