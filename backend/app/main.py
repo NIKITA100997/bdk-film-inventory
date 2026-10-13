@@ -57,6 +57,7 @@ from app.api.bitrix import router as bitrix_router
 from app.api.needs import router as needs_router
 from app.api.weekly_plan import router as weekly_plan_router
 from app.api.order_control import router as order_control_router
+from app.api.customer_orders import router as customer_orders_router
 from app.services.period_guard import PeriodClosedError
 from app.services import lot_cost  # noqa: F401 — цена у рулона и сумма движения (before_flush)
 from fastapi import Request
@@ -165,6 +166,7 @@ app.include_router(bitrix_router, prefix=API_PREFIX)
 app.include_router(needs_router, prefix=API_PREFIX)
 app.include_router(weekly_plan_router, prefix=API_PREFIX)
 app.include_router(order_control_router, prefix=API_PREFIX)
+app.include_router(customer_orders_router, prefix=API_PREFIX)
 
 
 @app.on_event("startup")

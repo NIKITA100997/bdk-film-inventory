@@ -92,6 +92,10 @@ class ProductionOrderLine(Base):
     # программы фрезеровки — в позиции двери их нет.
     source_text: Mapped[str | None] = mapped_column(String(500), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    # Строка заказа клиента (13.10): что из счёта закрывает эта строка запуска.
+    customer_order_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customer_order_lines.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     order: Mapped[ProductionOrder] = relationship(back_populates="lines")
 
@@ -102,7 +106,9 @@ class OrderDateChange(Base):
     __tablename__ = "order_date_changes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    order_id: Mapped[int] = mapped_column(ForeignKey("production_orders.id", ondelete="CASCADE"), index=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("production_orders.id", ondelete="CASCADE"), nullable=True, index=True)
+    # с 13.10 даты обещаются по заказу клиента
+    customer_order_id: Mapped[int | None] = mapped_column(ForeignKey("customer_orders.id", ondelete="CASCADE"), nullable=True, index=True)
     field: Mapped[str] = mapped_column(String(16))  # ship — отгрузка, ready — готовность
     old_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     new_date: Mapped[date | None] = mapped_column(Date, nullable=True)

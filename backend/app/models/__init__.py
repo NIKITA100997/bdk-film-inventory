@@ -1,4 +1,5 @@
 from app.models.integrations import AppSetting, BitrixOutbox
+from app.models.customer_orders import CustomerOrder, CustomerOrderLine
 from app.models.plans import ProductionPlan, ProductionPlanEvent, ProductionPlanItem
 from app.models.production_orders import OrderCategory, OrderDateChange, ProductionCalendarDay, ProductionOrder, ProductionOrderLine
 from app.models.items import Item, ItemComponent, ItemGroup, ItemKind, ItemProperty, ItemPropertyOption, ItemPropertyValue, ItemType, ItemTypeComponent, ItemTypeOperation, PartAlias

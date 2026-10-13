@@ -136,7 +136,11 @@ def message_to_user(db: Session, event: str, user_id: int | None, text: str) -> 
 
 
 def order_title(db: Session, order) -> str:
+    from app.models.customer_orders import CustomerOrder
+
     s = get_settings(db)
+    if isinstance(order, CustomerOrder):  # с 13.10 заявки и даты — по заказам клиентов
+        return _link(s, f"/customer-orders/{order.id}", f"Заказ клиента, {order.name}")
     title = f"Заказ №{order.id} «{order.name}»" + (f" · {order.customer}" if getattr(order, "customer", None) else "")
     return _link(s, f"/production-orders/{order.id}", title)
 
@@ -164,7 +168,7 @@ def on_request_decided(db: Session, order, accepted: bool) -> None:
         )
     else:
         text = f"Заявка возвращена: {order_title(db, order)}\nПричина: {order.request_comment}"
-    message_to_user(db, "request_accepted" if accepted else "request_returned", whom, text)
+    message_to_user(db, "request_accepted" if accepted else "request_returned", getattr(order, "manager_id", None) or whom, text)
 
 
 def on_promise_changed(db: Session, order, changes: list[tuple[str, date | None, date | None]], reason: str | None, comment: str | None) -> None:
@@ -174,7 +178,7 @@ def on_promise_changed(db: Session, order, changes: list[tuple[str, date | None,
     lines = "\n".join(f"{names.get(f, f)}: {_d(a)} → {_d(b)}" for f, a, b in changes)
     why = ", ".join(x for x in (reason, comment) if x)
     text = f"Перенос дат: {order_title(db, order)}\n{lines}" + (f"\nПричина: {why}" if why else "")
-    message_to_user(db, "promise_changed", order.submitted_by or order.created_by, text)
+    message_to_user(db, "promise_changed", getattr(order, "manager_id", None) or order.submitted_by or order.created_by, text)
 
 
 def task_for_purchase(db: Session, title: str, description: str, deadline: date | None) -> None:

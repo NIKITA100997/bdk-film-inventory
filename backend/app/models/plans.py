@@ -37,6 +37,7 @@ class ProductionPlanItem(Base):
     plan_id: Mapped[int] = mapped_column(ForeignKey("production_plans.id", ondelete="CASCADE"), index=True)
     version: Mapped[int] = mapped_column(Integer)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("production_orders.id", ondelete="SET NULL"), nullable=True)
+    customer_order_id: Mapped[int | None] = mapped_column(nullable=True)  # с 13.10 план — по заказам клиентов
     order_name: Mapped[str] = mapped_column(String(255))
     priority: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
     promised_ready: Mapped[date | None] = mapped_column(Date, nullable=True)
