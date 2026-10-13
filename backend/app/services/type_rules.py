@@ -421,6 +421,11 @@ def guess_group(db: Session, item: Item) -> None:
     среди них. Не нашлось — остаётся без группы."""
     if item.group_id is not None or item.type is None:
         return
+    # вариант модели — в папку своей модели (14.10: «Серия В → В-13»)
+    model = db.get(Item, item.model_id) if item.model_id else None
+    if model is not None and model.group_id is not None:
+        item.group_id = model.group_id
+        return
     lists = [p.id for p in item.type.properties if p.value_type == "list"]
     mine = {
         v.property_id: v.option_id

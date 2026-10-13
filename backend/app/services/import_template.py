@@ -55,7 +55,7 @@ def option_key(text: str) -> str:
     дефисов: «Н-1 ВО» = «Н1 ВО»."""
     s = (text or "").strip().upper().translate(_LATIN_TO_CYR)
     s = re.sub(r"\.\d+$", "", s)
-    return re.sub(r"[\s\-]", "", s)
+    return re.sub(r"[\s\-/]", "", s)  # «В-5/Ф4» = «В-5 Ф-4» (как в 1С)
 
 
 def parse_size(text: str) -> tuple[int, int] | None:
@@ -212,7 +212,8 @@ def _split_rows(text: str) -> list[tuple[int, list[str]]]:
 # Аляска кромка черная ABS 2мм    30» — наименование и количество, серия и
 # размер — в наименовании.
 _TAIL_QTY_RE = re.compile(r"^(.*\S)\s{2,}(\d+)\s*$|^(.*\S)\s+(\d+)\s*(?:шт\.?)?\s*$")
-_NAME_SERIES_RE = re.compile(r"^\s*([АВЕНAВEH]{1,2}-?\d+(?:\.\d)?(?:/[ФF]\d)?(?:\s+[ВН]О)?)", re.I)
+# серия в начале наименования счёта 1С: «В-13.2 (м5х3…)», «В-5/Ф4» и «В-5 Ф-4», «Н-1 ВО», «Граффити-2»
+_NAME_SERIES_RE = re.compile(r"^\s*(Граффити-?\d|[АВЕНAВEH]{1,2}-?\d+(?:\.\d)?(?:\s*/?\s*[ФF]-?\d)?(?:\s+[ВН]О)?)", re.I)
 _NAME_SIZE_RE = re.compile(r"(\d{3,4})\s*[хxX×*Х]\s*(\d{4})")
 
 
@@ -286,6 +287,12 @@ def parse_rows(text: str, tpl: Template) -> tuple[list[TemplateRow], list[str]]:
     return rows, errors
 
 
+def _synonyms(opt) -> list[str]:
+    raw = (getattr(opt, "params", None) or {}).get("синонимы") or ""
+    items = raw if isinstance(raw, list) else re.split(r"[;,\n]", str(raw))
+    return [s.strip() for s in items if s and s.strip()]
+
+
 def match_option(prop, text: str):
     opts = [o for o in prop.options if getattr(o, "is_active", True)]
     t = " ".join((text or "").split()).lower()
@@ -293,6 +300,9 @@ def match_option(prop, text: str):
     if hit is None:
         key = option_key(text)
         hit = next((o for o in opts if option_key(o.value) == key), None)
+    if hit is None:
+        # синонимы варианта (названия из 1С: «Граффити-2» = В-28) — поле варианта «синонимы», через «;»
+        hit = next((o for o in opts if any(option_key(s) == key for s in _synonyms(o))), None)
     return hit
 
 
