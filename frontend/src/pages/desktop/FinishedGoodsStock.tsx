@@ -1,16 +1,13 @@
 import { useMemo, useState } from "react";
 import { Button, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { listSites } from "../../api/sites";
 import {
-  FG_KIND_LABEL,
   adjustFg,
   transferFg,
   listFgInvoices,
-  listFgMoves,
   listFgStock,
   type FgStockRow,
 } from "../../api/finishedGoods";
@@ -235,35 +232,5 @@ function ReceiveModal({ stock, onClose }: { stock: FgStockRow[]; onClose: () => 
         </Form.Item>
       </Form>
     </Modal>
-  );
-}
-
-export function FgMovesTab() {
-  const q = useQuery({ queryKey: ["fg-moves"], queryFn: listFgMoves });
-  return (
-    <Table
-      size="small"
-      rowKey="id"
-      loading={q.isLoading}
-      dataSource={q.data ?? []}
-      pagination={{ pageSize: 50 }}
-      scroll={{ x: "max-content" }}
-      locale={{ emptyText: "Движений нет" }}
-      columns={[
-        { title: "Когда", render: (_, m) => dayjs(m.occurred_at).format("DD.MM.YYYY HH:mm") },
-        { title: "Событие", render: (_, m) => <Tag color={m.kind === "receipt" ? "green" : m.kind === "shipment" ? "blue" : m.kind === "return" ? "orange" : "default"}>{FG_KIND_LABEL[m.kind]}</Tag> },
-        { title: "Изделие", dataIndex: "item_name" },
-        {
-          title: "Кол-во",
-          align: "right",
-          render: (_, m) => <Typography.Text type={m.qty < 0 ? "danger" : "success"}>{m.qty > 0 ? "+" : ""}{n(m.qty)}</Typography.Text>,
-        },
-        { title: "Счёт", render: (_, m) => m.invoice_no ?? "—" },
-        { title: "Площадка", render: (_, m) => m.site_name ?? "—" },
-        { title: "Отгрузка", render: (_, m) => (m.shipment_id ? `№${m.shipment_id}` : "—") },
-        { title: "Кто", render: (_, m) => m.user_name ?? "" },
-        { title: "Заметка", render: (_, m) => m.note ?? "" },
-      ]}
-    />
   );
 }

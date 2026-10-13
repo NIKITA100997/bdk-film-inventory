@@ -156,7 +156,16 @@ export function LotsTab() {
  * по событию, участку и партии, задание, причина и исправление ошибок.
  * С 08.10 — из одного журнала в базе (lot_movements): плёнка, п/ф,
  * материалы и готовые изделия, с суммами и итогами по отбору. */
-export function MovementsPanel({ itemId, fixedKind, defaultDays = 7 }: { itemId?: number; fixedKind?: "plenka" | "pf"; defaultDays?: number }) {
+export function MovementsPanel({
+  itemId,
+  fixedKind,
+  defaultDays = 7,
+}: {
+  itemId?: number;
+  /** вид журнала на вкладке вида (14.10: материалы и изделия — тот же общий журнал) */
+  fixedKind?: "plenka" | "pf" | "material" | "fg";
+  defaultDays?: number;
+}) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const canCorrect = (k: string) =>

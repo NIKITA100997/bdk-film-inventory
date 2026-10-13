@@ -107,11 +107,11 @@ def get_movements(
     виды — с правами на учёт п/ф или отчёты; суммы — с правами на цены."""
     from app.services import movements as mv
 
-    others = _can(user, "part_units.view", "part_units.manage", "reports.view")
+    # плёнку, материалы и изделия видят все (как их прежние журналы на
+    # «Остатках»); п/ф — с правами на учёт п/ф или отчёты (14.10)
+    allowed = ["film", "material", "fg"] + (["pf"] if _can(user, "part_units.view", "part_units.manage", "reports.view") else [])
     view_kind = {"plenka": "film"}.get(kind or "", kind)
-    kinds = [view_kind] if view_kind else (None if others else ["film"])
-    if not others and view_kind and view_kind != "film":
-        kinds = ["film"]
+    kinds = ([view_kind] if view_kind in allowed else ["film"]) if view_kind else (None if "pf" in allowed else allowed)
     show_amounts = _can(user, "prices.view", "prices.manage")
     f = mv.Filters(
         date_from=date_from or date(2000, 1, 1), date_to=date_to or date.today(), kinds=kinds, item_id=item_id,

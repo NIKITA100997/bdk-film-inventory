@@ -25,11 +25,9 @@ import {
   MOVE_KIND_LABEL,
   createMaterial,
   createMaterialMove,
-  listMaterialMoves,
   listMaterialStock,
   regradeMaterial,
   updateMaterial,
-  type MaterialMove,
   type MaterialMoveKind,
   type MaterialStockRow,
 } from "../../api/materialStock";
@@ -394,123 +392,5 @@ function NewMaterialModal({ onClose }: { onClose: () => void }) {
         </Button>
       </Form>
     </Modal>
-  );
-}
-
-/** Журнал движений материалов за период. */
-export function MaterialMovesTab() {
-  const navigate = useNavigate();
-  const canSeePrice = useCanSeePrice();
-  const [range, setRange] = useState<[Dayjs, Dayjs] | null>([dayjs().subtract(30, "day"), dayjs()]);
-  const [itemId, setItemId] = useState<number | undefined>();
-  const stockQuery = useQuery({ queryKey: ["material-stock", true], queryFn: () => listMaterialStock(true) });
-  const movesQuery = useQuery({
-    queryKey: ["material-moves", itemId, range?.[0]?.format("YYYY-MM-DD"), range?.[1]?.format("YYYY-MM-DD")],
-    queryFn: () =>
-      listMaterialMoves({
-        item_id: itemId,
-        date_from: range?.[0]?.format("YYYY-MM-DD"),
-        date_to: range?.[1]?.format("YYYY-MM-DD"),
-      }),
-  });
-  const rows = movesQuery.data ?? [];
-  const color: Record<MaterialMoveKind, string> = { receipt: "green", consumption: "blue", writeoff: "red", adjust: "gold" };
-  return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Space wrap>
-        <Select
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          placeholder="Все материалы"
-          style={{ width: 300 }}
-          value={itemId}
-          onChange={setItemId}
-          options={(stockQuery.data ?? []).map((m) => ({ value: m.item_id, label: m.name }))}
-        />
-        <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => setRange(v && v[0] && v[1] ? [v[0], v[1]] : null)} />
-        <Button
-          icon={<FileExcelOutlined />}
-          disabled={rows.length === 0}
-          onClick={() =>
-            exportToExcel(
-              `dvizheniya-materialov-${dayjs().format("DD-MM-YYYY")}.xlsx`,
-              rows.map((m) => ({
-                at: dayjs(m.occurred_at).format("DD.MM.YYYY HH:mm"),
-                item: m.item_name,
-                kind: MOVE_KIND_LABEL[m.kind],
-                qty: m.qty,
-                unit: m.unit,
-                doc: m.doc ?? "",
-                task: m.task_id ?? "",
-                user: m.user_name,
-                note: m.note ?? "",
-              })),
-              [
-                { key: "at", header: "Когда" },
-                { key: "item", header: "Материал" },
-                { key: "kind", header: "Операция" },
-                { key: "qty", header: "Количество" },
-                { key: "unit", header: "Ед." },
-                { key: "doc", header: "Документ" },
-                { key: "task", header: "Задание" },
-                { key: "user", header: "Кто" },
-                { key: "note", header: "Заметка" },
-              ],
-            )
-          }
-        >
-          Excel
-        </Button>
-      </Space>
-      <ResponsiveTable<MaterialMove>
-        tableKey="material-moves"
-        lockedColumns={["Когда"]}
-        size="small"
-        rowKey="id"
-        loading={movesQuery.isLoading}
-        dataSource={rows}
-        pagination={{ pageSize: 50, hideOnSinglePage: true }}
-        scroll={{ x: "max-content" }}
-        locale={{ emptyText: "Движений за период нет" }}
-        columns={[
-          { title: "Когда", render: (_, m) => dayjs(m.occurred_at).format("DD.MM.YYYY HH:mm") },
-          { title: "Материал", render: (_, m) => m.item_name },
-          { title: "Операция", render: (_, m) => <Tag color={color[m.kind]}>{MOVE_KIND_LABEL[m.kind]}</Tag> },
-          {
-            title: "Количество",
-            render: (_, m) => (
-              <Typography.Text type={m.qty < 0 ? "danger" : "success"} style={{ fontVariantNumeric: "tabular-nums" }}>
-                {m.qty > 0 ? "+" : ""}
-                {fmt(m.qty)} {m.unit}
-              </Typography.Text>
-            ),
-          },
-          ...(canSeePrice
-            ? [
-                {
-                  title: "Сумма",
-                  render: (_: unknown, m: MaterialMove) =>
-                    m.amount_rub != null ? (
-                      <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                        {m.amount_rub > 0 ? "+" : ""}
-                        {rub(m.amount_rub)}
-                      </span>
-                    ) : (
-                      "—"
-                    ),
-                },
-              ]
-            : []),
-          { title: "Документ", render: (_, m) => m.doc ?? "—" },
-          {
-            title: "Задание",
-            render: (_, m) => (m.task_id ? <a onClick={() => navigate(`/production-tasks?task=${m.task_id}`)}>№{m.task_id}</a> : "—"),
-          },
-          { title: "Кто", render: (_, m) => m.user_name },
-          { title: "Заметка", render: (_, m) => m.note ?? "" },
-        ]}
-      />
-    </Space>
   );
 }

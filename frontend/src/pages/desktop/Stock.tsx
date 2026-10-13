@@ -7,11 +7,11 @@ import Blanks from "./Blanks";
 import PartStorage from "./PartStorage";
 import PartStock from "./production/PartStock";
 import PartUnits from "./production/PartUnits";
-import { FgMovesTab, FgStockTab } from "./FinishedGoodsStock";
+import { FgStockTab } from "./FinishedGoodsStock";
 import GeneralStock from "./GeneralStock";
 import StoragePlaces from "./StoragePlaces";
 import { LotsTab, MovementsPanel } from "./StockLotsMovements";
-import { MaterialMovesTab, MaterialsStockTab } from "./MaterialsStock";
+import { MaterialsStockTab } from "./MaterialsStock";
 
 export type StockKind = "film" | "pf" | "materials" | "fg" | "all";
 export type StockTab = "items" | "lots" | "free" | "movements" | "map";
@@ -121,9 +121,9 @@ export default function Stock() {
         <PartStorage />
       );
   } else if (kind === "fg") {
-    content = tab === "movements" ? <FgMovesTab /> : <FgStockTab />;
+    content = tab === "movements" ? <MovementsPanel fixedKind="fg" defaultDays={30} /> : <FgStockTab />;
   } else if (kind === "materials") {
-    content = tab === "movements" ? <MaterialMovesTab /> : <MaterialsStockTab />;
+    content = tab === "movements" ? <MovementsPanel fixedKind="material" defaultDays={30} /> : <MaterialsStockTab />;
   } else {
     content =
       tab === "items" ? <GeneralStock /> : tab === "lots" ? <LotsTab /> : tab === "map" ? <StoragePlaces /> : <MovementsPanel />;
