@@ -283,3 +283,23 @@ def list_moves(
     if date_to is not None:
         q = q.filter(MaterialMove.occurred_at < datetime.combine(date_to + timedelta(days=1), time.min))
     return _moves_out(db, q.order_by(MaterialMove.occurred_at.desc(), MaterialMove.id.desc()).limit(limit).all())
+
+
+class RegradeIn(BaseModel):
+    src_item_id: int
+    dst_item_id: int
+    qty: float = Field(gt=0)
+    reason: str = Field(min_length=2, max_length=200)
+
+
+@router.post("/regrade", response_model=list[MoveOut])
+def regrade(payload: RegradeIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> list[MoveOut]:
+    """Пересорт материала (14.10): часть остатка числилась не той позицией."""
+    try:
+        moves = materials.regrade(db, src=_get(db, payload.src_item_id), dst=_get(db, payload.dst_item_id), qty=payload.qty,
+                                  user_id=user.id, reason=payload.reason)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    db.commit()
+    return _moves_out(db, list(moves))

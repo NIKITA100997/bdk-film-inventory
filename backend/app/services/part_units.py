@@ -790,3 +790,52 @@ def adjust_part_unit(
         occurred_at=occurred_at,
     )
     return unit
+
+
+def regrade_part_unit(db: Session, *, unit: PartUnit, part_id: int, user_id: int, reason: str, stage_id: int | None = None) -> PartUnit:
+    """Пересорт партии п/ф (14.10): партию завели не той деталью — сменить
+    деталь, этап — тот же по порядку (или по названию, или выбранный).
+    Партия, по которой уже были отчёты, не пересортируется: история
+    отчётов осталась бы про другую деталь."""
+    if unit.status == PartUnitStatus.SPISAN:
+        raise ValueError("Партия списана")
+    if not (reason or "").strip():
+        raise ValueError("Укажите причину пересорта")
+    if part_id == unit.part_id:
+        raise ValueError("Деталь та же")
+    target = db.get(Part, part_id)
+    if target is None:
+        raise ValueError("Деталь не найдена")
+    if reported_good_pieces_by_unit(db, [unit.id]).get(unit.id) or db.query(ProductionTaskLineReport.id).filter(
+        ProductionTaskLineReport.part_unit_id == unit.id
+    ).first():
+        raise ValueError("По партии уже есть отчёты — пересорт сломает историю; спишите её и заведите заново нужной деталью")
+    stages = db.query(PartStage).filter(PartStage.part_id == part_id).order_by(PartStage.sequence_order).all()
+    if not stages:
+        raise ValueError(f"У детали «{target.name}» нет этапов")
+    if stage_id is not None:
+        new_stage = next((s for s in stages if s.id == stage_id), None)
+        if new_stage is None:
+            raise ValueError("Этап не этой детали")
+    else:
+        cur = unit.stage
+        new_stage = next((s for s in stages if s.sequence_order == cur.sequence_order), None) or next(
+            (s for s in stages if s.name.strip().lower() == cur.name.strip().lower()), None
+        )
+        if new_stage is None:
+            raise ValueError(f"У детали «{target.name}» нет этапа «{cur.name}» — выберите этап")
+    old_name, old_stage = unit.part.name, unit.stage_id
+    unit.part_id, unit.stage_id = target.id, new_stage.id
+    if unit.production_task_line_id is not None:
+        from app.models.production import ProductionTaskLine
+
+        line = db.get(ProductionTaskLine, unit.production_task_line_id)
+        if line is not None and line.part_id not in (None, target.id):
+            unit.production_task_line_id = None  # метка задания была про другую деталь
+    db.flush()
+    db.refresh(unit)
+    record_part_event(
+        db, unit=unit, event_type=PartEventType.KORREKTIROVKA, user_id=user_id, quantity_delta=0,
+        from_stage_id=old_stage, to_stage_id=new_stage.id, note=f"Пересорт: {old_name} → {target.name}. {reason.strip()}"[:255],
+    )
+    return unit

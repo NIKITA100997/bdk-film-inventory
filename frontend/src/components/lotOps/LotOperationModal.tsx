@@ -8,8 +8,9 @@ import LocationSelect from "../LocationSelect";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { apiErrorMessage } from "../../utils/apiError";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
-import { adjustUnit, getReturnPreview, getUnit, placeUnit, returnUnit, writeOffUnit, type MaterialUnit } from "../../api/units";
-import { adjustPartUnit, getPartUnit, returnPartUnit, writeOffPartUnit, type PartUnit } from "../../api/partUnits";
+import { adjustUnit, getReturnPreview, getUnit, placeUnit, reassignUnitSku, returnUnit, skuLabel, writeOffUnit, type MaterialUnit } from "../../api/units";
+import { adjustPartUnit, getPartUnit, regradePartUnit, returnPartUnit, writeOffPartUnit, type PartUnit } from "../../api/partUnits";
+import { listMaterialSkus, listParts } from "../../api/dictionaries";
 import { placePartUnit } from "../../api/partStorage";
 import { suggestLocation } from "../../api/storage";
 import { listAreas } from "../../api/areas";
@@ -27,6 +28,9 @@ interface Values {
   /** возврат рулона: остаток сразу списать */
   write_off?: boolean;
   occurred_at?: Dayjs | null;
+  /** пересорт: новая позиция плёнки / деталь и этап */
+  target_id?: number;
+  stage_id?: number | null;
 }
 
 const fmt = (v: number) => `${Math.round(v * 100) / 100}`;
@@ -63,6 +67,11 @@ export default function LotOperationModal({
     enabled: op === "writeoff" || (film && op === "return"),
   });
   const returnWriteOff = Form.useWatch("write_off", form);
+  // пересорт: список, из чего выбирать новую позицию — плёнка или детали
+  const skusQuery = useQuery({ queryKey: ["material-skus", "all-active"], queryFn: () => listMaterialSkus(false), enabled: op === "regrade" && film });
+  const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts, enabled: op === "regrade" && !film });
+  const targetId = Form.useWatch("target_id", form);
+  const targetPart = !film ? (partsQuery.data ?? []).find((p) => p.id === targetId) : undefined;
   const previewQuery = useQuery({
     queryKey: ["return-preview", lot.lot_id],
     queryFn: () => getReturnPreview(lot.lot_id),
@@ -129,6 +138,17 @@ export default function LotOperationModal({
         return film
           ? writeOffUnit(id, v.reason!, v.note || undefined, at)
           : writeOffPartUnit(id, { quantity_pieces: v.qty!, reason: v.reason!, note: v.note || undefined, occurred_at: at });
+      if (op === "regrade") {
+        if (film) {
+          const sku = (skusQuery.data ?? []).find((s) => s.id === v.target_id);
+          if (!sku) throw new Error("Выберите позицию плёнки");
+          return reassignUnitSku(id, {
+            material: sku.material.name, color: sku.color.name, thickness: sku.thickness.value_mm, manufacturer: sku.manufacturer.name,
+            reason: v.reason!.trim(),
+          });
+        }
+        return regradePartUnit(id, { part_id: v.target_id!, reason: v.reason!.trim(), stage_id: v.stage_id ?? null });
+      }
       if (!full) throw new Error("Партия не загружена");
       return film
         ? adjustUnit(id, {
@@ -315,7 +335,37 @@ export default function LotOperationModal({
           </>
         )}
 
-        <OccurredAtField />
+        {op === "regrade" && (
+          <>
+            <Typography.Paragraph type="secondary" style={{ marginTop: -4 }}>
+              Партию завели не той позицией — сменить её. Партия та же (номер, место, количество), в журнал пишется «Корректировка:
+              пересорт» с причиной.{!film && " Партию, по которой уже были отчёты, не пересортировать — её списывают и заводят заново."}
+            </Typography.Paragraph>
+            <Form.Item name="target_id" label={film ? "Правильная позиция плёнки" : "Правильная деталь"} rules={[{ required: true, message: "Выберите" }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                loading={film ? skusQuery.isLoading : partsQuery.isLoading}
+                options={
+                  film
+                    ? (skusQuery.data ?? []).filter((s) => s.is_active && s.id !== lot.sku_id).map((s) => ({ value: s.id, label: skuLabel(s) }))
+                    : (partsQuery.data ?? []).filter((p) => p.is_active && p.stages.length > 0 && p.name !== lot.item_name).map((p) => ({ value: p.id, label: p.name }))
+                }
+                onChange={() => form.setFieldsValue({ stage_id: null })}
+              />
+            </Form.Item>
+            {!film && targetPart && (
+              <Form.Item name="stage_id" label="Этап" extra={`Пусто — тот же по порядку, что сейчас («${lot.stage ?? "—"}»)`}>
+                <Select allowClear options={targetPart.stages.map((s) => ({ value: s.id, label: s.name }))} />
+              </Form.Item>
+            )}
+            <Form.Item name="reason" label="Причина" rules={[{ required: true, whitespace: true, message: "Укажите причину" }]}>
+              <Input placeholder="например, при приёмке выбрали не ту деталь" />
+            </Form.Item>
+          </>
+        )}
+
+        {op !== "regrade" && <OccurredAtField />}
       </Form>
     </Modal>
   );

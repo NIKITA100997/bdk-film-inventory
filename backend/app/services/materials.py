@@ -147,3 +147,21 @@ def demand_by_item(db: Session) -> dict[int, list[tuple[int, str, int | None, fl
             if c.stage_id == st.id or (c.stage_id is None and is_first):
                 out[c.component_item_id].append((t.id, t.name or f"Задание №{t.id}", t.production_order_id, float(c.qty_per_unit) * left))
     return out
+
+
+def regrade(db: Session, *, src: Item, dst: Item, qty: float, user_id: int, reason: str) -> tuple[MaterialMove, MaterialMove]:
+    """Пересорт (14.10): часть остатка числилась не той позицией — минус с
+    одной, плюс на другую, парой корректировок с причиной (как «сменить
+    позицию» у рулона, но с историей)."""
+    if src.id == dst.id:
+        raise ValueError("Позиция та же")
+    if dst.kind.code != KIND_MATERIAL or src.kind.code != KIND_MATERIAL:
+        raise ValueError("Пересорт — только между позициями вида «Материал»")
+    if qty <= 0:
+        raise ValueError("Количество — больше нуля")
+    if not (reason or "").strip():
+        raise ValueError("Укажите причину пересорта")
+    note = f"Пересорт: {src.name} → {dst.name}. {reason.strip()}"[:255]
+    out = record(db, item=src, kind=MOVE_ADJUST, qty=-qty, user_id=user_id, doc="Пересорт", note=note)
+    inn = record(db, item=dst, kind=MOVE_ADJUST, qty=qty, user_id=user_id, doc="Пересорт", note=note)
+    return out, inn

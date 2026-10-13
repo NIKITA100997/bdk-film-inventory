@@ -167,6 +167,8 @@ export interface ReassignSkuRequest {
   color: string;
   thickness: number;
   manufacturer: string;
+  /** Пересорт с причиной — в журнал рулона (14.10). */
+  reason?: string;
 }
 
 export async function reassignUnitSku(unitId: number, payload: ReassignSkuRequest): Promise<MaterialUnit> {

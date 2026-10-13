@@ -747,10 +747,19 @@ def reassign_unit_sku(
     """Исправление ошибки ввода (раздел про карточку материала) — сменить
     номенклатуру уже существующей единицы без создания новой записи."""
     unit = _get_storable_unit(db, unit_id)
+    old = unit.material_sku.display_name if unit.material_sku else ""
     sku = find_or_create_sku(
         db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
     )
-    unit.material_sku_id = sku.id
+    if sku.id != unit.material_sku_id:
+        unit.material_sku_id = sku.id
+        db.flush()
+        db.refresh(unit)
+        # пересорт — в журнал рулона, как у партии п/ф (14.10)
+        record_event(
+            db, unit=unit, event_type=EventType.KORREKTIROVKA, user_id=user.id,
+            write_off_note=(f"Пересорт: {old} → {sku.display_name}" + (f". {payload.reason.strip()}" if (payload.reason or "").strip() else ""))[:255],
+        )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 

@@ -7,7 +7,8 @@ import { lotNo } from "../../utils/lotNo";
  * действие для любой партии — рулона/штрипса плёнки или партии п/ф. Таблицы
  * и журналы у видов пока свои; окно само вызывает операцию нужного вида,
  * правила по статусам и правам — те же, что проверяет сервер. */
-export type LotOp = "move" | "return" | "writeoff" | "adjust";
+// regrade — пересорт: сменить позицию у партии (14.10), для любого вида
+export type LotOp = "move" | "return" | "writeoff" | "adjust" | "regrade";
 
 /** Партия для окна: строка единых остатков (api/unifiedStock — Lot) или
  * то же, собранное карточкой из рулона / партии п/ф. */
@@ -25,6 +26,7 @@ export const OP_LABEL: Record<LotOp, string> = {
   return: "Вернуть на склад",
   writeoff: "Списать",
   adjust: "Скорректировать",
+  regrade: "Пересорт",
 };
 
 export const OP_DONE: Record<LotOp, string> = {
@@ -32,6 +34,7 @@ export const OP_DONE: Record<LotOp, string> = {
   return: "возвращено на склад",
   writeoff: "списано",
   adjust: "скорректировано",
+  regrade: "пересортировано",
 };
 
 const norm = (s: string) => s.replace(/_/g, " ");
@@ -44,8 +47,8 @@ export function lotOps(lot: LotRef, has: (code: string) => boolean): { op: LotOp
   const written = st === "Списан";
   const perm = (op: LotOp) =>
     film
-      ? has({ move: "units.place", return: "units.return", writeoff: "units.writeoff", adjust: "units.correct" }[op])
-      : op === "adjust" || op === "return"
+      ? has({ move: "units.place", return: "units.return", writeoff: "units.writeoff", adjust: "units.correct", regrade: "materials.manage" }[op])
+      : op === "adjust" || op === "return" || op === "regrade"
         ? has("part_units.correct")
         : has("part_units.manage");
   const rule = (op: LotOp): string | undefined => {
@@ -55,7 +58,7 @@ export function lotOps(lot: LotRef, has: (code: string) => boolean): { op: LotOp
     if (op === "writeoff") return film && st !== "На хранении" ? "Списать рулон можно только с хранения (выданный — сначала вернуть)" : undefined;
     return undefined;
   };
-  return (["move", "return", "writeoff", "adjust"] as LotOp[])
+  return (["move", "return", "writeoff", "adjust", "regrade"] as LotOp[])
     .filter((op) => perm(op))
     .map((op) => {
       const why = rule(op);

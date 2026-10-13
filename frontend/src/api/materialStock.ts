@@ -94,3 +94,7 @@ export const listMaterialMoves = async (params: {
   date_from?: string;
   date_to?: string;
 }): Promise<MaterialMove[]> => (await apiClient.get<MaterialMove[]>("/material-stock/moves", { params })).data;
+
+/** Пересорт материала (14.10): часть остатка числилась не той позицией. */
+export const regradeMaterial = async (payload: { src_item_id: number; dst_item_id: number; qty: number; reason: string }) =>
+  (await apiClient.post("/materials/regrade", payload)).data;

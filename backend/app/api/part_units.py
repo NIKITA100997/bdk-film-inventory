@@ -518,3 +518,27 @@ def credit_to_line(unit_id: int, payload: CreditIn, db: Session = Depends(get_db
     unit.production_task_line_id = line.id
     db.commit()
     return {"ok": True, "task_id": task.id, "remaining": round(left - payload.quantity_pieces, 2)}
+
+
+class RegradeIn(BaseModel):
+    part_id: int
+    reason: str = Field(min_length=2, max_length=200)
+    stage_id: int | None = None
+
+
+@router.post("/{unit_id}/regrade", response_model=PartUnitOut)
+def regrade(unit_id: int, payload: RegradeIn, db: Session = Depends(get_db), user: User = Depends(correct_part_units)) -> PartUnitOut:
+    """Пересорт: партия заведена не той деталью (14.10)."""
+    from app.services.part_units import regrade_part_unit
+
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    try:
+        regrade_part_unit(db, unit=unit, part_id=payload.part_id, user_id=user.id, reason=payload.reason, stage_id=payload.stage_id)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    db.commit()
+    db.refresh(unit)
+    return _part_unit_out(unit, reported_good_pieces_by_unit(db, [unit.id]).get(unit.id, 0.0))

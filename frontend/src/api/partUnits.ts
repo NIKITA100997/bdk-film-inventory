@@ -171,3 +171,7 @@ export const recyclePartUnits = async (payload: {
   target_part_id: number;
   note?: string;
 }): Promise<PartUnit> => (await apiClient.post<PartUnit>("/part-units/recycle", payload)).data;
+
+/** Пересорт (14.10): партия заведена не той деталью — сменить деталь; этап — тот же по порядку или выбранный. */
+export const regradePartUnit = async (id: number, payload: { part_id: number; reason: string; stage_id?: number | null }): Promise<PartUnit> =>
+  (await apiClient.post<PartUnit>(`/part-units/${id}/regrade`, payload)).data;

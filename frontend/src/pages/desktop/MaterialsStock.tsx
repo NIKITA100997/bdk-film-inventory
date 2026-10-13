@@ -27,6 +27,7 @@ import {
   createMaterialMove,
   listMaterialMoves,
   listMaterialStock,
+  regradeMaterial,
   updateMaterial,
   type MaterialMove,
   type MaterialMoveKind,
@@ -68,6 +69,7 @@ export function MaterialsStockTab() {
   const [onlyMinus, setOnlyMinus] = useState(false);
   const [moveTarget, setMoveTarget] = useState<{ row: MaterialStockRow; kind: ManualKind } | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  const [regradeRow, setRegradeRow] = useState<MaterialStockRow | null>(null);
   const stockQuery = useQuery({ queryKey: ["material-stock", withArchived], queryFn: () => listMaterialStock(withArchived) });
   const rows = useMemo(
     () =>
@@ -208,6 +210,9 @@ export function MaterialsStockTab() {
                   <Button size="small" onClick={() => setMoveTarget({ row: r, kind: "adjust" })}>
                     Инвентаризация
                   </Button>
+                  <Button size="small" onClick={() => setRegradeRow(r)}>
+                    Пересорт
+                  </Button>
                 </Space>
               ),
           },
@@ -215,6 +220,7 @@ export function MaterialsStockTab() {
       />
       {moveTarget && <MoveModal row={moveTarget.row} kind={moveTarget.kind} onClose={() => setMoveTarget(null)} />}
       {newOpen && <NewMaterialModal onClose={() => setNewOpen(false)} />}
+      {regradeRow && <RegradeModal row={regradeRow} rows={stockQuery.data ?? []} onClose={() => setRegradeRow(null)} />}
     </Space>
   );
 }
@@ -310,6 +316,49 @@ function MoveModal({ row, kind, onClose }: { row: MaterialStockRow; kind: Manual
         </Form.Item>
         <Button type="primary" htmlType="submit" block loading={mutation.isPending}>
           Провести
+        </Button>
+      </Form>
+    </Modal>
+  );
+}
+
+/** Пересорт (14.10): часть остатка числилась не той позицией — минус с этой,
+ * плюс на правильную, одной операцией с причиной (как у рулона и партии п/ф). */
+function RegradeModal({ row, rows, onClose }: { row: MaterialStockRow; rows: MaterialStockRow[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  type V = { dst: number; qty: number; reason: string };
+  const mutation = useMutation({
+    mutationFn: (v: V) => regradeMaterial({ src_item_id: row.item_id, dst_item_id: v.dst, qty: v.qty, reason: v.reason.trim() }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["material-stock"] });
+      qc.invalidateQueries({ queryKey: ["material-moves"] });
+      message.success(`Пересорт: ${row.name}`);
+      onClose();
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось провести пересорт")),
+  });
+  return (
+    <Modal title={`Пересорт — ${row.name}`} open onCancel={onClose} footer={null} destroyOnHidden width={520}>
+      <Typography.Paragraph type="secondary">
+        Сейчас на остатке: {fmt(row.balance)} {row.unit}. Часть числилась этой позицией, а на самом деле — другой: столько же
+        уйдёт с этой и придёт на правильную, в движениях — «Пересорт» с причиной.
+      </Typography.Paragraph>
+      <Form<V> layout="vertical" initialValues={{ qty: row.balance > 0 ? row.balance : undefined }} onFinish={(v) => mutation.mutate(v)}>
+        <Form.Item name="dst" label="Правильная позиция" rules={[{ required: true, message: "Выберите позицию" }]}>
+          <Select
+            showSearch
+            optionFilterProp="label"
+            options={rows.filter((r) => r.item_id !== row.item_id).map((r) => ({ value: r.item_id, label: `${r.name} (${r.unit})` }))}
+          />
+        </Form.Item>
+        <Form.Item name="qty" label={`Количество, ${row.unit}`} rules={[{ required: true, message: "Укажите количество" }]}>
+          <InputNumber min={0.001} step={0.1} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="reason" label="Причина" rules={[{ required: true, whitespace: true, message: "Укажите причину" }]}>
+          <Input placeholder="например, при приходе выбрали не ту толщину" />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" block loading={mutation.isPending}>
+          Провести пересорт
         </Button>
       </Form>
     </Modal>
