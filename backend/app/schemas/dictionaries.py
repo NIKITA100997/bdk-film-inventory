@@ -212,6 +212,9 @@ class DuplicateCandidateOut(BaseModel):
     b_id: int
     b_name: str
     score: float
+    # у деталей — их позиции номенклатуры: «Слить B в A» (14.10)
+    a_item_id: int | None = None
+    b_item_id: int | None = None
 
 
 class SkuAnalogCreate(BaseModel):

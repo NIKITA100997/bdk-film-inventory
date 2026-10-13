@@ -3,6 +3,7 @@ import { Button, Empty, Modal, Popconfirm, Select, Space, Tag, Typography, messa
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import ItemMergeModal from "../../../components/ItemMergeModal";
 import {
   listAllParts,
   listPartDuplicates,
@@ -127,6 +128,7 @@ function StageRowsEditor({
 export function PartDuplicatesModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ["parts", "duplicates"], queryFn: listPartDuplicates });
+  const [merge, setMerge] = useState<DuplicateCandidate | null>(null);
   const archive = useMutation({
     mutationFn: (id: number) => updatePart(id, { is_active: false }),
     onSuccess: () => {
@@ -153,6 +155,12 @@ export function PartDuplicatesModal({ onClose }: { onClose: () => void }) {
             {
               title: "",
               render: (_, d) => (
+                <Space size={4}>
+                {d.a_item_id && d.b_item_id && (
+                  <Button size="small" onClick={() => setMerge(d)} title="Всё с B (партии, задания, резервы) — на A, B в архив">
+                    Слить B в A…
+                  </Button>
+                )}
                 <Popconfirm
                   title={`Архивировать «${d.b_name}»?`}
                   description="Останется для старых записей, но пропадёт из подсказок."
@@ -162,9 +170,23 @@ export function PartDuplicatesModal({ onClose }: { onClose: () => void }) {
                     Архивировать B
                   </Button>
                 </Popconfirm>
+                </Space>
               ),
             },
           ]}
+        />
+      )}
+      {merge && (
+        <ItemMergeModal
+          itemId={merge.b_item_id!}
+          itemName={merge.b_name}
+          kindCode="pf"
+          defaultInto={merge.a_item_id!}
+          stay
+          onClose={() => {
+            setMerge(null);
+            qc.invalidateQueries({ queryKey: ["parts", "duplicates"] });
+          }}
         />
       )}
     </Modal>

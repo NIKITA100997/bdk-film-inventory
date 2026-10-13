@@ -8,11 +8,27 @@ import { apiErrorMessage } from "../utils/apiError";
 /** Слить дубль с основной позицией (14.10) — для детали п/ф, материала,
  * изделия: сначала пробный прогон (что и сколько переедет), потом «Слить».
  * Дубль уходит в архив, его название становится синонимом основной. */
-export default function ItemMergeModal({ itemId, itemName, kindCode, onClose }: { itemId: number; itemName: string; kindCode: string; onClose: () => void }) {
+export default function ItemMergeModal({
+  itemId,
+  itemName,
+  kindCode,
+  onClose,
+  defaultInto,
+  stay = false,
+}: {
+  itemId: number;
+  itemName: string;
+  kindCode: string;
+  onClose: () => void;
+  /** основная позиция подставлена (из списка дубликатов) */
+  defaultInto?: number;
+  /** не переходить в карточку основной после слияния */
+  stay?: boolean;
+}) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const itemsQuery = useQuery({ queryKey: ["items", false], queryFn: () => listItems({ include_inactive: false }) });
-  const [into, setInto] = useState<number | undefined>();
+  const [into, setInto] = useState<number | undefined>(defaultInto);
   const [preview, setPreview] = useState<MergeResult | null>(null);
   const dry = useMutation({
     mutationFn: () => mergeItem(itemId, into!, false),
@@ -27,8 +43,9 @@ export default function ItemMergeModal({ itemId, itemName, kindCode, onClose }: 
     onSuccess: () => {
       for (const k of ["items", "techcard", "part-units", "unified-lots", "material-stock", "item-aliases", "dict-autocomplete"]) qc.invalidateQueries({ queryKey: [k] });
       message.success(`«${itemName}» слита`);
+      qc.invalidateQueries({ queryKey: ["parts"] });
       onClose();
-      navigate(`/item/${into}`);
+      if (!stay) navigate(`/item/${into}`);
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось слить")),
   });

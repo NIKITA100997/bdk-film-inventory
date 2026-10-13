@@ -402,7 +402,31 @@ def list_all_parts(db: Session = Depends(get_db), user=Depends(manage_parts)) ->
 
 @router.get("/parts/duplicates", response_model=list[DuplicateCandidateOut])
 def part_duplicates(db: Session = Depends(get_db), user=Depends(manage_parts)):
-    return _duplicates_for(db, Part)
+    import re
+
+    # дубль — только при тех же числах (размеры, серия, толщина): «В-9 … 610»
+    # и «В-19 … 610», «… 610х2010» и «… 710х2010» — разные детали, не дубли
+    nums = lambda s: sorted(re.findall(r"\d+(?:[.,]\d+)?", s.replace(",", ".")))  # noqa: E731
+    # и те же слова — расхождение только в уточнениях вида плёнки: «(Дуб
+    # пацифик горизонт)» = «(ПВХ Дуб Пацифик горизонт)»; «Е-10…» ≠ «В-10…»,
+    # «ПЭТ Белый» ≠ «ПЭТ Бежевый»
+    noise = {"пвх", "пэт", "2д", "3д", "пп", "полипропилен", "плёнка", "пленка"}
+
+    def same_words(a: str, b: str) -> bool:
+        def words(s: str) -> set[str]:
+            return set(re.findall(r"[a-zа-я0-9]+(?:-[a-zа-я0-9]+)*", s.lower().replace("ё", "е")))
+
+        return (words(a) ^ words(b)) <= noise
+
+    parts = {p.id: p for p in db.query(Part).filter(Part.is_active.is_(True))}
+    out = []
+    for d in find_fuzzy_duplicates([(p.id, p.name) for p in parts.values()]):
+        row = dict(d) if isinstance(d, dict) else dict(d.__dict__)
+        if nums(row["a_name"]) != nums(row["b_name"]) or not same_words(row["a_name"], row["b_name"]):
+            continue
+        row["a_item_id"], row["b_item_id"] = parts[row["a_id"]].item_id, parts[row["b_id"]].item_id
+        out.append(row)
+    return out
 
 
 @router.post("/parts", response_model=PartOut, status_code=status.HTTP_201_CREATED)

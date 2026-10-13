@@ -175,6 +175,8 @@ export interface DuplicateCandidate {
   b_id: number;
   b_name: string;
   score: number;
+  a_item_id?: number | null;
+  b_item_id?: number | null;
 }
 
 export const listAllNameDict = async (kind: NameDictKind): Promise<DictEntry[]> =>
