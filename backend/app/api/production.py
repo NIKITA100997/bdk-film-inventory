@@ -129,10 +129,22 @@ view_product_models = require_permission(
 view_tasks = require_permission("production_tasks.manage", "production_tasks.report", "production_tasks.view", "units.issue")
 
 def _can_see_all_areas(user: User) -> bool:
-    if user.is_superuser:
-        return True
-    codes = get_permission_codes(user)
-    return "production_tasks.manage" in codes or "units.issue" in codes
+    from app.core.security import sees_all_areas
+
+    return sees_all_areas(user)
+
+
+def _require_own_area(user: User, area: str | None) -> None:
+    """Создать задание можно только на свой участок, если нет права
+    «Задания всех участков» (14.10)."""
+    if not _can_see_all_areas(user) and area != user.area:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Задание можно поставить только на свой участок")
+
+
+def _guard_task(db: Session, user: User, task_id: int) -> None:
+    task = db.get(ProductionTask, task_id)
+    if task is not None:
+        _require_task_access(user, task)
 
 
 def _require_task_access(user: User, task: ProductionTask) -> None:
@@ -871,6 +883,7 @@ def get_blanks_demand(
 def create_production_task_manual(
     payload: ProductionTaskManualCreate, db: Session = Depends(get_db), user: User = Depends(manage_production)
 ) -> ProductionTaskOut:
+    _require_own_area(user, payload.area)
     task = ProductionTask(
         product_model_id=payload.product_model_id,
         quantity=payload.quantity,
@@ -960,6 +973,7 @@ def create_operation_task(
     area = db.get(Area, payload.area)
     if area is None or not area.is_active:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Участок не найден")
+    _require_own_area(user, payload.area)
     task = ProductionTask(name=payload.name, area=payload.area, created_by=user.id)
     db.add(task)
     db.flush()
@@ -1179,6 +1193,7 @@ def _build_task_line_report(
     мог собрать НЕСКОЛЬКО payload'ов одного клика в одну транзакцию и
     закоммитить (или откатить) их разом."""
     line = _get_task_line(db, task_id, line_id)
+    _require_task_access(user, line.task)  # отчёт — только по своему участку (14.10)
     area = db.get(Area, line.task.area)
     requires_daily_plan = area is None or area.requires_daily_plan
     if payload.assignment_id is not None:
@@ -1782,6 +1797,7 @@ def create_task_line_assignment(
     строку задания по линиям/дням/сотрудникам отдельным шагом после того,
     как задание уже поставлено на участок (не мутирует саму строку задания,
     накопительный журнал — тот же приём, что ProductionTaskLineReport)."""
+    _guard_task(db, user, task_id)  # только свой участок без «Задания всех участков» (14.10)
     task_line = _get_task_line(db, task_id, line_id)
     line = db.get(ProductionLine, payload.line_id)
     if line is None:
@@ -1894,6 +1910,7 @@ def update_task_line_spec(
     (sync_part_to_task_lines) или через "исправление" прямо на резке
     (override_strip_width/override_material в units.py); здесь то же
     самое, но явно, из самого задания, без похода в другой экран."""
+    _guard_task(db, user, task_id)  # только свой участок без «Задания всех участков» (14.10)
     line = db.get(ProductionTaskLine, line_id)
     if line is None or line.task_id != task_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
@@ -1945,6 +1962,7 @@ def delete_production_task_impl(db: Session, task: ProductionTask) -> None:
 def delete_production_task(
     task_id: int, db: Session = Depends(get_db), user: User = Depends(manage_production)
 ) -> DeleteResultOut:
+    _guard_task(db, user, task_id)  # только свой участок без «Задания всех участков» (14.10)
     task = db.get(ProductionTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
@@ -1962,6 +1980,7 @@ def delete_production_task(
 def archive_production_task(
     task_id: int, is_active: bool, db: Session = Depends(get_db), user: User = Depends(manage_production)
 ) -> ProductionTaskOut:
+    _guard_task(db, user, task_id)  # только свой участок без «Задания всех участков» (14.10)
     task = db.get(ProductionTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
@@ -1978,6 +1997,7 @@ def complete_production_task(
 ) -> ProductionTaskOut:
     """«Закрыть: всё сделано» для одного задания (см. complete_tasks):
     остаток строк засчитывается без рулона, задание в архив."""
+    _guard_task(db, user, task_id)  # только свой участок без «Задания всех участков» (14.10)
     task = db.get(ProductionTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
@@ -2005,6 +2025,7 @@ def close_task_line(
     трогает shortfall_length_m/remaining_pieces/отчёты — это ручное
     решение поверх них, скрывающее строку из Issue.tsx (не из
     TasksTab.tsx — там она остаётся видна с пометкой)."""
+    _guard_task(db, user, task_id)  # только свой участок без «Задания всех участков» (14.10)
     line = db.get(ProductionTaskLine, line_id)
     if line is None or line.task_id != task_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")

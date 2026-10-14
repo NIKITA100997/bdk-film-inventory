@@ -1226,7 +1226,9 @@ def tasks_print_data(payload: PrintTasksIn, db: Session = Depends(get_db), user:
     from app.services.task_print import print_sheets
 
     tasks = db.query(ProductionTask).filter(ProductionTask.id.in_(payload.task_ids)).all()
-    if user.area and not user.is_superuser and "production_tasks.manage" not in get_permission_codes(user):
+    from app.core.security import sees_all_areas
+
+    if not sees_all_areas(user):
         tasks = [t for t in tasks if t.area == user.area]
     return print_sheets(db, tasks)
 

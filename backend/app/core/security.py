@@ -72,6 +72,22 @@ def get_permission_codes(user: User) -> set[str]:
     return {perm.code for role in user.roles if role.is_active for perm in role.permissions}
 
 
+def sees_all_areas(user: User) -> bool:
+    """Задания всех участков (14.10): суперпользователь или право
+    «production_tasks.all_areas». Пользователь с участком в профиле без
+    этого права — только свой участок, даже с «управлением заданиями цеха».
+    Без участка в профиле — как раньше: управление заданиями или выдача
+    плёнки (складу нужны задания всех участков)."""
+    if user.is_superuser:
+        return True
+    codes = get_permission_codes(user)
+    if "production_tasks.all_areas" in codes:
+        return True
+    if user.area:
+        return False
+    return "production_tasks.manage" in codes or "units.issue" in codes
+
+
 def require_permission(*permission_codes: str):
     """Замена require_roles(*roles) — семантика "любое из перечисленных"
     сохранена 1:1, только источник теперь назначаемые права, а не хардкод
