@@ -188,6 +188,7 @@ class CalendarAreaOut(BaseModel):
     area_name: str
     need: float
     done: float
+    overdue: float = 0.0
     days: dict[str, list[float]]  # дата → [план, факт]
 
 
@@ -203,6 +204,30 @@ class CalendarRowOut(BaseModel):
     plan_finish: date | None
     released: bool
     areas: list[CalendarAreaOut]
+    items: list[list] = []
+    note: str | None = None
+    last_fact: date | None = None
+    overdue: float = 0.0
+
+
+class CalendarTotalOut(BaseModel):
+    area: str
+    area_name: str
+    days: dict[str, list[float]]
+
+
+@router.get("/calendar/totals", response_model=list[CalendarTotalOut])
+def order_calendar_totals(
+    date_from: date, date_to: date, db: Session = Depends(get_db), user: User = Depends(view)
+) -> list[CalendarTotalOut]:
+    """Произведено за день по участкам и план дня — по всем заданиям цеха."""
+    from dataclasses import asdict
+
+    from app.services.order_calendar import daily_totals
+
+    if (date_to - date_from).days > 120:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Период — не больше 120 дней")
+    return [CalendarTotalOut(**asdict(t)) for t in daily_totals(db, date_from, date_to)]
 
 
 @router.get("/calendar", response_model=list[CalendarRowOut])

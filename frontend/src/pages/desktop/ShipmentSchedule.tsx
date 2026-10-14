@@ -3,7 +3,8 @@ import { Button, Card, DatePicker, Empty, Grid, Input, Segmented, Space, Spin, T
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs, { type Dayjs } from "dayjs";
-import { getOrderCalendar, listCustomerOrders, type CalendarArea, type CalendarRow, type CustomerOrder } from "../../api/customerOrders";
+import { getCalendarTotals, getOrderCalendar, listCustomerOrders, type CalendarArea, type CalendarRow, type CustomerOrder } from "../../api/customerOrders";
+import OrderCalendarDrawer from "./OrderCalendarDrawer";
 import { PRIORITY_COLOR, PRIORITY_LABEL } from "../../api/productionOrders";
 import { exportToExcel } from "../../utils/excel";
 import { MoveDatesModal, useCustomerOrderRights } from "./customerOrders/parts";
@@ -129,6 +130,12 @@ export default function ShipmentSchedule() {
     queryFn: () => getOrderCalendar(start.format("YYYY-MM-DD"), end.format("YYYY-MM-DD")),
   });
   const calByKey = useMemo(() => new Map((calQuery.data ?? []).map((c) => [c.key, c])), [calQuery.data]);
+  const totalsQuery = useQuery({
+    queryKey: ["order-calendar-totals", start.format("YYYY-MM-DD"), end.format("YYYY-MM-DD")],
+    queryFn: () => getCalendarTotals(start.format("YYYY-MM-DD"), end.format("YYYY-MM-DD")),
+  });
+  const [totalsOpen, setTotalsOpen] = useState(false);
+  const [info, setInfo] = useState<Row | null>(null);
   const today = dayjs().format("YYYY-MM-DD");
   const needle = q.trim().toLowerCase();
 
@@ -371,6 +378,112 @@ export default function ShipmentSchedule() {
                   );
                 })}
               </tr>
+              {/* итог производства за день: все участки, все задания цеха */}
+              <tr>
+                <td
+                  style={{ position: "sticky", left: 0, zIndex: 2, background: token.colorBgContainer, padding: "4px 8px", color: token.colorTextSecondary, cursor: "pointer" }}
+                  onClick={() => setTotalsOpen(!totalsOpen)}
+                >
+                  {totalsOpen ? "▾" : "▸"} Произведено за день, шт
+                </td>
+                {days.map((d) => {
+                  const key = d.format("YYYY-MM-DD");
+                  const [p, f] = daySum(totalsQuery.data as CalendarArea[] | undefined, key);
+                  const tone = dayTone(key, p, f);
+                  const past = key <= today;
+                  const shown = past ? f : p;
+                  const body = (
+                    <td
+                      key={key}
+                      style={{
+                        ...cellBase(d),
+                        height: 26,
+                        textAlign: "center",
+                        fontSize: 10,
+                        fontWeight: 600,
+                        fontVariantNumeric: "tabular-nums",
+                        color: past ? tone : token.colorTextTertiary,
+                      }}
+                    >
+                      {shown > 0 || (past && p > 0) ? Math.round(shown) : ""}
+                    </td>
+                  );
+                  return p > 0 || f > 0 ? (
+                    <Tooltip
+                      key={key}
+                      title={
+                        <div>
+                          <div>
+                            {dayjs(key).format("DD.MM")}: сделано {r1(f)} из плана {r1(p)}
+                          </div>
+                          {(totalsQuery.data ?? [])
+                            .filter((a) => a.days[key])
+                            .map((a) => (
+                              <div key={a.area}>
+                                {a.area_name}: {r1(a.days[key][1])} / {r1(a.days[key][0])}
+                              </div>
+                            ))}
+                        </div>
+                      }
+                    >
+                      {body}
+                    </Tooltip>
+                  ) : (
+                    body
+                  );
+                })}
+              </tr>
+              {totalsOpen &&
+                (totalsQuery.data ?? []).map((a) => (
+                  <tr key={`tot|${a.area}`} style={{ background: token.colorFillQuaternary }}>
+                    <td
+                      style={{
+                        position: "sticky",
+                        left: 0,
+                        zIndex: 2,
+                        background: token.colorBgLayout,
+                        padding: "2px 8px 2px 24px",
+                        fontSize: 11,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        maxWidth: LEFT_W,
+                      }}
+                    >
+                      {a.area_name}
+                    </td>
+                    {days.map((d) => {
+                      const key = d.format("YYYY-MM-DD");
+                      const c = a.days[key];
+                      const past = key <= today;
+                      const tone = c ? dayTone(key, c[0], c[1]) : undefined;
+                      const shown = c ? (past ? c[1] : c[0]) : 0;
+                      const body = (
+                        <td
+                          key={key}
+                          style={{
+                            ...cellBase(d),
+                            height: 22,
+                            textAlign: "center",
+                            fontSize: 10,
+                            fontVariantNumeric: "tabular-nums",
+                            color: past ? tone : token.colorTextTertiary,
+                            fontWeight: past && c ? 600 : 400,
+                          }}
+                        >
+                          {c && (shown > 0 || (past && c[0] > 0)) ? Math.round(shown) : ""}
+                        </td>
+                      );
+                      return c ? (
+                        <Tooltip key={key} title={`${a.area_name}, ${dayjs(key).format("DD.MM")}: план ${r1(c[0])}, сделано ${r1(c[1])}`}>
+                          {body}
+                        </Tooltip>
+                      ) : (
+                        body
+                      );
+                    })}
+                  </tr>
+                ))}
             </thead>
             <tbody>
               {rows.flatMap((r) => {
@@ -380,7 +493,7 @@ export default function ShipmentSchedule() {
                 const accepted = o ? o.status === "accepted" : true;
                 const areas = r.cal?.areas ?? [];
                 const expanded = isOpen(r.key) && areas.length > 0;
-                const go = () => navigate(o ? `/customer-orders/${o.id}` : `/production-orders?order=${r.cal!.id}`);
+                const go = () => setInfo(r);
                 const main = (
                   <tr key={r.key} style={{ borderTop: `1px solid ${token.colorBorderSecondary}`, cursor: "pointer" }} onClick={go}>
                     <td style={{ position: "sticky", left: 0, zIndex: 1, background: token.colorBgContainer, padding: "4px 8px", maxWidth: LEFT_W }}>
@@ -418,9 +531,16 @@ export default function ShipmentSchedule() {
                           {o ? (accepted ? `${o.received}/${o.qty} шт` : `${o.qty} шт`) : ""}
                           {o && o.shipped > 0 ? ` · отгружено ${o.shipped}` : ""}
                           {o?.manager_name ? ` · ${o.manager_name}` : ""}
-                          {!o && areas.length
-                            ? `сделано ${Math.round((100 * areas.reduce((x, a) => x + Math.min(a.done, a.need), 0)) / Math.max(1, areas.reduce((x, a) => x + a.need, 0)))}%`
+                          {areas.length
+                            ? `${o ? " · " : ""}сделано ${Math.round((100 * areas.reduce((x, a) => x + Math.min(a.done, a.need), 0)) / Math.max(1, areas.reduce((x, a) => x + a.need, 0)))}%`
                             : ""}
+                        </Typography.Text>
+                        {(r.cal?.overdue ?? 0) > 0 && (
+                          <Typography.Text type="danger" style={{ fontSize: 11 }}>
+                            отстаёт на {r1(r.cal!.overdue)} шт
+                          </Typography.Text>
+                        )}
+                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
                         </Typography.Text>
                       </Space>
                     </td>
@@ -596,6 +716,15 @@ export default function ShipmentSchedule() {
         </div>
       )}
       {moving && <MoveDatesModal order={moving.order} preset={moving.preset} onClose={() => setMoving(null)} />}
+      {info && (
+        <OrderCalendarDrawer
+          co={info.co}
+          cal={info.cal}
+          stateLabel={info.co ? info.co.stage_label : STATE_LABEL[info.state]}
+          stateColor={STATE_COLOR[info.state]}
+          onClose={() => setInfo(null)}
+        />
+      )}
     </Space>
   );
 }

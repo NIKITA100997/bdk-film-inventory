@@ -106,6 +106,8 @@ export interface CalendarArea {
   area_name: string;
   need: number;
   done: number;
+  /** запланировано на прошедшие дни, но не сделано */
+  overdue: number;
   /** "YYYY-MM-DD" → [план, факт] */
   days: Record<string, [number, number]>;
 }
@@ -121,7 +123,20 @@ export interface CalendarRow {
   plan_finish: string | null;
   released: boolean;
   areas: CalendarArea[];
+  /** у заказа на производство: [название, шт] */
+  items: [string, number][];
+  note: string | null;
+  last_fact: string | null;
+  overdue: number;
 }
+/** Произведено за день по участку и план дня — по всем заданиям цеха. */
+export interface CalendarTotal {
+  area: string;
+  area_name: string;
+  days: Record<string, [number, number]>;
+}
+export const getCalendarTotals = async (dateFrom: string, dateTo: string): Promise<CalendarTotal[]> =>
+  (await apiClient.get<CalendarTotal[]>("/customer-orders/calendar/totals", { params: { date_from: dateFrom, date_to: dateTo } })).data;
 export const getOrderCalendar = async (dateFrom: string, dateTo: string): Promise<CalendarRow[]> =>
   (await apiClient.get<CalendarRow[]>("/customer-orders/calendar", { params: { date_from: dateFrom, date_to: dateTo } })).data;
 
