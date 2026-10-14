@@ -4,10 +4,12 @@ import SectionTabs from "../../../components/SectionTabs";
 import CustomerOrders from "./CustomerOrders";
 import OrderReadiness from "../OrderReadiness";
 import OrderDeadlines from "../production/OrderDeadlines";
+import { ShipmentsBody } from "../Shipments";
 
 /** Заказы клиентов (14.10) — одним пунктом: сами заказы, готовность по
- * этапам (бывший «Готовность заказов» в продажах) и сроки с переносами
- * (бывший «Сроки заказов» в производстве) — это всё про обещания клиенту. */
+ * этапам (бывший «Готовность заказов» в продажах), сроки с переносами
+ * (бывший «Сроки заказов» в производстве) и отгрузка по счёту (бывший
+ * отдельный пункт «Отгрузка») — это всё про обещания клиенту. */
 export default function CustomerOrdersHub() {
   const { user } = useAuth();
   const sections = [
@@ -19,6 +21,9 @@ export default function CustomerOrdersHub() {
       : []),
     ...(hasPerm(user, "production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "plan.approve")
       ? [{ key: "deadlines", label: "Сроки и переносы", children: <OrderDeadlines /> }]
+      : []),
+    ...(hasPerm(user, "fg.ship", "sales_calculator.view", "production_tasks.manage", "production_tasks.view")
+      ? [{ key: "shipping", label: "Отгрузка", children: <ShipmentsBody /> }]
       : []),
   ];
   return <SectionTabs title="Заказы клиентов" sections={sections} />;

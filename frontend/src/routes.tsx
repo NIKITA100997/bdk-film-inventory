@@ -23,7 +23,6 @@ import Demand from "./pages/desktop/production/Demand";
 import Settings from "./pages/desktop/Settings";
 import Reconciliation from "./pages/desktop/Reconciliation";
 import ProductionOrders from "./pages/desktop/production/ProductionOrders";
-import Shipments from "./pages/desktop/Shipments";
 import Planning from "./pages/desktop/Planning";
 import Requests from "./pages/desktop/Requests";
 import { RedirectToSection } from "./components/SectionTabs";
@@ -95,7 +94,7 @@ const appPageRoutes = (
     />
     <Route
       path="/customer-orders"
-      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve"]}><CustomerOrdersHub /></RequirePermission>}
+      element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve", "fg.ship"]}><CustomerOrdersHub /></RequirePermission>}
     />
     <Route
       path="/shipment-schedule"
@@ -262,14 +261,8 @@ const appPageRoutes = (
       path="/purchasing"
       element={<RequirePermission permissions={["purchasing.manage"]}><Purchasing /></RequirePermission>}
     />
-    <Route
-      path="/shipments"
-      element={
-        <RequirePermission permissions={["fg.ship", "sales_calculator.view", "production_tasks.manage", "production_tasks.view"]}>
-          <Shipments />
-        </RequirePermission>
-      }
-    />
+    {/* 14.10: отгрузка — вкладкой «Заказов клиентов» */}
+    <Route path="/shipments" element={<RedirectToSection to="/customer-orders" section="shipping" />} />
     <Route
       path="/production-monitor"
       element={

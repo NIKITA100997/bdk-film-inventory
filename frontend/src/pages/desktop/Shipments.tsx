@@ -46,14 +46,21 @@ export default function Shipments() {
   return (
     <Card>
       <Typography.Title level={4}>Отгрузка готовой продукции</Typography.Title>
-      <Tabs
-        items={[
-          { key: "ship", label: "По счетам", children: <ShipByInvoice /> },
-          { key: "history", label: "История отгрузок", children: <History /> },
-        ]}
-        destroyOnHidden
-      />
+      <ShipmentsBody />
     </Card>
+  );
+}
+
+/** Отгрузка без своей карточки — вкладкой «Заказов клиентов» (14.10). */
+export function ShipmentsBody() {
+  return (
+    <Tabs
+      items={[
+        { key: "ship", label: "По счетам", children: <ShipByInvoice /> },
+        { key: "history", label: "История отгрузок", children: <History /> },
+      ]}
+      destroyOnHidden
+    />
   );
 }
 

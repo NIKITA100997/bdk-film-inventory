@@ -49,7 +49,7 @@ export function FgStockTab() {
           {mainSite && awaitingMove > 0 && <Tag color="orange">ждут перевозки на {mainSite.name}: {n(awaitingMove)} шт</Tag>}
         </Space>
         <Space wrap>
-          <Button onClick={() => navigate("/shipments")}>Отгрузка по счёту →</Button>
+          <Button onClick={() => navigate("/customer-orders?section=shipping")}>Отгрузка по счёту →</Button>
           {canShip && <Button onClick={() => setReceiveOpen(true)}>Оприходовать упакованное раньше</Button>}
         </Space>
       </Space>
