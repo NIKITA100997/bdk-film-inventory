@@ -13,7 +13,7 @@ compute() ничего не пишет (проверка перед сохран
 from dataclasses import dataclass, field
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager, joinedload
 
 from app.models.dictionaries import Part
 from app.models.items import (
@@ -340,9 +340,10 @@ def film_candidates(db: Session, color_value: str):
         db.query(MaterialSku)
         .join(Color, Color.id == MaterialSku.color_id)
         .join(Material, Material.id == MaterialSku.material_id)
+        .options(contains_eager(MaterialSku.color), contains_eager(MaterialSku.material), joinedload(MaterialSku.thickness))
         .filter(MaterialSku.is_active.is_(True))
         .all()
-    )
+    )  # цвет, материал, толщина — тем же запросом (14.10: было по запросу на позицию)
     return [
         s
         for s in skus

@@ -205,7 +205,8 @@ class PfPick:
 
 
 def release_pf(
-    db: Session, order: ProductionOrder, door_tasks: list[ProductionTask], picks: list[PfPick], user_id: int
+    db: Session, order: ProductionOrder, door_tasks: list[ProductionTask], picks: list[PfPick], user_id: int,
+    needs: list[PfNeed] | None = None,
 ) -> list[ProductionTask]:
     """Задания на п/ф под заказ (без commit): задание на участок, строка на
     операцию маршрута детали (кроме последнего этапа — готовая деталь);
@@ -235,7 +236,8 @@ def release_pf(
                 stage_task[(ln.order_line_id, ln.part_stage_id)] = t
     tasks: dict[tuple[str, int | None], ProductionTask] = {}
     consumer_stage = {
-        (n.order_line_id, n.part_id, n.consumer_part_id): n.consumer_stage_id for n in order_pf_needs(db, order)
+        (n.order_line_id, n.part_id, n.consumer_part_id): n.consumer_stage_id
+        for n in (order_pf_needs(db, order) if needs is None else needs)
     }
     # Сначала верхний уровень — чтобы у вложенных было «под» какое задание.
     for pick in sorted(picks, key=lambda p: 0 if p.consumer_part_id is None else 1):

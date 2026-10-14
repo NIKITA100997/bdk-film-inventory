@@ -20,13 +20,14 @@ from app.models.production import ProductionTask
 from app.models.production_orders import ProductionOrder
 
 
-def default_picks(db: Session, order: ProductionOrder) -> list:
+def default_picks(db: Session, order: ProductionOrder, needs: list | None = None) -> list:
     """П/ф под заказ без окна запуска: сколько со склада и в работу — как
     предлагает расчёт; ламинация панели — на Фабрику при партии от порога
-    участка («По размеру партии»), иначе по маршруту."""
+    участка («По размеру партии»), иначе по маршруту. needs — уже
+    посчитанный order_pf_needs (чтобы не считать дважды)."""
     from app.services.planning import PfPick, order_pf_needs
 
-    needs = order_pf_needs(db, order)
+    needs = order_pf_needs(db, order) if needs is None else needs
     per_part: dict[int, float] = defaultdict(float)
     for n in needs:
         per_part[n.part_id] += n.launch
@@ -53,12 +54,15 @@ def trial_release(db: Session, order: ProductionOrder, user_id: int, *, from_tod
     """Запустить заказ в текущей транзакции (откат — у вызывающего).
     from_today — сроки от сегодня, а не назад от обещанной даты: «когда
     раньше всего может быть готово». OrderError — пробрасывается."""
-    from app.services.planning import release_pf, schedule_order
+    from app.services.planning import order_pf_needs, release_pf, schedule_order
     from app.services.production_orders import release_order
     from app.services.release_merge import merge_pf_lines
 
     tasks = release_order(db, order, user_id)
-    tasks += release_pf(db, order, tasks, default_picks(db, order), user_id)
+    # потребность п/ф — один раз: между выбором и запуском п/ф данные не
+    # меняются, release_pf иначе посчитал бы её заново (14.10)
+    needs = order_pf_needs(db, order)
+    tasks += release_pf(db, order, tasks, default_picks(db, order, needs), user_id, needs=needs)
     merge_pf_lines(db, order)
     if from_today:
         ship, ready = order.ship_date, order.promised_ready

@@ -22,7 +22,7 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.dictionaries import Part, PartStage
 from app.models.part_units import PartReservation, PartUnit, PartUnitStatus
@@ -250,7 +250,8 @@ class _State:
 
 
 def _state(db: Session) -> _State:
-    parts = [p for p in db.query(Part).filter(Part.is_active.is_(True)).all() if p.stages]
+    # этапы — одним запросом (14.10: было по запросу на деталь, ~560 на расчёт)
+    parts = [p for p in db.query(Part).options(selectinload(Part.stages)).filter(Part.is_active.is_(True)).all() if p.stages]
     first_stage = {p.id: min(p.stages, key=lambda s: s.sequence_order) for p in parts}
     raw = _task_demand_by_part(db)
     for part_id, sources in _operation_demand_by_part(db).items():
