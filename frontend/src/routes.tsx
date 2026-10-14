@@ -3,39 +3,44 @@ import Login from "./pages/Login";
 import Home from "./pages/Home";
 import AppLayout from "./layout/AppLayout";
 import { RequireAuth, RequirePermission } from "./auth/RoleGuard";
-
-import { IssueHub, ReceiveHub } from "./pages/mobile/StockOpsHub";
-import UnitCard from "./pages/mobile/UnitCard";
-import PartUnitCard from "./pages/mobile/PartUnitCard";
-
-import Stock, { StockRedirect } from "./pages/desktop/Stock";
-import Reports from "./pages/desktop/Reports";
-import OrderPage from "./pages/desktop/production/OrderPage";
-import { PricesPage } from "./pages/desktop/PricesTab";
-import WarehouseTransfers from "./pages/desktop/WarehouseTransfers";
-import Inventory from "./pages/desktop/Inventory";
-import UserAdmin from "./pages/desktop/UserAdmin";
-import RoleAdmin from "./pages/desktop/RoleAdmin";
-import Purchasing from "./pages/desktop/Purchasing";
-import SalesCalculator from "./pages/desktop/SalesCalculator";
-import ProductionTasks from "./pages/desktop/ProductionTasks";
-import Demand from "./pages/desktop/production/Demand";
-import Settings from "./pages/desktop/Settings";
-import Reconciliation from "./pages/desktop/Reconciliation";
-import ProductionOrders from "./pages/desktop/production/ProductionOrders";
-import Planning from "./pages/desktop/Planning";
-import Requests from "./pages/desktop/Requests";
+import { lazyPage } from "./utils/lazyPage";
 import { RedirectToSection } from "./components/SectionTabs";
-import Nomenclature from "./pages/desktop/Nomenclature";
-import ItemCard, { MaterialCardRedirect, PartCardRedirect } from "./pages/desktop/ItemCard";
 import { ITEM_VIEW_PERMISSIONS } from "./api/items";
-import PeriodClosing from "./pages/desktop/PeriodClosing";
-import Productivity from "./pages/desktop/Productivity";
-import ProductionMonitor from "./pages/desktop/production/ProductionMonitor";
-import SearchPage from "./pages/desktop/SearchPage";
-import ShipmentSchedule from "./pages/desktop/ShipmentSchedule";
-import CustomerOrdersHub from "./pages/desktop/customerOrders/CustomerOrdersHub";
-import CustomerOrderPage from "./pages/desktop/customerOrders/CustomerOrderPage";
+
+const IssueHub = lazyPage(() => import("./pages/mobile/StockOpsHub").then((m) => ({ default: m.IssueHub })));
+const ReceiveHub = lazyPage(() => import("./pages/mobile/StockOpsHub").then((m) => ({ default: m.ReceiveHub })));
+const UnitCard = lazyPage(() => import("./pages/mobile/UnitCard"));
+const PartUnitCard = lazyPage(() => import("./pages/mobile/PartUnitCard"));
+
+const Stock = lazyPage(() => import("./pages/desktop/Stock"));
+const StockRedirect = lazyPage(() => import("./pages/desktop/Stock").then((m) => ({ default: m.StockRedirect })));
+const Reports = lazyPage(() => import("./pages/desktop/Reports"));
+const OrderPage = lazyPage(() => import("./pages/desktop/production/OrderPage"));
+const PricesPage = lazyPage(() => import("./pages/desktop/PricesTab").then((m) => ({ default: m.PricesPage })));
+const WarehouseTransfers = lazyPage(() => import("./pages/desktop/WarehouseTransfers"));
+const Inventory = lazyPage(() => import("./pages/desktop/Inventory"));
+const UserAdmin = lazyPage(() => import("./pages/desktop/UserAdmin"));
+const RoleAdmin = lazyPage(() => import("./pages/desktop/RoleAdmin"));
+const Purchasing = lazyPage(() => import("./pages/desktop/Purchasing"));
+const SalesCalculator = lazyPage(() => import("./pages/desktop/SalesCalculator"));
+const ProductionTasks = lazyPage(() => import("./pages/desktop/ProductionTasks"));
+const Demand = lazyPage(() => import("./pages/desktop/production/Demand"));
+const Settings = lazyPage(() => import("./pages/desktop/Settings"));
+const Reconciliation = lazyPage(() => import("./pages/desktop/Reconciliation"));
+const ProductionOrders = lazyPage(() => import("./pages/desktop/production/ProductionOrders"));
+const Planning = lazyPage(() => import("./pages/desktop/Planning"));
+const Requests = lazyPage(() => import("./pages/desktop/Requests"));
+const Nomenclature = lazyPage(() => import("./pages/desktop/Nomenclature"));
+const ItemCard = lazyPage(() => import("./pages/desktop/ItemCard"));
+const MaterialCardRedirect = lazyPage(() => import("./pages/desktop/ItemCard").then((m) => ({ default: m.MaterialCardRedirect })));
+const PartCardRedirect = lazyPage(() => import("./pages/desktop/ItemCard").then((m) => ({ default: m.PartCardRedirect })));
+const PeriodClosing = lazyPage(() => import("./pages/desktop/PeriodClosing"));
+const Productivity = lazyPage(() => import("./pages/desktop/Productivity"));
+const ProductionMonitor = lazyPage(() => import("./pages/desktop/production/ProductionMonitor"));
+const SearchPage = lazyPage(() => import("./pages/desktop/SearchPage"));
+const ShipmentSchedule = lazyPage(() => import("./pages/desktop/ShipmentSchedule"));
+const CustomerOrdersHub = lazyPage(() => import("./pages/desktop/customerOrders/CustomerOrdersHub"));
+const CustomerOrderPage = lazyPage(() => import("./pages/desktop/customerOrders/CustomerOrderPage"));
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
