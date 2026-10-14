@@ -120,14 +120,26 @@ app.middleware("http")(idempotency_middleware)
 
 # Заголовки безопасности (14.10, проверка качества): не угадывать тип файла
 # (загруженное фото не исполнится как скрипт), не встраивать программу в
-# чужие страницы, не отдавать полный адрес в Referer. CSP целиком — отдельно:
-# камера, печать и стили библиотеки требуют аккуратной настройки.
+# чужие страницы, не отдавать полный адрес в Referer. CSP — для страниц:
+# скрипты только свои (внедрённый в данные код не выполнится); стили —
+# свои и встроенные (Ant Design пишет стили на лету); картинки — свои,
+# data: (QR) и blob:; печать — во фрейме blob: (PDF и HTML этикеток);
+# сканер QR — воркеры blob:. Внешних источников у программы нет.
+CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+    "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-src 'self' blob: data:; "
+    "media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+)
+
+
 @app.middleware("http")
 async def security_headers(request, call_next):
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if (response.headers.get("content-type") or "").startswith("text/html"):
+        response.headers.setdefault("Content-Security-Policy", CSP)
     return response
 
 # Раздел про ускорение первой загрузки на планшетах — единый префикс
