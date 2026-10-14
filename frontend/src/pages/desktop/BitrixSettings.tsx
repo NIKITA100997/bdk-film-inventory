@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import {
   getBitrixSettings,
+  getDealMeta,
   getUserMap,
   listBitrixChats,
   listBitrixUsers,
@@ -11,6 +12,7 @@ import {
   retryOutbox,
   saveBitrixSettings,
   saveUserMap,
+  syncDealsNow,
   testBitrix,
   type BitrixSettings as Settings,
 } from "../../api/bitrix";
@@ -22,6 +24,14 @@ const EVENT_LABEL: Record<string, string> = {
   request_returned: "заявка возвращена",
   promise_changed: "перенос дат",
   purchase_task: "закупка",
+  deal_comment: "лента сделки",
+  deal_ship_date: "дата отгрузки в сделке",
+  lag_digest: "сводка отставаний",
+  order_cancelled: "отмена заказа",
+  order_reduced: "уменьшение заказа",
+  plan_submitted: "план на утверждение",
+  plan_approved: "план утверждён",
+  plan_returned: "план возвращён",
 };
 
 /** Настройки Битрикс24 (12.10): входящий вебхук, чаты служб, кому задачи на
@@ -38,6 +48,15 @@ export default function BitrixSettings() {
   const bxUsersQuery = useQuery({ queryKey: ["bitrix-users"], queryFn: listBitrixUsers, enabled: connected, retry: false });
   const mapQuery = useQuery({ queryKey: ["bitrix-user-map"], queryFn: getUserMap });
   const outboxQuery = useQuery({ queryKey: ["bitrix-outbox"], queryFn: listOutbox, refetchInterval: 15000 });
+  const dealMetaQuery = useQuery({ queryKey: ["bitrix-deal-meta"], queryFn: getDealMeta, enabled: connected, retry: false });
+  const syncDeals = useMutation({
+    mutationFn: syncDealsNow,
+    onSuccess: (r) =>
+      r.off
+        ? message.warning("Сделки выключены или не выбрана воронка — сохраните настройки")
+        : message.success(`Привязано ${r.linked ?? 0}, создано ${r.created ?? 0}, передвинуто стадий ${r.moved ?? 0}${r.errors ? `, ошибок ${r.errors}` : ""}`),
+    onError: (e) => message.error(apiErrorMessage(e, "Не получилось")),
+  });
   const [map, setMap] = useState<Record<number, number | null>>({});
   useEffect(() => {
     if (mapQuery.data) setMap(Object.fromEntries(mapQuery.data.map((r) => [r.user_id, r.bitrix_user_id])));
@@ -166,6 +185,78 @@ export default function BitrixSettings() {
             <Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>
               Сохранить
             </Button>
+          </Form>
+        )}
+      </Card>
+
+      <Card size="small" title="Сделки">
+        {!connected ? (
+          <Typography.Text type="secondary">Сначала сохраните адрес вебхука.</Typography.Text>
+        ) : dealMetaQuery.isError ? (
+          <Alert type="error" showIcon message={apiErrorMessage(dealMetaQuery.error, "Не удалось прочитать воронки — у вебхука есть право CRM?")} />
+        ) : (
+          <Form layout="vertical">
+            <Typography.Paragraph type="secondary">
+              При отправке заказа клиента производству программа ищет сделку, название которой начинается с номера счёта («2101-ЭЛ(М) щиты…»):
+              одна — привязывает, ни одной — создаёт (если включено), несколько — ждёт выбора в карточке заказа. Дальше сама двигает сделку по
+              стадиям — только вперёд и не из закрытых, — пишет обещанную отгрузку в поле даты и в ленту сделки: принятие, возврат, переносы,
+              отмену. Проверка — раз в 20 минут.
+            </Typography.Paragraph>
+            <Space wrap style={{ marginBottom: 12 }}>
+              <Switch checked={!!s.deals_enabled} onChange={(v) => set({ deals_enabled: v })} />
+              <span>Вести сделки</span>
+              <Switch checked={s.deal_auto_create !== false} onChange={(v) => set({ deal_auto_create: v })} />
+              <span>Создавать сделку, если по счёту не нашлась</span>
+            </Space>
+            <Form.Item label="Воронка">
+              <Select
+                style={{ maxWidth: 420 }}
+                loading={dealMetaQuery.isLoading}
+                value={s.deal_category ?? undefined}
+                onChange={(v) => set({ deal_category: v, deal_stage_accepted: null, deal_stage_production: null, deal_stage_ready: null, deal_stage_shipping: null })}
+                options={(dealMetaQuery.data?.categories ?? []).map((c) => ({ value: c.id, label: c.name }))}
+              />
+            </Form.Item>
+            {(
+              [
+                ["deal_stage_accepted", "Заказ принят производством"],
+                ["deal_stage_production", "В производстве"],
+                ["deal_stage_ready", "Готов (на складе ГП)"],
+                ["deal_stage_shipping", "Отгружается / отгружен"],
+              ] as const
+            ).map(([key, label]) => (
+              <Form.Item key={key} label={`Стадия: ${label.toLowerCase()}`} style={{ marginBottom: 8 }}>
+                <Select
+                  allowClear
+                  placeholder="не двигать"
+                  style={{ maxWidth: 420 }}
+                  value={s[key] ?? undefined}
+                  onChange={(v) => set({ [key]: v ?? null } as Partial<Settings>)}
+                  options={(dealMetaQuery.data?.categories.find((c) => c.id === s.deal_category)?.stages ?? []).map((st) => ({
+                    value: st.id,
+                    label: st.name,
+                  }))}
+                />
+              </Form.Item>
+            ))}
+            <Form.Item label="Поле сделки для даты отгрузки">
+              <Select
+                allowClear
+                placeholder="не заполнять"
+                style={{ maxWidth: 420 }}
+                value={s.deal_ship_field ?? undefined}
+                onChange={(v) => set({ deal_ship_field: v ?? null })}
+                options={(dealMetaQuery.data?.date_fields ?? []).map((f) => ({ value: f.id, label: f.name }))}
+              />
+            </Form.Item>
+            <Space wrap>
+              <Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>
+                Сохранить
+              </Button>
+              <Button loading={syncDeals.isPending} onClick={() => syncDeals.mutate()}>
+                Проверить сделки сейчас
+              </Button>
+            </Space>
           </Form>
         )}
       </Card>

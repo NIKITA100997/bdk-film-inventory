@@ -40,6 +40,9 @@ class CustomerOrder(Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # сделка Битрикс24 (14.10): привязана к найденной по счёту или создана программой
+    bitrix_deal_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    bitrix_stage_sent: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -25,6 +25,7 @@ from app.models.items import Item, ItemType
 from app.models.production_orders import OrderDateChange
 from app.models.users import User
 from app.services import bitrix
+from app.services import bitrix_deals as deals
 from app.services import customer_orders as cos
 from app.services.components import live_item_names
 
@@ -119,6 +120,9 @@ class OrderOut(BaseModel):
     production_orders: list[dict]
     lines: list[LineOut]
     date_changes: list[ChangeOut] = []
+    bitrix_deal_id: int | None = None
+    bitrix_deal_url: str | None = None
+    bitrix_deals_on: bool = False  # сделки Битрикс24 включены в настройках
 
 
 def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
@@ -156,6 +160,9 @@ def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
         lines=[LineOut(id=ln.id, item_id=ln.item_id, item_name=names.get(ln.item_id, "?"), quantity=float(ln.quantity),
                        launched=round(p.line_launched.get(ln.id, 0.0), 2), note=ln.note) for ln in co.lines],
         date_changes=changes,
+        bitrix_deal_id=co.bitrix_deal_id,
+        bitrix_deal_url=deals.deal_url(bitrix.get_settings(db), co.bitrix_deal_id) if co.bitrix_deal_id else None,
+        bitrix_deals_on=full and deals.enabled(bitrix.get_settings(db)),
     )
 
 
@@ -344,6 +351,8 @@ def submit(order_id: int, payload: DecisionIn | None = None, db: Session = Depen
     bitrix.on_request_submitted(db, co, user)
     db.commit()
     db.refresh(co)
+    if not co.bitrix_deal_id and deals.enabled(bitrix.get_settings(db)):
+        deals.link_in_background(co.id)
     return _out(db, co)
 
 
@@ -358,6 +367,7 @@ def return_order(order_id: int, payload: DecisionIn, db: Session = Depends(get_d
     co.status, co.request_comment = CO_RETURNED, comment
     co.decided_by, co.decided_at = user.id, datetime.now(timezone.utc)
     bitrix.on_request_decided(db, co, accepted=False)
+    deals.comment(db, co, f"Производство вернуло заказ менеджеру. Причина: {comment}")
     db.commit()
     db.refresh(co)
     return _out(db, co)
@@ -386,6 +396,9 @@ def accept(order_id: int, payload: DecisionIn, db: Session = Depends(get_db), us
     co.status, co.request_comment = CO_ACCEPTED, (payload.comment or "").strip() or None
     co.decided_by, co.decided_at = user.id, datetime.now(timezone.utc)
     bitrix.on_request_decided(db, co, accepted=True)
+    deals.comment(db, co, f"Заказ принят производством: готовность {deals.fmt(co.promised_ready)}, отгрузка {deals.fmt(co.ship_date)}"
+                  + (f". {co.request_comment}" if co.request_comment else ""))
+    deals.push_ship_date(db, co)
     note_change(db, co, None, co.promised_ready or co.ship_date, ("СРОЧНЫЙ, " if co.priority == 2 else "") + "принят заказ", user.id)
     db.commit()
     db.refresh(co)
@@ -462,6 +475,11 @@ def change_dates(order_id: int, payload: PromiseIn, db: Session = Depends(get_db
                         "перенос: " + ", ".join(f"{'готовность' if f == 'ready' else 'отгрузка'} {a:%d.%m}→{b:%d.%m}" if a and b else f for f, a, b in changes)
                         + (f" ({REASONS.get(payload.reason or '', '')})" if payload.reason else ""), user.id)
             bitrix.on_promise_changed(db, co, changes, REASONS.get(payload.reason or ""), payload.comment)
+            names = {"ship": "отгрузка", "ready": "готовность", "ready_fact": "факт готовности"}
+            why = ", ".join(x for x in (REASONS.get(payload.reason or ""), payload.comment) if x)
+            deals.comment(db, co, "Перенос дат: " + "; ".join(f"{names.get(f, f)} {deals.fmt(a)} → {deals.fmt(b)}" for f, a, b in changes)
+                          + (f". Причина: {why}" if why else ""))
+            deals.push_ship_date(db, co)
     db.commit()
     db.refresh(co)
     return _out(db, co)
@@ -477,6 +495,68 @@ def _po_customer_dates(db: Session, po) -> tuple[date | None, date | None]:
 
 class CancelIn(BaseModel):
     reason: str = Field(min_length=2, max_length=255)
+
+
+class DealOut(BaseModel):
+    id: int
+    title: str
+    stage: str
+    amount: float | None
+    created: str | None
+    url: str | None
+
+
+@router.get("/{order_id}/bitrix-deals", response_model=list[DealOut])
+def find_bitrix_deals(order_id: int, db: Session = Depends(get_db), user: User = Depends(edit)) -> list[DealOut]:
+    """Сделки воронки, название которых начинается с номера счёта заказа."""
+    co = _get(db, order_id)
+    s = bitrix.get_settings(db)
+    if not deals.enabled(s):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Сделки Битрикс24 не включены — «Настройки → Битрикс24»")
+    try:
+        found = deals.find_deals(s, co.invoice_no)
+    except bitrix.BitrixError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    return [DealOut(id=int(d["ID"]), title=d.get("TITLE", ""), stage=d.get("STAGE_ID", ""),
+                    amount=float(d["OPPORTUNITY"]) if d.get("OPPORTUNITY") else None, created=(d.get("DATE_CREATE") or "")[:10] or None,
+                    url=deals.deal_url(s, int(d["ID"]))) for d in found]
+
+
+class DealLinkIn(BaseModel):
+    deal: str | None = None  # номер сделки или ссылка на неё
+    create: bool = False  # создать новую сделку
+    unlink: bool = False
+
+
+@router.post("/{order_id}/bitrix-deal", response_model=OrderOut)
+def set_bitrix_deal(order_id: int, payload: DealLinkIn, db: Session = Depends(get_db), user: User = Depends(edit)) -> OrderOut:
+    co = _get(db, order_id)
+    s = bitrix.get_settings(db)
+    if not deals.enabled(s):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Сделки Битрикс24 не включены — «Настройки → Битрикс24»")
+    try:
+        if payload.unlink:
+            co.bitrix_deal_id = co.bitrix_stage_sent = None
+        elif payload.create:
+            if co.bitrix_deal_id:
+                raise HTTPException(status.HTTP_409_CONFLICT, "У заказа уже есть сделка — сначала отвяжите её")
+            co.bitrix_deal_id, co.bitrix_stage_sent = deals.create_deal(db, s, co), None
+        else:
+            import re
+
+            m = re.search(r"(\d+)/?\s*$", (payload.deal or "").strip())
+            if not m:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите номер сделки или ссылку на неё")
+            did = int(m.group(1))
+            bitrix.call(s["webhook"], "crm.deal.get", {"id": did})  # есть ли такая
+            co.bitrix_deal_id, co.bitrix_stage_sent = did, None
+            base = (s.get("base_url") or "").rstrip("/")
+            deals.comment(db, co, f"Связана с заказом клиента в программе учёта{': ' + base + '/customer-orders/' + str(co.id) if base else ''}")
+    except bitrix.BitrixError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    db.commit()
+    db.refresh(co)
+    return _out(db, co)
 
 
 @router.post("/{order_id}/cancel", response_model=OrderOut)
@@ -495,6 +575,7 @@ def cancel(order_id: int, payload: CancelIn, db: Session = Depends(get_db), user
     co.status = CO_CANCELLED
     co.note = (f"Отменён: {payload.reason}. " + (co.note or ""))[:500]
     note_change(db, co, old, None, f"отменён ({payload.reason})", user.id)
+    deals.comment(db, co, f"Заказ отменён в программе. Причина: {payload.reason}")
     db.commit()
     db.refresh(co)
     return _out(db, co)

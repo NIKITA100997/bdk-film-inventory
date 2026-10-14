@@ -13,6 +13,7 @@ _started = [False]
 
 def _loop() -> None:
     from app.db.session import SessionLocal
+    from app.services.bitrix_deals import sync as deals_sync
     from app.services.order_control import lag_digest
 
     while True:
@@ -25,6 +26,15 @@ def _loop() -> None:
                     db.close()
         except Exception:  # noqa: BLE001 — фон не должен падать
             log.exception("lag digest")
+        # сделки Битрикс24 (14.10): привязать/создать, стадии вперёд по ходу заказа
+        try:
+            db = SessionLocal()
+            try:
+                deals_sync(db)
+            finally:
+                db.close()
+        except Exception:  # noqa: BLE001
+            log.exception("bitrix deals sync")
         time.sleep(20 * 60)
 
 

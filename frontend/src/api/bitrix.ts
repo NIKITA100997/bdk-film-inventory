@@ -10,7 +10,23 @@ export interface BitrixSettings {
   chat_logistics: string | null;
   chat_purchasing: string | null;
   purchaser: number | null;
+  /** сделки (14.10) */
+  deals_enabled?: boolean;
+  deal_category?: number | null;
+  deal_auto_create?: boolean;
+  deal_stage_accepted?: string | null;
+  deal_stage_production?: string | null;
+  deal_stage_ready?: string | null;
+  deal_stage_shipping?: string | null;
+  deal_ship_field?: string | null;
 }
+export interface DealMeta {
+  categories: { id: number; name: string; stages: { id: string; name: string }[] }[];
+  date_fields: { id: string; name: string }[];
+}
+export const getDealMeta = async () => (await apiClient.get<DealMeta>("/bitrix/deal-meta")).data;
+export const syncDealsNow = async () =>
+  (await apiClient.post<{ off?: boolean; linked?: number; created?: number; moved?: number; errors?: number }>("/bitrix/deals/sync")).data;
 export interface BitrixChat { dialog_id: string; title: string }
 export interface BitrixUser { id: number; name: string; email: string | null }
 export interface UserMapRow { user_id: number; full_name: string; bitrix_user_id: number | null }

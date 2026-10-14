@@ -84,6 +84,10 @@ export interface CustomerOrder {
   production_orders: { id: number; name: string; status: string }[];
   lines: CustomerOrderLine[];
   date_changes: CustomerDateChange[];
+  /** сделка Битрикс24 (14.10) */
+  bitrix_deal_id?: number | null;
+  bitrix_deal_url?: string | null;
+  bitrix_deals_on?: boolean;
 }
 
 export interface CustomerOrderInput {
@@ -139,6 +143,12 @@ export const getCalendarTotals = async (dateFrom: string, dateTo: string): Promi
   (await apiClient.get<CalendarTotal[]>("/customer-orders/calendar/totals", { params: { date_from: dateFrom, date_to: dateTo } })).data;
 export const getOrderCalendar = async (dateFrom: string, dateTo: string): Promise<CalendarRow[]> =>
   (await apiClient.get<CalendarRow[]>("/customer-orders/calendar", { params: { date_from: dateFrom, date_to: dateTo } })).data;
+
+export interface BitrixDeal { id: number; title: string; stage: string; amount: number | null; created: string | null; url: string | null }
+export const findBitrixDeals = async (orderId: number): Promise<BitrixDeal[]> =>
+  (await apiClient.get<BitrixDeal[]>(`/customer-orders/${orderId}/bitrix-deals`)).data;
+export const setBitrixDeal = async (orderId: number, payload: { deal?: string; create?: boolean; unlink?: boolean }): Promise<CustomerOrder> =>
+  (await apiClient.post<CustomerOrder>(`/customer-orders/${orderId}/bitrix-deal`, payload)).data;
 
 export const listCustomerOrders = async (includeClosed = false): Promise<CustomerOrder[]> =>
   (await apiClient.get<CustomerOrder[]>(base, { params: { include_closed: includeClosed } })).data;

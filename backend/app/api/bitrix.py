@@ -24,6 +24,15 @@ class BitrixSettingsIO(BaseModel):
     chat_logistics: str | None = None
     chat_purchasing: str | None = None
     purchaser: int | None = None
+    # сделки (14.10): воронка, создавать ли, стадии по ходу заказа, поле даты отгрузки
+    deals_enabled: bool = False
+    deal_category: int | None = None
+    deal_auto_create: bool = True
+    deal_stage_accepted: str | None = None
+    deal_stage_production: str | None = None
+    deal_stage_ready: str | None = None
+    deal_stage_shipping: str | None = None
+    deal_ship_field: str | None = None
 
 
 def _mask(url: str) -> str:
@@ -54,6 +63,45 @@ def put_bitrix_settings(payload: BitrixSettingsIO, db: Session = Depends(get_db)
     bx.save_settings(db, new, user.id)
     db.commit()
     return get_bitrix_settings(db, user)
+
+
+class DealCategoryOut(BaseModel):
+    id: int
+    name: str
+    stages: list[dict]  # [{id, name}]
+
+
+class DealMetaOut(BaseModel):
+    categories: list[DealCategoryOut]
+    date_fields: list[dict]  # [{id, name}] — пользовательские поля-даты сделки
+
+
+@router.get("/deal-meta", response_model=DealMetaOut)
+def deal_meta(db: Session = Depends(get_db), user: User = Depends(admin)) -> DealMetaOut:
+    """Воронки сделок со стадиями и поля-даты — для настройки сделок."""
+    s = bx.get_settings(db)
+    hook = s.get("webhook", "")
+    try:
+        cats = bx.call(hook, "crm.category.list", {"entityTypeId": 2}).get("result", {}).get("categories", [])
+        out = []
+        for c in cats:
+            entity = "DEAL_STAGE" if int(c["id"]) == 0 else f"DEAL_STAGE_{c['id']}"
+            st = bx.call(hook, "crm.status.list", {"filter": {"ENTITY_ID": entity}, "order": {"SORT": "ASC"}}).get("result", [])
+            out.append(DealCategoryOut(id=int(c["id"]), name=c["name"], stages=[{"id": x["STATUS_ID"], "name": x["NAME"]} for x in st]))
+        fields = bx.call(hook, "crm.deal.fields").get("result", {})
+    except bx.BitrixError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    dates = [{"id": k, "name": (v.get("formLabel") or v.get("listLabel") or k).strip()} for k, v in fields.items()
+             if k.startswith("UF_") and v.get("type") in ("date", "datetime")]
+    return DealMetaOut(categories=out, date_fields=dates)
+
+
+@router.post("/deals/sync")
+def deals_sync_now(db: Session = Depends(get_db), user: User = Depends(admin)) -> dict:
+    """Сделки сейчас, не дожидаясь фона: найти/создать и передвинуть стадии."""
+    from app.services.bitrix_deals import sync
+
+    return sync(db)
 
 
 class TestIn(BaseModel):
