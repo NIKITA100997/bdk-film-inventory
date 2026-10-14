@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer
+
+from app.core.price_visibility import hide
 
 from app.models.events import EventType
 from app.models.units import UnitStatus
@@ -67,6 +69,11 @@ class MaterialUnitOut(BaseModel):
         if self.price_per_m2 is None:
             return None
         return round(float(self.width_mm) * float(self.length_m) / 1000 * float(self.price_per_m2), 2)
+
+    # цены — только с правом «Просмотр цен» (14.10, core/price_visibility.py)
+    @field_serializer("price_per_m2", "price_source", "value_rub")
+    def _hide_prices(self, v):
+        return hide(v)
 
 
 class ReceiptUnitOut(BaseModel):

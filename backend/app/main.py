@@ -100,6 +100,12 @@ app.add_middleware(
 # же самое качается за доли секунды. GZip сжимает такой бандл в разы.
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# Цены — по отдельному праву (14.10): денежные поля ответов пустые без
+# «Просмотр цен» (core/price_visibility.py).
+from app.core.price_visibility import price_visibility_middleware  # noqa: E402
+
+app.middleware("http")(price_visibility_middleware)
+
 # Раздел про ускорение первой загрузки на планшетах — единый префикс
 # /api на ВСЕХ роутерах без исключений. Обнаружено при проверке быстрого
 # режима: без префикса пути фронтенда и бэкенда были в одном "плоском"

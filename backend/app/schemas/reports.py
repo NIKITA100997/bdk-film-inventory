@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
+
+from app.core.price_visibility import hide
 
 
 class StockSummaryLine(BaseModel):
@@ -13,6 +15,10 @@ class StockSummaryLine(BaseModel):
     # Стоимость остатка по ценам рулонов (08.10) и сколько м² без цены.
     value_rub: float | None = None
     unpriced_area_m2: float = 0.0
+
+    @field_serializer("value_rub")
+    def _hide_prices(self, v):  # только с правом «Просмотр цен» (14.10)
+        return hide(v)
 
 
 class StockByWidthLine(BaseModel):

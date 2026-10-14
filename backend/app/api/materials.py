@@ -4,7 +4,9 @@
 from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
+
+from app.core.price_visibility import hide
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -32,7 +34,11 @@ class MaterialOut(BaseModel):
     last_move_at: datetime | None
     min_stock: float | None = None  # норматив (08.10): ниже — пора пополнять
     avg_price_rub: float | None = None  # средняя цена остатка, ₽ за единицу (08.10)
-    value_rub: float | None = None  # стоимость остатка
+    value_rub: float | None = None
+
+    @field_serializer("avg_price_rub", "value_rub")
+    def _hide_prices(self, v):  # только с правом «Просмотр цен» (14.10)
+        return hide(v)  # стоимость остатка
 
 
 def _kind(db: Session) -> ItemKind:
@@ -222,6 +228,10 @@ class MoveOut(BaseModel):
     occurred_at: datetime
     price_rub: float | None = None  # цена единицы, ₽ (08.10)
     amount_rub: float | None = None
+
+    @field_serializer("price_rub", "amount_rub")
+    def _hide_prices(self, v):  # только с правом «Просмотр цен» (14.10)
+        return hide(v)
 
 
 def _moves_out(db: Session, moves: list[MaterialMove]) -> list[MoveOut]:

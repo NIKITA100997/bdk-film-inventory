@@ -1,6 +1,8 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from app.core.price_visibility import hide
 
 from app.models.part_units import PartUnitStatus
 
@@ -132,6 +134,10 @@ class PartUnitOut(BaseModel):
     updated_at: datetime
     # Себестоимость штуки, ₽ (08.10, services/lot_cost.py) — копится с отчётов.
     unit_cost_rub: float | None = None
+
+    @field_serializer("unit_cost_rub")
+    def _hide_prices(self, v):  # только с правом «Просмотр цен» (14.10)
+        return hide(v)
 
 
 class PartUnitEventOut(BaseModel):
