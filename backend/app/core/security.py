@@ -100,4 +100,5 @@ def require_permission(*permission_codes: str):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Недостаточно прав")
         return user
 
+    dependency.permission_codes = frozenset(permission_codes)  # для теста прав по маршрутам (14.10)
     return dependency
