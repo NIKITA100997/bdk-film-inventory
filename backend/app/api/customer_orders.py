@@ -183,6 +183,43 @@ def list_orders(include_closed: bool = Query(default=False), db: Session = Depen
     return out
 
 
+class CalendarAreaOut(BaseModel):
+    area: str
+    area_name: str
+    need: float
+    done: float
+    days: dict[str, list[float]]  # дата → [план, факт]
+
+
+class CalendarRowOut(BaseModel):
+    key: str
+    kind: str  # co — заказ клиента, po — заказ на производство без заказов клиентов
+    id: int
+    title: str
+    customer: str | None
+    status: str
+    ship_date: date | None
+    promised_ready: date | None
+    plan_finish: date | None
+    released: bool
+    areas: list[CalendarAreaOut]
+
+
+@router.get("/calendar", response_model=list[CalendarRowOut])
+def order_calendar(
+    date_from: date, date_to: date, db: Session = Depends(get_db), user: User = Depends(view)
+) -> list[CalendarRowOut]:
+    """Календарь (14.10): по заказу и участку — план по дням, факт по концу
+    дня и «сделано из нужного» (services/order_calendar.py)."""
+    from dataclasses import asdict
+
+    from app.services.order_calendar import calendar
+
+    if (date_to - date_from).days > 120:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Период — не больше 120 дней")
+    return [CalendarRowOut(**asdict(r)) for r in calendar(db, date_from, date_to)]
+
+
 @router.get("/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: Session = Depends(get_db), user: User = Depends(view)) -> OrderOut:
     return _out(db, _get(db, order_id))

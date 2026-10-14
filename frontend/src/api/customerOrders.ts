@@ -100,6 +100,31 @@ export interface CustomerOrderInput {
 
 const base = "/customer-orders";
 
+/** Календарь (14.10): по заказу и участку — план по дням, факт по концу дня. */
+export interface CalendarArea {
+  area: string;
+  area_name: string;
+  need: number;
+  done: number;
+  /** "YYYY-MM-DD" → [план, факт] */
+  days: Record<string, [number, number]>;
+}
+export interface CalendarRow {
+  key: string; // "co:12" | "po:34"
+  kind: "co" | "po";
+  id: number;
+  title: string;
+  customer: string | null;
+  status: string;
+  ship_date: string | null;
+  promised_ready: string | null;
+  plan_finish: string | null;
+  released: boolean;
+  areas: CalendarArea[];
+}
+export const getOrderCalendar = async (dateFrom: string, dateTo: string): Promise<CalendarRow[]> =>
+  (await apiClient.get<CalendarRow[]>("/customer-orders/calendar", { params: { date_from: dateFrom, date_to: dateTo } })).data;
+
 export const listCustomerOrders = async (includeClosed = false): Promise<CustomerOrder[]> =>
   (await apiClient.get<CustomerOrder[]>(base, { params: { include_closed: includeClosed } })).data;
 export const getCustomerOrder = async (id: number): Promise<CustomerOrder> => (await apiClient.get<CustomerOrder>(`${base}/${id}`)).data;
