@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { createTaskLineReportsBatch, type ProductionTaskLine, type ProductionTaskLineReportCreate } from "../../../api/production";
+import { useOpKeys } from "../../../utils/opKey";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { listPartUnits } from "../../../api/partUnits";
 import { listParts } from "../../../api/dictionaries";
@@ -123,6 +124,7 @@ export default function ReportModal({
   // (create_task_line_reports_batch): либо коммитится всё разом, либо
   // ничего — повторный клик безопасен, а ошибка показывает настоящую
   // причину вместо общей фразы.
+  const opKeys = useOpKeys();
   const reportMutation = useMutation({
     mutationFn: async (v: {
       assignment_id: number | null;
@@ -211,9 +213,10 @@ export default function ReportModal({
           if (pl.kind !== "remainder") pl.film_used_m = i === 0 ? v.film_used_m : 0;
         });
       }
-      if (payloads.length > 0) await createTaskLineReportsBatch(taskId, line.id, payloads);
+      if (payloads.length > 0) await createTaskLineReportsBatch(taskId, line.id, payloads, opKeys.get());
     },
     onSuccess: () => {
+      opKeys.done();
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
       message.success("Отчёт сохранён");
       onClose();

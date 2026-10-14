@@ -1,4 +1,5 @@
 import type { ItemChar } from "../components/ItemChars";
+import { opHeaders } from "../utils/opKey";
 import { apiClient } from "./client";
 import type { AreaValue } from "./units";
 import type { DeleteResult } from "./deletionRequests";
@@ -469,9 +470,11 @@ export const createTaskLineReportsBatch = async (
   taskId: number,
   lineId: number,
   payloads: ProductionTaskLineReportCreate[],
+  /** ключ операции — повтор после обрыва сети не задвоит отчёт (utils/opKey) */
+  opKey?: string,
 ): Promise<ProductionTaskLineReport[]> =>
   (
-    await apiClient.post<ProductionTaskLineReport[]>(`/production-tasks/${taskId}/lines/${lineId}/reports/batch`, payloads)
+    await apiClient.post<ProductionTaskLineReport[]>(`/production-tasks/${taskId}/lines/${lineId}/reports/batch`, payloads, opHeaders(opKey))
   ).data;
 
 export interface ProductionTaskLineAssignment {

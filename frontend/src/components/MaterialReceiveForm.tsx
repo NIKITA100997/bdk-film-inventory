@@ -8,6 +8,7 @@ import OccurredAtField from "./OccurredAtField";
 import { apiErrorMessage } from "../utils/apiError";
 import { useAuth } from "../auth/AuthContext";
 import { hasPerm } from "../auth/permissions";
+import { useOpKeys } from "../utils/opKey";
 
 interface Values {
   item_id: number;
@@ -25,6 +26,7 @@ export default function MaterialReceiveForm() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const [form] = Form.useForm<Values>();
+  const opKeys = useOpKeys();
   const itemId = Form.useWatch("item_id", form);
   const requestId = Form.useWatch("request_id", form);
   const [last, setLast] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export default function MaterialReceiveForm() {
             price: v.price ?? undefined,
             close: v.close ?? true,
             occurred_at: when,
-          })
+          }, opKeys.get())
         : createMaterialMove({
             item_id: v.item_id,
             kind: "receipt",
@@ -57,9 +59,10 @@ export default function MaterialReceiveForm() {
             doc: v.doc || null,
             price: v.price ?? null,
             occurred_at: when,
-          });
+          }, opKeys.get());
     },
     onSuccess: (_, v) => {
+      opKeys.done();
       for (const k of ["material-stock", "material-moves", "material-demand", "purchase-requests", "unified-stock"]) qc.invalidateQueries({ queryKey: [k] });
       setLast(`${item?.name ?? "Материал"} — ${v.quantity} ${item?.unit ?? ""}${v.doc ? `, УПД ${v.doc}` : ""}`);
       message.success("Приход записан");

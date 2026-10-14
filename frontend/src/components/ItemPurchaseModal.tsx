@@ -6,6 +6,7 @@ import { createItemPurchaseRequest } from "../api/purchasing";
 import { listMaterialStock } from "../api/materialStock";
 import DictAutoComplete from "./DictAutoComplete";
 import { apiErrorMessage } from "../utils/apiError";
+import { useOpKeys } from "../utils/opKey";
 
 interface Values {
   item_id: number;
@@ -35,6 +36,7 @@ export default function ItemPurchaseModal({
 }) {
   const qc = useQueryClient();
   const [form] = Form.useForm<Values>();
+  const opKeys = useOpKeys();
   const materials = useQuery({ queryKey: ["material-stock", false], queryFn: () => listMaterialStock(false), enabled: open && !item });
   const itemId = Form.useWatch("item_id", form);
   const unit = item?.unit ?? materials.data?.find((m) => m.item_id === itemId)?.unit ?? "";
@@ -55,8 +57,9 @@ export default function ItemPurchaseModal({
         supplier: v.supplier || undefined,
         price_per_unit: v.price_per_unit || undefined,
         note: v.note || undefined,
-      }),
+      }, opKeys.get()),
     onSuccess: (r) => {
+      opKeys.done();
       qc.invalidateQueries({ queryKey: ["purchase-requests"] });
       qc.invalidateQueries({ queryKey: ["material-demand"] });
       message.success(`Заявка №${r.id} создана — «Закупки → Заявки поставщику»`);

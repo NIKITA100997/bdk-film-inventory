@@ -27,6 +27,7 @@ import {
 import { getSupplierStats, type SupplierStats } from "../../api/suppliers";
 import DictAutoComplete from "../../components/DictAutoComplete";
 import ItemPurchaseModal from "../../components/ItemPurchaseModal";
+import { useOpKeys } from "../../utils/opKey";
 import PanelFilmTable from "../../components/PanelFilmTable";
 import { useAuth } from "../../auth/AuthContext";
 import { apiErrorMessage } from "../../utils/apiError";
@@ -67,6 +68,7 @@ export default function Purchasing() {
   const [showClosedOrders, setShowClosedOrders] = useState(false);
   const [itemBuyOpen, setItemBuyOpen] = useState(false);
   const [receiving, setReceiving] = useState<PurchaseRequest | null>(null);
+  const opKeys = useOpKeys();
   const [receiveForm] = Form.useForm<{ quantity: number; doc?: string; price?: number; close: boolean }>();
   const [form] = Form.useForm<PurchaseRequestCreate>();
   const [editForm] = Form.useForm<PurchaseRequestUpdate>();
@@ -152,8 +154,10 @@ export default function Purchasing() {
 
   // Поставка по заявке на материал (14.10): приход на склад и закрытие заявки
   const receiveMutation = useMutation({
-    mutationFn: (v: { quantity: number; doc?: string; price?: number; close: boolean }) => receiveItemPurchaseRequest(receiving!.id, v),
+    mutationFn: (v: { quantity: number; doc?: string; price?: number; close: boolean }) =>
+      receiveItemPurchaseRequest(receiving!.id, v, opKeys.get(`receive-${receiving!.id}`)),
     onSuccess: () => {
+      opKeys.done(`receive-${receiving!.id}`);
       qc.invalidateQueries({ queryKey: ["purchase-requests"] });
       qc.invalidateQueries({ queryKey: ["supplier-orders"] });
       qc.invalidateQueries({ queryKey: ["material-stock"] });

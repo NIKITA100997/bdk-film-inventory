@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useOpKeys } from "../../../../utils/opKey";
 import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -208,6 +209,7 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
   const lineForReport = myLine && areaLines.some((l) => l.id === myLine) ? myLine : null;
   const needsRoll = (fl: FastLine) => requiresRoll && fl.line.material !== null && !entryOf(fl.line).rollId;
 
+  const opKeys = useOpKeys();
   const save = useMutation({
     mutationFn: async () => {
       const settled = await Promise.allSettled(
@@ -246,7 +248,7 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
             });
           }
           if (lineForReport) for (const pl of payloads) pl.line_id = lineForReport;
-          if (payloads.length) await createTaskLineReportsBatch(fl.task.id, fl.line.id, payloads);
+          if (payloads.length) await createTaskLineReportsBatch(fl.task.id, fl.line.id, payloads, opKeys.get(String(fl.line.id)));
           if (e.close) await closeProductionLine(fl.task.id, fl.line.id, true);
           return fl.line.id;
         }),
@@ -254,7 +256,11 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
       return settled;
     },
     onSuccess: (settled) => {
-      for (const s of settled) if (s.status === "fulfilled") clearEntry(s.value);
+      for (const s of settled)
+        if (s.status === "fulfilled") {
+          clearEntry(s.value);
+          opKeys.done(String(s.value));
+        }
       for (const k of [["production-tasks"], ["production-orders"], ["part-units"], ["plan-board"]]) qc.invalidateQueries({ queryKey: k });
     },
   });

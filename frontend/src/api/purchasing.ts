@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import { opHeaders } from "../utils/opKey";
 import type { DeleteResult } from "./deletionRequests";
 
 /** Заявка на закупку: плёнка (material/color/thickness, м²) или любая другая
@@ -117,8 +118,8 @@ export async function createItemPurchaseRequest(payload: {
   note?: string;
   supplier?: string;
   price_per_unit?: number;
-}): Promise<PurchaseRequest> {
-  const { data } = await apiClient.post<PurchaseRequest>("/purchase-requests/items", payload);
+}, opKey?: string): Promise<PurchaseRequest> {
+  const { data } = await apiClient.post<PurchaseRequest>("/purchase-requests/items", payload, opHeaders(opKey));
   return data;
 }
 
@@ -126,8 +127,9 @@ export async function createItemPurchaseRequest(payload: {
 export async function receiveItemPurchaseRequest(
   id: number,
   payload: { quantity: number; doc?: string; price?: number; close: boolean; occurred_at?: string | null },
+  opKey?: string,
 ): Promise<PurchaseRequest> {
-  const { data } = await apiClient.post<PurchaseRequest>(`/purchase-requests/${id}/receive-item`, payload);
+  const { data } = await apiClient.post<PurchaseRequest>(`/purchase-requests/${id}/receive-item`, payload, opHeaders(opKey));
   return data;
 }
 

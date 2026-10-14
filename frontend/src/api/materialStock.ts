@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import { opHeaders } from "../utils/opKey";
 
 // Материалы (вид «Материал»: МДФ, пенопласт, клей, кромка…) — остаток
 // одним числом на склад, движения (backend/app/api/materials.py).
@@ -89,7 +90,7 @@ export const createMaterialMove = async (payload: {
   /** Цена прихода по УПД — за единицу позиции, в валюте. */
   price?: number | null;
   price_currency?: string;
-}): Promise<MaterialMove> => (await apiClient.post<MaterialMove>("/material-stock/moves", payload)).data;
+}, opKey?: string): Promise<MaterialMove> => (await apiClient.post<MaterialMove>("/material-stock/moves", payload, opHeaders(opKey))).data;
 
 export const listMaterialMoves = async (params: {
   item_id?: number;

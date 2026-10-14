@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { useOpKeys } from "../../../utils/opKey";
 import OverProductionTag, { overExcess } from "../../../components/OverProductionTag";
 import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form, Checkbox, Radio } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -257,6 +258,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   // между собой (Promise.allSettled) независимы: если упала одна из
   // десяти позиций, остальные девять всё равно сохранятся, а в форме
   // останется только упавшая — со внятной причиной вместо общей фразы.
+  const opKeys = useOpKeys();
   const saveMutation = useMutation({
     mutationFn: async () => {
       const settled = await Promise.allSettled(
@@ -339,7 +341,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               used_up: extra.remainingM === 0,
             });
           }
-          if (payloads.length > 0) await createTaskLineReportsBatch(r.taskId, r.line.id, payloads);
+          if (payloads.length > 0) await createTaskLineReportsBatch(r.taskId, r.line.id, payloads, opKeys.get(r.key));
           return r.key;
         }),
       );
@@ -350,6 +352,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
       const succeededKeys = new Set(
         settled.filter((s): s is PromiseFulfilledResult<string> => s.status === "fulfilled").map((s) => s.value),
       );
+      for (const k of succeededKeys) opKeys.done(k);
       const failures = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected");
       if (failures.length === 0) {
         message.success(`Отчёт по ${rows.length} ${rows.length === 1 ? "позиции" : "позициям"} сохранён`);

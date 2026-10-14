@@ -106,6 +106,12 @@ from app.core.price_visibility import price_visibility_middleware  # noqa: E402
 
 app.middleware("http")(price_visibility_middleware)
 
+# Повторная отправка с тем же «Idempotency-Key» — прежний ответ, без второй
+# записи (14.10, core/idempotency.py).
+from app.core.idempotency import idempotency_middleware  # noqa: E402
+
+app.middleware("http")(idempotency_middleware)
+
 
 # Заголовки безопасности (14.10, проверка качества): не угадывать тип файла
 # (загруженное фото не исполнится как скрипт), не встраивать программу в
