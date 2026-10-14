@@ -52,7 +52,7 @@ def _name(db: Session, uid: int | None) -> str | None:
 class LineIn(BaseModel):
     item_id: int
     quantity: float = Field(gt=0)
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=255)  # длиннее — была ошибка 500 (14.10)
 
 
 class OrderIn(BaseModel):

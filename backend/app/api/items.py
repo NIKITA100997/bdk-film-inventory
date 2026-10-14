@@ -1259,6 +1259,18 @@ def merge_item(item_id: int, payload: MergeIn, db: Session = Depends(get_db), us
 # ─── аналоги и фото любой позиции (14.10; у плёнки — свои, в её карточке) ────
 
 _PHOTO_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+PHOTO_MAX_BYTES = 10 * 1024 * 1024  # 14.10: без ограничения большой файл забивал диск
+
+
+def _photo_kind(data: bytes) -> str | None:
+    """Тип по содержимому, а не по заголовку от браузера (14.10)."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 class ItemAnalogOut(BaseModel):
@@ -1366,12 +1378,21 @@ async def upload_item_photo(item_id: int, file: UploadFile = File(...), db: Sess
     ext = _PHOTO_EXT.get(file.content_type or "")
     if ext is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Допустимы только изображения JPEG/PNG/WebP")
+    data = await file.read(PHOTO_MAX_BYTES + 1)
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл пустой")
+    if len(data) > PHOTO_MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Фото больше 10 МБ — уменьшите его")
+    kind = _photo_kind(data)
+    if kind is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Это не изображение JPEG/PNG/WebP")
+    ext = _PHOTO_EXT[kind]
     root = Path(settings.upload_dir) / "items"
     root.mkdir(parents=True, exist_ok=True)
     if item.photo_path:
         (Path(settings.upload_dir) / item.photo_path).unlink(missing_ok=True)
     rel = f"items/{item_id}_{uuid.uuid4().hex}{ext}"
-    (Path(settings.upload_dir) / rel).write_bytes(await file.read())
+    (Path(settings.upload_dir) / rel).write_bytes(data)
     item.photo_path = rel
     db.commit()
     return PhotoOut(photo_path=rel)

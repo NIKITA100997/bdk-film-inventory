@@ -106,6 +106,19 @@ from app.core.price_visibility import price_visibility_middleware  # noqa: E402
 
 app.middleware("http")(price_visibility_middleware)
 
+
+# Заголовки безопасности (14.10, проверка качества): не угадывать тип файла
+# (загруженное фото не исполнится как скрипт), не встраивать программу в
+# чужие страницы, не отдавать полный адрес в Referer. CSP целиком — отдельно:
+# камера, печать и стили библиотеки требуют аккуратной настройки.
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
 # Раздел про ускорение первой загрузки на планшетах — единый префикс
 # /api на ВСЕХ роутерах без исключений. Обнаружено при проверке быстрого
 # режима: без префикса пути фронтенда и бэкенда были в одном "плоском"

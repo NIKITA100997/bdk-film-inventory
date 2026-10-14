@@ -205,8 +205,8 @@ class MoveIn(BaseModel):
     item_id: int
     kind: str  # receipt | writeoff | adjust
     qty: float = Field(ge=0)
-    doc: str | None = None
-    note: str | None = None
+    doc: str | None = Field(default=None, max_length=64)  # УПД / накладная — как в базе (14.10)
+    note: str | None = Field(default=None, max_length=255)
     occurred_at: date | None = None
     # Цена прихода по УПД (05.10) — за единицу позиции, в валюте; попадает
     # в историю цен позиции.

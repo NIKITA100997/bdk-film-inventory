@@ -5,6 +5,7 @@
 тестируется напрямую, а превью макета может использовать синтетические
 данные без реальной единицы в базе."""
 
+from html import escape as _e  # значения полей — текст, не разметка (14.10, XSS через названия)
 import base64
 import os
 from dataclasses import dataclass
@@ -371,7 +372,7 @@ def _label_markup(
                 font_family = 'font-family:"Cambria", Georgia, serif;' if is_id else ""
                 margin = "margin-bottom:1mm;" if is_id else "margin-bottom:0.5mm;"
                 text_html_items.append(
-                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{val}</div>'
+                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{_e(val)}</div>'
                 )
             text_html = "".join(text_html_items)
 
@@ -428,7 +429,7 @@ def _label_markup(
                     is_id = f["key"] == "unit_id"
                     font_family = 'font-family:"Cambria", Georgia, serif;' if is_id else ""
                     body_items.append(
-                        f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{val}</div>'
+                        f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{_e(val)}</div>'
                     )
 
         return f"""<div class="label-box">
@@ -828,7 +829,7 @@ def _giant_field_html(text: str, font_name: str, *, width_mm: float, avail_heigh
     if vertical:
         chars = list(text) or [" "]
         size_pt = _fit_font_size_vertical(text, font_name, width_mm * MM, avail_height_mm * MM)
-        lines = "".join(f'<div style="line-height:1.15;">{ch}</div>' for ch in chars)
+        lines = "".join(f'<div style="line-height:1.15;">{_e(ch)}</div>' for ch in chars)
         return (
             f'<div style="width:{width_mm}mm; height:{avail_height_mm}mm; display:flex; flex-direction:column; '
             f'align-items:center; justify-content:center; font-size:{size_pt}pt; font-weight:bold; {font_family_css} color:{NAVY};">'
@@ -838,7 +839,7 @@ def _giant_field_html(text: str, font_name: str, *, width_mm: float, avail_heigh
     return (
         f'<div style="width:{width_mm}mm; height:{avail_height_mm}mm; display:flex; align-items:center; '
         f'justify-content:center; font-size:{size_pt}pt; font-weight:bold; {font_family_css} color:{NAVY}; '
-        f'white-space:nowrap; line-height:1.15;">{text}</div>'
+        f'white-space:nowrap; line-height:1.15;">{_e(text)}</div>'
     )
 
 
@@ -1256,7 +1257,7 @@ def _shelf_label_markup(data: ShelfLabelData, *, fields: list[dict], width_mm: i
                 font_family = 'font-family:"Cambria", Georgia, serif;' if is_code else ""
                 margin = "margin-bottom:1mm;" if is_code else "margin-bottom:0.5mm;"
                 text_html_items.append(
-                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{val}</div>'
+                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{_e(val)}</div>'
                 )
             text_html = "".join(text_html_items)
         return f"""<table class="label-table">
@@ -1301,7 +1302,7 @@ def _shelf_label_markup(data: ShelfLabelData, *, fields: list[dict], width_mm: i
                 is_code = f["key"] == "location_code"
                 font_family = 'font-family:"Cambria", Georgia, serif;' if is_code else ""
                 body_items.append(
-                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{val}</div>'
+                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{_e(val)}</div>'
                 )
         return f"""<div class="label-box">
     <div class="content-box">
@@ -1325,7 +1326,7 @@ def render_shelf_label_html(
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Этикетка {data.location_code}</title>
+<title>Этикетка {_e(str(data.location_code))}</title>
 <style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
@@ -1633,7 +1634,7 @@ def _rack_label_markup(data: RackLabelData, *, fields: list[dict], width_mm: int
                 font_family = 'font-family:"Cambria", Georgia, serif;' if is_code else ""
                 margin = "margin-bottom:1mm;" if is_code else "margin-bottom:0.5mm;"
                 text_html_items.append(
-                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{val}</div>'
+                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{_e(val)}</div>'
                 )
             text_html = "".join(text_html_items)
         return f"""<table class="label-table">
@@ -1678,7 +1679,7 @@ def _rack_label_markup(data: RackLabelData, *, fields: list[dict], width_mm: int
                 is_code = f["key"] == "rack_code"
                 font_family = 'font-family:"Cambria", Georgia, serif;' if is_code else ""
                 body_items.append(
-                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{val}</div>'
+                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{_e(val)}</div>'
                 )
         return f"""<div class="label-box">
     <div class="content-box">
@@ -1702,7 +1703,7 @@ def render_rack_label_html(
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Этикетка стеллажа {data.rack_code}</title>
+<title>Этикетка стеллажа {_e(str(data.rack_code))}</title>
 <style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
@@ -1997,7 +1998,7 @@ def _pf_unit_label_markup(data: PartLabelData, *, fields: list[dict], width_mm: 
                 font_family = 'font-family:"Cambria", Georgia, serif;' if is_id else ""
                 margin = "margin-bottom:1mm;" if is_id else "margin-bottom:0.5mm;"
                 text_html_items.append(
-                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{val}</div>'
+                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{_e(val)}</div>'
                 )
             text_html = "".join(text_html_items)
         return f"""<table class="label-table">
@@ -2043,7 +2044,7 @@ def _pf_unit_label_markup(data: PartLabelData, *, fields: list[dict], width_mm: 
             is_id = f["key"] == "batch_id"
             font_family = 'font-family:"Cambria", Georgia, serif;' if is_id else ""
             body_items.append(
-                f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{val}</div>'
+                f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{_e(val)}</div>'
             )
     return f"""<div class="label-box">
     <div class="content-box">
@@ -2336,7 +2337,7 @@ def _pf_shelf_label_markup(data: PartShelfLabelData, *, fields: list[dict], widt
                 font_family = 'font-family:"Cambria", Georgia, serif;' if is_code else ""
                 margin = "margin-bottom:1mm;" if is_code else "margin-bottom:0.5mm;"
                 text_html_items.append(
-                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{val}</div>'
+                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{_e(val)}</div>'
                 )
             text_html = "".join(text_html_items)
         return f"""<table class="label-table">
@@ -2382,7 +2383,7 @@ def _pf_shelf_label_markup(data: PartShelfLabelData, *, fields: list[dict], widt
             is_code = f["key"] == "location_code"
             font_family = 'font-family:"Cambria", Georgia, serif;' if is_code else ""
             body_items.append(
-                f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{val}</div>'
+                f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{_e(val)}</div>'
             )
     return f"""<div class="label-box">
     <div class="content-box">
@@ -2401,7 +2402,7 @@ def render_pf_shelf_label_html(
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Этикетка {data.location_code}</title>
+<title>Этикетка {_e(str(data.location_code))}</title>
 <style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>
@@ -2663,7 +2664,7 @@ def _pf_rack_label_markup(data: PartRackLabelData, *, fields: list[dict], width_
                 font_family = 'font-family:"Cambria", Georgia, serif;' if is_code else ""
                 margin = "margin-bottom:1mm;" if is_code else "margin-bottom:0.5mm;"
                 text_html_items.append(
-                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{val}</div>'
+                    f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} {margin} line-height:1.2;">{_e(val)}</div>'
                 )
             text_html = "".join(text_html_items)
         return f"""<table class="label-table">
@@ -2709,7 +2710,7 @@ def _pf_rack_label_markup(data: PartRackLabelData, *, fields: list[dict], width_
             is_code = f["key"] == "rack_code"
             font_family = 'font-family:"Cambria", Georgia, serif;' if is_code else ""
             body_items.append(
-                f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{val}</div>'
+                f'<div style="font-size:{size_pt}pt; font-weight:{weight}; {font_family} margin-bottom:1mm; line-height:1.25;">{_e(val)}</div>'
             )
     return f"""<div class="label-box">
     <div class="content-box">
@@ -2728,7 +2729,7 @@ def render_pf_rack_label_html(
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Этикетка стеллажа {data.rack_code}</title>
+<title>Этикетка стеллажа {_e(str(data.rack_code))}</title>
 <style>{_label_doc_styles(width_mm, height_mm, vertical)}</style>
 </head>
 <body>

@@ -558,7 +558,7 @@ def create_item_request(payload: ItemRequestIn, db: Session = Depends(get_db), u
 
 class ItemReceiveIn(BaseModel):
     quantity: float = Field(gt=0)
-    doc: str | None = None  # УПД / накладная
+    doc: str | None = Field(default=None, max_length=64)  # УПД / накладная
     price: float | None = Field(default=None, ge=0)
     close: bool = True  # пришло не всё — оставить заявку открытой
     occurred_at: date | None = None  # дата прихода задним числом
