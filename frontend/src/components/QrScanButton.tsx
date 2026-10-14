@@ -31,6 +31,7 @@ export default function QrScanButton({
           type={type}
           size={size}
           icon={<QrcodeOutlined />}
+          aria-label={buttonText ? undefined : typeof tooltip === "string" ? tooltip : "Сканировать QR"}
           onClick={() => setOpen(true)}
           block={block}
           style={style}

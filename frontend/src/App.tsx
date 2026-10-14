@@ -13,7 +13,20 @@ import { theme } from "./theme";
 // Даты и дни недели по-русски во всём приложении (DatePicker, «пн», «понедельник»).
 dayjs.locale("ru");
 
-const queryClient = new QueryClient();
+// Отказ сервера 4xx (не найдено, нет прав, неверные данные) повтором не
+// исправится — показываем сразу, а не после трёх повторов (14.10: страница
+// несуществующего заказа ждала 7–10 с). Обрыв сети и 5xx — повторяем.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (count, error) => {
+        const st = (error as { response?: { status?: number } })?.response?.status;
+        if (st && st >= 400 && st < 500) return false;
+        return count < 3;
+      },
+    },
+  },
+});
 
 // Offline-устойчивость (раздел про ускорение работы): TanStack Query уже
 // по умолчанию ставит мутации на паузу при обрыве связи и продолжает их

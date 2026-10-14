@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     # Фото плёнки (8 раздел обратной связи) — на диске сервера, не во
     # внешнем хранилище; отдаётся статикой из main.py по /uploads.
     upload_dir: str = "uploads"
+    # Описание API (/docs, /openapi.json) — по умолчанию выключено (14.10,
+    # проверка качества: открыто без входа показывало все адреса API).
+    # На dev включается API_DOCS=true в .env.
+    api_docs: bool = False
 
 
 settings = Settings()

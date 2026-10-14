@@ -262,10 +262,10 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
             <ActionRequestsBadge />
             <NotificationBell />
             <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
-              <Avatar
-                icon={<UserOutlined />}
-                style={{ cursor: "pointer", backgroundColor: "rgba(255,255,255,0.2)", flexShrink: 0 }}
-              />
+              {/* кнопка, а не картинка — доступна с клавиатуры и скринридеру (14.10) */}
+              <Button type="text" aria-label="Профиль и выход" style={{ padding: 0, height: "auto", flexShrink: 0 }}>
+                <Avatar icon={<UserOutlined />} style={{ cursor: "pointer", backgroundColor: "rgba(255,255,255,0.2)" }} />
+              </Button>
             </Dropdown>
           </>
         )}

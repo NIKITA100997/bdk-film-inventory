@@ -64,7 +64,12 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from app.core.config import settings
 
-app = FastAPI(title="БДК — учёт плёнки")
+app = FastAPI(
+    title="БДК — учёт плёнки",
+    docs_url="/docs" if settings.api_docs else None,
+    redoc_url="/redoc" if settings.api_docs else None,
+    openapi_url="/openapi.json" if settings.api_docs else None,
+)
 
 
 @app.exception_handler(PeriodClosedError)
@@ -243,6 +248,11 @@ if _FRONTEND_DIST.is_dir():
         иначе index.html: так работает маршрутизация React Router (любой
         путь приложения — не только "/" — должен получить ту же
         SPA-страницу, а не 404)."""
+        if full_path == "api" or full_path.startswith("api/"):
+            # неизвестный адрес API — 404, а не страница приложения (14.10)
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Не найдено")
         found = resolve_static_path(_FRONTEND_DIST, full_path)
         if found is not None and found.is_relative_to(_FRONTEND_DIST / "assets"):
             # Имена файлов в assets/ содержат хэш содержимого (Vite) — при

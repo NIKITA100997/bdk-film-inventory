@@ -104,7 +104,7 @@ export default function NotificationBell() {
       placement="bottomRight"
     >
       <Badge count={unreadCount} size="small">
-        <Button icon={<BellOutlined />} />
+        <Button icon={<BellOutlined />} aria-label={unreadCount ? `Что требует внимания: ${unreadCount}` : "Что требует внимания"} />
       </Badge>
     </Popover>
   );
