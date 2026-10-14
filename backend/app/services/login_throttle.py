@@ -16,6 +16,10 @@ import threading
 import time
 
 MAX_FAILURES = 5
+# По адресу — выше (14.10): планшеты цеха могут выходить через один адрес,
+# и пятью ошибками одного человека вход закрывался всем на 15 минут. 30 за
+# 15 минут по-прежнему останавливает перебор многих логинов с одного адреса.
+MAX_FAILURES_IP = 30
 WINDOW_SECONDS = 15 * 60
 LOCKOUT_SECONDS = 15 * 60
 
@@ -39,7 +43,7 @@ def seconds_until_unlocked(key: str, now: float | None = None) -> float | None:
     now = time.time() if now is None else now
     with _lock:
         attempts = _prune(key, now)
-    if len(attempts) < MAX_FAILURES:
+    if len(attempts) < (MAX_FAILURES_IP if key.startswith("ip:") else MAX_FAILURES):
         return None
     remaining = attempts[-1] + LOCKOUT_SECONDS - now
     return remaining if remaining > 0 else None

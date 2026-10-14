@@ -53,3 +53,23 @@ class TestSecondsUntilUnlocked:
             register_failure(key, now)
         register_success(key)
         assert seconds_until_unlocked(key, now) is None
+
+
+class TestSharedAddress:
+    """14.10: планшеты за одним адресом — ошибки одного не закрывают вход всем."""
+
+    def test_ip_tolerates_one_persons_mistakes(self):
+        key = "ip:10.0.0.99-shared"
+        login_throttle.register_success(key)
+        for _ in range(login_throttle.MAX_FAILURES):
+            login_throttle.register_failure(key)
+        assert login_throttle.seconds_until_unlocked(key) is None
+        login_throttle.register_success(key)
+
+    def test_ip_locks_on_mass_guessing(self):
+        key = "ip:10.0.0.98-bruteforce"
+        login_throttle.register_success(key)
+        for _ in range(login_throttle.MAX_FAILURES_IP):
+            login_throttle.register_failure(key)
+        assert login_throttle.seconds_until_unlocked(key) is not None
+        login_throttle.register_success(key)
