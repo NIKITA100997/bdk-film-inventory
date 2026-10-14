@@ -561,6 +561,7 @@ class ItemReceiveIn(BaseModel):
     doc: str | None = None  # УПД / накладная
     price: float | None = Field(default=None, ge=0)
     close: bool = True  # пришло не всё — оставить заявку открытой
+    occurred_at: date | None = None  # дата прихода задним числом
 
 
 @router.post("/{request_id}/receive-item", response_model=PurchaseRequestOut)
@@ -587,15 +588,18 @@ def receive_item_request(
         from app.services.prices import add_price
 
         try:
-            add_price(db, item, price=price, currency=None, unit=None, source=PRICE_UPD, valid_from=_date.today(), user_id=user.id,
+            add_price(db, item, price=price, currency=None, unit=None, source=PRICE_UPD, valid_from=payload.occurred_at or _date.today(), user_id=user.id,
                       doc=f"УПД {payload.doc}" if payload.doc else None)
             db.flush()
         except ValueError as e:
             db.rollback()
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
     try:
+        from datetime import time as _time
+
+        when = datetime.combine(payload.occurred_at, _time(12)) if payload.occurred_at else None
         mat.manual_move(db, item=item, kind="receipt", qty=payload.quantity, user_id=user.id, doc=payload.doc,
-                        note=f"По заявке на закупку №{req.id}")
+                        note=f"По заявке на закупку №{req.id}", occurred_at=when)
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e

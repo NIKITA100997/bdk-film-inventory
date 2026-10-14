@@ -125,7 +125,7 @@ export async function createItemPurchaseRequest(payload: {
 /** Поставка по заявке на материал: приход на склад + закрытие заявки. */
 export async function receiveItemPurchaseRequest(
   id: number,
-  payload: { quantity: number; doc?: string; price?: number; close: boolean },
+  payload: { quantity: number; doc?: string; price?: number; close: boolean; occurred_at?: string | null },
 ): Promise<PurchaseRequest> {
   const { data } = await apiClient.post<PurchaseRequest>(`/purchase-requests/${id}/receive-item`, payload);
   return data;

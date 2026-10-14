@@ -4,8 +4,7 @@ import Home from "./pages/Home";
 import AppLayout from "./layout/AppLayout";
 import { RequireAuth, RequirePermission } from "./auth/RoleGuard";
 
-import Receive from "./pages/mobile/Receive";
-import Issue from "./pages/mobile/Issue";
+import { IssueHub, ReceiveHub } from "./pages/mobile/StockOpsHub";
 import UnitCard from "./pages/mobile/UnitCard";
 import PartUnitCard from "./pages/mobile/PartUnitCard";
 
@@ -46,9 +45,10 @@ const appPageRoutes = (
   <>
     <Route path="/" element={<Home />} />
 
-    <Route path="/m/receive" element={<RequirePermission permissions={["units.receive"]}><Receive /></RequirePermission>} />
+    {/* 14.10: приёмка и выдача любой позиции — вид переключателем (?kind=) */}
+    <Route path="/m/receive" element={<RequirePermission permissions={["units.receive", "materials.manage", "part_units.manage"]}><ReceiveHub /></RequirePermission>} />
     <Route path="/m/initial-stock" element={<Navigate to="/m/receive?mode=nodoc" replace />} />
-    <Route path="/m/issue" element={<RequirePermission permissions={["units.issue", "units.return"]}><Issue /></RequirePermission>} />
+    <Route path="/m/issue" element={<RequirePermission permissions={["units.issue", "units.return", "part_units.manage"]}><IssueHub /></RequirePermission>} />
     <Route path="/blanks" element={<StockRedirect kind="film" tab="free" />} />
     <Route
       path="/m/unit-card"

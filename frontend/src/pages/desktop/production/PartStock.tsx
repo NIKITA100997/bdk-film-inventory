@@ -288,8 +288,18 @@ export default function PartStock() {
  * (createPartUnit), но доступная прямо отсюда, включая деталь, у которой
  * пока вообще нет ни одной партии (и потому нет строки в этой таблице). */
 function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal title="Оприходовать партию (без списания заготовки)" open onCancel={onClose} footer={null} destroyOnHidden width={480}>
+      <RegisterPartUnitForm onDone={onClose} />
+    </Modal>
+  );
+}
+
+/** Форма оприходования партии п/ф — в окне «Остатков» и на «Приёмке» (14.10). */
+export function RegisterPartUnitForm({ onDone }: { onDone?: () => void }) {
   const qc = useQueryClient();
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
+  const [round, setRound] = useState(0); // после записи — пустой выбор детали
   const [form] = Form.useForm<{
     quantity_pieces: number;
     stage_id?: number;
@@ -309,13 +319,15 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["part-units"] });
       message.success("Партия оприходована");
-      onClose();
+      form.resetFields();
+      setSelectedPart(null);
+      setRound((n) => n + 1);
+      onDone?.();
     },
     onError: () => message.error("Не удалось зарегистрировать партию — у детали настроены этапы?"),
   });
 
   return (
-    <Modal title="Оприходовать партию (без списания заготовки)" open onCancel={onClose} footer={null} destroyOnHidden width={480}>
       <Form
         layout="vertical"
         form={form}
@@ -329,6 +341,7 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
       >
         <Form.Item label="Деталь">
           <PartSelect
+            key={round}
             onSelect={(p) => {
               setSelectedPart(p);
               form.setFieldValue("stage_id", undefined);
@@ -356,6 +369,5 @@ function RegisterPartUnitModal({ onClose }: { onClose: () => void }) {
           Оприходовать
         </Button>
       </Form>
-    </Modal>
   );
 }

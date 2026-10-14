@@ -26,7 +26,7 @@ interface PhoneTab extends NavItem {
 // экран спрятан в "Ещё".
 const PINNED_TABS_BASE: PhoneTab[] = [
   { key: "home", path: "/", label: "Сегодня", icon: <HomeOutlined /> },
-  { key: "issue", path: "/m/issue", label: "Выдача", icon: <ExportOutlined />, permissions: ["units.issue", "units.return"] },
+  { key: "issue", path: "/m/issue", label: "Выдача", icon: <ExportOutlined />, permissions: ["units.issue", "units.return", "part_units.manage"] },
 ];
 
 interface PhoneTabBarProps {
