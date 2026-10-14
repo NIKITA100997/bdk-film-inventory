@@ -87,7 +87,7 @@ def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:
 
 
 def _stock_and_reserve_by_group(
-    db: Session,
+    db: Session, panel_by_group: dict | None = None,
 ) -> tuple[dict[tuple[int, int, int], float], dict[tuple[int, int, int], float]]:
     """Остаток на складе и резерв на текущие незавершённые задания цеха, по
     группе материал+цвет+толщина — общий расчёт для «Остатки и резерв»
@@ -146,7 +146,8 @@ def _stock_and_reserve_by_group(
     ]
     reserved_by_group = reserved_area_m2_by_group(reserve_input)
     # Плёнка под ламинацию панелей заказанных дверей — тоже резерв.
-    for group, area in panel_film_by_group(panel_film_demand(db)).items():
+    # panel_by_group — уже посчитанный вызывающим (14.10: считался дважды за запрос)
+    for group, area in (panel_film_by_group(panel_film_demand(db)) if panel_by_group is None else panel_by_group).items():
         reserved_by_group[group] = round(reserved_by_group.get(group, 0.0) + area, 3)
     return stock_by_group, reserved_by_group
 
@@ -159,8 +160,8 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
     reports.py, потому что снабженцу не выдаются права на задания цеха
     (production_tasks.*) — расчёт резерва идёт под её же правом
     purchasing.manage, без обращения к производственным эндпоинтам."""
-    stock_by_group, reserved_by_group = _stock_and_reserve_by_group(db)
     panel_by_group = panel_film_by_group(panel_film_demand(db))
+    stock_by_group, reserved_by_group = _stock_and_reserve_by_group(db, panel_by_group)
 
     open_requested_rows = (
         db.query(

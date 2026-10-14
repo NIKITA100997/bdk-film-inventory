@@ -13,7 +13,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.dictionaries import Part
 from app.models.part_units import PartUnit, PartUnitStatus
@@ -125,7 +125,7 @@ def panel_film_demand(db: Session) -> list[PanelFilmRow]:
     if not demand:
         return []
     out: list[PanelFilmRow] = []
-    for part in db.query(Part).filter(Part.id.in_(list(demand)), Part.is_active.is_(True)):
+    for part in db.query(Part).options(selectinload(Part.stages)).filter(Part.id.in_(list(demand)), Part.is_active.is_(True)):
         stages = sorted(part.stages, key=lambda s: s.sequence_order)
         lam = film_stage(stages)
         if lam is None:
