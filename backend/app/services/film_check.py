@@ -4,7 +4,7 @@
 - ПЭТ 2Д/3Д: у детали признак (items.pet_type, пусто — 2Д), в строке — ПЭТ
   другого типа;
 - на участке лежат партии детали «после снятия плёнки» (пометка «Ламис»),
-  а плёнка строки — не ПВХ («Ламис» — это ПВХ, 06.10): эти партии в строку не пойдут.
+  а плёнка строки — не «Ламис» (ПЭТ или полипропилен): эти партии в строку не пойдут.
 """
 
 from sqlalchemy import func
@@ -32,11 +32,14 @@ def pet_of_material(name: str | None) -> str | None:
 
 
 def is_lamis_film(material: Material | None, decor: Color | None) -> bool:
-    """«Ламис» — это ПВХ-плёнки (ответ пользователя 06.10): деталь после
-    снятия плёнки переклеивается любой ПВХ. Коллекция «Ламис» у цвета —
-    по-прежнему признак (ручная отметка не теряется)."""
-    if material is not None and normalize_film(material.name).startswith("пвх"):
-        return True
+    """«Ламис» — вся плёнка, кроме полипропилена и ПЭТ 2Д/3Д (ответ
+    пользователя 14.10; раньше — только ПВХ): деталь после снятия плёнки
+    переклеивается любой такой. Материал «Неизвестно» — не «Ламис» (лучше
+    предупредить). Коллекция «Ламис» у цвета — по-прежнему признак."""
+    if material is not None:
+        n = normalize_film(material.name)
+        if n and not n.startswith("неизвест") and "пэт" not in n and "полипропилен" not in n:
+            return True
     return bool(decor and (decor.collection or "").strip().lower() == LAMIS_COLLECTION)
 
 
@@ -70,5 +73,5 @@ def film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
             .scalar()
         )
         if held > 0:
-            out.append(f"На участке {held:g} шт после снятия плёнки — их можно клеить только ПВХ («Ламис»)")
+            out.append(f"На участке {held:g} шт после снятия плёнки — их можно клеить только «Ламис» — не ПЭТ и не полипропилен")
     return out

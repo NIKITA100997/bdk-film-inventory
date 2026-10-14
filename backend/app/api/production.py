@@ -1298,7 +1298,7 @@ def _build_task_line_report(
     # (задвоение расхода партии вплоть до "недостаточно партий").
     fifo_results: list[tuple[PartUnit, bool, float]] = []
     # Партии «после снятия плёнки» (пометка «Ламис») — только в строки с
-    # ПВХ («Ламис» — это ПВХ, 06.10), и там первыми; у строки без плёнки — как раньше.
+    # плёнкой «Ламис» (всё, кроме ПЭТ и полипропилена, 14.10), и там первыми; у строки без плёнки — как раньше.
     lamis_ok: bool | None = None
     if line.color_id is not None:
         lamis_ok = is_lamis_film(db.get(Material, line.material_id) if line.material_id else None, db.get(Color, line.color_id))
