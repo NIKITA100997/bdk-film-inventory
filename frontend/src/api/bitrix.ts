@@ -30,7 +30,7 @@ export const syncDealsNow = async () =>
 export interface BitrixChat { dialog_id: string; title: string }
 export interface BitrixUser { id: number; name: string; email: string | null }
 export interface UserMapRow { user_id: number; full_name: string; bitrix_user_id: number | null }
-export interface OutboxRow { id: number; event: string; status: string; error: string | null; text: string; created_at: string }
+export interface OutboxRow { id: number; event: string; status: string; error: string | null; text: string; created_at: string; attempts?: number }
 
 export const getBitrixSettings = async () => (await apiClient.get<BitrixSettings>("/bitrix/settings")).data;
 export const saveBitrixSettings = async (s: BitrixSettings) => (await apiClient.put<BitrixSettings>("/bitrix/settings", s)).data;

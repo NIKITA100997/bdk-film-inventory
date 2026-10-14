@@ -220,6 +220,8 @@ def sync(db: Session) -> dict:
             log.warning("bitrix deal sync %s: %s", co.id, e)
             out["errors"] += 1
             db.rollback()
+            if "не отвечает" in str(e):
+                break  # Битрикс недоступен — остальные заказы в следующий раз, не ждём таймаут на каждом (14.10)
     return out
 
 

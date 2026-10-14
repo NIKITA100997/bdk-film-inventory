@@ -323,6 +323,9 @@ export default function BitrixSettings() {
                   <Space direction="vertical" size={2}>
                     <Tag color="red">ошибка</Tag>
                     <Typography.Text type="danger" style={{ fontSize: 12 }}>{r.error}</Typography.Text>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {(r.attempts ?? 0) < 6 ? `попыток ${r.attempts ?? 0} из 6 — повторится сама каждые 5 мин` : "6 попыток не прошли — повторите вручную"}
+                    </Typography.Text>
                     <Button size="small" onClick={() => retry.mutate(r.id)}>Повторить</Button>
                   </Space>
                 ) : (

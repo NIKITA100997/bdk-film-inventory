@@ -71,6 +71,7 @@ def _send(outbox_id: int) -> None:
         if row is None:
             return
         s = get_settings(db)
+        row.attempts = (row.attempts or 0) + 1
         try:
             call(s.get("webhook", ""), row.method, row.params)
             row.status, row.error, row.sent_at = "sent", None, datetime.now(timezone.utc)
@@ -100,6 +101,44 @@ def enqueue(db: Session, event: str, method: str, params: dict) -> None:
         threading.Thread(target=_send, args=(rid,), daemon=True).start()
 
     sa_event.listen(db, "after_commit", after_commit, once=True)
+
+
+RETRY_MAX = 6
+RETRY_HOURS = 24
+
+
+def retry_pending(db: Session) -> int:
+    """Автоповтор (14.10): сообщения с ошибкой и «зависшие» новые (поток
+    отправки не успел — перезапуск сервера) за последние сутки, не больше
+    RETRY_MAX попыток. Если Битрикс не отвечает — остальные до следующего раза."""
+    from datetime import timedelta
+
+    s = get_settings(db)
+    if not s.get("enabled") or not s.get("webhook"):
+        return 0
+    now = datetime.now(timezone.utc)
+    rows = (
+        db.query(BitrixOutbox.id)
+        .filter(
+            BitrixOutbox.status.in_(["error", "new"]),
+            BitrixOutbox.attempts < RETRY_MAX,
+            BitrixOutbox.created_at >= now - timedelta(hours=RETRY_HOURS),
+            BitrixOutbox.created_at <= now - timedelta(minutes=2),
+        )
+        .order_by(BitrixOutbox.id)
+        .limit(50)
+        .all()
+    )
+    sent = 0
+    for (rid,) in rows:
+        _send(rid)
+        db.expire_all()
+        row = db.get(BitrixOutbox, rid)
+        if row is not None and row.status == "sent":
+            sent += 1
+        elif row is not None and "не отвечает" in (row.error or ""):
+            break
+    return sent
 
 
 def retry(db: Session, outbox_id: int) -> None:

@@ -199,6 +199,7 @@ class OutboxOut(BaseModel):
     error: str | None
     text: str
     created_at: str
+    attempts: int = 0
 
 
 @router.get("/outbox", response_model=list[OutboxOut])
@@ -206,7 +207,7 @@ def list_outbox(db: Session = Depends(get_db), user: User = Depends(admin)) -> l
     rows = db.query(BitrixOutbox).order_by(BitrixOutbox.id.desc()).limit(50).all()
     return [
         OutboxOut(
-            id=r.id, event=r.event, status=r.status, error=r.error, created_at=r.created_at.isoformat(),
+            id=r.id, event=r.event, status=r.status, error=r.error, created_at=r.created_at.isoformat(), attempts=r.attempts or 0,
             text=str(r.params.get("MESSAGE") or (r.params.get("fields") or {}).get("TITLE") or "")[:300],
         )
         for r in rows
