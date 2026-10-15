@@ -19,6 +19,7 @@ import { toOccurredAtIso } from "../utils/occurredAt";
 import { useAuth } from "../auth/AuthContext";
 import { apiErrorMessage } from "../utils/apiError";
 import { rollNo } from "../utils/lotNo";
+import { listCuttingLines } from "../api/areaSupply";
 
 type LengthDestKind = "keep" | "issue" | "discard" | "transfer";
 type WidthDestKind = "keep" | "issue" | "transfer";
@@ -117,6 +118,28 @@ export default function CuttingForm({
     initialWidthCuts.map((w) => ({ id: nextRowId(), ...w, destination: "issue" as const, originalWidthMm: w.width_mm })),
   );
   const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
+  // Станок резки (15.10): только если заведён участок выдачи плёнки со
+  // станками; последний выбранный запоминается на этом устройстве.
+  const cuttingLinesQuery = useQuery({ queryKey: ["cutting-lines"], queryFn: listCuttingLines, staleTime: 300000 });
+  const cuttingLines = cuttingLinesQuery.data ?? [];
+  const [lineId, setLineId] = useState<number | undefined>(() => {
+    try {
+      const v = Number(localStorage.getItem("bdk-cutting-line"));
+      return v > 0 ? v : undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const pickLine = (v: number | undefined) => {
+    setLineId(v);
+    try {
+      if (v) localStorage.setItem("bdk-cutting-line", String(v));
+      else localStorage.removeItem("bdk-cutting-line");
+    } catch {
+      /* без запоминания */
+    }
+  };
+  const lineToSend = cuttingLines.some((l) => l.id === lineId) ? lineId : undefined;
 
   const calcSettingsQuery = useQuery({ queryKey: ["calc-settings"], queryFn: getCalcSettings });
   const minUsefulWidth = calcSettingsQuery.data?.min_useful_width_mm ?? 30;
@@ -178,6 +201,7 @@ export default function CuttingForm({
         length_destination,
         width_cuts,
         occurred_at: toOccurredAtIso(occurredAt),
+        line_id: lineToSend,
       });
     },
     onSuccess: (res) => {
@@ -432,6 +456,17 @@ export default function CuttingForm({
         <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
           Единица уже выдана участку — резка по ширине недоступна, только по длине.
         </Typography.Text>
+      )}
+
+      {cuttingLines.length > 0 && (
+        <Select
+          style={{ width: "100%", marginTop: 12 }}
+          allowClear
+          placeholder="Станок резки: не указан"
+          value={lineToSend}
+          onChange={pickLine}
+          options={cuttingLines.map((l) => ({ value: l.id, label: l.name }))}
+        />
       )}
 
       <DatePicker

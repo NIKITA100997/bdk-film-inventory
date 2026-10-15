@@ -29,6 +29,8 @@ export interface Area {
   close_without_reports: boolean;
   // Остатки плёнки на склад не возвращаются — рулон отмечают «израсходован».
   film_no_return: boolean;
+  /** здесь режут и выдают плёнку (линии участка — станки резки) */
+  film_issue_point: boolean;
   /** по каким признакам позиции объединять строки заданий (08.10); пусто — не объединять */
   group_props?: string[] | null;
   /** Оплата работ: piece — сдельно (piece_rate ₽/шт), shift — за смену (shift_rate ₽ на человека × shift_headcount). */
@@ -80,6 +82,7 @@ export async function updateArea(
     big_batch_min_pieces?: number;
     close_without_reports?: boolean;
     film_no_return?: boolean;
+    film_issue_point?: boolean;
     group_props?: string[];
     pay_mode?: string;
     piece_rate?: number;

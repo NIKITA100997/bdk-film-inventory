@@ -385,6 +385,8 @@ class CuttingRecipeRequest(BaseModel):
     length_destination: CuttingDestination | None = None
     width_cuts: list[CuttingWidthSpec] = Field(default_factory=list)
     occurred_at: OccurredAt = None
+    # Станок резки (15.10) — линия участка выдачи плёнки; пусто — не указан.
+    line_id: int | None = None
 
 
 class CuttingRecipeResultPiece(BaseModel):

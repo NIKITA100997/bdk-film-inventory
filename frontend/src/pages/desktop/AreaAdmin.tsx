@@ -40,6 +40,7 @@ export default function AreaAdmin() {
     big_batch_min_pieces?: number | null;
     close_without_reports?: boolean;
     film_no_return?: boolean;
+    film_issue_point?: boolean;
     group_props?: string[];
     pay_mode?: "piece" | "shift" | null;
     piece_rate?: number | null;
@@ -113,6 +114,7 @@ export default function AreaAdmin() {
       big_batch_min_pieces?: number | null;
       close_without_reports?: boolean;
       film_no_return?: boolean;
+      film_issue_point?: boolean;
       group_props?: string[];
       pay_mode?: "piece" | "shift" | null;
       piece_rate?: number | null;
@@ -126,6 +128,7 @@ export default function AreaAdmin() {
         big_batch_min_pieces: v.big_batch_min_pieces ?? 0,
         close_without_reports: v.close_without_reports,
         film_no_return: v.film_no_return,
+        film_issue_point: v.film_issue_point,
         group_props: v.group_props ?? [],
         // пусто — снять (на сервере "" / 0 — «не задано»)
         pay_mode: v.pay_mode ?? "",
@@ -291,6 +294,7 @@ export default function AreaAdmin() {
                   {!!a.film_allowance_mm && <Tag>припуск +{a.film_allowance_mm} мм</Tag>}
                   {a.close_without_reports && <Tag color="default">без отчётов — закрытие целиком</Tag>}
                   {a.film_no_return && <Tag color="default">остатки плёнки не возвращают</Tag>}
+                  {a.film_issue_point && <Tag color="gold">режут и выдают плёнку</Tag>}
                   {(a.group_props ?? []).length > 0 && <Tag color="purple">объединяет по: {(a.group_props ?? []).join(", ")}</Tag>}
                   {a.pay_mode === "piece" && <Tag color="green">сдельно{a.piece_rate ? ` ${a.piece_rate} ₽/шт` : ""}</Tag>}
                   {a.pay_mode === "shift" && (
@@ -334,6 +338,7 @@ export default function AreaAdmin() {
                         big_batch_min_pieces: a.big_batch_min_pieces,
                         close_without_reports: a.close_without_reports,
                         film_no_return: a.film_no_return,
+                        film_issue_point: a.film_issue_point,
                         group_props: a.group_props ?? [],
                         pay_mode: a.pay_mode,
                         piece_rate: a.piece_rate,
@@ -476,6 +481,13 @@ export default function AreaAdmin() {
           <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
             Рулоны и штрипсы расходуют до конца. В «Выдаче» вместо «Принять ПЛ-…» — «ПЛ-… израсходован»: рулон
             списывается до нуля как расход, не брак; возврата от участка не ждём.
+          </Typography.Paragraph>
+          <Form.Item name="film_issue_point" valuePropName="checked">
+            <Checkbox>Здесь режут и выдают плёнку</Checkbox>
+          </Form.Item>
+          <Typography.Paragraph type="secondary" style={{ marginTop: -8, fontSize: 12.5 }}>
+            Линии этого участка — станки резки: при резке можно указать станок, на доске выдачи — сколько нарезано и выдано
+            по дням и станкам.
           </Typography.Paragraph>
           <Form.Item
             name="film_allowance_mm"

@@ -333,6 +333,8 @@ export interface CuttingRecipeRequest {
   length_destination?: CuttingDestination;
   width_cuts?: CuttingWidthSpec[];
   occurred_at?: string;
+  /** станок резки (15.10) */
+  line_id?: number;
 }
 
 export interface CuttingRecipeResultPiece {

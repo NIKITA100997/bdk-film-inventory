@@ -1371,6 +1371,11 @@ def execute_cutting_recipe(
     # мутаций донора, чтобы снимок "до" был честным; id нужен уже для
     # первого record_event ниже, поэтому flush сразу.
     occurred_at_value = payload.occurred_at or datetime.now(timezone.utc)
+    if payload.line_id is not None:
+        from app.models.production import ProductionLine
+
+        if db.get(ProductionLine, payload.line_id) is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Станок не найден")
     cutting_op = CuttingOperation(
         donor_unit_id=donor.id,
         donor_material_sku_id=donor.material_sku_id,
@@ -1385,6 +1390,7 @@ def execute_cutting_recipe(
         required_permissions=",".join(sorted(required)),
         occurred_at=occurred_at_value,
         user_id=user.id,
+        line_id=payload.line_id,
     )
     db.add(cutting_op)
     db.flush()

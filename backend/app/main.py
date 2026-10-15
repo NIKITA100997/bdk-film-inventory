@@ -52,6 +52,7 @@ from app.api.productivity import router as productivity_router
 from app.api.production_monitor import router as production_monitor_router
 from app.api.film_issue import router as film_issue_router
 from app.api.film_reserve import router as film_reserve_router
+from app.api.area_supply import router as area_supply_router
 from app.api.movements import router as movements_router
 from app.api.milling_programs import router as milling_programs_router
 from app.api.calendar import router as calendar_router
@@ -206,6 +207,7 @@ app.include_router(productivity_router, prefix=API_PREFIX)
 app.include_router(production_monitor_router, prefix=API_PREFIX)
 app.include_router(film_issue_router, prefix=API_PREFIX)
 app.include_router(film_reserve_router, prefix=API_PREFIX)
+app.include_router(area_supply_router, prefix=API_PREFIX)
 app.include_router(movements_router, prefix=API_PREFIX)
 app.include_router(milling_programs_router, prefix=API_PREFIX)
 app.include_router(calendar_router, prefix=API_PREFIX)

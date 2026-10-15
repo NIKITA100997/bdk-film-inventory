@@ -78,6 +78,8 @@ export const navTree: NavBlock[] = [
       { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue", "units.return", "part_units.manage"] },
       // что нужно выдать по заданиям, что выдано, что на участках (15.10)
       { key: "film-issue", path: "/film-issue", label: "Задания на выдачу плёнки", permissions: ["units.issue", "production_tasks.manage", "production_tasks.view"] },
+      // участок просит плёнку, п/ф, материал; неснижаемый остаток участков (15.10)
+      { key: "area-supply", path: "/area-supply", label: "Заявки участков", permissions: ["production_tasks.report", "production_tasks.manage", "production_tasks.view", "units.issue"] },
       // Сверка рулонов — работа кладовщика (перенесена из «Задания цеха», 30.09).
       { key: "roll-reconciliation", path: "/roll-reconciliation", label: "Сверка", permissions: ["units.issue", "units.return", "production_tasks.manage", "reports.view"] },
       // Единые «Остатки»: плёнка и п/ф, позиции, партии, движения, стеллажи

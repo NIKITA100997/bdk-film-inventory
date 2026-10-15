@@ -31,6 +31,8 @@ class AreaOut(BaseModel):
     close_without_reports: bool = False
     # Остатки плёнки не возвращаются — рулон отмечают «израсходован».
     film_no_return: bool = False
+    # Здесь режут и выдают плёнку — линии участка = станки резки.
+    film_issue_point: bool = False
     # Объединять строки заданий по признакам позиции (коды свойств), 08.10.
     group_props: list[str] | None = None
     # Оплата работ: piece — сдельно (₽ за шт), shift — за смену (₽ на
@@ -66,6 +68,7 @@ class AreaUpdate(BaseModel):
     big_batch_min_pieces: float | None = None
     close_without_reports: bool | None = None
     film_no_return: bool | None = None
+    film_issue_point: bool | None = None
     # [] — без группировки.
     group_props: list[str] | None = None
     # "" — снять вид оплаты; 0 — снять ставку.
