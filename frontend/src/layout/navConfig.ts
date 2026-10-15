@@ -201,7 +201,11 @@ export function isNavItemVisible(item: NavItem, user: CurrentUser): boolean {
  * меню пользователя. Право управлять заданиями не учитываем: на проде у
  * роли «Начальник участка» оно есть, а начальник цеха без участка. */
 export function isMasterUser(user: CurrentUser): boolean {
-  return !user.is_superuser && !!user.area && user.permissions.includes("production_tasks.report");
+  if (user.is_superuser || !user.area || !user.permissions.includes("production_tasks.report")) return false;
+  // Склад (выдача, приёмка) и те, кто ведёт все участки, — не мастер, даже
+  // с участком и правом отчёта (15.10: начальник склада и участка выдачи
+  // потеряла «Склад», получив роль «Начальник участка»).
+  return !["units.issue", "units.receive", "production_tasks.all_areas"].some((p) => user.permissions.includes(p));
 }
 
 export const masterNav: NavItem[] = [
