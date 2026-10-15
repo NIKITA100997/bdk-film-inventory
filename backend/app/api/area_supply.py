@@ -27,9 +27,9 @@ handle = require_permission("units.issue", "production_tasks.manage")
 manage = require_permission("production_tasks.manage")
 
 
-def _own_area(user: User) -> str | None:
+def _own_area(db: Session, user: User) -> str | None:
     """Участок, которым ограничен пользователь; None — видит все."""
-    return None if _can_see_all_areas(user) or not user.area else user.area
+    return None if _can_see_all_areas(user) or not user.area or svc.serves_all_areas(db, user) else user.area
 
 
 class CatalogOut(BaseModel):
@@ -119,7 +119,7 @@ def list_requests(
     db: Session = Depends(get_db), user: User = Depends(view),
 ) -> list[RequestOut]:
     q = db.query(AreaRequest)
-    own = _own_area(user)
+    own = _own_area(db, user)
     if own:
         q = q.filter(AreaRequest.area == own)
     elif area:
@@ -136,7 +136,7 @@ def list_requests(
 
 @router.post("/requests", response_model=RequestOut)
 def create_request(payload: RequestIn, db: Session = Depends(get_db), user: User = Depends(create)) -> RequestOut:
-    own = _own_area(user)
+    own = _own_area(db, user)
     if own and payload.area != own:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Заявку можно подать только от своего участка")
     if db.get(Area, payload.area) is None:
@@ -189,7 +189,7 @@ def done_request(req_id: int, payload: CloseIn, db: Session = Depends(get_db), u
 def cancel_request(req_id: int, payload: CloseIn, db: Session = Depends(get_db), user: User = Depends(create)) -> RequestOut:
     """Отменить: автор или склад/начальник цеха; мастер — только своего участка."""
     r = _get_open(db, req_id)
-    own = _own_area(user)
+    own = _own_area(db, user)
     if own and r.area != own:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Заявка другого участка")
     r.status, r.closed_by, r.closed_at, r.close_note = REQ_CANCELLED, user.id, datetime.now(timezone.utc), (payload.note or None)
@@ -205,7 +205,7 @@ class SummaryOut(BaseModel):
 @router.get("/requests/summary", response_model=SummaryOut)
 def requests_summary(db: Session = Depends(get_db), user: User = Depends(view)) -> SummaryOut:
     q = db.query(AreaRequest.status, func.count()).filter(AreaRequest.status.in_(REQ_OPEN))
-    own = _own_area(user)
+    own = _own_area(db, user)
     if own:
         q = q.filter(AreaRequest.area == own)
     by = dict(q.group_by(AreaRequest.status).all())
@@ -238,7 +238,7 @@ class NormOut(BaseModel):
 @router.get("/norms", response_model=list[NormOut])
 def list_norms(area: str | None = None, db: Session = Depends(get_db), user: User = Depends(view)) -> list[NormOut]:
     q = db.query(AreaStockNorm)
-    own = _own_area(user)
+    own = _own_area(db, user)
     if own:
         q = q.filter(AreaStockNorm.area == own)
     elif area:

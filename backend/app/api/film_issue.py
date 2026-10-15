@@ -93,6 +93,9 @@ class FilmIssueBoardOut(BaseModel):
 
 @router.get("/board", response_model=FilmIssueBoardOut)
 def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) -> FilmIssueBoardOut:
+    from app.services.area_supply import serves_all_areas
+
+    all_areas = _can_see_all_areas(user) or serves_all_areas(db, user)
     areas = {a.code: a for a in db.query(Area)}
     sites = {s.id: s for s in db.query(Site)}
 
@@ -111,7 +114,7 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
         t for t in db.query(ProductionTask).options(joinedload(ProductionTask.lines)).filter(ProductionTask.is_active.is_(True))
         if any(l.material_id is not None and not l.is_closed for l in t.lines)
     ]
-    if not _can_see_all_areas(user):
+    if not all_areas:
         tasks = [t for t in tasks if t.area == user.area]
     line_ids = [l.id for t in tasks for l in t.lines]
     first_slot = dict(
@@ -177,7 +180,7 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
     )
     rolls: list[AreaRollOut] = []
     for u in db.query(MaterialUnit).filter(MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU, MaterialUnit.area.isnot(None)):
-        if not _can_see_all_areas(user) and u.area != user.area:
+        if not all_areas and u.area != user.area:
             continue
         sku = u.material_sku
         line = db.get(ProductionTaskLine, u.production_task_line_id) if u.production_task_line_id else None

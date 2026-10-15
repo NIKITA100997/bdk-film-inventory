@@ -33,7 +33,10 @@ const num = (v: number | null) => (v == null ? "" : Math.round(v * 100) / 100);
  * профиле и без права «Задания всех участков» — только свой. */
 export function useOwnArea(): string | null {
   const { user } = useAuth();
+  const areas = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   if (!user || hasPerm(user, "production_tasks.all_areas") || !user.area) return null;
+  // участок выдачи плёнки обслуживает все участки (15.10)
+  if (areas.data?.find((a) => a.code === user.area)?.film_issue_point) return null;
   return user.area;
 }
 

@@ -39,6 +39,8 @@ ROUTES = {f"{m} {p}": _guard(r.dependant) for p, r in _walk(app.routes) for m in
 
 # Утверждённые права важных адресов: «склад — закупки — производство — продажи».
 POLICY = {
+    "GET /api/finished-goods/invoices": {"fg.invoices", "fg.ship"},
+    "GET /api/finished-goods/shipments": {"fg.invoices", "fg.ship"},
     "POST /api/area-supply/requests": {"production_tasks.report", "production_tasks.manage", "units.issue"},
     "POST /api/area-supply/requests/{req_id}/done": {"units.issue", "production_tasks.manage"},
     "PUT /api/area-supply/norms": {"production_tasks.manage"},

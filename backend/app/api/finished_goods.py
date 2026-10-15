@@ -28,6 +28,8 @@ from app.services.finished_goods import balances, totals_by_order_line
 
 router = APIRouter(prefix="/finished-goods", tags=["finished-goods"])
 ship_fg = require_permission("fg.ship")
+# счета отгрузки — отдельным правом (15.10), у отгружающих — само собой
+view_invoices = require_permission("fg.invoices", "fg.ship")
 
 
 def _names(db: Session):
@@ -175,7 +177,7 @@ def _summary(inv: str, lines: list[InvoiceLine]) -> InvoiceSummary:
 
 
 @router.get("/invoices", response_model=list[InvoiceSummary])
-def invoices(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[InvoiceSummary]:
+def invoices(db: Session = Depends(get_db), user: User = Depends(view_invoices)) -> list[InvoiceSummary]:
     """Счета 1С из строк заказов: заказано / упаковано / отгружено / на складе."""
     out = [_summary(inv, lines) for inv, lines in _invoice_lines(db).items()]
     # сначала — где есть что отгрузить, потом недоотгруженные, потом закрытые
@@ -278,7 +280,7 @@ def ship(payload: ShipmentIn, db: Session = Depends(get_db), user: User = Depend
 
 
 @router.get("/shipments", response_model=list[ShipmentOut])
-def list_shipments(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[ShipmentOut]:
+def list_shipments(db: Session = Depends(get_db), user: User = Depends(view_invoices)) -> list[ShipmentOut]:
     return [_shipment_out(db, sh) for sh in db.query(FgShipment).order_by(FgShipment.created_at.desc()).limit(300)]
 
 

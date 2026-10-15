@@ -22,7 +22,7 @@ export default function CustomerOrdersHub() {
     ...(hasPerm(user, "production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "plan.approve")
       ? [{ key: "deadlines", label: "Сроки и переносы", children: <OrderDeadlines /> }]
       : []),
-    ...(hasPerm(user, "fg.ship", "sales_calculator.view", "production_tasks.manage", "production_tasks.view")
+    ...(hasPerm(user, "fg.ship", "fg.invoices")
       ? [{ key: "shipping", label: "Отгрузка", children: <ShipmentsBody /> }]
       : []),
   ];

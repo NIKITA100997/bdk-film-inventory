@@ -3,7 +3,12 @@ import { useSearchParams } from "react-router-dom";
 import DailyPlanTab from "./production/DailyPlanTab";
 import TasksBoard from "./production/TasksBoard";
 import DailySheet from "./production/DailySheet";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
+import { listAreas } from "../../api/areas";
+import { lazyPage } from "../../utils/lazyPage";
+
+const FilmIssueBoard = lazyPage(() => import("./FilmIssueBoard"));
 
 /** Задания — разбор «N штук модели X» на строки по производственным
  * линиям (пилот: окутка царговых). Начальник участка (есть свой user.area)
@@ -19,6 +24,9 @@ export default function ProductionTasks() {
   // ?task=ID (сквозной поиск по номеру) — сразу вкладка «Задания» с этим заданием.
   const [params] = useSearchParams();
   const { user } = useAuth();
+  const areas = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  // участок выдачи плёнки (15.10): его задания — доска выдачи
+  const issuePoint = !!user?.area && !!areas.data?.find((a) => a.code === user.area)?.film_issue_point;
   return (
     <Card>
       <Typography.Title level={4}>Задания цеха</Typography.Title>
@@ -26,7 +34,7 @@ export default function ProductionTasks() {
         key={`${params.get("task") ?? ""}:${params.get("tab") ?? ""}`}
         defaultActiveKey={params.get("tab") === "daily-sheet" ? "daily-sheet" : params.get("task") || params.get("tab") === "tasks" || !user?.area ? "tasks" : "daily-plan"}
         items={[
-          { key: "daily-plan", label: "Мой участок", children: <DailyPlanTab /> },
+          { key: "daily-plan", label: "Мой участок", children: issuePoint ? <FilmIssueBoard /> : <DailyPlanTab /> },
           {
             key: "tasks",
             label: "Задания",

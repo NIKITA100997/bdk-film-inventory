@@ -159,3 +159,14 @@ def film_stock_m2(db: Session) -> dict[tuple[int, int, int], float]:
     for m, c, t, w, l in q:
         out[(m, c, t)] += float(w) * float(l) / 1000
     return out
+
+
+def serves_all_areas(db: Session, user) -> bool:
+    """Участок выдачи плёнки (15.10) обслуживает все участки: его люди видят
+    задания на выдачу и заявки всех участков, даже без «Задания всех участков»."""
+    from app.models.areas import Area
+
+    if not getattr(user, "area", None):
+        return False
+    a = db.get(Area, user.area)
+    return bool(a is not None and a.film_issue_point)
