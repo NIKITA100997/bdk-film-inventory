@@ -914,6 +914,23 @@ def release(
             from app.services.planning import apply_release_dates
 
             apply_release_dates(db, order, {d.area: d.date for d in payload.dates}, payload.shift_days, user.id, payload.shift_next)
+        # резерв плёнки под заказ (15.10): резерв заказов клиентов этого
+        # запуска переходит в резерв строк заданий
+        from app.services import film_reserve
+
+        if film_reserve.enabled(db):
+            from app.models.customer_orders import CustomerOrderLine
+
+            co_ids = {
+                co for (co,) in db.query(CustomerOrderLine.order_id).filter(
+                    CustomerOrderLine.id.in_([ol.customer_order_line_id for ol in order.lines if ol.customer_order_line_id] or [-1])
+                )
+            }
+            for co_id in co_ids:
+                film_reserve.release_customer_order(db, co_id, user.id, "переведён в задания при запуске")
+            db.flush()
+            all_tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).all()
+            film_reserve.reserve_lines(db, [ln for t in all_tasks for ln in t.lines], user.id)
     except OrderError as e:
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e

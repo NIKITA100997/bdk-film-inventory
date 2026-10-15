@@ -178,8 +178,11 @@ def close_order(db: Session, order: ProductionOrder) -> None:
     if order.status != ORDER_RELEASED:
         raise OrderError("Закрыть можно только запущенный заказ")
     order.status = ORDER_CLOSED
+    from app.services import film_reserve
+
     for task in db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id):
         task.is_active = False
+        film_reserve.release_task(db, task, None, "заказ закрыт")
     db.flush()
 
 

@@ -576,6 +576,9 @@ def cancel(order_id: int, payload: CancelIn, db: Session = Depends(get_db), user
     co.note = (f"Отменён: {payload.reason}. " + (co.note or ""))[:500]
     note_change(db, co, old, None, f"отменён ({payload.reason})", user.id)
     deals.comment(db, co, f"Заказ отменён в программе. Причина: {payload.reason}")
+    from app.services import film_reserve
+
+    film_reserve.release_customer_order(db, co.id, user.id, f"заказ отменён: {payload.reason}")
     db.commit()
     db.refresh(co)
     return _out(db, co)

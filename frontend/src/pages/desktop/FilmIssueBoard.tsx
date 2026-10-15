@@ -195,6 +195,23 @@ export default function FilmIssueBoard() {
                         sorter: (a, b) => a.to_issue_m2 - b.to_issue_m2,
                         render: (_, r) => (r.to_issue_m > 0 ? `${r1(r.to_issue_m)} м · ${r1(r.to_issue_m2)} м²` : "—"),
                       },
+                      ...(q.data?.reserve_enabled
+                        ? [
+                            {
+                              title: "Закреплено на складе, м",
+                              dataIndex: "reserved_m",
+                              align: "right" as const,
+                              render: (v: number, r: Row) =>
+                                v > 0 ? (
+                                  <Typography.Text type={v + 0.01 < r.to_issue_m ? "warning" : undefined}>{r1(v)}</Typography.Text>
+                                ) : r.to_issue_m > 0 ? (
+                                  <Typography.Text type="secondary">нет</Typography.Text>
+                                ) : (
+                                  "—"
+                                ),
+                            },
+                          ]
+                        : []),
                       {
                         title: "Статус",
                         dataIndex: "status",

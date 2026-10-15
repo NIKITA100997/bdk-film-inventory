@@ -49,6 +49,7 @@ class FilmIssueLineOut(BaseModel):
     covered_by_area_m: float  # покрыто рулонами, что уже лежат на участке
     to_issue_m: float  # ещё выдать
     to_issue_m2: float
+    reserved_m: float  # закреплено на складе под строку (резерв под заказ), метров штрипса
     need_by: date | None  # первый день плана по строке
     status: str  # issued — выдано; covered — покрыто остатком участка; partial — частично; none — не выдано; site_stock — со склада площадки (Фабрика)
 
@@ -87,6 +88,7 @@ class FilmIssueBoardOut(BaseModel):
     areas: list[FilmIssueAreaOut]
     rolls_on_areas: list[AreaRollOut]
     fabrika: list[SiteStockOut]
+    reserve_enabled: bool
 
 
 @router.get("/board", response_model=FilmIssueBoardOut)
@@ -115,6 +117,15 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
     first_slot = dict(
         db.query(PlanSlot.task_line_id, func.min(PlanSlot.date)).filter(PlanSlot.task_line_id.in_(line_ids or [-1])).group_by(PlanSlot.task_line_id)
     )
+
+    from app.models.film_reserve import RES_ACTIVE, FilmReservation
+    from app.services import film_reserve
+
+    reserved_m2: dict[int, float] = defaultdict(float)
+    for lid, a in db.query(FilmReservation.task_line_id, FilmReservation.area_m2).filter(
+        FilmReservation.status == RES_ACTIVE, FilmReservation.task_line_id.in_(line_ids or [-1])
+    ):
+        reserved_m2[lid] += float(a)
 
     pool_cache: dict = {}
     by_area: dict[str, list[FilmIssueLineOut]] = defaultdict(list)
@@ -146,7 +157,7 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
                 spec_key=f"{l.material_id}-{l.color_id}-{l.thickness_id}", strip_width_mm=sw,
                 quantity_pieces=float(l.quantity_pieces), produced_pieces=float(lo.produced_good_pieces),
                 need_m=need, issued_m=issued, covered_by_area_m=covered, to_issue_m=to_issue,
-                to_issue_m2=round(to_issue * sw / 1000, 3), need_by=first_slot.get(l.id), status=status,
+                to_issue_m2=round(to_issue * sw / 1000, 3), reserved_m=round(reserved_m2.get(l.id, 0.0) * 1000 / sw, 2), need_by=first_slot.get(l.id), status=status,
             ))
     area_rows = sorted(
         (
@@ -209,4 +220,4 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
             ),
             key=lambda s: -s.to_transfer_m2,
         )
-    return FilmIssueBoardOut(areas=area_rows, rolls_on_areas=rolls, fabrika=fabrika)
+    return FilmIssueBoardOut(areas=area_rows, rolls_on_areas=rolls, fabrika=fabrika, reserve_enabled=film_reserve.enabled(db))

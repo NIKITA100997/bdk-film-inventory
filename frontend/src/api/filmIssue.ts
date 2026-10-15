@@ -20,6 +20,7 @@ export interface FilmIssueLine {
   covered_by_area_m: number;
   to_issue_m: number;
   to_issue_m2: number;
+  reserved_m: number;
   need_by: string | null;
   status: FilmIssueStatus;
 }
@@ -58,6 +59,7 @@ export interface FilmIssueBoard {
   areas: FilmIssueArea[];
   rolls_on_areas: AreaRoll[];
   fabrika: SiteStock[];
+  reserve_enabled: boolean;
 }
 
 export const getFilmIssueBoard = async (): Promise<FilmIssueBoard> => (await apiClient.get<FilmIssueBoard>("/film-issue/board")).data;

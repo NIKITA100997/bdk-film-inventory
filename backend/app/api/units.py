@@ -893,6 +893,9 @@ def issue_unit_direct(
             allow_strip_width_override=payload.override_strip_width and can_override_task_line_spec,
             allow_material_override=payload.override_material and can_override_task_line_spec,
         )
+    from app.services import film_reserve
+
+    film_reserve.guard_take(db, unit, float(unit.length_m), {payload.production_task_line_id}, user, f"Выдача рулона №{unit.id}")
     unit_warehouse_id = resolve_warehouse_id(db, unit.location_code)
     # Сохраняем привязку к строке задания даже при перенаправлении в хаб
     # (ниже) — чтобы после приёмки на другом складе было видно, для какого
@@ -908,6 +911,7 @@ def issue_unit_direct(
     if auto_transfer_if_wrong_warehouse(db, payload.area, unit, unit_warehouse_id, user.id, payload.occurred_at):
         if override_note:
             _note_transfer_of(db, unit.id, override_note)
+        film_reserve.on_issue(db, unit, payload.production_task_line_id, user.id)
         db.commit()
         return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
     from_cell = unit.location_code
@@ -923,6 +927,7 @@ def issue_unit_direct(
         from_cell=from_cell,
         occurred_at=payload.occurred_at,
     )
+    film_reserve.on_issue(db, unit, payload.production_task_line_id, user.id)
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
@@ -958,14 +963,22 @@ def issue_to_area(
     # достаточного, чтобы не залёживались длинные куски (find_exact_
     # stock_match — общий хелпер, тем же способом пользуется и
     # /units/cutting-plan).
-    exact = find_exact_stock_match(
-        db,
-        material_sku_id=sku.id,
-        width_mm=payload.width_mm,
-        length_m=payload.length_m,
-        home_warehouse_id=home_id,
-        exclude_unit_ids=set(),
-    )
+    from app.services import film_reserve
+
+    reserved_skip: set[int] = set()
+    while True:
+        exact = find_exact_stock_match(
+            db,
+            material_sku_id=sku.id,
+            width_mm=payload.width_mm,
+            length_m=payload.length_m,
+            home_warehouse_id=home_id,
+            exclude_unit_ids=reserved_skip,
+        )
+        # рулон под чужим резервом (15.10) — ищем следующий
+        if exact is None or not film_reserve.blocked_for(db, exact, float(exact.length_m), payload.production_task_line_id):
+            break
+        reserved_skip.add(exact.id)
     if exact is not None:
         from_cell = exact.location_code
         exact.status = UnitStatus.VYDAN_UCHASTKU
@@ -981,6 +994,7 @@ def issue_to_area(
             from_cell=from_cell,
             occurred_at=payload.occurred_at,
         )
+        film_reserve.on_issue(db, exact, payload.production_task_line_id, user.id)
         db.commit()
         unit = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == exact.id).first()
         return IssueResult(outcome="issued", unit=unit)
@@ -1335,6 +1349,15 @@ def execute_cutting_recipe(
         )
 
     donor = _get_storable_unit(db, payload.donor_unit_id)
+    if donor.status == UnitStatus.NA_KHRANENII:
+        # резерв плёнки (15.10): чужой резерв на доноре не режем; свой — использован
+        from app.services import film_reserve
+
+        dests = [w.destination for w in payload.width_cuts] + ([payload.length_destination] if payload.length_destination else [])
+        target_lines = {d.production_task_line_id for d in dests if d.production_task_line_id}
+        take = float(donor.length_m) if payload.width_cuts else float(payload.length_precut_m or 0)
+        film_reserve.guard_take(db, donor, take, target_lines or {None}, user, f"Раскрой рулона №{donor.id}")
+        film_reserve.consume_on_cut(db, donor, target_lines, user.id)
     if payload.width_cuts:
         if donor.status != UnitStatus.NA_KHRANENII:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Резать по ширине можно только единицу на хранении")
@@ -1687,6 +1710,10 @@ def cut_unit(
             detail="Раскрой по длине доступен только на складе или у участка, которому единица выдана",
         )
 
+    if unit.status == UnitStatus.NA_KHRANENII:
+        from app.services import film_reserve
+
+        film_reserve.guard_take(db, unit, payload.cut_length_m, {None}, user, f"Раскрой рулона №{unit.id}")
     try:
         outcome = cut_to_length(unit, payload.cut_length_m, remainder_location=payload.remainder_location)
     except ValueError as e:

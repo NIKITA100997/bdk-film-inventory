@@ -5,6 +5,7 @@ import LabelTemplateAdmin from "./LabelTemplateAdmin";
 import CalcSettingsAdmin from "./CalcSettingsAdmin";
 import CurrencyRatesAdmin from "./CurrencyRatesAdmin";
 import BitrixSettings from "./BitrixSettings";
+import FilmReserveSettings from "./FilmReserveSettings";
 import AreasAndLines from "./AreasAndLines";
 
 /** Настройки системы одним экраном (30.09): параметры расчётов, макет
@@ -18,6 +19,7 @@ export default function Settings() {
     ...(hasPerm(user, "labels.manage") ? [{ key: "label", label: "Макет этикетки (100×40)", children: <LabelTemplateAdmin /> }] : []),
     ...(hasPerm(user, "prices.manage") ? [{ key: "currencies", label: "Валюты и курсы", children: <CurrencyRatesAdmin /> }] : []),
     ...(hasPerm(user, "users.manage") ? [{ key: "bitrix", label: "Битрикс24", children: <BitrixSettings /> }] : []),
+    ...(hasPerm(user, "users.manage") ? [{ key: "film-reserve", label: "Резерв плёнки", children: <FilmReserveSettings /> }] : []),
   ];
   return <SectionTabs title="Настройки" sections={sections} />;
 }

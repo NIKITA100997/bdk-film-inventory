@@ -39,6 +39,10 @@ ROUTES = {f"{m} {p}": _guard(r.dependant) for p, r in _walk(app.routes) for m in
 
 # Утверждённые права важных адресов: «склад — закупки — производство — продажи».
 POLICY = {
+    "PUT /api/film-reserve/settings": {"users.manage"},
+    "POST /api/film-reserve/customer-orders/{co_id}": {"production_tasks.manage"},
+    "DELETE /api/film-reserve/customer-orders/{co_id}": {"production_tasks.manage"},
+    "POST /api/film-reserve/{res_id}/release": {"film_reserve.override"},
     "GET /api/purchase-requests": {"purchasing.manage", "units.receive"},
     "POST /api/purchase-requests/items": {"purchasing.manage"},
     "POST /api/purchase-requests/{request_id}/receive-item": {"materials.manage", "purchasing.manage", "units.receive"},

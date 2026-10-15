@@ -1954,6 +1954,9 @@ def delete_production_task_impl(db: Session, task: ProductionTask) -> None:
             detail="Нельзя удалить задание — по нему уже выдавалась плёнка. Такое задание остаётся в истории склада.",
         )
     order_id = task.production_order_id
+    from app.services import film_reserve
+
+    film_reserve.release_task(db, task, None, "задание удалено")
     db.delete(task)
     sync_task_order(db, order_id)
 
@@ -1985,6 +1988,10 @@ def archive_production_task(
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
     task.is_active = is_active
+    if not is_active:
+        from app.services import film_reserve
+
+        film_reserve.release_task(db, task, user.id, "задание в архиве")
     sync_task_order(db, task.production_order_id)
     db.commit()
     db.refresh(task)
@@ -2002,6 +2009,9 @@ def complete_production_task(
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
     complete_tasks(db, [task], user.id)
+    from app.services import film_reserve
+
+    film_reserve.release_task(db, task, user.id, "задание закрыто")
     sync_task_order(db, task.production_order_id)
     db.commit()
     db.refresh(task)
@@ -2030,6 +2040,10 @@ def close_task_line(
     if line is None or line.task_id != task_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
     line.is_closed = is_closed
+    if is_closed:
+        from app.services import film_reserve
+
+        film_reserve.release_lines(db, [line.id], user.id, "строка закрыта по выдаче")
     db.commit()
     task = db.get(ProductionTask, task_id)
     return _task_out(db, task)

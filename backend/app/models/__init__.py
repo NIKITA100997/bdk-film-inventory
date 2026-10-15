@@ -93,3 +93,4 @@ from app.models.part_counts import PartCountSession, PartCountLine
 from app.models.finished_goods import FgMove, FgShipment
 from app.models.control import ActionRequest, PeriodClosing
 from app.models.milling_programs import MillingProgram
+from app.models.film_reserve import FilmReservation

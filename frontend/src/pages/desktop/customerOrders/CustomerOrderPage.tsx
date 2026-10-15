@@ -21,6 +21,7 @@ import { useTabTitle } from "../../../layout/tabTitle";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { OrderNeedsCard } from "../production/NeedsViews";
 import BitrixDealCard from "./BitrixDealCard";
+import FilmReserveCard from "./FilmReserveCard";
 import { CustomerOrderModal, MoveDatesModal, PlanCheckView, editableBy, fmt, useCustomerOrderRights } from "./parts";
 
 const FIELD: Record<CustomerDateChange["field"], string> = { ship: "отгрузка", ready: "готовность", ready_fact: "факт готовности" };
@@ -269,6 +270,8 @@ export default function CustomerOrderPage() {
       {(o.bitrix_deals_on || !!o.bitrix_deal_id) && <BitrixDealCard order={o} canEdit={canEdit && o.status !== "cancelled"} />}
 
       {(o.status === "accepted" || o.status === "submitted") && left > 0 && <OrderNeedsCard orderId={o.id} customer />}
+
+      {production && (o.status === "accepted" || o.status === "submitted") && left > 0 && <FilmReserveCard orderId={o.id} canEdit={production} />}
 
       {/* Позиции и запуски */}
       <Card
