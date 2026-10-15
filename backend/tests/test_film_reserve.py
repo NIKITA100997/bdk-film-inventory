@@ -14,3 +14,10 @@ def test_wide_roll_is_cut_into_strips():
 
 def test_roll_narrower_than_two_strips_counts_one():
     assert _roll_meters(SimpleNamespace(width_mm=500), 300, 40, False) == 40
+
+
+def test_color_note_in_brackets_is_stripped():
+    import re
+
+    bare = re.sub(r"\s*\([^()]*\)\s*$", "", "ПЭТ Бежевый (cream silk)")
+    assert bare == "ПЭТ Бежевый"

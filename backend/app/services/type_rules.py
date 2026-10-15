@@ -324,14 +324,16 @@ def film_candidates(db: Session, color_value: str):
     from app.models.dictionaries import Color, Material, MaterialSku
     from app.models.items import ItemProperty
 
-    opt = next(
-        (
-            o
-            for o in db.query(ItemPropertyOption).join(ItemProperty).filter(ItemProperty.code == COLOR_CODE)
-            if _norm(o.value) == _norm(color_value) and (o.params or {}).get(FILM_COLOR)
-        ),
-        None,
-    )
+    import re
+
+    opts = [o for o in db.query(ItemPropertyOption).join(ItemProperty).filter(ItemProperty.code == COLOR_CODE) if (o.params or {}).get(FILM_COLOR)]
+    opt = next((o for o in opts if _norm(o.value) == _norm(color_value)), None)
+    if opt is None:
+        # «ПЭТ Бежевый (cream silk)» — пояснение в скобках, плёнка та же,
+        # что у «ПЭТ Бежевый» (15.10: 9 панелей щитовых без плёнки)
+        bare = re.sub(r"\s*\([^()]*\)\s*$", "", color_value)
+        if bare != color_value:
+            opt = next((o for o in opts if _norm(o.value) == _norm(bare)), None)
     if opt is None:
         return []
     material, color = str(opt.params.get(FILM_MATERIAL) or ""), str(opt.params[FILM_COLOR])
