@@ -512,6 +512,39 @@ def _area_roll_pool(db: Session, area: str) -> dict:
     }
 
 
+def _film_label(db: Session, material_id: int | None, color_id: int | None, thickness_id: int | None) -> str:
+    m, c, t = db.get(Material, material_id), db.get(Color, color_id), db.get(Thickness, thickness_id)
+    return " ".join(x for x in (m.name if m else "", c.name if c else "", f"{float(t.value_mm):g} мм" if t else "") if x)
+
+
+def _roll_mismatch_reason(db: Session, unit: MaterialUnit | None, line: ProductionTaskLine) -> str:
+    """Почему рулон не годится для отчёта по строке (15.10: раньше всегда
+    «не найден среди выданных», и мастер не понимал, что выбрал рулон другой
+    плёнки или строку другого цвета)."""
+
+    if unit is None:
+        return "Рулон не найден"
+    no = f"ПЛ-{unit.id}"
+    if unit.status not in (UnitStatus.VYDAN_UCHASTKU, UnitStatus.NA_KHRANENII):
+        return f"Рулон {no} не на участке (статус: {unit.status.value.replace('_', ' ').lower()})"
+    if unit.production_task_line_id is None:
+        return f"Рулон {no} выдан без строки задания — выдайте его под строку или выберите другой рулон"
+    sku = unit.material_sku
+    unit_film = _film_label(db, sku.material_id, sku.color_id, sku.thickness_id)
+    line_film = _film_label(db, line.material_id, line.color_id, line.thickness_id)
+    src_line = db.get(ProductionTaskLine, unit.production_task_line_id)
+    src_task = db.get(ProductionTask, src_line.task_id) if src_line is not None else None
+    if src_task is None or src_task.area != db.get(ProductionTask, line.task_id).area:
+        return f"Рулон {no} выдан другому участку"
+    if (src_line.material_id, src_line.color_id, src_line.thickness_id) != (line.material_id, line.color_id, line.thickness_id):
+        return f"Рулон {no} — {unit_film}, а строка «{line.part_name}» — {line_film}. Выберите строку этой плёнки или рулон {line_film}"
+    sw = _line_effective_strip_width(line)
+    return (
+        f"Рулон {no} шириной {float(unit.width_mm):g} мм не подходит к штрипсу строки {sw:g} мм "
+        f"(можно та же ширина, аналог или шире не больше чем на {_strip_over_mm(db):g} мм)"
+    )
+
+
 def _strip_over_mm(db: Session) -> float:
     """Допуск «штрипс шире нужного» для отчёта (Параметры расчётов, 15.10)."""
     from app.models.abc import CalcSettings
@@ -1296,7 +1329,7 @@ def _build_task_line_report(
                     )
                 )
         if not (status_ok and line_ok):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Рулон не найден среди выданных на эту строку")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_roll_mismatch_reason(db, unit, line))
     elif area is not None and area.requires_roll_on_report and line.material_id is not None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к рулону")
     # Раздел про физический учёт деталей (пилот: окутка царговых) —

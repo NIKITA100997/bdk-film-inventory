@@ -32,3 +32,28 @@ def test_wider_strip_within_tolerance_fits_report():
     assert not strip_width_fits(130, 135, {135.0}, 10)  # уже — нельзя
     assert not strip_width_fits(140, 135, {135.0}, 0)  # допуск выключен
     assert strip_width_fits(135, 135, {135.0}, 0)
+
+
+def test_roll_mismatch_reason_names_both_films():
+    from types import SimpleNamespace
+
+    import app.api.production as prod
+    from app.models.units import UnitStatus
+
+    unit = SimpleNamespace(id=639, status=UnitStatus.VYDAN_UCHASTKU, production_task_line_id=1, width_mm=221,
+                           material_sku=SimpleNamespace(material_id=1, color_id=15, thickness_id=15))
+    src = SimpleNamespace(id=1, task_id=10, material_id=1, color_id=15, thickness_id=15)
+    line = SimpleNamespace(id=2, task_id=10, material_id=1, color_id=76, thickness_id=20, part_name="Филенка (Панель) 8х207х1800")
+    task = SimpleNamespace(area="okutka_tsargovykh")
+
+    class DB:
+        def get(self, model, key):
+            return {("ProductionTaskLine", 1): src, ("ProductionTask", 10): task}.get((model.__name__, key))
+
+    orig = prod._film_label
+    prod._film_label = lambda db, m, c, t: {15: "ПВХ Ясень Ривьера Айс", 76: "ПВХ Капучино"}[c]
+    try:
+        msg = prod._roll_mismatch_reason(DB(), unit, line)
+    finally:
+        prod._film_label = orig
+    assert "ПЛ-639" in msg and "Ясень Ривьера Айс" in msg and "Капучино" in msg
