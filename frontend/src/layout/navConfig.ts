@@ -76,6 +76,8 @@ export const navTree: NavBlock[] = [
       { key: "receive", path: "/m/receive", label: "Приёмка", permissions: ["units.receive", "materials.manage", "part_units.manage"] },
       // «Начальные остатки» — режим «Без документа» в Приёмке (объединение экранов, 29.09).
       { key: "issue", path: "/m/issue", label: "Выдача участку", permissions: ["units.issue", "units.return", "part_units.manage"] },
+      // что нужно выдать по заданиям, что выдано, что на участках (15.10)
+      { key: "film-issue", path: "/film-issue", label: "Задания на выдачу плёнки", permissions: ["units.issue", "production_tasks.manage", "production_tasks.view"] },
       // Сверка рулонов — работа кладовщика (перенесена из «Задания цеха», 30.09).
       { key: "roll-reconciliation", path: "/roll-reconciliation", label: "Сверка", permissions: ["units.issue", "units.return", "production_tasks.manage", "reports.view"] },
       // Единые «Остатки»: плёнка и п/ф, позиции, партии, движения, стеллажи
