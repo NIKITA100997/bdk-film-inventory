@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 
@@ -2012,6 +2013,48 @@ def complete_production_task(
     from app.services import film_reserve
 
     film_reserve.release_task(db, task, user.id, "задание закрыто")
+    sync_task_order(db, task.production_order_id)
+    db.commit()
+    db.refresh(task)
+    return _task_out(db, task)
+
+
+class CompleteLineIn(BaseModel):
+    line_id: int
+    done_pieces: float = Field(ge=0)  # сделано всего по строке
+    close: bool = True
+
+
+class CompleteLinesIn(BaseModel):
+    lines: list[CompleteLineIn] = Field(min_length=1)
+
+
+@router.post("/production-tasks/{task_id}/complete-lines", response_model=ProductionTaskOut)
+def complete_production_task_lines(
+    task_id: int, payload: CompleteLinesIn, db: Session = Depends(get_db), user: User = Depends(manage_production)
+) -> ProductionTaskOut:
+    """«Закрыть по позициям» (15.10): у каждой строки — сколько сделано всего;
+    недостающее засчитывается без рулона, как «всё сделано» (плёнку и п/ф не
+    трогает), строка закрывается. Закрыты все строки — задание в архив."""
+    from app.services import film_reserve
+    from app.services.production_orders import close_line_done
+
+    _guard_task(db, user, task_id)
+    task = db.get(ProductionTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+    by_id = {l.id: l for l in task.lines}
+    for item in payload.lines:
+        line = by_id.get(item.line_id)
+        if line is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Строка {item.line_id} не из этого задания")
+        close_line_done(db, line, item.done_pieces, user.id, close=item.close)
+        if item.close:
+            film_reserve.release_lines(db, [line.id], user.id, "строка закрыта")
+    if all(l.is_closed for l in task.lines):
+        task.is_active = False
+        film_reserve.release_task(db, task, user.id, "задание закрыто")
+    db.flush()
     sync_task_order(db, task.production_order_id)
     db.commit()
     db.refresh(task)

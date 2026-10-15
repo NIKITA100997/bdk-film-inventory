@@ -529,6 +529,13 @@ export const deleteProductionTask = async (taskId: number): Promise<DeleteResult
 export const completeProductionTask = async (taskId: number): Promise<ProductionTask> =>
   (await apiClient.post<ProductionTask>(`/production-tasks/${taskId}/complete`)).data;
 
+/** «Закрыть по позициям» (15.10): сколько сделано всего по каждой строке;
+ * недостающее — без рулона и списания, отмеченные строки закрываются. */
+export const completeProductionTaskLines = async (
+  taskId: number,
+  lines: { line_id: number; done_pieces: number; close: boolean }[],
+): Promise<ProductionTask> => (await apiClient.post<ProductionTask>(`/production-tasks/${taskId}/complete-lines`, { lines })).data;
+
 export const archiveProductionTask = async (taskId: number, isActive: boolean): Promise<ProductionTask> =>
   (await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/archive`, null, { params: { is_active: isActive } })).data;
 

@@ -26,6 +26,7 @@ import FastReportPanel from "./fastReport/FastReportPanel";
 import ReportModal from "./ReportModal";
 import AssignmentModal from "./AssignmentModal";
 import PfSupplyModal from "./PfSupplyModal";
+import CloseByLinesModal from "./CloseByLinesModal";
 import LineSpecModal from "./LineSpecModal";
 import { areaRequiresRoll } from "../../../api/areas";
 import { rollChoices } from "./fastReport/useFastReport";
@@ -152,6 +153,7 @@ function TaskCardBody({
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось закрыть задание")),
   });
   const [supplyOpen, setSupplyOpen] = useState(false);
+  const [closeByLines, setCloseByLines] = useState(false);
   const authUser = useAuth().user;
   const isSuper = !!authUser?.is_superuser;
   const userArea = authUser?.area ?? null;
@@ -193,6 +195,7 @@ function TaskCardBody({
       ? [{ key: "supply", label: "Обеспечение п/ф…" }]
       : []),
     ...(canManage && t.is_active ? [{ key: "complete", label: "Закрыть: всё сделано" }] : []),
+    ...(canManage && t.is_active && t.lines.some((l) => !l.is_closed) ? [{ key: "complete-lines", label: "Закрыть по позициям…" }] : []),
     ...(canManage ? [{ key: "archive", label: t.is_active ? "В архив" : "Вернуть из архива" }] : []),
     { key: "list", label: "Открыть в «Задания цеха»" },
     { key: "planner", label: "Открыть в планировщике →" },
@@ -207,6 +210,7 @@ function TaskCardBody({
         cancelText: "Отмена",
         onOk: () => completeMutation.mutateAsync(),
       });
+    else if (key === "complete-lines") setCloseByLines(true);
     else if (key === "archive") archiveMutation.mutate(!t.is_active);
     else if (key === "supply") setSupplyOpen(true);
     else if (key === "delete")
@@ -327,6 +331,7 @@ function TaskCardBody({
         </Space>
       </div>
       <Tabs activeKey={tabs.some((x) => x.key === tab) ? tab : "lines"} onChange={setTab} items={tabs} style={{ padding: "0 20px 20px" }} />
+      {closeByLines && <CloseByLinesModal task={t} onClose={() => setCloseByLines(false)} />}
       {supplyOpen && (
         <PfSupplyModal taskId={t.id} taskName={t.product_model_name ?? t.name ?? ""} canManage={canManage} onClose={() => setSupplyOpen(false)} />
       )}

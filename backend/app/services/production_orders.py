@@ -139,39 +139,57 @@ def complete_tasks(db: Session, tasks: list[ProductionTask], user_id: int) -> in
     засчитывается служебным отчётом без рулона — плёнку и партии п/ф он не
     трогает, — строки закрываются, задания уходят в архив. Без commit.
     Возвращает, сколько строк досчитано."""
+    completed = 0
+    for task in tasks:
+        for line in task.lines:
+            completed += close_line_done(db, line, float(line.quantity_pieces), user_id)
+        task.is_active = False
+    db.flush()
+    return completed
+
+
+def line_done_pieces(db: Session, line_id: int) -> float:
+    """Засчитано по строке (годные + брак, отчёты «в счёт строки»)."""
     from sqlalchemy import func
 
     from app.models.production import ProductionTaskLineReport
 
-    completed = 0
-    for task in tasks:
-        for line in task.lines:
-            done = float(
-                db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces + ProductionTaskLineReport.defect_pieces), 0))
-                .filter(ProductionTaskLineReport.task_line_id == line.id, ProductionTaskLineReport.counts_toward_line.is_(True))
-                .scalar()
-            )
-            left = round(float(line.quantity_pieces) - done, 2)
-            if left > 0:
-                report = ProductionTaskLineReport(
-                    task_line_id=line.id, good_pieces=left, defect_pieces=0, material_unit_id=None,
-                    counts_toward_line=True, note=COMPLETE_NOTE, kind=REPORT_CLOSE, reported_by=user_id,
-                )
-                db.add(report)
-                completed += 1
-                # последняя операция изделия (ламинированный погонаж Фабрики —
-                # готов к продаже, 06.10) — на склад готовой продукции
-                stage = db.get(PartStage, line.part_stage_id) if line.part_stage_id else None
-                if stage is not None:
-                    from app.services.finished_goods import receive_from_report
+    return float(
+        db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces + ProductionTaskLineReport.defect_pieces), 0))
+        .filter(ProductionTaskLineReport.task_line_id == line_id, ProductionTaskLineReport.counts_toward_line.is_(True))
+        .scalar()
+    )
 
-                    db.flush()
-                    receive_from_report(db, line=line, stage=stage, report=report, user_id=user_id)
-            line.production_closed = True
-            line.is_closed = True
-        task.is_active = False
-    db.flush()
-    return completed
+
+def close_line_done(db: Session, line, done_total: float, user_id: int, close: bool = True) -> int:
+    """Строка сделана на done_total шт всего: недостающее до этого числа
+    засчитывается служебным отчётом без рулона (плёнку и партии п/ф не
+    трогает; последняя операция изделия — на склад готовой продукции), строка
+    закрывается (close). Уже засчитано больше — ничего не списывает назад.
+    Возвращает 1, если добавлен отчёт."""
+    from app.models.production import ProductionTaskLineReport
+
+    left = round(done_total - line_done_pieces(db, line.id), 2)
+    added = 0
+    if left > 0:
+        report = ProductionTaskLineReport(
+            task_line_id=line.id, good_pieces=left, defect_pieces=0, material_unit_id=None,
+            counts_toward_line=True, note=COMPLETE_NOTE, kind=REPORT_CLOSE, reported_by=user_id,
+        )
+        db.add(report)
+        added = 1
+        # последняя операция изделия (ламинированный погонаж Фабрики —
+        # готов к продаже, 06.10) — на склад готовой продукции
+        stage = db.get(PartStage, line.part_stage_id) if line.part_stage_id else None
+        if stage is not None:
+            from app.services.finished_goods import receive_from_report
+
+            db.flush()
+            receive_from_report(db, line=line, stage=stage, report=report, user_id=user_id)
+    if close:
+        line.production_closed = True
+        line.is_closed = True
+    return added
 
 
 def close_order(db: Session, order: ProductionOrder) -> None:
