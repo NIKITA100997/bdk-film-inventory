@@ -30,6 +30,7 @@ class CalcSettingsOut(BaseModel):
     shortage_note_template: str
     reorder_lookback_days: int
     reorder_safety_margin_days: int
+    report_strip_over_mm: float = 10
     updated_at: datetime
 
 
@@ -40,3 +41,4 @@ class CalcSettingsUpdate(BaseModel):
     shortage_note_template: str = Field(min_length=1, max_length=255)
     reorder_lookback_days: int = Field(gt=0)
     reorder_safety_margin_days: int = Field(ge=0)
+    report_strip_over_mm: float = Field(default=10, ge=0, le=100)

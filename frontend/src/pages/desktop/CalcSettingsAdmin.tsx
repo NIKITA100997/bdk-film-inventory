@@ -60,6 +60,14 @@ export default function CalcSettingsAdmin() {
           >
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
+          <Form.Item
+            name="report_strip_over_mm"
+            label="Отчёт: штрипс шире нужного, до мм"
+            rules={[{ required: true }]}
+            extra="В отчёте по строке можно указать общий рулон участка шире штрипса строки не больше чем на столько миллиметров — лишнее обрезают. 0 — только та же ширина и аналоги."
+          >
+            <InputNumber min={0} max={100} style={{ width: "100%" }} />
+          </Form.Item>
           <Button type="primary" htmlType="submit" loading={calcSettingsMutation.isPending}>
             Сохранить
           </Button>

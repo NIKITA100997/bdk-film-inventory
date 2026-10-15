@@ -40,6 +40,7 @@ def update_calc_settings(
     settings.shortage_note_template = payload.shortage_note_template
     settings.reorder_lookback_days = payload.reorder_lookback_days
     settings.reorder_safety_margin_days = payload.reorder_safety_margin_days
+    settings.report_strip_over_mm = payload.report_strip_over_mm
     db.commit()
     db.refresh(settings)
     return settings

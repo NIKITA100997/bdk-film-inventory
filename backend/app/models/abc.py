@@ -61,4 +61,8 @@ class CalcSettings(Base):
     # "пора заказывать" зажигается раньше, чем остаток буквально кончится.
     reorder_lookback_days: Mapped[int] = mapped_column(Integer, default=30)
     reorder_safety_margin_days: Mapped[int] = mapped_column(Integer, default=7)
+    # Штрипс шире нужного в отчёте (15.10): общий рулон участка шире ширины
+    # штрипса строки не больше чем на столько мм годится для отчёта (лишнее
+    # обрезается). 0 — только та же ширина и аналоги.
+    report_strip_over_mm: Mapped[float] = mapped_column(Numeric(10, 2), default=10, server_default="10")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

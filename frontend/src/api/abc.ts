@@ -20,6 +20,7 @@ export interface CalcSettings {
   shortage_note_template: string;
   reorder_lookback_days: number;
   reorder_safety_margin_days: number;
+  report_strip_over_mm: number;
   updated_at: string;
 }
 
@@ -49,6 +50,7 @@ export async function updateCalcSettings(payload: {
   shortage_note_template: string;
   reorder_lookback_days: number;
   reorder_safety_margin_days: number;
+  report_strip_over_mm: number;
 }): Promise<CalcSettings> {
   const { data } = await apiClient.patch<CalcSettings>("/calc-settings", payload);
   return data;

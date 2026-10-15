@@ -21,3 +21,14 @@ def test_color_note_in_brackets_is_stripped():
 
     bare = re.sub(r"\s*\([^()]*\)\s*$", "", "ПЭТ Бежевый (cream silk)")
     assert bare == "ПЭТ Бежевый"
+
+
+def test_wider_strip_within_tolerance_fits_report():
+    from app.api.production import strip_width_fits
+
+    assert strip_width_fits(140, 135, {135.0}, 10)  # Филадельфия Крем 140 под строку 135
+    assert strip_width_fits(145, 135, {135.0}, 10)
+    assert not strip_width_fits(146, 135, {135.0}, 10)
+    assert not strip_width_fits(130, 135, {135.0}, 10)  # уже — нельзя
+    assert not strip_width_fits(140, 135, {135.0}, 0)  # допуск выключен
+    assert strip_width_fits(135, 135, {135.0}, 0)

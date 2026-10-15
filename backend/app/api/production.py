@@ -511,6 +511,21 @@ def _area_roll_pool(db: Session, area: str) -> dict:
     }
 
 
+def _strip_over_mm(db: Session) -> float:
+    """Допуск «штрипс шире нужного» для отчёта (Параметры расчётов, 15.10)."""
+    from app.models.abc import CalcSettings
+
+    s = db.get(CalcSettings, 1)
+    return float(s.report_strip_over_mm) if s is not None and s.report_strip_over_mm is not None else 10.0
+
+
+def strip_width_fits(unit_w: float, strip_w: float, equiv: set[float], over_mm: float) -> bool:
+    """Рулон годится под строку: та же ширина или аналог, или шире нужного
+    не больше чем на over_mm (лишнее обрезают; 15.10 — Филадельфия Крем 140
+    под строку 135)."""
+    return unit_w in equiv or (strip_w < unit_w <= strip_w + over_mm + 1e-6)
+
+
 def _task_borrowable_and_shortfall(
     db: Session,
     task: ProductionTask,
@@ -577,14 +592,16 @@ def _task_borrowable_and_shortfall(
         group_shortfall_by_line.update(distribute_group_shortfall(list(group.values())))
 
     borrowable_by_line: dict[int, list[tuple[MaterialUnit, ProductionTaskLine]]] = {}
+    over_mm = _strip_over_mm(db)
     for l in task.lines:
         if l.material_id is None:
             continue
-        want_widths = set(equiv(_line_effective_strip_width(l)))
+        sw = _line_effective_strip_width(l)
+        want_widths = set(equiv(sw))
         found = [
             (u, src)
             for u, src, _a, _r in pool["units"]
-            if src.id != l.id and spec(src) == spec(l) and (any_width or float(u.width_mm) in want_widths)
+            if src.id != l.id and spec(src) == spec(l) and (any_width or strip_width_fits(float(u.width_mm), sw, want_widths, over_mm))
         ]
         if found:
             borrowable_by_line[l.id] = found
@@ -1237,7 +1254,10 @@ def _build_task_line_report(
                     == (line.material_id, line.color_id, line.thickness_id)
                     and (
                         cuts_film_on_site(db, src_task.area)
-                        or float(unit.width_mm) in set(equivalent_widths(db, _line_effective_strip_width(line)))
+                        or strip_width_fits(
+                            float(unit.width_mm), _line_effective_strip_width(line),
+                            set(equivalent_widths(db, _line_effective_strip_width(line))), _strip_over_mm(db),
+                        )
                     )
                 )
         if not (status_ok and line_ok):
