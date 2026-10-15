@@ -127,6 +127,7 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
     ):
         reserved_m2[lid] += float(a)
 
+    reserve_on = film_reserve.enabled(db)
     pool_cache: dict = {}
     by_area: dict[str, list[FilmIssueLineOut]] = defaultdict(list)
     for t in tasks:
@@ -211,7 +212,9 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
             )
             for u in q:
                 sku = u.material_sku
-                free[f"{sku.material_id}-{sku.color_id}-{sku.thickness_id}"] += float(u.width_mm) * float(u.length_m) / 1000
+                # закреплённое под заказ — не свободно (резерв, 15.10)
+                left_m = float(u.length_m) - (film_reserve.reserved_m(db, u.id) if reserve_on else 0.0)
+                free[f"{sku.material_id}-{sku.color_id}-{sku.thickness_id}"] += float(u.width_mm) * max(0.0, left_m) / 1000
         fabrika = sorted(
             (
                 SiteStockOut(spec_key=k, film=labels[k], need_m2=round(v, 2), free_stock_m2=round(free.get(k, 0.0), 2),
@@ -220,4 +223,4 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
             ),
             key=lambda s: -s.to_transfer_m2,
         )
-    return FilmIssueBoardOut(areas=area_rows, rolls_on_areas=rolls, fabrika=fabrika, reserve_enabled=film_reserve.enabled(db))
+    return FilmIssueBoardOut(areas=area_rows, rolls_on_areas=rolls, fabrika=fabrika, reserve_enabled=reserve_on)

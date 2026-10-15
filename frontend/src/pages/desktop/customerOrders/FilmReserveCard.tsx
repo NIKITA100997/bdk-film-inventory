@@ -5,14 +5,21 @@ import {
   listFilmReservations,
   releaseFilmForCustomerOrder,
   reserveFilmForCustomerOrder,
+  type FilmReservation,
 } from "../../../api/filmReserve";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { useAuth } from "../../../auth/AuthContext";
+import { hasPerm } from "../../../auth/permissions";
+import { useReleaseReservation } from "../../../components/FilmReservesPanel";
 
 /** Резерв плёнки у срочного заказа клиента (15.10): до запуска закрепить
  * метры на рулонах склада; при запуске резерв переходит на строки заданий.
  * Карточки нет, если функция выключена в настройках. */
 export default function FilmReserveCard({ orderId, canEdit }: { orderId: number; canEdit: boolean }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const canRelease = hasPerm(user, "film_reserve.override");
+  const releaseOne = useReleaseReservation();
   const settings = useQuery({ queryKey: ["film-reserve-settings"], queryFn: getFilmReserveSettings, retry: false });
   const on = !!settings.data?.enabled;
   const rows = useQuery({
@@ -89,9 +96,22 @@ export default function FilmReserveCard({ orderId, canEdit }: { orderId: number;
               render: (_, r) => (r.strip_width_mm ? ((r.area_m2 * 1000) / r.strip_width_mm).toFixed(1) : "—"),
             },
             { title: "м²", dataIndex: "area_m2", align: "right", render: (v: number) => v.toFixed(2) },
+            ...(canRelease
+              ? [
+                  {
+                    title: "",
+                    render: (_: unknown, r: FilmReservation) => (
+                      <Button size="small" danger type="text" onClick={() => releaseOne.open(r)}>
+                        Снять
+                      </Button>
+                    ),
+                  },
+                ]
+              : []),
           ]}
         />
       )}
+      {releaseOne.modal}
     </Card>
   );
 }

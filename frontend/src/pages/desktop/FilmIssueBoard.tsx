@@ -10,6 +10,7 @@ import { UnitLink } from "../../components/EntityLink";
 import AreaRequestsPanel from "../../components/areaSupply/AreaRequestsPanel";
 import AreaNormsPanel from "../../components/areaSupply/AreaNormsPanel";
 import IssueFactPanel from "../../components/areaSupply/IssueFactPanel";
+import FilmReservesPanel from "../../components/FilmReservesPanel";
 
 const STATUS: Record<FilmIssueStatus, { label: string; color: string }> = {
   none: { label: "не выдано", color: "red" },
@@ -236,6 +237,7 @@ export default function FilmIssueBoard() {
           ...((q.data?.fabrika ?? []).length
             ? [{ key: "fabrika", label: "Фабрика: собрать и переместить", children: <Fabrika rows={q.data!.fabrika} /> }]
             : []),
+          ...(q.data?.reserve_enabled ? [{ key: "reserve", label: "Резерв", children: <FilmReservesPanel /> }] : []),
           // прессы и ламинация без заданий — «закончилась — выдают» (15.10)
           { key: "requests", label: "Заявки участков", children: <AreaRequestsPanel kind="plenka" /> },
           { key: "norms", label: "Неснижаемый остаток", children: <AreaNormsPanel kind="plenka" /> },

@@ -52,6 +52,8 @@ class ReservationOut(BaseModel):
     customer_order_id: int | None
     invoice_no: str | None
     created_at: datetime
+    spec_key: str
+    film: str
 
 
 class ReleaseIn(BaseModel):
@@ -84,6 +86,8 @@ def _out(db: Session, rows: list[FilmReservation]) -> list[ReservationOut]:
             strip_width_mm=float(r.strip_width_mm) if r.strip_width_mm is not None else None,
             task_line_id=r.task_line_id, task_name=((ln.task.name or f"Задание №{ln.task_id}") if ln is not None else None),
             customer_order_id=r.customer_order_id, invoice_no=co.invoice_no if co is not None else None, created_at=r.created_at,
+            spec_key=f"{sku.material_id}-{sku.color_id}-{sku.thickness_id}",
+            film=f"{db.get(Material, sku.material_id).name} {db.get(Color, sku.color_id).name}",
         ))
     return out
 
@@ -130,3 +134,52 @@ def release_one(res_id: int, payload: ReleaseIn, db: Session = Depends(get_db), 
     film_reserve._close([r], RES_RELEASED, user.id, f"снят: {payload.note}")
     db.commit()
     return {"released": 1}
+
+
+class ReserveGroupOut(BaseModel):
+    spec_key: str
+    film: str
+    stock_m2: float  # на складах, рулоны и штрипсы
+    reserved_m2: float  # из них закреплено (площадь рулона, с обрезью)
+    free_m2: float
+    reservations: int
+
+
+@router.get("/summary", response_model=list[ReserveGroupOut])
+def reserve_summary(db: Session = Depends(get_db), user: User = Depends(view)) -> list[ReserveGroupOut]:
+    """По плёнке (материал + цвет + толщина): на складе — в резерве — свободно.
+    Только группы, где есть активный резерв."""
+    from collections import defaultdict
+
+    from app.models.dictionaries import Thickness
+    from app.models.units import MaterialSku, UnitStatus
+
+    reserved: dict[tuple, float] = defaultdict(float)
+    count: dict[tuple, int] = defaultdict(int)
+    for r, u in db.query(FilmReservation, MaterialUnit).join(MaterialUnit, MaterialUnit.id == FilmReservation.unit_id).filter(
+        FilmReservation.status == RES_ACTIVE
+    ):
+        sku = u.material_sku
+        g = (sku.material_id, sku.color_id, sku.thickness_id)
+        reserved[g] += float(r.length_m) * float(u.width_mm) / 1000
+        count[g] += 1
+    if not reserved:
+        return []
+    stock: dict[tuple, float] = defaultdict(float)
+    q = (
+        db.query(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id, MaterialUnit.width_mm, MaterialUnit.length_m)
+        .join(MaterialUnit, MaterialUnit.material_sku_id == MaterialSku.id)
+        .filter(MaterialUnit.status == UnitStatus.NA_KHRANENII)
+    )
+    for m, c, t, w, l in q:
+        if (m, c, t) in reserved:
+            stock[(m, c, t)] += float(w) * float(l) / 1000
+    out = []
+    for g, rm2 in reserved.items():
+        label = f"{db.get(Material, g[0]).name} {db.get(Color, g[1]).name} {float(db.get(Thickness, g[2]).value_mm):g} мм"
+        out.append(ReserveGroupOut(
+            spec_key=f"{g[0]}-{g[1]}-{g[2]}", film=label, stock_m2=round(stock[g], 2), reserved_m2=round(rm2, 2),
+            free_m2=round(max(0.0, stock[g] - rm2), 2), reservations=count[g],
+        ))
+    out.sort(key=lambda r: r.free_m2)
+    return out

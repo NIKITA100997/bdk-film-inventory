@@ -35,6 +35,17 @@ export interface FilmReservation {
   customer_order_id: number | null;
   invoice_no: string | null;
   created_at: string;
+  spec_key: string;
+  film: string;
+}
+
+export interface FilmReserveGroup {
+  spec_key: string;
+  film: string;
+  stock_m2: number;
+  reserved_m2: number;
+  free_m2: number;
+  reservations: number;
 }
 
 export const getFilmReserveSettings = async () => (await apiClient.get<FilmReserveSettings>("/film-reserve/settings")).data;
@@ -42,6 +53,7 @@ export const saveFilmReserveSettings = async (s: { enabled: boolean; extra_pct: 
   (await apiClient.put<FilmReserveSettings>("/film-reserve/settings", s)).data;
 export const listFilmReservations = async (params: { customer_order_id?: number; task_id?: number; unit_id?: number }) =>
   (await apiClient.get<FilmReservation[]>("/film-reserve", { params })).data;
+export const getFilmReserveSummary = async () => (await apiClient.get<FilmReserveGroup[]>("/film-reserve/summary")).data;
 export const reserveFilmForCustomerOrder = async (coId: number) =>
   (await apiClient.post<FilmReserveResult>(`/film-reserve/customer-orders/${coId}`)).data;
 export const releaseFilmForCustomerOrder = async (coId: number) =>
