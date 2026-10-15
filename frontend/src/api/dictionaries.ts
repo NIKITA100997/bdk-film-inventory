@@ -29,6 +29,7 @@ export interface ThicknessEntry {
 // для автозаполнения формы, не FK-связь с BOM/заданием.
 export interface Part {
   id: number;
+  item_id?: number | null;
   name: string;
   width_mm: number;
   length_m: number;

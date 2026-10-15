@@ -94,6 +94,7 @@ class PartStageCreate(BaseModel):
 class PartOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    item_id: int | None = None  # позиция номенклатуры (синонимы при загрузке из файла)
     name: str
     width_mm: float
     length_m: float

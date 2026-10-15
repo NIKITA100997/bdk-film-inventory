@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import type { FormInstance } from "antd";
-import { DatePicker, Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, Tag, message, Alert } from "antd";
+import { Checkbox, DatePicker, Modal, Form, Select, InputNumber, Input, Button, Upload, Table, Typography, Space, Tabs, Tag, message, Alert } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listProductModels,
@@ -20,6 +20,7 @@ import { skuLabel, type AreaValue, type MaterialSku } from "../../../api/units";
 import { listAreas } from "../../../api/areas";
 import PartSelect from "../../../components/PartSelect";
 import NaryadResolveCell from "./NaryadResolveCell";
+import { addItemAlias } from "../../../api/items";
 import { apiErrorMessage } from "../../../utils/apiError";
 
 type ManualRowFormValues = ProductionTaskLineManualCreate & { sku_id?: number };
@@ -444,8 +445,19 @@ export default function CreateTaskModal({
     editRowForm.setFieldsValue({ ...line, sku_id: matchingSku?.id });
     setEditingIndex(index);
   };
+  // Выбрали деталь вручную у строки из файла (15.10): запомнить название из
+  // файла синонимом позиции — следующая загрузка подберёт её сама.
+  const [pickedPart, setPickedPart] = useState<{ itemId: number; name: string } | null>(null);
+  const [rememberPart, setRememberPart] = useState(true);
   const saveEditedLine = (v: ManualRowFormValues) => {
     if (editingIndex === null) return;
+    const raw = manualLines[editingIndex]?.part_name;
+    if (pickedPart && rememberPart && raw && raw.trim().toLowerCase() !== pickedPart.name.trim().toLowerCase()) {
+      addItemAlias(pickedPart.itemId, raw)
+        .then(() => message.success(`Запомнено: «${raw}» → ${pickedPart.name}`))
+        .catch((e) => message.error(apiErrorMessage(e, "Не удалось запомнить соответствие")));
+    }
+    setPickedPart(null);
     const { sku_id: _skuId, ...rest } = v;
     setManualLines((lines) => lines.map((l, i) => (i === editingIndex ? rest : l)));
     setEditingIndex(null);
@@ -646,15 +658,21 @@ export default function CreateTaskModal({
                         )}
                         <PartSelect
                           area={taskArea}
-                          onSelect={(part) =>
+                          onSelect={(part) => {
                             editRowForm.setFieldsValue({
                               part_name: part.name,
                               width_mm: part.width_mm,
                               length_m: part.length_m,
                               strip_width_mm: part.strip_width_mm ?? undefined,
-                            })
-                          }
+                            });
+                            setPickedPart(part.item_id ? { itemId: part.item_id, name: part.name } : null);
+                          }}
                         />
+                        {pickedPart && l.part_name && l.part_name.trim().toLowerCase() !== pickedPart.name.trim().toLowerCase() && (
+                          <Checkbox checked={rememberPart} onChange={(e) => setRememberPart(e.target.checked)}>
+                            Запомнить: «{l.part_name}» → эта деталь
+                          </Checkbox>
+                        )}
                         <Form.Item name="part_name" noStyle>
                           <Input placeholder="Название детали" />
                         </Form.Item>

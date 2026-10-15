@@ -87,3 +87,35 @@ class TestNormalizePartName:
 
     def test_collapses_double_spaces(self):
         assert normalize_part_name("Стоевая  36х108х2035  ПАЗ-11") == "Стоевая 36х108х2035 ПАЗ-11"
+
+
+def test_part_signature_dims_neo_under():
+    from app.services.blank_plan_import import part_signature
+
+    assert part_signature("Планка 18х120х1800") == ((18.0, 120.0, 1800.0), False, None)
+    assert part_signature("Поперечная НЕО 22х191 под 16мм") == ((22.0, 191.0), True, "16")
+    assert part_signature("Поперечная (Панель) НЕО 22х191х2070 под 16мм")[0][:2] == (22.0, 191.0)
+
+
+def test_match_part_uses_dims_and_neo():
+    from app.models.dictionaries import Part
+    from app.services import blank_plan_import as bpi
+
+    parts = [
+        Part(id=1, name="Планка 19х55х1800", width_mm=55, length_m=3.68, is_active=True),
+        Part(id=2, name="Планка (Панель) 18х120х1800", width_mm=120, length_m=1.84, is_active=True),
+        Part(id=3, name="Поперечная (Панель) 22х191х2070 под 16мм", width_mm=191, length_m=2.11, is_active=True),
+        Part(id=4, name="Поперечная (Панель) НЕО 22х191х2070 под 16мм", width_mm=191, length_m=2.11, is_active=True),
+        Part(id=5, name="Поперечная (Панель) НЕО 22х191х1800 под 16мм", width_mm=191, length_m=1.84, is_active=True),
+    ]
+    import app.services.item_aliases as ia
+
+    orig = ia.find_item
+    ia.find_item = lambda db, text, kind_id=None: None
+    try:
+        assert bpi.match_part(None, parts, "Планка  18х120х1800 ").id == 2
+        assert bpi.match_part(None, parts, "Поперечная НЕО 22х191х2070 под 16мм").id == 4
+        assert bpi.match_part(None, parts, "Поперечная НЕО 22х191 под 16мм") is None  # длина не указана — выбрать вручную
+        assert bpi.match_part(None, parts, "Поперечная 22х191х2070 под 16мм").id == 3
+    finally:
+        ia.find_item = orig

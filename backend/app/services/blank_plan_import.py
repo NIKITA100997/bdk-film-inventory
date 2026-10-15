@@ -268,9 +268,8 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
     способом, что и раньше; несколько похожих — не гадаем, какое из них,
     а отдаём списком (sku_candidates) во фронтенд, чтобы оператор выбрал
     сам одним кликом вместо поиска с нуля."""
-    parts = db.query(Part).filter(Part.is_active).all()
-    part_by_normalized: dict[str, Part] = {p.name.strip().lower(): p for p in parts}
-    normalized_names = list(part_by_normalized)
+    # «деталь · декор» (деталь в плёнке) — не кандидат: в файле деталь без плёнки
+    parts = [p for p in db.query(Part).filter(Part.is_active).all() if " · " not in p.name]
 
     # is_active — как и для Part/MaterialSku чуть выше/ниже: архивные
     # (переименованные) цвета не должны участвовать в подборе, иначе
@@ -311,9 +310,7 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
     for block in blocks:
         enriched_lines: list[EnrichedBlankPlanLine] = []
         for line in block.lines:
-            normalized = line.part_name_raw.strip().lower()
-            match = difflib.get_close_matches(normalized, normalized_names, n=1, cutoff=0.5)
-            part = part_by_normalized[match[0]] if match else None
+            part = match_part(db, parts, line.part_name_raw)
 
             # Раздел про закрепление плёнки за деталью — если у найденной
             # детали задан default_material_sku_id, текст цвета из файла
@@ -399,3 +396,49 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
             EnrichedBlankPlanBlock(sheet_name=block.sheet_name, suggested_name=block.suggested_name, lines=enriched_lines)
         )
     return result
+
+
+_DIMS_RE = re.compile(r"\d+(?:[.,]\d+)?(?:\s*[xхXХ×*]\s*\d+(?:[.,]\d+)?)+")
+_UNDER_RE = re.compile(r"под\s*(\d+)\s*мм", re.IGNORECASE)
+
+
+def part_signature(name: str) -> tuple[tuple[float, ...], bool, str | None]:
+    """(размеры по порядку, «НЕО», «под N мм») из названия детали."""
+    m = _DIMS_RE.search(name)
+    dims = tuple(float(x.replace(",", ".")) for x in re.split(r"\s*[xхXХ×*]\s*", m.group(0))) if m else ()
+    under = _UNDER_RE.search(name)
+    return dims, bool(re.search(r"(?<![а-яa-z])нео(?![а-яa-z])", name.lower())), under.group(1) if under else None
+
+
+def match_part(db: Session, parts: list[Part], raw: str) -> Part | None:
+    """Деталь по названию из файла (15.10, раньше — только похожесть текста:
+    «Планка 18х120х1800» уходила в «Планка 19х55х1800», «НЕО» терялся).
+    1) справочник соответствий — синоним позиции; 2) кандидаты с теми же
+    размерами (в файле может не быть длины — «НЕО 22х191»), тем же «НЕО» и
+    «под N мм»; 3) из них — самый похожий текст. Длина не указана, а у
+    кандидатов разная — не гадаем: деталь выберут вручную."""
+    from app.services.item_aliases import find_item
+
+    item = find_item(db, raw) or find_item(db, normalize_part_name(raw))
+    if item is not None:
+        hit = next((p for p in parts if p.item_id == item.id), None)
+        if hit is not None:
+            return hit
+    text = normalize_part_name(raw).lower()
+    dims, neo, under = part_signature(text)
+    pool = parts
+    if dims:
+        pool = []
+        for p in parts:
+            p_dims, p_neo, p_under = part_signature(p.name)
+            if p_dims[: len(dims)] != dims or p_neo != neo or (under is not None and p_under != under):
+                continue
+            pool.append(p)
+        if not pool:
+            return None
+        lengths = {part_signature(p.name)[0][len(dims):] for p in pool}
+        if len(lengths) > 1 and len(dims) < 3:
+            return None  # длина не указана, а варианты разные
+    names = {p.name.strip().lower(): p for p in pool}
+    best = difflib.get_close_matches(text, list(names), n=1, cutoff=0.5 if not dims else 0.0)
+    return names[best[0]] if best else None
