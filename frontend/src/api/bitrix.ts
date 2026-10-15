@@ -9,6 +9,7 @@ export interface BitrixSettings {
   chat_production: string | null;
   chat_logistics: string | null;
   chat_purchasing: string | null;
+  chat_warehouse: string | null;
   purchaser: number | null;
   /** сделки (14.10) */
   deals_enabled?: boolean;

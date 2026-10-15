@@ -197,6 +197,26 @@ def on_request_submitted(db: Session, order, user: User) -> None:
     message_to_chat(db, "request_submitted", "chat_production", text)
 
 
+def on_area_request(db: Session, req, user: User) -> None:
+    """Новая заявка участка (15.10) — в чат склада."""
+    from app.models.areas import Area
+    from app.services.area_supply import item_info
+
+    area = db.get(Area, req.area)
+    info = item_info(db, req.item_id) if req.item_id else None
+    what = (info.label if info else None) or req.what or "—"
+    qty = f", {float(req.qty):g} {req.unit or ''}".rstrip() if req.qty is not None else ""
+    width = f", ширина {float(req.width_mm):g} мм" if req.width_mm else ""
+    s = get_settings(db)
+    text = (
+        f"Заявка участка «{area.name if area else req.area}»: {what}{qty}{width}"
+        + (f"; нужно к {_d(req.needed_by)}" if req.needed_by else "")
+        + (f"\n{req.note}" if req.note else "")
+        + f"\nПодал {user.full_name or user.username} · {_link(s, '/area-supply', 'Заявки участков')}"
+    )
+    message_to_chat(db, "area_request", "chat_warehouse", text)
+
+
 def on_request_decided(db: Session, order, accepted: bool) -> None:
     whom = order.submitted_by or order.created_by
     if accepted:

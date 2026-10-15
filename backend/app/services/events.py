@@ -50,6 +50,11 @@ def record_event(
         **({"timestamp": occurred_at} if occurred_at is not None else {}),
     )
     db.add(event)
+    if event_type == EventType.VYDACHA_UCHASTKU and unit.area:
+        # заявка участка на эту плёнку закрывается выдачей (15.10)
+        from app.services.area_supply import on_film_issued
+
+        on_film_issued(db, unit, abs(float(quantity_delta_m or 0)) or float(unit.length_m), user_id)
     return event
 
 

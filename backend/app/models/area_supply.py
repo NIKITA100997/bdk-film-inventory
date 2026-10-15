@@ -33,6 +33,8 @@ class AreaRequest(Base):
     item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)
     what: Mapped[str | None] = mapped_column(String(255), nullable=True)
     qty: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
+    # выдано по заявке (плёнка — м², считается само при выдаче рулона участку)
+    issued_qty: Mapped[float] = mapped_column(Numeric(14, 3), default=0, server_default="0")
     unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
     width_mm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)  # плёнка: нужная ширина
     needed_by: Mapped[date | None] = mapped_column(Date, nullable=True)

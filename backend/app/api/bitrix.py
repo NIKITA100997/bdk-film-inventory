@@ -23,6 +23,7 @@ class BitrixSettingsIO(BaseModel):
     chat_production: str | None = None
     chat_logistics: str | None = None
     chat_purchasing: str | None = None
+    chat_warehouse: str | None = None  # заявки участков (15.10)
     purchaser: int | None = None
     # сделки (14.10): воронка, создавать ли, стадии по ходу заказа, поле даты отгрузки
     deals_enabled: bool = False

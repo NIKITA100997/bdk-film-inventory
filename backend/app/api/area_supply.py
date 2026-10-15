@@ -77,6 +77,8 @@ class RequestOut(BaseModel):
     closed_at: datetime | None
     close_note: str | None
     area_stock: float | None  # сколько этого сейчас на участке (плёнка м², п/ф шт)
+    issued_qty: float  # выдано по заявке (плёнка — само при выдаче рулона участку)
+    warehouse_stock_m2: float | None  # плёнка: сколько такой на складах
 
 
 class CloseIn(BaseModel):
@@ -86,14 +88,17 @@ class CloseIn(BaseModel):
 def _req_out(db: Session, rows: list[AreaRequest]) -> list[RequestOut]:
     areas = {a.code: a.name for a in db.query(Area)}
     users = {u.id: (u.full_name or u.username) for u in db.query(User)}
-    film = pf = None
+    film = pf = wh = None
     out = []
     for r in rows:
         info = svc.item_info(db, r.item_id) if r.item_id else None
         stock = None
+        wh_m2 = None
         if info is not None and info.kind == svc.FILM:
             film = film if film is not None else svc.area_film_stock(db)
             stock = round(film.get((r.area, info.group), 0.0), 2)
+            wh = wh if wh is not None else svc.film_stock_m2(db)
+            wh_m2 = round(wh.get(info.group, 0.0), 1)
         elif info is not None and info.part_id is not None:
             pf = pf if pf is not None else svc.area_pf_stock(db)
             stock = round(pf.get((r.area, info.part_id), 0.0), 2)
@@ -103,7 +108,7 @@ def _req_out(db: Session, rows: list[AreaRequest]) -> list[RequestOut]:
             unit=r.unit, width_mm=float(r.width_mm) if r.width_mm is not None else None, needed_by=r.needed_by, note=r.note,
             status=r.status, created_by_name=users.get(r.created_by), created_at=r.created_at,
             closed_by_name=users.get(r.closed_by) if r.closed_by else None, closed_at=r.closed_at, close_note=r.close_note,
-            area_stock=stock,
+            area_stock=stock, issued_qty=float(r.issued_qty or 0), warehouse_stock_m2=wh_m2,
         ))
     return out
 
@@ -147,6 +152,10 @@ def create_request(payload: RequestIn, db: Session = Depends(get_db), user: User
         needed_by=payload.needed_by, note=(payload.note or "").strip() or None, created_by=user.id,
     )
     db.add(r)
+    db.flush()
+    from app.services import bitrix
+
+    bitrix.on_area_request(db, r, user)
     db.commit()
     return _req_out(db, [r])[0]
 
@@ -169,7 +178,9 @@ def accept_request(req_id: int, db: Session = Depends(get_db), user: User = Depe
 @router.post("/requests/{req_id}/done", response_model=RequestOut)
 def done_request(req_id: int, payload: CloseIn, db: Session = Depends(get_db), user: User = Depends(handle)) -> RequestOut:
     r = _get_open(db, req_id)
-    r.status, r.closed_by, r.closed_at, r.close_note = REQ_DONE, user.id, datetime.now(timezone.utc), (payload.note or None)
+    r.status, r.closed_by, r.closed_at = REQ_DONE, user.id, datetime.now(timezone.utc)
+    if payload.note:
+        r.close_note = (((r.close_note + "; ") if r.close_note else "") + payload.note)[:255]
     db.commit()
     return _req_out(db, [r])[0]
 
@@ -184,6 +195,21 @@ def cancel_request(req_id: int, payload: CloseIn, db: Session = Depends(get_db),
     r.status, r.closed_by, r.closed_at, r.close_note = REQ_CANCELLED, user.id, datetime.now(timezone.utc), (payload.note or None)
     db.commit()
     return _req_out(db, [r])[0]
+
+
+class SummaryOut(BaseModel):
+    new: int  # ждут, пока склад возьмёт в работу
+    open: int
+
+
+@router.get("/requests/summary", response_model=SummaryOut)
+def requests_summary(db: Session = Depends(get_db), user: User = Depends(view)) -> SummaryOut:
+    q = db.query(AreaRequest.status, func.count()).filter(AreaRequest.status.in_(REQ_OPEN))
+    own = _own_area(user)
+    if own:
+        q = q.filter(AreaRequest.area == own)
+    by = dict(q.group_by(AreaRequest.status).all())
+    return SummaryOut(new=by.get(REQ_NEW, 0), open=sum(by.values()))
 
 
 # ---------- неснижаемый остаток участка ----------

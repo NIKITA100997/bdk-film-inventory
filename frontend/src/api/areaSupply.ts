@@ -33,6 +33,8 @@ export interface AreaRequest {
   closed_at: string | null;
   close_note: string | null;
   area_stock: number | null;
+  issued_qty: number;
+  warehouse_stock_m2: number | null;
 }
 
 export interface AreaRequestIn {
@@ -82,4 +84,6 @@ export const listAreaNorms = async (area?: string) => (await apiClient.get<AreaN
 export const putAreaNorm = async (p: { area: string; item_id: number; min_qty: number }) => (await apiClient.put("/area-supply/norms", p)).data;
 export const getIssueFact = async (days = 14) =>
   (await apiClient.get<{ lines: string[]; days: IssueFactDay[] }>("/area-supply/issue-fact", { params: { days } })).data;
+export const getAreaRequestsSummary = async () =>
+  (await apiClient.get<{ new: number; open: number }>("/area-supply/requests/summary")).data;
 export const listCuttingLines = async () => (await apiClient.get<{ id: number; name: string }[]>("/area-supply/cutting-lines")).data;

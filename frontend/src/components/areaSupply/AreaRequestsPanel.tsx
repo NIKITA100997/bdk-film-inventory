@@ -101,6 +101,7 @@ export function NewRequestModal({
     mutationFn: (v: AreaRequestIn) => createAreaRequest(v),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["area-requests"] });
+      qc.invalidateQueries({ queryKey: ["area-requests-summary"] });
       qc.invalidateQueries({ queryKey: ["area-norms"] });
       message.success("Заявка подана — склад её увидит");
       form.resetFields();
@@ -196,6 +197,7 @@ export default function AreaRequestsPanel({ kind }: { kind?: SupplyKind }) {
       op === "accept" ? acceptAreaRequest(id) : op === "done" ? doneAreaRequest(id, note) : cancelAreaRequest(id, note),
     onSuccess: (_, v) => {
       qc.invalidateQueries({ queryKey: ["area-requests"] });
+      qc.invalidateQueries({ queryKey: ["area-requests-summary"] });
       qc.invalidateQueries({ queryKey: ["area-norms"] });
       message.success(v.op === "accept" ? "Взято в работу" : v.op === "done" ? "Отмечено «выдано»" : "Заявка отменена");
     },
@@ -259,10 +261,31 @@ export default function AreaRequestsPanel({ kind }: { kind?: SupplyKind }) {
               [r.qty != null ? `${num(r.qty)} ${r.unit ?? ""}` : null, r.width_mm ? `ширина ${r.width_mm} мм` : null].filter(Boolean).join(", ") || "—",
           },
           {
+            title: "Выдано",
+            align: "right",
+            render: (_, r) => (r.issued_qty > 0 ? `${num(r.issued_qty)} ${r.unit ?? ""}` : "—"),
+          },
+          {
             title: "На участке сейчас",
             align: "right",
             render: (_, r) => (r.area_stock == null ? "—" : `${num(r.area_stock)} ${r.kind === "plenka" ? "м²" : "шт"}`),
           },
+          ...(kind === "plenka" || kind === undefined
+            ? [
+                {
+                  title: "На складах",
+                  align: "right" as const,
+                  render: (_: unknown, r: AreaRequest) =>
+                    r.warehouse_stock_m2 == null ? (
+                      "—"
+                    ) : r.warehouse_stock_m2 <= 0 ? (
+                      <Typography.Text type="danger">нет</Typography.Text>
+                    ) : (
+                      `${num(r.warehouse_stock_m2)} м²`
+                    ),
+                },
+              ]
+            : []),
           { title: "Комментарий", dataIndex: "note", render: (v: string | null) => v ?? "" },
           {
             title: "Подал",

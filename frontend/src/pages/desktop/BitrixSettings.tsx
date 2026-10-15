@@ -32,6 +32,7 @@ const EVENT_LABEL: Record<string, string> = {
   plan_submitted: "план на утверждение",
   plan_approved: "план утверждён",
   plan_returned: "план возвращён",
+  area_request: "заявка участка",
 };
 
 /** Настройки Битрикс24 (12.10): входящий вебхук, чаты служб, кому задачи на
@@ -151,6 +152,7 @@ export default function BitrixSettings() {
                 ["chat_production", "Чат производства (новые заявки)", "ПРОИЗВОДСТВО | Межкомнатные"],
                 ["chat_logistics", "Чат логистики (готово к отгрузке)", "ЛОГИСТИКА | Транспорт"],
                 ["chat_purchasing", "Чат закупок (дефицит)", "ЗАКУПКИ | Склад"],
+                ["chat_warehouse", "Чат склада (заявки участков)", "СКЛАД | Выдача"],
               ] as const
             ).map(([key, label, hint]) => (
               <Form.Item key={key} label={label} extra={`Например, «${hint}». Пользователь вебхука должен состоять в чате.`}>

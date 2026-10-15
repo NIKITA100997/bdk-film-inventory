@@ -23,6 +23,7 @@ def upgrade() -> None:
         sa.Column("item_id", sa.Integer, sa.ForeignKey("items.id"), nullable=True, index=True),
         sa.Column("what", sa.String(255), nullable=True),
         sa.Column("qty", sa.Numeric(14, 3), nullable=True),
+        sa.Column("issued_qty", sa.Numeric(14, 3), nullable=False, server_default="0"),
         sa.Column("unit", sa.String(16), nullable=True),
         sa.Column("width_mm", sa.Numeric(10, 2), nullable=True),
         sa.Column("needed_by", sa.Date, nullable=True),

@@ -12,6 +12,7 @@ import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
 import NotificationBell from "../components/NotificationBell";
 import ActionRequestsBadge from "../components/ActionRequestsBadge";
+import AreaRequestsBadge from "../components/AreaRequestsBadge";
 import ActionRequestPrompt from "../components/ActionRequestPrompt";
 import PhoneTabBar from "./PhoneTabBar";
 import WorkspaceTabs from "./WorkspaceTabs";
@@ -259,6 +260,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               tooltip="Сканировать QR камерой"
               type="primary"
             />
+            <AreaRequestsBadge />
             <ActionRequestsBadge />
             <NotificationBell />
             <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
