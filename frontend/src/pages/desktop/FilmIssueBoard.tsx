@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
 import { Alert, Card, Empty, Input, Segmented, Select, Space, Spin, Statistic, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { getFilmIssueBoard, type AreaRoll, type FilmIssueLine, type FilmIssueStatus, type SiteStock } from "../../api/filmIssue";
-import { useTabTitle } from "../../layout/tabTitle";
 import { UnitLink } from "../../components/EntityLink";
 import AreaRequestsPanel from "../../components/areaSupply/AreaRequestsPanel";
 import AreaNormsPanel from "../../components/areaSupply/AreaNormsPanel";
@@ -31,7 +30,7 @@ type Due = "all" | "today" | "tomorrow" | "week" | "overdue";
  * какому дню; что лежит на участках, в т.ч. остатки прошлых заданий; для
  * Фабрики — склад Фабрики против потребности и сколько переместить. */
 export default function FilmIssueBoard() {
-  useTabTitle("Выдача плёнки");
+  const [params] = useSearchParams();
   const q = useQuery({ queryKey: ["film-issue-board"], queryFn: getFilmIssueBoard, refetchInterval: 120000 });
   const [area, setArea] = useState<string | null>(null);
   const [only, setOnly] = useState<"need" | "all">("need");
@@ -78,8 +77,9 @@ export default function FilmIssueBoard() {
   if (q.isError) return <Alert type="error" showIcon message="Не удалось загрузить доску выдачи" />;
 
   return (
-    <Card title="Выдача плёнки">
+    <>
       <Tabs
+        defaultActiveKey={params.get("sub") ?? "tasks"}
         items={[
           {
             key: "tasks",
@@ -239,12 +239,12 @@ export default function FilmIssueBoard() {
             : []),
           ...(q.data?.reserve_enabled ? [{ key: "reserve", label: "Резерв", children: <FilmReservesPanel /> }] : []),
           // прессы и ламинация без заданий — «закончилась — выдают» (15.10)
-          { key: "requests", label: "Заявки участков", children: <AreaRequestsPanel kind="plenka" /> },
-          { key: "norms", label: "Неснижаемый остаток", children: <AreaNormsPanel kind="plenka" /> },
+          { key: "requests", label: "Заявки участков", children: <AreaRequestsPanel /> },
+          { key: "norms", label: "Неснижаемый остаток", children: <AreaNormsPanel /> },
           { key: "fact", label: "Факт резки и выдачи", children: <IssueFactPanel /> },
         ]}
       />
-    </Card>
+    </>
   );
 }
 

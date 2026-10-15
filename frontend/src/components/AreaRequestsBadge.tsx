@@ -17,7 +17,7 @@ export default function AreaRequestsBadge() {
   return (
     <Tooltip title={`Заявки участков: новых ${q.data.new}, всего открыто ${q.data.open}`}>
       <Badge count={q.data.new} size="small" offset={[-4, 4]}>
-        <Button type="text" aria-label="Заявки участков" icon={<InboxOutlined style={{ color: "#fff" }} />} onClick={() => navigate("/area-supply")} />
+        <Button type="text" aria-label="Заявки участков" icon={<InboxOutlined style={{ color: "#fff" }} />} onClick={() => navigate("/production-tasks?tab=film-issue&sub=requests")} />
       </Badge>
     </Tooltip>
   );

@@ -212,7 +212,7 @@ def on_area_request(db: Session, req, user: User) -> None:
         f"Заявка участка «{area.name if area else req.area}»: {what}{qty}{width}"
         + (f"; нужно к {_d(req.needed_by)}" if req.needed_by else "")
         + (f"\n{req.note}" if req.note else "")
-        + f"\nПодал {user.full_name or user.username} · {_link(s, '/area-supply', 'Заявки участков')}"
+        + f"\nПодал {user.full_name or user.username} · {_link(s, '/production-tasks?tab=film-issue&sub=requests', 'Заявки участков')}"
     )
     message_to_chat(db, "area_request", "chat_warehouse", text)
 

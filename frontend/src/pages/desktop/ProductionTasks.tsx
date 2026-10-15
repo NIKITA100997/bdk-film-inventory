@@ -1,4 +1,7 @@
 import { Card, Tabs, Typography } from "antd";
+import { hasPerm } from "../../auth/permissions";
+import AreaRequestsPanel from "../../components/areaSupply/AreaRequestsPanel";
+import AreaNormsPanel from "../../components/areaSupply/AreaNormsPanel";
 import { useSearchParams } from "react-router-dom";
 import DailyPlanTab from "./production/DailyPlanTab";
 import TasksBoard from "./production/TasksBoard";
@@ -27,12 +30,48 @@ export default function ProductionTasks() {
   const areas = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   // участок выдачи плёнки (15.10): его задания — доска выдачи
   const issuePoint = !!user?.area && !!areas.data?.find((a) => a.code === user.area)?.film_issue_point;
+  // Выдача плёнки — задания участка выдачи (15.10): у его людей — «Мой
+  // участок», у склада и начальника цеха — своя вкладка; мастерам — заявки
+  // своего участка на склад (рулон, материал, п/ф).
+  const seesBoard = hasPerm(user, "units.issue", "production_tasks.manage", "production_tasks.view");
+  const canRequest = hasPerm(user, "production_tasks.report");
+  const tab = params.get("tab");
+  const issueTab =
+    issuePoint
+      ? null
+      : seesBoard
+        ? { key: "film-issue", label: "Выдача плёнки", children: <FilmIssueBoard /> }
+        : canRequest
+          ? {
+              key: "film-issue",
+              label: "Заявки на склад",
+              children: (
+                <Tabs
+                  defaultActiveKey={params.get("sub") === "norms" ? "norms" : "requests"}
+                  items={[
+                    { key: "requests", label: "Заявки", children: <AreaRequestsPanel /> },
+                    { key: "norms", label: "Неснижаемый остаток", children: <AreaNormsPanel /> },
+                  ]}
+                />
+              ),
+            }
+          : null;
+  const active =
+    tab === "daily-sheet"
+      ? "daily-sheet"
+      : tab === "film-issue"
+        ? issueTab
+          ? "film-issue"
+          : "daily-plan"
+        : params.get("task") || tab === "tasks" || !user?.area
+          ? "tasks"
+          : "daily-plan";
   return (
     <Card>
       <Typography.Title level={4}>Задания цеха</Typography.Title>
       <Tabs
         key={`${params.get("task") ?? ""}:${params.get("tab") ?? ""}`}
-        defaultActiveKey={params.get("tab") === "daily-sheet" ? "daily-sheet" : params.get("task") || params.get("tab") === "tasks" || !user?.area ? "tasks" : "daily-plan"}
+        defaultActiveKey={active}
         items={[
           { key: "daily-plan", label: "Мой участок", children: issuePoint ? <FilmIssueBoard /> : <DailyPlanTab /> },
           {
@@ -42,6 +81,7 @@ export default function ProductionTasks() {
           },
           // бумажный дневной бланк линии/участка — из отчётов мастеров (06.10)
           { key: "daily-sheet", label: "Ежедневка", children: <DailySheet /> },
+          ...(issueTab ? [issueTab] : []),
         ]}
       />
     </Card>
