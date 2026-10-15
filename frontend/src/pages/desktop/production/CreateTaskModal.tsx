@@ -7,6 +7,7 @@ import {
   listProductModels,
   createProductionTaskManual,
   parseNaryadFile,
+  type NaryadParsedLine,
   parseBlankPlan,
   type BlankPlanBlock,
   type ProductionTask,
@@ -18,6 +19,7 @@ import { listMaterialSkus } from "../../../api/dictionaries";
 import { skuLabel, type AreaValue, type MaterialSku } from "../../../api/units";
 import { listAreas } from "../../../api/areas";
 import PartSelect from "../../../components/PartSelect";
+import NaryadResolveCell from "./NaryadResolveCell";
 import { apiErrorMessage } from "../../../utils/apiError";
 
 type ManualRowFormValues = ProductionTaskLineManualCreate & { sku_id?: number };
@@ -39,6 +41,8 @@ type ManualLine = ProductionTaskLineManualCreate & {
   // но на складе пусто. Чисто для подсказки на экране, не отправляется
   // на сервер и не обновляется при ручной правке строки.
   _stockAreaM2?: number | null;
+  // 15.10: строка наряда не распознана — сопоставить с позицией прямо в таблице
+  _unrecognized?: boolean;
 };
 
 /** Поля одной строки задания — общие для "Добавить вручную" (вкладка) и
@@ -297,30 +301,34 @@ export default function CreateTaskModal({
   // материал+цвет вместе, а не канонiчное имя цвета из справочника),
   // общее поле выше — только запасной вариант для строк без своего цвета
   // (РАСКЛАДКА) или там, где подбор не удался.
+  const naryadToManual = (l: NaryadParsedLine): ManualLine => {
+    const fallbackSku = skusQuery.data?.find((s) => s.id === selectedSkuId);
+    const matchedSku = l.suggested_sku_id != null ? skusQuery.data?.find((s) => s.id === l.suggested_sku_id) : undefined;
+    const sku = matchedSku ?? fallbackSku;
+    return {
+      material: sku?.material.name ?? "",
+      color: sku?.color.name ?? l.color_raw ?? "",
+      thickness: sku?.thickness.value_mm ?? 0,
+      quantity_pieces: l.quantity_pieces,
+      width_mm: l.width_mm,
+      length_m: l.length_m,
+      strip_width_mm: l.strip_width_mm ?? undefined,
+      part_name: l.part_name,
+      _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
+      _materialLocked: l.material_locked,
+      _petAuto: l.pet_auto,
+      _stockAreaM2: l.stock_area_m2,
+      _unrecognized: !!l.unrecognized,
+    };
+  };
   const parseNaryadMutation = useMutation({
     mutationFn: parseNaryadFile,
     onSuccess: (result) => {
-      const fallbackSku = skusQuery.data?.find((s) => s.id === selectedSkuId);
-      const loaded: ManualLine[] = result.lines.map((l) => {
-        const matchedSku = l.suggested_sku_id != null ? skusQuery.data?.find((s) => s.id === l.suggested_sku_id) : undefined;
-        const sku = matchedSku ?? fallbackSku;
-        return {
-          material: sku?.material.name ?? "",
-          color: sku?.color.name ?? l.color_raw ?? "",
-          thickness: sku?.thickness.value_mm ?? 0,
-          quantity_pieces: l.quantity_pieces,
-          width_mm: l.width_mm,
-          length_m: l.length_m,
-          strip_width_mm: l.strip_width_mm ?? undefined,
-          part_name: l.part_name,
-          _skuCandidates: (l.sku_candidates ?? []).length > 0 ? l.sku_candidates : undefined,
-          _materialLocked: l.material_locked,
-          _petAuto: l.pet_auto,
-          _stockAreaM2: l.stock_area_m2,
-        };
-      });
+      const loaded: ManualLine[] = result.lines.map(naryadToManual);
       setManualLines((lines) => [...lines, ...loaded]);
       setLastImportCount(loaded.length);
+      const bad = loaded.filter((l) => l._unrecognized).length;
+      if (bad > 0) message.warning(`Не распознано строк: ${bad} — они красные, сопоставьте их с позициями`);
       manualForm.setFieldsValue({
         name: manualForm.getFieldValue("name") || result.suggested_name,
         external_order_ref: manualForm.getFieldValue("external_order_ref") ?? result.order_number ?? undefined,
@@ -651,6 +659,14 @@ export default function CreateTaskModal({
                           <Input placeholder="Название детали" />
                         </Form.Item>
                       </Space>
+                    ) : l._unrecognized ? (
+                      <NaryadResolveCell
+                        partName={l.part_name ?? ""}
+                        quantity={l.quantity_pieces}
+                        onResolved={(r) =>
+                          setManualLines((lines) => lines.map((x, i) => (i === index ? { ...naryadToManual(r), quantity_pieces: x.quantity_pieces } : x)))
+                        }
+                      />
                     ) : l.width_mm > 0 && l.length_m > 0 ? (
                       l.part_name ?? "—"
                     ) : (
@@ -852,7 +868,7 @@ export default function CreateTaskModal({
                 // _skuCandidates/_materialLocked/_stockAreaM2 — только
                 // подсказка для экрана (см. тип ManualLine выше), в
                 // ProductionTaskLineManualCreate таких полей нет.
-                lines: manualLines.map(({ _skuCandidates, _materialLocked, _petAuto, _stockAreaM2, ...rest }) => rest),
+                lines: manualLines.map(({ _skuCandidates, _materialLocked, _petAuto, _stockAreaM2, _unrecognized, ...rest }) => rest),
               }),
             )
             .catch(() => {});

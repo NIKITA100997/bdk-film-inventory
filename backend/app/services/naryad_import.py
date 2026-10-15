@@ -55,7 +55,9 @@ HEADER_ALIASES = {
 # 100 ширина, 2070 длина; первое число — не всегда толщина в привычном
 # смысле, у короба это "глубина" профиля, но порядок тот же на всех
 # наблюдавшихся образцах).
-POGONAZH_DIMS_RE = re.compile(r"(\d+)\s*[xх]\s*(\d+)\s*[xх]\s*(\d+)")
+# 15.10: любой разделитель — «х», «x», «*», «×» (раньше только х/x — строки
+# «10*100*2070» и «16×80×2070» молча пропадали)
+POGONAZH_DIMS_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*[xхXХ×*]\s*(\d+(?:[.,]\d+)?)\s*[xхXХ×*]\s*(\d+(?:[.,]\d+)?)")
 
 # Ширина полосы ПВХ для короба МДФ по профилю (ширина_мм, глубина_мм) →
 # ширина плёнки_мм — верифицированные константы из
@@ -107,6 +109,11 @@ class ParsedNaryadLine:
     # Раздел про проверку остатка при загрузке задания — см. одноимённое
     # поле в EnrichedBlankPlanLine.
     stock_area_m2: float | None = None
+    # 15.10: строка без размеров в названии и без сопоставления — не
+    # пропускается, а приходит «нераспознанной» (красной): пользователь
+    # выбирает позицию, соответствие запоминается синонимом.
+    unrecognized: bool = False
+    suggested_item_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -249,8 +256,8 @@ def _extract_pogonazh_dims(name: str) -> tuple[float, float, float] | None:
     match = POGONAZH_DIMS_RE.search(name)
     if not match:
         return None
-    depth, width, length = match.groups()
-    return float(depth), float(width), float(length)
+    depth, width, length = (float(g.replace(",", ".")) for g in match.groups())
+    return depth, width, length
 
 
 def parse_pogonazh_grid(rows: list[list]) -> NaryadParseResult:
@@ -296,6 +303,14 @@ def parse_pogonazh_grid(rows: list[list]) -> NaryadParseResult:
             continue
         dims = _extract_pogonazh_dims(name)
         if dims is None:
+            # размеров в названии нет — не теряем строку: подберётся по
+            # синониму (enrich) или её сопоставят вручную
+            lines.append(
+                ParsedNaryadLine(
+                    part_name=name.strip(), width_mm=0.0, length_m=0.0, quantity_pieces=float(qty),
+                    color_raw=_last_top_level_paren_group(name), unrecognized=True,
+                )
+            )
             continue
         depth_mm, width_mm, length_mm = dims
         lines.append(
@@ -310,7 +325,7 @@ def parse_pogonazh_grid(rows: list[list]) -> NaryadParseResult:
         )
 
     if not lines:
-        raise ValueError('В таблице погонажных позиций не найдено ни одной строки с размерами в названии')
+        raise ValueError('В таблице погонажных позиций не найдено ни одной строки')
 
     return NaryadParseResult(
         suggested_name=_suggested_name(order_number, model_label, "Погонаж"), lines=lines, order_number=order_number
@@ -429,7 +444,17 @@ def enrich_naryad_lines(db: Session, result: NaryadParseResult) -> NaryadParseRe
 
     enriched_lines = []
     for line in result.lines:
-        part = _match_catalog_part(parts_by_category, line.part_name, line.width_mm, line.length_m)
+        # Справочник соответствий (синонимы позиций, 15.10): название из
+        # файла без цвета в скобках → позиция; она даёт размеры, если их
+        # нет в тексте, и запоминается для следующих загрузок.
+        item = match_item_by_alias(db, line.part_name)
+        if item is not None:
+            dims = item_dims(db, item)
+            line = replace(line, suggested_item_id=item.id)
+            if line.unrecognized and dims is not None:
+                width_mm, length_m, strip = dims
+                line = replace(line, width_mm=width_mm, length_m=length_m, strip_width_mm=line.strip_width_mm or strip, unrecognized=False)
+        part = _match_catalog_part(parts_by_category, line.part_name, line.width_mm, line.length_m) if not line.unrecognized else None
         line = (
             replace(line, strip_width_mm=float(part.strip_width_mm), suggested_part_id=part.id)
             if part is not None and part.strip_width_mm is not None
@@ -488,3 +513,33 @@ def enrich_naryad_lines(db: Session, result: NaryadParseResult) -> NaryadParseRe
             )
         enriched_lines.append(line)
     return replace(result, lines=enriched_lines)
+
+
+def base_name(raw: str) -> str:
+    """Название строки без цвета в последних скобках: «Добор 10*100*2070
+    (ПЭТ Белый)» → «Добор 10*100*2070» — синоним позиции, цвет — отдельно."""
+    text = raw.strip()
+    group = _last_top_level_paren_group(text)
+    if group is not None and text.endswith(")"):
+        text = text[: text.rfind("(" + group + ")")].strip() or text
+    return text
+
+
+def match_item_by_alias(db: Session, raw: str):
+    """Позиция номенклатуры по названию из файла: целиком или без цвета в скобках."""
+    from app.services.item_aliases import find_item
+
+    return find_item(db, raw) or find_item(db, base_name(raw))
+
+
+def item_dims(db: Session, item) -> tuple[float, float, float | None] | None:
+    """(ширина мм, длина м, ширина штрипса) позиции: у детали — из справочника,
+    иначе — из размеров в названии («Добор телескоп 10*100*2070»)."""
+    part = db.query(Part).filter(Part.item_id == item.id).first()
+    if part is not None and part.width_mm and part.length_m:
+        return float(part.width_mm), float(part.length_m), float(part.strip_width_mm) if part.strip_width_mm else None
+    dims = _extract_pogonazh_dims(item.name)
+    if dims is None:
+        return None
+    depth_mm, width_mm, length_mm = dims
+    return width_mm, round(length_mm / 1000, 4), _korob_strip_width_mm(item.name, depth_mm, width_mm)

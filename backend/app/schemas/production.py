@@ -118,6 +118,19 @@ class NaryadParsedLineOut(BaseModel):
     # (м², любой производитель) по материалу+цвету+толщине подобранной
     # позиции; None — материал не подобрался вовсе.
     stock_area_m2: float | None = None
+    # 15.10: строка не распознана (нет размеров, нет соответствия) — красная,
+    # пользователь выбирает позицию; suggested_item_id — найдена по синониму.
+    unrecognized: bool = False
+    suggested_item_id: int | None = None
+
+
+class NaryadResolveIn(BaseModel):
+    """Сопоставить строку файла с позицией номенклатуры (15.10)."""
+
+    part_name: str = Field(min_length=1, max_length=255)
+    quantity_pieces: float = Field(gt=0)
+    item_id: int
+    remember: bool = True  # запомнить соответствие синонимом позиции
 
 
 class NaryadParseResultOut(BaseModel):

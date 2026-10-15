@@ -153,15 +153,34 @@ class TestParsePogonazhGrid:
         with pytest.raises(ValueError, match="Кол-во ПЛАН"):
             parse_pogonazh_grid([["", "Деталь", "Кол-во в упак."], ["", "Что-то", 5.0]])
 
-    def test_rows_without_parseable_dimensions_in_name_are_skipped(self):
+    def test_rows_without_parseable_dimensions_in_name_come_unrecognized(self):
+        # 15.10: не пропадают, а приходят красными — сопоставить вручную
         grid = [
             ["", "Деталь", "", "", "", "", "", "", "", "", "Кол-во ПЛАН"],
-            ["", "Название без размеров в тексте", "", "", "", "", "", "", "", "", 5.0],
+            ["", "Название без размеров в тексте (Бьянко)", "", "", "", "", "", "", "", "", 5.0],
             ["", "Добор телескоп 10х100х2070", "", "", "", "", "", "", "", "", 10.0],
         ]
         result = parse_pogonazh_grid(grid)
-        assert len(result.lines) == 1
-        assert result.lines[0].part_name == "Добор телескоп 10х100х2070"
+        assert len(result.lines) == 2
+        bad, good = result.lines
+        assert bad.unrecognized and bad.width_mm == 0 and bad.color_raw == "Бьянко"
+        assert not good.unrecognized and good.width_mm == 100.0
+
+    def test_dimension_separators_star_and_times(self):
+        grid = [
+            ["", "Деталь", "", "", "", "", "", "", "", "", "Кол-во ПЛАН"],
+            ["", "Добор телескоп 10*150*2070", "", "", "", "", "", "", "", "", 3.0],
+            ["", "Плинтус МДФ 16×80×2070", "", "", "", "", "", "", "", "", 4.0],
+        ]
+        lines = parse_pogonazh_grid(grid).lines
+        assert [(l.width_mm, l.length_m, l.unrecognized) for l in lines] == [(150.0, 2.07, False), (80.0, 2.07, False)]
+
+
+def test_base_name_drops_color_in_brackets():
+    from app.services.naryad_import import base_name
+
+    assert base_name("Добор телескоп 10*100*2070 (ПЭТ Светло-серый (gray silk))") == "Добор телескоп 10*100*2070"
+    assert base_name("Планка купе") == "Планка купе"
 
 
 def _part(id_: int, name: str, width_mm: float, length_m: float, strip_width_mm: float | None) -> Part:

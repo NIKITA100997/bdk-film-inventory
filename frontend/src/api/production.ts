@@ -374,6 +374,9 @@ export interface NaryadParsedLine {
   // Раздел про проверку остатка при загрузке задания — см. одноимённое
   // поле у BlankPlanParsedLine.
   stock_area_m2: number | null;
+  /** 15.10: не распознана — выбрать позицию; suggested_item_id — найдена по синониму */
+  unrecognized?: boolean;
+  suggested_item_id?: number | null;
 }
 
 export interface NaryadParseResult {
@@ -381,6 +384,10 @@ export interface NaryadParseResult {
   lines: NaryadParsedLine[];
   order_number: number | null;
 }
+
+/** Сопоставить нераспознанную строку наряда с позицией (15.10); remember — запомнить синонимом. */
+export const resolveNaryadLine = async (p: { part_name: string; quantity_pieces: number; item_id: number; remember: boolean }) =>
+  (await apiClient.post<NaryadParsedLine>("/production-tasks/naryad-resolve", p)).data;
 
 export const parseNaryadFile = async (file: File): Promise<NaryadParseResult> => {
   const formData = new FormData();

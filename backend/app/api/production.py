@@ -35,6 +35,7 @@ from app.schemas.production import (
     BorrowableUnitOut,
     NaryadParsedLineOut,
     NaryadParseResultOut,
+    NaryadResolveIn,
     ProductionLineCreate,
     ProductionLineOut,
     ProductionLineUpdate,
@@ -1060,6 +1061,40 @@ async def parse_naryad(
         lines=[NaryadParsedLineOut(**l.__dict__) for l in result.lines],
         order_number=result.order_number,
     )
+
+
+@router.post("/production-tasks/naryad-resolve", response_model=NaryadParsedLineOut)
+def naryad_resolve_line(payload: NaryadResolveIn, db: Session = Depends(get_db), user: User = Depends(manage_production)) -> NaryadParsedLineOut:
+    """Нераспознанная строка наряда (15.10): пользователь выбрал позицию —
+    размеры берутся из неё, цвет — из скобок названия, как у остальных
+    строк; соответствие «название из файла → позиция» запоминается
+    синонимом (справочник соответствий), и в следующий раз строка
+    распознается сама."""
+    from app.models.items import Item
+    from app.services.item_aliases import add_alias
+    from app.services.naryad_import import (
+        NaryadParseResult, ParsedNaryadLine, _last_top_level_paren_group, base_name, item_dims,
+    )
+
+    item = db.get(Item, payload.item_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Позиция не найдена")
+    dims = item_dims(db, item)
+    if dims is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"У позиции «{item.name}» не заданы размеры — выберите позицию с размерами в названии или у детали",
+        )
+    if payload.remember:
+        add_alias(db, item, base_name(payload.part_name), source="наряд", user_id=user.id)
+        db.commit()
+    width_mm, length_m, strip = dims
+    line = ParsedNaryadLine(
+        part_name=payload.part_name.strip(), width_mm=width_mm, length_m=length_m, quantity_pieces=payload.quantity_pieces,
+        strip_width_mm=strip, color_raw=_last_top_level_paren_group(payload.part_name), suggested_item_id=item.id,
+    )
+    enriched = enrich_naryad_lines(db, NaryadParseResult(suggested_name="", lines=[line])).lines[0]
+    return NaryadParsedLineOut(**enriched.__dict__)
 
 
 @router.post("/production-tasks/parse-blank-plan", response_model=BlankPlanParseResultOut)
