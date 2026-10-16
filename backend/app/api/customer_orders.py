@@ -6,7 +6,7 @@
 
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -621,6 +621,24 @@ def launch(payload: LaunchIn, db: Session = Depends(get_db), user: User = Depend
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     db.commit()
     return {"production_order_id": po.id}
+
+
+@router.post("/invoice-file")
+async def read_invoice_file(file: UploadFile = File(...), user: User = Depends(edit)) -> dict:
+    """Выгрузка счёта из 1С (.xls/.xlsx): номер счёта — имя файла, строки —
+    «наименование<TAB>кол-во» для окна импорта. Ничего не создаёт."""
+    from app.services.invoice_1c import invoice_no_from_filename, read_invoice
+
+    try:
+        lines, problems = read_invoice(await file.read(), file.filename or "")
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    return {
+        "invoice_no": invoice_no_from_filename(file.filename or ""),
+        "text": "\n".join(f"{name}\t{qty}" for name, qty in lines),
+        "lines": len(lines),
+        "problems": problems,
+    }
 
 
 class ImportIn(BaseModel):

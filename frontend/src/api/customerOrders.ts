@@ -183,6 +183,17 @@ export interface CustomerImportResult {
   colors: ScheduleImportColor[];
   created: number[];
 }
+/** Выгрузка счёта из 1С (.xls/.xlsx, 16.10): номер счёта — имя файла, строки — текстом для импорта. */
+export const readInvoiceFile = async (file: File) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return (
+    await apiClient.post<{ invoice_no: string; text: string; lines: number; problems: string[] }>(`${base}/invoice-file`, fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+  ).data;
+};
+
 export const importCustomerOrders = async (p: {
   text: string;
   type_id: number;

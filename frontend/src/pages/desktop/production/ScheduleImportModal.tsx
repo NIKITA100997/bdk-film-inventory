@@ -1,6 +1,6 @@
 import { useAuth } from "../../../auth/AuthContext";
-import { useState } from "react";
-import { Alert, Button, DatePicker, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
+import { useRef, useState } from "react";
+import { Alert, Button, DatePicker, Input, Modal, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
 import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
@@ -12,7 +12,7 @@ import {
   type ScheduleImportColor,
   type ScheduleImportRow,
 } from "../../../api/productionOrders";
-import { importCustomerOrders } from "../../../api/customerOrders";
+import { importCustomerOrders, readInvoiceFile } from "../../../api/customerOrders";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { hasPerm } from "../../../auth/permissions";
 
@@ -70,13 +70,17 @@ export default function ScheduleImportModal({
     }))
     .sort((a, b) => a.label.localeCompare(b.label, "ru"));
 
+  // Только что загруженный файл: разбор сразу, не дожидаясь перерисовки с новым текстом.
+  const fromFile = useRef<{ text: string; invoiceNo: string } | null>(null);
   const run = useMutation({
     mutationFn: async (dryRun: boolean) => {
+      const src = fromFile.current ?? { text, invoiceNo };
+      fromFile.current = null;
       if (forCustomer) {
         const r = await importCustomerOrders({
-          text,
+          text: src.text,
           type_id: effectiveType as number,
-          invoice_no: invoiceNo.trim() || null,
+          invoice_no: src.invoiceNo.trim() || null,
           customer: customer.trim() || null,
           ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
           ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
@@ -86,12 +90,12 @@ export default function ScheduleImportModal({
         return { rows: r.rows, parse_errors: r.problems, colors: r.colors, order: null, created: r.created };
       }
       return importOrderFromSchedule({
-        text,
+        text: src.text,
         type_id: effectiveType as number,
         name: name.trim() || null,
         dry_run: dryRun,
         color_films: colorFilms,
-        invoice_no: invoiceNo.trim() || null,
+        invoice_no: src.invoiceNo.trim() || null,
         ship_date: shipDate ? shipDate.format("YYYY-MM-DD") : null,
         ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
         ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
@@ -112,6 +116,24 @@ export default function ScheduleImportModal({
       }
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось разобрать график")),
+  });
+  // Файл счёта из 1С: номер счёта — имя файла, строки — в поле ниже, сразу разбор.
+  const [fileProblems, setFileProblems] = useState<string[]>([]);
+  const readFile = useMutation({
+    mutationFn: readInvoiceFile,
+    onSuccess: (r, f) => {
+      // номер — из имени файла здесь: в заголовке запроса кириллица имени может прийти в чужой кодировке
+      const inv = f.name.replace(/\.xlsx?$/i, "").replace(/\s+\(\d+\)$/, "").trim() || r.invoice_no;
+      setInvoiceNo(inv);
+      setText(r.text);
+      setFileProblems(r.problems);
+      setPreview(null);
+      if (r.text && effectiveType) {
+        fromFile.current = { text: r.text, invoiceNo: inv };
+        run.mutate(true);
+      }
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось прочитать файл счёта")),
   });
   const bad = preview ? preview.rows.filter((r) => r.errors.length > 0).length + preview.parse_errors.length : 0;
   const totalDoors = preview ? preview.rows.reduce((s, r) => s + r.qty, 0) : 0;
@@ -170,7 +192,19 @@ export default function ScheduleImportModal({
           )}
         </Space>
         <Space wrap>
-          <Typography.Text type="secondary">Счёт из 1С целиком:</Typography.Text>
+          <Upload
+            accept=".xls,.xlsx"
+            showUploadList={false}
+            beforeUpload={(f) => {
+              readFile.mutate(f);
+              return false;
+            }}
+          >
+            <Button loading={readFile.isPending} title="Выгрузка счёта из 1С в Excel: колонки «Номенклатура» и «Количество», имя файла — номер счёта">
+              Загрузить файл счёта 1С…
+            </Button>
+          </Upload>
+          <Typography.Text type="secondary">или счёт целиком:</Typography.Text>
           <Input
             style={{ width: 180 }}
             placeholder="№ счёта"
@@ -212,6 +246,11 @@ export default function ScheduleImportModal({
             setPreview(null);
           }}
         />
+        {fileProblems.map((p) => (
+          <Typography.Text key={p} type="danger">
+            {p}
+          </Typography.Text>
+        ))}
         {preview && (preview.colors ?? []).length > 0 && (
           <div>
             <Typography.Title level={5} style={{ marginTop: 0 }}>
