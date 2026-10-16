@@ -55,6 +55,24 @@ const filmCell = (f: FilmSum | null) => {
   );
 };
 
+/** Раскрытие заказа (16.10): явная кнопка «+» / «−» вместо мелкого значка. */
+function PlusIcon<R>({ expanded, onExpand, record }: { expanded: boolean; onExpand: (r: R, e: React.MouseEvent<HTMLElement>) => void; record: R }) {
+  return (
+    <Button
+      size="small"
+      aria-label={expanded ? "Свернуть" : "Раскрыть"}
+      style={{ width: 28, padding: 0, fontWeight: 600 }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onExpand(record, e);
+      }}
+    >
+      {expanded ? "−" : "+"}
+    </Button>
+  );
+}
+const toggle = (keys: React.Key[], k: React.Key) => (keys.includes(k) ? keys.filter((x) => x !== k) : [...keys, k]);
+
 type Sum = { plan: number; done: number; defect: number; left: number; lines: number; open: number; last: string | null };
 const sum = (rows: MonitorRow[]): Sum => {
   const s: Sum = { plan: 0, done: 0, defect: 0, left: 0, lines: rows.length, open: 0, last: null };
@@ -81,6 +99,8 @@ export default function ProductionMonitor() {
   const [site, setSite] = useState<string | undefined>();
   const [orderIds, setOrderIds] = useState<number[]>([]);
   const [hideDone, setHideDone] = useState(true);
+  const [matrixOpen, setMatrixOpen] = useState<React.Key[]>([]);
+  const [sheetOpen, setSheetOpen] = useState<React.Key[] | null>(null); // null — по умолчанию (один заказ — раскрыт)
   const tab = params.get("tab") ?? "areas";
   const areaParam = params.get("area") ?? undefined;
   const orderParam = params.get("order");
@@ -248,6 +268,57 @@ export default function ProductionMonitor() {
     }
     return [...m.values()].map((g) => ({ ...g, ...sum(g.rows), orders: new Set(g.rows.map((r) => r.order_id ?? NO_ORDER)).size }));
   }, [sheetRows]);
+
+  // Лист участка по заказам (16.10): заказ — строкой, «+» — его строки.
+  type SheetOrder = { id: number; rows: MonitorRow[] };
+  const sheetOrders: SheetOrder[] = [];
+  for (const r of sheetRows) {
+    const id = r.order_id ?? NO_ORDER;
+    const g = sheetOrders.find((o) => o.id === id);
+    if (g) g.rows.push(r);
+    else sheetOrders.push({ id, rows: [r] });
+  }
+  const sheetKeys: React.Key[] = sheetOpen ?? (sheetOrders.length === 1 ? [sheetOrders[0].id] : []);
+  const sheetLines = (lineRows: MonitorRow[]) => (
+    <Table<MonitorRow>
+      size="small"
+      rowKey="task_line_id"
+      dataSource={lineRows}
+      pagination={false}
+      scroll={{ x: "max-content" }}
+      columns={[
+        { title: "Счёт", render: (_, r) => r.invoice_no ?? "" },
+        { title: "Позиция", render: (_, r) => <div style={{ whiteSpace: "normal", maxWidth: 380 }}>{r.position}</div> },
+        ...(sheetRows.some((r) => r.film)
+          ? [
+              { title: "Плёнка", render: (_: unknown, r: MonitorRow) => r.film ?? "" },
+              { title: "Выдача плёнки", render: (_: unknown, r: MonitorRow) => filmCell(filmSum([r])) },
+            ]
+          : []),
+        ...(sheetRows.some((r) => r.program) ? [{ title: "Программа", render: (_: unknown, r: MonitorRow) => r.program ?? "" }] : []),
+        { title: "Готовность", width: 200, render: (_, r) => progressCell(sum([r])) },
+        {
+          title: "Осталось",
+          align: "right" as const,
+          render: (_, r) => (r.closed ? <Tag>закрыто</Tag> : <b>{r2(left(r))}</b>),
+        },
+        {
+          title: "Срок по плану",
+          render: (_, r) => {
+            if (!r.date_from) return "—";
+            const late = left(r) > 0 && r.date_to && dayjs(r.date_to).isBefore(dayjs(), "day");
+            return (
+              <span style={{ color: late ? "#cf1322" : undefined }}>
+                {dm(r.date_from)}
+                {r.date_to && r.date_to !== r.date_from ? `–${dm(r.date_to)}` : ""}
+              </span>
+            );
+          },
+        },
+        { title: "Последний отчёт", render: (_, r) => (r.last_report ? dayjs(r.last_report).format("DD.MM HH:mm") : "—") },
+                          ]}
+    />
+  );
 
   const progressCell = (s: Sum) => (
     <Tooltip title={`сделано ${r2(s.done)} из ${r2(s.plan)}${s.defect ? `, брак ${r2(s.defect)}` : ""}`}>
@@ -441,7 +512,25 @@ export default function ProductionMonitor() {
                 pagination={false}
                 rowKey="id"
                 dataSource={matrixOrders}
-                expandable={{ expandedRowRender: (o) => orderLines(o.id), rowExpandable: () => true }}
+                expandable={{
+                  expandedRowRender: (o) => orderLines(o.id),
+                  rowExpandable: () => true,
+                  expandedRowKeys: matrixOpen,
+                  onExpand: (_, o) => setMatrixOpen((ks) => toggle(ks, o.id)),
+                  expandIcon: (p) => <PlusIcon {...p} />,
+                }}
+                onRow={(o) => ({ onClick: () => setMatrixOpen((ks) => toggle(ks, o.id)), style: { cursor: "pointer" } })}
+                title={() => (
+                  <Space>
+                    <Button size="small" onClick={() => setMatrixOpen(matrixOrders.map((o) => o.id))}>
+                      Раскрыть все
+                    </Button>
+                    <Button size="small" disabled={!matrixOpen.length} onClick={() => setMatrixOpen([])}>
+                      Свернуть все
+                    </Button>
+                    <Typography.Text type="secondary">«+» у заказа — его строки по участкам</Typography.Text>
+                  </Space>
+                )}
                 scroll={{ x: "max-content", y: "calc(100vh - 330px)" }}
                 locale={{ emptyText: "Открытых заданий нет" }}
                 columns={[
@@ -474,7 +563,13 @@ export default function ProductionMonitor() {
                       const c = cell(o.id, a.code);
                       if (!c) return null;
                       return (
-                        <div style={{ cursor: "pointer" }} onClick={() => go({ tab: "area", area: a.code, order: String(o.id) })}>
+                        <div
+                          style={{ cursor: "pointer" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            go({ tab: "area", area: a.code, order: String(o.id) });
+                          }}
+                        >
                           {progressCell(c)}
                         </div>
                       );
@@ -511,55 +606,69 @@ export default function ProductionMonitor() {
                   />
                 </Space>
                 {grouped === "rows" ? (
-                  <Table<MonitorRow>
+                  <Table<SheetOrder>
                     size="small"
-                    rowKey="task_line_id"
+                    rowKey="id"
                     loading={q.isLoading}
-                    dataSource={sheetRows}
-                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                    dataSource={sheetOrders}
+                    pagination={false}
                     scroll={{ x: "max-content" }}
                     locale={{ emptyText: "На участке нет строк в работе" }}
+                    expandable={{
+                      expandedRowRender: (o) => sheetLines(o.rows),
+                      rowExpandable: () => true,
+                      expandedRowKeys: sheetKeys,
+                      onExpand: (_, o) => setSheetOpen(toggle(sheetKeys, o.id)),
+                      expandIcon: (p) => <PlusIcon {...p} />,
+                    }}
+                    onRow={(o) => ({ onClick: () => setSheetOpen(toggle(sheetKeys, o.id)), style: { cursor: "pointer" } })}
+                    title={() => (
+                      <Space>
+                        <Button size="small" onClick={() => setSheetOpen(sheetOrders.map((o) => o.id))}>
+                          Раскрыть все
+                        </Button>
+                        <Button size="small" disabled={!sheetKeys.length} onClick={() => setSheetOpen([])}>
+                          Свернуть все
+                        </Button>
+                      </Space>
+                    )}
                     columns={[
                       {
                         title: "Заказ",
-                        render: (_, r) => (
-                          <div style={{ whiteSpace: "normal", maxWidth: 220 }}>
-                            {r.order_id ? <Link to={`/production-orders/${r.order_id}`}>{orderLabel(r.order_id)}</Link> : orderLabel(null)}
-                            {r.order_id && orderBy.get(r.order_id)?.ship_date && (
-                              <div style={{ fontSize: 12, color: "#6B6B68" }}>отгрузка {dm(orderBy.get(r.order_id)!.ship_date)}</div>
+                        render: (_, o) => (
+                          <div style={{ whiteSpace: "normal", maxWidth: 320 }}>
+                            {o.id !== NO_ORDER ? (
+                              <Link to={`/production-orders/${o.id}`} onClick={(e) => e.stopPropagation()}>
+                                {orderLabel(o.id)}
+                              </Link>
+                            ) : (
+                              orderLabel(null)
+                            )}
+                            {orderBy.get(o.id)?.ship_date && (
+                              <div style={{ fontSize: 12, color: "#6B6B68" }}>отгрузка {dm(orderBy.get(o.id)!.ship_date)}</div>
                             )}
                           </div>
                         ),
                       },
-                      { title: "Счёт", render: (_, r) => r.invoice_no ?? "" },
-                      { title: "Позиция", render: (_, r) => <div style={{ whiteSpace: "normal", maxWidth: 380 }}>{r.position}</div> },
-                      ...(sheetRows.some((r) => r.film)
-                        ? [
-                            { title: "Плёнка", render: (_: unknown, r: MonitorRow) => r.film ?? "" },
-                            { title: "Выдача плёнки", render: (_: unknown, r: MonitorRow) => filmCell(filmSum([r])) },
-                          ]
-                        : []),
-                      ...(sheetRows.some((r) => r.program) ? [{ title: "Программа", render: (_: unknown, r: MonitorRow) => r.program ?? "" }] : []),
-                      { title: "Готовность", width: 200, render: (_, r) => progressCell(sum([r])) },
-                      {
-                        title: "Осталось",
-                        align: "right" as const,
-                        render: (_, r) => (r.closed ? <Tag>закрыто</Tag> : <b>{r2(left(r))}</b>),
-                      },
+                      { title: "Строк", align: "right" as const, render: (_, o) => o.rows.length },
+                      ...(sheetRows.some((r) => r.film) ? [{ title: "Плёнка", render: (_: unknown, o: SheetOrder) => filmCell(filmSum(o.rows)) }] : []),
+                      { title: "Готовность", width: 200, render: (_, o) => progressCell(sum(o.rows)) },
+                      { title: "Осталось", align: "right" as const, render: (_, o) => <b>{r2(sum(o.rows).left)}</b> },
                       {
                         title: "Срок по плану",
-                        render: (_, r) => {
-                          if (!r.date_from) return "—";
-                          const late = left(r) > 0 && r.date_to && dayjs(r.date_to).isBefore(dayjs(), "day");
+                        render: (_, o) => {
+                          const from = o.rows.map((r) => r.date_from).filter(Boolean).sort()[0];
+                          const to = o.rows.map((r) => r.date_to).filter(Boolean).sort().slice(-1)[0];
+                          if (!from) return "—";
+                          const late = sum(o.rows).left > 0 && to && dayjs(to).isBefore(dayjs(), "day");
                           return (
                             <span style={{ color: late ? "#cf1322" : undefined }}>
-                              {dm(r.date_from)}
-                              {r.date_to && r.date_to !== r.date_from ? `–${dm(r.date_to)}` : ""}
+                              {dm(from)}
+                              {to && to !== from ? `–${dm(to)}` : ""}
                             </span>
                           );
                         },
                       },
-                      { title: "Последний отчёт", render: (_, r) => (r.last_report ? dayjs(r.last_report).format("DD.MM HH:mm") : "—") },
                     ]}
                   />
                 ) : (
