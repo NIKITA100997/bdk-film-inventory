@@ -504,7 +504,7 @@ function SessionPanel({
                     {item.outcome === "confirmed" ? "На месте" : item.outcome === "moved" ? "Перемещено" : "Излишек"}
                   </Tag>
                   № {item.unit_id} — {item.width_mm} мм × {item.length_m} м
-                  {item.to_cell && <span style={{ color: "#8c8c8c" }}> · {item.to_cell}</span>}
+                  {item.to_cell && <span style={{ color: "#6B6B68" }}> · {item.to_cell}</span>}
                 </List.Item>
               )}
             />

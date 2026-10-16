@@ -877,7 +877,7 @@ export default function PartUnits() {
                           {ev.note}
                         </Typography.Text>
                       )}
-                      <div style={{ fontSize: 11.5, color: "#8A8C99" }}>
+                      <div style={{ fontSize: 11.5, color: "#6B6B68" }}>
                         {fmtDateTime(ev.occurred_at)} — {userName(ev.user_id)}
                       </div>
                     </div>

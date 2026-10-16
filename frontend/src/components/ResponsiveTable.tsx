@@ -52,8 +52,13 @@ export default function ResponsiveTable<T extends object>({
   exportTitle,
   exportNote,
   stickyColumns = 0,
+  cardTitleColumn,
   ...rest
 }: TableProps<T> & {
+  /** Карточка на узком экране (16.10): какой столбец — заголовок карточки
+   * (жирным, без подписи). По умолчанию — первый из «Деталь», «Позиция»,
+   * «Название», «Что», «Наименование», «Рулон», «Плёнка», иначе первый столбец. */
+  cardTitleColumn?: string;
   cardBreakpoint?: "xs" | "sm" | "md" | "lg";
   tableKey?: string;
   lockedColumns?: string[];
@@ -212,6 +217,16 @@ export default function ResponsiveTable<T extends object>({
   }
 
   const rows = dataSource ?? [];
+  const TITLE_WORDS = ["деталь", "позиция", "название", "наименование", "что", "рулон", "плёнка", "задание"];
+  const titleIndex = (() => {
+    const byKey = cardTitleColumn ? visibleLabelable.findIndex((c, i) => columnKey(c, i) === cardTitleColumn) : -1;
+    if (byKey >= 0) return byKey;
+    for (const w of TITLE_WORDS) {
+      const i = visibleLabelable.findIndex((c) => typeof c.title === "string" && c.title.toLowerCase().startsWith(w));
+      if (i >= 0) return i;
+    }
+    return 0;
+  })();
   const pageSize = isControlledPage ? (paginationConfig.pageSize ?? 10) : (localPageSize ?? paginationConfig.pageSize ?? 10);
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(isControlledPage ? paginationConfig.current! : localPage, totalPages);
@@ -252,6 +267,7 @@ export default function ResponsiveTable<T extends object>({
               key={getKey(record, index)}
               record={record}
               index={index}
+              titleIndex={titleIndex}
               visibleLabelable={visibleLabelable}
               hiddenLabelable={hiddenLabelable}
               unlabelable={unlabelable}
@@ -282,6 +298,7 @@ export default function ResponsiveTable<T extends object>({
 function PlanCard<T extends object>({
   record,
   index,
+  titleIndex,
   visibleLabelable,
   hiddenLabelable,
   unlabelable,
@@ -291,6 +308,7 @@ function PlanCard<T extends object>({
 }: {
   record: T;
   index: number;
+  titleIndex: number;
   visibleLabelable: Column<T>[];
   hiddenLabelable: Column<T>[];
   unlabelable: Column<T>[];
@@ -302,46 +320,54 @@ function PlanCard<T extends object>({
   rowProps?: React.HTMLAttributes<HTMLDivElement>;
 }) {
   const [peekOpen, setPeekOpen] = useState(false);
-
+  // 16.10: заголовок карточки — главное поле строки; остальные — сеткой
+  // «подпись над значением» (на телефоне 2 колонки, на планшете 3–4),
+  // а не столбиком по строке на поле — карточка втрое короче.
+  const titleCol = visibleLabelable[titleIndex];
+  const fields = visibleLabelable.filter((_, i) => i !== titleIndex);
   return (
     <Card
       size="small"
       loading={loading}
+      className="rt-card"
       {...rowProps}
       style={{ ...(rowProps?.onClick ? { cursor: "pointer" } : undefined), ...rowProps?.style }}
     >
-      <Space direction="vertical" size={4} style={{ width: "100%" }}>
-        {visibleLabelable.map((col, ci) => (
-          <div key={ci} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <span style={{ color: "#8A8C99", flexShrink: 0 }}>{col.title as React.ReactNode}</span>
-            <span style={{ textAlign: "right", minWidth: 0 }}>{cellValue(col, record, index)}</span>
-          </div>
-        ))}
-        {unlabelable.map((col, ci) => (
-          <div key={`action-${ci}`}>{cellValue(col, record, index)}</div>
-        ))}
-        {hiddenLabelable.length > 0 && (
-          <div>
-            <button
-              type="button"
-              onClick={() => setPeekOpen((v) => !v)}
-              style={{ fontSize: 12, color: "#C97A2B", background: "none", border: "none", cursor: "pointer", padding: 0 }}
-            >
-              {peekOpen ? "скрыть ▴" : `ещё ${hiddenLabelable.length} ${hiddenLabelable.length === 1 ? "поле" : "поля"} ▾`}
-            </button>
-            {peekOpen && (
-              <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px dashed #E2DFD6", display: "flex", flexDirection: "column", gap: 4 }}>
-                {hiddenLabelable.map((col, ci) => (
-                  <div key={ci} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12.5 }}>
-                    <span style={{ color: "#9799A6", flexShrink: 0 }}>{col.title as React.ReactNode}</span>
-                    <span style={{ textAlign: "right", minWidth: 0, color: "#6B6E7D" }}>{cellValue(col, record, index)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </Space>
+      {titleCol && <div className="rt-card-title">{cellValue(titleCol, record, index)}</div>}
+      {fields.length > 0 && (
+        <div className="rt-card-grid">
+          {fields.map((col, ci) => (
+            <div key={ci} className="rt-card-field">
+              <span className="rt-card-label">{col.title as React.ReactNode}</span>
+              <span className="rt-card-value">{cellValue(col, record, index)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {unlabelable.length > 0 && (
+        <div className="rt-card-actions">
+          {unlabelable.map((col, ci) => (
+            <div key={`action-${ci}`}>{cellValue(col, record, index)}</div>
+          ))}
+        </div>
+      )}
+      {hiddenLabelable.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <button type="button" className="rt-card-peek" onClick={() => setPeekOpen((v) => !v)} aria-expanded={peekOpen}>
+            {peekOpen ? "скрыть ▴" : `ещё ${hiddenLabelable.length} ${hiddenLabelable.length === 1 ? "поле" : "поля"} ▾`}
+          </button>
+          {peekOpen && (
+            <div className="rt-card-grid" style={{ marginTop: 6, paddingTop: 6, borderTop: "1px dashed #E2DFD6" }}>
+              {hiddenLabelable.map((col, ci) => (
+                <div key={ci} className="rt-card-field">
+                  <span className="rt-card-label">{col.title as React.ReactNode}</span>
+                  <span className="rt-card-value">{cellValue(col, record, index)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   );
 }

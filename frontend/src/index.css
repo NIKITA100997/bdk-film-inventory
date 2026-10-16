@@ -121,3 +121,167 @@ h5 {
     line-height: 38px;
   }
 }
+
+/* ── Удобство на телефоне, планшете и компьютере (16.10) ─────────────────
+   Отступы страницы по ширине экрана; на узком экране — плотнее карточки,
+   фильтры во всю ширину, переключатели листаются вбок, а не обрезаются. */
+.app-page {
+  padding: 24px;
+}
+@media (max-width: 991px) {
+  .app-page {
+    padding: 16px;
+  }
+}
+@media (max-width: 575px) {
+  .app-page {
+    padding: 10px 10px 16px;
+  }
+  /* карточка в карточке съедала треть ширины телефона */
+  .app-page .ant-card .ant-card-body {
+    padding: 12px;
+  }
+  .app-page .ant-card .ant-card-head {
+    padding-inline: 12px;
+    min-height: 44px;
+  }
+  .app-page .ant-card .ant-card .ant-card-body {
+    padding: 10px;
+  }
+  /* заголовок карточки не обрезается до «Мате…» — кнопки переносятся вниз */
+  .app-page .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .app-page .ant-card-head-title {
+    white-space: normal;
+    flex: 1 1 auto;
+  }
+  /* переключатели и кнопки заголовка карточки — своей строкой под ним */
+  .app-page .ant-card-head-wrapper:has(.ant-card-extra .ant-segmented) .ant-card-extra {
+    margin-inline-start: 0;
+    flex: 1 1 100%;
+    padding-bottom: 6px;
+  }
+  /* фильтры (выпадающие списки, поиск, даты) в строке — во всю ширину */
+  /* строка фильтров не шире экрана; поле внутри может сжаться */
+  .app-page .ant-space[style*="flex-wrap: wrap"] {
+    max-width: 100%;
+  }
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item:has(> .ant-select),
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item:has(> .ant-input-affix-wrapper),
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item:has(> .ant-input-search),
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item:has(> .ant-picker),
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item:has(> .ant-input-group-wrapper) {
+    flex: 1 1 100%;
+  }
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item > .ant-select,
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item > .ant-input-affix-wrapper,
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item > .ant-input-search,
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item > .ant-picker,
+  .app-page .ant-space[style*="flex-wrap: wrap"] > .ant-space-item > .ant-input-group-wrapper {
+    width: 100% !important;
+  }
+  /* крупные числа-счётчики не занимают весь первый экран */
+  .app-page .ant-statistic .ant-statistic-content {
+    font-size: 20px !important;
+    line-height: 1.2;
+  }
+  .app-page .ant-statistic .ant-statistic-title {
+    font-size: 12px !important;
+    line-height: 1.25;
+    margin-bottom: 2px !important;
+  }
+  .app-page .ant-card:has(.ant-statistic):not(:has(.ant-card)) > .ant-card-body {
+    padding: 8px 10px;
+  }
+  .app-page .ant-typography h4,
+  .app-page h4.ant-typography {
+    font-size: 18px;
+  }
+}
+/* переключатели (Сегменты) шире экрана — листаются, а не обрезаются */
+.app-page .ant-segmented {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.app-page .ant-segmented::-webkit-scrollbar {
+  display: none;
+}
+/* видимая рамка фокуса при работе с клавиатуры (мышь и палец её не видят) */
+:where(button, a, [role="button"], [role="tab"], [tabindex="0"], .ant-segmented-item, .ant-checkbox-input, .ant-radio-input):focus-visible {
+  outline: 2px solid #c97a2b !important;
+  outline-offset: 2px;
+}
+
+/* Строка таблицы карточкой на узком экране (ResponsiveTable, 16.10) */
+.rt-card .ant-card-body {
+  padding: 10px 12px !important;
+}
+.rt-card-title {
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.3;
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+.rt-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px 14px;
+}
+.rt-card-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rt-card-label {
+  font-size: 12px;
+  color: #6b6b68;
+  line-height: 1.25;
+}
+.rt-card-value {
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.rt-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e6e6e2;
+}
+.rt-card-peek {
+  font-size: 13px;
+  color: #a5611f;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 0;
+  min-height: 32px;
+}
+
+/* «Перейти к содержимому» — видна только при переходе Tab с клавиатуры */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 1000;
+  padding: 8px 14px;
+  background: #fff;
+  color: #2c2e3a;
+  border-radius: 8px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.skip-link:focus {
+  top: 8px;
+}

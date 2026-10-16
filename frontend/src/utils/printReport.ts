@@ -23,7 +23,7 @@ export function printReport(title: string, columns: { key: string; header: strin
 <style>
   body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; margin: 24px; color: #2C2E3A; }
   h1 { font-size: 16px; font-family: "Cambria", Georgia, serif; margin: 0 0 4px; }
-  .meta { font-size: 11px; color: #8A8C99; margin-bottom: 16px; }
+  .meta { font-size: 11px; color: #6B6B68; margin-bottom: 16px; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th, td { border: 1px solid #DEDEDA; padding: 5px 9px; text-align: left; }
   th { background: #F5F5F4; }

@@ -88,7 +88,8 @@ function TabPane({ routes, location, active }: { routes: RouteObject[]; location
     <div
       role="tabpanel"
       aria-hidden={!active}
-      style={{ display: active ? "block" : "none", height: "100%", overflow: "auto", padding: 24, minWidth: 0 }}
+      className="app-page"
+      style={{ display: active ? "block" : "none", height: "100%", overflow: "auto", minWidth: 0 }}
     >
       {element}
     </div>

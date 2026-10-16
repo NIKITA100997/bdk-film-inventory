@@ -50,7 +50,7 @@ function Branch({
 }) {
   const [open, setOpen] = useState(depth < expandDepth);
   const hasChildren = node.operations.length > 0 || node.loose.length > 0;
-  const color = KIND_COLOR[node.kind_code ?? ""] ?? "#8c8c8c";
+  const color = KIND_COLOR[node.kind_code ?? ""] ?? "#6B6B68";
   const childCount = node.operations.reduce((s, op) => s + op.components.length, 0) + node.loose.length;
   return (
     <div className="tt-branch">

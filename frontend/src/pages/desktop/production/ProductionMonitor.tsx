@@ -286,7 +286,7 @@ export default function ProductionMonitor() {
   const areaTitle = (a: MonitorArea) => (
     <div style={{ whiteSpace: "normal", minWidth: 80 }}>
       {a.name}
-      {a.site && <div style={{ fontSize: 11, fontWeight: 400, color: "#8c8c8c" }}>{a.site}</div>}
+      {a.site && <div style={{ fontSize: 11, fontWeight: 400, color: "#6B6B68" }}>{a.site}</div>}
     </div>
   );
 
@@ -400,7 +400,7 @@ export default function ProductionMonitor() {
                       <div style={{ whiteSpace: "normal" }}>
                         {o.id === NO_ORDER ? orderLabel(null) : <Link to={`/production-orders/${o.id}`}>{orderLabel(o.id)}</Link>}
                         {orderBy.get(o.id)?.ship_date && (
-                          <div style={{ fontSize: 12, color: "#8c8c8c" }}>отгрузка {dm(orderBy.get(o.id)!.ship_date)}</div>
+                          <div style={{ fontSize: 12, color: "#6B6B68" }}>отгрузка {dm(orderBy.get(o.id)!.ship_date)}</div>
                         )}
                       </div>
                     ),
@@ -470,7 +470,7 @@ export default function ProductionMonitor() {
                           <div style={{ whiteSpace: "normal", maxWidth: 220 }}>
                             {r.order_id ? <Link to={`/production-orders/${r.order_id}`}>{orderLabel(r.order_id)}</Link> : orderLabel(null)}
                             {r.order_id && orderBy.get(r.order_id)?.ship_date && (
-                              <div style={{ fontSize: 12, color: "#8c8c8c" }}>отгрузка {dm(orderBy.get(r.order_id)!.ship_date)}</div>
+                              <div style={{ fontSize: 12, color: "#6B6B68" }}>отгрузка {dm(orderBy.get(r.order_id)!.ship_date)}</div>
                             )}
                           </div>
                         ),

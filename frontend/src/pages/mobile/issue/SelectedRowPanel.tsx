@@ -38,28 +38,28 @@ export default function SelectedRowPanel({ s }: { s: IssueState }) {
           <table style={{ width: "100%", fontSize: 13, marginBottom: 14 }}>
             <tbody>
               <tr>
-                <td style={{ color: "#8A8C99", paddingRight: 12 }}>Задание</td>
+                <td style={{ color: "#6B6B68", paddingRight: 12 }}>Задание</td>
                 <td style={{ fontWeight: 600 }}>
                   {selected.task.product_model_name ?? selected.task.name} · {areaLabel(selected.task.area)}
                 </td>
               </tr>
               <tr>
-                <td style={{ color: "#8A8C99" }}>Плёнка</td>
+                <td style={{ color: "#6B6B68" }}>Плёнка</td>
                 <td style={{ fontWeight: 600 }}>
                   {selected.line.material}, {selected.line.color}, {selected.line.thickness} мм
                 </td>
               </tr>
               <tr>
-                <td style={{ color: "#8A8C99" }}>Штрипс</td>
+                <td style={{ color: "#6B6B68" }}>Штрипс</td>
                 <td style={{ fontWeight: 700, color: "#2C4A73" }}>{selectedStripWidth} мм</td>
               </tr>
               <tr>
-                <td style={{ color: "#8A8C99" }}>Длина на штрипс</td>
+                <td style={{ color: "#6B6B68" }}>Длина на штрипс</td>
                 <td style={{ fontWeight: 600 }}>{selected.line.length_m} м</td>
               </tr>
               {selected.assignment && (
                 <tr>
-                  <td style={{ color: "#8A8C99" }}>Смена</td>
+                  <td style={{ color: "#6B6B68" }}>Смена</td>
                   <td style={{ fontWeight: 600 }}>
                     {dayjs(selected.assignment.date).format("DD.MM.YYYY")}, {selected.assignment.line_name}, {selected.assignment.employee_names}
                   </td>

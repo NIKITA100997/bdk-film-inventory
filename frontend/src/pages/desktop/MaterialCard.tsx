@@ -134,7 +134,7 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
                   alignItems: "center",
                   justifyContent: "center",
                   background: "#f5f5f5",
-                  color: "#999",
+                  color: "#6B6B68",
                 }}
               >
                 <PictureOutlined style={{ fontSize: 32 }} />

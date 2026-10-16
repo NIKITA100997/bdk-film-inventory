@@ -84,7 +84,7 @@ export function ColumnSettingsButton({
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
-      <span style={{ fontSize: 12, color: "#8A8C99" }}>
+      <span style={{ fontSize: 12, color: "#6B6B68" }}>
         {settings.visibleKeys.length} из {columns.length} {itemLabel}
       </span>
       <Tooltip title={panelTitle}>
@@ -145,7 +145,7 @@ export function ColumnSettingsButton({
                     gap: 8,
                     fontSize: 13.5,
                     padding: "3px 2px",
-                    color: c.locked ? "#9799A6" : "inherit",
+                    color: c.locked ? "#6B6B68" : "inherit",
                   }}
                 >
                   <input type="checkbox" checked={settings.isVisible(c.key)} disabled={c.locked} onChange={() => settings.toggle(c.key)} />
@@ -158,7 +158,7 @@ export function ColumnSettingsButton({
                 </label>
               ))}
             </Space>
-            <div style={{ fontSize: 11.5, color: "#9799A6", marginTop: 10, paddingTop: 10, borderTop: "1px dashed #E2DFD6" }}>
+            <div style={{ fontSize: 11.5, color: "#6B6B68", marginTop: 10, paddingTop: 10, borderTop: "1px dashed #E2DFD6" }}>
               Сохраняется в вашем профиле на этом устройстве — у коллег может быть другой набор.
             </div>
           </div>

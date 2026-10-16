@@ -355,7 +355,7 @@ export default function Issue() {
                 <>
                   {row.task.product_model_name ?? row.task.name ?? `Задание №${row.task.id}`} · {areaLabel(row.task.area)}
                   {row.assignment && (
-                    <div style={{ fontSize: 11.5, color: "#8A8C99" }}>
+                    <div style={{ fontSize: 11.5, color: "#6B6B68" }}>
                       {row.assignment.line_name} · {row.assignment.employee_names}
                     </div>
                   )}
@@ -404,7 +404,7 @@ export default function Issue() {
                       </div>
                     )}
                     {atAreaUnits.length > 0 && (
-                      <div style={{ color: "#8C8C8C" }}>
+                      <div style={{ color: "#6B6B68" }}>
                         У участка (не возвращают): {atArea} м ·{" "}
                         {atAreaUnits.map((u, i) => (
                           <span key={u.id}>
@@ -425,7 +425,7 @@ export default function Issue() {
                         ))}
                       </div>
                     )}
-                    {row.line.remaining_pieces <= 0 && <div style={{ color: "#8A8C99" }}>🏁 работа завершена</div>}
+                    {row.line.remaining_pieces <= 0 && <div style={{ color: "#6B6B68" }}>🏁 работа завершена</div>}
                   </div>
                 );
               }

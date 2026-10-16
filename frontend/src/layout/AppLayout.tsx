@@ -198,6 +198,17 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
     // конкретный WebView его не понимает (см. index.css), а inline style
     // не может держать две строки на одно и то же свойство.
     <Layout className="app-shell" style={{ overflow: "hidden" }}>
+      {/* с клавиатуры — сразу к экрану, не проходя шапку и меню (16.10) */}
+      <a
+        href="#main"
+        className="skip-link"
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById("main")?.focus();
+        }}
+      >
+        Перейти к содержимому
+      </a>
       <Header style={{ display: "flex", alignItems: "center", padding: "0 8px", gap: 4, flexShrink: 0 }}>
         {searchOpen ? (
           // Раскрытый поиск занимает всю шапку — так на любой ширине
@@ -246,7 +257,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
                 minWidth: 0,
               }}
             >
-              Учёт плёнки БДК
+              {isPhone ? "БДК" : "Учёт плёнки БДК"}
             </Typography.Title>
             <div style={{ flex: "1 1 auto" }} />
             <Button
@@ -295,14 +306,14 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
           именно Content, а не вся страница, отвечает за вертикальную
           прокрутку экрана. */}
       {isPhone ? (
-        <Content style={{ padding: 24, minWidth: 0, overflow: "auto", flex: "1 1 auto", minHeight: 0 }}>
+        <Content id="main" tabIndex={-1} className="app-page" style={{ minWidth: 0, overflow: "auto", flex: "1 1 auto", minHeight: 0, outline: "none" }}>
           <Outlet />
         </Content>
       ) : (
         // Планшет и компьютер — рабочие вкладки, как в 1С (WorkspaceTabs):
         // карточка открывается своей вкладкой, список остаётся со своими
         // фильтрами; прокрутка — у каждой вкладки своя.
-        <Content style={{ padding: 0, minWidth: 0, overflow: "hidden", flex: "1 1 auto", minHeight: 0 }}>
+        <Content id="main" tabIndex={-1} style={{ padding: 0, minWidth: 0, overflow: "hidden", flex: "1 1 auto", minHeight: 0, outline: "none" }}>
           <WorkspaceTabs pageRoutes={pageRoutes} />
         </Content>
       )}

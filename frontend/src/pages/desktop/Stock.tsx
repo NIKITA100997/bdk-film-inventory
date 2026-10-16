@@ -132,8 +132,10 @@ export default function Stock() {
 
   const kindSwitch =
     kinds.length > 1 ? (
-      <Space size={8} style={{ marginRight: 8 }}>
-        <Typography.Text type="secondary">Вид:</Typography.Text>
+      <Space size={8} wrap style={{ marginRight: 8, maxWidth: "100%" }}>
+        <Typography.Text type="secondary" style={{ whiteSpace: "nowrap" }}>
+          Вид:
+        </Typography.Text>
         <Segmented
           value={kind}
           options={kinds}

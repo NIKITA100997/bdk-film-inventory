@@ -501,7 +501,7 @@ function RacksConsole() {
             )}
           </Card>
         ) : (
-          <Card style={{ textAlign: "center", padding: "24px 8px", color: "#8A8C99" }}>Выберите стеллаж слева.</Card>
+          <Card style={{ textAlign: "center", padding: "24px 8px", color: "#6B6B68" }}>Выберите стеллаж слева.</Card>
         )}
       </div>
 

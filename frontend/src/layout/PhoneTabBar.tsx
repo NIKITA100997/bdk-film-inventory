@@ -95,7 +95,7 @@ export default function PhoneTabBar({ onManualSearchRequest }: PhoneTabBarProps)
                 background: "transparent",
                 border: "none",
                 padding: "4px 2px",
-                color: active ? "#C97A2B" : "#8A8C99",
+                color: active ? "#C97A2B" : "#6B6B68",
                 fontSize: 10,
                 fontWeight: 600,
               }}
@@ -139,7 +139,7 @@ export default function PhoneTabBar({ onManualSearchRequest }: PhoneTabBarProps)
             background: "transparent",
             border: "none",
             padding: "4px 2px",
-            color: "#8A8C99",
+            color: "#6B6B68",
             fontSize: 10,
             fontWeight: 600,
           }}
@@ -167,7 +167,7 @@ export default function PhoneTabBar({ onManualSearchRequest }: PhoneTabBarProps)
                 fontWeight: 700,
                 textTransform: "uppercase",
                 letterSpacing: "0.04em",
-                color: "#8A8C99",
+                color: "#6B6B68",
                 marginBottom: 8,
               }}
             >
