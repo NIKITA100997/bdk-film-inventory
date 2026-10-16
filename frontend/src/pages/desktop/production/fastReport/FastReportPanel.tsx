@@ -814,18 +814,14 @@ function LineSheet({
     <Drawer
       open
       placement="bottom"
-      height={540}
+      // 16.10: на телефоне — почти весь экран, описание над цифрами (было
+      // в две колонки, описание ломалось по слову в строку)
+      height={typeof window !== "undefined" && window.innerWidth < 600 ? "92%" : 540}
       onClose={onClose}
       title={fl.line.part_name ?? "Позиция"}
       destroyOnHidden
     >
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) 280px",
-          gap: 16,
-        }}
-      >
+      <div className="fr-sheet">
         <Space direction="vertical" size={10} style={{ width: "100%" }}>
           <Typography.Text type="secondary">
             {onOpenTask ? (

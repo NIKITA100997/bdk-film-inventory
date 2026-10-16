@@ -285,3 +285,17 @@ h5 {
 .skip-link:focus {
   top: 8px;
 }
+
+/* Окно отчёта по плитке (быстрый отчёт): описание слева, цифры справа;
+   на телефоне — друг под другом (16.10) */
+.fr-sheet {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 16px;
+}
+@media (max-width: 599px) {
+  .fr-sheet {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+}
