@@ -270,6 +270,58 @@ def import_types(db: Session, type_id: int | None) -> tuple[ItemType | None, lis
     return (types[0], types[1:]) if types else (None, [])
 
 
+_PARENS_RE = re.compile(r"\([^()]*\)")
+_DIM_SEP_RE = re.compile(r"(?<=\d)\s*[хxХX×*]\s*(?=\d)")
+
+
+def product_key(name: str) -> str:
+    """Название без скобок (цвет, «белый УК-6») и с одним знаком размера:
+    «Коробка с упл. (белый УК-6) телескоп МДФ 32*75*2070» и «Коробка с упл.
+    телескоп МДФ 32х75х2070 (Бетон тёмный ВДМ)» — одно и то же."""
+    t = _DIM_SEP_RE.sub("х", _PARENS_RE.sub(" ", (name or "").lower().replace("ё", "е")))
+    return " ".join(t.split())
+
+
+def decor_of(name: str) -> str | None:
+    """Декор строки — последние скобки: «Наличник … (Бетон тёмный ВДМ)»."""
+    m = re.search(r"\(([^()]+)\)\s*$", name or "")
+    return " ".join(m.group(1).split()) if m else None
+
+
+class ProductIndex:
+    """Готовые изделия без серии (погонаж: добор, коробка, наличник…) — по
+    названию из счёта (16.10): точное имя или синоним, иначе тот же ключ
+    названия (product_key). Индекс строится один раз на импорт."""
+
+    def __init__(self, db: Session):
+        from app.models.items import ItemKind
+
+        self.db = db
+        kind = db.query(ItemKind).filter(ItemKind.code == "izdelie").first()
+        self.kind_id = kind.id if kind else None
+        self.by_key: dict[str, list[Item]] = {}
+        if self.kind_id is not None:
+            for it in db.query(Item).filter(Item.kind_id == self.kind_id, Item.is_model.is_(False), Item.is_active.is_(True)):
+                self.by_key.setdefault(product_key(it.name), []).append(it)
+
+    def find(self, text: str) -> tuple[Item | None, str | None]:
+        """(позиция, ошибка). Несколько с одним ключом — ошибка с именами."""
+        from app.services.item_aliases import find_item
+        from app.services.naryad_import import base_name
+
+        if self.kind_id is None:
+            return None, None
+        hit = find_item(self.db, text, self.kind_id) or find_item(self.db, base_name(text), self.kind_id)
+        if hit is not None and not hit.is_model:
+            return hit, None
+        found = self.by_key.get(product_key(text), [])
+        if len(found) == 1:
+            return found[0], None
+        if len(found) > 1:
+            return None, "подходит несколько позиций: " + "; ".join(i.name for i in found[:4]) + " — добавьте синоним нужной"
+        return None, None
+
+
 def import_schedule(
     db: Session, *, text: str, type_: ItemType, order_name: str | None, user_id: int, dry_run: bool,
     color_films: dict[str, int] | None = None, colors_out: list | None = None,
@@ -302,6 +354,8 @@ def import_schedule(
     out: list[ImportRow] = []
     values_by_row: list[dict[int, object]] = []
     row_types: list[ItemType] = []
+    row_items: list[Item | None] = []  # изделие без серии — найдено по названию (погонаж)
+    products: ProductIndex | None = None
     for r in rows:
         rt = detect_type(candidates, tpl, r) if len(candidates) > 1 else type_
         row_types.append(rt or type_)
@@ -312,8 +366,25 @@ def import_schedule(
             invoice_no=r.invoice_no, ship_date=r.ship_date.isoformat() if r.ship_date else None,
         )
         _ROW_NOTES.clear()
+        row_items.append(None)
         if rt is None:
-            ser = tpl.column_text(r, model_code or first_prop or "") or "—"
+            ser = tpl.column_text(r, model_code or first_prop or "")
+            if not ser:  # без серии — готовое изделие по названию (добор, коробка, наличник)
+                products = products or ProductIndex(db)
+                item, err = products.find(r.name_text)
+                if item is not None:
+                    row_items[-1] = item
+                    ir.item_id, ir.item_name, ir.exists = item.id, item.name, True
+                    ir.type_name = "по названию"
+                    ir.series, ir.size = "", ""
+                    ir.color = decor_of(r.name_text) or ""
+                    out.append(ir)
+                    values_by_row.append({})
+                    continue
+                ir.errors.append(err or f"«{r.name_text}» — позиция не найдена: нет серии, и в номенклатуре нет изделия с таким названием. Заведите его или добавьте синоним в карточке позиции")
+                out.append(ir)
+                values_by_row.append({})
+                continue
             ir.errors.append(f"серия «{ser}» не найдена ни у одного типа ({', '.join(t.name for t in candidates)}) — добавьте её в «Номенклатура → Типы и правила»")
             out.append(ir)
             values_by_row.append({})
@@ -352,13 +423,19 @@ def import_schedule(
     )
     db.add(order)
     db.flush()
-    for i, (ir, values, r, rt) in enumerate(zip(out, values_by_row, rows, row_types), start=1):
-        item, created, errors = type_rules.ensure_item(db, rt, values)
-        if errors:
-            ir.errors.extend(errors)
-            return out, parse_errors, None
-        ir.item_id, ir.item_name, ir.exists = item.id, item.name, not created
-        note = f"отгрузка {r.ship_date.strftime('%d.%m')}" if r.ship_date else None
+    for i, (ir, values, r, rt, fixed) in enumerate(zip(out, values_by_row, rows, row_types, row_items), start=1):
+        if fixed is not None:
+            item = fixed
+        else:
+            item, created, errors = type_rules.ensure_item(db, rt, values)
+            if errors:
+                ir.errors.extend(errors)
+                return out, parse_errors, None
+            ir.item_id, ir.item_name, ir.exists = item.id, item.name, not created
+        notes = [f"отгрузка {r.ship_date.strftime('%d.%m')}" if r.ship_date else None]
+        if fixed is not None and decor_of(r.name_text):
+            notes.append(f"декор: {decor_of(r.name_text)}")
+        note = ", ".join(n for n in notes if n) or None
         order.lines.append(ProductionOrderLine(
             item_id=item.id, quantity=r.qty, note=note, invoice_no=(r.invoice_no or "").strip() or None, sort_order=i,
             source_text=(getattr(r, "name_text", "") or "").strip()[:500] or None,

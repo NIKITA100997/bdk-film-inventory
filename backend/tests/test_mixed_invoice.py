@@ -58,3 +58,15 @@ def test_without_route_only_for_types_without_operations():
     assert without_route(shield_broken) is False  # щитовая без маршрута — ошибка техкарты, не «без этапов»
     assert without_route(shield_ok) is False
     assert without_route(untyped) is False
+
+
+def test_product_key_ignores_colour_and_size_signs():
+    from app.services.schedule_import import decor_of, product_key
+
+    assert product_key("Коробка с упл. (белый УК-6) телескоп МДФ 32*75*2070") == product_key(
+        "Коробка с упл. телескоп МДФ 32х75х2070 (Бетон тёмный ВДМ)"
+    )
+    assert product_key("Плинтус МДФ 16×80×2070") == product_key("Плинтус МДФ 16х80х2070 (Белый)")
+    assert product_key("Добор телескоп 10*100*2070") != product_key("Добор телескоп 10х150х2070")
+    assert decor_of("Наличник телескоп 8х70х2150 (Бетон тёмный ВДМ)") == "Бетон тёмный ВДМ"
+    assert decor_of("Наличник телескоп 8х70х2150") is None
