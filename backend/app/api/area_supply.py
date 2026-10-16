@@ -160,6 +160,16 @@ def create_request(payload: RequestIn, db: Session = Depends(get_db), user: User
     return _req_out(db, [r])[0]
 
 
+def _require_handler(db: Session, user: User) -> None:
+    """Брать в работу и отмечать «выдано» — склад (выдача) или тот, кто ведёт
+    все участки; начальник участка с «управлением заданиями» — нет (16.10)."""
+    from app.core.security import get_permission_codes
+
+    if user.is_superuser or "units.issue" in get_permission_codes(user) or _own_area(db, user) is None:
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "Заявку закрывает склад")
+
+
 def _get_open(db: Session, req_id: int) -> AreaRequest:
     r = db.get(AreaRequest, req_id)
     if r is None or r.status not in REQ_OPEN:
@@ -169,6 +179,7 @@ def _get_open(db: Session, req_id: int) -> AreaRequest:
 
 @router.post("/requests/{req_id}/accept", response_model=RequestOut)
 def accept_request(req_id: int, db: Session = Depends(get_db), user: User = Depends(handle)) -> RequestOut:
+    _require_handler(db, user)
     r = _get_open(db, req_id)
     r.status = REQ_ACCEPTED
     db.commit()
@@ -177,6 +188,7 @@ def accept_request(req_id: int, db: Session = Depends(get_db), user: User = Depe
 
 @router.post("/requests/{req_id}/done", response_model=RequestOut)
 def done_request(req_id: int, payload: CloseIn, db: Session = Depends(get_db), user: User = Depends(handle)) -> RequestOut:
+    _require_handler(db, user)
     r = _get_open(db, req_id)
     r.status, r.closed_by, r.closed_at = REQ_DONE, user.id, datetime.now(timezone.utc)
     if payload.note:
@@ -278,6 +290,9 @@ def list_norms(area: str | None = None, db: Session = Depends(get_db), user: Use
 
 @router.put("/norms")
 def put_norm(payload: NormIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> dict:
+    own = _own_area(db, user)
+    if own and payload.area != own:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Норму можно задать только своему участку")
     if db.get(Area, payload.area) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Участок не найден")
     info = svc.item_info(db, payload.item_id)

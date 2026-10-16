@@ -187,7 +187,9 @@ export default function AreaRequestsPanel({ kind }: { kind?: SupplyKind }) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const canCreate = hasPerm(user, "production_tasks.report", "production_tasks.manage", "units.issue");
-  const canHandle = hasPerm(user, "units.issue", "production_tasks.manage");
+  // закрывает заявки склад (выдача) или тот, кто ведёт все участки (16.10)
+  const ownArea = useOwnArea();
+  const canHandle = hasPerm(user, "units.issue") || (hasPerm(user, "production_tasks.manage") && !ownArea);
   const [mode, setMode] = useState<"open" | "all">("open");
   const [adding, setAdding] = useState(false);
   const q = useQuery({
