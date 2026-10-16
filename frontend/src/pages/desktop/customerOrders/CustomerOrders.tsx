@@ -141,10 +141,18 @@ export default function CustomerOrders() {
                   {o.customer ? ` · ${o.customer}` : ""}{" "}
                   {o.priority > 0 && <Tag color={PRIORITY_COLOR[o.priority]}>{PRIORITY_LABEL[o.priority]}</Tag>}
                 </span>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {o.lines.length} поз.: {o.lines.slice(0, 2).map((l) => l.item_name).join(", ")}
-                  {o.lines.length > 2 ? " …" : ""}
-                </Typography.Text>
+                {/* перечень позиций — переносом, не шире колонки: иначе таблица шире
+                    экрана и «Стадия»/«Вилка» уходят за бегунок внизу (встреча 16.10) */}
+                <div
+                  title={o.lines.map((l) => l.item_name).join("\n")}
+                  style={{
+                    fontSize: 12, color: "#6B6B68", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                    overflow: "hidden", whiteSpace: "normal", maxWidth: 560,
+                  }}
+                >
+                  {o.lines.length} поз.: {o.lines.slice(0, 3).map((l) => l.item_name).join(", ")}
+                  {o.lines.length > 3 ? " …" : ""}
+                </div>
               </Space>
             ),
           },
