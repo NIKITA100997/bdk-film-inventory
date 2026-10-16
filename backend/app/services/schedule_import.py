@@ -30,6 +30,7 @@ class ImportRow:
     item_name: str | None = None
     exists: bool = False
     item_id: int | None = None
+    type_name: str | None = None
     errors: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -179,7 +180,7 @@ def _values_for_row(
             else:
                 by_code[p.code] = opt_id
             continue
-        text = " ".join(tpl.column_text(row, p.code).split())
+        text = tpl.color_text(row, p.code) if col.get("from_name") else " ".join(tpl.column_text(row, p.code).split())
         if not text:
             if p.is_required:
                 errors.append(f"не указано: {p.name}")
@@ -234,13 +235,50 @@ def _color_value(db: Session | None, prop, color: str, column_text: str, color_f
     return opt.id if opt is not None else None
 
 
+def _model_prop(t: ItemType):
+    return next((p for p in t.properties if p.id == t.model_property_id), None)
+
+
+def same_columns(a: ItemType, b: ItemType) -> bool:
+    """Шаблоны с одинаковыми колонками — строки одного графика/счёта можно
+    разбирать по любому из них, а тип выбирать по серии (16.10)."""
+    ta, tb = Template.of(a.import_template), Template.of(b.import_template)
+    key = lambda t: [(c.get("role"), c.get("code"), tuple(c.get("codes") or [])) for c in t.columns]  # noqa: E731
+    return ta is not None and tb is not None and key(ta) == key(tb)
+
+
+def detect_type(types: list[ItemType], tpl: Template, row: TemplateRow) -> ItemType | None:
+    """Тип строки по серии: чей список серий её знает (щитовые А/В/Е/Н,
+    царговые М/МГ/МО/С/МОН — у каждого типа свой список)."""
+    for t in types:
+        prop = _model_prop(t)
+        text = " ".join(tpl.column_text(row, prop.code).split()) if prop is not None else ""
+        if text and prop.value_type == "list" and match_option(prop, text) is not None:
+            return t
+    return None
+
+
+def import_types(db: Session, type_id: int | None) -> tuple[ItemType | None, list[ItemType]]:
+    """Тип импорта: выбранный — только он; не выбран («по серии») — все
+    изделия с шаблоном импорта, тип строки определяется по серии."""
+    if type_id is not None:
+        return db.get(ItemType, type_id), []
+    types = [
+        t for t in db.query(ItemType).filter(ItemType.is_active.is_(True)).order_by(ItemType.sort_order, ItemType.id)
+        if t.kind is not None and t.kind.code == "izdelie" and t.import_template and t.name_template
+    ]
+    return (types[0], types[1:]) if types else (None, [])
+
+
 def import_schedule(
     db: Session, *, text: str, type_: ItemType, order_name: str | None, user_id: int, dry_run: bool,
     color_films: dict[str, int] | None = None, colors_out: list | None = None,
-    invoice_no: str | None = None, ship_date=None,
+    invoice_no: str | None = None, ship_date=None, other_types: list[ItemType] | None = None,
 ) -> tuple[list[ImportRow], list[str], ProductionOrder | None]:
     """dry_run — только предпросмотр. Иначе — позиции по типу и черновик
-    заказа; если хоть одна строка с ошибкой — ничего не создаётся."""
+    заказа; если хоть одна строка с ошибкой — ничего не создаётся.
+    other_types — смешанный счёт (16.10): тип строки — по серии среди
+    type_ и этих (с теми же колонками шаблона); серию не знает никто — ошибка."""
     tpl = Template.of(type_.import_template)
     if tpl is None:
         return [], [f"У типа «{type_.name}» не настроен шаблон импорта графика — «Номенклатура → Типы и правила»"], None
@@ -259,10 +297,14 @@ def import_schedule(
     color_code = type_rules.COLOR_CODE
     # выбранная в окне импорта плёнка: цвет графика → позиция плёнки
     choices = {_norm_color(k): v for k, v in (color_films or {}).items()}
+    candidates = [type_] + [t for t in (other_types or []) if t.id != type_.id and same_columns(type_, t)]
     seen_colors: dict[str, int] = {}
     out: list[ImportRow] = []
     values_by_row: list[dict[int, object]] = []
+    row_types: list[ItemType] = []
     for r in rows:
+        rt = detect_type(candidates, tpl, r) if len(candidates) > 1 else type_
+        row_types.append(rt or type_)
         ir = ImportRow(
             series=tpl.column_text(r, model_code or first_prop or ""),
             size=tpl.column_text(r, size_col["codes"][0]) if size_col else "",
@@ -270,18 +312,26 @@ def import_schedule(
             invoice_no=r.invoice_no, ship_date=r.ship_date.isoformat() if r.ship_date else None,
         )
         _ROW_NOTES.clear()
-        values, errors = _values_for_row(type_, tpl, r, db, choices)
+        if rt is None:
+            ser = tpl.column_text(r, model_code or first_prop or "") or "—"
+            ir.errors.append(f"серия «{ser}» не найдена ни у одного типа ({', '.join(t.name for t in candidates)}) — добавьте её в «Номенклатура → Типы и правила»")
+            out.append(ir)
+            values_by_row.append({})
+            continue
+        ir.type_name = rt.name
+        values, errors = _values_for_row(rt, tpl, r, db, choices)
         c = tpl.color_text(r, color_code)
-        if c:
+        cprop = next((p for p in rt.properties if p.code == color_code), None)
+        if c and rt.id == type_.id and cprop is not None and cprop.value_type == "list":
             seen_colors[c] = seen_colors.get(c, 0) + 1
         ir.errors.extend(errors)
         ir.notes.extend(_ROW_NOTES)
         if not errors:
-            res = type_rules.compute(db, type_, type_rules.context_from_values(db, type_, values))
+            res = type_rules.compute(db, rt, type_rules.context_from_values(db, rt, values))
             ir.errors.extend(res.errors)
             ir.item_name = res.name
             if res.name:
-                existing = db.query(Item).filter(Item.kind_id == type_.kind_id, func.lower(Item.name) == res.name.lower()).first()
+                existing = db.query(Item).filter(Item.kind_id == rt.kind_id, func.lower(Item.name) == res.name.lower()).first()
                 ir.exists = existing is not None
                 ir.item_id = existing.id if existing else None
         out.append(ir)
@@ -302,8 +352,8 @@ def import_schedule(
     )
     db.add(order)
     db.flush()
-    for i, (ir, values, r) in enumerate(zip(out, values_by_row, rows), start=1):
-        item, created, errors = type_rules.ensure_item(db, type_, values)
+    for i, (ir, values, r, rt) in enumerate(zip(out, values_by_row, rows, row_types), start=1):
+        item, created, errors = type_rules.ensure_item(db, rt, values)
         if errors:
             ir.errors.extend(errors)
             return out, parse_errors, None

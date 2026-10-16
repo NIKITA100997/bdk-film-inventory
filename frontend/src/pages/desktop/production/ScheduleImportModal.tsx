@@ -44,9 +44,14 @@ export default function ScheduleImportModal({
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
   // Типы с шаблоном импорта (колонки графика и признаки — настройка типа).
   const gpTypes = (typesQuery.data ?? []).filter((t) => t.kind_code === "izdelie" && t.is_active && t.name_template && t.import_template);
+  // «По серии» (16.10): в счёте и графике — все двери, тип строки по серии
+  // (щитовые, царговые…). Выбор одного типа — как раньше.
+  const AUTO = 0;
   const [typeId, setTypeId] = useState<number | undefined>();
-  const effectiveType = typeId ?? gpTypes[0]?.id;
-  const selectedType = gpTypes.find((t) => t.id === effectiveType);
+  const effectiveType = typeId ?? (gpTypes.length > 1 ? AUTO : gpTypes[0]?.id);
+  const isAuto = effectiveType === AUTO;
+  const selectedType = gpTypes.find((t) => t.id === effectiveType) ?? (isAuto ? gpTypes[0] : undefined);
+  const sendType = isAuto ? null : (effectiveType as number);
   const [text, setText] = useState("");
   const [name, setName] = useState("");
   // счёт из 1С целиком (07.10): строки «наименование — кол-во», номер и отгрузка — здесь
@@ -79,7 +84,7 @@ export default function ScheduleImportModal({
       if (forCustomer) {
         const r = await importCustomerOrders({
           text: src.text,
-          type_id: effectiveType as number,
+          type_id: sendType,
           invoice_no: src.invoiceNo.trim() || null,
           customer: customer.trim() || null,
           ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
@@ -91,7 +96,7 @@ export default function ScheduleImportModal({
       }
       return importOrderFromSchedule({
         text: src.text,
-        type_id: effectiveType as number,
+        type_id: sendType,
         name: name.trim() || null,
         dry_run: dryRun,
         color_films: colorFilms,
@@ -128,7 +133,7 @@ export default function ScheduleImportModal({
       setText(r.text);
       setFileProblems(r.problems);
       setPreview(null);
-      if (r.text && effectiveType) {
+      if (r.text && effectiveType != null) {
         fromFile.current = { text: r.text, invoiceNo: inv };
         run.mutate(true);
       }
@@ -148,7 +153,7 @@ export default function ScheduleImportModal({
       footer={
         <Space>
           <Button onClick={onClose}>Закрыть</Button>
-          <Button disabled={!text.trim() || !effectiveType} loading={run.isPending && run.variables === true} onClick={() => run.mutate(true)}>
+          <Button disabled={!text.trim() || effectiveType == null} loading={run.isPending && run.variables === true} onClick={() => run.mutate(true)}>
             Разобрать
           </Button>
           <Button
@@ -176,14 +181,18 @@ export default function ScheduleImportModal({
         </Typography.Text>
         <Space wrap>
           <Select
-            style={{ width: 240 }}
+            style={{ width: 320 }}
             placeholder="Тип изделия"
             value={effectiveType}
             onChange={(v) => {
               setTypeId(v);
               setPreview(null);
             }}
-            options={gpTypes.map((t) => ({ value: t.id, label: t.name }))}
+            options={[
+              ...(gpTypes.length > 1 ? [{ value: AUTO, label: `Все типы — по серии (${gpTypes.map((t) => t.name).join(", ")})` }] : []),
+              ...gpTypes.map((t) => ({ value: t.id, label: t.name })),
+            ]}
+            popupMatchSelectWidth={false}
           />
           {forCustomer ? (
             <Input style={{ width: 360 }} placeholder="Клиент (как в счёте 1С)" value={customer} onChange={(e) => setCustomer(e.target.value)} />
@@ -344,6 +353,7 @@ export default function ScheduleImportModal({
               dataSource={preview.rows}
               columns={[
                 { title: "Счёт", dataIndex: "invoice_no" },
+                ...(isAuto ? [{ title: "Тип", render: (_: unknown, r: ScheduleImportRow) => r.type_name ?? "—" }] : []),
                 { title: "Серия", dataIndex: "series" },
                 { title: "Размер", dataIndex: "size" },
                 { title: "Цвет", dataIndex: "color" },

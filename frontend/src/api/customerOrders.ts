@@ -196,7 +196,7 @@ export const readInvoiceFile = async (file: File) => {
 
 export const importCustomerOrders = async (p: {
   text: string;
-  type_id: number;
+  type_id: number | null;
   invoice_no: string | null;
   customer: string | null;
   ship_from: string | null;

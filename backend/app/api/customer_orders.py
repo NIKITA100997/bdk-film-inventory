@@ -643,7 +643,7 @@ async def read_invoice_file(file: UploadFile = File(...), user: User = Depends(e
 
 class ImportIn(BaseModel):
     text: str
-    type_id: int
+    type_id: int | None = None  # нет — тип строки по серии (16.10)
     invoice_no: str | None = None
     customer: str | None = None
     ship_from: date | None = None
@@ -658,17 +658,18 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
     (находятся или создаются по правилам), заказ клиента на каждый счёт.
     dry_run — предпросмотр. Номер счёта, которого ещё нет в заказах."""
     from app.models.production_orders import ProductionOrder
-    from app.services.schedule_import import import_schedule
+    from app.services.schedule_import import import_schedule, import_types
 
-    type_ = db.get(ItemType, payload.type_id)
+    type_, others = import_types(db, payload.type_id)
     if type_ is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Тип не найден")
     colors: list = []
     rows, errors, po = import_schedule(
         db, text=payload.text, type_=type_, order_name="импорт заказов клиентов", user_id=user.id, dry_run=payload.dry_run,
         color_films=payload.color_films, colors_out=colors, invoice_no=(payload.invoice_no or "").strip() or None,
+        other_types=others,
     )
-    out_rows = [{k: getattr(r, k) for k in ("series", "size", "color", "name_text", "qty", "invoice_no", "ship_date", "item_name", "exists", "errors", "notes")} for r in rows]
+    out_rows = [{k: getattr(r, k) for k in ("series", "size", "color", "name_text", "qty", "invoice_no", "ship_date", "item_name", "exists", "type_name", "errors", "notes")} for r in rows]
     invoices = sorted({(r.invoice_no or "").strip() for r in rows if (r.invoice_no or "").strip()})
     no_inv = [r.name_text for r in rows if not (r.invoice_no or "").strip()]
     taken = [i for (i,) in db.query(CustomerOrder.invoice_no).filter(CustomerOrder.invoice_no.in_(invoices))] if invoices else []

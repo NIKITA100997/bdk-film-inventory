@@ -45,6 +45,8 @@ export interface OrderLine {
   /** Счёт / заказ 1С строки — в одном запуске двери разных счетов. */
   invoice_no?: string | null;
   done: number;
+  /** Изделие без этапов (царговые, 16.10): «в работе» с запуска, «Готово» — отметкой. */
+  without_route?: boolean;
   operations: OrderOperation[];
   components: OrderComponent[];
 }
@@ -420,6 +422,10 @@ export const completeProductionOrder = async (id: number): Promise<ProductionOrd
 export const closeProductionOrder = async (id: number): Promise<ProductionOrder> =>
   (await apiClient.post<ProductionOrder>(`/production-orders/${id}/close`)).data;
 
+/** «Готово» по строке изделия без этапов — приход на склад готовой продукции. */
+export const markOrderLineReady = async (orderId: number, lineId: number, qty: number) =>
+  (await apiClient.post<ProductionOrder>(`/production-orders/${orderId}/lines/${lineId}/ready`, { qty })).data;
+
 export interface ScheduleImportRow {
   series: string;
   size: string;
@@ -430,6 +436,8 @@ export interface ScheduleImportRow {
   ship_date: string | null;
   item_name: string | null;
   exists: boolean;
+  /** Тип строки — определён по серии (смешанный счёт). */
+  type_name?: string | null;
   errors: string[];
   // Пометки разбора: новый цвет и найденная (или нет) плёнка.
   notes?: string[];
@@ -450,7 +458,8 @@ export interface ScheduleImportColor {
 /** График запуска, вставленный из Excel → черновик заказа (dry_run — предпросмотр). */
 export const importOrderFromSchedule = async (payload: {
   text: string;
-  type_id: number;
+  /** null — тип строки по серии */
+  type_id: number | null;
   name: string | null;
   dry_run: boolean;
   // цвет графика → выбранная позиция плёнки (сохраняется в привязку цвета)

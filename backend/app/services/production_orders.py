@@ -19,7 +19,7 @@ from app.models.dictionaries import Part, PartStage
 from app.models.items import Item, ItemComponent
 from app.models.part_units import PartUnit, PartUnitStatus
 from app.models.production import REPORT_CLOSE, ProductionTask, ProductionTaskLine
-from app.models.production_orders import ORDER_CLOSED, ORDER_DRAFT, ORDER_RELEASED, ProductionOrder
+from app.models.production_orders import ORDER_CLOSED, ORDER_DRAFT, ORDER_RELEASED, ProductionOrder, ProductionOrderLine
 from app.services.components import live_item_names
 from app.services.part_units import mint_part_unit, write_off_part_unit
 from app.services.materials import KIND_MATERIAL
@@ -32,15 +32,26 @@ class OrderError(ValueError):
     pass
 
 
+def without_route(item: Item | None) -> bool:
+    """Изделие ведётся без этапов (16.10): у его типа нет маршрута (царговые
+    пока так). В заказе — «в работе» с запуска, «готово» — отметкой
+    (приход на склад готовой). У щитовой без маршрута — ошибка техкарты."""
+    return item is not None and not item.stages and item.type is not None and not item.type.operations
+
+
 def release_order(db: Session, order: ProductionOrder, user_id: int) -> list[ProductionTask]:
     """Запустить заказ: задания участкам по маршрутам позиций (без commit).
-    Позиция без маршрута — ошибка, заказ не запускается целиком."""
+    Позиция без маршрута — ошибка, заказ не запускается целиком; кроме
+    изделий без этапов (without_route) — они идут без заданий."""
     if order.status != ORDER_DRAFT:
         raise OrderError("Запустить можно только черновик заказа")
     if not order.lines:
         raise OrderError("В заказе нет строк")
     names = live_item_names(db, {ln.item_id for ln in order.lines})
-    no_route = [names.get(ln.item_id, f"#{ln.item_id}") for ln in order.lines if not db.get(Item, ln.item_id).stages]
+    no_route = [
+        names.get(ln.item_id, f"#{ln.item_id}") for ln in order.lines
+        if not db.get(Item, ln.item_id).stages and not without_route(db.get(Item, ln.item_id))
+    ]
     if no_route:
         raise OrderError("Нет маршрута у позиций: " + ", ".join(no_route) + " — задайте его в техкарте")
     area_names = {a.code: a.name for a in db.query(Area)}
@@ -190,6 +201,31 @@ def close_line_done(db: Session, line, done_total: float, user_id: int, close: b
         line.production_closed = True
         line.is_closed = True
     return added
+
+
+def mark_line_ready(db: Session, order: ProductionOrder, line: ProductionOrderLine, qty: float, site_id: int | None, user_id: int):
+    """«Готово» по строке изделия без этапов (16.10): приход на склад готовой
+    продукции — дальше заказ клиента «готов» и отгрузка, как у всех."""
+    from app.models.finished_goods import FG_RECEIPT, FgMove
+    from app.services.finished_goods import totals_by_order_line
+
+    if order.status != ORDER_RELEASED:
+        raise OrderError("Отметить готовность можно только в запущенном заказе")
+    if line.order_id != order.id:
+        raise OrderError("Строка не из этого заказа")
+    if not without_route(db.get(Item, line.item_id)):
+        raise OrderError("У позиции есть маршрут — готовность считается по отчётам участков")
+    done = totals_by_order_line(db, [line.id]).get(line.id, {}).get("received", 0.0)
+    left = round(float(line.quantity) - done, 2)
+    if qty <= 0 or qty > left + 1e-9:
+        raise OrderError(f"Можно отметить не больше {left:g} шт — столько осталось по строке" if left > 0 else "Строка уже готова целиком")
+    move = FgMove(
+        item_id=line.item_id, qty=qty, kind=FG_RECEIPT, site_id=site_id, order_line_id=line.id, invoice_no=line.invoice_no,
+        user_id=user_id, note=f"Готово (без этапов): заказ №{order.id}",
+    )
+    db.add(move)
+    db.flush()
+    return move
 
 
 def close_order(db: Session, order: ProductionOrder) -> None:

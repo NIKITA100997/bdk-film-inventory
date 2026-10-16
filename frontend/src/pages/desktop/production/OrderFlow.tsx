@@ -1,11 +1,60 @@
-import { Button, Progress, Space, Table, Tag, Typography } from "antd";
+import { useState } from "react";
+import { Button, InputNumber, Popover, Progress, Space, Table, Tag, Typography, message } from "antd";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ItemChars } from "../../../components/ItemChars";
-import type { OrderLine, OrderTask, ProductionOrder } from "../../../api/productionOrders";
+import { markOrderLineReady, type OrderLine, type OrderTask, type ProductionOrder } from "../../../api/productionOrders";
+import { apiErrorMessage } from "../../../utils/apiError";
 import { SectionsView, period, type SectionItem } from "./LayoutSheets";
 import { TaskCardPanel } from "./TaskCardDrawer";
 
 const pct = (a: number, b: number) => (b ? Math.round((Math.min(a, b) / b) * 100) : 0);
 const color = (a: number, b: number) => (a >= b && b > 0 ? "#389e0d" : a > 0 ? "#C97A2B" : undefined);
+
+/** «Готово» по строке изделия без этапов (царговые, 16.10): сколько штук
+ * готово сейчас — приход на склад готовой продукции. */
+function ReadyButton({ order, line }: { order: ProductionOrder; line: OrderLine }) {
+  const qc = useQueryClient();
+  const left = Math.max(0, line.quantity - line.done);
+  const [qty, setQty] = useState<number | null>(left);
+  const [open, setOpen] = useState(false);
+  const m = useMutation({
+    mutationFn: () => markOrderLineReady(order.id, line.id, qty ?? 0),
+    onSuccess: (o) => {
+      qc.setQueryData(["production-order", order.id], o);
+      qc.invalidateQueries({ queryKey: ["production-orders"] });
+      qc.invalidateQueries({ queryKey: ["customer-orders"] });
+      message.success(`Готово: ${qty} шт — на складе готовой продукции`);
+      setOpen(false);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось отметить готовность")),
+  });
+  return (
+    <Popover
+      trigger="click"
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (v) setQty(left);
+      }}
+      title="Сколько готово сейчас"
+      content={
+        <Space direction="vertical">
+          <Space>
+            <InputNumber min={1} max={left} value={qty} onChange={setQty} addonAfter="шт" style={{ width: 140 }} />
+            <Button type="primary" disabled={!qty} loading={m.isPending} onClick={() => m.mutate()}>
+              Готово
+            </Button>
+          </Space>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Поступит на склад готовой продукции по счёту {line.invoice_no ?? "—"}
+          </Typography.Text>
+        </Space>
+      }
+    >
+      <Button size="small">Готово…</Button>
+    </Popover>
+  );
+}
 
 /** «Ход» запущенного заказа (07.10) — как черновик: слева «Все строки» и
  * задания участкам, справа таблица. «Все строки» — матрица «строка ×
@@ -71,7 +120,11 @@ export default function OrderFlow({
             <div title={l.item_name}>
               <ItemChars chars={l.item_chars} name={l.item_name} strong={false} showName={false} />
               {l.invoice_no && <Tag color="purple" style={{ marginInlineEnd: 0 }}>счёт {l.invoice_no}</Tag>}
-              {l.operations.length === 0 && <Typography.Text type="warning"> нет маршрута</Typography.Text>}
+              {l.without_route ? (
+                <Tag title="Изделие без этапов: в работе с запуска, готовность — отметкой «Готово…»">без этапов</Tag>
+              ) : (
+                l.operations.length === 0 && <Typography.Text type="warning"> нет маршрута</Typography.Text>
+              )}
             </div>
           ),
         },
@@ -94,8 +147,18 @@ export default function OrderFlow({
         {
           title: "Готово",
           fixed: "right",
-          width: 120,
-          render: (_, l) => <Progress percent={pct(l.done, l.quantity)} size="small" format={() => `${l.done}/${l.quantity}`} />,
+          width: 150,
+          render: (_, l) => (
+            <Space direction="vertical" size={2} style={{ width: "100%" }}>
+              <Progress percent={pct(l.done, l.quantity)} size="small" format={() => `${l.done}/${l.quantity}`} />
+              {l.without_route && canManage && order.status === "released" && l.done < l.quantity && <ReadyButton order={order} line={l} />}
+              {l.without_route && order.status === "released" && l.done === 0 && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  в работе
+                </Typography.Text>
+              )}
+            </Space>
+          ),
         },
       ]}
     />

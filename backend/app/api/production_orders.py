@@ -115,7 +115,8 @@ class OrderLineOut(BaseModel):
     quantity: float
     note: str | None
     invoice_no: str | None = None
-    done: float  # готово по последней операции маршрута
+    done: float  # готово по последней операции маршрута (без этапов — приход на склад ГП)
+    without_route: bool = False  # изделие без этапов: «в работе» → «Готово» отметкой (16.10)
     operations: list[OperationProgress]
     components: list[ComponentNeed]
 
@@ -208,9 +209,14 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
     for t in task_lines:
         by_order_line[t.order_line_id][t.part_stage_id] = t
 
+    from app.services.finished_goods import totals_by_order_line
+    from app.services.production_orders import without_route
+
+    fg = totals_by_order_line(db, [ln.id for ln in order.lines])
     out_lines = []
     for ln in order.lines:
         item = db.get(Item, ln.item_id)
+        simple = without_route(item)
         stages = sorted(item.stages, key=lambda s: s.sequence_order)
         stage_names = {s.id: s.name for s in stages}
         ops = []
@@ -230,7 +236,9 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
             OrderLineOut(
                 id=ln.id, item_id=item.id, item_name=names.get(item.id, item.name), kind_name=kinds[item.kind_id].name,
                 item_chars=item_chars_cached(db, item.id),
-                quantity=float(ln.quantity), note=ln.note, invoice_no=ln.invoice_no, done=ops[-1].good if ops else 0.0, operations=ops,
+                quantity=float(ln.quantity), note=ln.note, invoice_no=ln.invoice_no,
+                done=fg.get(ln.id, {}).get("received", 0.0) if simple else (ops[-1].good if ops else 0.0),
+                without_route=simple, operations=ops,
                 components=[
                     ComponentNeed(
                         item_id=c.component_item_id, name=comp_names.get(c.component_item_id, "—"),
@@ -1279,6 +1287,33 @@ def complete(order_id: int, db: Session = Depends(get_db), user: User = Depends(
     return _order_out(db, order)
 
 
+class LineReadyIn(BaseModel):
+    qty: float = Field(gt=0)
+    site_id: int | None = None
+
+
+@router.post("/production-orders/{order_id}/lines/{line_id}/ready", response_model=OrderOut)
+def line_ready(
+    order_id: int, line_id: int, payload: LineReadyIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)
+) -> OrderOut:
+    """Изделие без этапов (царговые, 16.10): «Готово» — приход на склад
+    готовой продукции по строке заказа."""
+    from app.services.production_orders import mark_line_ready
+
+    order = _get_order(db, order_id)
+    line = db.get(ProductionOrderLine, line_id)
+    if line is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Строка не найдена")
+    try:
+        mark_line_ready(db, order, line, payload.qty, payload.site_id, user.id)
+    except OrderError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    db.commit()
+    db.refresh(order)
+    return _order_out(db, order)
+
+
 @router.post("/production-orders/{order_id}/close", response_model=OrderOut)
 def close(order_id: int, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderOut:
     order = _get_order(db, order_id)
@@ -1294,7 +1329,7 @@ def close(order_id: int, db: Session = Depends(get_db), user: User = Depends(man
 
 class ScheduleImportIn(BaseModel):
     text: str
-    type_id: int
+    type_id: int | None = None  # нет — тип строки по серии (16.10)
     name: str | None = None
     dry_run: bool = True
     # цвет из графика → выбранная позиция плёнки (сохраняется в привязку цвета)
@@ -1325,6 +1360,7 @@ class ScheduleRowOut(BaseModel):
     ship_date: str | None
     item_name: str | None
     exists: bool
+    type_name: str | None = None
     errors: list[str]
     notes: list[str] = []
 
@@ -1344,13 +1380,15 @@ def order_from_schedule(
     — позиция по типу (находится или создаётся с техкартой по правилам) и
     строка заказа. dry_run — только предпросмотр; с ошибками заказ не
     создаётся."""
-    type_ = db.get(ItemType, payload.type_id)
+    from app.services.schedule_import import import_types
+
+    type_, others = import_types(db, payload.type_id)
     if type_ is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Тип не найден")
     colors: list = []
     rows, parse_errors, order = import_schedule(
         db, text=payload.text, type_=type_, order_name=payload.name, user_id=user.id, dry_run=payload.dry_run,
-        color_films=payload.color_films, colors_out=colors,
+        color_films=payload.color_films, colors_out=colors, other_types=others,
         invoice_no=(payload.invoice_no or "").strip() or None,
         ship_date=payload.ship_date if _can_manage(user) else None,
     )

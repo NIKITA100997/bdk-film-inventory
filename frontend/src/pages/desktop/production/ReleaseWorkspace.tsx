@@ -216,7 +216,7 @@ export default function ReleaseWorkspace({
   const doors = order.lines.reduce((s, l) => s + l.quantity, 0);
   // общий заказ — в названии и шапке всех печатных форм и Excel (13.10)
   const orderTitle = `Заказ №${order.id} «${order.name}»`;
-  const noRoute = order.lines.filter((l) => l.operations.length === 0);
+  const noRoute = order.lines.filter((l) => l.operations.length === 0 && !l.without_route);
   const warnings = [
     ...noRoute.map((l) => `Нет маршрута — позиция не запустится: ${l.item_name}`),
     ...(unassigned.length ? [`Площадка ламинации не выбрана у ${unassigned.length} строк п/ф`] : []),
@@ -687,6 +687,8 @@ function LinesSection({ order, canManage, onEditLines }: { order: ProductionOrde
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {l.operations.map((o) => o.name).join(" → ")}
                 </Typography.Text>
+              ) : l.without_route ? (
+                <Tag title="Без этапов: в работе с запуска, готово — отметкой на вкладке «Ход»">без этапов</Tag>
               ) : (
                 <Tag color="red">нет маршрута</Tag>
               ),
