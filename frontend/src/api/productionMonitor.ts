@@ -44,6 +44,10 @@ export interface MonitorRow {
   size?: string;
   color?: string;
   source?: string;
+  /** выдача плёнки (16.10): issued / covered — есть, partial — частично, none — нет, site_stock — со склада Фабрики */
+  film_status?: "issued" | "covered" | "partial" | "none" | "site_stock" | null;
+  film_need_m?: number | null;
+  film_to_issue_m?: number | null;
 }
 
 export interface Monitor {

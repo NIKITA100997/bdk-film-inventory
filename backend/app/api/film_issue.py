@@ -10,6 +10,7 @@
 начальник цеха."""
 
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends
@@ -91,6 +92,49 @@ class FilmIssueBoardOut(BaseModel):
     reserve_enabled: bool
 
 
+@dataclass
+class FilmLineState:
+    need_m: float  # (план + брак) × длина детали
+    issued_m: float  # выдано под строку
+    covered_m: float  # покрыто рулонами на участке
+    to_issue_m: float  # ещё выдать
+    strip_width_mm: float
+    status: str  # issued / covered / partial / none / site_stock
+
+
+def film_line_states(db: Session, tasks: list[ProductionTask], site_of):
+    """Выдача плёнки по строкам заданий (доска выдачи и монитор производства,
+    16.10 — одна логика): (задание, его вывод, строка, вывод строки, состояние)
+    для открытых строк с плёнкой."""
+    from app.api.production import begin_read_cache
+
+    begin_read_cache(db)
+    pool_cache: dict = {}
+    for t in tasks:
+        # Фабрика берёт плёнку со своего склада, выдачу под строку не ведёт:
+        # нужно — по тому, что ещё не произведено, а не «не выдано»
+        from_site_stock = site_of(t.area) == "Фабрика"
+        out = _task_out(db, t, pool_cache)
+        src = {l.id: l for l in t.lines}
+        for lo in out.lines:
+            l = src.get(lo.id)
+            if l is None or l.material_id is None or l.is_closed:
+                continue
+            need = round((float(l.quantity_pieces) + float(lo.defect_pieces)) * float(l.length_m), 2)
+            issued = round(float(lo.issued_length_m), 2)
+            to_issue = round(float(lo.shortfall_length_m), 2)
+            covered = round(max(0.0, need - issued - to_issue), 2)
+            sw = float(lo.strip_width_mm or l.width_mm)
+            if from_site_stock:
+                to_issue = round(float(lo.remaining_length_m), 2)
+                covered, status = 0.0, "site_stock"
+            elif to_issue <= 0.01:
+                status = "issued" if issued >= need - 0.01 else "covered"
+            else:
+                status = "partial" if issued > 0 or covered > 0 else "none"
+            yield t, out, l, lo, FilmLineState(need, issued, covered, to_issue, sw, status)
+
+
 @router.get("/board", response_model=FilmIssueBoardOut)
 def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) -> FilmIssueBoardOut:
     from app.services.area_supply import serves_all_areas
@@ -131,41 +175,17 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
         reserved_m2[lid] += float(a)
 
     reserve_on = film_reserve.enabled(db)
-    from app.api.production import begin_read_cache
-
-    begin_read_cache(db)
-    pool_cache: dict = {}
     by_area: dict[str, list[FilmIssueLineOut]] = defaultdict(list)
-    for t in tasks:
-        # Фабрика берёт плёнку со своего склада, выдачу под строку не ведёт:
-        # нужно — по тому, что ещё не произведено, а не «не выдано»
-        from_site_stock = site_of(t.area) == "Фабрика"
-        out = _task_out(db, t, pool_cache)
-        src = {l.id: l for l in t.lines}
-        for lo in out.lines:
-            l = src.get(lo.id)
-            if l is None or l.material_id is None or l.is_closed:
-                continue
-            need = round((float(l.quantity_pieces) + float(lo.defect_pieces)) * float(l.length_m), 2)
-            issued = round(float(lo.issued_length_m), 2)
-            to_issue = round(float(lo.shortfall_length_m), 2)
-            covered = round(max(0.0, need - issued - to_issue), 2)
-            sw = float(lo.strip_width_mm or l.width_mm)
-            if from_site_stock:
-                to_issue = round(float(lo.remaining_length_m), 2)
-                covered, status = 0.0, "site_stock"
-            elif to_issue <= 0.01:
-                status = "issued" if issued >= need - 0.01 else "covered"
-            else:
-                status = "partial" if issued > 0 or covered > 0 else "none"
-            by_area[t.area].append(FilmIssueLineOut(
-                task_id=t.id, task_name=out.name or out.product_model_name or f"Задание №{t.id}", order_name=out.production_order_name,
-                line_id=l.id, part_name=l.part_name, film=film(l.material_id, l.color_id, l.thickness_id),
-                spec_key=f"{l.material_id}-{l.color_id}-{l.thickness_id}", strip_width_mm=sw,
-                quantity_pieces=float(l.quantity_pieces), produced_pieces=float(lo.produced_good_pieces),
-                need_m=need, issued_m=issued, covered_by_area_m=covered, to_issue_m=to_issue,
-                to_issue_m2=round(to_issue * sw / 1000, 3), reserved_m=round(reserved_m2.get(l.id, 0.0) * 1000 / sw, 2), need_by=first_slot.get(l.id), status=status,
-            ))
+    for t, out, l, lo, fs in film_line_states(db, tasks, site_of):
+        need, issued, covered, to_issue, sw, status = fs.need_m, fs.issued_m, fs.covered_m, fs.to_issue_m, fs.strip_width_mm, fs.status
+        by_area[t.area].append(FilmIssueLineOut(
+            task_id=t.id, task_name=out.name or out.product_model_name or f"Задание №{t.id}", order_name=out.production_order_name,
+            line_id=l.id, part_name=l.part_name, film=film(l.material_id, l.color_id, l.thickness_id),
+            spec_key=f"{l.material_id}-{l.color_id}-{l.thickness_id}", strip_width_mm=sw,
+            quantity_pieces=float(l.quantity_pieces), produced_pieces=float(lo.produced_good_pieces),
+            need_m=need, issued_m=issued, covered_by_area_m=covered, to_issue_m=to_issue,
+            to_issue_m2=round(to_issue * sw / 1000, 3), reserved_m=round(reserved_m2.get(l.id, 0.0) * 1000 / sw, 2), need_by=first_slot.get(l.id), status=status,
+        ))
     area_rows = sorted(
         (
             FilmIssueAreaOut(area=code, area_name=areas[code].name if code in areas else code, site=site_of(code),

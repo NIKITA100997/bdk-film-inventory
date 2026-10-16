@@ -17,6 +17,44 @@ const done = (r: MonitorRow) => Math.min(r.good, r.plan);
 const left = (r: MonitorRow) => (r.closed ? 0 : Math.max(0, r.plan - r.good));
 const cellColor = (p: number, started: boolean) => (p >= 100 ? "#389e0d" : started ? "#C97A2B" : undefined);
 
+// Вид продукции (встреча 16.10): у дверей, погонажа и панелей свои этапы —
+// монитор по одному виду, а не всё вперемешку. Без направления — «Прочее».
+const PRODUCTS = ["shield", "tsarg", "trim", "panel", "other"] as const;
+const productOf = (r: MonitorRow) => (r.direction && (PRODUCTS as readonly string[]).includes(r.direction) ? r.direction : "other");
+const productLabel = (p: string) => (p === "other" ? "Прочее" : DIRECTIONS[p] ?? p);
+
+// Этап «Плёнка» — выдана ли плёнка под строки, что ещё в работе (как на доске выдачи).
+const FILM_OK = new Set(["issued", "covered", "site_stock"]);
+const FILM_STATUS_TEXT: Record<string, string> = {
+  issued: "выдана", covered: "на участке", partial: "частично", none: "не выдана", site_stock: "со склада Фабрики",
+};
+type FilmSum = { total: number; ok: number; partial: number; toIssue: number };
+const filmSum = (rows: MonitorRow[]): FilmSum | null => {
+  const fr = rows.filter((r) => r.film_status && left(r) > 0);
+  if (!fr.length) return null;
+  return {
+    total: fr.length,
+    ok: fr.filter((r) => FILM_OK.has(r.film_status!)).length,
+    partial: fr.filter((r) => r.film_status === "partial").length,
+    toIssue: fr.reduce((s, r) => s + (FILM_OK.has(r.film_status!) ? 0 : r.film_to_issue_m ?? 0), 0),
+  };
+};
+const filmCell = (f: FilmSum | null) => {
+  if (!f) return null;
+  const tip = `строк с плёнкой в работе: ${f.total}; выдано: ${f.ok}${f.partial ? `, частично: ${f.partial}` : ""}${f.toIssue > 0 ? `; ещё выдать ${r2(f.toIssue)} м` : ""}`;
+  const [color, text] =
+    f.ok === f.total ? ["green", "выдана"] : f.ok === 0 && f.partial === 0
+        ? ["red", f.total > 1 ? `не выдана · ${f.total}` : "не выдана"]
+        : ["orange", f.total > 1 ? `${f.ok} из ${f.total}` : "частично"];
+  return (
+    <Tooltip title={tip}>
+      <Tag color={color} style={{ marginInlineEnd: 0 }}>
+        {text}
+      </Tag>
+    </Tooltip>
+  );
+};
+
 type Sum = { plan: number; done: number; defect: number; left: number; lines: number; open: number; last: string | null };
 const sum = (rows: MonitorRow[]): Sum => {
   const s: Sum = { plan: 0, done: 0, defect: 0, left: 0, lines: rows.length, open: 0, last: null };
@@ -39,7 +77,7 @@ export default function ProductionMonitor() {
   useTabTitle("Монитор производства");
   const [params, setParams] = useSearchParams();
   const q = useQuery({ queryKey: ["production-monitor"], queryFn: getProductionMonitor, refetchInterval: 120_000 });
-  const [direction, setDirection] = useState<string | undefined>();
+
   const [site, setSite] = useState<string | undefined>();
   const [orderIds, setOrderIds] = useState<number[]>([]);
   const [hideDone, setHideDone] = useState(true);
@@ -56,24 +94,26 @@ export default function ProductionMonitor() {
   };
 
   const data = q.data;
+  // вид продукции: из адреса, иначе первый, где есть строки
+  const products = PRODUCTS.filter((p) => (data?.rows ?? []).some((r) => productOf(r) === p));
+  const product = products.find((p) => p === params.get("product")) ?? products[0];
   const areaBy = useMemo(() => new Map((data?.areas ?? []).map((a) => [a.code, a])), [data]);
   const orderBy = useMemo(() => new Map((data?.orders ?? []).map((o) => [o.id, o])), [data]);
   const rows = useMemo(
     () =>
       (data?.rows ?? []).filter(
         (r) =>
-          (!direction || r.direction === direction) &&
+          productOf(r) === product &&
           (!site || areaBy.get(r.area)?.site === site) &&
           (!orderIds.length || orderIds.includes(r.order_id ?? NO_ORDER)),
       ),
-    [data, direction, site, orderIds, areaBy],
+    [data, product, site, orderIds, areaBy],
   );
   const areas = useMemo(() => {
     const used = new Set(rows.map((r) => r.area));
     return (data?.areas ?? []).filter((a) => used.has(a.code));
   }, [data, rows]);
   const sites = [...new Set((data?.areas ?? []).map((a) => a.site).filter(Boolean))] as string[];
-  const directions = [...new Set((data?.rows ?? []).map((r) => r.direction).filter(Boolean))] as string[];
   const orderLabel = (id: number | null) => {
     if (!id) return "Без заказа (задания цеха)";
     const o = orderBy.get(id);
@@ -167,6 +207,7 @@ export default function ProductionMonitor() {
             filterSearch: true,
           },
           { title: "Кол-во", align: "right", render: (_, l) => (l.qty != null ? r2(l.qty) : "") },
+          ...(list.some((l) => filmSum(l.rows)) ? [{ title: "Плёнка", key: "__film", render: (_: unknown, l: LineRow) => filmCell(filmSum(l.rows)) }] : []),
           ...used.map((a) => ({
             title: areaTitle(a),
             key: a.code,
@@ -222,7 +263,7 @@ export default function ProductionMonitor() {
 
   const exportAll = () => {
     const areaName = (code: string) => areaBy.get(code)?.name ?? code;
-    exportBook(`Монитор производства ${dayjs().format("DD.MM.YYYY HH-mm")}`, [
+    exportBook(`Монитор производства — ${productLabel(product ?? "other")} ${dayjs().format("DD.MM.YYYY HH-mm")}`, [
       {
         name: "Участки",
         columns: [
@@ -268,6 +309,7 @@ export default function ProductionMonitor() {
           { key: "position", header: "Позиция" },
           { key: "film", header: "Плёнка" },
           { key: "program", header: "Программа" },
+          { key: "film_status", header: "Выдача плёнки" },
           { key: "plan", header: "План" },
           { key: "good", header: "Сделано" },
           { key: "defect", header: "Брак" },
@@ -276,7 +318,7 @@ export default function ProductionMonitor() {
         ],
         rows: rows.map((r) => ({
           area: areaName(r.area), order: orderLabel(r.order_id), invoice: r.invoice_no ?? "", position: r.position, film: r.film ?? "",
-          program: r.program ?? "", plan: r.plan, good: r.good, defect: r.defect, left: left(r),
+          program: r.program ?? "", film_status: r.film_status ? FILM_STATUS_TEXT[r.film_status] : "", plan: r.plan, good: r.good, defect: r.defect, left: left(r),
           term: r.date_from ? `${dm(r.date_from)}${r.date_to && r.date_to !== r.date_from ? `–${dm(r.date_to)}` : ""}` : "",
         })),
       },
@@ -302,15 +344,19 @@ export default function ProductionMonitor() {
         </Space>
       }
     >
-      <Space wrap style={{ marginBottom: 12 }}>
-        <Select
-          allowClear
-          placeholder="Направление"
-          style={{ width: 190 }}
-          value={direction}
-          onChange={setDirection}
-          options={directions.map((d) => ({ value: d, label: DIRECTIONS[d] ?? d }))}
+      {products.length > 0 && (
+        <Segmented
+          size="large"
+          style={{ marginBottom: 12, display: "flex", width: "fit-content", maxWidth: "100%", overflowX: "auto" }}
+          value={product}
+          onChange={(v) => go({ product: String(v), area: undefined, order: undefined })}
+          options={products.map((p) => {
+            const open = (data?.rows ?? []).filter((r) => productOf(r) === p && left(r) > 0).length;
+            return { value: p, label: `${productLabel(p)} · ${open}` };
+          })}
         />
+      )}
+      <Space wrap style={{ marginBottom: 12 }}>
         <Select allowClear placeholder="Площадка" style={{ width: 160 }} value={site} onChange={setSite} options={sites.map((s) => ({ value: s, label: s }))} />
         <Select
           mode="multiple"
@@ -334,6 +380,13 @@ export default function ProductionMonitor() {
           Всего: сделано {r2(total.done)} из {r2(total.plan)} шт ({pct(total.done, total.plan)}%), осталось {r2(total.left)}
           {total.defect ? `, брак ${r2(total.defect)}` : ""}
         </Typography.Text>
+        {filmSum(rows) && (
+          <Space size={6}>
+            <Typography.Text type="secondary">Плёнка:</Typography.Text>
+            {filmCell(filmSum(rows))}
+            <Link to="/production-tasks?tab=film-issue">доска выдачи →</Link>
+          </Space>
+        )}
       </Space>
 
       <Tabs
@@ -411,6 +464,9 @@ export default function ProductionMonitor() {
                     width: 110,
                     render: (_, o) => <b style={{ color: cellColor(pct(o.s.done, o.s.plan), o.s.done > 0) }}>{pct(o.s.done, o.s.plan)}%</b>,
                   },
+                  ...(filmSum(rows)
+                    ? [{ title: "Плёнка", key: "__film", width: 120, render: (_: unknown, o: { id: number }) => filmCell(filmSum(rows.filter((r) => (r.order_id ?? NO_ORDER) === o.id))) }]
+                    : []),
                   ...areas.map((a) => ({
                     title: areaTitle(a),
                     key: a.code,
@@ -477,7 +533,12 @@ export default function ProductionMonitor() {
                       },
                       { title: "Счёт", render: (_, r) => r.invoice_no ?? "" },
                       { title: "Позиция", render: (_, r) => <div style={{ whiteSpace: "normal", maxWidth: 380 }}>{r.position}</div> },
-                      ...(sheetRows.some((r) => r.film) ? [{ title: "Плёнка", render: (_: unknown, r: MonitorRow) => r.film ?? "" }] : []),
+                      ...(sheetRows.some((r) => r.film)
+                        ? [
+                            { title: "Плёнка", render: (_: unknown, r: MonitorRow) => r.film ?? "" },
+                            { title: "Выдача плёнки", render: (_: unknown, r: MonitorRow) => filmCell(filmSum([r])) },
+                          ]
+                        : []),
                       ...(sheetRows.some((r) => r.program) ? [{ title: "Программа", render: (_: unknown, r: MonitorRow) => r.program ?? "" }] : []),
                       { title: "Готовность", width: 200, render: (_, r) => progressCell(sum([r])) },
                       {

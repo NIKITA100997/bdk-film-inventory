@@ -66,6 +66,11 @@ class MonitorRow(BaseModel):
     size: str = ""
     color: str = ""
     source: str = ""
+    # выдача плёнки (16.10, как на доске выдачи): issued / covered — есть,
+    # partial — частично, none — не выдана, site_stock — со склада Фабрики
+    film_status: str | None = None
+    film_need_m: float | None = None
+    film_to_issue_m: float | None = None
 
 
 class MonitorOut(BaseModel):
@@ -151,6 +156,19 @@ def production_monitor(db: Session = Depends(get_db)) -> MonitorOut:
         area_codes.add(t.area)
         if t.production_order_id:
             order_ids.add(t.production_order_id)
+
+    # выдача плёнки по строкам с плёнкой — та же логика, что у доски выдачи
+    film_tasks = {t.id: t for ln, t in lines if ln.material_id is not None and not ln.is_closed}
+    if film_tasks:
+        from app.api.film_issue import film_line_states
+
+        area_site = {a.code: a.site_id for a in db.query(Area)}
+        site_names = {s.id: s.name for s in db.query(Site)}
+        by_line = {r.task_line_id: r for r in rows}
+        for _t, _out, ln, _lo, fs in film_line_states(db, list(film_tasks.values()), lambda code: site_names.get(area_site.get(code))):
+            r = by_line.get(ln.id)
+            if r is not None:
+                r.film_status, r.film_need_m, r.film_to_issue_m = fs.status, fs.need_m, fs.to_issue_m
 
     # порядок участков — по ходу работ: планировщик ставит сроки назад от
     # отгрузки, так что раньше по плану = раньше по маршруту
