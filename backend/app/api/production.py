@@ -205,7 +205,26 @@ def _model_out(db: Session, model: ProductModel) -> ProductModelOut:
 
 
 def _issued_unit_remaining_m(db: Session, u: MaterialUnit) -> float:
-    return round(max(0.0, float(u.length_m) - _unit_consumed_length_m(db, u.id)), 2)
+    cache = read_cache(db, "unit_remaining")
+    if cache is not None and u.id in cache:
+        return cache[u.id]
+    v = round(max(0.0, float(u.length_m) - _unit_consumed_length_m(db, u.id)), 2)
+    if cache is not None:
+        cache[u.id] = v
+    return v
+
+
+def read_cache(db: Session, name: str) -> dict | None:
+    """Кэш на время одного ЧИТАЮЩЕГО запроса (16.10: список заданий цеха
+    делал ~28 тыс. запросов к базе — остаток одного рулона, аналоги ширин и
+    «Ламис» считались заново для каждой строки). Включается только в
+    списках (begin_read_cache), в запросах, которые пишут, — None."""
+    store = db.info.get("read_cache")
+    return None if store is None else store.setdefault(name, {})
+
+
+def begin_read_cache(db: Session) -> None:
+    db.info["read_cache"] = {}
 
 
 def _line_effective_strip_width(line: ProductionTaskLine) -> float:
@@ -852,10 +871,14 @@ def delete_product_model_part(
 
 @router.get("/production-tasks", response_model=list[ProductionTaskOut])
 def list_production_tasks(db: Session = Depends(get_db), user: User = Depends(view_tasks)) -> list[ProductionTaskOut]:
-    query = db.query(ProductionTask).options(joinedload(ProductionTask.lines))
+    from sqlalchemy.orm import selectinload
+
+    # распределения строк — одним запросом, а не по запросу на строку (16.10)
+    query = db.query(ProductionTask).options(joinedload(ProductionTask.lines).selectinload(ProductionTaskLine.assignments))
     if not _can_see_all_areas(user):
         query = query.filter(ProductionTask.area == user.area)
     tasks = query.order_by(ProductionTask.created_at.desc()).all()
+    begin_read_cache(db)
     pool_cache: dict = {}
     return [_task_out(db, t, pool_cache) for t in tasks]
 

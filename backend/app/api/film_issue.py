@@ -131,6 +131,9 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
         reserved_m2[lid] += float(a)
 
     reserve_on = film_reserve.enabled(db)
+    from app.api.production import begin_read_cache
+
+    begin_read_cache(db)
     pool_cache: dict = {}
     by_area: dict[str, list[FilmIssueLineOut]] = defaultdict(list)
     for t in tasks:

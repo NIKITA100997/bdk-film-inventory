@@ -50,6 +50,18 @@ def normalize_film(name: str | None) -> str:
 def film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
     if line.material_id is None or line.part_id is None:
         return []
+    # в читающих списках — одно вычисление на сочетание деталь+плёнка+участок
+    store = db.info.get("read_cache")
+    if store is not None:
+        key = (line.part_id, line.material_id, line.color_id, line.task.area if line.task else None)
+        cache = store.setdefault("film_warnings", {})
+        if key not in cache:
+            cache[key] = _film_warnings(db, line)
+        return list(cache[key])
+    return _film_warnings(db, line)
+
+
+def _film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
     out: list[str] = []
     part = db.get(Part, line.part_id)
     item = db.get(Item, part.item_id) if part and part.item_id else None
@@ -62,16 +74,34 @@ def film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
     decor = db.get(Color, line.color_id) if line.color_id else None
     decor_is_lamis = is_lamis_film(material, decor)
     if part is not None and not decor_is_lamis:
-        held = float(
-            db.query(func.coalesce(func.sum(PartUnit.quantity_pieces), 0))
-            .filter(
-                PartUnit.part_id == part.id,
-                PartUnit.area == line.task.area,
-                PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU,
-                PartUnit.film_restriction == LAMIS_RESTRICTION,
-            )
-            .scalar()
-        )
+        held = _lamis_held(db, part.id, line.task.area)
         if held > 0:
             out.append(f"На участке {held:g} шт после снятия плёнки — их можно клеить только «Ламис» — не ПЭТ и не полипропилен")
     return out
+
+
+def _lamis_held(db: Session, part_id: int, area: str | None) -> float:
+    """Сколько деталей «после снятия плёнки» лежит на участке. В читающих
+    списках (read_cache) — одним запросом на все детали, а не на строку."""
+    store = db.info.get("read_cache")
+    if store is not None:
+        held = store.get("lamis_held")
+        if held is None:
+            held = {
+                (pid, a): float(q)
+                for pid, a, q in db.query(PartUnit.part_id, PartUnit.area, func.sum(PartUnit.quantity_pieces))
+                .filter(PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU, PartUnit.film_restriction == LAMIS_RESTRICTION)
+                .group_by(PartUnit.part_id, PartUnit.area)
+            }
+            store["lamis_held"] = held
+        return held.get((part_id, area), 0.0)
+    return float(
+        db.query(func.coalesce(func.sum(PartUnit.quantity_pieces), 0))
+        .filter(
+            PartUnit.part_id == part_id,
+            PartUnit.area == area,
+            PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU,
+            PartUnit.film_restriction == LAMIS_RESTRICTION,
+        )
+        .scalar()
+    )
