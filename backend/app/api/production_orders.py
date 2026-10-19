@@ -42,9 +42,11 @@ view_orders = require_permission(
     "production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view"
 )
 manage_orders = require_permission("production_tasks.manage")
-# Заявки (09.10): продажник заводит и правит черновики, отправляет в
-# производство; запускает и принимает срок — только производство.
-edit_orders = require_permission("production_tasks.manage", "orders.request")
+# Заказ на производство заводит и правит только производство (19.10):
+# менеджер работает с заказом клиента (счёт 1С), из принятых заказов
+# клиентов производство собирает запуск. Прежние «заявки» продажника
+# (09.10) прямо в заказ на производство закрыты.
+edit_orders = require_permission("production_tasks.manage")
 
 
 def _can_manage(user: User) -> bool:
