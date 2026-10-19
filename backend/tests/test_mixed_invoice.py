@@ -70,3 +70,23 @@ def test_product_key_ignores_colour_and_size_signs():
     assert product_key("Добор телескоп 10*100*2070") != product_key("Добор телескоп 10х150х2070")
     assert decor_of("Наличник телескоп 8х70х2150 (Бетон тёмный ВДМ)") == "Бетон тёмный ВДМ"
     assert decor_of("Наличник телескоп 8х70х2150") is None
+
+
+def test_new_series_goes_to_type_with_same_letter():
+    from app.services.schedule_import import add_series
+
+    def typ(tid, name, opts):
+        prop = NS(id=tid * 10, code="серия", value_type="list",
+                  options=[NS(value=v, params=p, sort_order=i, is_active=True) for i, (v, p) in enumerate(opts)])
+        return NS(id=tid, name=name, model_property_id=prop.id, properties=[prop])
+
+    shield = typ(12, "Щитовая дверь", [("В-10", {"кромка": "abs", "толщина_каркаса": 24}), ("В-15", {"кромка": "abs", "толщина_каркаса": 24}),
+                                       ("Е-5", {"кромка": "aluminum", "толщина_каркаса": 22.5})])
+    tsarg = typ(13, "Царговая дверь", [("С-2", {}), ("МОН-36", {})])
+    db = NS(flush=lambda: None)
+    t, like = add_series(db, [shield, tsarg], "В-40.2")
+    assert t.name == "Щитовая дверь" and like == "В-10"
+    added = shield.properties[0].options[-1]
+    assert added.value == "В-40" and added.params == {"кромка": "abs", "толщина_каркаса": 24}
+    assert add_series(db, [shield, tsarg], "С-7")[0].name == "Царговая дверь"
+    assert add_series(db, [shield, tsarg], "Х-9") is None  # буква ничья — не угадываем

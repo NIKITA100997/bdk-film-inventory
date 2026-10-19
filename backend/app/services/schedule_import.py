@@ -322,6 +322,65 @@ class ProductIndex:
         return None, None
 
 
+_LAT2CYR = str.maketrans("ABCEHKMOPTXY", "АВСЕНКМОРТХУ")
+_TRIM_WORDS = re.compile(r"добор|коробк|наличник|плинтус|планк|погонаж|капител|порог", re.I)
+
+
+def add_series(db: Session, types: list[ItemType], series_text: str) -> tuple[ItemType, str] | None:
+    """Новая серия из счёта (19.10): заводится в тип, где уже есть серии той же
+    буквы («В-40» → щитовые, «С-7» → царговые), с параметрами как у соседних
+    серий этой буквы (толщины, кромка). Букву не знает ни один тип — None."""
+    from collections import Counter
+    import json
+
+    from app.models.items import ItemPropertyOption
+
+    value = re.sub(r"\.\d$", "", " ".join(series_text.split())).upper().translate(_LAT2CYR)
+    m = re.match(r"^([А-ЯЁ]{1,3})-\d", value)
+    if not m:
+        return None
+    pref = m.group(1) + "-"
+    owners = []
+    for t in types:
+        prop = _model_prop(t)
+        if prop is None or prop.value_type != "list":
+            continue
+        sibs = [o for o in prop.options if o.is_active and o.value.upper().translate(_LAT2CYR).startswith(pref) and "/" not in o.value and " " not in o.value]
+        if sibs:
+            owners.append((t, prop, sibs))
+    if len(owners) != 1:
+        return None
+    t, prop, sibs = owners[0]
+    common = Counter(json.dumps({k: v for k, v in (o.params or {}).items() if k != "синонимы"}, ensure_ascii=False, sort_keys=True) for o in sibs)
+    params = json.loads(common.most_common(1)[0][0])
+    like = next(o.value for o in sibs if {k: v for k, v in (o.params or {}).items() if k != "синонимы"} == params)
+    prop.options.append(ItemPropertyOption(value=value, params=params, sort_order=max(o.sort_order for o in prop.options) + 1, is_active=True))
+    db.flush()
+    return t, like
+
+
+def new_product(db: Session, name_text: str) -> Item:
+    """Изделие без серии, которого нет в номенклатуре (19.10): заводится с
+    названием из счёта без скобок с цветом; погонаж — по словам названия.
+    Без типа и маршрута — в заказе идёт без этапов («в работе» → «Готово»)."""
+    from app.models.items import ItemKind
+    from app.services.naryad_import import base_name
+
+    kind = db.query(ItemKind).filter(ItemKind.code == "izdelie").one()
+    name = " ".join(base_name(name_text).split())[:255]
+    hit = db.query(Item).filter(Item.kind_id == kind.id, func.lower(Item.name) == name.lower()).first()
+    if hit is not None:
+        return hit
+    trim = bool(_TRIM_WORDS.search(name))
+    sib = None
+    if trim:
+        sib = db.query(Item).filter(Item.kind_id == kind.id, Item.direction == "trim", Item.is_model.is_(False), Item.group_id.isnot(None)).first()
+    item = Item(kind_id=kind.id, name=name, is_active=True, direction="trim" if trim else None, group_id=sib.group_id if sib else None)
+    db.add(item)
+    db.flush()
+    return item
+
+
 def import_schedule(
     db: Session, *, text: str, type_: ItemType, order_name: str | None, user_id: int, dry_run: bool,
     color_films: dict[str, int] | None = None, colors_out: list | None = None,
@@ -358,6 +417,16 @@ def import_schedule(
     products: ProductIndex | None = None
     for r in rows:
         rt = detect_type(candidates, tpl, r) if len(candidates) > 1 else type_
+        new_series_note = None
+        if rt is None or (len(candidates) == 1 and _model_prop(type_) is not None):
+            ser_text = " ".join(tpl.column_text(r, model_code or first_prop or "").split())
+            prop0 = _model_prop(rt or type_)
+            known = rt is not None and prop0 is not None and (not ser_text or match_option(prop0, ser_text) is not None)
+            if ser_text and not known:
+                added = add_series(db, candidates, ser_text)
+                if added is not None:
+                    rt = added[0]
+                    new_series_note = f"новая серия «{ser_text}» → {rt.name}, параметры как у {added[1]}"
         row_types.append(rt or type_)
         ir = ImportRow(
             series=tpl.column_text(r, model_code or first_prop or ""),
@@ -381,7 +450,17 @@ def import_schedule(
                     out.append(ir)
                     values_by_row.append({})
                     continue
-                ir.errors.append(err or f"«{r.name_text}» — позиция не найдена: нет серии, и в номенклатуре нет изделия с таким названием. Заведите его или добавьте синоним в карточке позиции")
+                if err:
+                    ir.errors.append(err)
+                else:
+                    # нет в номенклатуре — заведётся при создании заказа (19.10)
+                    from app.services.naryad_import import base_name
+
+                    ir.item_name = " ".join(base_name(r.name_text).split())
+                    ir.exists, ir.type_name = False, "новое изделие"
+                    ir.series, ir.size, ir.color = "", "", decor_of(r.name_text) or ""
+                    ir.notes.append("новое изделие — заведётся без этапов («в работе» → «Готово»)")
+                    row_items[-1] = "__new__"
                 out.append(ir)
                 values_by_row.append({})
                 continue
@@ -390,6 +469,8 @@ def import_schedule(
             values_by_row.append({})
             continue
         ir.type_name = rt.name
+        if new_series_note:
+            ir.notes.append(new_series_note)
         values, errors = _values_for_row(rt, tpl, r, db, choices)
         c = tpl.color_text(r, color_code)
         cprop = next((p for p in rt.properties if p.code == color_code), None)
@@ -400,6 +481,7 @@ def import_schedule(
         if not errors:
             res = type_rules.compute(db, rt, type_rules.context_from_values(db, rt, values))
             ir.errors.extend(res.errors)
+            ir.notes.extend(res.notes)
             ir.item_name = res.name
             if res.name:
                 existing = db.query(Item).filter(Item.kind_id == rt.kind_id, func.lower(Item.name) == res.name.lower()).first()
@@ -424,7 +506,10 @@ def import_schedule(
     db.add(order)
     db.flush()
     for i, (ir, values, r, rt, fixed) in enumerate(zip(out, values_by_row, rows, row_types, row_items), start=1):
-        if fixed is not None:
+        if fixed == "__new__":
+            item = new_product(db, r.name_text)
+            ir.item_id, ir.item_name = item.id, item.name
+        elif fixed is not None:
             item = fixed
         else:
             item, created, errors = type_rules.ensure_item(db, rt, values)
@@ -433,7 +518,7 @@ def import_schedule(
                 return out, parse_errors, None
             ir.item_id, ir.item_name, ir.exists = item.id, item.name, not created
         notes = [f"отгрузка {r.ship_date.strftime('%d.%m')}" if r.ship_date else None]
-        if fixed is not None and decor_of(r.name_text):
+        if (fixed is not None) and decor_of(r.name_text):
             notes.append(f"декор: {decor_of(r.name_text)}")
         note = ", ".join(n for n in notes if n) or None
         order.lines.append(ProductionOrderLine(

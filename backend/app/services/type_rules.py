@@ -49,6 +49,9 @@ class PlannedComponent:
     # Компонент со своим типом: тип и значения его свойств (property_id → значение).
     child_type_id: int | None = None
     child_values: dict | None = None
+    # Материала нет в номенклатуре (19.10): заведётся при создании позиции —
+    # по образцу соседнего материала («МДФ 32 мм» — как «МДФ 30 мм»).
+    create_material: bool = False
 
 
 @dataclass
@@ -59,6 +62,7 @@ class RulesResult:
     op_rates: dict[str, float | None] = field(default_factory=dict)  # название → расценка, ₽/шт
     components: list[PlannedComponent] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # что заведётся само (новый материал)
 
 
 def context_from_values(db: Session, type_: ItemType, values: dict[int, object]) -> dict:
@@ -99,6 +103,40 @@ def item_values(db: Session, item: Item) -> dict[int, object]:
             "list": v.option_id,
         }[p.value_type]
     return out
+
+
+def material_sibling(db: Session, name: str) -> Item | None:
+    """Образец для нового материала: материал с тем же первым словом и
+    ближайшим числом в названии («МДФ 32 мм» → «МДФ 30 мм»)."""
+    import re
+
+    from app.models.items import ItemKind
+
+    kind = db.query(ItemKind).filter(ItemKind.code == "material").first()
+    word = (name.split() or [""])[0]
+    if kind is None or not word:
+        return None
+    sibs = db.query(Item).filter(Item.kind_id == kind.id, Item.is_model.is_(False), Item.name.ilike(word + " %")).all()
+    if not sibs:
+        return None
+    num = lambda s: float(m.group(0).replace(",", ".")) if (m := re.search(r"\d+([.,]\d+)?", s)) else 0.0  # noqa: E731
+    target = num(name)
+    return min(sibs, key=lambda i: (not i.is_active, abs(num(i.name) - target), i.id))
+
+
+def new_material(db: Session, name: str) -> Item:
+    """Завести материал по образцу соседнего (вид, единица, группа, направление)."""
+    from app.models.items import ItemKind
+
+    sib = material_sibling(db, name)
+    kind_id = sib.kind_id if sib else db.query(ItemKind).filter(ItemKind.code == "material").one().id
+    item = Item(
+        kind_id=kind_id, name=" ".join(name.split()), is_active=True,
+        unit=sib.unit if sib else None, group_id=sib.group_id if sib else None, direction=sib.direction if sib else None,
+    )
+    db.add(item)
+    db.flush()
+    return item
 
 
 def _find_part(db: Session, name: str) -> Part | None:
@@ -198,7 +236,12 @@ def compute(db: Session, type_: ItemType, ctx: dict) -> RulesResult:
             )
         )
         if part is None and existing_item is None and (width is None or length is None):
-            res.errors.append(f"«{name}»: такой позиции нет, а размеры для её создания в правиле не заданы")
+            if child_type is None and material_sibling(db, name) is not None:
+                # материал (лист, плита — одним числом): заводится по образцу
+                res.components[-1].create_material = True
+                res.notes.append(f"новый материал «{name}» — заведётся")
+            else:
+                res.errors.append(f"«{name}»: такой позиции нет, а размеры для её создания в правиле не заданы")
     return res
 
 
@@ -269,6 +312,9 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
                 # Два правила с одним названием — позиция заводится один раз.
                 again = _find_part(db, c.name)
                 comp_item_id = again.item_id if again else None
+            if comp_item_id is None and c.create_material:
+                again = db.query(Item).filter(func.lower(Item.name) == c.name.lower()).first()
+                comp_item_id = (again or new_material(db, c.name)).id
             if comp_item_id is None:
                 rule = next(r for r in type_.component_rules if r.id == c.rule_id)
                 part = Part(

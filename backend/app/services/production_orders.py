@@ -36,7 +36,13 @@ def without_route(item: Item | None) -> bool:
     """Изделие ведётся без этапов (16.10): у его типа нет маршрута (царговые
     пока так). В заказе — «в работе» с запуска, «готово» — отметкой
     (приход на склад готовой). У щитовой без маршрута — ошибка техкарты."""
-    return item is not None and not item.stages and item.type is not None and not item.type.operations
+    if item is None or item.stages:
+        return False
+    if item.type is not None:
+        return not item.type.operations
+    # изделие без типа, заведённое из счёта (новый погонаж и т.п., 19.10)
+    kind = getattr(item, "kind", None)
+    return kind is not None and kind.code == "izdelie"
 
 
 def release_order(db: Session, order: ProductionOrder, user_id: int) -> list[ProductionTask]:
