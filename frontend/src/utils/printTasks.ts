@@ -73,7 +73,7 @@ function componentsTable(s: TaskPrintSheet): string {
     )
     .join("");
   return `<h2 style="font-size:14px;margin:12px 0 4px">Комплектующие</h2>
-<table><thead><tr><th>№</th><th>Деталь</th><th>Кол-во</th>${hasCut ? "<th>Пилим / шлифуем</th>" : ""}<th>Готово</th></tr></thead><tbody>${rows}</tbody></table>`;
+<table><thead><tr><th>№</th><th>Деталь</th><th>Кол-во</th>${hasCut ? "<th>Как резать</th>" : ""}<th>Готово</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 /** Лист участка по группам (08.10): одинаковые признаки — одна строка,

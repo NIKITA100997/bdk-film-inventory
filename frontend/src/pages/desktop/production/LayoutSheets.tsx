@@ -233,7 +233,7 @@ export function SheetTable({
             { title: "Группа", dataIndex: "group", width: 140 },
             { title: "Номенклатура", dataIndex: "name" },
             { title: "Кол-во", align: "right", render: (_, c) => `${Math.round(c.qty * 100) / 100} ${c.unit ?? "шт"}` },
-            ...(comps.some((c) => c.comment) ? [{ title: "Пилим / шлифуем", render: (_: unknown, c: (typeof comps)[number]) => c.comment ?? "" }] : []),
+            ...(comps.some((c) => c.comment) ? [{ title: "Как резать", render: (_: unknown, c: (typeof comps)[number]) => c.comment ?? "" }] : []),
           ]}
         />
       ) : (

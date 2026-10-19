@@ -315,7 +315,8 @@ export interface ReleaseLayoutSheet {
 export interface ReleaseLayout {
   sheets: ReleaseLayoutSheet[];
   film: { area: string; area_name: string; label: string; need_m: number; stock_m: number; min_width_mm: number; cut_on_site: boolean }[];
-  materials: { name: string; qty: number; unit: string | null; group?: string; areas?: { area: string | null; area_name: string | null; qty: number }[] }[];
+  /** comment — как резать: «Пилим 25 / шлифуем 24», у пенопласта — из какого листа и сколько м² (19.10) */
+  materials: { name: string; qty: number; unit: string | null; group?: string; comment?: string | null; areas?: { area: string | null; area_name: string | null; qty: number }[] }[];
   /** п/ф заказа: нужно, со склада, в работу, для скольких строк заказа */
   pf: { name: string; need: number; from_stock: number; launch: number; order_lines: number; lamination_area: string | null }[];
   warnings: string[];

@@ -559,6 +559,9 @@ export default function ReleaseWorkspace({
                   columns={[
                     { title: "Наименование", dataIndex: "name" },
                     { title: "Количество", align: "right", render: (_, r) => `${Math.round(r.qty * 100) / 100} ${r.unit ?? "шт"}` },
+                    ...(rows.some((r) => r.comment)
+                      ? [{ title: "Примечание", render: (_: unknown, r: (typeof rows)[number]) => r.comment ?? "" }]
+                      : []),
                     {
                       title: "Где расходуется",
                       render: (_, r) =>

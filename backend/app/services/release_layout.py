@@ -210,6 +210,34 @@ def build_release_layout(
         st = db.query(PartStage).filter(PartStage.item_id == item_id).order_by(PartStage.sequence_order).first()
         return st.area if st is not None else None
 
+    # Материал, нарезаемый кусками (пенопласт, 19.10): у правила состава
+    # задан размер куска — показываем куски «200×1900 — N шт», площадь листа —
+    # в примечании (потребность и закупка по-прежнему в м²).
+    from app.models.items import ItemTypeComponent
+    from app.services.expressions import ExpressionError, evaluate_number
+
+    ctx_cache: dict[int, dict | None] = {}
+    sheet_area: dict[str, float] = defaultdict(float)
+    sheet_of: dict[str, str] = {}
+
+    def piece_size(parent_id: int, rule_id: int | None) -> tuple[float, float] | None:
+        rule = db.get(ItemTypeComponent, rule_id) if rule_id else None
+        if rule is None or not rule.width_expr or not rule.length_expr or rule.component_type_id:
+            return None
+        if parent_id not in ctx_cache:
+            parent = db.get(Item, parent_id)
+            ctx_cache[parent_id] = (
+                type_rules.context_from_values(db, parent.type, type_rules.item_values(db, parent)) if parent and parent.type else None
+            )
+        ctx = ctx_cache[parent_id]
+        if ctx is None:
+            return None
+        try:
+            w, ln = evaluate_number(rule.width_expr, ctx), evaluate_number(rule.length_expr, ctx)
+        except ExpressionError:
+            return None
+        return (w, ln) if w > 0 and ln > 0 else None
+
     def walk(item_id: int, k: float, depth: int = 0) -> None:
         comps = planned_components(db.query(ItemComponent).filter(ItemComponent.parent_item_id == item_id).all())
         names = live_item_names(db, {c.component_item_id for c in comps})
@@ -218,6 +246,19 @@ def build_release_layout(
             part = db.query(Part).filter(Part.item_id == c.component_item_id).first()
             if part is None or not part.stages:
                 nm = names.get(c.component_item_id) or "?"
+                it0 = db.get(Item, c.component_item_id)
+                size = piece_size(item_id, c.rule_id) if it0 is not None and (it0.unit or (it0.kind.unit if it0.kind else "") or "").startswith("м²") else None
+                if size is not None:
+                    w, ln = size
+                    piece = f"{nm} — {w:g}×{ln:g}"
+                    st = db.get(PartStage, c.stage_id) if c.stage_id else None
+                    area = st.area if st is not None else first_area(item_id)
+                    totals[(piece, area)] += q * 1_000_000 / (w * ln)
+                    units[piece] = "шт"
+                    groups_of[piece] = (group_names.get(it0.group_id) if it0.group_id else None) or (nm.split()[0] if nm else "Прочее")
+                    sheet_area[piece] += q
+                    sheet_of[piece] = nm
+                    continue
                 st = db.get(PartStage, c.stage_id) if c.stage_id else None
                 area = st.area if st is not None else first_area(item_id)
                 totals[(nm, area)] += q
@@ -239,6 +280,7 @@ def build_release_layout(
         m["areas"][area] = m["areas"].get(area, 0.0) + q
     materials = [
         {"name": m["name"], "qty": round(m["qty"], 3), "unit": m["unit"], "group": m["group"],
+         "comment": (f"из листа «{sheet_of[m['name']]}», " + f"{sheet_area[m['name']]:.2f}".replace(".", ",") + " м²" if m["name"] in sheet_of else None),
          "areas": [{"area": a, "area_name": areas[a].name if a in areas else None, "qty": round(q, 3)} for a, q in m["areas"].items()]}
         for m in sorted(by_name.values(), key=lambda m: (m["group"] != "Комплектующие", m["group"], m["name"]))
     ]
@@ -249,7 +291,7 @@ def build_release_layout(
         for a in m["areas"]:
             if a["area"] in sheets:
                 sheets[a["area"]].setdefault("components", []).append(
-                    {"name": m["name"], "qty": a["qty"], "unit": m["unit"], "group": m["group"], "comment": _cut_comment(m["name"])}
+                    {"name": m["name"], "qty": a["qty"], "unit": m["unit"], "group": m["group"], "comment": _cut_comment(m["name"]) or m.get("comment")}
                 )
 
     # п/ф заказа: сколько нужно, сколько со склада, сколько в работу и для
