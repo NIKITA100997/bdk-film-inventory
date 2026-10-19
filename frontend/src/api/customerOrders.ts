@@ -203,4 +203,46 @@ export const importCustomerOrders = async (p: {
   ship_to: string | null;
   dry_run: boolean;
   color_films: Record<string, number>;
+  /** заказ из сделки Битрикс24: сделка привяжется, сумма и менеджер — из неё */
+  bitrix_deal_id?: number | null;
+  amount_rub?: number | null;
+  manager_bitrix_id?: number | null;
 }): Promise<CustomerImportResult> => (await apiClient.post<CustomerImportResult>(`${base}/import`, p)).data;
+
+/** Сделка воронки Битрикс24 против заказов клиентов (19.10). */
+export interface FunnelDeal {
+  id: number;
+  title: string;
+  invoice: string | null;
+  kind: string | null;
+  qty: number | null;
+  amount: number | null;
+  stage: string;
+  stage_name: string;
+  closed: boolean;
+  company: string | null;
+  assigned: string | null;
+  assigned_bx: number | null;
+  created: string | null;
+  url: string | null;
+  /** linked — у заказа; match — один подходящий заказ; many — несколько; none — заказа нет */
+  state: "linked" | "match" | "many" | "none";
+  order_id: number | null;
+  order_invoice: string | null;
+  order_stage: string | null;
+  candidates: { id: number; invoice: string; customer: string | null }[];
+}
+
+export interface Funnel {
+  deals: FunnelDeal[];
+  orders_without_deal: { id: number; invoice: string; customer: string | null; stage: string }[];
+  sync_enabled: boolean;
+  auto_create: boolean;
+  loaded_at: number;
+}
+
+export const getBitrixFunnel = async (refresh = false) =>
+  (await apiClient.get<Funnel>(`${base}/bitrix/funnel`, { params: { refresh } })).data;
+export const linkAllBitrixDeals = async () => (await apiClient.post<{ linked: number }>(`${base}/bitrix/link-all`)).data;
+export const linkBitrixDeal = async (orderId: number, dealId: number) =>
+  (await apiClient.post(`${base}/${orderId}/bitrix-deal`, { deal: String(dealId) })).data;

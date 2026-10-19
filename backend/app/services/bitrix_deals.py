@@ -45,6 +45,70 @@ def enabled(s: dict) -> bool:
     return bool(s.get("enabled") and s.get("webhook") and s.get("deals_enabled") and s.get("deal_category") is not None)
 
 
+def connected(s: dict) -> bool:
+    """Битрикс подключён и воронка выбрана — сделки можно смотреть и
+    привязывать вручную, даже пока синхронизация (enabled) выключена (19.10)."""
+    return bool(s.get("enabled") and s.get("webhook") and s.get("deal_category") is not None)
+
+
+# ── Сделки воронки целиком (19.10): сверка с заказами клиентов ──
+_FUNNEL_CACHE: dict = {}
+_INVOICE_RE = re.compile(r"^\s*(?:АТ\s*№?\s*)?(\d[^\s,]*)", re.I)
+_KINDS = (("щиты", "щит"), ("царга", "царг"), ("погонаж", "погонаж"), ("инвизибл", "инвизибл"))
+
+
+def parse_title(title: str) -> tuple[str | None, str | None, int | None]:
+    """«2177-АТ(М) погонаж, 16.10» → (2177-АТ(М), погонаж, None); «1222-ЛД щиты 100шт.» → (…, щиты, 100)."""
+    t = title or ""
+    m = _INVOICE_RE.match(t)
+    inv = m.group(1).rstrip(".,;") if m else None
+    low = t.lower()
+    kind = next((k for k, w in _KINDS if w in low), None)
+    q = re.search(r"(\d+)\s*шт", low)
+    return inv, kind, int(q.group(1)) if q else None
+
+
+def funnel_deals(s: dict, refresh: bool = False) -> dict:
+    """Все сделки воронки с названиями стадий, компаний и ответственных.
+    Кэш на 5 минут — Битрикс отдаёт по 50 сделок за запрос."""
+    import time
+
+    cat = s["deal_category"]
+    hit = _FUNNEL_CACHE.get(cat)
+    if hit and not refresh and time.time() - hit[0] < 300:
+        return hit[1]
+    wh = s["webhook"]
+    deals: list[dict] = []
+    start = 0
+    while True:
+        r = bx.call(wh, "crm.deal.list", {
+            "filter": {"CATEGORY_ID": cat},
+            "select": ["ID", "TITLE", "STAGE_ID", "OPPORTUNITY", "COMPANY_ID", "ASSIGNED_BY_ID", "DATE_CREATE", "CLOSED"],
+            "order": {"ID": "DESC"}, "start": start,
+        })
+        deals += r.get("result", [])
+        if "next" not in r or len(deals) > 5000:
+            break
+        start = r["next"]
+        time.sleep(0.25)  # лимит Битрикса — 2 запроса в секунду
+    entity = "DEAL_STAGE" if int(cat) == 0 else f"DEAL_STAGE_{cat}"
+    stage_names = {x["STATUS_ID"]: x.get("NAME", x["STATUS_ID"]) for x in
+                   bx.call(wh, "crm.status.list", {"filter": {"ENTITY_ID": entity}, "order": {"SORT": "ASC"}}).get("result", [])}
+    comp_ids = sorted({d["COMPANY_ID"] for d in deals if d.get("COMPANY_ID") not in (None, "", "0")})
+    companies: dict[str, str] = {}
+    for i in range(0, len(comp_ids), 50):
+        for c in bx.call(wh, "crm.company.list", {"filter": {"ID": comp_ids[i:i + 50]}, "select": ["ID", "TITLE"]}).get("result", []):
+            companies[c["ID"]] = c.get("TITLE", "")
+        time.sleep(0.25)
+    users: dict[str, str] = {}
+    for uid in sorted({d["ASSIGNED_BY_ID"] for d in deals if d.get("ASSIGNED_BY_ID")}):
+        u = (bx.call(wh, "user.get", {"ID": uid}).get("result") or [{}])[0]
+        users[uid] = " ".join(x for x in (u.get("LAST_NAME"), u.get("NAME")) if x) or f"#{uid}"
+    data = {"deals": deals, "stages": stage_names, "companies": companies, "users": users, "loaded_at": time.time()}
+    _FUNNEL_CACHE[cat] = (time.time(), data)
+    return data
+
+
 def portal(s: dict) -> str:
     m = re.match(r"(https://[^/]+)/", s.get("webhook") or "")
     return m.group(1) if m else ""

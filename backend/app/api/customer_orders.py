@@ -511,8 +511,8 @@ def find_bitrix_deals(order_id: int, db: Session = Depends(get_db), user: User =
     """Сделки воронки, название которых начинается с номера счёта заказа."""
     co = _get(db, order_id)
     s = bitrix.get_settings(db)
-    if not deals.enabled(s):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Сделки Битрикс24 не включены — «Настройки → Битрикс24»")
+    if not deals.connected(s):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Битрикс24 не подключён или не выбрана воронка — «Настройки → Битрикс24»")
     try:
         found = deals.find_deals(s, co.invoice_no)
     except bitrix.BitrixError as e:
@@ -520,6 +520,114 @@ def find_bitrix_deals(order_id: int, db: Session = Depends(get_db), user: User =
     return [DealOut(id=int(d["ID"]), title=d.get("TITLE", ""), stage=d.get("STAGE_ID", ""),
                     amount=float(d["OPPORTUNITY"]) if d.get("OPPORTUNITY") else None, created=(d.get("DATE_CREATE") or "")[:10] or None,
                     url=deals.deal_url(s, int(d["ID"]))) for d in found]
+
+
+class FunnelDealOut(BaseModel):
+    id: int
+    title: str
+    invoice: str | None
+    kind: str | None
+    qty: int | None
+    amount: float | None
+    stage: str
+    stage_name: str
+    closed: bool
+    company: str | None
+    assigned: str | None
+    assigned_bx: int | None
+    created: str | None
+    url: str | None
+    state: str  # linked — у заказа; match — один подходящий заказ; many — несколько; none — заказа нет
+    order_id: int | None = None
+    order_invoice: str | None = None
+    order_stage: str | None = None
+    candidates: list[dict] = []
+
+
+class FunnelOut(BaseModel):
+    deals: list[FunnelDealOut]
+    orders_without_deal: list[dict]
+    sync_enabled: bool
+    auto_create: bool
+    loaded_at: float
+
+
+def _funnel(db: Session, s: dict, refresh: bool) -> FunnelOut:
+    data = deals.funnel_deals(s, refresh)
+    orders = db.query(CustomerOrder).filter(CustomerOrder.status != CO_CANCELLED).all()
+    by_deal = {co.bitrix_deal_id: co for co in orders if co.bitrix_deal_id}
+    free = [co for co in orders if not co.bitrix_deal_id]
+    out: list[FunnelDealOut] = []
+    matched_cos: set[int] = set()
+    for d in data["deals"]:
+        did = int(d["ID"])
+        inv, kind, qty = deals.parse_title(d.get("TITLE", ""))
+        row = dict(
+            id=did, title=d.get("TITLE", ""), invoice=inv, kind=kind, qty=qty,
+            amount=float(d["OPPORTUNITY"]) if d.get("OPPORTUNITY") else None,
+            stage=d.get("STAGE_ID", ""), stage_name=data["stages"].get(d.get("STAGE_ID", ""), d.get("STAGE_ID", "")),
+            closed=d.get("CLOSED") == "Y", company=data["companies"].get(d.get("COMPANY_ID") or ""),
+            assigned=data["users"].get(d.get("ASSIGNED_BY_ID") or ""),
+            assigned_bx=int(d["ASSIGNED_BY_ID"]) if d.get("ASSIGNED_BY_ID") else None,
+            created=(d.get("DATE_CREATE") or "")[:10] or None, url=deals.deal_url(s, did),
+        )
+        co = by_deal.get(did)
+        if co is not None:
+            row.update(state="linked", order_id=co.id, order_invoice=co.invoice_no, order_stage=cos_stage(db, co))
+        else:
+            cands = [c for c in free if deals.title_matches(row["title"], c.invoice_no)]
+            row["candidates"] = [{"id": c.id, "invoice": c.invoice_no, "customer": c.customer} for c in cands]
+            row["state"] = "match" if len(cands) == 1 else ("many" if cands else "none")
+            matched_cos.update(c.id for c in cands)
+        out.append(FunnelDealOut(**row))
+    without = [{"id": c.id, "invoice": c.invoice_no, "customer": c.customer, "stage": cos_stage(db, c)}
+               for c in free if c.id not in matched_cos]
+    return FunnelOut(deals=out, orders_without_deal=without, sync_enabled=deals.enabled(s),
+                     auto_create=bool(s.get("deal_auto_create")), loaded_at=data["loaded_at"])
+
+
+def cos_stage(db: Session, co: CustomerOrder) -> str:
+    return cos.STAGE_LABEL.get(cos.progress(db, co).stage, "")
+
+
+@router.get("/bitrix/funnel", response_model=FunnelOut)
+def bitrix_funnel(refresh: bool = False, db: Session = Depends(get_db), user: User = Depends(view)) -> FunnelOut:
+    """Все сделки воронки Битрикс24 против заказов клиентов (19.10): у
+    заказа / можно привязать / заказа нет; и заказы без сделки."""
+    s = bitrix.get_settings(db)
+    if not deals.connected(s):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Битрикс24 не подключён или не выбрана воронка — «Настройки → Битрикс24»")
+    try:
+        return _funnel(db, s, refresh)
+    except bitrix.BitrixError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+
+
+@router.post("/bitrix/link-all")
+def bitrix_link_all(db: Session = Depends(get_db), user: User = Depends(edit)) -> dict:
+    """Привязать все однозначные пары «сделка ↔ заказ» (один заказ на сделку
+    и одна сделка на заказ). Неоднозначные — вручную."""
+    s = bitrix.get_settings(db)
+    if not deals.connected(s):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Битрикс24 не подключён или не выбрана воронка — «Настройки → Битрикс24»")
+    try:
+        f = _funnel(db, s, refresh=True)
+    except bitrix.BitrixError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    per_order: dict[int, list[int]] = {}
+    for d in f.deals:
+        for c in d.candidates:
+            per_order.setdefault(c["id"], []).append(d.id)
+    linked = 0
+    for d in f.deals:
+        if d.state == "match":
+            oid = d.candidates[0]["id"]
+            if len(per_order.get(oid, [])) == 1:
+                co = db.get(CustomerOrder, oid)
+                co.bitrix_deal_id, co.bitrix_stage_sent = d.id, None
+                linked += 1
+    db.commit()
+    return {"linked": linked}
 
 
 class DealLinkIn(BaseModel):
@@ -532,8 +640,8 @@ class DealLinkIn(BaseModel):
 def set_bitrix_deal(order_id: int, payload: DealLinkIn, db: Session = Depends(get_db), user: User = Depends(edit)) -> OrderOut:
     co = _get(db, order_id)
     s = bitrix.get_settings(db)
-    if not deals.enabled(s):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Сделки Битрикс24 не включены — «Настройки → Битрикс24»")
+    if not deals.connected(s):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Битрикс24 не подключён или не выбрана воронка — «Настройки → Битрикс24»")
     try:
         if payload.unlink:
             co.bitrix_deal_id = co.bitrix_stage_sent = None
@@ -650,6 +758,10 @@ class ImportIn(BaseModel):
     ship_to: date | None = None
     dry_run: bool = True
     color_films: dict[str, int] = {}
+    # заказ из сделки Битрикс24 (19.10): сделка привязывается, сумма и менеджер — из неё
+    bitrix_deal_id: int | None = None
+    amount_rub: float | None = None
+    manager_bitrix_id: int | None = None
 
 
 @router.post("/import")
@@ -693,8 +805,16 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
         inv = (ln.invoice_no or "").strip()
         co = by_inv.get(inv)
         if co is None:
-            co = CustomerOrder(invoice_no=inv, customer=(payload.customer or "").strip() or None, created_by=user.id, manager_id=user.id,
+            mgr = None
+            if payload.manager_bitrix_id:
+                mgr = db.query(User).filter(User.bitrix_user_id == payload.manager_bitrix_id, User.is_active.is_(True)).first()
+            co = CustomerOrder(invoice_no=inv, customer=(payload.customer or "").strip() or None, created_by=user.id,
+                               manager_id=mgr.id if mgr else user.id,
                                status=CO_DRAFT, ship_from=payload.ship_from, ship_to=payload.ship_to or ship_by_inv.get(inv))
+            if payload.bitrix_deal_id and len(invoices) == 1:
+                co.bitrix_deal_id = payload.bitrix_deal_id
+                if payload.amount_rub:
+                    co.amount_rub = payload.amount_rub
             db.add(co)
             by_inv[inv] = co
         co.lines.append(CustomerOrderLine(item_id=ln.item_id, quantity=ln.quantity, note=ln.note, source_text=ln.source_text, sort_order=i))

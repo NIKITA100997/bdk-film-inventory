@@ -32,12 +32,15 @@ export default function ScheduleImportModal({
   onCreated,
   target = "production",
   onCustomerCreated,
+  fromDeal,
 }: {
   onClose: () => void;
   onCreated?: (o: ProductionOrder) => void;
   /** customer — заказы клиентов (13.10): по одному на счёт, без запуска. */
   target?: "production" | "customer";
   onCustomerCreated?: (ids: number[]) => void;
+  /** заказ из сделки Битрикс24 (19.10): счёт и клиент подставлены, сделка привяжется */
+  fromDeal?: { id: number; title: string; invoice: string | null; company: string | null; amount: number | null; assignedBx: number | null };
 }) {
   const forCustomer = target === "customer";
   const qc = useQueryClient();
@@ -55,8 +58,8 @@ export default function ScheduleImportModal({
   const [text, setText] = useState("");
   const [name, setName] = useState("");
   // счёт из 1С целиком (07.10): строки «наименование — кол-во», номер и отгрузка — здесь
-  const [invoiceNo, setInvoiceNo] = useState("");
-  const [customer, setCustomer] = useState("");
+  const [invoiceNo, setInvoiceNo] = useState(fromDeal?.invoice ?? "");
+  const [customer, setCustomer] = useState(fromDeal?.company ?? "");
   const [shipDate, setShipDate] = useState<Dayjs | null>(null);
   // Вилка отгрузки менеджера (09.10)
   const [shipWindow, setShipWindow] = useState<[Dayjs | null, Dayjs | null]>([null, null]);
@@ -91,6 +94,9 @@ export default function ScheduleImportModal({
           ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
           dry_run: dryRun,
           color_films: colorFilms,
+          bitrix_deal_id: fromDeal?.id ?? null,
+          amount_rub: fromDeal?.amount ?? null,
+          manager_bitrix_id: fromDeal?.assignedBx ?? null,
         });
         return { rows: r.rows, parse_errors: r.problems, colors: r.colors, order: null, created: r.created };
       }
@@ -173,6 +179,14 @@ export default function ScheduleImportModal({
       }
     >
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        {fromDeal && (
+          <Alert
+            type="info"
+            showIcon
+            message={`Заказ по сделке Битрикс24 №${fromDeal.id}: «${fromDeal.title}»`}
+            description="Загрузите файл счёта 1С — позиции возьмутся из него. Сделка привяжется к заказу, сумма и менеджер — из сделки."
+          />
+        )}
         <Typography.Text type="secondary">
           Скопируйте строки графика из Excel и вставьте сюда. Колонки по порядку
           {selectedType ? `: ${importColumnsText(selectedType)}` : ""}. Свойства берутся из колонок и наименования по
