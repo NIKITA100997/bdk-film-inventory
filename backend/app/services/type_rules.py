@@ -236,7 +236,12 @@ def compute(db: Session, type_: ItemType, ctx: dict) -> RulesResult:
             )
         )
         if part is None and existing_item is None and (width is None or length is None):
-            if child_type is None and material_sibling(db, name) is not None:
+            variants = [i.name for i in db.query(Item).filter(Item.is_model.is_(False), Item.is_active.is_(True), Item.name.ilike(name + " %")).limit(4)]
+            if child_type is None and variants:
+                # «МДФ 8 мм» нет, но есть «МДФ 8 мм Беларусь» / «… Kastamonu» —
+                # новый не заводим (был бы дубль), правилу нужно уточнение
+                res.errors.append(f"«{name}»: такого материала нет, есть {', '.join('«' + v + '»' for v in variants)} — укажите в правиле, какой")
+            elif child_type is None and material_sibling(db, name) is not None:
                 # материал (лист, плита — одним числом): заводится по образцу
                 res.components[-1].create_material = True
                 res.notes.append(f"новый материал «{name}» — заведётся")
