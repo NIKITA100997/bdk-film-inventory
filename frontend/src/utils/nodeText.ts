@@ -34,6 +34,8 @@ export function nodeText(node: ReactNode): string {
 /** Число, если текст — число («1 234,5» → 1234.5): в Excel ячейка будет
  * числом, а не текстом. */
 export function exportValue(text: string): string | number {
+  // дата «20.10» или срок «20.10–24.10» — текст, не число 20,1
+  if (/^\d{2}\.(0[1-9]|1[0-2])($|[–-])/.test(text.trim())) return text;
   const t = text.replace(/ |\s/g, "").replace(",", ".");
   return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : text;
 }

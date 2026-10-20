@@ -154,10 +154,17 @@ export default function ResponsiveTable<T extends object>({
     return rendered as React.ReactNode;
   };
 
-  const exportData = () => {
+  // печать — текст как на экране; Excel — числа числами (20.10: срок «20.10»
+  // в печати выходил «20.1»)
+  const exportData = (asText = false) => {
     const cols = visibleLabelable.map((c, i) => ({ key: `c${i}`, header: nodeText(c.title as React.ReactNode), col: c }));
     const rows = (dataSource ?? []).map((r, ri) =>
-      Object.fromEntries(cols.map((c) => [c.key, exportValue(nodeText(cellValue(c.col, r, ri)))])),
+      Object.fromEntries(
+        cols.map((c) => {
+          const text = nodeText(cellValue(c.col, r, ri));
+          return [c.key, asText ? text : exportValue(text)];
+        }),
+      ),
     );
     return { cols: cols.map(({ key, header }) => ({ key, header })), rows };
   };
@@ -184,7 +191,7 @@ export default function ResponsiveTable<T extends object>({
               icon={<PrinterOutlined />}
               disabled={!(dataSource ?? []).length}
               onClick={() => {
-                const { cols, rows } = exportData();
+                const { cols, rows } = exportData(true);
                 printReport(exportTitle, cols, rows, exportNote);
               }}
             >
