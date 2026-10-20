@@ -103,10 +103,20 @@ def build_release_layout(
     programmed: dict[int, bool] = {}
     milled_lines: set[int] = set()
     film_need: dict[tuple, dict] = {}
+    from app.models.sites import Site
+
+    site_name = {x.id: x.name for x in db.query(Site)}
     for t in db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).order_by(ProductionTask.id):
         area = areas.get(t.area)
-        sheet = sheets.setdefault(t.area, {
-            "area": t.area, "name": area.name if area else t.area, "pf": t.for_task_id is not None,
+        # распил / фрезеровка / шлифовка панелей — отдельный лист под
+        # ламинацию на Фабрике и на Северном (20.10)
+        skey = t.area + (f">{t.lam_area}" if t.lam_area else "")
+        dest = areas.get(t.lam_area) if t.lam_area else None
+        dest_name = (site_name.get(dest.site_id) if dest is not None and dest.site_id else None) or (dest.name if dest else t.lam_area)
+        sheet = sheets.setdefault(skey, {
+            "key": skey, "area": t.area, "lam_area": t.lam_area,
+            "name": (area.name if area else t.area) + (f" — для ламинации: {dest_name}" if t.lam_area else ""),
+            "pf": t.for_task_id is not None,
             "cut_on_site": bool(area and area.film_cut_on_site), "rows": [], "dates": set(),
         })
         for ln in t.lines:
@@ -181,10 +191,11 @@ def build_release_layout(
     for (area, *_spec), g in film_need.items():
         spec = tuple(_spec)
         stock = _film_stock_m(db, area, spec, g["min_width"])
-        film.append({"area": area, "area_name": sheets[area]["name"], "label": g["label"], "need_m": round(g["need_m"], 1),
-                     "stock_m": stock, "min_width_mm": g["min_width"], "cut_on_site": sheets[area]["cut_on_site"]})
+        sh = next(x for x in sheets.values() if x["area"] == area)
+        film.append({"area": area, "area_name": sh["name"], "label": g["label"], "need_m": round(g["need_m"], 1),
+                     "stock_m": stock, "min_width_mm": g["min_width"], "cut_on_site": sh["cut_on_site"]})
         if stock + 0.05 < g["need_m"]:
-            warnings.append(f"Не хватает плёнки {g['label']} на {sheets[area]['name']}: нужно {g['need_m']:.0f} м, "
+            warnings.append(f"Не хватает плёнки {g['label']} на {sh['name']}: нужно {g['need_m']:.0f} м, "
                             f"на складе {stock:.0f} м (не уже {g['min_width']:g} мм)")
 
     # нестандартное изделие с операцией «программа станка» — программу делает
@@ -289,8 +300,9 @@ def build_release_layout(
 
     for m in materials:
         for a in m["areas"]:
-            if a["area"] in sheets:
-                sheets[a["area"]].setdefault("components", []).append(
+            sh = next((x for x in sheets.values() if x["area"] == a["area"]), None)
+            if sh is not None:
+                sh.setdefault("components", []).append(
                     {"name": m["name"], "qty": a["qty"], "unit": m["unit"], "group": m["group"], "comment": _cut_comment(m["name"]) or m.get("comment")}
                 )
 

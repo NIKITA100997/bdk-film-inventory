@@ -73,3 +73,45 @@ def patch_program(program_id: int, payload: ProgramPatch, db: Session = Depends(
     db.commit()
     db.refresh(p)
     return _out(p)
+
+
+# ── Привязка программ к изделиям (20.10): вручную, главнее автоподбора ──
+
+
+class BindingOut(BaseModel):
+    item_id: int
+    item_name: str
+    programs: list[str]
+
+
+class BindingIn(BaseModel):
+    # одна — обе стороны, две — сторона 1 и 2; пусто — убрать привязку
+    programs: list[str] = Field(default_factory=list, max_length=2)
+
+
+@router.get("/bindings", response_model=list[BindingOut])
+def list_bindings(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[BindingOut]:
+    from app.models.items import Item
+
+    return [
+        BindingOut(item_id=i.id, item_name=i.name, programs=list(i.milling_programs or []))
+        for i in db.query(Item).filter(Item.milling_programs.isnot(None)).order_by(Item.name)
+        if i.milling_programs
+    ]
+
+
+@router.put("/bindings/{item_id}", response_model=BindingOut)
+def set_binding(item_id: int, payload: BindingIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> BindingOut:
+    from app.models.items import Item
+
+    item = db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Позиция не найдена")
+    names = [n.strip() for n in payload.programs if n and n.strip()]
+    known = {p.name for p in db.query(MillingProgram).filter(MillingProgram.name.in_(names or ["-"]))}
+    missing = [n for n in names if n not in known]
+    if missing:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Нет в справочнике программ: {', '.join(missing)}")
+    item.milling_programs = names or None
+    db.commit()
+    return BindingOut(item_id=item.id, item_name=item.name, programs=names)

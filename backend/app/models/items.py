@@ -77,6 +77,9 @@ class Item(Base):
     direction: Mapped[str | None] = mapped_column(String(16), nullable=True)
     stage: Mapped[str | None] = mapped_column(String(16), nullable=True)
     make_mode: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # Программы фрезеровки панелей двери, заданные вручную (20.10): одна —
+    # обе стороны, две — сторона 1 и 2; при запуске главнее автоподбора.
+    milling_programs: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Условная единица цены позиции (05.10, models/prices.py): валюта и
     # единица, в которых заводится цена (вручную, из 1С, по УПД). Пусто —
     # рубли и единица позиции (у плёнки — м²).

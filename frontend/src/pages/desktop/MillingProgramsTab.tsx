@@ -1,14 +1,24 @@
 import { useMemo, useState } from "react";
-import { Button, Input, Space, Switch, Table, Tag, Typography, message } from "antd";
+import { Button, Input, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { addMillingProgram, listMillingPrograms, patchMillingProgram, type MillingProgram } from "../../api/millingPrograms";
+import {
+  addMillingProgram,
+  listMillingBindings,
+  listMillingPrograms,
+  patchMillingProgram,
+  setMillingBinding,
+  type MillingBinding,
+  type MillingProgram,
+} from "../../api/millingPrograms";
+import { listItems } from "../../api/items";
 import { apiErrorMessage } from "../../utils/apiError";
 
 /** Программы фрезеровки панелей (07.10): справочник для автоподбора. При
  * запуске строке фрезеровки подставляется программа, если по серии
  * (с подверсией из графика), ширине, молдингу и плёнке подходит ровно одна;
- * иначе — «уточнить у конструктора», вписывают в черновике. Вариант «_1» —
- * все плёнки, кроме ПЭТ; «_2» — ПЭТ. */
+ * иначе — «уточнить у конструктора», вписывают в черновике. «_1» и «_2» —
+ * стороны несимметричной двери (половина панелей по одной, половина по
+ * другой). Изделию можно привязать программы вручную — главнее подбора. */
 export default function MillingProgramsTab() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["milling-programs"], queryFn: listMillingPrograms });
@@ -35,9 +45,9 @@ export default function MillingProgramsTab() {
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ maxWidth: 860, margin: 0 }}>
         Программа подставляется в строку фрезеровки при запуске заказа, если подходит ровно одна: серия с подверсией из графика
-        («В-10.2»), ширина двери, молдинг («м5х3», «м9») и плёнка — вариант «_1» для всех плёнок, кроме ПЭТ, «_2» для ПЭТ. Серия Е —
-        программы Е, В-28 — Grafiti 2, В-34 — Grafiti 5. Нестандартный размер — программу делает конструктор, её вписывают в
-        черновике заказа.
+        («В-10.2»; без неё — «.2» для ПЭТ, «.1» для остальных), ширина двери и молдинг («м5х3», «м9»). «_1» и «_2» — стороны
+        несимметричной двери: половина панелей по одной программе, половина по другой. Серия Е — программы Е, В-28 — Grafiti 2,
+        В-34 — Grafiti 5. Нестандартный размер — программу делает конструктор: привяжите её к изделию ниже или впишите в черновике.
       </Typography.Paragraph>
       <Space wrap>
         <Input.Search allowClear placeholder="Программа или серия" style={{ width: 260 }} value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -59,9 +69,106 @@ export default function MillingProgramsTab() {
           { title: "Подверсия", render: (_, p) => p.version ?? "любая" },
           { title: "Ширина", render: (_, p) => p.width ?? "любая" },
           { title: "Молдинг", render: (_, p) => p.molding ?? "—" },
-          { title: "Плёнка", render: (_, p) => (p.variant === 2 ? "ПЭТ" : p.variant === 1 ? "кроме ПЭТ" : "любая") },
+          { title: "Сторона", render: (_, p) => (p.variant ? `сторона ${p.variant}` : "обе") },
           { title: "Комментарий", render: (_, p) => p.note ?? "" },
           { title: "Действует", render: (_, p) => <Switch size="small" checked={p.is_active} onChange={() => toggle.mutate(p)} /> },
+        ]}
+      />
+      <Bindings programs={(q.data ?? []).filter((p) => p.is_active)} />
+    </Space>
+  );
+}
+
+/** Привязка программ к изделиям (20.10): у двери — свои программы вместо
+ * автоподбора (нестандарт, исключения). Одна — обе стороны, две — стороны 1 и 2. */
+function Bindings({ programs }: { programs: MillingProgram[] }) {
+  const qc = useQueryClient();
+  const bq = useQuery({ queryKey: ["milling-bindings"], queryFn: listMillingBindings });
+  const [search, setSearch] = useState("");
+  const iq = useQuery({
+    queryKey: ["items-search", search],
+    queryFn: () => listItems({ kind: "izdelie", q: search }),
+    enabled: search.trim().length >= 2,
+  });
+  const [itemId, setItemId] = useState<number | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const save = useMutation({
+    mutationFn: (p: { itemId: number; programs: string[] }) => setMillingBinding(p.itemId, p.programs),
+    onSuccess: (_, p) => {
+      qc.invalidateQueries({ queryKey: ["milling-bindings"] });
+      setItemId(null);
+      setPicked([]);
+      message.success(p.programs.length ? "Программы привязаны" : "Привязка убрана — снова автоподбор");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить")),
+  });
+  const progOptions = programs.map((p) => ({ value: p.name, label: p.name }));
+  return (
+    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+      <Typography.Title level={5} style={{ margin: "8px 0 0" }}>
+        Привязка к изделиям
+      </Typography.Title>
+      <Typography.Text type="secondary">
+        Программы, заданные изделию вручную, ставятся при запуске вместо автоподбора: одна — на обе стороны, две — сторона 1 и сторона 2.
+      </Typography.Text>
+      <Space wrap>
+        <Select
+          showSearch
+          style={{ width: 420 }}
+          placeholder="Изделие: начните вводить название (от 2 букв)"
+          filterOption={false}
+          onSearch={setSearch}
+          loading={iq.isFetching}
+          value={itemId ?? undefined}
+          onChange={(v) => {
+            setItemId(v);
+            setPicked(bq.data?.find((b) => b.item_id === v)?.programs ?? []);
+          }}
+          options={(iq.data ?? []).slice(0, 50).map((i) => ({ value: i.id, label: i.name }))}
+          notFoundContent={search.trim().length < 2 ? "Введите 2+ буквы" : "Не найдено"}
+        />
+        <Select
+          mode="multiple"
+          style={{ width: 420 }}
+          placeholder="Программы (одна или две)"
+          value={picked}
+          maxCount={2}
+          onChange={setPicked}
+          options={progOptions}
+          optionFilterProp="label"
+        />
+        <Button type="primary" disabled={!itemId || !picked.length} loading={save.isPending} onClick={() => itemId && save.mutate({ itemId, programs: picked })}>
+          Привязать
+        </Button>
+      </Space>
+      <Table<MillingBinding>
+        size="small"
+        rowKey="item_id"
+        loading={bq.isLoading}
+        dataSource={bq.data ?? []}
+        pagination={{ pageSize: 30 }}
+        locale={{ emptyText: "Привязок нет — программы подбираются автоматически" }}
+        columns={[
+          { title: "Изделие", dataIndex: "item_name" },
+          {
+            title: "Программы",
+            render: (_, b) => (
+              <Space size={4} wrap>
+                {b.programs.map((p, i) => (
+                  <Tag key={p}>{b.programs.length > 1 ? `сторона ${i + 1}: ` : ""}{p}</Tag>
+                ))}
+              </Space>
+            ),
+          },
+          {
+            title: "",
+            width: 120,
+            render: (_, b) => (
+              <Popconfirm title="Убрать привязку? Программа снова будет подбираться автоматически." onConfirm={() => save.mutate({ itemId: b.item_id, programs: [] })}>
+                <Button size="small">Убрать</Button>
+              </Popconfirm>
+            ),
+          },
         ]}
       />
     </Space>

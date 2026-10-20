@@ -26,6 +26,7 @@ from app.models.dictionaries import Part, PartStage
 from app.models.items import Item, ItemComponent
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.production_orders import ProductionOrder, ProductionOrderLine
+from app.models.sites import Site
 
 FAR_AHEAD_WORKDAYS = 250  # опорная дата, когда отгрузка не задана
 MAX_DEPTH = 6
@@ -119,6 +120,29 @@ class PfNeed:
     lamination_area: str | None = None
     factory_area: str | None = None
     factory_min_pieces: float | None = None
+    # ламинация только на этой площадке (20.10): панель фрезеруют после
+    # ламинации (ПЭТ, молдинг М5х3/М3х3) — фрезеровка на Фабрике, значит и
+    # ламинация там; выбор площадки не нужен
+    lam_forced: str | None = None
+
+
+def lam_forced_area(db: Session, consumer: Part | None, target: str | None) -> str | None:
+    """Фрезеровка после ламинации (20.10): у детали-потребителя есть
+    операция фрезеровки (нужна программа) на площадке, куда уходят крупные
+    партии ламинации (Фабрика) — ламинация только там."""
+    from app.services.operation_roles import needs_program
+
+    if consumer is None or not target:
+        return None
+    t = db.get(Area, target)
+    if t is None or t.site_id is None:
+        return None
+    for st in consumer.stages:
+        if needs_program(st) and st.area:
+            a = db.get(Area, st.area)
+            if a is not None and a.site_id == t.site_id:
+                return target
+    return None
 
 
 def _pf_components(db: Session, item: Item) -> list[tuple[Part, float, int]]:
@@ -184,6 +208,8 @@ def order_pf_needs(db: Session, order: ProductionOrder) -> list[PfNeed]:
                     lamination_area=lam.area if target else None,
                     factory_area=target,
                     factory_min_pieces=min_pieces,
+                    lam_forced=lam_forced_area(db, db.get(Part, consumer_part_id) if consumer_part_id else None, target)
+                    if lam is not None else None,
                 )
             )
             if part.item_id and launch > 0:
@@ -234,13 +260,16 @@ def release_pf(
         for ln in t.lines:
             if ln.order_line_id and ln.part_stage_id:
                 stage_task[(ln.order_line_id, ln.part_stage_id)] = t
-    tasks: dict[tuple[str, int | None], ProductionTask] = {}
-    consumer_stage = {
-        (n.order_line_id, n.part_id, n.consumer_part_id): n.consumer_stage_id
-        for n in (order_pf_needs(db, order) if needs is None else needs)
-    }
-    # Сначала верхний уровень — чтобы у вложенных было «под» какое задание.
-    for pick in sorted(picks, key=lambda p: 0 if p.consumer_part_id is None else 1):
+    tasks: dict[tuple, ProductionTask] = {}
+    all_needs = order_pf_needs(db, order) if needs is None else needs
+    consumer_stage = {(n.order_line_id, n.part_id, n.consumer_part_id): n.consumer_stage_id for n in all_needs}
+    forced = {(n.order_line_id, n.part_id, n.consumer_part_id): n.lam_forced for n in all_needs if n.lam_forced}
+    depth_of = {(n.order_line_id, n.part_id, n.consumer_part_id): n.depth for n in all_needs}
+    # для какой ламинации (20.10): панель — её площадка; заготовка под панель — площадка панели
+    dest_of: dict[tuple[int, int], str] = {}
+    site_names = {a.code: (db.get(Site, a.site_id).name if a.site_id else a.name) for a in db.query(Area)}
+    # Сначала верхний уровень — чтобы у вложенных было «под» какое задание и какая ламинация.
+    for pick in sorted(picks, key=lambda p: depth_of.get((p.order_line_id, p.part_id, p.consumer_part_id), 0 if p.consumer_part_id is None else 1)):
         part = db.get(Part, pick.part_id)
         if part is None or not part.stages:
             continue
@@ -252,12 +281,22 @@ def release_pf(
             continue
         stages = sorted(part.stages, key=lambda s: s.sequence_order)
         ops = stages[:-1] if len(stages) > 1 else stages
+        fs = film_stage(part.stages)
+        lam_choice = forced.get((pick.order_line_id, pick.part_id, pick.consumer_part_id)) or pick.lamination_area
+        if fs is not None:
+            dest = lam_choice or fs.area
+        else:
+            dest = dest_of.get((pick.order_line_id, pick.consumer_part_id)) if pick.consumer_part_id else None
+        if dest:
+            dest_of[(pick.order_line_id, part.id)] = dest
         for stage in ops:
             area = stage.area
             qty = pick.quantity
-            if stage is film_stage(part.stages):
-                if pick.lamination_area:
-                    area = pick.lamination_area
+            # до ламинации (распил, фрезеровка, шлифовка) — задание под эту ламинацию
+            stage_dest = dest if dest and (fs is None or stage.sequence_order < fs.sequence_order) else None
+            if stage is fs:
+                if lam_choice:
+                    area = lam_choice
                 took = min(qty, pre.get(part.id, 0.0))
                 if took > 0:
                     pre[part.id] -= took
@@ -267,13 +306,14 @@ def release_pf(
                         continue
             if area is None:
                 continue
-            key = (area, for_task.id if for_task else None)
+            key = (area, for_task.id if for_task else None, stage_dest)
             task = tasks.get(key)
             if task is None:
+                lam_label = f" (для ламинации: {site_names.get(stage_dest, stage_dest)})" if stage_dest else ""
                 task = ProductionTask(
-                    name=f"Заказ №{order.id} «{order.name}» — п/ф, {area_names.get(area, area)}"[:255],
+                    name=f"Заказ №{order.id} «{order.name}» — п/ф, {area_names.get(area, area)}{lam_label}"[:255],
                     area=area, created_by=user_id, production_order_id=order.id, is_active=True,
-                    for_task_id=for_task.id if for_task else None,
+                    for_task_id=for_task.id if for_task else None, lam_area=stage_dest,
                 )
                 db.add(task)
                 tasks[key] = task

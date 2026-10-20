@@ -105,6 +105,7 @@ export default function ReleaseWorkspace({
     for (const n of needsQuery.data) {
       const k = keyOf(n);
       next[k] = saved?.pf?.[k] ?? { picked: true, qty: n.launch ?? n.quantity, stock: n.from_stock ?? 0, lam: null };
+      if (n.lam_forced) next[k] = { ...next[k], lam: n.lam_forced };
     }
     setPf(next);
     setOverrides(saved?.overrides ?? {});
@@ -142,7 +143,7 @@ export default function ReleaseWorkspace({
   const setAllLam = (pick: (n: PfNeed) => string | null) =>
     setPf((prev) => {
       const next = { ...prev };
-      for (const n of lamRows) next[keyOf(n)] = { ...st(n), lam: pick(n) };
+      for (const n of lamRows) next[keyOf(n)] = { ...st(n), lam: n.lam_forced ?? pick(n) };
       return next;
     });
   const picks: PfPick[] = useMemo(
@@ -167,7 +168,7 @@ export default function ReleaseWorkspace({
   const setLamFor = (rows: PfNeed[], v: string) =>
     setPf((prev) => {
       const next = { ...prev };
-      for (const n of rows) next[keyOf(n)] = { ...st(n), lam: v };
+      for (const n of rows) next[keyOf(n)] = { ...st(n), lam: n.lam_forced ?? v };
       return next;
     });
   // разбивка группы по площадкам: «Фабрика 120 · Прессы 40 · не выбрано 8»
@@ -476,15 +477,20 @@ export default function ReleaseWorkspace({
                       key: "site",
                       title: "Площадка",
                       sortValue: (n) => (st(n).lam ? (areaName(st(n).lam ?? null) ?? "") : ""),
-                      render: (_, n) => (
-                        <LaminationAreaSelect
-                          row={{ lamination_area: n.lamination_area, factory_area: n.factory_area, factory_min_pieces: n.factory_min_pieces } as PfDemandRow}
-                          value={st(n).lam ?? undefined}
-                          areaName={areaName}
-                          disabled={!canManage}
-                          onChange={(v) => patchPf(n, { lam: v })}
-                        />
-                      ),
+                      render: (_, n) =>
+                        n.lam_forced ? (
+                          <Tooltip title="Панель фрезеруют после ламинации (ПЭТ, молдинг М5х3/М3х3) — фрезеровка на Фабрике, ламинация там же">
+                            <Tag color="blue">{areaName(n.lam_forced)} · фрезеровка после</Tag>
+                          </Tooltip>
+                        ) : (
+                          <LaminationAreaSelect
+                            row={{ lamination_area: n.lamination_area, factory_area: n.factory_area, factory_min_pieces: n.factory_min_pieces } as PfDemandRow}
+                            value={st(n).lam ?? undefined}
+                            areaName={areaName}
+                            disabled={!canManage}
+                            onChange={(v) => patchPf(n, { lam: v })}
+                          />
+                        ),
                       groupRender: (rows) => {
                         const vals = new Set(rows.map((n) => st(n).lam ?? ""));
                         const common = vals.size === 1 ? [...vals][0] : "";
@@ -568,7 +574,7 @@ export default function ReleaseWorkspace({
             ]}
             defaultDims={[]}
             size="small"
-            rowKey={(s) => s.area}
+            rowKey={(s) => s.key ?? s.area}
             pagination={false}
             loading={layoutQuery.isFetching && !lay}
             dataSource={lay?.sheets ?? []}
@@ -608,7 +614,7 @@ export default function ReleaseWorkspace({
     },
     ...(lay?.sheets ?? []).map(
       (s): SectionItem => ({
-        key: s.area,
+        key: s.key ?? s.area,
         group: "Задания участкам",
         label: s.name,
         sub: `${s.total} шт · ${period(s.date_from, s.date_to)}${s.pf ? " · п/ф" : ""}`,

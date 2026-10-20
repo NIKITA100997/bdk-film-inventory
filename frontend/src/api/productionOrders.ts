@@ -159,6 +159,8 @@ export interface PfNeed {
   lamination_area: string | null;
   factory_area: string | null;
   factory_min_pieces: number | null;
+  /** площадка ламинации задана маршрутом (20.10): фрезеровка после ламинации — на Фабрике */
+  lam_forced?: string | null;
   /** Предложено взять со склада (в резерв под заказ) и запустить; режим детали. */
   from_stock?: number;
   launch?: number;
@@ -309,7 +311,10 @@ export interface ReleaseLayoutRow {
   edge_sides?: number | null;
 }
 export interface ReleaseLayoutSheet {
+  /** ключ листа (20.10): участок, а у распила/фрезеровки панелей — участок и место ламинации */
+  key?: string;
   area: string;
+  lam_area?: string | null;
   name: string;
   pf: boolean;
   cut_on_site: boolean;

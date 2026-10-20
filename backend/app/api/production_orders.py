@@ -888,6 +888,7 @@ class PfNeedOut(BaseModel):
     lamination_area: str | None
     factory_area: str | None
     factory_min_pieces: float | None
+    lam_forced: str | None = None  # площадка ламинации задана маршрутом (фрезеровка после ламинации — Фабрика)
 
 
 @router.get("/production-orders/{order_id}/release-preview", response_model=list[PfNeedOut])

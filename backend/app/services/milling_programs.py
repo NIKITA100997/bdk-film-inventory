@@ -9,7 +9,11 @@
 Подверсия «.2» — ПЭТ, «.1» — остальные плёнки; «_1» и «_2» — первая и
 вторая сторона двери с несимметричными сторонами: у такой двери одна панель
 фрезеруется по «_1», другая — по «_2» (ответ пользователя 08.10; во всех
-запусках «_1» и «_2» идут поровну). Е-6 работает по программам Е16.
+запусках «_1» и «_2» идут поровну). У Е-6 свои программы «Е6.2_…» (запуск
+15.10; раньше шла по Е16).
+
+Изделию можно привязать программы вручную (Item.milling_programs, 20.10):
+одна — обе стороны, две — стороны 1 и 2; привязка главнее автоподбора.
 
 Дверь даёт серию (вариант свойства «серия»), ширину и ПЭТ — из позиции;
 подверсию («В-10.2») и молдинг («(м5х3 …», «(м9 …») — из исходной строки
@@ -24,9 +28,9 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 GRAFITI_SERIES = {"2": "В-28", "5": "В-34"}
-# Модель → серия программ, если не совпадает с названием (ответ 08.10:
-# у Е-6 программы «Е16.2_(М5х3/М3х3)_1/_2»).
-PROGRAM_SERIES = {"Е-6": "Е-16"}
+# Модель → серия программ, если не совпадает с названием. Е-6 → Е-16 было
+# до 15.10; теперь у Е-6 свои программы «Е6.2_(М5х3)_1/_2».
+PROGRAM_SERIES: dict[str, str] = {}
 
 _RE_GRAFITI = re.compile(r"^grafiti_(\d)_(\d{3})х2000(?:_([12]))?$", re.I)
 _RE_PROG = re.compile(
@@ -148,6 +152,18 @@ def fill_programs(db: Session, order) -> int:
             ol = lines[ln.order_line_id]
             if ol.id not in cache:
                 item = db.get(Item, ol.item_id)
+                bound = [p for p in (item.milling_programs or []) if p] if item is not None else []
+                if bound:
+                    cache[ol.id] = ("__bound__", bound)
+                    series = None
+                else:
+                    cache[ol.id] = None
+            if cache[ol.id] is not None and cache[ol.id][0] == "__bound__":
+                names = cache[ol.id][1][:2]
+            else:
+                names = None
+            if names is None and (ol.id not in cache or cache[ol.id] is None):
+                item = db.get(Item, ol.item_id)
                 series = width = None
                 pet = False
                 if item is not None and item.type is not None:
@@ -163,11 +179,12 @@ def fill_programs(db: Session, order) -> int:
                             label = db.get(ItemPropertyOption, v).value if p.value_type == "list" else str(v)
                             pet = "пэт" in (label or "").lower()
                 version, molding = door_spec_from_text(getattr(ol, "source_text", None))
-                cache[ol.id] = (series, width, version, molding, pet)
-            series, width, version, molding, pet = cache[ol.id]
-            if not series:
-                continue
-            names = suggest_sides(programs, series, width, version, molding, pet)
+                cache[ol.id] = ("__auto__", (series, width, version, molding, pet))
+            if names is None:
+                series, width, version, molding, pet = cache[ol.id][1]
+                if not series:
+                    continue
+                names = suggest_sides(programs, series, width, version, molding, pet)
             if not names:
                 continue
             ln.program = names[0]

@@ -127,8 +127,12 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
     for t in sorted(tasks, key=lambda t: t.id):
         area = db.get(Area, t.area)
         site = db.get(Site, area.site_id) if area is not None and area.site_id else None
-        sheet = by_area.setdefault(t.area, {
-            "area": t.area, "area_name": area.name if area else t.area, "site": site.name if site else None,
+        # ведомость распила / фрезеровки панелей — отдельно под ламинацию на Фабрике и на Северном (20.10)
+        dest = db.get(Area, t.lam_area) if t.lam_area else None
+        dest_site = db.get(Site, dest.site_id) if dest is not None and dest.site_id else None
+        lam = f" — для ламинации: {dest_site.name if dest_site else (dest.name if dest else t.lam_area)}" if t.lam_area else ""
+        sheet = by_area.setdefault(t.area + (f">{t.lam_area}" if t.lam_area else ""), {
+            "area": t.area, "area_name": (area.name if area else t.area) + lam, "site": site.name if site else None,
             "tasks": [], "rows": [], "components": {}, "groups": {},
         })
         order = db.get(ProductionOrder, t.production_order_id) if t.production_order_id else None
