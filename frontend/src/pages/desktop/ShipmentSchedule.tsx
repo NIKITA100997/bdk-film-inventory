@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import dayjs, { type Dayjs } from "dayjs";
 import { getCalendarTotals, getOrderCalendar, listCustomerOrders, type CalendarArea, type CalendarRow, type CustomerOrder } from "../../api/customerOrders";
 import OrderCalendarDrawer from "./OrderCalendarDrawer";
+import CalendarDeals from "./customerOrders/CalendarDeals";
 import { PRIORITY_COLOR, PRIORITY_LABEL } from "../../api/productionOrders";
 import { exportToExcel } from "../../utils/excel";
 import { MoveDatesModal, useCustomerOrderRights } from "./customerOrders/parts";
@@ -342,6 +343,8 @@ export default function ShipmentSchedule() {
           </Typography.Text>
         )}
       </Card>
+
+      <CalendarDeals days={days} leftWidth={LEFT_W} canCreate={canEdit} needle={needle} />
 
       {ordersQuery.isLoading || calQuery.isLoading ? (
         <Spin />

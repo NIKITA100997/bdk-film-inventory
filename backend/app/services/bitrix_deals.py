@@ -80,10 +80,12 @@ def funnel_deals(s: dict, refresh: bool = False) -> dict:
     wh = s["webhook"]
     deals: list[dict] = []
     start = 0
+    # дата отгрузки сделки (20.10) — сделки в календаре заказов
+    ship = s.get("deal_ship_field")
     while True:
         r = bx.call(wh, "crm.deal.list", {
             "filter": {"CATEGORY_ID": cat},
-            "select": ["ID", "TITLE", "STAGE_ID", "OPPORTUNITY", "COMPANY_ID", "ASSIGNED_BY_ID", "DATE_CREATE", "CLOSED"],
+            "select": ["ID", "TITLE", "STAGE_ID", "OPPORTUNITY", "COMPANY_ID", "ASSIGNED_BY_ID", "DATE_CREATE", "CLOSED"] + ([ship] if ship else []),
             "order": {"ID": "DESC"}, "start": start,
         })
         deals += r.get("result", [])
@@ -104,6 +106,9 @@ def funnel_deals(s: dict, refresh: bool = False) -> dict:
     for uid in sorted({d["ASSIGNED_BY_ID"] for d in deals if d.get("ASSIGNED_BY_ID")}):
         u = (bx.call(wh, "user.get", {"ID": uid}).get("result") or [{}])[0]
         users[uid] = " ".join(x for x in (u.get("LAST_NAME"), u.get("NAME")) if x) or f"#{uid}"
+    for d in deals:
+        v = d.get(ship) if ship else None
+        d["SHIP"] = str(v)[:10] if v else None  # «2026-10-20T03:00:00+03:00» → дата
     data = {"deals": deals, "stages": stage_names, "companies": companies, "users": users, "loaded_at": time.time()}
     _FUNNEL_CACHE[cat] = (time.time(), data)
     return data

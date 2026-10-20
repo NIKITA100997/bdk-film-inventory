@@ -587,6 +587,7 @@ class FunnelDealOut(BaseModel):
     assigned_bx: int | None
     created: str | None
     url: str | None
+    ship_date: str | None = None  # «Дата отгрузки» сделки (20.10)
     state: str  # linked — у заказа; match — один подходящий заказ; many — несколько; none — заказа нет
     order_id: int | None = None
     order_invoice: str | None = None
@@ -620,6 +621,7 @@ def _funnel(db: Session, s: dict, refresh: bool) -> FunnelOut:
             assigned=data["users"].get(d.get("ASSIGNED_BY_ID") or ""),
             assigned_bx=int(d["ASSIGNED_BY_ID"]) if d.get("ASSIGNED_BY_ID") else None,
             created=(d.get("DATE_CREATE") or "")[:10] or None, url=deals.deal_url(s, did),
+            ship_date=d.get("SHIP"),
         )
         co = by_deal.get(did)
         if co is not None:
@@ -651,6 +653,34 @@ def bitrix_funnel(refresh: bool = False, db: Session = Depends(get_db), user: Us
         return _funnel(db, s, refresh)
     except bitrix.BitrixError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+
+
+class CalendarDealsOut(BaseModel):
+    dated: list[FunnelDealOut]  # открытые, без заказа, с датой отгрузки в периоде
+    undated: list[FunnelDealOut]  # открытые, без заказа, без даты отгрузки
+    connected: bool
+
+
+@router.get("/calendar/deals", response_model=CalendarDealsOut)
+def calendar_deals(date_from: date, date_to: date, refresh: bool = False, db: Session = Depends(get_db), user: User = Depends(view)) -> CalendarDealsOut:
+    """Сделки Битрикса в календаре заказов (20.10): открытые сделки воронки,
+    по которым ещё нет заказа клиента, — на их дату отгрузки; из сделки —
+    «Создать заказ клиента». Сделки с заказом — уже строками заказов."""
+    s = bitrix.get_settings(db)
+    if not deals.connected(s):
+        return CalendarDealsOut(dated=[], undated=[], connected=False)
+    try:
+        f = _funnel(db, s, refresh)
+    except bitrix.BitrixError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    # без заказа: не привязана и номер счёта из названия не совпал с заказом
+    keys = {c.invoice_key for c in db.query(CustomerOrder).filter(CustomerOrder.status != CO_CANCELLED) if c.invoice_key}
+    from app.services.invoice_1c import invoice_key
+
+    free = [d for d in f.deals if not d.closed and d.state == "none" and not (d.invoice and invoice_key(d.invoice) in keys)]
+    dated = [d for d in free if d.ship_date and date_from.isoformat() <= d.ship_date <= date_to.isoformat()]
+    undated = [d for d in free if not d.ship_date]
+    return CalendarDealsOut(dated=dated, undated=undated, connected=True)
 
 
 @router.post("/bitrix/link-all")

@@ -1,7 +1,7 @@
 import { useAuth } from "../../../auth/AuthContext";
 import { useRef, useState } from "react";
 import { Alert, Button, DatePicker, Input, Modal, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
-import type { Dayjs } from "dayjs";
+import dayjs, { type Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
 import { listMaterialSkus } from "../../../api/dictionaries";
@@ -40,7 +40,7 @@ export default function ScheduleImportModal({
   target?: "production" | "customer";
   onCustomerCreated?: (ids: number[]) => void;
   /** заказ из сделки Битрикс24 (19.10): счёт и клиент подставлены, сделка привяжется */
-  fromDeal?: { id: number; title: string; invoice: string | null; company: string | null; amount: number | null; assignedBx: number | null };
+  fromDeal?: { id: number; title: string; invoice: string | null; company: string | null; amount: number | null; assignedBx: number | null; shipDate?: string | null };
 }) {
   const forCustomer = target === "customer";
   const qc = useQueryClient();
@@ -62,7 +62,7 @@ export default function ScheduleImportModal({
   const [customer, setCustomer] = useState(fromDeal?.company ?? "");
   const [shipDate, setShipDate] = useState<Dayjs | null>(null);
   // Вилка отгрузки менеджера (09.10)
-  const [shipWindow, setShipWindow] = useState<[Dayjs | null, Dayjs | null]>([null, null]);
+  const [shipWindow, setShipWindow] = useState<[Dayjs | null, Dayjs | null]>([null, fromDeal?.shipDate ? dayjs(fromDeal.shipDate) : null]);
   const { user: me } = useAuth();
   const isManager = hasPerm(me, "production_tasks.manage");
   const [preview, setPreview] = useState<{

@@ -237,6 +237,8 @@ export interface FunnelDeal {
   assigned_bx: number | null;
   created: string | null;
   url: string | null;
+  /** «Дата отгрузки» сделки (20.10) */
+  ship_date?: string | null;
   /** linked — у заказа; match — один подходящий заказ; many — несколько; none — заказа нет */
   state: "linked" | "match" | "many" | "none";
   order_id: number | null;
@@ -253,6 +255,13 @@ export interface Funnel {
   loaded_at: number;
 }
 
+/** Сделки Битрикса в календаре заказов (20.10): открытые, без заказа клиента. */
+export const getCalendarDeals = async (dateFrom: string, dateTo: string) =>
+  (
+    await apiClient.get<{ dated: FunnelDeal[]; undated: FunnelDeal[]; connected: boolean }>(`${base}/calendar/deals`, {
+      params: { date_from: dateFrom, date_to: dateTo },
+    })
+  ).data;
 export const getBitrixFunnel = async (refresh = false) =>
   (await apiClient.get<Funnel>(`${base}/bitrix/funnel`, { params: { refresh } })).data;
 export const linkAllBitrixDeals = async () => (await apiClient.post<{ linked: number }>(`${base}/bitrix/link-all`)).data;
