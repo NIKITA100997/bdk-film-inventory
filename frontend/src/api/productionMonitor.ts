@@ -56,4 +56,6 @@ export interface Monitor {
   rows: MonitorRow[];
 }
 
-export const getProductionMonitor = async (): Promise<Monitor> => (await apiClient.get<Monitor>("/production-monitor")).data;
+/** includeDone — и задания, закрытые целиком (готовые строки не пропадают). */
+export const getProductionMonitor = async (includeDone = false): Promise<Monitor> =>
+  (await apiClient.get<Monitor>("/production-monitor", { params: includeDone ? { include_done: true } : undefined })).data;

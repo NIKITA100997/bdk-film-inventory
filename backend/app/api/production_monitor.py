@@ -4,11 +4,11 @@
 лист участка собирает экран (одни и те же строки, разные срезы)."""
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.security import require_permission
@@ -17,7 +17,7 @@ from app.models.areas import Area
 from app.models.dictionaries import Color, Material, Part, Thickness
 from app.models.items import Item, ItemType
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
-from app.models.production_orders import ProductionOrder, ProductionOrderLine
+from app.models.production_orders import ORDER_RELEASED, ProductionOrder, ProductionOrderLine
 from app.models.sites import Site
 from app.services.door_cols import door_cols
 from app.services.item_attrs import effective_direction
@@ -80,13 +80,27 @@ class MonitorOut(BaseModel):
 
 
 @router.get("", response_model=MonitorOut, dependencies=[Depends(view)])
-def production_monitor(db: Session = Depends(get_db)) -> MonitorOut:
-    lines = (
-        db.query(ProductionTaskLine, ProductionTask)
-        .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
-        .filter(ProductionTask.is_active.is_(True))
-        .all()
-    )
+def production_monitor(include_done: bool = False, db: Session = Depends(get_db)) -> MonitorOut:
+    # include_done (20.10): и задания, закрытые целиком, — по запущенным
+    # заказам и по заказам с отгрузкой за последние 30 дней; без заказа —
+    # созданные за 30 дней. Иначе готовая строка пропадала из монитора.
+    q = db.query(ProductionTaskLine, ProductionTask).join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+    if include_done:
+        since = date.today() - timedelta(days=30)
+        recent = (
+            db.query(ProductionOrder.id)
+            .filter(or_(ProductionOrder.status == ORDER_RELEASED, ProductionOrder.ship_date >= since))
+        )
+        q = q.filter(
+            or_(
+                ProductionTask.is_active.is_(True),
+                ProductionTask.production_order_id.in_(recent),
+                (ProductionTask.production_order_id.is_(None)) & (ProductionTask.created_at >= since),
+            )
+        )
+    else:
+        q = q.filter(ProductionTask.is_active.is_(True))
+    lines = q.all()
     ids = [ln.id for ln, _ in lines]
     agg: dict[int, tuple[float, float, datetime | None]] = {}
     slots: dict[int, list[date]] = defaultdict(list)

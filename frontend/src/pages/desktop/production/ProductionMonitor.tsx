@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Progress, Segmented, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography } from "antd";
+import { Button, Card, Checkbox, Progress, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from "antd";
 import { DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -8,6 +8,7 @@ import { getProductionMonitor, type MonitorArea, type MonitorRow } from "../../.
 import { DIRECTIONS } from "../../../utils/itemAttrs";
 import { exportBook } from "../../../utils/excel";
 import { useTabTitle } from "../../../layout/tabTitle";
+import { usePersistentState } from "../../../hooks/usePersistentState";
 
 const NO_ORDER = 0; // задания цеха без заказа
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -94,11 +95,18 @@ const sum = (rows: MonitorRow[]): Sum => {
 export default function ProductionMonitor() {
   useTabTitle("Монитор производства");
   const [params, setParams] = useSearchParams();
-  const q = useQuery({ queryKey: ["production-monitor"], queryFn: getProductionMonitor, refetchInterval: 120_000 });
+  // готовые строки (20.10): отдельной галочкой, выбор запоминается; с ней
+  // видны и задания, закрытые целиком
+  const [showDone, setShowDone] = usePersistentState("monitor.showDone", true);
+  const hideDone = !showDone;
+  const q = useQuery({
+    queryKey: ["production-monitor", showDone],
+    queryFn: () => getProductionMonitor(showDone),
+    refetchInterval: 120_000,
+  });
 
   const [site, setSite] = useState<string | undefined>();
   const [orderIds, setOrderIds] = useState<number[]>([]);
-  const [hideDone, setHideDone] = useState(true);
   const [matrixOpen, setMatrixOpen] = useState<React.Key[]>([]);
   const [sheetOpen, setSheetOpen] = useState<React.Key[] | null>(null); // null — по умолчанию (один заказ — раскрыт)
   const tab = params.get("tab") ?? "areas";
@@ -443,10 +451,9 @@ export default function ProductionMonitor() {
             ...((data?.rows ?? []).some((r) => !r.order_id) ? [{ value: NO_ORDER, label: orderLabel(null) }] : []),
           ]}
         />
-        <Space size={6}>
-          <Switch size="small" checked={hideDone} onChange={setHideDone} />
-          <Typography.Text>скрыть сделанное</Typography.Text>
-        </Space>
+        <Checkbox checked={showDone} onChange={(e) => setShowDone(e.target.checked)}>
+          показывать готовые
+        </Checkbox>
         <Typography.Text type="secondary">
           Всего: сделано {r2(total.done)} из {r2(total.plan)} шт ({pct(total.done, total.plan)}%), осталось {r2(total.left)}
           {total.defect ? `, брак ${r2(total.defect)}` : ""}
