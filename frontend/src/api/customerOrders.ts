@@ -41,6 +41,8 @@ export interface CustomerOrderLine {
   note: string | null;
   /** вид позиции: запуск по видам — погонаж отдельно от дверей (20.10) */
   kind_name?: string | null;
+  /** код вида: trim / shield / tsarg / panel — сделки по видам */
+  direction?: string | null;
   /** принято на склад ГП: по запуску или «Готово…» без запуска (20.10) */
   received?: number;
 }
@@ -92,6 +94,8 @@ export interface CustomerOrder {
   bitrix_deal_id?: number | null;
   bitrix_deal_url?: string | null;
   bitrix_deals_on?: boolean;
+  /** сделки по видам (20.10): каждая ведёт свои строки; direction пусто — весь заказ */
+  bitrix_deals?: { deal_id: number; direction: string | null; direction_label: string; title: string | null; url: string | null; stage: string }[];
 }
 
 export interface CustomerOrderInput {
@@ -151,7 +155,10 @@ export const getOrderCalendar = async (dateFrom: string, dateTo: string): Promis
 export interface BitrixDeal { id: number; title: string; stage: string; amount: number | null; created: string | null; url: string | null }
 export const findBitrixDeals = async (orderId: number): Promise<BitrixDeal[]> =>
   (await apiClient.get<BitrixDeal[]>(`/customer-orders/${orderId}/bitrix-deals`)).data;
-export const setBitrixDeal = async (orderId: number, payload: { deal?: string; create?: boolean; unlink?: boolean }): Promise<CustomerOrder> =>
+export const setBitrixDeal = async (
+  orderId: number,
+  payload: { deal?: string; create?: boolean; unlink?: boolean; direction?: string | null },
+): Promise<CustomerOrder> =>
   (await apiClient.post<CustomerOrder>(`/customer-orders/${orderId}/bitrix-deal`, payload)).data;
 
 export const listCustomerOrders = async (includeClosed = false): Promise<CustomerOrder[]> =>
@@ -217,6 +224,7 @@ export const importCustomerOrders = async (p: {
   color_films: Record<string, number>;
   /** заказ из сделки Битрикс24: сделка привяжется, сумма и менеджер — из неё */
   bitrix_deal_id?: number | null;
+  bitrix_deal_title?: string | null;
   amount_rub?: number | null;
   manager_bitrix_id?: number | null;
 }): Promise<CustomerImportResult> => (await apiClient.post<CustomerImportResult>(`${base}/import`, p)).data;

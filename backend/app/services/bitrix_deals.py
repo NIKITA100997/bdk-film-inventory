@@ -23,7 +23,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.models.customer_orders import CustomerOrder
+from app.models.customer_orders import CustomerOrder, CustomerOrderDeal
 from app.models.users import User
 from app.services import bitrix as bx
 
@@ -201,16 +201,20 @@ def _manager_bx(db: Session, co: CustomerOrder) -> int | None:
     return u.bitrix_user_id if u is not None else None
 
 
-def create_deal(db: Session, s: dict, co: CustomerOrder) -> int:
-    from app.services.customer_orders import progress
+def create_deal(db: Session, s: dict, co: CustomerOrder, direction: str | None = None) -> int:
+    """Новая сделка на заказ или на один вид его строк (20.10: «1029-ЛД
+    погонаж, 3215 шт» — как заводят менеджеры)."""
     from app.services.components import live_item_names
 
-    p = progress(db, co)
-    names = live_item_names(db, {ln.item_id for ln in co.lines})
-    lines = "\n".join(f"{names.get(ln.item_id, '?')} — {float(ln.quantity):g} шт" for ln in co.lines[:60])
+    dirs = line_directions(db, co)
+    own = [ln for ln in co.lines if direction is None or dirs.get(ln.id) == direction]
+    qty = sum(float(ln.quantity) for ln in own)
+    names = live_item_names(db, {ln.item_id for ln in own})
+    lines = "\n".join(f"{names.get(ln.item_id, '?')} — {float(ln.quantity):g} шт" for ln in own[:60])
     base = (s.get("base_url") or "").rstrip("/")
+    label = f" {DIRECTION_WORD[direction]}" if direction in DIRECTION_WORD else ""
     fields: dict = {
-        "TITLE": f"{co.invoice_no}" + (f" {co.customer}" if co.customer else "") + f", {p.qty:g} шт",
+        "TITLE": f"{co.invoice_no}{label}" + (f" {co.customer}" if co.customer else "") + f", {qty:g} шт",
         "CATEGORY_ID": int(s["deal_category"]),
         "COMMENTS": (f"Заказ в программе: {base}/customer-orders/{co.id}\n" if base else "") + lines,
         "CURRENCY_ID": "RUB",
@@ -225,55 +229,159 @@ def create_deal(db: Session, s: dict, co: CustomerOrder) -> int:
     return int(bx.call(s["webhook"], "crm.deal.add", {"fields": fields})["result"])
 
 
+# ── Сделки заказа по видам продукции (20.10) ──
+# В Битриксе на один счёт — сделка на вид: «1029-ЛД пог. 3215 шт», «… щиты»,
+# «… царга». Заказ клиента — один на счёт, сделок у него несколько: каждая
+# идёт по стадиям за готовностью своих строк; сделка без вида — на весь заказ.
+DIRECTION_WORD = {"trim": "погонаж", "shield": "щиты", "tsarg": "царга", "panel": "панели"}
+_DIR_TITLE = (
+    ("trim", ("пог.", "погонаж", "добор", "наличник", "коробк")),
+    ("tsarg", ("царг",)),
+    ("shield", ("щит", "инвизибл")),
+    ("panel", ("метал", "панел")),
+)
+
+
+def direction_of_title(title: str) -> str | None:
+    low = (title or "").lower()
+    for d, words in _DIR_TITLE:
+        if any(w in low for w in words):
+            return d
+    return None
+
+
+def deal_links(db: Session, co: CustomerOrder) -> list[CustomerOrderDeal]:
+    return db.query(CustomerOrderDeal).filter(CustomerOrderDeal.order_id == co.id).order_by(CustomerOrderDeal.id).all() if co.id else []
+
+
+def line_directions(db: Session, co: CustomerOrder) -> dict[int, str | None]:
+    """Вид каждой строки — направление позиции или её типа."""
+    from app.models.items import Item, ItemType
+    from app.services.item_attrs import effective_direction
+
+    items = {i.id: i for i in db.query(Item).filter(Item.id.in_({ln.item_id for ln in co.lines} or {-1}))}
+    types = {t.id: t for t in db.query(ItemType).filter(ItemType.id.in_({i.type_id for i in items.values() if i.type_id} or {-1}))}
+    out: dict[int, str | None] = {}
+    for ln in co.lines:
+        it = items.get(ln.item_id)
+        out[ln.id] = effective_direction(it, types.get(it.type_id) if it and it.type_id else None) if it else None
+    return out
+
+
+def link_deal(db: Session, co: CustomerOrder, deal_id: int, direction: str | None, title: str | None = None) -> CustomerOrderDeal:
+    """Привязать сделку к заказу (вид — какие строки она ведёт). Сделка
+    другого заказа — перевязывается. co.bitrix_deal_id — первая сделка."""
+    db.flush()
+    link = db.query(CustomerOrderDeal).filter(CustomerOrderDeal.deal_id == deal_id).first()
+    if link is not None and link.order_id != co.id:
+        other = db.get(CustomerOrder, link.order_id)
+        db.delete(link)
+        db.flush()
+        if other is not None:
+            _sync_main(db, other)
+        link = None
+    if link is None:
+        link = CustomerOrderDeal(order_id=co.id, deal_id=deal_id, direction=direction, title=(title or "")[:255] or None)
+        db.add(link)
+    else:
+        link.direction = direction
+        if title:
+            link.title = title[:255]
+    db.flush()
+    _sync_main(db, co)
+    return link
+
+
+def unlink_deal(db: Session, co: CustomerOrder, deal_id: int | None = None) -> None:
+    for link in deal_links(db, co):
+        if deal_id is None or link.deal_id == deal_id:
+            db.delete(link)
+    db.flush()
+    _sync_main(db, co)
+
+
+def _sync_main(db: Session, co: CustomerOrder) -> None:
+    links = deal_links(db, co)
+    co.bitrix_deal_id = links[0].deal_id if links else None
+    co.bitrix_stage_sent = None
+
+
+def _deal_ids(db: Session, co: CustomerOrder) -> list[int]:
+    ids = [link.deal_id for link in deal_links(db, co)]
+    return ids or ([co.bitrix_deal_id] if co.bitrix_deal_id else [])
+
+
 def comment(db: Session, co: CustomerOrder, text: str) -> None:
-    """Запись в ленту сделки — через журнал отправки, после commit."""
+    """Запись в ленту всех сделок заказа — через журнал отправки, после commit."""
     s = bx.get_settings(db)
-    if co.bitrix_deal_id and enabled(s):
-        bx.enqueue(db, "deal_comment", "crm.timeline.comment.add",
-                   {"fields": {"ENTITY_ID": co.bitrix_deal_id, "ENTITY_TYPE": "deal", "COMMENT": text}})
+    if not enabled(s):
+        return
+    for did in _deal_ids(db, co):
+        bx.enqueue(db, "deal_comment", "crm.timeline.comment.add", {"fields": {"ENTITY_ID": did, "ENTITY_TYPE": "deal", "COMMENT": text}})
 
 
 def push_ship_date(db: Session, co: CustomerOrder) -> None:
     s = bx.get_settings(db)
-    if co.bitrix_deal_id and enabled(s) and s.get("deal_ship_field") and co.ship_date:
-        bx.enqueue(db, "deal_ship_date", "crm.deal.update",
-                   {"id": co.bitrix_deal_id, "fields": {s["deal_ship_field"]: co.ship_date.isoformat()}})
+    if not (enabled(s) and s.get("deal_ship_field") and co.ship_date):
+        return
+    for did in _deal_ids(db, co):
+        bx.enqueue(db, "deal_ship_date", "crm.deal.update", {"id": did, "fields": {s["deal_ship_field"]: co.ship_date.isoformat()}})
 
 
-def push_stage(db: Session, s: dict, co: CustomerOrder, stage: str, order: list[str] | None = None) -> bool:
-    """Передвинуть сделку на стадию заказа — только вперёд; закрытые не трогать."""
+def push_stage(db: Session, s: dict, deal_id: int, stage: str, order: list[str] | None = None) -> bool:
+    """Передвинуть сделку на стадию — только вперёд; закрытые не трогать."""
     target = s.get(STAGE_KEYS.get(stage, ""))
-    if not co.bitrix_deal_id or not target:
+    if not deal_id or not target:
         return False
     order = order or stages(s)
-    deal = bx.call(s["webhook"], "crm.deal.get", {"id": co.bitrix_deal_id}).get("result") or {}
+    deal = bx.call(s["webhook"], "crm.deal.get", {"id": deal_id}).get("result") or {}
     cur = deal.get("STAGE_ID", "")
     if cur.endswith(CLOSED_SUFFIXES) or target not in order:
         return False
     if cur in order and order.index(cur) >= order.index(target):
         return False
-    bx.call(s["webhook"], "crm.deal.update", {"id": co.bitrix_deal_id, "fields": {"STAGE_ID": target}})
+    bx.call(s["webhook"], "crm.deal.update", {"id": deal_id, "fields": {"STAGE_ID": target}})
     return True
 
 
 def link_or_create(db: Session, co: CustomerOrder, allow_create: bool) -> str:
-    """Привязать найденную по счёту сделку или создать; без commit.
-    Возвращает: linked / created / many / none / off."""
+    """Сделки заказа по видам (20.10); без commit. Каждому виду строк —
+    сделка: найденная по счёту с этим видом в названии («пог.», «щит»,
+    «царг»), иначе новая; сделка без вида — на весь заказ. Возвращает
+    linked / created / many / none / ok / off."""
     s = bx.get_settings(db)
-    if not enabled(s) or co.bitrix_deal_id:
+    if not enabled(s) or not co.lines:
         return "off"
-    found = find_deals(s, co.invoice_no)
-    if len(found) == 1:
-        co.bitrix_deal_id = int(found[0]["ID"])
-        base = (s.get("base_url") or "").rstrip("/")
-        comment(db, co, f"Связана с заказом клиента в программе учёта{': ' + base + '/customer-orders/' + str(co.id) if base else ''}")
-        return "linked"
-    if len(found) > 1:
-        return "many"
-    if allow_create and s.get("deal_auto_create"):
-        co.bitrix_deal_id = create_deal(db, s, co)
-        return "created"
-    return "none"
+    links = deal_links(db, co)
+    if any(link.direction is None for link in links):
+        return "ok"  # одна сделка на весь заказ
+    need = set(line_directions(db, co).values())
+    missing = need - {link.direction for link in links}
+    if not missing:
+        return "ok"
+    linked_ids = {link.deal_id for link in links}
+    taken = {did for (did,) in db.query(CustomerOrderDeal.deal_id)}
+    found = [d for d in find_deals(s, co.invoice_no) if int(d["ID"]) not in linked_ids and int(d["ID"]) not in taken]
+    result = "none"
+    base = (s.get("base_url") or "").rstrip("/")
+    for dr in sorted(missing, key=lambda x: x or ""):
+        cands = [d for d in found if direction_of_title(d.get("TITLE", "")) == dr]
+        # один вид у заказа и одна сделка без вида в названии — она
+        if not cands and len(need) == 1 and len(found) == 1 and direction_of_title(found[0].get("TITLE", "")) is None:
+            cands = found
+        if len(cands) == 1:
+            link_deal(db, co, int(cands[0]["ID"]), dr, cands[0].get("TITLE"))
+            bx.enqueue(db, "deal_comment", "crm.timeline.comment.add", {"fields": {
+                "ENTITY_ID": int(cands[0]["ID"]), "ENTITY_TYPE": "deal",
+                "COMMENT": f"Связана с заказом клиента в программе учёта{': ' + base + '/customer-orders/' + str(co.id) if base else ''}"}})
+            result = "linked"
+        elif len(cands) > 1:
+            result = "many" if result == "none" else result
+        elif allow_create and s.get("deal_auto_create"):
+            did = create_deal(db, s, co, dr)
+            link_deal(db, co, did, dr)
+            result = "created"
+    return result
 
 
 def link_in_background(co_id: int) -> None:
@@ -309,21 +417,27 @@ def sync(db: Session) -> dict:
     order: list[str] | None = None
     for co in db.query(CustomerOrder).filter(CustomerOrder.status.in_(["submitted", "accepted"])):
         try:
-            if not co.bitrix_deal_id:
-                r = link_or_create(db, co, allow_create=True)
-                if r in ("linked", "created"):
-                    out[r] += 1
-                    db.commit()
-            if not co.bitrix_deal_id:
-                continue
-            stage = progress(db, co).stage
-            if stage == co.bitrix_stage_sent:
-                continue
-            order = order or stages(s)
-            if push_stage(db, s, co, stage, order):
-                out["moved"] += 1
-            co.bitrix_stage_sent = stage
-            db.commit()
+            r = link_or_create(db, co, allow_create=True)
+            if r in ("linked", "created"):
+                out[r] += 1
+                db.commit()
+            dirs = None
+            for link in deal_links(db, co):
+                if link.direction is None:
+                    stage = progress(db, co).stage
+                else:
+                    dirs = dirs or line_directions(db, co)
+                    own = {lid for lid, d in dirs.items() if d == link.direction}
+                    if not own:
+                        continue
+                    stage = progress(db, co, only=own).stage
+                if stage == link.stage_sent:
+                    continue
+                order = order or stages(s)
+                if push_stage(db, s, link.deal_id, stage, order):
+                    out["moved"] += 1
+                link.stage_sent = stage
+                db.commit()
         except bx.BitrixError as e:
             log.warning("bitrix deal sync %s: %s", co.id, e)
             out["errors"] += 1

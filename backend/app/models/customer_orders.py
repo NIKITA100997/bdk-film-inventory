@@ -79,3 +79,20 @@ def _set_invoice_key(_mapper, _conn, co: CustomerOrder) -> None:
     from app.services.invoice_1c import invoice_key
 
     co.invoice_key = invoice_key(co.invoice_no) or None
+
+
+class CustomerOrderDeal(Base):
+    """Сделки Битрикса заказа клиента (20.10): в Битриксе на один счёт —
+    сделка на вид продукции («пог. 3220 шт», «щиты», «царга»). direction —
+    вид (trim / shield / tsarg / panel), пусто — сделка на весь заказ.
+    Каждая сделка идёт по стадиям за готовностью своих строк."""
+
+    __tablename__ = "customer_order_deals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("customer_orders.id", ondelete="CASCADE"), index=True)
+    deal_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    direction: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    stage_sent: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

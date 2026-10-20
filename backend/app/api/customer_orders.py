@@ -76,6 +76,7 @@ class LineOut(BaseModel):
     quantity: float
     launched: float
     note: str | None
+    direction: str | None = None  # код вида: trim / shield / tsarg / panel (сделки по видам)
     kind_name: str | None = None
     received: float = 0  # принято на склад ГП (по запуску или «Готово…» без запуска)  # вид позиции — запуск по видам (погонаж отдельно от дверей, 20.10)
 
@@ -126,6 +127,8 @@ class OrderOut(BaseModel):
     bitrix_deal_id: int | None = None
     bitrix_deal_url: str | None = None
     bitrix_deals_on: bool = False  # сделки Битрикс24 включены в настройках
+    # сделки по видам (20.10): [{deal_id, direction, direction_label, title, url, stage}]
+    bitrix_deals: list[dict] = []
 
 
 def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
@@ -140,6 +143,7 @@ def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
     from app.services.item_attrs import DIRECTIONS, effective_direction
 
     kind_of: dict[int, str] = {}
+    dir_of: dict[int, str | None] = {}
     if full:
         its = db.query(Item).filter(Item.id.in_({ln.item_id for ln in co.lines} or {-1})).all()
         tps = {t.id: t for t in db.query(ItemType).filter(ItemType.id.in_({i.type_id for i in its if i.type_id} or {-1}))}
@@ -147,6 +151,7 @@ def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
         for it in its:
             tp = tps.get(it.type_id) if it.type_id else None
             d = effective_direction(it, tp)
+            dir_of[it.id] = d
             kind_of[it.id] = DIRECTIONS.get(d) if d else (tp.name if tp else kn.get(it.kind_id, ""))
     finish, late = None, False
     for po_id, _n, st in p.production_orders:
@@ -175,13 +180,32 @@ def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
         plan_finish=finish, plan_late=late,
         production_orders=[{"id": i, "name": n, "status": st} for i, n, st in p.production_orders],
         lines=[LineOut(id=ln.id, item_id=ln.item_id, item_name=names.get(ln.item_id, "?"), quantity=float(ln.quantity),
-                       launched=round(p.line_launched.get(ln.id, 0.0), 2), note=ln.note, kind_name=kind_of.get(ln.item_id),
+                       launched=round(p.line_launched.get(ln.id, 0.0), 2), note=ln.note, kind_name=kind_of.get(ln.item_id), direction=dir_of.get(ln.item_id),
                        received=round(p.line_received.get(ln.id, 0.0), 2)) for ln in co.lines],
         date_changes=changes,
         bitrix_deal_id=co.bitrix_deal_id,
         bitrix_deal_url=deals.deal_url(bitrix.get_settings(db), co.bitrix_deal_id) if co.bitrix_deal_id else None,
         bitrix_deals_on=full and deals.enabled(bitrix.get_settings(db)),
+        bitrix_deals=_deal_rows(db, co) if full else [],
     )
+
+
+def _deal_rows(db: Session, co: CustomerOrder) -> list[dict]:
+    from app.services.item_attrs import DIRECTIONS
+
+    s = bitrix.get_settings(db)
+    dirs = None
+    out = []
+    for link in deals.deal_links(db, co):
+        if link.direction is None:
+            st = cos.progress(db, co).stage
+        else:
+            dirs = dirs or deals.line_directions(db, co)
+            st = cos.progress(db, co, only={i for i, d in dirs.items() if d == link.direction}).stage
+        out.append({"deal_id": link.deal_id, "direction": link.direction,
+                    "direction_label": DIRECTIONS.get(link.direction) if link.direction else "весь заказ",
+                    "title": link.title, "url": deals.deal_url(s, link.deal_id), "stage": cos.STAGE_LABEL.get(st, "")})
+    return out
 
 
 def _get(db: Session, oid: int) -> CustomerOrder:
@@ -374,8 +398,8 @@ def submit(order_id: int, payload: DecisionIn | None = None, db: Session = Depen
     bitrix.on_request_submitted(db, co, user)
     db.commit()
     db.refresh(co)
-    if not co.bitrix_deal_id and deals.enabled(bitrix.get_settings(db)):
-        deals.link_in_background(co.id)
+    if deals.enabled(bitrix.get_settings(db)):
+        deals.link_in_background(co.id)  # сделки по видам — найти или создать недостающие
     return _out(db, co)
 
 
@@ -605,9 +629,14 @@ class FunnelOut(BaseModel):
 
 def _funnel(db: Session, s: dict, refresh: bool) -> FunnelOut:
     data = deals.funnel_deals(s, refresh)
+    from app.models.customer_orders import CustomerOrderDeal
+
     orders = db.query(CustomerOrder).filter(CustomerOrder.status != CO_CANCELLED).all()
-    by_deal = {co.bitrix_deal_id: co for co in orders if co.bitrix_deal_id}
-    free = [co for co in orders if not co.bitrix_deal_id]
+    by_id = {co.id: co for co in orders}
+    by_deal = {link.deal_id: by_id[link.order_id] for link in db.query(CustomerOrderDeal) if link.order_id in by_id}
+    by_deal.update({co.bitrix_deal_id: co for co in orders if co.bitrix_deal_id and co.bitrix_deal_id not in by_deal})
+    # заказ без сделки нужного вида — кандидат и для второй, третьей сделки счёта
+    free = orders
     out: list[FunnelDealOut] = []
     matched_cos: set[int] = set()
     for d in data["deals"]:
@@ -673,11 +702,17 @@ def calendar_deals(date_from: date, date_to: date, refresh: bool = False, db: Se
         f = _funnel(db, s, refresh)
     except bitrix.BitrixError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
-    # без заказа: не привязана и номер счёта из названия не совпал с заказом
-    keys = {c.invoice_key for c in db.query(CustomerOrder).filter(CustomerOrder.status != CO_CANCELLED) if c.invoice_key}
+    # не привязанные к заказу; счёт уже есть в заказах (другой вид — «щиты» к
+    # заказу с погонажем) — с номером заказа: дополнить его, а не заводить новый
     from app.services.invoice_1c import invoice_key
 
-    free = [d for d in f.deals if not d.closed and d.state == "none" and not (d.invoice and invoice_key(d.invoice) in keys)]
+    by_key = {c.invoice_key: c.id for c in db.query(CustomerOrder).filter(CustomerOrder.status != CO_CANCELLED) if c.invoice_key}
+    free = []
+    for d in f.deals:
+        if d.closed or d.state == "linked":
+            continue
+        oid = by_key.get(invoice_key(d.invoice)) if d.invoice else None
+        free.append(d.model_copy(update={"order_id": oid}))
     dated = [d for d in free if d.ship_date and date_from.isoformat() <= d.ship_date <= date_to.isoformat()]
     undated = [d for d in free if not d.ship_date]
     return CalendarDealsOut(dated=dated, undated=undated, connected=True)
@@ -694,17 +729,26 @@ def bitrix_link_all(db: Session = Depends(get_db), user: User = Depends(edit)) -
         f = _funnel(db, s, refresh=True)
     except bitrix.BitrixError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
-    per_order: dict[int, list[int]] = {}
+    # по видам (20.10): у заказа — по сделке на вид его строк («пог.», «щиты»,
+    # «царга»); одна сделка вида — привязать, несколько — вручную
+    per_order: dict[int, list] = {}
     for d in f.deals:
-        for c in d.candidates:
-            per_order.setdefault(c["id"], []).append(d.id)
+        if d.state != "linked":
+            for c in d.candidates:
+                per_order.setdefault(c["id"], []).append(d)
     linked = 0
-    for d in f.deals:
-        if d.state == "match":
-            oid = d.candidates[0]["id"]
-            if len(per_order.get(oid, [])) == 1:
-                co = db.get(CustomerOrder, oid)
-                co.bitrix_deal_id, co.bitrix_stage_sent = d.id, None
+    for oid, cands in per_order.items():
+        co = db.get(CustomerOrder, oid)
+        links = deals.deal_links(db, co)
+        if any(link.direction is None for link in links):
+            continue
+        need = set(deals.line_directions(db, co).values()) - {link.direction for link in links}
+        for dr in need:
+            same = [d for d in cands if deals.direction_of_title(d.title) == dr]
+            if not same and len(need) == 1 and not links and len(cands) == 1 and deals.direction_of_title(cands[0].title) is None:
+                same = cands
+            if len(same) == 1:
+                deals.link_deal(db, co, same[0].id, dr, same[0].title)
                 linked += 1
     db.commit()
     return {"linked": linked}
@@ -713,7 +757,9 @@ def bitrix_link_all(db: Session = Depends(get_db), user: User = Depends(edit)) -
 class DealLinkIn(BaseModel):
     deal: str | None = None  # номер сделки или ссылка на неё
     create: bool = False  # создать новую сделку
-    unlink: bool = False
+    unlink: bool = False  # с deal — отвязать эту, без — все
+    # вид строк, которые ведёт сделка (20.10): trim / shield / tsarg / panel; "" — весь заказ; нет — по названию сделки
+    direction: str | None = None
 
 
 @router.post("/{order_id}/bitrix-deal", response_model=OrderOut)
@@ -723,23 +769,29 @@ def set_bitrix_deal(order_id: int, payload: DealLinkIn, db: Session = Depends(ge
     if not deals.connected(s):
         raise HTTPException(status.HTTP_409_CONFLICT, "Битрикс24 не подключён или не выбрана воронка — «Настройки → Битрикс24»")
     try:
-        if payload.unlink:
-            co.bitrix_deal_id = co.bitrix_stage_sent = None
-        elif payload.create:
-            if co.bitrix_deal_id:
-                raise HTTPException(status.HTTP_409_CONFLICT, "У заказа уже есть сделка — сначала отвяжите её")
-            co.bitrix_deal_id, co.bitrix_stage_sent = deals.create_deal(db, s, co), None
-        else:
-            import re
+        import re
 
-            m = re.search(r"(\d+)/?\s*$", (payload.deal or "").strip())
-            if not m:
+        did_in = re.search(r"(\d+)/?\s*$", (payload.deal or "").strip())
+        direction = (payload.direction or None) if payload.direction is not None else None
+        if payload.unlink:
+            deals.unlink_deal(db, co, int(did_in.group(1)) if did_in else None)
+        elif payload.create:
+            if any(link.direction is None or link.direction == direction for link in deals.deal_links(db, co)):
+                raise HTTPException(status.HTTP_409_CONFLICT, "Сделка на эти строки уже есть — сначала отвяжите её")
+            deals.link_deal(db, co, deals.create_deal(db, s, co, direction), direction)
+        else:
+            if not did_in:
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите номер сделки или ссылку на неё")
-            did = int(m.group(1))
-            bitrix.call(s["webhook"], "crm.deal.get", {"id": did})  # есть ли такая
-            co.bitrix_deal_id, co.bitrix_stage_sent = did, None
+            did = int(did_in.group(1))
+            deal = bitrix.call(s["webhook"], "crm.deal.get", {"id": did}).get("result") or {}  # есть ли такая
+            title = deal.get("TITLE")
+            if payload.direction is None:
+                direction = deals.direction_of_title(title or "")
+            deals.link_deal(db, co, did, direction, title)
             base = (s.get("base_url") or "").rstrip("/")
-            deals.comment(db, co, f"Связана с заказом клиента в программе учёта{': ' + base + '/customer-orders/' + str(co.id) if base else ''}")
+            bitrix.enqueue(db, "deal_comment", "crm.timeline.comment.add", {"fields": {
+                "ENTITY_ID": did, "ENTITY_TYPE": "deal",
+                "COMMENT": f"Связана с заказом клиента в программе учёта{': ' + base + '/customer-orders/' + str(co.id) if base else ''}"}})
     except bitrix.BitrixError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
     db.commit()
@@ -842,6 +894,7 @@ class ImportIn(BaseModel):
     color_films: dict[str, int] = {}
     # заказ из сделки Битрикс24 (19.10): сделка привязывается, сумма и менеджер — из неё
     bitrix_deal_id: int | None = None
+    bitrix_deal_title: str | None = None  # вид сделки по названию («пог.», «щиты») — 20.10
     amount_rub: float | None = None
     manager_bitrix_id: int | None = None
 
@@ -888,14 +941,15 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
             inv = r.invoice_no.strip()
             ship_by_inv[inv] = max(ship_by_inv.get(inv, d), d)
     by_inv: dict[str, CustomerOrder] = {}
+    link_after: list[tuple[CustomerOrder, int]] = []  # сделка — к новому заказу после flush
     po_lines = sorted(po.lines, key=lambda x: x.sort_order)
     updated: list[int] = []
     for inv, co in existing.items():
         cos.merge_lines(db, co, [(ln.item_id, float(ln.quantity), ln.note, ln.source_text) for ln in po_lines if (ln.invoice_no or "").strip() == inv])
         if payload.customer and not co.customer:
             co.customer = payload.customer.strip()
-        if payload.bitrix_deal_id and not co.bitrix_deal_id and len(invoices) == 1:
-            co.bitrix_deal_id = payload.bitrix_deal_id
+        if payload.bitrix_deal_id and len(invoices) == 1:
+            deals.link_deal(db, co, payload.bitrix_deal_id, deals.direction_of_title(payload.bitrix_deal_title or ""), payload.bitrix_deal_title)
         cos.apply_actual_ship_date(db, co, payload.ship_to or ship_by_inv.get(inv), user.id, "счёт загружен повторно")
         updated.append(co.id)
     for i, ln in enumerate(po_lines, start=1):
@@ -911,7 +965,7 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
                                manager_id=mgr.id if mgr else user.id,
                                status=CO_DRAFT, ship_from=payload.ship_from, ship_to=payload.ship_to or ship_by_inv.get(inv))
             if payload.bitrix_deal_id and len(invoices) == 1:
-                co.bitrix_deal_id = payload.bitrix_deal_id
+                link_after.append((co, payload.bitrix_deal_id))
                 if payload.amount_rub:
                     co.amount_rub = payload.amount_rub
             db.add(co)
@@ -919,6 +973,8 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
         co.lines.append(CustomerOrderLine(item_id=ln.item_id, quantity=ln.quantity, note=ln.note, source_text=ln.source_text, sort_order=i))
     db.delete(db.get(ProductionOrder, po.id))
     db.flush()
+    for co, did in link_after:
+        deals.link_deal(db, co, did, deals.direction_of_title(payload.bitrix_deal_title or ""), payload.bitrix_deal_title)
     created = [co.id for co in by_inv.values()]
     db.commit()
     return {"rows": out_rows, "problems": [], "invoices": invoices, "colors": [], "created": created, "updated": updated, "merges": merges}

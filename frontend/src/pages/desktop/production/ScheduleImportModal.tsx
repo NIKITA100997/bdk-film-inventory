@@ -100,6 +100,7 @@ export default function ScheduleImportModal({
           dry_run: dryRun,
           color_films: colorFilms,
           bitrix_deal_id: fromDeal?.id ?? null,
+          bitrix_deal_title: fromDeal?.title ?? null,
           amount_rub: fromDeal?.amount ?? null,
           manager_bitrix_id: fromDeal?.assignedBx ?? null,
         });

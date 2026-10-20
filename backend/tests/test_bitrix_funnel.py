@@ -29,3 +29,13 @@ def test_ship_date_from_deal_todo(monkeypatch):
     monkeypatch.setattr(bitrix_deals.bx, "call", lambda wh, m, p: {"result": acts})
     out = bitrix_deals.todo_ship_dates("wh", {"10", "11", "12"}, {"10": "1222-ЛД щиты 100шт. 19.10.2026", "11": "x", "12": "y"})
     assert out == {"10": "2026-10-21", "12": "2026-10-25"}
+
+
+def test_deal_direction_from_title():
+    from app.services.bitrix_deals import direction_of_title
+
+    assert direction_of_title("1029-ЛД пог. 3215 шт.") == "trim"
+    assert direction_of_title("1700 ТД (м) щиты 5шт 28.08") == "shield"
+    assert direction_of_title("260-ДСК(М) царга, 267шт, 16.09") == "tsarg"
+    assert direction_of_title("1190-ЛД метал. 132шт. 13.10.2026") == "panel"
+    assert direction_of_title("1868-ТДО(М)") is None

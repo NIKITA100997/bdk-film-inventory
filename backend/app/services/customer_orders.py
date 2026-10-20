@@ -45,9 +45,12 @@ class Progress:
     line_received: dict[int, float] = field(default_factory=dict)  # принято на склад ГП по строке
 
 
-def progress(db: Session, co: CustomerOrder) -> Progress:
-    p = Progress(qty=sum(float(ln.quantity) for ln in co.lines))
-    line_ids = [ln.id for ln in co.lines]
+def progress(db: Session, co: CustomerOrder, only: set[int] | None = None) -> Progress:
+    """only (20.10) — только эти строки: стадия сделки одного вида (погонаж,
+    щиты…) по готовности своих строк."""
+    lines = [ln for ln in co.lines if only is None or ln.id in only]
+    p = Progress(qty=sum(float(ln.quantity) for ln in lines))
+    line_ids = [ln.id for ln in lines]
     links = (
         db.query(ProductionOrderLine, ProductionOrder)
         .join(ProductionOrder, ProductionOrder.id == ProductionOrderLine.order_id)
@@ -80,7 +83,7 @@ def progress(db: Session, co: CustomerOrder) -> Progress:
                     p.last_shipped_at = max(p.last_shipped_at, d) if p.last_shipped_at else d
     p.received = sum(rec_by_line.values())
     p.line_received = dict(rec_by_line)
-    full = bool(co.lines) and all(rec_by_line.get(ln.id, 0.0) >= float(ln.quantity) - 0.001 for ln in co.lines)
+    full = bool(lines) and all(rec_by_line.get(ln.id, 0.0) >= float(ln.quantity) - 0.001 for ln in lines)
     p.ready_fact = co.ready_at or (last_rec.astimezone().date() if full and last_rec else None)
     if co.status == CO_CANCELLED:
         p.stage = "cancelled"
