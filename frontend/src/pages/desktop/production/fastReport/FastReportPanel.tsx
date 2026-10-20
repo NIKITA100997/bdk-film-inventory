@@ -20,7 +20,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { isAxiosError } from "axios";
+import { apiErrorMessage } from "../../../../utils/apiError";
 import ReportModal from "../ReportModal";
 import MasterQuickReportPanel from "../MasterQuickReportPanel";
 import {
@@ -145,11 +145,7 @@ export default function FastReportPanel({
         const ok = settled.length - failed.length;
         if (!failed.length) message.success(`Отчёт сохранён: позиций ${ok}`);
         else {
-          const e = failed[0].reason;
-          const detail =
-            isAxiosError(e) && typeof e.response?.data?.detail === "string"
-              ? e.response.data.detail
-              : "ошибка";
+          const detail = apiErrorMessage(failed[0].reason, "ошибка");
           message.error(
             `Сохранено ${ok} из ${settled.length}. Не сохранилось: ${detail}`,
           );

@@ -19,6 +19,7 @@ import { listParts } from "../../../api/dictionaries";
 import { listPartUnits } from "../../../api/partUnits";
 import RollPicker, { type RollPickerOption } from "../../../components/RollPicker";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { sendReportWithConfirm } from "../../../utils/reportConfirm";
 
 interface DefectEntry {
   reason: string;
@@ -341,7 +342,10 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               used_up: extra.remainingM === 0,
             });
           }
-          if (payloads.length > 0) await createTaskLineReportsBatch(r.taskId, r.line.id, payloads, opKeys.get(r.key));
+          if (payloads.length > 0)
+            await sendReportWithConfirm((confirmed) =>
+              createTaskLineReportsBatch(r.taskId, r.line.id, payloads.map((p) => ({ ...p, confirmed })), opKeys.get(r.key)),
+            );
           return r.key;
         }),
       );

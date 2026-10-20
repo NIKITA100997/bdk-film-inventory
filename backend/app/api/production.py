@@ -1741,6 +1741,57 @@ def _stamp_report_film(payload: ProductionTaskLineReportCreate, reports: list[Pr
         r.film_used_m = share
 
 
+OVER_PLAN_SHARE = 0.10  # сверх плана больше чем на 10 % — переспросить
+REPEAT_WINDOW_S = 120  # тот же отчёт за 2 минуты — переспросить
+
+
+def _check_report_sanity(db: Session, line_id: int, payloads: list[ProductionTaskLineReportCreate], user: User) -> None:
+    """Защита от ошибок ввода (19.10): сдано заметно больше плана или тот же
+    отчёт повторён за пару минут — 409 с вопросом; фронт переспрашивает и
+    шлёт снова с confirmed=True. Повтор того же нажатия (ключ операции)
+    сюда не доходит — его отдаёт middleware."""
+    from datetime import datetime, timedelta, timezone
+
+    if any(p.confirmed for p in payloads):
+        return
+    line = db.get(ProductionTaskLine, line_id)
+    if line is None:
+        return
+    real = [p for p in payloads if p.counts_toward_line and p.kind is None]
+    new_good = sum(float(p.good_pieces) for p in real)
+    plan = float(line.quantity_pieces)
+    if new_good > 0 and plan > 0:
+        done = float(
+            db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
+            .filter(ProductionTaskLineReport.task_line_id == line_id, ProductionTaskLineReport.counts_toward_line.is_(True))
+            .scalar()
+        )
+        total = done + new_good
+        if total > plan * (1 + OVER_PLAN_SHARE) + 1e-6:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail={
+                "confirm": "over_plan",
+                "message": f"«{line.part_name or 'строка'}»: план {plan:g} шт, уже сдано {done:g}, с этим отчётом будет {total:g} — "
+                           f"больше плана на {round((total / plan - 1) * 100)} %. Сохранить?",
+            })
+    since = datetime.now(timezone.utc) - timedelta(seconds=REPEAT_WINDOW_S)
+    recent = (
+        db.query(ProductionTaskLineReport)
+        .filter(ProductionTaskLineReport.task_line_id == line_id, ProductionTaskLineReport.reported_by == user.id,
+                ProductionTaskLineReport.reported_at >= since)
+        .all()
+    )
+    sig = lambda g, d, r: (round(float(g), 3), round(float(d), 3), r or "")  # noqa: E731
+    have = [sig(r.good_pieces, r.defect_pieces, r.defect_reason) for r in recent]
+    want = [sig(p.good_pieces, p.defect_pieces, p.defect_reason) for p in real if float(p.good_pieces) + float(p.defect_pieces) > 0]
+    if want and all(w in have for w in want):
+        last = max(r.reported_at for r in recent)
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={
+            "confirm": "repeat",
+            "message": f"«{line.part_name or 'строка'}»: такой же отчёт ({', '.join(f'{g:g} годн.' + (f', брак {d:g}' if d else '') for g, d, _ in want)}) "
+                       f"уже сохранён в {last.astimezone().strftime('%H:%M')}. Это ещё один?",
+        })
+
+
 @router.post(
     "/production-tasks/{task_id}/lines/{line_id}/reports",
     response_model=ProductionTaskLineReportOut,
@@ -1763,6 +1814,7 @@ def create_task_line_report(
     задания в целом. Исключение — участок с Area.requires_daily_plan=False
     (раздел про отключение распределения по дням): там распределений и не
     предполагается, отчёт принимается без assignment_id."""
+    _check_report_sanity(db, line_id, [payload], user)
     reports = _build_task_line_report(task_id, line_id, payload, db, user)
     _stamp_report_line(db, task_id, payload, reports)
     _stamp_report_film(payload, reports)
@@ -1824,6 +1876,7 @@ def create_task_line_reports_batch(
     ничего не коммитится вообще (db.commit() только один раз, в самом
     конце) — исходная строка просто остаётся как была, повторный клик
     безопасен."""
+    _check_report_sanity(db, line_id, payloads, user)
     reports: list[ProductionTaskLineReport] = []
     for payload in payloads:
         built = _build_task_line_report(task_id, line_id, payload, db, user)

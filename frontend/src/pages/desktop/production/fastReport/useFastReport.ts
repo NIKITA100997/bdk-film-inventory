@@ -14,6 +14,7 @@ import {
 import { listPlanSlots } from "../../../../api/planning";
 import { areaRequiresRoll, listAreas } from "../../../../api/areas";
 import { listWriteOffReasons } from "../../../../api/writeOffReasons";
+import { sendReportWithConfirm } from "../../../../utils/reportConfirm";
 
 /** Быстрый отчёт мастера (плитки у станка / таблица в заказе) — общая
  * логика двух видов: какие строки показывать, черновик набранного (живёт на
@@ -248,7 +249,10 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
             });
           }
           if (lineForReport) for (const pl of payloads) pl.line_id = lineForReport;
-          if (payloads.length) await createTaskLineReportsBatch(fl.task.id, fl.line.id, payloads, opKeys.get(String(fl.line.id)));
+          if (payloads.length)
+            await sendReportWithConfirm((confirmed) =>
+              createTaskLineReportsBatch(fl.task.id, fl.line.id, payloads.map((p) => ({ ...p, confirmed })), opKeys.get(String(fl.line.id))),
+            );
           if (e.close) await closeProductionLine(fl.task.id, fl.line.id, true);
           return fl.line.id;
         }),

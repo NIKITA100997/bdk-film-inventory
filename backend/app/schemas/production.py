@@ -255,6 +255,9 @@ class ProductionTaskLineReportCreate(BaseModel):
     used_up: bool = False
     # Фактический расход плёнки, м (прессы). Пусто — по норме.
     film_used_m: float | None = Field(default=None, ge=0)
+    # Подтверждено человеком (19.10): сверх плана больше чем на 10 % или
+    # повтор того же отчёта за 2 минуты — сервер без этого флага переспросит.
+    confirmed: bool = False
 
 
 class ProductionTaskLineReportOut(BaseModel):

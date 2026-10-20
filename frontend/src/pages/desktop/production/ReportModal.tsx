@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { createTaskLineReportsBatch, type ProductionTaskLine, type ProductionTaskLineReportCreate } from "../../../api/production";
+import { ReportCancelled, sendReportWithConfirm } from "../../../utils/reportConfirm";
 import { useOpKeys } from "../../../utils/opKey";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { listPartUnits } from "../../../api/partUnits";
@@ -213,7 +214,10 @@ export default function ReportModal({
           if (pl.kind !== "remainder") pl.film_used_m = i === 0 ? v.film_used_m : 0;
         });
       }
-      if (payloads.length > 0) await createTaskLineReportsBatch(taskId, line.id, payloads, opKeys.get());
+      if (payloads.length > 0)
+        await sendReportWithConfirm((confirmed) =>
+          createTaskLineReportsBatch(taskId, line.id, payloads.map((p) => ({ ...p, confirmed })), opKeys.get()),
+        );
     },
     onSuccess: () => {
       opKeys.done();
@@ -221,7 +225,7 @@ export default function ReportModal({
       message.success("Отчёт сохранён");
       onClose();
     },
-    onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить отчёт")),
+    onError: (e) => (e instanceof ReportCancelled ? message.info("Отчёт не сохранён") : message.error(apiErrorMessage(e, "Не удалось сохранить отчёт"))),
   });
 
   const primaryRollId = Form.useWatch("material_unit_id", reportForm) as number | null | undefined;
