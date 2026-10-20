@@ -122,7 +122,7 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
       const hasProg = s.rows.some((r) => r.program || r.instruction);
       const hasInv = doors && s.rows.some((r) => r.invoice_no);
       // фрезеровка периметра: кромка обязательна, у ABS — с толщиной
-      const hasEdge = doors && /периметр/i.test(s.area_name) && s.rows.some((r) => r.edge);
+      const hasEdge = doors && /периметр|кромк/i.test(s.area_name) && s.rows.some((r) => r.edge);
       // лист деталей (каркас, заготовки) — как лист «Каркас» в Excel: одинаковая
       // деталь одной строкой по размеру, без счетов
       const src = doors
@@ -147,7 +147,7 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
         ...(doors ? ["Серия", "Размер", "Цвет"] : []),
         "Наименование",
         doors ? "Кол-во дверей" : "Кол-во",
-        ...(hasEdge ? ["Кромка"] : []),
+        ...(hasEdge ? ["Тип кромки", "Цвет кромки", "Сторон"] : []),
         ...(hasFilm ? ["Плёнка"] : []),
         ...(hasProg ? ["Программа / указание"] : []),
         "Срок",
@@ -164,7 +164,7 @@ ${hasInv ? `<td class="nw">${esc(r.invoice_no ?? "")}</td>` : ""}
 ${doors ? `<td class="nw">${esc(r.series ?? "")}</td><td class="nw">${esc(r.size ?? "")}</td><td>${esc(r.color ?? "")}</td>` : ""}
 <td>${esc(r.source || r.name)}</td>
 <td class="q">${Math.round(r.qty * 100) / 100}</td>
-${hasEdge ? `<td class="nw">${r.edge?.includes("?") ? `<span class="warn">${esc(r.edge)}</span>` : `<b>${esc(r.edge ?? "")}</b>`}</td>` : ""}
+${hasEdge ? `<td class="nw">${r.edge_type?.includes("?") ? `<span class="warn">${esc(r.edge_type)}</span>` : `<b>${esc(r.edge_type ?? "")}</b>`}</td><td>${esc(r.edge_color ?? "")}</td><td class="q">${r.edge_sides ?? (r.edge_type ? '<span class="warn">?</span>' : "")}</td>` : ""}
 ${hasFilm ? `<td>${esc(r.film ?? "")}</td>` : ""}
 ${hasProg ? `<td>${r.program ? `<b>${esc(r.program)}</b>` : ""}${r.instruction ? `<div class="warn">⚑ ${esc(r.instruction)}</div>` : ""}</td>` : ""}
 <td class="nw">${esc(period(r.date_from, r.date_to))}</td>

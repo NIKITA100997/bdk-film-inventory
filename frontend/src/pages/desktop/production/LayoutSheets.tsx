@@ -175,7 +175,8 @@ export function SheetTable({
   const hasFilm = sheet.rows.some((r) => r.film);
   // двери — столбцы как в Excel: № счёта | Серия | Размер | Цвет | Наименование
   const doors = sheet.rows.some((r) => r.series || r.size);
-  const hasEdge = doors && /периметр/i.test(sheet.name);
+  // кромка — на фрезеровке периметра и на самой кромке (20.10: тип, цвет, сторон)
+  const hasEdge = doors && /периметр|кромк/i.test(sheet.name);
   const hasProg = sheet.rows.some((r) => r.program || r.instruction);
   const title = (op: string) => `${orderTitle ? `${orderTitle} — ` : ""}${sheet.name}${op ? ` — ${op}` : ""}`;
   const data: Agg[] = useMemo(() => {
@@ -302,7 +303,7 @@ export function SheetTable({
             size="small"
             rowKey="rowKey"
             pagination={false}
-            scroll={{ x: (doors ? 110 + 80 + 90 + 150 + 300 : 360) + 80 + (mode === "rows" && !doors ? 240 : 70) + (hasEdge ? 150 : 0) + (hasProg ? 200 : 0) + (hasFilm ? 230 : 0) + 100 + (onEdit ? 56 : 0), y: 420 }}
+            scroll={{ x: (doors ? 110 + 80 + 90 + 150 + 300 : 360) + 80 + (mode === "rows" && !doors ? 240 : 70) + (hasEdge ? 300 : 0) + (hasProg ? 200 : 0) + (hasFilm ? 230 : 0) + 100 + (onEdit ? 56 : 0), y: 420 }}
             dataSource={g.rows}
             rowClassName={(r) => (r.skipped ? "row-skipped" : "")}
             columns={[
@@ -348,10 +349,17 @@ export function SheetTable({
               ...(hasEdge
                 ? [
                     {
-                      title: "Кромка",
-                      width: 150,
+                      title: "Тип кромки",
+                      width: 110,
                       render: (_: unknown, r: Agg) =>
-                        r.edge?.includes("?") ? <Typography.Text type="warning">{r.edge}</Typography.Text> : <b>{r.edge ?? ""}</b>,
+                        r.edge_type?.includes("?") ? <Typography.Text type="warning">{r.edge_type}</Typography.Text> : <b>{r.edge_type ?? ""}</b>,
+                    },
+                    { title: "Цвет кромки", width: 120, render: (_: unknown, r: Agg) => r.edge_color ?? "" },
+                    {
+                      title: "Сторон",
+                      width: 70,
+                      align: "right" as const,
+                      render: (_: unknown, r: Agg) => (r.edge_sides ? <b>{r.edge_sides}</b> : r.edge_type ? <Typography.Text type="warning">?</Typography.Text> : ""),
                     },
                   ]
                 : []),

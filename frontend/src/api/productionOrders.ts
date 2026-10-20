@@ -299,6 +299,10 @@ export interface ReleaseLayoutRow {
   color?: string;
   source?: string;
   edge?: string;
+  /** кромка по столбцам (20.10): тип с толщиной, цвет, сколько сторон */
+  edge_type?: string;
+  edge_color?: string;
+  edge_sides?: number | null;
 }
 export interface ReleaseLayoutSheet {
   area: string;
@@ -382,6 +386,9 @@ export interface TaskPrintSheet {
     color?: string;
     source?: string;
     edge?: string;
+    edge_type?: string;
+    edge_color?: string;
+    edge_sides?: number | null;
     /** панель щитовой двери — ведомость фрезеровки как в Excel (07.10) */
     panel?: { mdf: string; sand: string; series: string; blank: string } | null;
   }[];
