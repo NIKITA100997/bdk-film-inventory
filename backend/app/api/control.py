@@ -285,3 +285,16 @@ def reject(request_id: int, payload: RejectIn, db: Session = Depends(get_db), us
     db.commit()
     db.refresh(r)
     return _req_out(r, _names(db), user)
+
+
+# ── Контроль данных (19.10): блок на «Обзоре» ──
+view_health = require_permission("production_tasks.manage", "production_tasks.view", "reports.view", "units.issue", "units.receive")
+
+
+@router.get("/control/data-health")
+def get_data_health(refresh: bool = False, db: Session = Depends(get_db), user: User = Depends(view_health)) -> dict:
+    """Противоречия в данных: рулоны без места, статус против журнала,
+    сдано сверх плана, повторные отчёты, пустые партии, резервы, склад ГП."""
+    from app.services.data_health import data_health
+
+    return data_health(db, refresh)

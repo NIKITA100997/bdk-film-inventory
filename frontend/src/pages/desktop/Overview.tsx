@@ -22,11 +22,13 @@ import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
 import { isOnboardingSeen } from "../../utils/onboarding";
 import OnboardingCard from "../../components/OnboardingCard";
 import { UnplacedUnitsCard } from "./StorageMap";
+import DataHealthCard from "../../components/DataHealthCard";
 import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "../../components/ColumnSettings";
 
 // Блоки «Обзора» (07.10): шестерёнка включает и выключает их, как столбцы таблиц.
 const BLOCKS: ColumnOption[] = [
   { key: "attention", label: "Требует внимания" },
+  { key: "datahealth", label: "Контроль данных" },
   { key: "production", label: "Производство" },
   { key: "film", label: "Склад плёнки" },
   { key: "pf", label: "П/ф на участках" },
@@ -300,6 +302,8 @@ export default function Overview() {
           )}
         </Card>
       )}
+
+      {(canShop || canReports || hasIssue || hasReceive) && show("datahealth") && <DataHealthCard />}
 
       {sections.length > 0 && <Row gutter={[16, 16]}>{sections}</Row>}
 

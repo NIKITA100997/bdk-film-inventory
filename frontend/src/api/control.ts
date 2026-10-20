@@ -71,3 +71,21 @@ export const REQUEST_STATUS: Record<ActionRequest["status"], { label: string; co
   failed: { label: "не выполнено", color: "red" },
   rejected: { label: "отклонено", color: "default" },
 };
+
+/** Контроль данных (19.10): противоречия в учёте — блок на «Обзоре». */
+export interface DataHealthCheck {
+  key: string;
+  title: string;
+  count: number;
+  level: "ok" | "info" | "warning" | "error";
+  hint: string;
+  path: string | null;
+  examples: string[];
+}
+export interface DataHealth {
+  checks: DataHealthCheck[];
+  checked_at: string;
+  problems: number;
+}
+export const getDataHealth = async (refresh = false) =>
+  (await apiClient.get<DataHealth>("/control/data-health", { params: { refresh } })).data;
