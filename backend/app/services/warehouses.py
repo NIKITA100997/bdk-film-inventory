@@ -59,6 +59,21 @@ def resolve_warehouse_id(db: Session, location_code: str | None) -> int | None:
     return None
 
 
+def default_cell(db: Session, *, warehouse_id: int | None = None, near_cell: str | None = None, area: str | None = None) -> str | None:
+    """Место по умолчанию (19.10), если ячейку не выбрали: склада, где
+    единица физически (по складу перемещения, по ячейке, откуда взята, по
+    площадке участка); склад не определить — основной (первый с местом по
+    умолчанию). Склад известен, но места у него нет — None (без места)."""
+    from app.models.storage import Warehouse
+
+    wid = warehouse_id or (resolve_warehouse_id(db, near_cell) if near_cell else None) or area_home_warehouse_id(db, area)
+    if wid is not None:
+        w = db.get(Warehouse, wid)
+        return w.default_cell if w is not None else None
+    main = db.query(Warehouse).filter(Warehouse.default_cell.isnot(None), Warehouse.is_active.is_(True)).order_by(Warehouse.id).first()
+    return main.default_cell if main is not None else None
+
+
 def area_home_warehouse_id(db: Session, area_code: str | None) -> int | None:
     """Домашний склад площадки участка (Северный/Фабрика) — раздел про
     выдачу мимо хаба: у участка без площадки (Area.site_id пуст)

@@ -7,6 +7,7 @@ from app.schemas.units import MaterialUnitOut
 class WarehouseCreate(BaseModel):
     name: str
     address: str | None = None
+    default_cell: str | None = None
 
 
 class WarehouseOut(BaseModel):
@@ -15,12 +16,14 @@ class WarehouseOut(BaseModel):
     name: str
     address: str | None
     is_active: bool
+    default_cell: str | None = None
 
 
 class WarehouseUpdate(BaseModel):
     name: str | None = None
     address: str | None = None
     is_active: bool | None = None
+    default_cell: str | None = None  # "" — убрать
 
 
 class RackCreate(BaseModel):

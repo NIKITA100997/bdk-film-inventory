@@ -96,6 +96,7 @@ export default function Receive() {
           upd_number: upd,
           pallet_number: pallet,
           occurred_at: toOccurredAtIso(occurredAt),
+          warehouse_id: warehouseId ?? undefined,
         },
         warehouseId,
       ),

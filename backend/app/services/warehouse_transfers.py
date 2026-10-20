@@ -122,8 +122,13 @@ def receive_transfer_line(
     больше не ждёт (после return_unit), и строка задания преждевременно
     пропадала бы из очереди "Выдачи" сразу по факту приёмки на хабе, ещё
     до фактической довыдачи участку."""
+    from app.models.warehouse_transfers import WarehouseTransfer
+    from app.services.warehouses import default_cell
+
+    transfer = db.get(WarehouseTransfer, line.transfer_id)
     unit.status = UnitStatus.NA_KHRANENII
-    unit.location_code = None
+    # место по умолчанию склада назначения (19.10), не «без места»
+    unit.location_code = default_cell(db, warehouse_id=transfer.to_warehouse_id) if transfer else None
     if unit.production_task_line_id is not None:
         unit.area = unit.production_task_line.task.area
     line.received_at = datetime.now(timezone.utc)
@@ -133,6 +138,7 @@ def receive_transfer_line(
         unit=unit,
         event_type=EventType.PEREMESHCHENIE_PRINYATO,
         user_id=user_id,
+        to_cell=unit.location_code,
         occurred_at=occurred_at,
     )
     # db.autoflush=False проектно (db/session.py) — без явного flush

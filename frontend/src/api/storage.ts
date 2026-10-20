@@ -8,17 +8,21 @@ export interface Warehouse {
   name: string;
   address: string | null;
   is_active: boolean;
+  /** место по умолчанию — сюда встаёт всё без выбранной ячейки (19.10) */
+  default_cell?: string | null;
 }
 
 export interface WarehouseCreate {
   name: string;
   address?: string;
+  default_cell?: string;
 }
 
 export interface WarehouseUpdate {
   name?: string;
   address?: string;
   is_active?: boolean;
+  default_cell?: string;
 }
 
 export interface Rack {

@@ -44,7 +44,7 @@ def create_warehouse(
 ) -> Warehouse:
     if db.query(Warehouse).filter(Warehouse.name == payload.name).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Склад с таким названием уже есть")
-    warehouse = Warehouse(name=payload.name, address=payload.address)
+    warehouse = Warehouse(name=payload.name, address=payload.address, default_cell=(payload.default_cell or "").strip() or None)
     db.add(warehouse)
     db.commit()
     db.refresh(warehouse)
@@ -66,6 +66,8 @@ def update_warehouse(
         warehouse.address = payload.address
     if payload.is_active is not None:
         warehouse.is_active = payload.is_active
+    if payload.default_cell is not None:
+        warehouse.default_cell = payload.default_cell.strip() or None
     db.commit()
     db.refresh(warehouse)
     return warehouse

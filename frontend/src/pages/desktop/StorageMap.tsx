@@ -853,6 +853,7 @@ function WarehousesTab() {
           columns={[
             { title: "Название", dataIndex: "name" },
             { title: "Адрес", dataIndex: "address", render: (v: string | null) => v ?? "—" },
+            { title: "Место по умолчанию", dataIndex: "default_cell", render: (v: string | null) => v ?? "—" },
             {
               title: "Статус",
               dataIndex: "is_active",
@@ -866,7 +867,7 @@ function WarehousesTab() {
                     size="small"
                     onClick={() => {
                       setEditingWarehouse(w);
-                      editForm.setFieldsValue({ name: w.name, address: w.address ?? undefined });
+                      editForm.setFieldsValue({ name: w.name, address: w.address ?? undefined, default_cell: w.default_cell ?? "" });
                     }}
                   >
                     Изменить
@@ -888,6 +889,13 @@ function WarehousesTab() {
           </Form.Item>
           <Form.Item name="address" label="Адрес (опционально)">
             <Input />
+          </Form.Item>
+          <Form.Item
+            name="default_cell"
+            label="Место по умолчанию"
+            extra="Сюда встаёт всё, чему не выбрали ячейку: приёмка, резка, возврат с участка, приёмка перемещения. Например, «Перемотка-01». Пусто — такие рулоны остаются без места."
+          >
+            <Input placeholder="Перемотка-01" />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
             Создать
@@ -912,6 +920,13 @@ function WarehousesTab() {
           </Form.Item>
           <Form.Item name="address" label="Адрес">
             <Input />
+          </Form.Item>
+          <Form.Item
+            name="default_cell"
+            label="Место по умолчанию"
+            extra="Сюда встаёт всё, чему не выбрали ячейку: приёмка, резка, возврат с участка, приёмка перемещения. Например, «Перемотка-01». Пусто — такие рулоны остаются без места."
+          >
+            <Input placeholder="Перемотка-01" />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={updateMutation.isPending}>
             Сохранить

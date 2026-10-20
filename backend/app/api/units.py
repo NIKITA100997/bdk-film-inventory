@@ -193,6 +193,10 @@ def receive(
         db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
     )
     _validate_zone_rule(db, payload.location_code, sku)
+    from app.services.warehouses import default_cell
+
+    # ячейку не выбрали — на место по умолчанию склада (19.10), не «без места»
+    location = payload.location_code or default_cell(db, warehouse_id=payload.warehouse_id)
 
     # цена из УПД — сначала: рулоны ниже получают цену м² на дату прихода
     # (services/lot_cost.py), в том числе эту
@@ -213,8 +217,8 @@ def receive(
             # приёмке не поставили (не полагаемся на то, что кладовщик не
             # ошибётся).
             is_strip=payload.is_strip or float(payload.width_mm) < MIN_ROLL_WIDTH_MM,
-            status=UnitStatus.NA_KHRANENII if payload.location_code else UnitStatus.PRINYAT,
-            location_code=payload.location_code,
+            status=UnitStatus.NA_KHRANENII if location else UnitStatus.PRINYAT,
+            location_code=location,
         )
         db.add(unit)
         db.flush()  # получить unit.id для события
@@ -231,7 +235,7 @@ def receive(
             user_id=user.id,
             quantity_delta_m=payload.length_m,
             to_length=payload.length_m,
-            to_cell=payload.location_code,
+            to_cell=location,
             occurred_at=payload.occurred_at,
         )
         created.append(unit)
@@ -1427,6 +1431,11 @@ def execute_cutting_recipe(
     has_transfer_step = (payload.length_destination is not None and payload.length_destination.kind == "transfer") or any(
         w.destination.kind == "transfer" for w in payload.width_cuts
     )
+    # место по умолчанию склада донора (19.10) — кускам, что остаются на
+    # складе без выбранной ячейки (раньше вставали «на хранение» без места)
+    from app.services.warehouses import default_cell
+
+    home_cell = default_cell(db, near_cell=donor.location_code, area=donor.area)
     donor_warehouse_id: int | None = None
     if has_transfer_step:
         donor_warehouse_id = resolve_warehouse_id(db, donor.location_code)
@@ -1465,7 +1474,10 @@ def execute_cutting_recipe(
             )
         else:
             try:
-                outcome = split_by_length(donor, payload.length_precut_m, new_unit_location=dest.location_code)
+                outcome = split_by_length(
+                    donor, payload.length_precut_m,
+                    new_unit_location=dest.location_code or (home_cell if dest.kind == "keep" else None),
+                )
             except ValueError as e:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
             donor.length_m = outcome.parent_length_m
@@ -1513,7 +1525,7 @@ def execute_cutting_recipe(
                 status=UnitStatus.VYDAN_UCHASTKU if is_issue else UnitStatus.NA_KHRANENII,
                 area=issue_area,
                 production_task_line_id=dest.production_task_line_id if is_issue else None,
-                location_code=None if (is_issue or is_transfer) else dest.location_code,
+                location_code=None if (is_issue or is_transfer) else (dest.location_code or home_cell),
                 created_by_cutting_operation_id=cutting_op.id,
             )
             db.add(new_unit)
@@ -1613,7 +1625,7 @@ def execute_cutting_recipe(
                 status=UnitStatus.VYDAN_UCHASTKU if is_issue else UnitStatus.NA_KHRANENII,
                 area=issue_area,
                 production_task_line_id=dest.production_task_line_id if is_issue else None,
-                location_code=None if (is_issue or is_transfer) else dest.location_code,
+                location_code=None if (is_issue or is_transfer) else (dest.location_code or home_cell),
                 created_by_cutting_operation_id=cutting_op.id,
             )
             db.add(new_unit)
@@ -1884,10 +1896,13 @@ def return_unit(
             )
 
     old_length = float(unit.length_m)
+    from app.services.warehouses import default_cell
+
+    back_cell = default_cell(db, area=unit.area)  # с участка — на место по умолчанию его склада (19.10)
     unit.length_m = payload.actual_length_m
     unit.status = UnitStatus.NA_KHRANENII
     unit.area = None
-    unit.location_code = None
+    unit.location_code = back_cell
     # Раздел про рулон/штрипс — вернулось меньше, чем было выдано: что-то
     # физически израсходовали у участка (не обязательно через "Раскрой" в
     # системе — чаще просто отрезали на месте), единица больше не целый
@@ -1903,6 +1918,7 @@ def return_unit(
         quantity_delta_m=payload.actual_length_m - old_length,
         from_length=old_length,
         to_length=payload.actual_length_m,
+        to_cell=back_cell,
         occurred_at=payload.occurred_at,
     )
     # Раздел про несколько рулонов на одну строку (окутка царговых) — что

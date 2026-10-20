@@ -22,6 +22,8 @@ class ReceiveRequest(BaseModel):
     length_m: float = Field(gt=0)
     quantity: int = Field(gt=0, le=200)
     location_code: str | None = None
+    # склад приёмки (19.10): без ячейки рулон встаёт на место по умолчанию этого склада
+    warehouse_id: int | None = None
     is_strip: bool = False
     occurred_at: OccurredAt = None
     # Цена по УПД (05.10) — необязательно: за м² (или за «м» рулона) в

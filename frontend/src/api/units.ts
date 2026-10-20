@@ -65,6 +65,8 @@ export interface ReceiveRequest {
   length_m: number;
   quantity: number;
   location_code?: string;
+  /** склад приёмки: без ячейки рулон встаёт на место по умолчанию склада (19.10) */
+  warehouse_id?: number;
   is_strip?: boolean;
   occurred_at?: string;
   /** Цена по УПД (необязательно) — за м² в валюте; уходит в историю цен плёнки. */
