@@ -662,7 +662,7 @@ def _funnel(db: Session, s: dict, refresh: bool) -> FunnelOut:
             matched_cos.update(c.id for c in cands)
         out.append(FunnelDealOut(**row))
     without = [{"id": c.id, "invoice": c.invoice_no, "customer": c.customer, "stage": cos_stage(db, c)}
-               for c in free if c.id not in matched_cos]
+               for c in free if c.id not in matched_cos and c not in by_deal.values()]  # без единой сделки
     return FunnelOut(deals=out, orders_without_deal=without, sync_enabled=deals.enabled(s),
                      auto_create=bool(s.get("deal_auto_create")), loaded_at=data["loaded_at"])
 
