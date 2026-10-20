@@ -265,7 +265,12 @@ def order_calendar(
 
     if (date_to - date_from).days > 120:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Период — не больше 120 дней")
-    return [CalendarRowOut(**asdict(r)) for r in calendar(db, date_from, date_to)]
+    rows = calendar(db, date_from, date_to)
+    # внутренние заказы производства (задания окутки, погонаж без заказа
+    # клиента) — продажникам не показываем (20.10): у них только заказы клиентов
+    if not _is_production(user):
+        rows = [r for r in rows if r.kind == "co"]
+    return [CalendarRowOut(**asdict(r)) for r in rows]
 
 
 @router.get("/{order_id}", response_model=OrderOut)

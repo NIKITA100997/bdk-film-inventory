@@ -230,6 +230,18 @@ def apply_actual_ship_date(db: Session, co: CustomerOrder, new: date | None, use
     return changed
 
 
+def line_decor(note: str | None, source: str | None) -> str:
+    """Декор строки (погонаж): из примечания «декор: …» или последних скобок
+    исходного текста; без регистра и «ё»."""
+    import re
+
+    from app.services.schedule_import import decor_of
+
+    m = re.search(r"декор:\s*([^,]+)", note or "")
+    d = m.group(1) if m else (decor_of(source or "") or "")
+    return " ".join(d.lower().replace("ё", "е").split())
+
+
 def merge_lines(db: Session, co: CustomerOrder, lines: list[tuple[int, float, str | None, str | None]]) -> tuple[int, int]:
     """Повторная загрузка счёта (20.10): позиции, которых нет, — добавить;
     те, что есть, — количество по счёту, но не меньше запущенного. Строки
@@ -237,16 +249,18 @@ def merge_lines(db: Session, co: CustomerOrder, lines: list[tuple[int, float, st
     lines — (item_id, кол-во, примечание, исходный текст). Возвращает
     (добавлено, изменено)."""
     launched = progress(db, co).line_launched if co.id else {}
-    by_item = {ln.item_id: ln for ln in co.lines}
+    # позиция + декор: у погонажа одна позиция в разных декорах — разные строки
+    by_item = {(ln.item_id, line_decor(ln.note, ln.source_text)): ln for ln in co.lines}
     added = changed = 0
     n = max((ln.sort_order for ln in co.lines), default=0)
     for item_id, qty, note, src in lines:
-        ex = by_item.get(item_id)
+        key = (item_id, line_decor(note, src))
+        ex = by_item.get(key)
         if ex is None:
             n += 1
             ln = CustomerOrderLine(item_id=item_id, quantity=qty, note=note, source_text=src, sort_order=n)
             co.lines.append(ln)
-            by_item[item_id] = ln
+            by_item[key] = ln
             added += 1
         elif float(ex.quantity) != qty:
             ex.quantity = max(qty, launched.get(ex.id, 0.0))

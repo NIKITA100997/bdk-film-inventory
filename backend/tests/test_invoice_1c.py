@@ -57,7 +57,8 @@ def test_invoice_key_one_invoice_one_order():
     from app.services.invoice_1c import invoice_key
 
     same = ["1029-ЛД", "1029-лд(М)", "№ 1029-ЛД", " 1029 - ЛД ", "1029-ЛД (М) (1)"]
-    assert {invoice_key(s) for s in same} == {"1029-ЛД"}
-    assert invoice_key("1029-LД") != "1029-ЛД"  # латинская L на Л не похожа — остаётся; A/B/C… — кириллицей
+    assert {invoice_key(s) for s in same} == {"1029ЛД"}
+    assert invoice_key("1029-LД") != invoice_key("1029-ЛД")  # латинская L на Л не похожа — остаётся; A/B/C… — кириллицей
     assert invoice_key("309-CKУ(M)") == invoice_key("309-СКУ")
     assert invoice_key("1029") != invoice_key("1029-ЛД")
+    assert invoice_key("1125ЛД") == invoice_key("1125-ЛД") == invoice_key("1125 - лд")
