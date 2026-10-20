@@ -1820,6 +1820,9 @@ def create_task_line_report(
     _stamp_report_film(payload, reports)
     db.flush()
     _close_used_up(db, payload, user)
+    from app.services.part_units import close_exhausted
+
+    close_exhausted(db, [r.part_unit_id for r in reports], user.id)  # пустые партии — закрыть (19.10)
     db.commit()
     for r in reports:
         db.refresh(r)
@@ -1885,6 +1888,9 @@ def create_task_line_reports_batch(
         reports.extend(built)
         db.flush()
         _close_used_up(db, payload, user)
+    from app.services.part_units import close_exhausted
+
+    close_exhausted(db, [r.part_unit_id for r in reports], user.id)  # пустые партии — закрыть (19.10)
     db.commit()
     for r in reports:
         db.refresh(r)

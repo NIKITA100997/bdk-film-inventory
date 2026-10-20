@@ -644,6 +644,29 @@ def reported_good_pieces_by_unit(db: Session, unit_ids: list[int]) -> dict[int, 
     return {row[0]: float(row[1]) for row in rows}
 
 
+def close_exhausted(db: Session, unit_ids, user_id: int) -> int:
+    """Пустые партии закрываются сами (19.10): количество 0 или всё уже
+    отчитано по отчётам (свободно 0) — статус «Списан», событие
+    «Завершение» без количества. Раньше такие партии навсегда висели
+    «Выдан участку» с нулём. Возвращает, сколько закрыто."""
+    ids = [i for i in set(unit_ids or []) if i]
+    if not ids:
+        return 0
+    db.flush()
+    units = db.query(PartUnit).filter(PartUnit.id.in_(ids), PartUnit.status != PartUnitStatus.SPISAN).all()
+    reported = reported_good_pieces_by_unit(db, [u.id for u in units])
+    closed = 0
+    for u in units:
+        if u.status == PartUnitStatus.V_PERERABOTKU:
+            continue  # резерв под переработку закрывает переработка
+        if float(u.quantity_pieces) - reported.get(u.id, 0.0) <= 1e-6:
+            u.status = PartUnitStatus.SPISAN
+            record_part_event(db, unit=u, event_type=PartEventType.ZAVERSHENIE, user_id=user_id, quantity_delta=0,
+                              note="партия израсходована — закрыта автоматически")
+            closed += 1
+    return closed
+
+
 def write_off_part_unit(
     db: Session,
     *,
@@ -789,6 +812,7 @@ def adjust_part_unit(
         note=(reason if not note else f"{reason} — {note}") + restriction_note,
         occurred_at=occurred_at,
     )
+    close_exhausted(db, [unit.id], user_id)  # скорректировали до нуля — партия закрыта (19.10)
     return unit
 
 
