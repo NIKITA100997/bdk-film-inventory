@@ -24,7 +24,7 @@ import BitrixDealCard from "./BitrixDealCard";
 import FilmReserveCard from "./FilmReserveCard";
 import { CustomerOrderModal, MoveDatesModal, PlanCheckView, editableBy, fmt, useCustomerOrderRights } from "./parts";
 
-const FIELD: Record<CustomerDateChange["field"], string> = { ship: "отгрузка", ready: "готовность", ready_fact: "факт готовности" };
+const FIELD: Record<CustomerDateChange["field"], string> = { ship: "отгрузка", ready: "готовность", ready_fact: "факт готовности", ship_to: "отгрузка клиенту (по)" };
 
 /** Страница заказа клиента: заявка в производство (отправить / принять /
  * вернуть), даты и их перенос, потребность, позиции и запуски. */
@@ -41,6 +41,8 @@ export default function CustomerOrderPage() {
   const [comment, setComment] = useState("");
   const [ready, setReady] = useState<Dayjs | null>(null);
   const [ship, setShip] = useState<Dayjs | null>(null);
+  // строки к запуску (20.10): по умолчанию все незапущенные; погонаж и двери — отдельно
+  const [sel, setSel] = useState<number[] | null>(null);
   useTabTitle(q.data ? `Счёт ${q.data.invoice_no}` : null);
 
   const done = (o: CustomerOrder, text: string) => {
@@ -86,7 +88,7 @@ export default function CustomerOrderPage() {
   });
   const cancelM = useMutation({ mutationFn: (reason: string) => cancelCustomerOrder(orderId, reason), onSuccess: (o) => done(o, "Заказ отменён"), onError: fail("Не удалось отменить") });
   const launch = useMutation({
-    mutationFn: () => launchCustomerOrders([orderId], null),
+    mutationFn: (lineIds: number[]) => launchCustomerOrders([orderId], null, lineIds),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["customer-orders"] });
       qc.invalidateQueries({ queryKey: ["customer-order"] });
@@ -100,6 +102,11 @@ export default function CustomerOrderPage() {
     return <Result status="404" title="Заказ не найден" extra={<Button onClick={() => navigate("/customer-orders")}>К заказам клиентов</Button>} />;
   const o = q.data;
   const left = Math.round((o.qty - o.launched) * 100) / 100;
+  const openLines = o.lines.filter((l) => l.launched < l.quantity - 0.001);
+  const picked = sel ?? openLines.map((l) => l.id);
+  const pickedQty = Math.round(openLines.filter((l) => picked.includes(l.id)).reduce((s, l) => s + l.quantity - l.launched, 0) * 100) / 100;
+  const kinds = [...new Set(openLines.map((l) => l.kind_name ?? "Прочее"))];
+  const canLaunch = production && o.status === "accepted" && left > 0;
   const canChange = canEdit && editableBy(o, production);
   const canCancel =
     canEdit && o.status !== "cancelled" && o.launched <= 0 && (production || o.status !== "accepted") && o.stage !== "shipped";
@@ -278,12 +285,18 @@ export default function CustomerOrderPage() {
         size="small"
         title={`Позиции — ${o.lines.length}, ${o.qty} шт`}
         extra={
-          production &&
-          o.status === "accepted" &&
-          left > 0 && (
-            <Button type="primary" loading={launch.isPending} onClick={() => launch.mutate()}>
-              Собрать запуск из этого заказа ({left} шт)
-            </Button>
+          canLaunch && (
+            <Space wrap>
+              {kinds.length > 1 &&
+                kinds.map((k) => (
+                  <Button key={k} size="small" onClick={() => setSel(openLines.filter((l) => (l.kind_name ?? "Прочее") === k).map((l) => l.id))}>
+                    только {k.toLowerCase()}
+                  </Button>
+                ))}
+              <Button type="primary" disabled={!picked.length} loading={launch.isPending} onClick={() => launch.mutate(picked)}>
+                {picked.length === openLines.length ? `Собрать запуск из этого заказа (${left} шт)` : `Собрать запуск из выбранных (${picked.length} строк, ${pickedQty} шт)`}
+              </Button>
+            </Space>
           )
         }
       >
@@ -292,8 +305,18 @@ export default function CustomerOrderPage() {
           rowKey="id"
           pagination={false}
           dataSource={o.lines}
+          rowSelection={
+            canLaunch
+              ? {
+                  selectedRowKeys: picked,
+                  onChange: (keys) => setSel(keys as number[]),
+                  getCheckboxProps: (l) => ({ disabled: l.launched >= l.quantity - 0.001 }),
+                }
+              : undefined
+          }
           columns={[
             { title: "Позиция", dataIndex: "item_name" },
+            { title: "Вид", render: (_, l) => l.kind_name ?? "" },
             { title: "Кол-во", dataIndex: "quantity", align: "right" },
             {
               title: "В запуске",

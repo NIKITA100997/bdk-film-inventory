@@ -65,7 +65,12 @@ export default function ScheduleImportModal({
   const [shipWindow, setShipWindow] = useState<[Dayjs | null, Dayjs | null]>([null, null]);
   const { user: me } = useAuth();
   const isManager = hasPerm(me, "production_tasks.manage");
-  const [preview, setPreview] = useState<{ rows: ScheduleImportRow[]; parse_errors: string[]; colors?: ScheduleImportColor[] } | null>(null);
+  const [preview, setPreview] = useState<{
+    rows: ScheduleImportRow[];
+    parse_errors: string[];
+    colors?: ScheduleImportColor[];
+    merges?: { invoice: string; order_id: number; order_invoice: string }[];
+  } | null>(null);
   // Сопоставление цвет графика → плёнка: выбор сохраняется в привязку цвета
   // типа и дальше подставляется сам (в заданиях на ламинацию — эта плёнка).
   const [colorFilms, setColorFilms] = useState<Record<string, number>>({});
@@ -98,7 +103,7 @@ export default function ScheduleImportModal({
           amount_rub: fromDeal?.amount ?? null,
           manager_bitrix_id: fromDeal?.assignedBx ?? null,
         });
-        return { rows: r.rows, parse_errors: r.problems, colors: r.colors, order: null, created: r.created };
+        return { rows: r.rows, parse_errors: r.problems, colors: r.colors, order: null, created: r.created, updated: r.updated ?? [], merges: r.merges ?? [] };
       }
       return importOrderFromSchedule({
         text: src.text,
@@ -110,15 +115,21 @@ export default function ScheduleImportModal({
         ship_date: shipDate ? shipDate.format("YYYY-MM-DD") : null,
         ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
         ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
-      }).then((r) => ({ ...r, created: [] as number[] }));
+      }).then((r) => ({ ...r, created: [] as number[], updated: [] as number[], merges: [] }));
     },
     onSuccess: (res, dryRun) => {
       setPreview(res);
-      if (!dryRun && forCustomer && res.created.length) {
+      if (!dryRun && forCustomer && (res.created.length || res.updated.length)) {
         qc.invalidateQueries({ queryKey: ["customer-orders"] });
+        qc.invalidateQueries({ queryKey: ["customer-order"] });
         qc.invalidateQueries({ queryKey: ["items"] });
-        message.success(`Заказов клиентов создано: ${res.created.length}`);
-        onCustomerCreated?.(res.created);
+        message.success(
+          [res.created.length ? `создано заказов: ${res.created.length}` : "", res.updated.length ? `дополнено: ${res.updated.length}` : ""]
+            .filter(Boolean)
+            .join(", ")
+            .replace(/^./, (c) => c.toUpperCase()),
+        );
+        onCustomerCreated?.([...res.created, ...res.updated]);
       } else if (!dryRun && res.order) {
         qc.invalidateQueries({ queryKey: ["production-orders"] });
         qc.invalidateQueries({ queryKey: ["items"] });
@@ -354,6 +365,14 @@ export default function ScheduleImportModal({
                 message={`Строк: ${preview.rows.length}, дверей: ${totalDoors}; новых позиций: ${newItems} — заведутся с техкартой по правилам типа`}
               />
             )}
+            {(preview.merges ?? []).map((m) => (
+              <Alert
+                key={m.order_id}
+                type="info"
+                showIcon
+                message={`Счёт ${m.invoice}: заказ №${m.order_id} (счёт ${m.order_invoice}) уже есть — дополнится новыми позициями, дата отгрузки станет новой`}
+              />
+            ))}
             {preview.parse_errors.map((e) => (
               <Typography.Text key={e} type="danger">
                 {e}

@@ -37,6 +37,7 @@ manage = require_permission("production_tasks.manage")
 REASONS = {
     "material": "Нет материала", "capacity": "Перегруз участка", "client": "Просьба клиента", "defect": "Брак, переделка",
     "equipment": "Поломка оборудования", "calendar": "Нерабочий день", "urgent": "Вставили срочный заказ", "other": "Другое",
+    "manager": "Уточнено менеджером",
 }
 
 
@@ -75,6 +76,7 @@ class LineOut(BaseModel):
     quantity: float
     launched: float
     note: str | None
+    kind_name: str | None = None  # вид позиции — запуск по видам (погонаж отдельно от дверей, 20.10)
 
 
 class ChangeOut(BaseModel):
@@ -131,6 +133,20 @@ def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
 
     p = cos.progress(db, co)
     names = live_item_names(db, {ln.item_id for ln in co.lines})
+    # вид для запуска (20.10): направление позиции — щитовые / царговые /
+    # панели / погонаж; нет направления — тип, иначе вид номенклатуры
+    from app.models.items import ItemKind
+    from app.services.item_attrs import DIRECTIONS, effective_direction
+
+    kind_of: dict[int, str] = {}
+    if full:
+        its = db.query(Item).filter(Item.id.in_({ln.item_id for ln in co.lines} or {-1})).all()
+        tps = {t.id: t for t in db.query(ItemType).filter(ItemType.id.in_({i.type_id for i in its if i.type_id} or {-1}))}
+        kn = {k.id: k.name for k in db.query(ItemKind)}
+        for it in its:
+            tp = tps.get(it.type_id) if it.type_id else None
+            d = effective_direction(it, tp)
+            kind_of[it.id] = DIRECTIONS.get(d) if d else (tp.name if tp else kn.get(it.kind_id, ""))
     finish, late = None, False
     for po_id, _n, st in p.production_orders:
         if st == "released":
@@ -158,7 +174,7 @@ def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
         plan_finish=finish, plan_late=late,
         production_orders=[{"id": i, "name": n, "status": st} for i, n, st in p.production_orders],
         lines=[LineOut(id=ln.id, item_id=ln.item_id, item_name=names.get(ln.item_id, "?"), quantity=float(ln.quantity),
-                       launched=round(p.line_launched.get(ln.id, 0.0), 2), note=ln.note) for ln in co.lines],
+                       launched=round(p.line_launched.get(ln.id, 0.0), 2), note=ln.note, kind_name=kind_of.get(ln.item_id)) for ln in co.lines],
         date_changes=changes,
         bitrix_deal_id=co.bitrix_deal_id,
         bitrix_deal_url=deals.deal_url(bitrix.get_settings(db), co.bitrix_deal_id) if co.bitrix_deal_id else None,
@@ -259,9 +275,9 @@ def get_order(order_id: int, db: Session = Depends(get_db), user: User = Depends
 
 def _write(db: Session, co: CustomerOrder, payload: OrderIn) -> None:
     inv = payload.invoice_no.strip()
-    dup = db.query(CustomerOrder.id).filter(CustomerOrder.invoice_no == inv, CustomerOrder.id != (co.id or 0)).first()
+    dup = cos.find_by_invoice(db, inv, exclude_id=co.id)
     if dup:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"Заказ по счёту {inv} уже есть — №{dup[0]}")
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Заказ по счёту {dup.invoice_no} уже есть — №{dup.id}: откройте его и дополните")
     if payload.ship_from and payload.ship_to and payload.ship_from > payload.ship_to:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Вилка отгрузки: «с» позже, чем «по»")
     for ln in payload.lines:
@@ -713,6 +729,8 @@ def plan_check(order_id: int, db: Session = Depends(get_db), user: User = Depend
 class LaunchIn(BaseModel):
     order_ids: list[int] = Field(min_length=1)
     name: str | None = Field(default=None, max_length=255)
+    # только эти строки заказов (20.10): погонаж отдельно от дверей; нет — все незапущенные
+    line_ids: list[int] | None = None
 
 
 @router.post("/launch")
@@ -724,7 +742,7 @@ def launch(payload: LaunchIn, db: Session = Depends(get_db), user: User = Depend
     if bad:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Не приняты производством: {', '.join(bad)}")
     try:
-        po = cos.build_production_order(db, orders, user.id, payload.name)
+        po = cos.build_production_order(db, orders, user.id, payload.name, set(payload.line_ids) if payload.line_ids else None)
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     db.commit()
@@ -784,15 +802,20 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
     out_rows = [{k: getattr(r, k) for k in ("series", "size", "color", "name_text", "qty", "invoice_no", "ship_date", "item_name", "exists", "type_name", "errors", "notes")} for r in rows]
     invoices = sorted({(r.invoice_no or "").strip() for r in rows if (r.invoice_no or "").strip()})
     no_inv = [r.name_text for r in rows if not (r.invoice_no or "").strip()]
-    taken = [i for (i,) in db.query(CustomerOrder.invoice_no).filter(CustomerOrder.invoice_no.in_(invoices))] if invoices else []
+    # один счёт — один заказ (20.10): счёт, по которому заказ уже есть, —
+    # дополняет его (новые позиции, количество, актуальная дата отгрузки)
+    existing = {inv: cos.find_by_invoice(db, inv) for inv in invoices}
+    existing = {inv: co for inv, co in existing.items() if co is not None}
     problems = list(errors)
     if no_inv:
         problems.append(f"Строки без номера счёта ({len(no_inv)}) — укажите счёт")
-    if taken:
-        problems.append(f"Заказы по счетам уже есть: {', '.join(taken)}")
+    cancelled = [co.invoice_no for co in existing.values() if co.status == CO_CANCELLED]
+    if cancelled:
+        problems.append(f"Заказы по счетам отменены: {', '.join(cancelled)} — заведите заново после удаления отменённого")
+    merges = [{"invoice": inv, "order_id": co.id, "order_invoice": co.invoice_no, "status": co.status} for inv, co in existing.items()]
     if payload.dry_run or po is None or problems:
         db.rollback()
-        return {"rows": out_rows, "problems": problems, "invoices": invoices, "colors": [c.__dict__ for c in colors], "created": []}
+        return {"rows": out_rows, "problems": problems, "invoices": invoices, "colors": [c.__dict__ for c in colors], "created": [], "merges": merges}
     # вилка «по» — дата отгрузки из графика, если не задана целиком
     ship_by_inv: dict[str, date] = {}
     for r in rows:
@@ -801,8 +824,20 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
             inv = r.invoice_no.strip()
             ship_by_inv[inv] = max(ship_by_inv.get(inv, d), d)
     by_inv: dict[str, CustomerOrder] = {}
-    for i, ln in enumerate(sorted(po.lines, key=lambda x: x.sort_order), start=1):
+    po_lines = sorted(po.lines, key=lambda x: x.sort_order)
+    updated: list[int] = []
+    for inv, co in existing.items():
+        cos.merge_lines(db, co, [(ln.item_id, float(ln.quantity), ln.note, ln.source_text) for ln in po_lines if (ln.invoice_no or "").strip() == inv])
+        if payload.customer and not co.customer:
+            co.customer = payload.customer.strip()
+        if payload.bitrix_deal_id and not co.bitrix_deal_id and len(invoices) == 1:
+            co.bitrix_deal_id = payload.bitrix_deal_id
+        cos.apply_actual_ship_date(db, co, payload.ship_to or ship_by_inv.get(inv), user.id, "счёт загружен повторно")
+        updated.append(co.id)
+    for i, ln in enumerate(po_lines, start=1):
         inv = (ln.invoice_no or "").strip()
+        if inv in existing:
+            continue
         co = by_inv.get(inv)
         if co is None:
             mgr = None
@@ -822,4 +857,4 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
     db.flush()
     created = [co.id for co in by_inv.values()]
     db.commit()
-    return {"rows": out_rows, "problems": [], "invoices": invoices, "colors": [], "created": created}
+    return {"rows": out_rows, "problems": [], "invoices": invoices, "colors": [], "created": created, "updated": updated, "merges": merges}

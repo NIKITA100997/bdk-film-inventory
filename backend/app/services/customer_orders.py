@@ -111,13 +111,16 @@ def remaining_lines(db: Session, co: CustomerOrder) -> list[tuple[CustomerOrderL
     return out
 
 
-def build_production_order(db: Session, orders: list[CustomerOrder], user_id: int, name: str | None = None) -> ProductionOrder:
+def build_production_order(
+    db: Session, orders: list[CustomerOrder], user_id: int, name: str | None = None, line_ids: set[int] | None = None
+) -> ProductionOrder:
     """Запуск из принятых заказов клиентов: черновик заказа на производство,
     строка на остаток каждой позиции; сроки — по самому раннему заказу,
-    приоритет — по самому срочному."""
+    приоритет — по самому срочному. line_ids (20.10) — только эти строки
+    заказов: погонаж и двери одного счёта запускаются отдельно, в разные дни."""
     from datetime import date as _date
 
-    rows = [(co, ln, left) for co in orders for ln, left in remaining_lines(db, co)]
+    rows = [(co, ln, left) for co in orders for ln, left in remaining_lines(db, co) if line_ids is None or ln.id in line_ids]
     if not rows:
         raise ValueError("В выбранных заказах нет незапущенных позиций")
     invoices = ", ".join(dict.fromkeys(co.invoice_no for co in orders))
@@ -165,3 +168,87 @@ def manager_ids_of_production_order(db: Session, po: ProductionOrder) -> set[int
         co.manager_id or co.created_by
         for co in db.query(CustomerOrder).join(CustomerOrderLine).filter(CustomerOrderLine.id.in_(ids))
     }
+
+
+def find_by_invoice(db: Session, invoice_no: str | None, exclude_id: int | None = None) -> CustomerOrder | None:
+    """Заказ по тому же счёту (20.10): «1029-ЛД(М)» = «№1029-лд»."""
+    from app.services.invoice_1c import invoice_key
+
+    key = invoice_key(invoice_no)
+    if not key:
+        return None
+    q = db.query(CustomerOrder).filter(CustomerOrder.invoice_key == key)
+    if exclude_id:
+        q = q.filter(CustomerOrder.id != exclude_id)
+    return q.first()
+
+
+def apply_actual_ship_date(db: Session, co: CustomerOrder, new: date | None, user_id: int, comment: str) -> bool:
+    """Дата отгрузки от менеджера — актуальная (20.10): совпал счёт с уже
+    заведённым заказом — его дата сама становится новой, с записью в
+    истории дат. Не принятый — «по» вилки; принятый — и обещанная отгрузка
+    (готовность не позже неё), сделка и незакрытые запуски только этого
+    заказа — следом. Возвращает, поменялось ли что-то."""
+    from app.models.production_orders import OrderDateChange
+    from app.services import bitrix_deals as deals
+    from app.services.weekly_plan import note_change
+
+    if new is None:
+        return False
+    changed = False
+
+    def log(field: str, old, val) -> None:
+        db.add(OrderDateChange(customer_order_id=co.id, field=field, old_date=old, new_date=val, reason="manager",
+                               comment=comment, user_id=user_id))
+
+    if co.ship_to != new:
+        log("ship_to", co.ship_to, new)
+        co.ship_to, changed = new, True
+        if co.ship_from and co.ship_from > new:
+            co.ship_from = None
+    if co.status == CO_ACCEPTED and co.ship_date != new:
+        old = co.ship_date
+        log("ship", old, new)
+        co.ship_date, changed = new, True
+        if co.promised_ready and co.promised_ready > new:
+            log("ready", co.promised_ready, new)
+            co.promised_ready = new
+        note_change(db, co, old, new, f"дата отгрузки уточнена менеджером: {comment}", user_id)
+        deals.push_ship_date(db, co)
+        deals.comment(db, co, f"Дата отгрузки уточнена: {new:%d.%m.%Y} ({comment})")
+        # запуски только этого заказа — на ту же дату
+        db.flush()
+        line_ids = {ln.id for ln in co.lines if ln.id}
+        po_ids = {
+            i for (i,) in db.query(ProductionOrderLine.order_id).filter(ProductionOrderLine.customer_order_line_id.in_(line_ids or {-1}))
+        }
+        for po in db.query(ProductionOrder).filter(ProductionOrder.id.in_(po_ids or {-1}), ProductionOrder.status != ORDER_CLOSED):
+            if all(pl.customer_order_line_id in line_ids for pl in po.lines) and po.ship_date != new:
+                db.add(OrderDateChange(order_id=po.id, field="ship", old_date=po.ship_date, new_date=new, reason="manager",
+                                       comment=f"заказ клиента {co.invoice_no}: {comment}", user_id=user_id))
+                po.ship_date = new
+    return changed
+
+
+def merge_lines(db: Session, co: CustomerOrder, lines: list[tuple[int, float, str | None, str | None]]) -> tuple[int, int]:
+    """Повторная загрузка счёта (20.10): позиции, которых нет, — добавить;
+    те, что есть, — количество по счёту, но не меньше запущенного. Строки
+    заказа, которых в счёте нет, не трогаем (их могли добавить вручную).
+    lines — (item_id, кол-во, примечание, исходный текст). Возвращает
+    (добавлено, изменено)."""
+    launched = progress(db, co).line_launched if co.id else {}
+    by_item = {ln.item_id: ln for ln in co.lines}
+    added = changed = 0
+    n = max((ln.sort_order for ln in co.lines), default=0)
+    for item_id, qty, note, src in lines:
+        ex = by_item.get(item_id)
+        if ex is None:
+            n += 1
+            ln = CustomerOrderLine(item_id=item_id, quantity=qty, note=note, source_text=src, sort_order=n)
+            co.lines.append(ln)
+            by_item[item_id] = ln
+            added += 1
+        elif float(ex.quantity) != qty:
+            ex.quantity = max(qty, launched.get(ex.id, 0.0))
+            changed += 1
+    return added, changed

@@ -51,3 +51,13 @@ def test_series_outside_dictionary_is_extracted():
     assert _NAME_SERIES_RE.match("В-10.2 800х2000").group(1) == "В-10.2"
     assert _NAME_SERIES_RE.match("Н-1 ВО 800х2000").group(1) == "Н-1 ВО"
     assert _NAME_SERIES_RE.match("ПЭТ Бежевый 400х2000") is None
+
+
+def test_invoice_key_one_invoice_one_order():
+    from app.services.invoice_1c import invoice_key
+
+    same = ["1029-ЛД", "1029-лд(М)", "№ 1029-ЛД", " 1029 - ЛД ", "1029-ЛД (М) (1)"]
+    assert {invoice_key(s) for s in same} == {"1029-ЛД"}
+    assert invoice_key("1029-LД") != "1029-ЛД"  # латинская L на Л не похожа — остаётся; A/B/C… — кириллицей
+    assert invoice_key("309-CKУ(M)") == invoice_key("309-СКУ")
+    assert invoice_key("1029") != invoice_key("1029-ЛД")

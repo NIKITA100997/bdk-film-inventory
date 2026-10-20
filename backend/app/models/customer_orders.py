@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, event, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -23,6 +23,9 @@ class CustomerOrder(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     invoice_no: Mapped[str] = mapped_column(String(64), unique=True)
+    # ключ счёта (20.10, invoice_1c.invoice_key): «1029-ЛД(М)» = «№1029-лд» —
+    # один заказ; ставится сам при записи номера
+    invoice_key: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     customer: Mapped[str | None] = mapped_column(String(255), nullable=True)
     manager_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
@@ -68,3 +71,11 @@ class CustomerOrderLine(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     order: Mapped[CustomerOrder] = relationship(back_populates="lines")
+
+
+@event.listens_for(CustomerOrder, "before_insert")
+@event.listens_for(CustomerOrder, "before_update")
+def _set_invoice_key(_mapper, _conn, co: CustomerOrder) -> None:
+    from app.services.invoice_1c import invoice_key
+
+    co.invoice_key = invoice_key(co.invoice_no) or None

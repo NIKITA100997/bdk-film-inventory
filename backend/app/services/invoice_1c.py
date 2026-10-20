@@ -13,6 +13,19 @@ _QTY_HEADERS = ("количество", "кол-во", "кол.")
 _COPY_SUFFIX_RE = re.compile(r"\s+\(\d+\)$")  # «309-СКУ(М) (1).xls» — вторая загрузка браузером
 
 
+_LAT2CYR = str.maketrans("ABCEHKMOPTXY", "АВСЕНКМОРТХУ")
+
+
+def invoice_key(no: str | None) -> str:
+    """Один счёт — один заказ клиента (20.10): «1029-ЛД», «1029-лд(М)»,
+    «№ 1029-ЛД» — один ключ «1029-ЛД». Без «№», пробелов, пометок в скобках
+    в конце, регистра; латиница, похожая на кириллицу, — кириллицей."""
+    s = (no or "").upper().replace("№", "")
+    s = re.sub(r"(\s*\([^)]*\))+\s*$", "", s)  # «(М)» и подобные пометки в конце
+    s = re.sub(r"\s+", "", s).translate(_LAT2CYR)
+    return s.replace("–", "-").replace("—", "-")
+
+
 def invoice_no_from_filename(filename: str) -> str:
     stem = re.sub(r"\.(xlsx?|xls)$", "", (filename or "").strip().replace("\\", "/").split("/")[-1], flags=re.I)
     return _COPY_SUFFIX_RE.sub("", stem).strip()

@@ -39,10 +39,12 @@ export interface CustomerOrderLine {
   /** Сколько уже в заказах на производство. */
   launched: number;
   note: string | null;
+  /** вид позиции: запуск по видам — погонаж отдельно от дверей (20.10) */
+  kind_name?: string | null;
 }
 
 export interface CustomerDateChange {
-  field: "ship" | "ready" | "ready_fact";
+  field: "ship" | "ready" | "ready_fact" | "ship_to";
   old_date: string | null;
   new_date: string | null;
   reason_name: string | null;
@@ -173,8 +175,9 @@ export const moveCustomerOrder = async (
 export const cancelCustomerOrder = async (id: number, reason: string): Promise<CustomerOrder> =>
   (await apiClient.post<CustomerOrder>(`${base}/${id}/cancel`, { reason })).data;
 export const getCustomerPlanCheck = async (id: number): Promise<PlanCheck> => (await apiClient.get<PlanCheck>(`${base}/${id}/plan-check`)).data;
-export const launchCustomerOrders = async (orderIds: number[], name: string | null): Promise<{ production_order_id: number }> =>
-  (await apiClient.post<{ production_order_id: number }>(`${base}/launch`, { order_ids: orderIds, name })).data;
+/** lineIds — только эти строки (20.10): погонаж и двери одного счёта запускаются отдельно. */
+export const launchCustomerOrders = async (orderIds: number[], name: string | null, lineIds?: number[]): Promise<{ production_order_id: number }> =>
+  (await apiClient.post<{ production_order_id: number }>(`${base}/launch`, { order_ids: orderIds, name, line_ids: lineIds ?? null })).data;
 
 export interface CustomerImportResult {
   rows: ScheduleImportRow[];
@@ -182,6 +185,9 @@ export interface CustomerImportResult {
   invoices: string[];
   colors: ScheduleImportColor[];
   created: number[];
+  /** заказы, которые уже есть по этим счетам (20.10): дополняются, а не дублируются */
+  merges?: { invoice: string; order_id: number; order_invoice: string; status: string }[];
+  updated?: number[];
 }
 /** Выгрузка счёта из 1С (.xls/.xlsx, 16.10): номер счёта — имя файла, строки — текстом для импорта. */
 export const readInvoiceFile = async (file: File) => {
