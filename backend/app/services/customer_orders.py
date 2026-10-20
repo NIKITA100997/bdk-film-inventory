@@ -42,6 +42,7 @@ class Progress:
     stage: str = "draft"
     production_orders: list[tuple[int, str, str]] = field(default_factory=list)  # (id, название, статус)
     line_launched: dict[int, float] = field(default_factory=dict)
+    line_received: dict[int, float] = field(default_factory=dict)  # принято на склад ГП по строке
 
 
 def progress(db: Session, co: CustomerOrder) -> Progress:
@@ -78,6 +79,7 @@ def progress(db: Session, co: CustomerOrder) -> Progress:
                     d = m.occurred_at.astimezone().date()
                     p.last_shipped_at = max(p.last_shipped_at, d) if p.last_shipped_at else d
     p.received = sum(rec_by_line.values())
+    p.line_received = dict(rec_by_line)
     full = bool(co.lines) and all(rec_by_line.get(ln.id, 0.0) >= float(ln.quantity) - 0.001 for ln in co.lines)
     p.ready_fact = co.ready_at or (last_rec.astimezone().date() if full and last_rec else None)
     if co.status == CO_CANCELLED:
@@ -266,3 +268,54 @@ def merge_lines(db: Session, co: CustomerOrder, lines: list[tuple[int, float, st
             ex.quantity = max(qty, launched.get(ex.id, 0.0))
             changed += 1
     return added, changed
+
+
+READY_NO_LAUNCH = "Готово без запуска"
+
+
+def mark_ready_without_launch(db: Session, co: CustomerOrder, line: CustomerOrderLine, qty: float, site_id: int | None, user_id: int):
+    """«Готово…» по строке заказа клиента без запуска (20.10): царговые и
+    всё, что делают вне программы, — начальник производства отмечает
+    готовое сам. Под капотом — лёгкий заказ на производство «Готово без
+    запуска» (без заданий) со строкой на это количество и приход на склад
+    ГП по ней: дальше отгрузка, ход заказа и стадия сделки — как у всех."""
+    from datetime import datetime, timezone
+
+    from app.models.finished_goods import FG_RECEIPT, FgMove
+
+    if co.status != CO_ACCEPTED:
+        raise ValueError("Отметить готовность можно у принятого заказа")
+    if line.order_id != co.id:
+        raise ValueError("Строка не из этого заказа")
+    left = round(float(line.quantity) - progress(db, co).line_launched.get(line.id, 0.0), 2)
+    if qty <= 0 or qty > left + 1e-9:
+        raise ValueError(f"Можно отметить не больше {left:g} шт — остальное уже готово или в запуске" if left > 0 else "Строка уже готова или запущена целиком")
+    name = f"{READY_NO_LAUNCH}: счёт {co.invoice_no}"[:255]
+    line_ids = [ln.id for ln in co.lines]
+    po = (
+        db.query(ProductionOrder)
+        .join(ProductionOrderLine, ProductionOrderLine.order_id == ProductionOrder.id)
+        .filter(ProductionOrder.name == name, ProductionOrderLine.customer_order_line_id.in_(line_ids or [-1]))
+        .first()
+    )
+    if po is None:
+        po = ProductionOrder(
+            name=name, status=ORDER_RELEASED, released_at=datetime.now(timezone.utc), created_by=user_id,
+            ship_date=co.ship_date, promised_ready=co.promised_ready, customer=co.customer, priority=co.priority or 0,
+            note="готовность отмечена в заказе клиента, без заданий участкам",
+        )
+        db.add(po)
+        db.flush()
+    elif po.status != ORDER_RELEASED:
+        po.status = ORDER_RELEASED
+    pol = ProductionOrderLine(
+        item_id=line.item_id, quantity=qty, note=line.note, invoice_no=co.invoice_no, source_text=line.source_text,
+        sort_order=len(po.lines) + 1, customer_order_line_id=line.id,
+    )
+    po.lines.append(pol)
+    db.flush()
+    move = FgMove(item_id=line.item_id, qty=qty, kind=FG_RECEIPT, site_id=site_id, order_line_id=pol.id,
+                  invoice_no=co.invoice_no, user_id=user_id, note=f"{READY_NO_LAUNCH}: счёт {co.invoice_no}")
+    db.add(move)
+    db.flush()
+    return move

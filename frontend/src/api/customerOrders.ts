@@ -41,6 +41,8 @@ export interface CustomerOrderLine {
   note: string | null;
   /** вид позиции: запуск по видам — погонаж отдельно от дверей (20.10) */
   kind_name?: string | null;
+  /** принято на склад ГП: по запуску или «Готово…» без запуска (20.10) */
+  received?: number;
 }
 
 export interface CustomerDateChange {
@@ -178,6 +180,10 @@ export const getCustomerPlanCheck = async (id: number): Promise<PlanCheck> => (a
 /** lineIds — только эти строки (20.10): погонаж и двери одного счёта запускаются отдельно. */
 export const launchCustomerOrders = async (orderIds: number[], name: string | null, lineIds?: number[]): Promise<{ production_order_id: number }> =>
   (await apiClient.post<{ production_order_id: number }>(`${base}/launch`, { order_ids: orderIds, name, line_ids: lineIds ?? null })).data;
+
+/** «Готово…» по строке принятого заказа без запуска (20.10): приход на склад ГП. */
+export const markCustomerLineReady = async (orderId: number, lineId: number, qty: number): Promise<CustomerOrder> =>
+  (await apiClient.post<CustomerOrder>(`${base}/${orderId}/lines/${lineId}/ready`, { qty })).data;
 
 export interface CustomerImportResult {
   rows: ScheduleImportRow[];

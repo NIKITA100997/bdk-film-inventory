@@ -76,7 +76,8 @@ class LineOut(BaseModel):
     quantity: float
     launched: float
     note: str | None
-    kind_name: str | None = None  # вид позиции — запуск по видам (погонаж отдельно от дверей, 20.10)
+    kind_name: str | None = None
+    received: float = 0  # принято на склад ГП (по запуску или «Готово…» без запуска)  # вид позиции — запуск по видам (погонаж отдельно от дверей, 20.10)
 
 
 class ChangeOut(BaseModel):
@@ -174,7 +175,8 @@ def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
         plan_finish=finish, plan_late=late,
         production_orders=[{"id": i, "name": n, "status": st} for i, n, st in p.production_orders],
         lines=[LineOut(id=ln.id, item_id=ln.item_id, item_name=names.get(ln.item_id, "?"), quantity=float(ln.quantity),
-                       launched=round(p.line_launched.get(ln.id, 0.0), 2), note=ln.note, kind_name=kind_of.get(ln.item_id)) for ln in co.lines],
+                       launched=round(p.line_launched.get(ln.id, 0.0), 2), note=ln.note, kind_name=kind_of.get(ln.item_id),
+                       received=round(p.line_received.get(ln.id, 0.0), 2)) for ln in co.lines],
         date_changes=changes,
         bitrix_deal_id=co.bitrix_deal_id,
         bitrix_deal_url=deals.deal_url(bitrix.get_settings(db), co.bitrix_deal_id) if co.bitrix_deal_id else None,
@@ -405,8 +407,12 @@ def accept(order_id: int, payload: DecisionIn, db: Session = Depends(get_db), us
     from app.services.weekly_plan import note_change
 
     co = _get(db, order_id)
-    if co.status != CO_SUBMITTED:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Принять можно только отправленный заказ")
+    # производство принимает и без отправки (20.10): заказ из сделки,
+    # царговые — просто проставить даты, без запуска
+    if co.status not in (CO_SUBMITTED, CO_DRAFT, CO_RETURNED):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Заказ уже принят или отменён")
+    if not co.lines:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "В заказе нет позиций")
     if payload.ship_date is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите дату отгрузки")
     if payload.ready_date and payload.ready_date > payload.ship_date:
@@ -434,6 +440,29 @@ class PromiseIn(BaseModel):
     reason: str | None = None
     comment: str | None = Field(default=None, max_length=500)
     ready_fact: date | None = None
+
+
+class LineReadyIn(BaseModel):
+    qty: float = Field(gt=0)
+    site_id: int | None = None
+
+
+@router.post("/{order_id}/lines/{line_id}/ready", response_model=OrderOut)
+def line_ready(order_id: int, line_id: int, payload: LineReadyIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> OrderOut:
+    """«Готово…» по строке принятого заказа без запуска (20.10): приход на
+    склад ГП; заказ «готов», когда готово всё, — сделка на «Склад ГП»."""
+    co = _get(db, order_id)
+    line = next((ln for ln in co.lines if ln.id == line_id), None)
+    if line is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Строка не найдена")
+    try:
+        cos.mark_ready_without_launch(db, co, line, payload.qty, payload.site_id, user.id)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    db.commit()
+    db.refresh(co)
+    return _out(db, co)
 
 
 @router.post("/{order_id}/promise", response_model=OrderOut)

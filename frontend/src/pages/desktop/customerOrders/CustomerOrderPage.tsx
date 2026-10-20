@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Card, DatePicker, Descriptions, Input, Modal, Popconfirm, Progress, Result, Space, Spin, Table, Tag, Typography, message } from "antd";
+import { Alert, Button, Card, DatePicker, Descriptions, Input, InputNumber, Modal, Popconfirm, Popover, Progress, Result, Space, Spin, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import dayjs, { type Dayjs } from "dayjs";
@@ -11,10 +11,12 @@ import {
   getCustomerOrder,
   getCustomerPlanCheck,
   launchCustomerOrders,
+  markCustomerLineReady,
   returnCustomerOrder,
   submitCustomerOrder,
   type CustomerDateChange,
   type CustomerOrder,
+  type CustomerOrderLine,
 } from "../../../api/customerOrders";
 import { ORDER_STATUS_LABEL, PRIORITY_COLOR, PRIORITY_LABEL, type OrderStatus, type PlanCheck } from "../../../api/productionOrders";
 import { useTabTitle } from "../../../layout/tabTitle";
@@ -28,6 +30,51 @@ const FIELD: Record<CustomerDateChange["field"], string> = { ship: "отгруз
 
 /** Страница заказа клиента: заявка в производство (отправить / принять /
  * вернуть), даты и их перенос, потребность, позиции и запуски. */
+/** «Готово…» по строке без запуска (20.10): царговые и то, что делают вне
+ * программы, — приход на склад ГП, заказ «готов», сделка на «Склад ГП». */
+function LineReadyButton({ orderId, line }: { orderId: number; line: CustomerOrderLine }) {
+  const qc = useQueryClient();
+  const left = Math.max(0, Math.round((line.quantity - line.launched) * 100) / 100);
+  const [qty, setQty] = useState<number | null>(left);
+  const [open, setOpen] = useState(false);
+  const m = useMutation({
+    mutationFn: () => markCustomerLineReady(orderId, line.id, qty ?? 0),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customer-order"] });
+      qc.invalidateQueries({ queryKey: ["customer-orders"] });
+      message.success(`Готово: ${qty} шт — на складе готовой продукции`);
+      setOpen(false);
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось отметить готовность")),
+  });
+  return (
+    <Popover
+      trigger="click"
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (v) setQty(left);
+      }}
+      title="Сколько готово сейчас"
+      content={
+        <Space direction="vertical">
+          <Space>
+            <InputNumber min={1} max={left} value={qty} onChange={setQty} addonAfter="шт" style={{ width: 140 }} />
+            <Button type="primary" disabled={!qty} loading={m.isPending} onClick={() => m.mutate()}>
+              Готово
+            </Button>
+          </Space>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Без запуска в производство: поступит на склад готовой продукции
+          </Typography.Text>
+        </Space>
+      }
+    >
+      <Button size="small">Готово…</Button>
+    </Popover>
+  );
+}
+
 export default function CustomerOrderPage() {
   const { id } = useParams();
   const orderId = Number(id);
@@ -189,7 +236,7 @@ export default function CustomerOrderPage() {
               <Typography.Text type="secondary">по срокам операций и загрузке участков — оценка, без записи</Typography.Text>
             </Space>
             {check && <PlanCheckView check={check} shipTo={o.ship_to} />}
-            {(o.status === "draft" || o.status === "returned") && canEdit && (
+            {(o.status === "draft" || o.status === "returned") && canEdit && !production && (
               <Space wrap>
                 <Input style={{ width: 360 }} placeholder="Комментарий для производства (необязательно)" value={comment} onChange={(e) => setComment(e.target.value)} />
                 <Button type="primary" disabled={!o.ship_to || !o.lines.length} loading={submit.isPending} onClick={() => submit.mutate()}>
@@ -199,7 +246,7 @@ export default function CustomerOrderPage() {
               </Space>
             )}
             {o.status === "submitted" && !production && <Typography.Text type="secondary">Ждёт решения производства.</Typography.Text>}
-            {o.status === "submitted" && production && (
+            {(o.status === "submitted" || o.status === "draft" || o.status === "returned") && production && (
               <>
                 <Space wrap>
                   <span>Готовность:</span>
@@ -210,10 +257,17 @@ export default function CustomerOrderPage() {
                   <Button type="primary" disabled={!ship || (!!ready && ready.isAfter(ship))} loading={accept.isPending} onClick={() => accept.mutate()}>
                     Принять
                   </Button>
-                  <Button danger disabled={!comment.trim()} loading={ret.isPending} onClick={() => ret.mutate()}>
-                    Вернуть с комментарием
-                  </Button>
+                  {o.status === "submitted" && (
+                    <Button danger disabled={!comment.trim()} loading={ret.isPending} onClick={() => ret.mutate()}>
+                      Вернуть с комментарием
+                    </Button>
+                  )}
                 </Space>
+                {o.status !== "submitted" && (
+                  <Typography.Text type="secondary">
+                    Принять без отправки менеджером — проставить даты; в производство запускается отдельно (или «Готово…» по строкам, если делается вне программы).
+                  </Typography.Text>
+                )}
                 {ship && o.ship_to && ship.isAfter(dayjs(o.ship_to)) && (
                   <Typography.Text type="warning">Дата позже вилки клиента — согласуйте с менеджером.</Typography.Text>
                 )}
@@ -331,6 +385,16 @@ export default function CustomerOrderPage() {
                 ) : (
                   "—"
                 ),
+            },
+            {
+              title: "Готово",
+              align: "right",
+              render: (_, l) => (
+                <Space size={4}>
+                  {(l.received ?? 0) > 0 && <Tag color={(l.received ?? 0) >= l.quantity - 0.001 ? "green" : "orange"}>{l.received}</Tag>}
+                  {production && o.status === "accepted" && l.launched < l.quantity - 0.001 && <LineReadyButton orderId={o.id} line={l} />}
+                </Space>
+              ),
             },
             { title: "Примечание", dataIndex: "note", render: (v: string | null) => v ?? "" },
           ]}
