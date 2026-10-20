@@ -26,6 +26,7 @@ import {
   releaseProductionOrder,
   saveReleaseSettings,
   type LineOverride,
+  type OrderComponent,
   type OrderLine,
   type PfNeed,
   type PfPick,
@@ -838,14 +839,64 @@ export default function ReleaseWorkspace({
 }
 
 /** Строки заказа: изделие характеристиками, количество, счёт, маршрут. */
+/** Состав изделия деревом (20.10): что в него входит, на одно изделие и
+ * всего на строку, на каком этапе расходуется. */
+function Composition({ list }: { list: OrderComponent[] }) {
+  const n = (v: number) => (Math.round(v * 1000) / 1000).toLocaleString("ru-RU");
+  return (
+    <div style={{ display: "grid", gap: 2, marginTop: 4, fontSize: 12 }}>
+      {list.map((c, i) => (
+        <div
+          key={i}
+          style={{
+            paddingLeft: 10 + (c.depth ?? 0) * 18,
+            borderLeft: "2px solid rgba(201,122,43,.45)",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0 8px",
+            alignItems: "baseline",
+          }}
+        >
+          <span style={{ fontWeight: (c.depth ?? 0) === 0 ? 600 : 400 }}>
+            {(c.depth ?? 0) > 0 ? "└ " : ""}
+            {c.name}
+          </span>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {n(c.per_unit)} {c.unit} на изделие · всего {n(c.total)} {c.unit}
+            {c.operation_name ? ` · этап «${c.operation_name}»` : ""}
+          </Typography.Text>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function LinesSection({ order, canManage, onEditLines }: { order: ProductionOrder; canManage: boolean; onEditLines: () => void }) {
+  // раскрыт состав: у отдельных строк или у всех
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const withComp = order.lines.filter((l) => (l.composition ?? []).length > 0);
+  const allOpen = withComp.length > 0 && withComp.every((l) => open.has(l.id));
+  const toggle = (id: number) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   return (
     <Space direction="vertical" size="small" style={{ width: "100%" }}>
-      <Space style={{ justifyContent: "space-between", width: "100%" }}>
+      <Space style={{ justifyContent: "space-between", width: "100%" }} wrap>
         <Typography.Text type="secondary">
           {order.note ?? ""} {order.category_name ? `· категория «${order.category_name}»` : ""}
         </Typography.Text>
-        {canManage && <Button onClick={onEditLines}>Изменить строки заказа</Button>}
+        <Space wrap>
+          {withComp.length > 0 && (
+            <Button onClick={() => setOpen(allOpen ? new Set() : new Set(withComp.map((l) => l.id)))}>
+              {allOpen ? "Скрыть состав" : "Показать состав у всех"}
+            </Button>
+          )}
+          {canManage && <Button onClick={onEditLines}>Изменить строки заказа</Button>}
+        </Space>
       </Space>
       <GroupedTable<OrderLine>
         storageKey="release.lines"
@@ -865,7 +916,25 @@ function LinesSection({ order, canManage, onEditLines }: { order: ProductionOrde
         dataSource={order.lines}
         scroll={{ x: "max-content", y: 600 }}
         columns={[
-          { key: "item", title: "Изделие", sortValue: (l) => l.item_name, render: (_, l) => <ItemChars chars={l.item_chars} name={l.item_name} strong={false} /> },
+          {
+            key: "item",
+            title: "Изделие",
+            sortValue: (l) => l.item_name,
+            render: (_, l) => {
+              const comp = l.composition ?? [];
+              return (
+                <div>
+                  <ItemChars chars={l.item_chars} name={l.item_name} strong={false} />
+                  {comp.length > 0 && (
+                    <Button type="link" size="small" style={{ padding: 0, height: "auto" }} aria-expanded={open.has(l.id)} onClick={() => toggle(l.id)}>
+                      {open.has(l.id) ? "▾ скрыть состав" : `▸ из чего состоит (${comp.filter((c) => (c.depth ?? 0) === 0).length})`}
+                    </Button>
+                  )}
+                  {open.has(l.id) && <Composition list={comp} />}
+                </div>
+              );
+            },
+          },
           {
             key: "qty",
             title: "Шт",

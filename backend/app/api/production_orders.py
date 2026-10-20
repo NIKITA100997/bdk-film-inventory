@@ -105,6 +105,41 @@ class ComponentNeed(BaseModel):
     total: float
     unit: str
     operation_name: str | None
+    depth: int = 0  # уровень в полном составе (composition): 0 — прямо в изделии
+
+
+def _composition(db: Session, item_id: int, qty: float, kinds: dict, cache: dict | None = None, max_depth: int = 5) -> list[ComponentNeed]:
+    """Полный состав изделия деревом (20.10): изделие → щит, каркас, панели →
+    их заготовки…; «на изделие» — сколько на одну штуку строки, «всего» — на
+    количество строки. Порядок — как в дереве (родитель, затем его состав)."""
+    if cache is not None and item_id in cache:
+        return [c.model_copy(update={"total": round(c.per_unit * qty, 2)}) for c in cache[item_id]]
+    out: list[ComponentNeed] = []
+
+    def walk(parent_id: int, per_unit: float, depth: int, seen: frozenset[int]) -> None:
+        comps = planned_components(db.query(ItemComponent).filter(ItemComponent.parent_item_id == parent_id).all())
+        if not comps:
+            return
+        names = live_item_names(db, {c.component_item_id for c in comps})
+        items = {i.id: i for i in db.query(Item).filter(Item.id.in_([c.component_item_id for c in comps]))}
+        for c in comps:
+            per = per_unit * float(c.qty_per_unit)
+            st = db.get(PartStage, c.stage_id) if c.stage_id else None
+            it = items.get(c.component_item_id)
+            out.append(
+                ComponentNeed(
+                    item_id=c.component_item_id, name=names.get(c.component_item_id, "—"), per_unit=round(per, 4),
+                    total=round(per * qty, 2), unit=kinds[it.kind_id].unit if it else "шт",
+                    operation_name=st.name if st else None, depth=depth,
+                )
+            )
+            if depth + 1 < max_depth and c.component_item_id not in seen:
+                walk(c.component_item_id, per, depth + 1, seen | {c.component_item_id})
+
+    walk(item_id, 1.0, 0, frozenset({item_id}))
+    if cache is not None:
+        cache[item_id] = out
+    return out
 
 
 class OrderLineOut(BaseModel):
@@ -121,6 +156,8 @@ class OrderLineOut(BaseModel):
     without_route: bool = False  # изделие без этапов: «в работе» → «Готово» отметкой (16.10)
     operations: list[OperationProgress]
     components: list[ComponentNeed]
+    # полный состав деревом (20.10) — «из чего состоит изделие» в черновике
+    composition: list[ComponentNeed] = []
 
 
 class OrderTaskOut(BaseModel):
@@ -216,6 +253,7 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
 
     fg = totals_by_order_line(db, [ln.id for ln in order.lines])
     out_lines = []
+    comp_cache: dict = {}
     for ln in order.lines:
         item = db.get(Item, ln.item_id)
         simple = without_route(item)
@@ -250,6 +288,7 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
                     )
                     for c in comps
                 ],
+                composition=_composition(db, item.id, float(ln.quantity), kinds, comp_cache),
             )
         )
     author = db.get(User, order.created_by)

@@ -31,6 +31,8 @@ export interface OrderComponent {
   total: number;
   unit: string;
   operation_name: string | null;
+  /** уровень в полном составе (composition): 0 — прямо в изделии */
+  depth?: number;
 }
 
 export interface OrderLine {
@@ -49,6 +51,8 @@ export interface OrderLine {
   without_route?: boolean;
   operations: OrderOperation[];
   components: OrderComponent[];
+  /** полный состав деревом (20.10): изделие → щит, каркас, панели → заготовки… */
+  composition?: OrderComponent[];
 }
 
 export interface ProductionOrder {
