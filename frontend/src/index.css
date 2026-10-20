@@ -299,3 +299,16 @@ h5 {
     gap: 12px;
   }
 }
+
+/* Строки групп (20.10, GroupedTable): верхний уровень темнее, вложенные светлее */
+.ant-table-tbody > tr.grp-row > td {
+  background: rgba(201, 122, 43, 0.1);
+  font-weight: 500;
+}
+.ant-table-tbody > tr.grp-row.grp-l1 > td {
+  background: rgba(201, 122, 43, 0.06);
+}
+.ant-table-tbody > tr.grp-row.grp-l2 > td,
+.ant-table-tbody > tr.grp-row.grp-l3 > td {
+  background: rgba(201, 122, 43, 0.03);
+}

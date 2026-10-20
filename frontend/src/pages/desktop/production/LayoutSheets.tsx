@@ -24,6 +24,7 @@ import {
 import { listAreas } from "../../../api/areas";
 import { listMaterialSkus } from "../../../api/dictionaries";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import GroupedTable, { type GroupDim } from "../../../components/GroupedTable";
 
 export const d = (s: string | null) => (s ? dayjs(s).format("DD.MM") : "—");
 export const period = (a: string | null, b: string | null) => (a && b && a !== b ? `${d(a)}–${d(b)}` : d(a));
@@ -208,6 +209,23 @@ export function SheetTable({
     });
   }, [sheet, data]);
 
+  const dims: GroupDim<Agg>[] = doors
+    ? [
+        { key: "inv", label: "Счёт", value: (r) => r.invoice_no ?? "" },
+        { key: "series", label: "Серия", value: (r) => r.series ?? "" },
+        { key: "size", label: "Размер", value: (r) => r.size ?? "" },
+        { key: "color", label: "Цвет", value: (r) => r.color ?? "" },
+        ...(hasEdge ? [{ key: "edge", label: "Кромка", value: (r: Agg) => [r.edge_type, r.edge_color].filter(Boolean).join(", ") }] : []),
+        ...(hasFilm ? [{ key: "film", label: "Плёнка", value: (r: Agg) => r.film?.label ?? "" }] : []),
+        ...(hasProg ? [{ key: "prog", label: "Программа", value: (r: Agg) => r.program ?? "" }] : []),
+      ]
+    : [
+        { key: "name", label: "Деталь", value: (r) => r.name },
+        ...(hasFilm ? [{ key: "film", label: "Плёнка", value: (r: Agg) => r.film?.label ?? "" }] : []),
+        ...(hasProg ? [{ key: "prog", label: "Программа", value: (r: Agg) => r.program ?? "" }] : []),
+        ...(mode === "rows" ? [{ key: "door", label: "Для двери", value: (r: Agg) => r.door ?? "" }] : []),
+      ];
+
   const comps = sheet.components ?? [];
   return (
     <Space direction="vertical" size="small" style={{ width: "100%" }}>
@@ -291,28 +309,44 @@ export function SheetTable({
               )}
             </Space>
           )}
-          <ResponsiveTable<Agg>
+          <GroupedTable<Agg>
             // ширины столбцов заданы явно, таблица пересоздаётся при смене
             // режима — иначе при max-content первый столбец «запоминал»
             // ширину широкого режима и рос при каждом переключении (05.10)
             key={mode}
+            // группировки (20.10): свои у каждого участка, запоминаются
+            storageKey={`sheet.${sheet.area}`}
+            dims={dims}
+            defaultDims={[]}
+            labelColumn="name"
             tableLayout="fixed"
             exportTitle={title(g.op)}
             exportNote={orderNote ? `Комментарий: ${orderNote}` : undefined}
             cardBreakpoint="xs"
             size="small"
-            rowKey="rowKey"
+            rowKey={(r) => r.rowKey}
             pagination={false}
-            scroll={{ x: (doors ? 110 + 80 + 90 + 150 + 300 : 360) + 80 + (mode === "rows" && !doors ? 240 : 70) + (hasEdge ? 300 : 0) + (hasProg ? 200 : 0) + (hasFilm ? 230 : 0) + 100 + (onEdit ? 56 : 0), y: 420 }}
+            scroll={{ x: (doors ? 110 + 80 + 90 + 150 + 300 : 360) + 80 + (mode === "rows" && !doors ? 240 : 70) + (hasEdge ? 314 : 0) + (hasProg ? 200 : 0) + (hasFilm ? 230 : 0) + 100 + (onEdit ? 56 : 0), y: 420 }}
             dataSource={g.rows}
             rowClassName={(r) => (r.skipped ? "row-skipped" : "")}
             columns={[
               ...(sanding
                 ? [
                     {
+                      key: "sand",
                       title: "Шлифовка",
                       width: 90,
                       align: "center" as const,
+                      groupRender: (rows: Agg[]) => {
+                        const on = rows.filter((r) => !r.skipped).length;
+                        return (
+                          <Checkbox
+                            checked={on === rows.length}
+                            indeterminate={on > 0 && on < rows.length}
+                            onChange={(e) => onSkip!(rows.flatMap((r) => r.keys), !e.target.checked)}
+                          />
+                        );
+                      },
                       render: (_: unknown, r: Agg) => (
                         <Checkbox checked={!r.skipped} onChange={(e) => onSkip!(r.keys, !e.target.checked)}>
                           {r.skipped ? "нет" : "да"}
@@ -323,21 +357,23 @@ export function SheetTable({
                 : []),
               ...(doors
                 ? [
-                    { title: "№ счёта", width: 110, render: (_: unknown, r: Agg) => r.invoice_no ?? "" },
-                    { title: "Серия", width: 80, render: (_: unknown, r: Agg) => r.series ?? "" },
-                    { title: "Размер", width: 90, render: (_: unknown, r: Agg) => r.size ?? "" },
-                    { title: "Цвет", width: 150, render: (_: unknown, r: Agg) => r.color ?? "" },
+                    { key: "inv", title: "№ счёта", width: 110, sortValue: (r: Agg) => r.invoice_no ?? "", render: (_: unknown, r: Agg) => r.invoice_no ?? "" },
+                    { key: "series", title: "Серия", width: 80, sortValue: (r: Agg) => r.series ?? "", render: (_: unknown, r: Agg) => r.series ?? "" },
+                    { key: "size", title: "Размер", width: 90, sortValue: (r: Agg) => r.size ?? "", render: (_: unknown, r: Agg) => r.size ?? "" },
+                    { key: "color", title: "Цвет", width: 150, sortValue: (r: Agg) => r.color ?? "", render: (_: unknown, r: Agg) => r.color ?? "" },
                   ]
                 : []),
               {
+                key: "name",
                 title: "Наименование",
                 width: doors ? 300 : 360,
+                sortValue: (r: Agg) => (r.series ? r.source || r.name : r.name),
                 // п/ф — название (размер в нём уже есть) и признаки, которых в нём
                 // нет; дверь — характеристики крупно, длинное название мелко. Одинаково
                 // у строки под одну дверь и у объединённой (08.10).
                 // дверь — наименование как в графике/1С (серия, размер, цвет — своими
                 // столбцами); п/ф — название детали (13.10: без повторов)
-                render: (_, r) => (
+                render: (_: unknown, r: Agg) => (
                   <Space direction="vertical" size={2} style={{ wordBreak: "break-word" }}>
                     <span style={r.skipped ? { opacity: 0.5, textDecoration: "line-through" } : undefined}>{r.series ? r.source || r.name : r.name}</span>
                     {r.skipped && <Tag>не делаем</Tag>}
@@ -345,19 +381,31 @@ export function SheetTable({
                   </Space>
                 ),
               },
-              { title: doors ? "Кол-во дверей" : "Кол-во", dataIndex: "qty", align: "right", width: 80, render: (v: number) => <b>{v}</b> },
+              {
+                key: "qty",
+                title: doors ? "Кол-во дверей" : "Кол-во",
+                align: "right" as const,
+                width: 80,
+                sortValue: (r: Agg) => r.qty,
+                render: (_: unknown, r: Agg) => <b>{r.qty}</b>,
+                groupRender: (rows: Agg[]) => <b>{Math.round(rows.filter((r) => !r.skipped).reduce((t, r) => t + r.qty, 0) * 100) / 100}</b>,
+              },
               ...(hasEdge
                 ? [
                     {
+                      key: "etype",
                       title: "Тип кромки",
                       width: 110,
+                      sortValue: (r: Agg) => r.edge_type ?? "",
                       render: (_: unknown, r: Agg) =>
                         r.edge_type?.includes("?") ? <Typography.Text type="warning">{r.edge_type}</Typography.Text> : <b>{r.edge_type ?? ""}</b>,
                     },
-                    { title: "Цвет кромки", width: 120, render: (_: unknown, r: Agg) => r.edge_color ?? "" },
+                    { key: "ecolor", title: "Цвет кромки", width: 120, sortValue: (r: Agg) => r.edge_color ?? "", render: (_: unknown, r: Agg) => r.edge_color ?? "" },
                     {
+                      key: "esides",
                       title: "Сторон",
-                      width: 70,
+                      width: 84,
+                      sortValue: (r: Agg) => r.edge_sides ?? null,
                       align: "right" as const,
                       render: (_: unknown, r: Agg) => (r.edge_sides ? <b>{r.edge_sides}</b> : r.edge_type ? <Typography.Text type="warning">?</Typography.Text> : ""),
                     },
@@ -366,8 +414,10 @@ export function SheetTable({
               ...(hasProg
                 ? [
                     {
+                      key: "prog",
                       title: "Программа / указание",
                       width: 200,
+                      sortValue: (r: Agg) => r.program ?? "",
                       render: (_: unknown, r: Agg) => (
                         <Space direction="vertical" size={0}>
                           {r.program && <b>{r.program}</b>}
@@ -380,8 +430,10 @@ export function SheetTable({
               ...(mode === "rows" && !doors
                 ? [
                     {
+                      key: "door",
                       title: "Для двери / счёт",
                       width: 240,
+                      sortValue: (r: Agg) => r.door ?? "",
                       render: (_: unknown, r: Agg) => (
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                           {[r.door, r.note].filter(Boolean).join(" · ")}
@@ -391,12 +443,30 @@ export function SheetTable({
                   ]
                 : mode === "rows" || doors
                   ? []
-                  : [{ title: "Строк", dataIndex: "lines", width: 70, align: "right" as const }]),
+                  : [
+                      {
+                        key: "lines",
+                        title: "Строк",
+                        width: 70,
+                        align: "right" as const,
+                        sortValue: (r: Agg) => r.lines,
+                        render: (_: unknown, r: Agg) => r.lines,
+                        groupRender: (rows: Agg[]) => rows.reduce((t, r) => t + r.lines, 0),
+                      },
+                    ]),
               ...(hasFilm
                 ? [
                     {
+                      key: "film",
                       title: "Плёнка",
                       width: 230,
+                      sortValue: (r: Agg) => r.film?.label ?? "",
+                      groupRender: (rows: Agg[]) =>
+                        rows.some((r) => r.film) ? (
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {Math.round(rows.reduce((t, r) => t + (r.film?.need_m ?? 0), 0) * 10) / 10} м
+                          </Typography.Text>
+                        ) : null,
                       render: (_: unknown, r: Agg) =>
                         r.film ? (
                           <Space direction="vertical" size={0}>
@@ -411,12 +481,26 @@ export function SheetTable({
                     },
                   ]
                 : []),
-              { title: "Срок", width: 100, render: (_, r) => period(r.date_from, r.date_to) },
+              { key: "date", title: "Срок", width: 100, sortValue: (r: Agg) => r.date_from ?? "", render: (_: unknown, r: Agg) => period(r.date_from, r.date_to) },
               ...(onEdit
                 ? [
                     {
+                      key: "edit",
                       title: "",
                       width: 56,
+                      // правка всей группы сразу (20.10)
+                      groupRender: (rows: Agg[]) => {
+                        const keys = [...new Set(rows.flatMap((r) => r.keys))];
+                        return (
+                          <Button
+                            size="small"
+                            title={`Править все строки группы (${keys.length})`}
+                            onClick={() => onEdit({ ...rows[0], keys, lines: rows.reduce((t, r) => t + r.lines, 0), qty: rows.reduce((t, r) => t + r.qty, 0) })}
+                          >
+                            ✎
+                          </Button>
+                        );
+                      },
                       render: (_: unknown, r: Agg) => (
                         <Button size="small" title={r.keys.length > 1 ? `Править ${r.keys.length} строк` : "Править строку"} onClick={() => onEdit(r)}>
                           ✎

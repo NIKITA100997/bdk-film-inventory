@@ -10,7 +10,6 @@ import {
   InputNumber,
   Space,
   Spin,
-  Table,
   Tag,
   Tooltip,
   Typography,
@@ -31,19 +30,32 @@ import {
   type PfNeed,
   type PfPick,
   type ProductionOrder,
+  type ReleaseLayout,
   type ReleaseLayoutSheet,
   type ReleasePlan,
   type ReleaseSettings,
 } from "../../../api/productionOrders";
 import type { PfDemandRow } from "../../../api/pfDemand";
 import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
-import ResponsiveTable from "../../../components/ResponsiveTable";
+import GroupedTable from "../../../components/GroupedTable";
 import { ItemChars } from "../../../components/ItemChars";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { EditLineModal, SectionsView, SheetTable, d, period, type Agg, type SectionItem } from "./LayoutSheets";
 
 const keyOf = (n: PfNeed) => `${n.order_line_id}|${n.part_id}|${n.consumer_part_id ?? ""}`;
 type PfState = ReleaseSettings["pf"][string];
+const r2 = (v: number) => Math.round(v * 100) / 100;
+const sumOf = <T,>(rows: T[], f: (r: T) => number | null | undefined) => r2(rows.reduce((s, r) => s + (f(r) ?? 0), 0));
+// панель «Панель щитовой двери 6х610х2010 (ПЭТ Белый)»: размер и цвет из названия
+const panelSize = (name: string) => name.match(/(\d+(?:[.,]\d+)?)\s*[хx×]\s*(\d+)\s*[хx×]\s*(\d+)/i)?.slice(1, 4).join("х") ?? "";
+const nameColor = (name: string) => name.match(/\(([^)]+)\)\s*$/)?.[1]?.trim() ?? "";
+const charOf = (l: OrderLine | undefined, code: string) => l?.item_chars?.find((c) => c.code === code)?.value ?? "";
+const lineSize = (l: OrderLine | undefined) => {
+  const w = charOf(l, "ширина").replace(/\s*мм$/, "");
+  const h = charOf(l, "высота").replace(/\s*мм$/, "");
+  return w && h ? `${w}х${h}` : "";
+};
+const routeOf = (l: OrderLine) => (l.operations.length ? l.operations.map((o) => o.name).join(" → ") : l.without_route ? "без этапов" : "нет маршрута");
 
 /** Запуск заказа — одно рабочее место на странице черновика (05.10).
  * Всё, что решается перед запуском, — здесь, разделами слева: строки
@@ -147,7 +159,22 @@ export default function ReleaseWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [needs, pf],
   );
-  const lineName = (id: number) => order.lines.find((l) => l.id === id)?.item_name ?? "";
+  const lineOf = (id: number) => order.lines.find((l) => l.id === id);
+  const lineName = (id: number) => lineOf(id)?.item_name ?? "";
+  const invoiceOf = (n: PfNeed) => lineOf(n.order_line_id)?.invoice_no ?? "";
+  const colorOf = (n: PfNeed) => nameColor(n.part_name) || charOf(lineOf(n.order_line_id), "цвет");
+  const setLamFor = (rows: PfNeed[], v: string) =>
+    setPf((prev) => {
+      const next = { ...prev };
+      for (const n of rows) next[keyOf(n)] = { ...st(n), lam: v };
+      return next;
+    });
+  // разбивка группы по площадкам: «Фабрика 120 · Прессы 40 · не выбрано 8»
+  const lamBreakdown = (rows: PfNeed[]) => {
+    const by = new Map<string, number>();
+    for (const n of rows) by.set(st(n).lam ?? "", (by.get(st(n).lam ?? "") ?? 0) + (st(n).qty ?? 0));
+    return [...by.entries()].map(([code, q]) => `${code ? areaName(code) : "не выбрано"} ${r2(q)}`).join(" · ");
+  };
 
   // --- раскладка по текущей настройке (пересчёт через полсекунды после правки)
   const overrideList = Object.values(overrides);
@@ -244,20 +271,49 @@ export default function ReleaseWorkspace({
             «Со склада» — свободный остаток уходит в резерв этого заказа; «в работу» — задания на п/ф по маршруту детали.
             Детали «на склад» по умолчанию берутся с остатка, «под заказ» (щиты, панели, детали в плёнке) — запускаются.
           </Typography.Text>
-          <Table<PfNeed>
+          <GroupedTable<PfNeed>
+            storageKey="release.pf"
+            dims={[
+              { key: "part", label: "Деталь", value: (n) => n.part_name },
+              { key: "invoice", label: "Счёт", value: invoiceOf },
+              { key: "item", label: "Для изделия", value: (n) => lineName(n.order_line_id) },
+              { key: "mode", label: "Как", value: (n) => (n.mode === "stock" ? "на склад" : n.mode ? "под заказ" : "") },
+            ]}
+            defaultDims={[]}
             size="small"
             rowKey={keyOf}
             pagination={false}
             dataSource={needs}
             scroll={{ x: "max-content", y: 560 }}
+            labelColumn="part"
             columns={[
               {
+                key: "pick",
                 title: "",
                 width: 40,
                 render: (_, n) => <Checkbox checked={st(n).picked} disabled={!canManage} onChange={(e) => patchPf(n, { picked: e.target.checked })} />,
+                groupRender: (rows) => {
+                  const on = rows.filter((n) => st(n).picked).length;
+                  return (
+                    <Checkbox
+                      checked={on === rows.length}
+                      indeterminate={on > 0 && on < rows.length}
+                      disabled={!canManage}
+                      onChange={(e) =>
+                        setPf((prev) => {
+                          const next = { ...prev };
+                          for (const n of rows) next[keyOf(n)] = { ...st(n), picked: e.target.checked };
+                          return next;
+                        })
+                      }
+                    />
+                  );
+                },
               },
               {
+                key: "part",
                 title: "Деталь",
+                sortValue: (n) => n.part_name,
                 render: (_, n) => (
                   <Space direction="vertical" size={0} style={{ paddingLeft: n.depth * 18 }}>
                     <span>
@@ -272,10 +328,28 @@ export default function ReleaseWorkspace({
                   </Space>
                 ),
               },
-              { title: "Нужно", align: "right", render: (_, n) => n.quantity },
-              { title: "Свободно на складе", align: "right", render: (_, n) => (n.free_stock > 0 ? <b>{n.free_stock}</b> : "0") },
               {
+                key: "need",
+                title: "Нужно",
+                align: "right",
+                sortValue: (n) => n.quantity,
+                render: (_, n) => n.quantity,
+                groupRender: (rows) => <b>{sumOf(rows, (n) => n.quantity)}</b>,
+              },
+              {
+                key: "free",
+                title: "Свободно на складе",
+                align: "right",
+                sortValue: (n) => n.free_stock,
+                render: (_, n) => (n.free_stock > 0 ? <b>{n.free_stock}</b> : "0"),
+                // остаток — у детали, не у строки: по разным деталям группы
+                groupRender: (rows) => sumOf([...new Map(rows.map((n) => [n.part_id, n.free_stock])).values()], (v) => v),
+              },
+              {
+                key: "stock",
                 title: "Со склада",
+                sortValue: (n) => st(n).stock ?? 0,
+                groupRender: (rows) => <b>{sumOf(rows, (n) => st(n).stock)}</b>,
                 render: (_, n) =>
                   n.free_stock > 0 ? (
                     <InputNumber
@@ -295,7 +369,10 @@ export default function ReleaseWorkspace({
                   ),
               },
               {
+                key: "launch",
                 title: "В работу",
+                sortValue: (n) => st(n).qty ?? 0,
+                groupRender: (rows) => <b>{sumOf(rows, (n) => st(n).qty)}</b>,
                 render: (_, n) => (
                   <InputNumber
                     size="small"
@@ -366,18 +443,38 @@ export default function ReleaseWorkspace({
                     </Space>
                   }
                 />
-                <Table<PfNeed>
+                <Typography.Text type="secondary">
+                  Площадка в строке группы — на все панели внутри; ниже можно поменять отдельную строку, итог группы покажет разбивку.
+                </Typography.Text>
+                <GroupedTable<PfNeed>
+                  storageKey="release.lam"
+                  dims={[
+                    { key: "size", label: "Размер панели", value: (n) => panelSize(n.part_name) },
+                    { key: "color", label: "Цвет", value: colorOf },
+                    { key: "invoice", label: "Счёт", value: invoiceOf },
+                    { key: "item", label: "Изделие", value: (n) => lineName(n.order_line_id) },
+                    { key: "site", label: "Площадка", value: (n) => (st(n).lam ? (areaName(st(n).lam ?? null) ?? "") : "не выбрана") },
+                  ]}
+                  defaultDims={["size", "color", "invoice"]}
                   size="small"
                   rowKey={keyOf}
                   pagination={false}
                   dataSource={lamRows}
-                  scroll={{ y: 520 }}
+                  scroll={{ x: "max-content", y: 560 }}
                   columns={[
-                    { title: "Панель", render: (_, n) => n.part_name },
-                    { title: "Для", render: (_, n) => <Typography.Text type="secondary">{lineName(n.order_line_id)}</Typography.Text> },
-                    { title: "Шт", align: "right", render: (_, n) => st(n).qty },
+                    { key: "panel", title: "Панель", sortValue: (n) => n.part_name, render: (_, n) => n.part_name },
                     {
+                      key: "qty",
+                      title: "Шт",
+                      align: "right",
+                      sortValue: (n) => st(n).qty ?? 0,
+                      render: (_, n) => st(n).qty,
+                      groupRender: (rows) => <b>{sumOf(rows, (n) => st(n).qty)}</b>,
+                    },
+                    {
+                      key: "site",
                       title: "Площадка",
+                      sortValue: (n) => (st(n).lam ? (areaName(st(n).lam ?? null) ?? "") : ""),
                       render: (_, n) => (
                         <LaminationAreaSelect
                           row={{ lamination_area: n.lamination_area, factory_area: n.factory_area, factory_min_pieces: n.factory_min_pieces } as PfDemandRow}
@@ -387,6 +484,37 @@ export default function ReleaseWorkspace({
                           onChange={(v) => patchPf(n, { lam: v })}
                         />
                       ),
+                      groupRender: (rows) => {
+                        const vals = new Set(rows.map((n) => st(n).lam ?? ""));
+                        const common = vals.size === 1 ? [...vals][0] : "";
+                        const first = rows.find((n) => n.lamination_area && n.factory_area) ?? rows[0];
+                        return (
+                          <Space direction="vertical" size={2}>
+                            <LaminationAreaSelect
+                              row={{ lamination_area: first.lamination_area, factory_area: first.factory_area, factory_min_pieces: first.factory_min_pieces } as PfDemandRow}
+                              value={common || undefined}
+                              placeholder={vals.size > 1 ? "разные — выбрать для всех" : "выбрать для всех"}
+                              areaName={areaName}
+                              disabled={!canManage}
+                              onChange={(v) => setLamFor(rows, v)}
+                            />
+                            {vals.size > 1 && (
+                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                {lamBreakdown(rows)}
+                              </Typography.Text>
+                            )}
+                          </Space>
+                        );
+                      },
+                    },
+                    { key: "invoice", title: "Счёт", sortValue: invoiceOf, render: (_, n) => invoiceOf(n) },
+                    {
+                      key: "for",
+                      title: "Для",
+                      width: 360,
+                      ellipsis: true,
+                      sortValue: (n) => lineName(n.order_line_id),
+                      render: (_, n) => <Typography.Text type="secondary">{lineName(n.order_line_id)}</Typography.Text>,
                     },
                   ]}
                 />
@@ -431,17 +559,31 @@ export default function ReleaseWorkspace({
               )}
             </Space>
           )}
-          <Table<ReleaseLayoutSheet>
+          <GroupedTable<ReleaseLayoutSheet>
+            storageKey="release.dates"
+            dims={[
+              { key: "period", label: "Срок по расчёту", value: (s) => period(s.date_from, s.date_to) },
+              { key: "manual", label: "Срок", value: (s) => (plan.dates[s.area] ? "вручную" : "по расчёту") },
+            ]}
+            defaultDims={[]}
             size="small"
-            rowKey="area"
+            rowKey={(s) => s.area}
             pagination={false}
             loading={layoutQuery.isFetching && !lay}
             dataSource={lay?.sheets ?? []}
             columns={[
-              { title: "Участок", dataIndex: "name" },
-              { title: "Шт", dataIndex: "total", align: "right" },
-              { title: "По расчёту", render: (_, s) => period(s.date_from, s.date_to) },
+              { key: "name", title: "Участок", sortValue: (s) => s.name, render: (_, s) => s.name },
               {
+                key: "total",
+                title: "Шт",
+                align: "right",
+                sortValue: (s) => s.total,
+                render: (_, s) => s.total,
+                groupRender: (rows) => <b>{sumOf(rows, (s) => s.total)}</b>,
+              },
+              { key: "calc", title: "По расчёту", sortValue: (s) => s.date_from ?? "", render: (_, s) => period(s.date_from, s.date_to) },
+              {
+                key: "set",
                 title: "Поставить на дату",
                 render: (_, s) => (
                   <DatePicker
@@ -500,7 +642,14 @@ export default function ReleaseWorkspace({
       sub: lay ? `${lay.film.length} позиций${lay.film.some((f) => f.stock_m < f.need_m) ? " · не хватает" : ""}` : "",
       mark: lay?.film.some((f) => f.stock_m < f.need_m) ? "не хватает" : undefined,
       children: lay?.film.length ? (
-        <ResponsiveTable
+        <GroupedTable<ReleaseLayout["film"][number]>
+          storageKey="release.film"
+          dims={[
+            { key: "area", label: "Участок", value: (r) => r.area_name },
+            { key: "film", label: "Плёнка", value: (r) => r.label },
+            { key: "enough", label: "Хватает", value: (r) => (r.stock_m < r.need_m ? "не хватает" : "хватает") },
+          ]}
+          defaultDims={[]}
           exportTitle={`${orderTitle}: плёнка`}
           exportNote={order.note ? `Комментарий: ${order.note}` : undefined}
           cardBreakpoint="xs"
@@ -509,12 +658,21 @@ export default function ReleaseWorkspace({
           pagination={false}
           dataSource={lay.film}
           columns={[
-            { title: "Участок", dataIndex: "area_name" },
-            { title: "Плёнка", dataIndex: "label" },
-            { title: "Нужно, м", dataIndex: "need_m", align: "right" },
+            { key: "area", title: "Участок", sortValue: (r) => r.area_name, render: (_, r) => r.area_name },
+            { key: "film", title: "Плёнка", sortValue: (r) => r.label, render: (_, r) => r.label },
             {
+              key: "need",
+              title: "Нужно, м",
+              align: "right",
+              sortValue: (r) => r.need_m,
+              render: (_, r) => r.need_m,
+              groupRender: (rows) => <b>{sumOf(rows, (r) => r.need_m)}</b>,
+            },
+            {
+              key: "stock",
               title: "На складе площадки, м",
               align: "right",
+              sortValue: (r) => r.stock_m,
               render: (_, r) => (
                 <Space size={4}>
                   <span>{r.stock_m}</span>
@@ -523,7 +681,9 @@ export default function ReleaseWorkspace({
               ),
             },
             {
+              key: "how",
               title: "Как выдаётся",
+              sortValue: (r) => (r.cut_on_site ? 1 : 0),
               render: (_, r) => (r.cut_on_site ? `рулон не уже ${r.min_width_mm} мм, режут на участке` : `штрипсы от ${r.min_width_mm} мм, режет склад`),
             },
           ]}
@@ -548,21 +708,37 @@ export default function ReleaseWorkspace({
                 <Typography.Title level={5} style={{ marginTop: 0 }}>
                   {g} <Typography.Text type="secondary">· {rows.length}</Typography.Text>
                 </Typography.Title>
-                <ResponsiveTable
+                <GroupedTable<ReleaseLayout["materials"][number]>
+                  storageKey={`release.mat.${g}`}
+                  dims={[
+                    { key: "where", label: "Где расходуется", value: (r) => (r.areas ?? []).map((a) => a.area_name ?? "—").join(", ") },
+                    { key: "unit", label: "Единица", value: (r) => r.unit ?? "шт" },
+                  ]}
+                  defaultDims={[]}
                   exportTitle={`${orderTitle}: ${g.toLowerCase()}`}
                   exportNote={order.note ? `Комментарий: ${order.note}` : undefined}
                   cardBreakpoint="xs"
                   size="small"
-                  rowKey="name"
+                  rowKey={(r) => r.name}
                   pagination={false}
                   dataSource={rows}
                   columns={[
-                    { title: "Наименование", dataIndex: "name" },
-                    { title: "Количество", align: "right", render: (_, r) => `${Math.round(r.qty * 100) / 100} ${r.unit ?? "шт"}` },
+                    { key: "name", title: "Наименование", sortValue: (r) => r.name, render: (_, r) => r.name },
+                    {
+                      key: "qty",
+                      title: "Количество",
+                      align: "right",
+                      sortValue: (r) => r.qty,
+                      render: (_, r) => `${r2(r.qty)} ${r.unit ?? "шт"}`,
+                      // итог — только когда единица у всех одна
+                      groupRender: (list) =>
+                        new Set(list.map((r) => r.unit ?? "шт")).size === 1 ? <b>{`${sumOf(list, (r) => r.qty)} ${list[0].unit ?? "шт"}`}</b> : null,
+                    },
                     ...(rows.some((r) => r.comment)
-                      ? [{ title: "Примечание", render: (_: unknown, r: (typeof rows)[number]) => r.comment ?? "" }]
+                      ? [{ key: "comment", title: "Примечание", sortValue: (r: (typeof rows)[number]) => r.comment ?? "", render: (_: unknown, r: (typeof rows)[number]) => r.comment ?? "" }]
                       : []),
                     {
+                      key: "where",
                       title: "Где расходуется",
                       render: (_, r) =>
                         (r.areas ?? [])
@@ -671,20 +847,39 @@ function LinesSection({ order, canManage, onEditLines }: { order: ProductionOrde
         </Typography.Text>
         {canManage && <Button onClick={onEditLines}>Изменить строки заказа</Button>}
       </Space>
-      <ResponsiveTable<OrderLine>
+      <GroupedTable<OrderLine>
+        storageKey="release.lines"
+        dims={[
+          { key: "invoice", label: "Счёт", value: (l) => l.invoice_no ?? "" },
+          { key: "kind", label: "Вид", value: (l) => l.kind_name ?? "" },
+          { key: "series", label: "Серия", value: (l) => charOf(l, "серия") },
+          { key: "size", label: "Размер", value: lineSize },
+          { key: "color", label: "Цвет", value: (l) => charOf(l, "цвет") },
+          { key: "route", label: "Маршрут", value: routeOf },
+        ]}
+        defaultDims={[]}
         exportTitle={`Заказ №${order.id} «${order.name}»: строки`}
         size="small"
-        rowKey="id"
+        rowKey={(l) => String(l.id)}
         pagination={false}
         dataSource={order.lines}
         scroll={{ x: "max-content", y: 600 }}
         columns={[
-          { title: "Изделие", render: (_, l) => <ItemChars chars={l.item_chars} name={l.item_name} strong={false} /> },
-          { title: "Шт", dataIndex: "quantity", align: "right", render: (v: number) => <b>{v}</b> },
-          { title: "Счёт", render: (_, l) => l.invoice_no ?? "" },
-          { title: "Примечание", render: (_, l) => l.note ?? "" },
+          { key: "item", title: "Изделие", sortValue: (l) => l.item_name, render: (_, l) => <ItemChars chars={l.item_chars} name={l.item_name} strong={false} /> },
           {
+            key: "qty",
+            title: "Шт",
+            align: "right",
+            sortValue: (l) => l.quantity,
+            render: (_, l) => <b>{l.quantity}</b>,
+            groupRender: (rows) => <b>{sumOf(rows, (l) => l.quantity)}</b>,
+          },
+          { key: "invoice", title: "Счёт", sortValue: (l) => l.invoice_no ?? "", render: (_, l) => l.invoice_no ?? "" },
+          { key: "note", title: "Примечание", sortValue: (l) => l.note ?? "", render: (_, l) => l.note ?? "" },
+          {
+            key: "route",
             title: "Маршрут",
+            sortValue: routeOf,
             render: (_, l) =>
               l.operations.length ? (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>

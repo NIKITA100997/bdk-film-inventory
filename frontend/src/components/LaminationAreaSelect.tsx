@@ -9,12 +9,14 @@ export default function LaminationAreaSelect({
   onChange,
   areaName,
   disabled,
+  placeholder,
 }: {
   row: PfDemandRow;
   value: string | undefined;
   onChange: (v: string) => void;
   areaName: (code: string | null) => string | null;
   disabled?: boolean;
+  placeholder?: string;
 }) {
   if (!row.lamination_area || !row.factory_area) return <Typography.Text type="secondary">—</Typography.Text>;
   return (
@@ -23,6 +25,7 @@ export default function LaminationAreaSelect({
       style={{ width: 230 }}
       disabled={disabled}
       value={value}
+      placeholder={placeholder}
       onChange={onChange}
       options={[
         { value: row.lamination_area, label: areaName(row.lamination_area) ?? row.lamination_area },

@@ -18,6 +18,15 @@ function columnKey<T>(col: Column<T>, index: number): string {
   return `col-${index}`;
 }
 
+/** Строки с вложенными (группы, 20.10) — подряд: группа, затем её строки;
+ * для Excel, печати и карточек на узком экране. */
+function flatTree<T extends object>(list: readonly T[]): T[] {
+  return list.flatMap((r) => {
+    const kids = (r as { children?: unknown }).children;
+    return Array.isArray(kids) ? [r, ...flatTree(kids as T[])] : [r];
+  });
+}
+
 /** Обёртка над antd Table (раздел про адаптацию под планшет) — на узких
  * экранах таблицы с большим числом колонок листались влево/вправо, что
  * оказалось хуже, чем сама теснота: на широких экранах рендерит обычный
@@ -158,7 +167,7 @@ export default function ResponsiveTable<T extends object>({
   // в печати выходил «20.1»)
   const exportData = (asText = false) => {
     const cols = visibleLabelable.map((c, i) => ({ key: `c${i}`, header: nodeText(c.title as React.ReactNode), col: c }));
-    const rows = (dataSource ?? []).map((r, ri) =>
+    const rows = flatTree(dataSource ?? []).map((r, ri) =>
       Object.fromEntries(
         cols.map((c) => {
           const text = nodeText(cellValue(c.col, r, ri));
@@ -223,7 +232,7 @@ export default function ResponsiveTable<T extends object>({
     );
   }
 
-  const rows = dataSource ?? [];
+  const rows = flatTree(dataSource ?? []);
   const TITLE_WORDS = ["деталь", "позиция", "название", "наименование", "что", "рулон", "плёнка", "задание"];
   const titleIndex = (() => {
     const byKey = cardTitleColumn ? visibleLabelable.findIndex((c, i) => columnKey(c, i) === cardTitleColumn) : -1;
