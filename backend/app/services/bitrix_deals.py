@@ -106,12 +106,51 @@ def funnel_deals(s: dict, refresh: bool = False) -> dict:
     for uid in sorted({d["ASSIGNED_BY_ID"] for d in deals if d.get("ASSIGNED_BY_ID")}):
         u = (bx.call(wh, "user.get", {"ID": uid}).get("result") or [{}])[0]
         users[uid] = " ".join(x for x in (u.get("LAST_NAME"), u.get("NAME")) if x) or f"#{uid}"
+    todo = todo_ship_dates(wh, {str(d["ID"]) for d in deals}, {str(d["ID"]): d.get("TITLE", "") for d in deals})
     for d in deals:
         v = d.get(ship) if ship else None
-        d["SHIP"] = str(v)[:10] if v else None  # «2026-10-20T03:00:00+03:00» → дата
+        # поле «Дата отгрузки», иначе срок дела в сделке (20.10: менеджеры
+        # ставят отгрузку делом с названием сделки)
+        d["SHIP"] = str(v)[:10] if v else todo.get(str(d["ID"]))
     data = {"deals": deals, "stages": stage_names, "companies": companies, "users": users, "loaded_at": time.time()}
     _FUNNEL_CACHE[cat] = (time.time(), data)
     return data
+
+
+def todo_ship_dates(wh: str, deal_ids: set[str], titles: dict[str, str]) -> dict[str, str]:
+    """Дата отгрузки из дел сделок (CRM_TODO, 20.10): у каждой сделки дело с
+    её названием и сроком — днём отгрузки. Несколько дел — дело с названием
+    сделки, иначе последнее невыполненное («Связаться с клиентом» — нет).
+    Дела со сроком за последние 120 дней и позже — 600 дел ≈ 8 с."""
+    import time
+    from datetime import date, timedelta
+
+    since = (date.today() - timedelta(days=120)).isoformat()
+    acts: list[dict] = []
+    start = 0
+    while True:
+        r = bx.call(wh, "crm.activity.list", {
+            "filter": {"OWNER_TYPE_ID": 2, "PROVIDER_ID": "CRM_TODO", ">=DEADLINE": since},
+            "select": ["ID", "OWNER_ID", "DEADLINE", "COMPLETED", "SUBJECT"], "order": {"ID": "ASC"}, "start": start,
+        })
+        acts += r.get("result", [])
+        if "next" not in r or len(acts) > 10000:
+            break
+        start = r["next"]
+        time.sleep(0.25)
+    by_deal: dict[str, list[dict]] = {}
+    for a in acts:
+        if str(a.get("OWNER_ID")) in deal_ids and a.get("DEADLINE"):
+            by_deal.setdefault(str(a["OWNER_ID"]), []).append(a)
+    out: dict[str, str] = {}
+    for did, lst in by_deal.items():
+        title = _norm(titles.get(did, ""))
+        named = [a for a in lst if title and _norm(a.get("SUBJECT") or "") == title]
+        open_ = [a for a in lst if a.get("COMPLETED") != "Y" and "связаться" not in (a.get("SUBJECT") or "").lower()]
+        pick = named or open_
+        if pick:
+            out[did] = str(max(pick, key=lambda a: int(a["ID"]))["DEADLINE"])[:10]
+    return out
 
 
 def portal(s: dict) -> str:
