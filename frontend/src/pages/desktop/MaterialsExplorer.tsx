@@ -1078,23 +1078,30 @@ function BulkCutModal({ onClose }: { onClose: () => void }) {
 
   const removeFromQueue = (id: number) => setQueue((q) => q.filter((item) => item.unit.id !== id));
 
+  // По одной (19.10): списанная единица сразу уходит из очереди — при ошибке
+  // посередине в очереди остаётся только несписанное, повтор не спишет дважды.
   const bulkCutMutation = useMutation({
     mutationFn: async () => {
       const occurredAtIso = toOccurredAtIso(occurredAt);
       const processed: { id: number; before: number; after: number }[] = [];
       for (const item of queue) {
-        const updated = await cutUnit(item.unit.id, { cut_length_m: item.cutLengthM, occurred_at: occurredAtIso });
-        processed.push({ id: updated.id, before: item.unit.length_m, after: updated.length_m });
+        try {
+          const updated = await cutUnit(item.unit.id, { cut_length_m: item.cutLengthM, occurred_at: occurredAtIso });
+          processed.push({ id: updated.id, before: item.unit.length_m, after: updated.length_m });
+          setQueue((q) => q.filter((x) => x.unit.id !== item.unit.id));
+        } catch (e) {
+          return { processed, failed: { id: item.unit.id, error: apiErrorMessage(e, "ошибка") } };
+        }
       }
-      return processed;
+      return { processed, failed: null };
     },
-    onSuccess: (processed) => {
+    onSuccess: ({ processed, failed }) => {
       qc.invalidateQueries({ queryKey: ["materials-explorer"] });
       setResults(processed);
-      setQueue([]);
-      message.success(`Списано с ${processed.length} единиц`);
+      if (failed)
+        message.error(`Списано с ${processed.length}; остановлено на ${rollNo(failed.id)}: ${failed.error}. Остальные — в списке, можно повторить`);
+      else message.success(`Списано с ${processed.length} единиц`);
     },
-    onError: () => message.error("Не удалось списать часть единиц — проверьте статусы и повторите"),
   });
 
   return (

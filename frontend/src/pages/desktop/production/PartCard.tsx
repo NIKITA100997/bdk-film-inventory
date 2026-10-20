@@ -21,6 +21,7 @@ import { lotFromPartUnit } from "../../../components/lotOps/lotOps";
 import { useAuth } from "../../../auth/AuthContext";
 import { fmtDate, fmtDateTime } from "../../../utils/dates";
 import { pfNo } from "../../../utils/lotNo";
+import { apiErrorMessage } from "../../../utils/apiError";
 import { hasPerm } from "../../../auth/permissions";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -116,24 +117,35 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
     : [];
   const advanceNextStage = advanceTarget ? nextStageOf(advanceTarget.stageId) : null;
   const advanceTotal = Object.values(advanceQty).reduce((sum: number, v) => sum + (v ?? 0), 0);
+  // По одной партии (19.10): переведённая сразу убирается из формы — при
+  // ошибке посередине повтор не переведёт уже переведённые второй раз.
   const advanceMutation = useMutation({
     mutationFn: async () => {
+      let done = 0;
       for (const u of advanceRows) {
         const qty = advanceQty[u.id];
-        if (qty && qty > 0) await advancePartUnit(u.id, qty);
+        if (!qty || qty <= 0) continue;
+        try {
+          await advancePartUnit(u.id, qty);
+        } catch (e) {
+          return { done, failed: { id: u.id, error: apiErrorMessage(e, "ошибка") } };
+        }
+        done += qty;
+        setAdvanceQty((m) => ({ ...m, [u.id]: null }));
       }
+      return { done, failed: null };
     },
-    onSuccess: () => {
+    onSuccess: ({ done, failed }) => {
       qc.invalidateQueries({ queryKey: ["part-units", "part", partId] });
-      message.success(
-        advanceNextStage
-          ? `Переведено ${Math.round(advanceTotal * 100) / 100} шт на этап «${advanceNextStage.name}»`
-          : `Отмечено завершение для ${Math.round(advanceTotal * 100) / 100} шт`,
-      );
+      const what = advanceNextStage ? `на этап «${advanceNextStage.name}»` : "в завершённые";
+      if (failed) {
+        message.error(`Переведено ${Math.round(done * 100) / 100} шт ${what}; остановлено на партии ${pfNo(failed.id)}: ${failed.error}. Остальное — в форме`);
+        return;
+      }
+      message.success(`Переведено ${Math.round(done * 100) / 100} шт ${what}`);
       setAdvanceTarget(null);
       setAdvanceQty({});
     },
-    onError: () => message.error("Не удалось перевести — проверьте количества по каждой партии"),
   });
 
   // Раздел про "партии внутри карточки" — мастеру важнее всего кол-во и
