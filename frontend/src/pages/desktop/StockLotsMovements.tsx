@@ -8,6 +8,7 @@ import LotActions from "../../components/lotOps/LotActions";
 import LotOperationById from "../../components/lotOps/LotOperationById";
 import { useAuth } from "../../auth/AuthContext";
 import ResponsiveTable from "../../components/ResponsiveTable";
+import { usePersistentState } from "../../hooks/usePersistentState";
 import { exportToExcel } from "../../utils/excel";
 import { listAreas } from "../../api/areas";
 import { KIND_LABEL, listLots, listMovements, type Lot, type Movement } from "../../api/unifiedStock";
@@ -177,6 +178,9 @@ export function MovementsPanel({
   const [events, setEvents] = useState<string[]>([]);
   const [areas, setAreas] = useState<string[]>([]);
   const [lot, setLot] = useState<number | null>(null);
+  // приход и расход / все операции (21.10): выдача, переход этапа, «Завершение»
+  // отщеплённой части остаток не меняют — по умолчанию скрыты, иначе казалось задвоением
+  const [allOps, setAllOps] = usePersistentState("movements.allOps", false);
   // исправление ошибки из журнала — единое окно корректировки (06.10)
   const [adjust, setAdjust] = useState<Movement | null>(null);
   const movesQuery = useQuery({
@@ -189,7 +193,10 @@ export function MovementsPanel({
         limit: 2000,
       }),
   });
-  const ofKind = useMemo(() => (movesQuery.data ?? []).filter((m) => kind === "all" || m.kind === kind), [movesQuery.data, kind]);
+  const ofKind = useMemo(
+    () => (movesQuery.data ?? []).filter((m) => (kind === "all" || m.kind === kind) && (allOps || (m.effect ?? "in") !== "move")),
+    [movesQuery.data, kind, allOps],
+  );
   // Варианты фильтров — из того, что реально есть за период.
   const eventOptions = useMemo(
     () => [...new Set(ofKind.map((m) => m.event))].sort().map((e) => ({ value: e, label: e })),
@@ -218,7 +225,8 @@ export function MovementsPanel({
     const m = new Map<string, { unit: string; kind: string; plus: number; minus: number }>();
     let amount = 0;
     for (const r of rows) {
-      if (r.qty_delta) {
+      // в итоги — только приход и расход; перемещения остаток не меняют
+      if (r.qty_delta && r.effect !== "move") {
         const key = `${r.kind}|${r.unit}`;
         const t = m.get(key) ?? { unit: r.unit, kind: r.kind, plus: 0, minus: 0 };
         if (r.qty_delta > 0) t.plus += r.qty_delta;
@@ -247,6 +255,14 @@ export function MovementsPanel({
             ]}
           />
         )}
+        <Segmented
+          value={allOps ? "all" : "stock"}
+          onChange={(v) => setAllOps(v === "all")}
+          options={[
+            { label: "Приход и расход", value: "stock" },
+            { label: "Все операции", value: "all" },
+          ]}
+        />
         <DatePicker.RangePicker
           format="DD.MM.YYYY"
           value={range}
@@ -295,7 +311,7 @@ export function MovementsPanel({
       </Space>
       {totals.byUnit.length > 0 && (
         <Space wrap size={[16, 4]}>
-          <Typography.Text type="secondary">Итого по отбору ({rows.length} строк):</Typography.Text>
+          <Typography.Text type="secondary">Итого приход / расход ({rows.length} строк):</Typography.Text>
           {totals.byUnit.map((t) => (
             <Typography.Text key={`${t.kind}|${t.unit}`}>
               {KIND_LABEL[t.kind]}: <Typography.Text type="success">+{num(t.plus)}</Typography.Text> /{" "}
@@ -345,6 +361,10 @@ export function MovementsPanel({
             render: (_, m) =>
               m.qty_delta == null || m.qty_delta === 0 ? (
                 "—"
+              ) : m.effect === "move" ? (
+                <Typography.Text type="secondary" title="Перемещение — остаток не меняется" style={{ fontVariantNumeric: "tabular-nums" }}>
+                  ↔ {Math.abs(m.qty_delta)} {m.unit}
+                </Typography.Text>
               ) : (
                 <Typography.Text type={m.qty_delta < 0 ? "danger" : "success"} style={{ fontVariantNumeric: "tabular-nums" }}>
                   {m.qty_delta > 0 ? "+" : ""}

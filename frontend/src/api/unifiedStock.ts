@@ -47,6 +47,8 @@ export interface Movement {
   task_name?: string | null;
   reason_name?: string | null;
   to_length?: number | null;
+  /** влияние на остаток (21.10): in — приход, out — расход, move — перемещение без изменения остатка */
+  effect?: "in" | "out" | "move";
 }
 
 export const listLots = async (params: {

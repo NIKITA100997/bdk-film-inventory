@@ -45,6 +45,7 @@ class MovementOut(BaseModel):
     task_name: str | None
     reason: str | None
     note: str | None
+    effect: str = "move"  # in — приход, out — расход, move — перемещение без изменения остатка (21.10)
 
 
 class TotalOut(BaseModel):
@@ -88,6 +89,7 @@ def list_movements(
     op: list[str] | None = Query(None),
     task_line_id: int | None = None,
     only_qty: bool = True,
+    stock_only: bool = False,  # только приход и расход (21.10)
     limit: int = Query(200, ge=1, le=5000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -102,7 +104,7 @@ def list_movements(
         date_from = date_to - timedelta(days=30)
     f = mv.Filters(
         date_from=date_from, date_to=date_to, kinds=kind, item_id=item_id, lot=lot, area=area, user_id=user_id,
-        ops=op, task_line_id=task_line_id, only_qty=only_qty,
+        ops=op, task_line_id=task_line_id, only_qty=only_qty, stock_only=stock_only,
     )
     show_amounts = user.is_superuser or bool(PRICE_PERMS & get_permission_codes(user))
     rows = mv.query_rows(db, f, limit, offset)
@@ -136,6 +138,7 @@ def list_movements(
             area=r["area"], area_name=areas.get(r["area"]) if r["area"] else None, cell_from=r["cell_from"], cell_to=r["cell_to"],
             user_name=users.get(r["user_id"]), task_id=t[0] if t else None, task_name=t[1] if t else None,
             reason=reasons.get(r["reason"], r["reason"]) if r["reason"] else None, note=r["note"],
+            effect=mv.op_effect(r["kind"], r["op"], float(r["qty"])),
         ))
     return MovementsOut(
         total=total,

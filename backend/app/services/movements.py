@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Column, DateTime, Integer, MetaData, Numeric, String, Table, func, select
+from sqlalchemy import Column, DateTime, Integer, MetaData, Numeric, String, Table, and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.events import EventType
@@ -66,6 +66,32 @@ def op_label(kind: str, op: str) -> str:
     return op
 
 
+# Влияние события на остаток (21.10): приход / расход / перемещение. У партий
+# п/ф и плёнки одно действие пишет несколько событий («Производство +280» и
+# сразу «Выдача участку +280»; переход этапа, «Завершение» отщеплённой части)
+# — в журнале и итогах это выглядело как задвоение. Остаток меняют только
+# приход и расход; остальное — перемещение, количество — справочно.
+_IN = {("film", "PRIHOD"), ("film", "INVENTARIZATSIYA_IZLISHEK"), ("pf", "PROIZVODSTVO")}
+_OUT = {("film", "SPISANIE"), ("film", "INVENTARIZATSIYA_NEDOSTACHA"), ("pf", "SPISANIE"), ("pf", "PERERABOTKA")}
+_SIGNED = {("film", "KORREKTIROVKA"), ("pf", "KORREKTIROVKA"), ("film", "VOZVRAT")}
+
+
+def op_effect(kind: str, op: str, qty: float | None) -> str:
+    """in / out / move. Материалы и готовые изделия — их записи и есть
+    движения остатка (кроме перемещения изделий между площадками)."""
+    if kind in ("material", "fg"):
+        if kind == "fg" and op == "transfer":
+            return "move"
+        return "in" if (qty or 0) > 0 else "out" if (qty or 0) < 0 else "move"
+    if (kind, op) in _IN:
+        return "in"
+    if (kind, op) in _OUT:
+        return "out"
+    if (kind, op) in _SIGNED and qty:
+        return "in" if qty > 0 else "out"
+    return "move"
+
+
 def op_options() -> list[tuple[str, str, str]]:
     """(вид, код, подпись) — для фильтра «Операция»."""
     out = [("film", e.name, op_label("film", e.name)) for e in EventType]
@@ -102,6 +128,19 @@ class Filters:
     ops: list[str] | None = None  # «вид:код»
     task_line_id: int | None = None
     only_qty: bool = True  # без событий без количества (донор предложен, привязка…)
+    stock_only: bool = False  # только приход и расход (21.10): без перемещений и смены этапа
+
+
+def _changes_stock():
+    """SQL-условие «событие меняет остаток» — то же, что op_effect != move."""
+    m = lot_movements.c
+    pairs = _IN | _OUT
+    return or_(
+        m.kind.in_(["material"]),
+        and_(m.kind == "fg", m.op != "transfer"),
+        *[and_(m.kind == k, m.op == c) for k, c in pairs],
+        *[and_(m.kind == k, m.op == c, m.qty != 0) for k, c in _SIGNED],
+    )
 
 
 def _where(f: Filters):
@@ -136,6 +175,8 @@ def _where(f: Filters):
             conds.append(or_(*[and_(m.kind == k, m.op == c) for k, c in pairs]))
     if f.only_qty:
         conds.append(m.qty != 0)
+    if f.stock_only:
+        conds.append(_changes_stock())
     return conds
 
 
@@ -149,6 +190,7 @@ def totals(db: Session, f: Filters) -> tuple[int, list[dict]]:
     """Сколько строк и итоги по виду и единице: приход (+), расход (−), сумма."""
     m = lot_movements.c
     total = db.execute(select(func.count()).select_from(lot_movements).where(*_where(f))).scalar() or 0
+    # итоги — только приход и расход: перемещения и смена этапа остаток не меняют (21.10)
     rows = db.execute(
         select(
             m.kind, m.unit,
@@ -157,7 +199,7 @@ def totals(db: Session, f: Filters) -> tuple[int, list[dict]]:
             func.sum(m.amount_rub),
             func.count(m.amount_rub),
             func.count(),
-        ).where(*_where(f)).group_by(m.kind, m.unit)
+        ).where(*_where(f), _changes_stock()).group_by(m.kind, m.unit)
     ).all()
     return total, [
         {

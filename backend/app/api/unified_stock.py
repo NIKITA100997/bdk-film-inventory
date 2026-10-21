@@ -65,6 +65,8 @@ class MovementOut(BaseModel):
     # Учёт по сумме (08.10): сумма движения, ₽ — тем, у кого права на цены.
     amount_rub: float | None = None
     lot_no: str | None = None
+    # влияние на остаток (21.10): in — приход, out — расход, move — перемещение без изменения остатка
+    effect: str = "move"
 
 
 def _can(user: User, *codes: str) -> bool:
@@ -163,5 +165,6 @@ def get_movements(
             to_length=float(r["to_length"]) if r["to_length"] is not None else None,
             amount_rub=float(r["amount_rub"]) if (show_amounts and r["amount_rub"] is not None) else None,
             lot_no=mv.lot_no(k, r["lot_id"]),
+            effect=mv.op_effect(k, r["op"], float(r["qty"]) if r["qty"] is not None else None),
         ))
     return out
