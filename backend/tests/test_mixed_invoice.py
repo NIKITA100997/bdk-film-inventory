@@ -90,3 +90,14 @@ def test_new_series_goes_to_type_with_same_letter():
     assert added.value == "В-40" and added.params == {"кромка": "abs", "толщина_каркаса": 24}
     assert add_series(db, [shield, tsarg], "С-7")[0].name == "Царговая дверь"
     assert add_series(db, [shield, tsarg], "Х-9") is None  # буква ничья — не угадываем
+
+
+def test_nested_decor_and_qualifiers():
+    from app.services.schedule_import import decor_of, product_key, qualifiers
+
+    t = "Коробка с упл. (серо-белый УК-6) телескоп МДФ 32х75х2070 (ПЭТ Бежевый (cream silk))"
+    assert decor_of(t) == "ПЭТ Бежевый (cream silk)"
+    assert product_key(t) == product_key("Коробка с упл. (белый УК-6) телескоп МДФ 32*75*2070")
+    assert qualifiers(t, drop_decor=True) == ("серо-белый ук-6",)
+    assert qualifiers("Коробка с упл. (белый УК-6) телескоп МДФ 32*75*2070", drop_decor=False) == ("белый ук-6",)
+    assert qualifiers("Наличник телескоп 8х70х2150 (Бьянко)", drop_decor=True) == ()

@@ -225,6 +225,7 @@ export const importCustomerOrders = async (p: {
   /** заказ из сделки Битрикс24: сделка привяжется, сумма и менеджер — из неё */
   bitrix_deal_id?: number | null;
   bitrix_deal_title?: string | null;
+  item_choices?: Record<string, number>;
   amount_rub?: number | null;
   manager_bitrix_id?: number | null;
 }): Promise<CustomerImportResult> => (await apiClient.post<CustomerImportResult>(`${base}/import`, p)).data;

@@ -1382,6 +1382,8 @@ class ScheduleImportIn(BaseModel):
     ship_date: date | None = None
     ship_from: date | None = None
     ship_to: date | None = None
+    # строка счёта → выбранная позиция, когда подходит несколько (21.10; запоминается синонимом)
+    item_choices: dict[str, int] = {}
 
 
 class ScheduleColorOut(BaseModel):
@@ -1406,6 +1408,7 @@ class ScheduleRowOut(BaseModel):
     type_name: str | None = None
     errors: list[str]
     notes: list[str] = []
+    candidates: list[dict] = []  # несколько подходящих позиций — выбор в окне (21.10)
 
 
 class ScheduleImportOut(BaseModel):
@@ -1434,6 +1437,7 @@ def order_from_schedule(
         color_films=payload.color_films, colors_out=colors, other_types=others,
         invoice_no=(payload.invoice_no or "").strip() or None,
         ship_date=payload.ship_date if _can_manage(user) else None,
+        item_choices=payload.item_choices,
     )
     if order is not None and (payload.ship_from or payload.ship_to):
         _window(payload.ship_from, payload.ship_to)

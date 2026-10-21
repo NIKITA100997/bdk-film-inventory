@@ -458,6 +458,8 @@ export interface ScheduleImportRow {
   errors: string[];
   // Пометки разбора: новый цвет и найденная (или нет) плёнка.
   notes?: string[];
+  /** несколько подходящих позиций (21.10) — выбор в окне загрузки, запоминается синонимом */
+  candidates?: { id: number; name: string }[];
 }
 
 /** Цвет из графика и его плёнка (привязка варианта «Цвет»). status: ok —
@@ -481,6 +483,8 @@ export const importOrderFromSchedule = async (payload: {
   dry_run: boolean;
   // цвет графика → выбранная позиция плёнки (сохраняется в привязку цвета)
   color_films?: Record<string, number>;
+  /** строка счёта → выбранная позиция, когда подходит несколько */
+  item_choices?: Record<string, number>;
   /** счёт 1С целиком: номер и отгрузка — на все строки без своих */
   invoice_no?: string | null;
   ship_date?: string | null;

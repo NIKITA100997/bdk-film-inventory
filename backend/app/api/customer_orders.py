@@ -894,6 +894,7 @@ class ImportIn(BaseModel):
     color_films: dict[str, int] = {}
     # заказ из сделки Битрикс24 (19.10): сделка привязывается, сумма и менеджер — из неё
     bitrix_deal_id: int | None = None
+    item_choices: dict[str, int] = {}  # строка счёта → выбранная позиция (21.10)
     bitrix_deal_title: str | None = None  # вид сделки по названию («пог.», «щиты») — 20.10
     amount_rub: float | None = None
     manager_bitrix_id: int | None = None
@@ -914,9 +915,9 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
     rows, errors, po = import_schedule(
         db, text=payload.text, type_=type_, order_name="импорт заказов клиентов", user_id=user.id, dry_run=payload.dry_run,
         color_films=payload.color_films, colors_out=colors, invoice_no=(payload.invoice_no or "").strip() or None,
-        other_types=others,
+        other_types=others, item_choices=payload.item_choices,
     )
-    out_rows = [{k: getattr(r, k) for k in ("series", "size", "color", "name_text", "qty", "invoice_no", "ship_date", "item_name", "exists", "type_name", "errors", "notes")} for r in rows]
+    out_rows = [{k: getattr(r, k) for k in ("series", "size", "color", "name_text", "qty", "invoice_no", "ship_date", "item_name", "exists", "type_name", "errors", "notes", "candidates")} for r in rows]
     invoices = sorted({(r.invoice_no or "").strip() for r in rows if (r.invoice_no or "").strip()})
     no_inv = [r.name_text for r in rows if not (r.invoice_no or "").strip()]
     # один счёт — один заказ (20.10): счёт, по которому заказ уже есть, —

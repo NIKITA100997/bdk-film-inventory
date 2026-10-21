@@ -33,6 +33,8 @@ class ImportRow:
     type_name: str | None = None
     errors: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # несколько подходящих позиций (21.10): выбор в окне загрузки — [{id, name}]
+    candidates: list[dict] = field(default_factory=list)
 
 
 def film_for_color(db: Session, color: str, index=None) -> tuple[str, str, float | None] | None:
@@ -274,18 +276,56 @@ _PARENS_RE = re.compile(r"\([^()]*\)")
 _DIM_SEP_RE = re.compile(r"(?<=\d)\s*[хxХX×*]\s*(?=\d)")
 
 
+def _paren_groups(name: str) -> list[tuple[int, int]]:
+    """Скобки верхнего уровня (вложенные — внутри): «… (ПЭТ Бежевый (cream silk))»
+    — одна группа целиком. [(начало, конец)]."""
+    out, depth, start = [], 0, 0
+    for i, ch in enumerate(name or ""):
+        if ch == "(":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == ")" and depth:
+            depth -= 1
+            if depth == 0:
+                out.append((start, i + 1))
+    return out
+
+
+def _strip_parens(name: str) -> str:
+    t = name or ""
+    for a, b in reversed(_paren_groups(t)):
+        t = t[:a] + " " + t[b:]
+    return t
+
+
 def product_key(name: str) -> str:
     """Название без скобок (цвет, «белый УК-6») и с одним знаком размера:
     «Коробка с упл. (белый УК-6) телескоп МДФ 32*75*2070» и «Коробка с упл.
     телескоп МДФ 32х75х2070 (Бетон тёмный ВДМ)» — одно и то же."""
-    t = _DIM_SEP_RE.sub("х", _PARENS_RE.sub(" ", (name or "").lower().replace("ё", "е")))
+    t = _DIM_SEP_RE.sub("х", _strip_parens((name or "").lower().replace("ё", "е")))
     return " ".join(t.split())
 
 
 def decor_of(name: str) -> str | None:
-    """Декор строки — последние скобки: «Наличник … (Бетон тёмный ВДМ)»."""
-    m = re.search(r"\(([^()]+)\)\s*$", name or "")
-    return " ".join(m.group(1).split()) if m else None
+    """Декор строки — последние скобки в конце, со вложенными: «Наличник …
+    (Бетон тёмный ВДМ)», «Коробка … (ПЭТ Бежевый (cream silk))»."""
+    t = (name or "").rstrip()
+    g = _paren_groups(t)
+    if not g or g[-1][1] != len(t):
+        return None
+    a, b = g[-1]
+    return " ".join(t[a + 1 : b - 1].split()) or None
+
+
+def qualifiers(name: str, drop_decor: bool) -> tuple[str, ...]:
+    """Уточнения в скобках («белый УК-6», «серия Б») — чем отличаются позиции
+    с одним ключом; у строки счёта последние скобки — декор, не в счёт."""
+    t = (name or "").rstrip()
+    g = _paren_groups(t)
+    if drop_decor and g and g[-1][1] == len(t):
+        g = g[:-1]
+    return tuple(sorted(" ".join(t[a + 1 : b - 1].lower().replace("ё", "е").split()) for a, b in g))
 
 
 class ProductIndex:
@@ -305,20 +345,32 @@ class ProductIndex:
                 self.by_key.setdefault(product_key(it.name), []).append(it)
 
     def find(self, text: str) -> tuple[Item | None, str | None]:
-        """(позиция, ошибка). Несколько с одним ключом — ошибка с именами."""
+        """(позиция, ошибка). Несколько с одним ключом — по уточнению в скобках
+        («белый УК-6» ≠ «серо-белый УК-6», 21.10); всё равно несколько —
+        ошибка, варианты — в self.last_candidates (выбор в окне загрузки)."""
         from app.services.item_aliases import find_item
         from app.services.naryad_import import base_name
 
+        self.last_candidates: list[Item] = []
         if self.kind_id is None:
             return None, None
         hit = find_item(self.db, text, self.kind_id) or find_item(self.db, base_name(text), self.kind_id)
         if hit is not None and not hit.is_model:
             return hit, None
         found = self.by_key.get(product_key(text), [])
+        q = qualifiers(text, drop_decor=True)
+        if q:
+            # уточнение в счёте («серо-белый УК-6») — только позиция с ним же;
+            # нет такой — новое изделие, а не соседнее «белый УК-6»
+            found = [i for i in found if qualifiers(i.name, drop_decor=False) == q]
+        elif len(found) > 1:
+            plain = [i for i in found if not qualifiers(i.name, drop_decor=False)]
+            found = plain if len(plain) == 1 else found
         if len(found) == 1:
             return found[0], None
         if len(found) > 1:
-            return None, "подходит несколько позиций: " + "; ".join(i.name for i in found[:4]) + " — добавьте синоним нужной"
+            self.last_candidates = found
+            return None, "подходит несколько позиций — выберите нужную (запомнится)"
         return None, None
 
 
@@ -385,6 +437,7 @@ def import_schedule(
     db: Session, *, text: str, type_: ItemType, order_name: str | None, user_id: int, dry_run: bool,
     color_films: dict[str, int] | None = None, colors_out: list | None = None,
     invoice_no: str | None = None, ship_date=None, other_types: list[ItemType] | None = None,
+    item_choices: dict[str, int] | None = None,
 ) -> tuple[list[ImportRow], list[str], ProductionOrder | None]:
     """dry_run — только предпросмотр. Иначе — позиции по типу и черновик
     заказа; если хоть одна строка с ошибкой — ничего не создаётся.
@@ -441,6 +494,18 @@ def import_schedule(
             if not ser:  # без серии — готовое изделие по названию (добор, коробка, наличник)
                 products = products or ProductIndex(db)
                 item, err = products.find(r.name_text)
+                chosen = (item_choices or {}).get(r.name_text)
+                if item is None and chosen and any(c.id == chosen for c in products.last_candidates):
+                    # выбрали в окне загрузки — запомнить синонимом, дальше найдётся сам
+                    item, err = db.get(Item, chosen), None
+                    if not dry_run:
+                        from app.services.item_aliases import add_alias
+                        from app.services.naryad_import import base_name
+
+                        try:
+                            add_alias(db, item, base_name(r.name_text), source="счёт: выбор позиции", user_id=user_id)
+                        except ValueError:
+                            pass  # текст уже синоним другой позиции — выбор только для этой загрузки
                 if item is not None:
                     row_items[-1] = item
                     ir.item_id, ir.item_name, ir.exists = item.id, item.name, True
@@ -452,6 +517,7 @@ def import_schedule(
                     continue
                 if err:
                     ir.errors.append(err)
+                    ir.candidates = [{"id": c.id, "name": c.name} for c in products.last_candidates]
                 else:
                     # нет в номенклатуре — заведётся при создании заказа (19.10)
                     from app.services.naryad_import import base_name

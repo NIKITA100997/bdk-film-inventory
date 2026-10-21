@@ -74,6 +74,9 @@ export default function ScheduleImportModal({
   // Сопоставление цвет графика → плёнка: выбор сохраняется в привязку цвета
   // типа и дальше подставляется сам (в заданиях на ламинацию — эта плёнка).
   const [colorFilms, setColorFilms] = useState<Record<string, number>>({});
+  // строка счёта → выбранная позиция, когда подходит несколько (21.10)
+  const [itemChoices, setItemChoices] = useState<Record<string, number>>({});
+  const choicesRef = useRef<Record<string, number>>({});
   const skusQuery = useQuery({ queryKey: ["material-skus", "active"], queryFn: () => listMaterialSkus(false), enabled: !!preview });
   const skuOptions = (skusQuery.data ?? [])
     .filter((s) => s.is_active && s.thickness.value_mm > 0)
@@ -99,6 +102,7 @@ export default function ScheduleImportModal({
           ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
           dry_run: dryRun,
           color_films: colorFilms,
+          item_choices: choicesRef.current,
           bitrix_deal_id: fromDeal?.id ?? null,
           bitrix_deal_title: fromDeal?.title ?? null,
           amount_rub: fromDeal?.amount ?? null,
@@ -112,6 +116,7 @@ export default function ScheduleImportModal({
         name: name.trim() || null,
         dry_run: dryRun,
         color_films: colorFilms,
+        item_choices: choicesRef.current,
         invoice_no: src.invoiceNo.trim() || null,
         ship_date: shipDate ? shipDate.format("YYYY-MM-DD") : null,
         ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
@@ -395,7 +400,23 @@ export default function ScheduleImportModal({
                 {
                   title: "Позиция",
                   render: (_, r) =>
-                    r.errors.length > 0 ? (
+                    (r.candidates ?? []).length > 0 ? (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text type="warning">Подходит несколько — выберите (запомнится):</Typography.Text>
+                        <Select
+                          size="small"
+                          style={{ width: 380 }}
+                          placeholder="Какая позиция"
+                          value={itemChoices[r.name_text]}
+                          onChange={(v) => {
+                            choicesRef.current = { ...choicesRef.current, [r.name_text]: v };
+                            setItemChoices(choicesRef.current);
+                            run.mutate(true);
+                          }}
+                          options={(r.candidates ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                        />
+                      </Space>
+                    ) : r.errors.length > 0 ? (
                       <Typography.Text type="danger">{r.errors.join("; ")}</Typography.Text>
                     ) : (
                       <Space size={4} wrap>
