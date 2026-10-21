@@ -302,8 +302,10 @@ export function useIssue() {
     !!code && !!areasQuery.data?.find((a) => a.code === code)?.film_no_return;
   const areaRequiresDailyPlan = (code: string) => areasQuery.data?.find((a) => a.code === code)?.requires_daily_plan ?? true;
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
+  // только задания с плёнкой (21.10): распил, фрезеровка, сборка и т.п. —
+  // не для выдачи, в списке их быть не должно (строки уже без плёночных отброшены)
   const taskOptions = (tasksQuery.data ?? [])
-    .filter((t) => t.is_active)
+    .filter((t) => t.is_active && t.lines.length > 0)
     .map((t) => ({ value: t.id, label: t.product_model_name ?? t.name ?? `Задание №${t.id}` }));
 
   // Раздел про площадки — домашний склад участка (Северный/Фабрика), чтобы
