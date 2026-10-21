@@ -199,7 +199,9 @@ def close_line_done(db: Session, line, done_total: float, user_id: int, close: b
         # детали, которые учитываются партиями на участке (окутка царговых), —
         # списать с участка по FIFO: «всё сделано» = они ушли на эту строку
         # (21.10: раньше партии оставались и остаток п/ф раздувался)
-        if line.part_id and line.task is not None:
+        # только строки с плёнкой (как у обычного отчёта): там деталь
+        # расходуется; на участке, где её делают, — нет
+        if line.part_id and line.material_id is not None and line.task is not None:
             from app.services.part_units import write_off_fifo_at_area
 
             write_off_fifo_at_area(db, part_id=line.part_id, area=line.task.area, quantity_pieces=left, user_id=user_id,
