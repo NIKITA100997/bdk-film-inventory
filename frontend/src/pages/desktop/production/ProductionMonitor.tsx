@@ -1,709 +1,186 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Checkbox, Progress, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from "antd";
+import { Button, Card, Checkbox, Input, Segmented, Select, Space, Typography } from "antd";
 import { DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
-import { getProductionMonitor, type MonitorArea, type MonitorRow } from "../../../api/productionMonitor";
+import { getProductionMonitor, type MonitorRow } from "../../../api/productionMonitor";
 import { DIRECTIONS } from "../../../utils/itemAttrs";
-import { exportBook } from "../../../utils/excel";
+import { exportToExcel } from "../../../utils/excel";
 import { useTabTitle } from "../../../layout/tabTitle";
 import { usePersistentState } from "../../../hooks/usePersistentState";
+import { useAuth } from "../../../auth/AuthContext";
+import { hasPerm } from "../../../auth/permissions";
+import OrdersView, { buildLines } from "./monitor/OrdersView";
+import AreasView from "./monitor/AreasView";
+import TaskCardDrawer from "./TaskCardDrawer";
 
-const NO_ORDER = 0; // задания цеха без заказа
-const r2 = (v: number) => Math.round(v * 100) / 100;
-const pct = (done: number, plan: number) => (plan > 0 ? Math.round((Math.min(done, plan) / plan) * 100) : 100);
-const dm = (s: string | null) => (s ? dayjs(s).format("DD.MM") : "");
-const done = (r: MonitorRow) => Math.min(r.good, r.plan);
-const left = (r: MonitorRow) => (r.closed ? 0 : Math.max(0, r.plan - r.good));
-const cellColor = (p: number, started: boolean) => (p >= 100 ? "#389e0d" : started ? "#C97A2B" : undefined);
-
-// Вид продукции (встреча 16.10): у дверей, погонажа и панелей свои этапы —
-// монитор по одному виду, а не всё вперемешку. Без направления — «Прочее».
+// Вид продукции (16.10): у дверей, погонажа и панелей свои этапы — по одному виду.
 const PRODUCTS = ["shield", "tsarg", "trim", "panel", "other"] as const;
 const productOf = (r: MonitorRow) => (r.direction && (PRODUCTS as readonly string[]).includes(r.direction) ? r.direction : "other");
 const productLabel = (p: string) => (p === "other" ? "Прочее" : DIRECTIONS[p] ?? p);
+const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
 
-// Этап «Плёнка» — выдана ли плёнка под строки, что ещё в работе (как на доске выдачи).
-const FILM_OK = new Set(["issued", "covered", "site_stock"]);
-const FILM_STATUS_TEXT: Record<string, string> = {
-  issued: "выдана", covered: "на участке", partial: "частично", none: "не выдана", site_stock: "со склада Фабрики",
-};
-type FilmSum = { total: number; ok: number; partial: number; toIssue: number };
-const filmSum = (rows: MonitorRow[]): FilmSum | null => {
-  const fr = rows.filter((r) => r.film_status && left(r) > 0);
-  if (!fr.length) return null;
-  return {
-    total: fr.length,
-    ok: fr.filter((r) => FILM_OK.has(r.film_status!)).length,
-    partial: fr.filter((r) => r.film_status === "partial").length,
-    toIssue: fr.reduce((s, r) => s + (FILM_OK.has(r.film_status!) ? 0 : r.film_to_issue_m ?? 0), 0),
-  };
-};
-const filmCell = (f: FilmSum | null) => {
-  if (!f) return null;
-  const tip = `строк с плёнкой в работе: ${f.total}; выдано: ${f.ok}${f.partial ? `, частично: ${f.partial}` : ""}${f.toIssue > 0 ? `; ещё выдать ${r2(f.toIssue)} м` : ""}`;
-  const [color, text] =
-    f.ok === f.total ? ["green", "выдана"] : f.ok === 0 && f.partial === 0
-        ? ["red", f.total > 1 ? `не выдана · ${f.total}` : "не выдана"]
-        : ["orange", f.total > 1 ? `${f.ok} из ${f.total}` : "частично"];
-  return (
-    <Tooltip title={tip}>
-      <Tag color={color} style={{ marginInlineEnd: 0 }}>
-        {text}
-      </Tag>
-    </Tooltip>
-  );
-};
-
-/** Раскрытие заказа (16.10): явная кнопка «+» / «−» вместо мелкого значка. */
-function PlusIcon<R>({ expanded, onExpand, record }: { expanded: boolean; onExpand: (r: R, e: React.MouseEvent<HTMLElement>) => void; record: R }) {
-  return (
-    <Button
-      size="small"
-      aria-label={expanded ? "Свернуть" : "Раскрыть"}
-      style={{ width: 28, padding: 0, fontWeight: 600 }}
-      onClick={(e) => {
-        e.stopPropagation();
-        onExpand(record, e);
-      }}
-    >
-      {expanded ? "−" : "+"}
-    </Button>
-  );
-}
-const toggle = (keys: React.Key[], k: React.Key) => (keys.includes(k) ? keys.filter((x) => x !== k) : [...keys, k]);
-
-type Sum = { plan: number; done: number; defect: number; left: number; lines: number; open: number; last: string | null };
-const sum = (rows: MonitorRow[]): Sum => {
-  const s: Sum = { plan: 0, done: 0, defect: 0, left: 0, lines: rows.length, open: 0, last: null };
-  for (const r of rows) {
-    s.plan += r.plan;
-    s.done += r.closed ? r.plan : done(r);
-    s.defect += r.defect;
-    s.left += left(r);
-    if (left(r) > 0) s.open += 1;
-    if (r.last_report && (!s.last || r.last_report > s.last)) s.last = r.last_report;
-  }
-  return s;
-};
-
-/** Монитор производства (08.10) — замена Excel «Монитор … запуск»: по всем
- * открытым заданиям сразу. «Участки» — итог и узкое место; «Заказы ×
- * участки» — сделано/план в клетке; «По участку» — лист участка поперёк
- * заказов (как листы «Каркас», «Окутка», «Склейка» в Excel). */
+/** Монитор производства (переработан 21.10).
+ * «Заказы на производство» — как лист «График»: строка на позицию заказа,
+ * столбец на операцию (сделано/план, клик — отчёт), осталось упаковать.
+ * «Задания цехов» — участок за участком: его строки по всем заказам, отчёт
+ * прямо в строке. Быстрый отчёт — где не нужен рулон и дневной план. */
 export default function ProductionMonitor() {
   useTabTitle("Монитор производства");
+  const { user } = useAuth();
   const [params, setParams] = useSearchParams();
-  // готовые строки (20.10): отдельной галочкой, выбор запоминается; с ней
-  // видны и задания, закрытые целиком
-  const [showDone, setShowDone] = usePersistentState("monitor.showDone", true);
-  const hideDone = !showDone;
-  const q = useQuery({
+  const [showDone, setShowDone] = usePersistentState("monitor.showDone", false);
+  const [savedView, setSavedView] = usePersistentState<"orders" | "areas">("monitor.view", "orders");
+  const [savedProduct, setSavedProduct] = usePersistentState<string>("monitor.product", "shield");
+  const [savedArea, setSavedArea] = usePersistentState<string | undefined>("monitor.area", undefined);
+  const view = (params.get("view") as "orders" | "areas") ?? savedView;
+  const area = params.get("area") ?? savedArea;
+  const [q, setQ] = useState("");
+  const [orderIds, setOrderIds] = useState<number[]>([]);
+  const [taskId, setTaskId] = useState<number | null>(null);
+  const query = useQuery({
     queryKey: ["production-monitor", showDone],
     queryFn: () => getProductionMonitor(showDone),
     refetchInterval: 120_000,
   });
-
-  const [site, setSite] = useState<string | undefined>();
-  const [orderIds, setOrderIds] = useState<number[]>([]);
-  const [matrixOpen, setMatrixOpen] = useState<React.Key[]>([]);
-  const [sheetOpen, setSheetOpen] = useState<React.Key[] | null>(null); // null — по умолчанию (один заказ — раскрыт)
-  const tab = params.get("tab") ?? "areas";
-  const areaParam = params.get("area") ?? undefined;
-  const orderParam = params.get("order");
-  const go = (next: Record<string, string | undefined>) => {
+  const data = query.data;
+  const set = (next: Record<string, string | undefined>) => {
     const p = new URLSearchParams(params);
-    for (const [k, v] of Object.entries(next)) {
-      if (v == null) p.delete(k);
-      else p.set(k, v);
-    }
+    for (const [k, v] of Object.entries(next)) (v == null ? p.delete(k) : p.set(k, v));
     setParams(p, { replace: true });
   };
-
-  const data = q.data;
-  // вид продукции: из адреса, иначе первый, где есть строки
   const products = PRODUCTS.filter((p) => (data?.rows ?? []).some((r) => productOf(r) === p));
-  const product = products.find((p) => p === params.get("product")) ?? products[0];
-  const areaBy = useMemo(() => new Map((data?.areas ?? []).map((a) => [a.code, a])), [data]);
-  const orderBy = useMemo(() => new Map((data?.orders ?? []).map((o) => [o.id, o])), [data]);
-  const rows = useMemo(
-    () =>
-      (data?.rows ?? []).filter(
-        (r) =>
-          productOf(r) === product &&
-          (!site || areaBy.get(r.area)?.site === site) &&
-          (!orderIds.length || orderIds.includes(r.order_id ?? NO_ORDER)),
-      ),
-    [data, product, site, orderIds, areaBy],
-  );
-  const areas = useMemo(() => {
-    const used = new Set(rows.map((r) => r.area));
-    return (data?.areas ?? []).filter((a) => used.has(a.code));
-  }, [data, rows]);
-  const sites = [...new Set((data?.areas ?? []).map((a) => a.site).filter(Boolean))] as string[];
-  const orderLabel = (id: number | null) => {
-    if (!id) return "Без заказа (задания цеха)";
-    const o = orderBy.get(id);
-    return o ? `№${o.id} ${o.name}` : `№${id}`;
-  };
+  const product = params.get("product") ?? (view === "areas" ? "all" : savedProduct);
+  const productOk = product === "all" || !products.length ? null : products.includes(product as never) ? product : products[0];
 
-  // ── Участки ──
-  const areaRows = areas.map((a) => {
-    const rs = rows.filter((r) => r.area === a.code);
-    const s = sum(rs);
-    return {
-      key: a.code,
-      area: a,
-      ...s,
-      orders: new Set(rs.filter((r) => left(r) > 0).map((r) => r.order_id ?? NO_ORDER)).size,
-      days: a.per_day ? s.left / a.per_day : null,
-    };
-  });
-  const bottleneck = (() => {
-    const withLeft = areaRows.filter((r) => r.left > 0);
-    if (!withLeft.length) return null;
-    const byDays = withLeft.filter((r) => r.days != null);
-    if (byDays.length) return byDays.reduce((a, b) => (b.days! > a.days! ? b : a)).key;
-    return withLeft.reduce((a, b) => (b.left > a.left ? b : a)).key;
-  })();
-  const total = sum(rows);
+  const rows = useMemo(() => {
+    const needle = norm(q.trim());
+    return (data?.rows ?? []).filter(
+      (r) =>
+        (!productOk || productOf(r) === productOk) &&
+        (orderIds.length === 0 || orderIds.includes(r.order_id ?? 0)) &&
+        (!needle ||
+          [r.invoice_no ?? "", r.series ?? "", r.color ?? "", r.source ?? "", r.position, r.task_name ?? "", r.operation ?? ""].some((s) =>
+            norm(s).includes(needle),
+          )),
+    );
+  }, [data, productOk, orderIds, q]);
 
-  // ── Заказы × участки ──
-  const matrixOrders = useMemo(() => {
-    const ids = [...new Set(rows.map((r) => r.order_id ?? NO_ORDER))];
-    const ship = (id: number) => orderBy.get(id)?.ship_date ?? "9999";
-    return ids
-      .map((id) => ({ id, s: sum(rows.filter((r) => (r.order_id ?? NO_ORDER) === id)) }))
-      .filter((o) => !hideDone || o.s.left > 0)
-      .sort((a, b) => (a.id === NO_ORDER ? 1 : b.id === NO_ORDER ? -1 : ship(a.id).localeCompare(ship(b.id)) || a.id - b.id));
-  }, [rows, orderBy, hideDone]);
-  const cell = (orderId: number, area: string) => {
-    const rs = rows.filter((r) => (r.order_id ?? NO_ORDER) === orderId && r.area === area);
-    return rs.length ? sum(rs) : null;
-  };
+  const orderOptions = useMemo(() => {
+    const ids = new Set((data?.rows ?? []).filter((r) => !productOk || productOf(r) === productOk).map((r) => r.order_id ?? 0));
+    return (data?.orders ?? [])
+      .filter((o) => ids.has(o.id))
+      .map((o) => ({ value: o.id, label: `№${o.id} «${o.name}»${o.ship_date ? ` · отгрузка ${dayjs(o.ship_date).format("DD.MM")}` : ""}` }));
+  }, [data, productOk]);
 
-  // Раскрытие заказа (13.10): каждая строка заказа — со всеми столбцами двери
-  // и статусом по каждому участку; фильтры — по данным столбцов.
-  type LineRow = { key: string; invoice: string; series: string; size: string; color: string; name: string; qty: number | null; rows: MonitorRow[] };
-  const statusOf = (s: Sum | null) => (!s ? null : s.done >= s.plan - 1e-9 ? "готово" : s.done > 0 ? "в работе" : "не начато");
-  const orderLines = (orderId: number) => {
-    const m = new Map<string, LineRow>();
-    for (const r of rows.filter((x) => (x.order_id ?? NO_ORDER) === orderId)) {
-      const key = r.order_line_id ? `l${r.order_line_id}` : `p|${r.position}`;
-      const g =
-        m.get(key) ??
-        ({
-          key,
-          invoice: r.invoice_no ?? "",
-          series: r.order_line_id ? r.series ?? "" : "",
-          size: r.order_line_id ? r.size ?? "" : "",
-          color: r.order_line_id ? r.color ?? "" : "",
-          name: r.order_line_id ? r.source || r.position : `${r.position} (п/ф на несколько строк)`,
-          qty: r.order_line_id ? r.line_qty ?? null : null,
-          rows: [],
-        } as LineRow);
-      g.rows.push(r);
-      m.set(key, g);
-    }
-    const list = [...m.values()].sort((a, b) => a.invoice.localeCompare(b.invoice, "ru") || a.name.localeCompare(b.name, "ru"));
-    const at = (l: LineRow, area: string) => {
-      const rs = l.rows.filter((r) => r.area === area);
-      return rs.length ? sum(rs) : null;
-    };
-    const used = areas.filter((a) => list.some((l) => at(l, a.code)));
-    const opts = (f: (l: LineRow) => string) => [...new Set(list.map(f).filter(Boolean))].sort().map((v) => ({ text: v, value: v }));
-    return (
-      <Table<LineRow>
-        size="small"
-        bordered
-        rowKey="key"
-        pagination={false}
-        dataSource={list}
-        scroll={{ x: "max-content" }}
-        columns={[
-          { title: "№ счёта", dataIndex: "invoice", filters: opts((l) => l.invoice), onFilter: (v, l) => l.invoice === v, filterSearch: true },
-          { title: "Серия", dataIndex: "series", filters: opts((l) => l.series), onFilter: (v, l) => l.series === v, filterSearch: true },
-          { title: "Размер", dataIndex: "size", filters: opts((l) => l.size), onFilter: (v, l) => l.size === v },
-          { title: "Цвет", dataIndex: "color", filters: opts((l) => l.color), onFilter: (v, l) => l.color === v, filterSearch: true },
-          {
-            title: "Наименование",
-            dataIndex: "name",
-            render: (v: string) => <div style={{ whiteSpace: "normal", maxWidth: 320 }}>{v}</div>,
-            filters: opts((l) => l.name),
-            onFilter: (v, l) => l.name === v,
-            filterSearch: true,
-          },
-          { title: "Кол-во", align: "right", render: (_, l) => (l.qty != null ? r2(l.qty) : "") },
-          ...(list.some((l) => filmSum(l.rows)) ? [{ title: "Плёнка", key: "__film", render: (_: unknown, l: LineRow) => filmCell(filmSum(l.rows)) }] : []),
-          ...used.map((a) => ({
-            title: areaTitle(a),
-            key: a.code,
-            filters: [
-              { text: "не начато", value: "не начато" },
-              { text: "в работе", value: "в работе" },
-              { text: "готово", value: "готово" },
-            ],
-            onFilter: (v: boolean | React.Key, l: LineRow) => statusOf(at(l, a.code)) === v,
-            render: (_: unknown, l: LineRow) => {
-              const c = at(l, a.code);
-              return c ? progressCell(c) : null;
-            },
-          })),
-        ]}
-      />
+  const exportOrders = () => {
+    const { lines, ops } = buildLines(rows, data?.orders ?? [], data?.areas ?? []);
+    const out = lines.map((l) => {
+      const rec: Record<string, string | number> = {
+        order: l.order_name, launch: l.launch ? dayjs(l.launch).format("DD.MM.YYYY") : "", invoice: l.invoice, series: l.series,
+        size: l.size, color: l.color, name: l.source, qty: l.qty, left: l.left,
+      };
+      ops.forEach((op, i) => {
+        const rs = l.ops[op] ?? [];
+        rec[`op${i}`] = rs.length ? rs.reduce((s, r) => s + (r.closed ? r.plan : Math.min(r.good, r.plan)), 0) : "";
+      });
+      return rec;
+    });
+    exportToExcel(
+      `Монитор ${productOk ? productLabel(productOk) : ""} ${dayjs().format("DD.MM.YYYY")}`,
+      out,
+      [
+        { key: "order", header: "Заказ" }, { key: "launch", header: "Дата запуска" }, { key: "invoice", header: "№ счёта" },
+        { key: "series", header: "Серия" }, { key: "size", header: "Размер" }, { key: "color", header: "Цвет" },
+        { key: "name", header: "Наименование" }, { key: "qty", header: "Кол-во" }, { key: "left", header: "Осталось упаковать" },
+        ...ops.map((op, i) => ({ key: `op${i}`, header: op })),
+      ],
+      [`Монитор производства — ${productOk ? productLabel(productOk) : "все"}, ${dayjs().format("DD.MM.YYYY HH:mm")}`],
     );
   };
-
-  // ── По участку ──
-  const sheetArea = areaParam && areaBy.has(areaParam) ? areaParam : areas[0]?.code;
-  const [grouped, setGrouped] = useState<"rows" | "position">("rows");
-  const sheetRows = rows
-    .filter((r) => r.area === sheetArea && (orderParam == null || String(r.order_id ?? NO_ORDER) === orderParam))
-    .filter((r) => !hideDone || left(r) > 0)
-    .sort(
-      (a, b) =>
-        (orderBy.get(a.order_id ?? -1)?.ship_date ?? "9999").localeCompare(orderBy.get(b.order_id ?? -1)?.ship_date ?? "9999") ||
-        a.position.localeCompare(b.position, "ru"),
-    );
-  const byPosition = useMemo(() => {
-    const m = new Map<string, { key: string; position: string; film: string | null; program: string | null; rows: MonitorRow[] }>();
-    for (const r of sheetRows) {
-      // группа участка (08.10), если участок её задал, иначе — позиция
-      const key = r.group ? `g|${r.group}` : `${r.position}|${r.film ?? ""}|${r.program ?? ""}`;
-      if (!m.has(key)) m.set(key, { key, position: r.group ?? r.position, film: r.group ? null : r.film, program: r.group ? null : r.program, rows: [] });
-      m.get(key)!.rows.push(r);
-    }
-    return [...m.values()].map((g) => ({ ...g, ...sum(g.rows), orders: new Set(g.rows.map((r) => r.order_id ?? NO_ORDER)).size }));
-  }, [sheetRows]);
-
-  // Лист участка по заказам (16.10): заказ — строкой, «+» — его строки.
-  type SheetOrder = { id: number; rows: MonitorRow[] };
-  const sheetOrders: SheetOrder[] = [];
-  for (const r of sheetRows) {
-    const id = r.order_id ?? NO_ORDER;
-    const g = sheetOrders.find((o) => o.id === id);
-    if (g) g.rows.push(r);
-    else sheetOrders.push({ id, rows: [r] });
-  }
-  const sheetKeys: React.Key[] = sheetOpen ?? (sheetOrders.length === 1 ? [sheetOrders[0].id] : []);
-  const sheetLines = (lineRows: MonitorRow[]) => (
-    <Table<MonitorRow>
-      size="small"
-      rowKey="task_line_id"
-      dataSource={lineRows}
-      pagination={false}
-      scroll={{ x: "max-content" }}
-      columns={[
-        { title: "Счёт", render: (_, r) => r.invoice_no ?? "" },
-        { title: "Позиция", render: (_, r) => <div style={{ whiteSpace: "normal", maxWidth: 380 }}>{r.position}</div> },
-        ...(sheetRows.some((r) => r.film)
-          ? [
-              { title: "Плёнка", render: (_: unknown, r: MonitorRow) => r.film ?? "" },
-              { title: "Выдача плёнки", render: (_: unknown, r: MonitorRow) => filmCell(filmSum([r])) },
-            ]
-          : []),
-        ...(sheetRows.some((r) => r.program) ? [{ title: "Программа", render: (_: unknown, r: MonitorRow) => r.program ?? "" }] : []),
-        { title: "Готовность", width: 200, render: (_, r) => progressCell(sum([r])) },
-        {
-          title: "Осталось",
-          align: "right" as const,
-          render: (_, r) => (r.closed ? <Tag>закрыто</Tag> : <b>{r2(left(r))}</b>),
-        },
-        {
-          title: "Срок по плану",
-          render: (_, r) => {
-            if (!r.date_from) return "—";
-            const late = left(r) > 0 && r.date_to && dayjs(r.date_to).isBefore(dayjs(), "day");
-            return (
-              <span style={{ color: late ? "#cf1322" : undefined }}>
-                {dm(r.date_from)}
-                {r.date_to && r.date_to !== r.date_from ? `–${dm(r.date_to)}` : ""}
-              </span>
-            );
-          },
-        },
-        { title: "Последний отчёт", render: (_, r) => (r.last_report ? dayjs(r.last_report).format("DD.MM HH:mm") : "—") },
-                          ]}
-    />
-  );
-
-  const progressCell = (s: Sum) => (
-    <Tooltip title={`сделано ${r2(s.done)} из ${r2(s.plan)}${s.defect ? `, брак ${r2(s.defect)}` : ""}`}>
-      <div style={{ minWidth: 90 }}>
-        <span style={{ color: cellColor(pct(s.done, s.plan), s.done > 0), fontWeight: 500 }}>
-          {r2(s.done)} / {r2(s.plan)}
-        </span>
-        {s.defect > 0 && <span style={{ color: "#cf1322", fontSize: 12 }}> брак {r2(s.defect)}</span>}
-        <Progress percent={pct(s.done, s.plan)} size="small" showInfo={false} strokeColor={cellColor(pct(s.done, s.plan), s.done > 0)} />
-      </div>
-    </Tooltip>
-  );
-
-  const exportAll = () => {
-    const areaName = (code: string) => areaBy.get(code)?.name ?? code;
-    exportBook(`Монитор производства — ${productLabel(product ?? "other")} ${dayjs().format("DD.MM.YYYY HH-mm")}`, [
-      {
-        name: "Участки",
-        columns: [
-          { key: "area", header: "Участок" },
-          { key: "site", header: "Площадка" },
-          { key: "plan", header: "План, шт" },
-          { key: "done", header: "Сделано, шт" },
-          { key: "defect", header: "Брак, шт" },
-          { key: "left", header: "Осталось, шт" },
-          { key: "pct", header: "Готовность, %" },
-          { key: "orders", header: "Заказов в работе" },
-          { key: "days", header: "Дней на остаток" },
-        ],
-        rows: areaRows.map((r) => ({
-          area: r.area.name, site: r.area.site ?? "", plan: r2(r.plan), done: r2(r.done), defect: r2(r.defect), left: r2(r.left),
-          pct: pct(r.done, r.plan), orders: r.orders, days: r.days == null ? "" : r2(r.days),
-        })),
-      },
-      {
-        name: "Заказы × участки",
-        columns: [
-          { key: "order", header: "Заказ" },
-          { key: "ship", header: "Отгрузка" },
-          ...areas.map((a) => ({ key: a.code, header: a.name })),
-          { key: "pct", header: "Итого, %" },
-        ],
-        rows: matrixOrders.map((o) => ({
-          order: orderLabel(o.id),
-          ship: dm(orderBy.get(o.id)?.ship_date ?? null),
-          ...Object.fromEntries(areas.map((a) => {
-            const c = cell(o.id, a.code);
-            return [a.code, c ? `${r2(c.done)} / ${r2(c.plan)}` : ""];
-          })),
-          pct: pct(o.s.done, o.s.plan),
-        })),
-      },
-      {
-        name: "Все строки",
-        columns: [
-          { key: "area", header: "Участок" },
-          { key: "order", header: "Заказ" },
-          { key: "invoice", header: "Счёт" },
-          { key: "position", header: "Позиция" },
-          { key: "film", header: "Плёнка" },
-          { key: "program", header: "Программа" },
-          { key: "film_status", header: "Выдача плёнки" },
-          { key: "plan", header: "План" },
-          { key: "good", header: "Сделано" },
-          { key: "defect", header: "Брак" },
-          { key: "left", header: "Осталось" },
-          { key: "term", header: "Срок по плану" },
-        ],
-        rows: rows.map((r) => ({
-          area: areaName(r.area), order: orderLabel(r.order_id), invoice: r.invoice_no ?? "", position: r.position, film: r.film ?? "",
-          program: r.program ?? "", film_status: r.film_status ? FILM_STATUS_TEXT[r.film_status] : "", plan: r.plan, good: r.good, defect: r.defect, left: left(r),
-          term: r.date_from ? `${dm(r.date_from)}${r.date_to && r.date_to !== r.date_from ? `–${dm(r.date_to)}` : ""}` : "",
-        })),
-      },
-    ]);
-  };
-
-  const areaTitle = (a: MonitorArea) => (
-    <div style={{ whiteSpace: "normal", minWidth: 80 }}>
-      {a.name}
-      {a.site && <div style={{ fontSize: 11, fontWeight: 400, color: "#6B6B68" }}>{a.site}</div>}
-    </div>
-  );
 
   return (
-    <Card
-      title="Монитор производства"
-      extra={
-        <Space>
-          <Button icon={<ReloadOutlined />} loading={q.isFetching} onClick={() => q.refetch()} />
-          <Button icon={<DownloadOutlined />} disabled={!data} onClick={exportAll}>
-            Выгрузить в Excel
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Card size="small">
+        <Space wrap size={[12, 8]}>
+          <Segmented
+            value={view}
+            onChange={(v) => {
+              setSavedView(v as "orders" | "areas");
+              set({ view: v as string });
+            }}
+            options={[
+              { label: "Заказы на производство", value: "orders" },
+              { label: "Задания цехов", value: "areas" },
+            ]}
+          />
+          {products.length > 0 && (
+            <Segmented
+              value={productOk ?? "all"}
+              onChange={(v) => {
+                if (v !== "all") setSavedProduct(v as string);
+                set({ product: v as string });
+              }}
+              options={[
+                ...(view === "areas" ? [{ label: "Все", value: "all" }] : []),
+                ...products.map((p) => ({ label: productLabel(p), value: p })),
+              ]}
+            />
+          )}
+          <Select
+            mode="multiple"
+            allowClear
+            placeholder="Все заказы"
+            style={{ minWidth: 240, maxWidth: 460 }}
+            value={orderIds}
+            onChange={setOrderIds}
+            optionFilterProp="label"
+            maxTagCount="responsive"
+            options={orderOptions}
+          />
+          <Input.Search allowClear placeholder="Счёт, серия, цвет, позиция" style={{ width: 260 }} value={q} onChange={(e) => setQ(e.target.value)} />
+          <Checkbox checked={showDone} onChange={(e) => setShowDone(e.target.checked)}>
+            показывать готовые
+          </Checkbox>
+          <Button icon={<ReloadOutlined />} loading={query.isFetching} onClick={() => query.refetch()}>
+            Обновить
           </Button>
+          {view === "orders" && (
+            <Button icon={<DownloadOutlined />} disabled={!rows.length} onClick={exportOrders}>
+              Excel
+            </Button>
+          )}
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {data ? `обновлено ${dayjs(query.dataUpdatedAt).format("HH:mm")}` : ""}
+          </Typography.Text>
         </Space>
-      }
-    >
-      {products.length > 0 && (
-        <Segmented
-          size="large"
-          style={{ marginBottom: 12, display: "flex", width: "fit-content", maxWidth: "100%", overflowX: "auto" }}
-          value={product}
-          onChange={(v) => go({ product: String(v), area: undefined, order: undefined })}
-          options={products.map((p) => {
-            const open = (data?.rows ?? []).filter((r) => productOf(r) === p && left(r) > 0).length;
-            return { value: p, label: `${productLabel(p)} · ${open}` };
-          })}
+      </Card>
+      {!data ? null : view === "orders" ? (
+        <OrdersView rows={rows} orders={data.orders} areas={data.areas} hideDone={!showDone} onOpenTask={setTaskId} />
+      ) : (
+        <AreasView
+          rows={rows}
+          orders={data.orders}
+          areas={data.areas}
+          area={area ?? undefined}
+          onArea={(code) => {
+            setSavedArea(code);
+            set({ area: code });
+          }}
+          hideDone={!showDone}
+          onOpenTask={setTaskId}
         />
       )}
-      <Space wrap style={{ marginBottom: 12 }}>
-        <Select allowClear placeholder="Площадка" style={{ width: 160 }} value={site} onChange={setSite} options={sites.map((s) => ({ value: s, label: s }))} />
-        <Select
-          mode="multiple"
-          allowClear
-          placeholder="Заказы — все"
-          style={{ minWidth: 260, maxWidth: 520 }}
-          value={orderIds}
-          onChange={setOrderIds}
-          optionFilterProp="label"
-          maxTagCount="responsive"
-          options={[
-            ...(data?.orders ?? []).map((o) => ({ value: o.id, label: `${orderLabel(o.id)}${o.ship_date ? ` · отгрузка ${dm(o.ship_date)}` : ""}` })),
-            ...((data?.rows ?? []).some((r) => !r.order_id) ? [{ value: NO_ORDER, label: orderLabel(null) }] : []),
-          ]}
-        />
-        <Checkbox checked={showDone} onChange={(e) => setShowDone(e.target.checked)}>
-          показывать готовые
-        </Checkbox>
-        <Typography.Text type="secondary">
-          Всего: сделано {r2(total.done)} из {r2(total.plan)} шт ({pct(total.done, total.plan)}%), осталось {r2(total.left)}
-          {total.defect ? `, брак ${r2(total.defect)}` : ""}
-        </Typography.Text>
-        {filmSum(rows) && (
-          <Space size={6}>
-            <Typography.Text type="secondary">Плёнка:</Typography.Text>
-            {filmCell(filmSum(rows))}
-            <Link to="/production-tasks?tab=film-issue">доска выдачи →</Link>
-          </Space>
-        )}
-      </Space>
-
-      <Tabs
-        activeKey={tab}
-        onChange={(k) => go({ tab: k })}
-        items={[
-          {
-            key: "areas",
-            label: "Участки",
-            children: (
-              <Table
-                size="small"
-                loading={q.isLoading}
-                pagination={false}
-                dataSource={areaRows.filter((r) => !hideDone || r.left > 0)}
-                scroll={{ x: "max-content" }}
-                onRow={(r) => ({ onClick: () => go({ tab: "area", area: r.key, order: undefined }), style: { cursor: "pointer" } })}
-                locale={{ emptyText: "Открытых заданий нет" }}
-                columns={[
-                  {
-                    title: "Участок",
-                    render: (_, r) => (
-                      <Space>
-                        <b>{r.area.name}</b>
-                        {r.key === bottleneck && <Tag color="red">узкое место</Tag>}
-                      </Space>
-                    ),
-                  },
-                  { title: "Площадка", render: (_, r) => r.area.site ?? "—" },
-                  { title: "Готовность", width: 220, render: (_, r) => progressCell(r) },
-                  { title: "Осталось, шт", align: "right", render: (_, r) => <b>{r2(r.left)}</b> },
-                  { title: "Строк в работе", align: "right", dataIndex: "open" },
-                  { title: "Заказов в работе", align: "right", dataIndex: "orders" },
-                  {
-                    title: <Tooltip title="Остаток ÷ мощность участка в день (задаётся в «Участки и линии»)">Дней на остаток</Tooltip>,
-                    align: "right",
-                    render: (_, r) => (r.days == null ? <Typography.Text type="secondary">мощность не задана</Typography.Text> : r2(r.days)),
-                  },
-                  { title: "Последний отчёт", render: (_, r) => (r.last ? dayjs(r.last).format("DD.MM HH:mm") : "—") },
-                ]}
-              />
-            ),
-          },
-          {
-            key: "matrix",
-            label: "Заказы × участки",
-            children: (
-              <Table
-                size="small"
-                bordered
-                loading={q.isLoading}
-                pagination={false}
-                rowKey="id"
-                dataSource={matrixOrders}
-                expandable={{
-                  expandedRowRender: (o) => orderLines(o.id),
-                  rowExpandable: () => true,
-                  expandedRowKeys: matrixOpen,
-                  onExpand: (_, o) => setMatrixOpen((ks) => toggle(ks, o.id)),
-                  expandIcon: (p) => <PlusIcon {...p} />,
-                }}
-                onRow={(o) => ({ onClick: () => setMatrixOpen((ks) => toggle(ks, o.id)), style: { cursor: "pointer" } })}
-                title={() => (
-                  <Space>
-                    <Button size="small" onClick={() => setMatrixOpen(matrixOrders.map((o) => o.id))}>
-                      Раскрыть все
-                    </Button>
-                    <Button size="small" disabled={!matrixOpen.length} onClick={() => setMatrixOpen([])}>
-                      Свернуть все
-                    </Button>
-                    <Typography.Text type="secondary">«+» у заказа — его строки по участкам</Typography.Text>
-                  </Space>
-                )}
-                scroll={{ x: "max-content", y: "calc(100vh - 330px)" }}
-                locale={{ emptyText: "Открытых заданий нет" }}
-                columns={[
-                  {
-                    title: "Заказ",
-                    fixed: "left",
-                    width: 240,
-                    render: (_, o) => (
-                      <div style={{ whiteSpace: "normal" }}>
-                        {o.id === NO_ORDER ? orderLabel(null) : <Link to={`/production-orders/${o.id}`}>{orderLabel(o.id)}</Link>}
-                        {orderBy.get(o.id)?.ship_date && (
-                          <div style={{ fontSize: 12, color: "#6B6B68" }}>отгрузка {dm(orderBy.get(o.id)!.ship_date)}</div>
-                        )}
-                      </div>
-                    ),
-                  },
-                  {
-                    title: "Итого",
-                    fixed: "left",
-                    width: 110,
-                    render: (_, o) => <b style={{ color: cellColor(pct(o.s.done, o.s.plan), o.s.done > 0) }}>{pct(o.s.done, o.s.plan)}%</b>,
-                  },
-                  ...(filmSum(rows)
-                    ? [{ title: "Плёнка", key: "__film", width: 120, render: (_: unknown, o: { id: number }) => filmCell(filmSum(rows.filter((r) => (r.order_id ?? NO_ORDER) === o.id))) }]
-                    : []),
-                  ...areas.map((a) => ({
-                    title: areaTitle(a),
-                    key: a.code,
-                    render: (_: unknown, o: { id: number }) => {
-                      const c = cell(o.id, a.code);
-                      if (!c) return null;
-                      return (
-                        <div
-                          style={{ cursor: "pointer" }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            go({ tab: "area", area: a.code, order: String(o.id) });
-                          }}
-                        >
-                          {progressCell(c)}
-                        </div>
-                      );
-                    },
-                  })),
-                ]}
-              />
-            ),
-          },
-          {
-            key: "area",
-            label: "По участку",
-            children: (
-              <Space direction="vertical" style={{ width: "100%" }}>
-                <Space wrap>
-                  <Select
-                    style={{ width: 280 }}
-                    value={sheetArea}
-                    onChange={(v) => go({ area: v, order: undefined })}
-                    options={areas.map((a) => ({ value: a.code, label: `${a.name}${a.site ? ` · ${a.site}` : ""}` }))}
-                  />
-                  {orderParam != null && (
-                    <Tag closable onClose={() => go({ order: undefined })}>
-                      {orderLabel(Number(orderParam) || null)}
-                    </Tag>
-                  )}
-                  <Segmented
-                    value={grouped}
-                    onChange={(v) => setGrouped(v as "rows" | "position")}
-                    options={[
-                      { value: "rows", label: "По строкам заказов" },
-                      { value: "position", label: "Сводно (по группам участка)" },
-                    ]}
-                  />
-                </Space>
-                {grouped === "rows" ? (
-                  <Table<SheetOrder>
-                    size="small"
-                    rowKey="id"
-                    loading={q.isLoading}
-                    dataSource={sheetOrders}
-                    pagination={false}
-                    scroll={{ x: "max-content" }}
-                    locale={{ emptyText: "На участке нет строк в работе" }}
-                    expandable={{
-                      expandedRowRender: (o) => sheetLines(o.rows),
-                      rowExpandable: () => true,
-                      expandedRowKeys: sheetKeys,
-                      onExpand: (_, o) => setSheetOpen(toggle(sheetKeys, o.id)),
-                      expandIcon: (p) => <PlusIcon {...p} />,
-                    }}
-                    onRow={(o) => ({ onClick: () => setSheetOpen(toggle(sheetKeys, o.id)), style: { cursor: "pointer" } })}
-                    title={() => (
-                      <Space>
-                        <Button size="small" onClick={() => setSheetOpen(sheetOrders.map((o) => o.id))}>
-                          Раскрыть все
-                        </Button>
-                        <Button size="small" disabled={!sheetKeys.length} onClick={() => setSheetOpen([])}>
-                          Свернуть все
-                        </Button>
-                      </Space>
-                    )}
-                    columns={[
-                      {
-                        title: "Заказ",
-                        render: (_, o) => (
-                          <div style={{ whiteSpace: "normal", maxWidth: 320 }}>
-                            {o.id !== NO_ORDER ? (
-                              <Link to={`/production-orders/${o.id}`} onClick={(e) => e.stopPropagation()}>
-                                {orderLabel(o.id)}
-                              </Link>
-                            ) : (
-                              orderLabel(null)
-                            )}
-                            {orderBy.get(o.id)?.ship_date && (
-                              <div style={{ fontSize: 12, color: "#6B6B68" }}>отгрузка {dm(orderBy.get(o.id)!.ship_date)}</div>
-                            )}
-                          </div>
-                        ),
-                      },
-                      { title: "Строк", align: "right" as const, render: (_, o) => o.rows.length },
-                      ...(sheetRows.some((r) => r.film) ? [{ title: "Плёнка", render: (_: unknown, o: SheetOrder) => filmCell(filmSum(o.rows)) }] : []),
-                      { title: "Готовность", width: 200, render: (_, o) => progressCell(sum(o.rows)) },
-                      { title: "Осталось", align: "right" as const, render: (_, o) => <b>{r2(sum(o.rows).left)}</b> },
-                      {
-                        title: "Срок по плану",
-                        render: (_, o) => {
-                          const from = o.rows.map((r) => r.date_from).filter(Boolean).sort()[0];
-                          const to = o.rows.map((r) => r.date_to).filter(Boolean).sort().slice(-1)[0];
-                          if (!from) return "—";
-                          const late = sum(o.rows).left > 0 && to && dayjs(to).isBefore(dayjs(), "day");
-                          return (
-                            <span style={{ color: late ? "#cf1322" : undefined }}>
-                              {dm(from)}
-                              {to && to !== from ? `–${dm(to)}` : ""}
-                            </span>
-                          );
-                        },
-                      },
-                    ]}
-                  />
-                ) : (
-                  <Table
-                    size="small"
-                    rowKey="key"
-                    loading={q.isLoading}
-                    dataSource={byPosition}
-                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    scroll={{ x: "max-content" }}
-                    locale={{ emptyText: "На участке нет строк в работе" }}
-                    columns={[
-                      { title: "Позиция", render: (_, g) => <div style={{ whiteSpace: "normal", maxWidth: 420 }}>{g.position}</div> },
-                      ...(byPosition.some((g) => g.film) ? [{ title: "Плёнка", render: (_: unknown, g: (typeof byPosition)[number]) => g.film ?? "" }] : []),
-                      ...(byPosition.some((g) => g.program)
-                        ? [{ title: "Программа", render: (_: unknown, g: (typeof byPosition)[number]) => g.program ?? "" }]
-                        : []),
-                      { title: "Заказов", align: "right" as const, dataIndex: "orders" },
-                      { title: "Готовность", width: 200, render: (_, g) => progressCell(g) },
-                      { title: "Осталось", align: "right" as const, render: (_, g) => <b>{r2(g.left)}</b> },
-                    ]}
-                  />
-                )}
-              </Space>
-            ),
-          },
-        ]}
+      <TaskCardDrawer
+        taskId={taskId}
+        onClose={() => {
+          setTaskId(null);
+          query.refetch();
+        }}
+        canManage={hasPerm(user, "production_tasks.manage")}
+        canReport={hasPerm(user, "production_tasks.manage", "production_tasks.report")}
       />
-    </Card>
+    </Space>
   );
 }

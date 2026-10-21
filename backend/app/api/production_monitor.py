@@ -71,6 +71,15 @@ class MonitorRow(BaseModel):
     film_status: str | None = None
     film_need_m: float | None = None
     film_to_issue_m: float | None = None
+    # монитор по заказам (21.10): операция маршрута и её порядок — столбцы;
+    # деталь п/ф (part_id) или сама позиция заказа; быстрый отчёт из монитора —
+    # участок без рулона и дневного плана, строка без плёнки и открыта
+    operation: str | None = None
+    op_seq: int | None = None
+    part_id: int | None = None
+    task_name: str | None = None
+    quick: bool = False
+    launch_date: date | None = None
 
 
 class MonitorOut(BaseModel):
@@ -137,6 +146,15 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
         item = items.get(item_id) if item_id else None
         return effective_direction(item, types.get(item.type_id)) if item else None
 
+    from app.models.dictionaries import PartStage
+
+    area_by_code = {a.code: a for a in db.query(Area)}
+    stage_ids = {ln.part_stage_id for ln, _ in lines if ln.part_stage_id}
+    stages = {st.id: st for st in db.query(PartStage).filter(PartStage.id.in_(stage_ids or {-1}))}
+    launched = {
+        o.id: (o.released_at.date() if o.released_at else None)
+        for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_({t.production_order_id for _, t in lines if t.production_order_id} or {-1}))
+    }
     rows: list[MonitorRow] = []
     order_ids: set[int] = set()
     area_codes: set[str] = set()
@@ -165,6 +183,14 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
                 group=grp[1] if grp else None,
                 order_line_id=ol.id if ol else None, line_qty=float(ol.quantity) if ol else None,
                 series=dc.get("series", ""), size=dc.get("size", ""), color=dc.get("color", ""), source=dc.get("source", ""),
+                operation=(stages[ln.part_stage_id].name if ln.part_stage_id in stages else None) or (area_by_code[t.area].name if t.area in area_by_code else None),
+                op_seq=stages[ln.part_stage_id].sequence_order if ln.part_stage_id in stages else None,
+                part_id=ln.part_id, task_name=t.name,
+                quick=bool(
+                    t.is_active and not ln.is_closed and ln.material_id is None and t.area in area_by_code
+                    and not area_by_code[t.area].requires_daily_plan and not area_by_code[t.area].requires_roll_on_report
+                ),
+                launch_date=launched.get(t.production_order_id) if t.production_order_id else None,
             )
         )
         area_codes.add(t.area)
