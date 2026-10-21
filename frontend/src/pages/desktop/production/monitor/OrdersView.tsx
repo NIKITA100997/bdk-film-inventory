@@ -48,7 +48,8 @@ export function buildLines(rows: MonitorRow[], orders: MonitorOrder[], areas: Mo
       continue;
     }
     const op = r.operation ?? r.area;
-    const seq = r.op_seq ?? 1000 + (areaSort.get(r.area) ?? 0);
+    // порядок столбцов: этап маршрута, при равных — участок по срокам плана (раньше начинается — левее)
+    const seq = (r.op_seq ?? 1000) * 1000 + (areaSort.get(r.area) ?? 999);
     opSeq.set(op, Math.min(opSeq.get(op) ?? seq, seq));
     let l = lines.get(key);
     if (!l) {
