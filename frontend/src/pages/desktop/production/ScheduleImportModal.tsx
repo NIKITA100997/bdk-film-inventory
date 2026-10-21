@@ -409,7 +409,10 @@ export default function ScheduleImportModal({
                           placeholder="Какая позиция"
                           value={itemChoices[r.name_text]}
                           onChange={(v) => {
-                            choicesRef.current = { ...choicesRef.current, [r.name_text]: v };
+                            // один выбор — на все строки с теми же вариантами (одна коробка в разных декорах)
+                            const sig = (x: ScheduleImportRow) => (x.candidates ?? []).map((c) => c.id).join(",");
+                            const same = (preview?.rows ?? []).filter((x) => sig(x) && sig(x) === sig(r)).map((x) => x.name_text);
+                            choicesRef.current = { ...choicesRef.current, ...Object.fromEntries([r.name_text, ...same].map((n) => [n, v])) };
                             setItemChoices(choicesRef.current);
                             run.mutate(true);
                           }}
