@@ -180,9 +180,10 @@ def line_done_pieces(db: Session, line_id: int) -> float:
 
 def close_line_done(db: Session, line, done_total: float, user_id: int, close: bool = True) -> int:
     """Строка сделана на done_total шт всего: недостающее до этого числа
-    засчитывается служебным отчётом без рулона (плёнку не трогает; детали,
-    учитываемые партиями на участке, списываются по FIFO — 21.10; последняя
-    операция изделия — на склад готовой продукции), строка
+    засчитывается служебным отчётом без рулона (плёнку и партии п/ф не
+    трогает — так закрывают и старые задания, по которым не внесли отчёты,
+    а детали ушли до учёта п/ф, 21.10; последняя операция изделия — на
+    склад готовой продукции), строка
     закрывается (close). Уже засчитано больше — ничего не списывает назад.
     Возвращает 1, если добавлен отчёт."""
     from app.models.production import ProductionTaskLineReport
@@ -196,16 +197,6 @@ def close_line_done(db: Session, line, done_total: float, user_id: int, close: b
         )
         db.add(report)
         added = 1
-        # детали, которые учитываются партиями на участке (окутка царговых), —
-        # списать с участка по FIFO: «всё сделано» = они ушли на эту строку
-        # (21.10: раньше партии оставались и остаток п/ф раздувался)
-        # только строки с плёнкой (как у обычного отчёта): там деталь
-        # расходуется; на участке, где её делают, — нет
-        if line.part_id and line.material_id is not None and line.task is not None:
-            from app.services.part_units import write_off_fifo_at_area
-
-            write_off_fifo_at_area(db, part_id=line.part_id, area=line.task.area, quantity_pieces=left, user_id=user_id,
-                                   note=f"Закрыто «всё сделано» по строке задания №{line.id}")
         # последняя операция изделия (ламинированный погонаж Фабрики —
         # готов к продаже, 06.10) — на склад готовой продукции
         stage = db.get(PartStage, line.part_stage_id) if line.part_stage_id else None
