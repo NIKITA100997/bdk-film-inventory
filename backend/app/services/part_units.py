@@ -863,3 +863,33 @@ def regrade_part_unit(db: Session, *, unit: PartUnit, part_id: int, user_id: int
         from_stage_id=old_stage, to_stage_id=new_stage.id, note=f"Пересорт: {old_name} → {target.name}. {reason.strip()}"[:255],
     )
     return unit
+
+
+def write_off_fifo_at_area(db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int, note: str) -> float:
+    """Списать готовые детали с участка по FIFO (21.10): строку закрыли «всё
+    сделано» без отчёта — детали на неё физически ушли, а партии висели на
+    участке (остаток п/ф раздувался). Свободно у партии — количество минус
+    уже отчитанное. Возвращает, сколько списано (не больше, чем есть)."""
+    from app.core.constants import PART_UNIT_AUTO_WRITE_OFF_REASON_CODE
+
+    db.flush()
+    units = (
+        db.query(PartUnit)
+        .filter(PartUnit.part_id == part_id, PartUnit.area == area, PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU)
+        .order_by(PartUnit.created_at, PartUnit.id)
+        .all()
+    )
+    reported = reported_good_pieces_by_unit(db, [u.id for u in units])
+    left, done = float(quantity_pieces), 0.0
+    for u in units:
+        if left <= 1e-9:
+            break
+        free = round(float(u.quantity_pieces) - reported.get(u.id, 0.0), 2)
+        take = round(min(free, left), 2)
+        if take <= 0:
+            continue
+        write_off_part_unit(db, unit=u, quantity_pieces=take, reason=PART_UNIT_AUTO_WRITE_OFF_REASON_CODE, user_id=user_id, note=note)
+        db.flush()
+        left -= take
+        done += take
+    return round(done, 2)
