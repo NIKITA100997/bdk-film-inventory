@@ -8,12 +8,13 @@ import { normsLabel } from "../../../utils/normatives";
 import PfDemand from "./PfDemand";
 import PfConsumption from "./PfConsumption";
 import { ShortagesTab } from "./NeedsViews";
+import NeedsWeekly from "./NeedsWeekly";
 import { BlanksDemandTab } from "../Blanks";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import ItemPurchaseModal from "../../../components/ItemPurchaseModal";
 import { hasPerm } from "../../../auth/permissions";
 
-type Tab = "orders" | "pf" | "consumption" | "film" | "components";
+type Tab = "orders" | "weekly" | "pf" | "consumption" | "film" | "components";
 
 /** Потребность — «чего не хватает и что запустить» одним экраном:
  * п/ф (создать задания), плёнка (что резать заранее под открытые задания)
@@ -26,7 +27,11 @@ export default function Demand() {
   const tabs = [
     // дефицит по заказам с очередью (12.10, планирование, этап 2)
     ...(has("production_tasks.manage", "production_tasks.view", "purchasing.manage", "orders.request")
-      ? [{ key: "orders" as Tab, label: "Дефицит по заказам", children: <ShortagesTab /> }]
+      ? [
+          { key: "orders" as Tab, label: "Дефицит по заказам", children: <ShortagesTab /> },
+          // по неделям (22.10): нужно и прогноз остатка на эту, следующую неделю и дальше
+          { key: "weekly" as Tab, label: "По неделям", children: <NeedsWeekly /> },
+        ]
       : []),
     ...(has("production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view")
       ? [

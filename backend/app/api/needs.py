@@ -110,6 +110,51 @@ def needs_overview(db: Session = Depends(get_db), user: User = Depends(view)) ->
         db.rollback()
 
 
+
+class WeekBucketOut(BaseModel):
+    key: str
+    label: str
+    start: date | None
+    end: date | None
+
+
+class WeekCellOut(BaseModel):
+    need: float
+    balance: float | None
+    orders: list[dict]
+
+
+class WeekRowOut(BaseModel):
+    kind: str
+    key: str
+    name: str
+    unit: str
+    stock: float
+    incoming_undated: float
+    total_need: float
+    cells: dict[str, WeekCellOut]
+    first_short: str | None
+
+
+class WeeklyOut(BaseModel):
+    buckets: list[WeekBucketOut]
+    rows: list[WeekRowOut]
+
+
+@router.get("/weekly", response_model=WeeklyOut)
+def needs_weekly(weeks: int = 6, db: Session = Depends(get_db), user: User = Depends(view)) -> WeeklyOut:
+    """Потребность по неделям: нужно и прогноз остатка (22.10)."""
+    from app.services.needs_weekly import weekly
+
+    try:
+        bs, rows = weekly(db, user.id, max(1, min(weeks, 16)))
+        return WeeklyOut(
+            buckets=[WeekBucketOut(**b.__dict__) for b in bs],
+            rows=[WeekRowOut(**{**r.__dict__, "cells": {k: WeekCellOut(**c.__dict__) for k, c in r.cells.items()}}) for r in rows],
+        )
+    finally:
+        db.rollback()
+
 class PurchaseItemIn(BaseModel):
     key: str
     qty: float = Field(gt=0)

@@ -46,3 +46,29 @@ export const purchaseShortages = async (
   comment: string | null = null,
 ): Promise<{ film_requests: number[]; item_requests?: number[]; bitrix_tasks: number; not_sent: string[] }> =>
   (await apiClient.post("/needs/purchase", { items, comment })).data;
+
+/** Потребность по неделям (22.10): нужно и прогноз остатка на конец периода. */
+export interface WeekBucket {
+  key: string; // overdue / YYYY-MM-DD (понедельник) / later / nodate
+  label: string;
+  start: string | null;
+  end: string | null;
+}
+export interface WeekCell {
+  need: number;
+  balance: number | null;
+  orders: { order_id: number; customer_order_id?: number | null; name: string; need: number }[];
+}
+export interface WeekRow {
+  kind: "film" | "material";
+  key: string;
+  name: string;
+  unit: string;
+  stock: number;
+  incoming_undated: number;
+  total_need: number;
+  cells: Record<string, WeekCell>;
+  first_short: string | null;
+}
+export const getNeedsWeekly = async (weeks: number): Promise<{ buckets: WeekBucket[]; rows: WeekRow[] }> =>
+  (await apiClient.get<{ buckets: WeekBucket[]; rows: WeekRow[] }>("/needs/weekly", { params: { weeks } })).data;

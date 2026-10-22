@@ -46,6 +46,8 @@ class NeedRow:
     need_by: date | None = None
     incoming: float = 0.0  # закрыто ожидаемой поставкой
     incoming_date: date | None = None
+    # нужно по дням операций (22.10, потребность по неделям); None — без даты
+    by_date: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -132,6 +134,7 @@ def _line_needs(db: Session, order: ProductionOrder, line_dates: dict[int, date]
         key = f"film:{ln.material_id}-{ln.color_id}-{ln.thickness_id}"
         r = rows.get(key) or NeedRow(kind="film", key=key, name=_film_label(db, ln.material_id, ln.color_id, ln.thickness_id), unit="м²", need=0.0)
         r.need += m2
+        r.by_date[d] = r.by_date.get(d, 0.0) + m2
         if d and (r.need_by is None or d < r.need_by):
             r.need_by = d
         rows[key] = r
@@ -146,6 +149,7 @@ def _line_needs(db: Session, order: ProductionOrder, line_dates: dict[int, date]
         for task_id, _n, _o, qty in mine:
             r.need += qty
             d = task_day.get(task_id)
+            r.by_date[d] = r.by_date.get(d, 0.0) + qty
             if d and (r.need_by is None or d < r.need_by):
                 r.need_by = d
         rows[key] = r
@@ -179,9 +183,8 @@ def _draft_needs(db: Session, order: ProductionOrder | CustomerOrder, user_id: i
         sp.rollback()
 
 
-def compute(db: Session, user_id: int) -> list[OrderNeeds]:
-    from app.services.materials import balances as material_balances
-
+def film_stock_m2(db: Session) -> dict[str, float]:
+    """Остаток плёнки по группе материал+цвет+толщина, м² — все не списанные рулоны и штрипсы."""
     film_stock: dict[str, float] = defaultdict(float)
     for m, c, t, area in (
         db.query(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id, func.sum(MaterialUnit.width_mm * MaterialUnit.length_m / 1000))
@@ -190,7 +193,12 @@ def compute(db: Session, user_id: int) -> list[OrderNeeds]:
         .group_by(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id)
     ):
         film_stock[f"film:{m}-{c}-{t}"] = float(area or 0)
-    incoming: dict[str, list[list]] = defaultdict(list)  # key → [[м², дата], …]
+    return film_stock
+
+
+def incoming_lots(db: Session) -> dict[str, list[list]]:
+    """Открытые заявки на закупку: ключ → [[количество, дата поставки], …] по дате."""
+    incoming: dict[str, list[list]] = defaultdict(list)
     for pr in db.query(PurchaseRequest).filter(PurchaseRequest.status == "open"):
         if pr.item_id is not None:  # заявка на материал (14.10)
             incoming[f"item:{pr.item_id}"].append([float(pr.quantity or 0), pr.promised_delivery_date])
@@ -198,6 +206,14 @@ def compute(db: Session, user_id: int) -> list[OrderNeeds]:
             incoming[f"film:{pr.material_id}-{pr.color_id}-{pr.thickness_id}"].append([float(pr.requested_area_m2), pr.promised_delivery_date])
     for v in incoming.values():
         v.sort(key=lambda x: x[1] or date(2100, 1, 1))
+    return incoming
+
+
+def compute(db: Session, user_id: int) -> list[OrderNeeds]:
+    from app.services.materials import balances as material_balances
+
+    film_stock = film_stock_m2(db)
+    incoming = incoming_lots(db)
 
     mat_stock: dict[int, float] = {}  # остаток материала, общий на все заказы
     result: list[OrderNeeds] = []
