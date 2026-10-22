@@ -72,7 +72,8 @@ export default function FilmCartDrawer({
           <Table<CartLine & { idx: number }>
             size="small"
             pagination={false}
-            rowKey={(r) => `${filmKey(r)}|${r.width_mm}|${r.idx}`}
+            // ключ без ширины: иначе строка пересоздаётся на каждой цифре и поле теряет курсор
+            rowKey={(r) => `${filmKey(r)}|${r.idx}`}
             dataSource={lines.map((l, idx) => ({ ...l, idx }))}
             scroll={{ x: 600 }}
             columns={[
