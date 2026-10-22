@@ -296,9 +296,13 @@ export default function Purchasing() {
                     onChange={(e) => setRequestSearch(e.target.value)}
                   />
                 </Space>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+                  Отметьте заявки галочкой «В заказ» — внизу появится «Объединить в заказ поставщику». Заявки на плёнку закрываются сами при приёмке
+                  этой плёнки на склад; «Закрыть вручную» — если поставки не будет (отменили, дубль).
+                </Typography.Paragraph>
                 <ResponsiveTable<PurchaseRequest>
                   tableKey="purchase-requests"
-                  lockedColumns={["Материал"]}
+                  lockedColumns={["Материал", "В заказ"]}
                   defaultHiddenColumns={["Комментарий", "Цена, ₽/м²", "Создана"]}
                   rowKey="id"
                   loading={requestsQuery.isLoading}
@@ -307,10 +311,16 @@ export default function Purchasing() {
                   scroll={{ x: "max-content" }}
                   columns={[
                     {
-                      title: "",
+                      // выбор заявок для «Объединить в заказ поставщику» (подпись — 22.10)
+                      title: "В заказ",
                       render: (_, r) =>
                         r.status === "open" && r.order_id === null ? (
-                          <Checkbox checked={selectedIds.has(r.id)} onChange={() => toggleSelect(r.id)} />
+                          <Checkbox
+                            checked={selectedIds.has(r.id)}
+                            onChange={() => toggleSelect(r.id)}
+                            title="Отметить для заказа поставщику"
+                            aria-label="Отметить для заказа поставщику"
+                          />
                         ) : null,
                     },
                     {
