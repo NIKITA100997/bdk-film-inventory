@@ -134,6 +134,8 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
   const [ownViewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
   const viewMode = mode ?? ownViewMode;
   const [donorOnly, setDonorOnly] = useState(false);
+  // отбор позиций по числу рулонов на складе (22.10): «не больше N» / «есть рулоны»; null — все
+  const [rollsFilter, setRollsFilter] = useState<string | null>(null);
   // Отбор по виду единицы в «По физическим единицам»: рулон / штрипс.
   const [unitKind, setUnitKind] = useState<"all" | "roll" | "strip">("all");
   // Раздел про архивные позиции в "Остатках" — без группировки по
@@ -377,6 +379,10 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
       return false;
     }
     if (textQuery && !`${p.material} ${p.color}`.toLowerCase().includes(textQuery)) return false;
+    if (rollsFilter) {
+      const rolls = rollsVsStripsByGroup.get(`${p.material}|${p.color}|${p.thickness}`)?.roll_count ?? 0;
+      if (rollsFilter === "any" ? rolls < 1 : rolls > Number(rollsFilter)) return false;
+    }
     return true;
   });
 
@@ -467,6 +473,23 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
             <DictAutoComplete kind="colors" placeholder="Цвет" value={filters.color} onChange={(v) => setFilter("color", v || undefined)} allowCreate={false} />
             <InputNumber placeholder="Толщина, мм" min={0} step={0.01} value={filters.thickness} onChange={(v) => setFilter("thickness", v ?? undefined)} />
             <DictAutoComplete kind="manufacturers" placeholder="Производитель" value={filters.manufacturer} onChange={(v) => setFilter("manufacturer", v || undefined)} allowCreate={false} />
+            {viewMode === "positions" && (
+              <Select
+                placeholder="Рулонов на складе"
+                allowClear
+                style={{ width: 200 }}
+                value={rollsFilter}
+                onChange={(v) => setRollsFilter(v ?? null)}
+                options={[
+                  { value: "0", label: "Рулонов нет" },
+                  { value: "1", label: "Рулонов: 1 и меньше" },
+                  { value: "2", label: "Рулонов: 2 и меньше" },
+                  { value: "3", label: "Рулонов: 3 и меньше" },
+                  { value: "5", label: "Рулонов: 5 и меньше" },
+                  { value: "any", label: "Есть рулоны" },
+                ]}
+              />
+            )}
             {viewMode === "units" && (
               <>
                 <Segmented
@@ -586,6 +609,9 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
               { title: "Единиц", dataIndex: "unit_count", sorter: (a, b) => a.unit_count - b.unit_count },
               {
                 title: "Рулонов",
+                sorter: (a, b) =>
+                  (rollsVsStripsByGroup.get(`${a.material}|${a.color}|${a.thickness}`)?.roll_count ?? 0) -
+                  (rollsVsStripsByGroup.get(`${b.material}|${b.color}|${b.thickness}`)?.roll_count ?? 0),
                 render: (_, r) => {
                   const rvs = rollsVsStripsByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
                   return rvs ? `${rvs.roll_count} шт · ${rvs.roll_length_m} м` : "—";
