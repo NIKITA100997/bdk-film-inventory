@@ -54,6 +54,9 @@ class PurchaseRequest(Base):
     color_id: Mapped[int | None] = mapped_column(ForeignKey("colors.id"), nullable=True)
     thickness_id: Mapped[int | None] = mapped_column(ForeignKey("thicknesses.id"), nullable=True)
     requested_area_m2: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # корзина в «Остатках» (22.10): заказ метрами рулона заданной ширины; м² = м × ширина
+    requested_length_m: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    width_mm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True, index=True)
     quantity: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
     price_per_unit: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)

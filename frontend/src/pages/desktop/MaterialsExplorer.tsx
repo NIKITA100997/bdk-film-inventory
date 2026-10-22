@@ -21,7 +21,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { DownOutlined, SearchOutlined, FileExcelOutlined } from "@ant-design/icons";
+import { DownOutlined, SearchOutlined, FileExcelOutlined, ShoppingCartOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -44,7 +44,9 @@ import {
 } from "../../api/units";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { getStockSummary, getRollsVsStrips, type StockSummaryLine, type RollsVsStripsLine } from "../../api/reports";
-import { getStockOverview, type StockOverviewLine } from "../../api/purchasing";
+import { getRollWidths, getStockOverview, type RollWidths, type StockOverviewLine } from "../../api/purchasing";
+import FilmCartDrawer from "../../components/FilmCartDrawer";
+import { filmCart, filmKey, useFilmCart } from "../../utils/filmCart";
 import { normsLabel } from "../../utils/normatives";
 import { listAbcClasses, recomputeAbc } from "../../api/abc";
 import { createMaterialSku, type MaterialSkuCreate } from "../../api/dictionaries";
@@ -117,6 +119,16 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
   // у кого есть право видеть эти данные, чтобы не звать привилегированный
   // эндпоинт от лица кладовщика без этого права (получил бы 403).
   const canViewPurchasing = hasPerm(user, "purchasing.manage");
+  // Корзина заказа плёнки (22.10): метры → корзина → заявка закупщику
+  const canOrderFilm = hasPerm(user, "purchasing.request", "purchasing.manage");
+  const [cartOpen, setCartOpen] = useState(false);
+  const cart = useFilmCart();
+  const rollWidthsQuery = useQuery({ queryKey: ["roll-widths"], queryFn: getRollWidths, enabled: canOrderFilm, staleTime: 600_000 });
+  const widthsByFilm = useMemo(() => {
+    const map = new Map<string, RollWidths>();
+    for (const w of rollWidthsQuery.data ?? []) map.set(filmKey(w), w);
+    return map;
+  }, [rollWidthsQuery.data]);
   const isUchastka = !!user?.roles.some((r) => r.code === "nachalnik_uchastka");
 
   const [ownViewMode, setViewMode] = useState<"positions" | "units">(isUchastka ? "units" : "positions");
@@ -484,6 +496,13 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
       {viewMode === "positions" ? (
         <Card
           extra={
+            <Space>
+            {canOrderFilm && (
+              <Button icon={<ShoppingCartOutlined />} type={cart.length ? "primary" : "default"} onClick={() => setCartOpen(true)}>
+                Корзина{cart.length ? ` (${cart.length})` : ""}
+              </Button>
+            )}
+            {canOrderFilm && <FilmCartDrawer open={cartOpen} onClose={() => setCartOpen(false)} widthsByFilm={widthsByFilm} />}
             <Button
               icon={<FileExcelOutlined />}
               onClick={() =>
@@ -516,6 +535,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
             >
               Excel
             </Button>
+            </Space>
           }
         >
           {supplierFilter && (
@@ -647,22 +667,28 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                         );
                       },
                     },
+                  ]
+                : []),
+              ...(canOrderFilm
+                ? [
                     {
-                      title: "",
-                      render: (_: unknown, r: StockSummaryLine) => (
-                        <Button
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const toOrder = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`)?.to_order_m2 ?? 0;
-                            navigate("/purchasing", {
-                              state: { material: r.material, color: r.color, thickness: r.thickness, ...(toOrder > 0 ? { requested_area_m2: toOrder } : {}) },
-                            });
-                          }}
-                        >
-                          Заказать
-                        </Button>
-                      ),
+                      title: "Заказать, м",
+                      width: 190,
+                      render: (_: unknown, r: StockSummaryLine) => {
+                        const k = filmKey(r);
+                        const width = widthsByFilm.get(k)?.widths[0] ?? null;
+                        const toOrderM2 = overviewByGroup.get(k)?.to_order_m2 ?? 0;
+                        return (
+                          <OrderToCart
+                            inCart={cart.filter((l) => filmKey(l) === k).reduce((sum, l) => sum + l.length_m, 0)}
+                            suggested={toOrderM2 > 0 && width ? Math.ceil((toOrderM2 * 1000) / width) : null}
+                            onAdd={(m) => {
+                              filmCart.add({ material: r.material, color: r.color, thickness: r.thickness, width_mm: width, length_m: m });
+                              message.success(`В корзине: ${r.material}, ${r.color} — +${m} м`);
+                            }}
+                          />
+                        );
+                      },
                     },
                   ]
                 : []),
@@ -1223,5 +1249,33 @@ function BulkCutModal({ onClose }: { onClose: () => void }) {
         </>
       )}
     </Modal>
+  );
+}
+
+/** «Заказать, м» в «Остатках» (22.10): метры рядом с кнопкой, сразу в корзину. */
+function OrderToCart({ inCart, suggested, onAdd }: { inCart: number; suggested: number | null; onAdd: (m: number) => void }) {
+  const [m, setM] = useState<number | null>(null);
+  const value = m ?? suggested;
+  return (
+    <Space direction="vertical" size={2} onClick={(e) => e.stopPropagation()}>
+      <Space.Compact size="small">
+        <InputNumber size="small" min={1} style={{ width: 90 }} placeholder="метров" value={value} onChange={setM} aria-label="Метров заказать" />
+        <Button
+          size="small"
+          icon={<ShoppingCartOutlined />}
+          disabled={!value}
+          title="В корзину"
+          aria-label="В корзину"
+          onClick={() => {
+            if (!value) return;
+            onAdd(value);
+            setM(null);
+          }}
+        >
+          В корзину
+        </Button>
+      </Space.Compact>
+      {inCart > 0 && <Tag color="blue" style={{ margin: 0 }}>в корзине {Math.round(inCart * 100) / 100} м</Tag>}
+    </Space>
   );
 }

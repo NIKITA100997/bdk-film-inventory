@@ -346,7 +346,7 @@ export default function Purchasing() {
                       title: "Происхождение",
                       dataIndex: "origin",
                       render: (v: string) =>
-                        v === "shop_floor" ? <Tag color="blue">С цеха</Tag> : v === "needs" ? <Tag color="purple">Дефицит по заказам</Tag> : <Tag>Плановая</Tag>,
+                        v === "shop_floor" ? <Tag color="blue">С цеха</Tag> : v === "cart" ? <Tag color="cyan">Из остатков (корзина)</Tag> : v === "needs" ? <Tag color="purple">Дефицит по заказам</Tag> : <Tag>Плановая</Tag>,
                     },
                     {
                       title: "Заказ",

@@ -71,6 +71,9 @@ class PurchaseRequestOut(BaseModel):
     promised_delivery_date: date | None
     order_id: int | None
     need_by: date | None = None  # нужно к (дефицит по заказам, 12.10)
+    # корзина (22.10): заказано метрами рулона этой ширины
+    requested_length_m: float | None = None
+    width_mm: float | None = None
 
 
 class SupplierOrderCreate(BaseModel):
@@ -97,6 +100,8 @@ class SupplierOrderLineOut(BaseModel):
     item_name: str | None = None
     quantity: float | None = None
     unit: str | None = None
+    # заказано метрами (корзина, 22.10): [[ширина мм, метров], …]
+    length_by_width: list[tuple[float, float]] = []
     request_ids: list[int]
 
 

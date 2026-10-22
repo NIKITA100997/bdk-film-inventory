@@ -22,6 +22,18 @@ router = APIRouter(tags=["purchasing"])
 manage_purchasing = require_permission("purchasing.manage")
 
 
+def _add_length(line: SupplierOrderLineOut, req: PurchaseRequest) -> None:
+    """Заявки из корзины — метрами рулона: суммируем метры по ширине."""
+    if req.requested_length_m is None or req.width_mm is None:
+        return
+    w, m = float(req.width_mm), float(req.requested_length_m)
+    for i, (lw, lm) in enumerate(line.length_by_width):
+        if lw == w:
+            line.length_by_width[i] = (w, round(lm + m, 2))
+            return
+    line.length_by_width.append((w, m))
+
+
 def _order_out(db: Session, order: SupplierOrder) -> SupplierOrderOut:
     requests = db.query(PurchaseRequest).filter(PurchaseRequest.order_id == order.id).all()
     lines: dict[tuple, SupplierOrderLineOut] = {}
@@ -46,6 +58,7 @@ def _order_out(db: Session, order: SupplierOrder) -> SupplierOrderOut:
             existing = lines[key]
             existing.requested_area_m2 = round(existing.requested_area_m2 + float(req.requested_area_m2), 2)
             existing.request_ids.append(req.id)
+            _add_length(existing, req)
         else:
             lines[key] = SupplierOrderLineOut(
                 material=db.get(Material, req.material_id).name,
@@ -57,6 +70,7 @@ def _order_out(db: Session, order: SupplierOrder) -> SupplierOrderOut:
                 ),
                 request_ids=[req.id],
             )
+            _add_length(lines[key], req)
     return SupplierOrderOut(
         id=order.id,
         supplier=db.get(Supplier, order.supplier_id).name,

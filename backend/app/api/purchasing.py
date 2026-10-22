@@ -66,6 +66,8 @@ def _out(db: Session, req: PurchaseRequest) -> PurchaseRequestOut:
             "color": db.get(Color, req.color_id).name,
             "thickness": float(db.get(Thickness, req.thickness_id).value_mm),
             "requested_area_m2": float(req.requested_area_m2),
+            "requested_length_m": float(req.requested_length_m) if req.requested_length_m is not None else None,
+            "width_mm": float(req.width_mm) if req.width_mm is not None else None,
             "current_stock_m2": current_stock_m2(db, material_id=req.material_id, color_id=req.color_id, thickness_id=req.thickness_id),
         }
     return PurchaseRequestOut(
@@ -387,6 +389,85 @@ def create_purchase_request(
     db.commit()
     db.refresh(req)
     return _out(db, req)
+
+
+# Корзина заказа плёнки (22.10): в «Остатках» плёнку заказывают метрами —
+# кладут позиции в корзину и одной заявкой отправляют закупщику; он сводит
+# заявки в заказ поставщику на «Закупках». Метры × ширина рулона = м².
+request_film = require_permission("purchasing.request", "purchasing.manage")
+
+
+class RollWidthsOut(BaseModel):
+    material: str
+    color: str
+    thickness: float
+    widths: list[float]  # ширины рулонов этой плёнки, самая частая первой
+
+
+@router.get("/roll-widths", response_model=list[RollWidthsOut])
+def roll_widths(db: Session = Depends(get_db), user: User = Depends(request_film)) -> list[RollWidthsOut]:
+    """Ширины рулонов (не штрипсов), какие приходили по каждой плёнке, — ширина по умолчанию в корзине."""
+    rows = (
+        db.query(Material.name, Color.name, Thickness.value_mm, MaterialUnit.width_mm, func.count(MaterialUnit.id))
+        .join(MaterialSku, MaterialSku.id == MaterialUnit.material_sku_id)
+        .join(Material, Material.id == MaterialSku.material_id)
+        .join(Color, Color.id == MaterialSku.color_id)
+        .join(Thickness, Thickness.id == MaterialSku.thickness_id)
+        .filter(MaterialUnit.is_strip.is_(False))
+        .group_by(Material.name, Color.name, Thickness.value_mm, MaterialUnit.width_mm)
+        .all()
+    )
+    groups: dict[tuple, list[tuple[int, float]]] = {}
+    for m, c, t, w, n in rows:
+        groups.setdefault((m, c, float(t)), []).append((n, float(w)))
+    return [
+        RollWidthsOut(material=m, color=c, thickness=t, widths=[w for _, w in sorted(ws, key=lambda x: (-x[0], -x[1]))])
+        for (m, c, t), ws in groups.items()
+    ]
+
+
+class CartLineIn(BaseModel):
+    material: str
+    color: str
+    thickness: float
+    length_m: float = Field(gt=0)
+    width_mm: float = Field(gt=0)
+    note: str | None = None
+
+
+class CartIn(BaseModel):
+    lines: list[CartLineIn] = Field(min_length=1)
+    need_by: date | None = None
+    note: str | None = Field(default=None, max_length=200)
+
+
+@router.post("/cart", response_model=list[PurchaseRequestOut], status_code=status.HTTP_201_CREATED)
+def send_cart(payload: CartIn, db: Session = Depends(get_db), user: User = Depends(request_film)) -> list[PurchaseRequestOut]:
+    """Отправить корзину закупщику: по заявке на каждую позицию (одной транзакцией)."""
+    created: list[PurchaseRequest] = []
+    for ln in payload.lines:
+        material, color, thickness = find_or_create_material_color_thickness(
+            db, material=ln.material, color=ln.color, thickness=ln.thickness
+        )
+        note = "; ".join(x for x in (ln.note, payload.note) if x) or None
+        req = PurchaseRequest(
+            material_id=material.id,
+            color_id=color.id,
+            thickness_id=thickness.id,
+            requested_length_m=round(ln.length_m, 2),
+            width_mm=ln.width_mm,
+            requested_area_m2=round(ln.length_m * ln.width_mm / 1000, 2),
+            need_by=payload.need_by,
+            note=note[:255] if note else None,
+            origin="cart",
+            created_by=user.id,
+        )
+        db.add(req)
+        created.append(req)
+    db.commit()
+    for r in created:
+        db.refresh(r)
+    return [_out(db, r) for r in created]
 
 
 @router.post("/shop-floor", response_model=PurchaseRequestOut, status_code=status.HTTP_201_CREATED)

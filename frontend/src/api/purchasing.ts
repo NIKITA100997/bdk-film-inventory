@@ -29,6 +29,9 @@ export interface PurchaseRequest {
   promised_delivery_date: string | null;
   need_by?: string | null;
   order_id: number | null;
+  /** корзина (22.10): заказано метрами рулона этой ширины */
+  requested_length_m?: number | null;
+  width_mm?: number | null;
 }
 
 export interface SupplierOrderLine {
@@ -41,6 +44,8 @@ export interface SupplierOrderLine {
   quantity?: number | null;
   unit?: string | null;
   request_ids: number[];
+  /** заказано метрами (корзина): [ширина мм, метров][] */
+  length_by_width?: [number, number][];
 }
 
 export interface SupplierOrder {
@@ -107,9 +112,45 @@ export interface PurchaseRequestUpdate {
 /** Название позиции заявки/строки заказа — плёнка или материал. */
 export const purchaseLabel = (r: { material: string | null; color: string | null; thickness: number | null; item_name?: string | null }) =>
   r.item_name ?? `${r.material}, ${r.color}, ${r.thickness} мм`;
-/** Количество с единицей — «120 м²» у плёнки, «12 листов» у материала. */
-export const purchaseQty = (r: { requested_area_m2: number | null; quantity?: number | null; unit?: string | null; item_name?: string | null }) =>
-  r.item_name ? `${r.quantity ?? 0} ${r.unit ?? ""}`.trim() : `${r.requested_area_m2 ?? 0} м²`;
+/** Количество с единицей — «120 м²» у плёнки, «12 листов» у материала;
+ * заказанное метрами (корзина) — «300 м × 1400 мм (420 м²)». */
+export const purchaseQty = (r: {
+  requested_area_m2: number | null;
+  quantity?: number | null;
+  unit?: string | null;
+  item_name?: string | null;
+  requested_length_m?: number | null;
+  width_mm?: number | null;
+  length_by_width?: [number, number][];
+}) => {
+  if (r.item_name) return `${r.quantity ?? 0} ${r.unit ?? ""}`.trim();
+  const m2 = `${r.requested_area_m2 ?? 0} м²`;
+  if (r.requested_length_m != null && r.width_mm != null) return `${r.requested_length_m} м × ${r.width_mm} мм (${m2})`;
+  if (r.length_by_width?.length) return `${r.length_by_width.map(([w, m]) => `${m} м × ${w} мм`).join(", ")} (всего ${m2})`;
+  return m2;
+};
+
+/** Ширины рулонов каждой плёнки, самая частая первой — ширина по умолчанию в корзине. */
+export interface RollWidths {
+  material: string;
+  color: string;
+  thickness: number;
+  widths: number[];
+}
+export const getRollWidths = async (): Promise<RollWidths[]> =>
+  (await apiClient.get<RollWidths[]>("/purchase-requests/roll-widths")).data;
+
+export interface FilmCartLine {
+  material: string;
+  color: string;
+  thickness: number;
+  length_m: number;
+  width_mm: number;
+  note?: string | null;
+}
+/** Отправить корзину закупщику — по заявке на позицию (22.10). */
+export const sendFilmCart = async (payload: { lines: FilmCartLine[]; need_by?: string | null; note?: string | null }): Promise<PurchaseRequest[]> =>
+  (await apiClient.post<PurchaseRequest[]>("/purchase-requests/cart", payload)).data;
 
 export async function createItemPurchaseRequest(payload: {
   item_id: number;
