@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import type { MonitorArea, MonitorOrder, MonitorRow } from "../../../../api/productionMonitor";
 import GroupedTable, { type GroupColumn } from "../../../../components/GroupedTable";
 import QuickReport from "./QuickReport";
+import { computeFlow, FlowStrip, opIncludes } from "./flow";
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const dm = (s: string | null | undefined) => (s ? dayjs(s).format("DD.MM") : "");
@@ -98,7 +99,7 @@ const sumOp = (rs: MonitorRow[] = []) => ({
   defect: rs.reduce((s, r) => s + r.defect, 0),
 });
 
-function OpCell({ rs, onOpenTask }: { rs: MonitorRow[] | undefined; onOpenTask: (id: number) => void }) {
+function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined; ready?: number; onOpenTask: (id: number) => void }) {
   const [open, setOpen] = useState(false);
   if (!rs?.length) return <Typography.Text type="secondary">—</Typography.Text>;
   const s = sumOp(rs);
@@ -110,6 +111,10 @@ function OpCell({ rs, onOpenTask }: { rs: MonitorRow[] | undefined; onOpenTask: 
         /{r2(s.plan)}
       </Typography.Text>
       {s.defect > 0 && <Typography.Text type="danger" style={{ fontSize: 11 }}> б{r2(s.defect)}</Typography.Text>}
+      {/* поток (23.10): сделано здесь, следующий этап ещё не сделал */}
+      {(ready ?? 0) > 0 && (
+        <span style={{ display: "block", fontSize: 10, fontWeight: 400, color: "#389e0d", lineHeight: 1 }}>ждёт {r2(ready!)}</span>
+      )}
     </span>
   );
   const quick = rs.filter((r) => r.quick);
@@ -162,7 +167,20 @@ export default function OrdersView({
   onOpenTask: (id: number) => void;
 }) {
   const { lines, ops } = useMemo(() => buildLines(rows, orders, areas), [rows, orders, areas]);
-  const data = useMemo(() => (hideDone ? lines.filter((l) => l.left > 0) : lines), [lines, hideDone]);
+  // поток по этапам (23.10): готово к передаче / в работе, итого
+  const flow = useMemo(() => computeFlow(lines, ops), [lines, ops]);
+  const [stage, setStage] = useState<string | null>(null);
+  const stageOn = stage && ops.includes(stage) ? stage : null;
+  const data = useMemo(
+    () =>
+      lines.filter((l) => {
+        if (hideDone && !(l.left > 0)) return false;
+        if (!stageOn) return true;
+        const f = flow.byLine.get(l.key)?.[stageOn];
+        return !!f && (f.ready > 0 || f.inWork > 0);
+      }),
+    [lines, hideDone, stageOn, flow],
+  );
   const columns: GroupColumn<LineRec>[] = [
     { key: "invoice", title: "Счёт", width: 140, fixed: "left", sortValue: (l) => l.invoice, render: (_, l) => <span style={{ whiteSpace: "nowrap" }}>{l.invoice}</span> },
     { key: "series", title: "Серия", width: 80, sortValue: (l) => l.series, render: (_, l) => l.series },
@@ -218,14 +236,23 @@ export default function OrdersView({
     ...ops.map(
       (op): GroupColumn<LineRec> => ({
         key: `op:${op}`,
-        title: <span style={{ whiteSpace: "normal", fontSize: 12 }}>{op}</span>,
+        title: (
+          <span style={{ whiteSpace: "normal", fontSize: 12 }}>
+            {op}
+            {opIncludes(op) && (
+              <Tooltip title={`Включает: ${opIncludes(op)}`}>
+                <span style={{ display: "block", fontSize: 10, fontWeight: 400, opacity: 0.65 }}>вкл.: {opIncludes(op)}</span>
+              </Tooltip>
+            )}
+          </span>
+        ),
         width: 96,
         align: "center",
         sortValue: (l) => {
           const s = sumOp(l.ops[op]);
           return s.plan ? s.done / s.plan : -1;
         },
-        render: (_, l) => <OpCell rs={l.ops[op]} onOpenTask={onOpenTask} />,
+        render: (_, l) => <OpCell rs={l.ops[op]} ready={flow.byLine.get(l.key)?.[op]?.ready} onOpenTask={onOpenTask} />,
         groupRender: (ls) => {
           const s = sumOp(ls.flatMap((l) => l.ops[op] ?? []));
           return s.plan ? (
@@ -238,6 +265,16 @@ export default function OrdersView({
     ),
   ];
   return (
+    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <FlowStrip flow={flow} active={stageOn} onPick={setStage} />
+    {stageOn && (
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        Показаны позиции, которые стоят на этапе «{stageOn}» (готово к передаче или в работе) —{" "}
+        <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setStage(null)}>
+          показать все
+        </Button>
+      </Typography.Text>
+    )}
     <GroupedTable<LineRec>
       storageKey="monitor.orders"
       dims={[
@@ -254,7 +291,7 @@ export default function OrdersView({
       dataSource={data}
       pagination={false}
       tableLayout="fixed"
-      scroll={{ x: 140 + 80 + 90 + 150 + 240 + 76 + 96 + 70 + (lines.some((l) => l.film.length) ? 96 : 0) + ops.length * 96 + 40, y: "calc(100vh - 330px)" }}
+      scroll={{ x: 140 + 80 + 90 + 150 + 240 + 76 + 96 + 70 + (lines.some((l) => l.film.length) ? 96 : 0) + ops.length * 96 + 40, y: "calc(100vh - 450px)" }}
       columns={columns}
       extra={
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -262,5 +299,6 @@ export default function OrdersView({
         </Typography.Text>
       }
     />
+    </Space>
   );
 }

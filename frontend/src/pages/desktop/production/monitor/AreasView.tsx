@@ -4,6 +4,8 @@ import dayjs from "dayjs";
 import type { MonitorArea, MonitorOrder, MonitorRow } from "../../../../api/productionMonitor";
 import GroupedTable from "../../../../components/GroupedTable";
 import QuickReport from "./QuickReport";
+import { buildLines } from "./OrdersView";
+import { computeFlow, opIncludes } from "./flow";
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const dm = (s: string | null | undefined) => (s ? dayjs(s).format("DD.MM") : "");
@@ -46,6 +48,23 @@ export default function AreasView({
     }
     return m;
   }, [rows]);
+  // поток (23.10): по участку двери — готово к передаче / в работе
+  const flowByArea = useMemo(() => {
+    const { lines, ops } = buildLines(rows, orders, areas);
+    const flow = computeFlow(lines, ops);
+    const opArea = new Map<string, string>();
+    for (const r of rows) if (r.part_id == null && r.order_line_id != null) opArea.set(r.operation ?? r.area, r.area);
+    const m = new Map<string, { ready: number; inWork: number; first: boolean; inc?: string }>();
+    flow.ops.forEach((f, i) => {
+      const code = opArea.get(f.op);
+      if (!code) return;
+      const cur = m.get(code) ?? { ready: 0, inWork: 0, first: i === 0, inc: opIncludes(f.op) };
+      cur.ready += f.ready;
+      cur.inWork += f.inWork;
+      m.set(code, cur);
+    });
+    return m;
+  }, [rows, orders, areas]);
   const used = areas.filter((a) => stats.has(a.code));
   const sites = [...new Set(used.map((a) => a.site ?? "Без площадки"))];
   const cur = area && stats.has(area) ? area : used[0]?.code;
@@ -81,6 +100,18 @@ export default function AreasView({
                     }}
                   >
                     <div style={{ fontWeight: on ? 600 : 500 }}>{a.name}</div>
+                    {flowByArea.get(a.code)?.inc && (
+                      <div style={{ fontSize: 11, color: token.colorTextSecondary }}>вкл.: {flowByArea.get(a.code)!.inc}</div>
+                    )}
+                    {flowByArea.has(a.code) && (
+                      <div style={{ fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                        <span style={{ color: token.colorSuccess }}>готово {r2(flowByArea.get(a.code)!.ready)}</span>
+                        {" · "}
+                        <span style={{ color: token.colorWarning }}>
+                          {flowByArea.get(a.code)!.first ? "не сделано" : "в работе"} {r2(flowByArea.get(a.code)!.inWork)}
+                        </span>
+                      </div>
+                    )}
                     <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
                       осталось {r2(s.left)} шт · строк {s.open}
                       {!s.quick && <Tag style={{ marginLeft: 6, fontSize: 11 }}>отчёт в задании</Tag>}
