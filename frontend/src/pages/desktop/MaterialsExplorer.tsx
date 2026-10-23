@@ -27,6 +27,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   searchUnits,
+  bulkEditUnits,
   UNIT_SEARCH_LIMIT,
   receiveAndAutoPlace,
   placeUnit,
@@ -138,6 +139,9 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
   const [rollsFilter, setRollsFilter] = useState<string | null>(null);
   // Отбор по виду единицы в «По физическим единицам»: рулон / штрипс.
   const [unitKind, setUnitKind] = useState<"all" | "roll" | "strip">("all");
+  // неликвид (23.10): все / только / без
+  const [illiquidFilter, setIlliquidFilter] = useState<"all" | "only" | "none">("all");
+  const canMarkIlliquid = hasPerm(user, "units.correct", "materials.manage");
   // Раздел про архивные позиции в "Остатках" — без группировки по
   // производителю остаток архивной позиции молча подмешивался в сумму
   // активной с тем же материалом/цветом/толщиной; по умолчанию скрыт, тот
@@ -229,11 +233,16 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
     return map;
   }, [rollsVsStripsQuery.data]);
   const unitsQuery = useQuery({
-    queryKey: ["materials-explorer", "units", filters, warehouseId, unitKind],
+    queryKey: ["materials-explorer", "units", filters, warehouseId, unitKind, illiquidFilter],
     // Рулон/штрипс — отбор на сервере: иначе он работал бы только по
     // пришедшей части списка.
     queryFn: () =>
-      searchUnits({ ...filters, warehouse_id: warehouseId, is_strip: unitKind === "all" ? undefined : unitKind === "strip" }),
+      searchUnits({
+        ...filters,
+        warehouse_id: warehouseId,
+        is_strip: unitKind === "all" ? undefined : unitKind === "strip",
+        illiquid: illiquidFilter === "all" ? undefined : illiquidFilter === "only",
+      }),
     enabled: viewMode === "units",
   });
   const classesQuery = useQuery({ queryKey: ["abc-classes", "all"], queryFn: () => listAbcClasses() });
@@ -335,6 +344,36 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
 
   const setFilter = <K extends keyof SearchParams>(key: K, value: SearchParams[K] | undefined) =>
     setFilters((f) => ({ ...f, [key]: value }));
+
+  // неликвид (23.10): пометить / снять у выбранных — с причиной в историю рулона
+  const markIlliquid = (on: boolean) => {
+    let reason = "";
+    Modal.confirm({
+      title: on ? `Пометить неликвидом: ${selectedUnitIds.length} шт.` : `Снять пометку неликвид: ${selectedUnitIds.length} шт.`,
+      content: (
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Typography.Text type="secondary">
+            {on
+              ? "Обычные задания эти рулоны брать не будут — только строки «из неликвида». В «доступно» и «заказать» они не считаются."
+              : "Рулоны снова пойдут под обычные задания."}
+          </Typography.Text>
+          <Input placeholder="Причина (необязательно)" maxLength={200} onChange={(e) => (reason = e.target.value)} />
+        </Space>
+      ),
+      okText: on ? "Пометить" : "Снять",
+      onOk: async () => {
+        try {
+          const r = await bulkEditUnits({ unit_ids: selectedUnitIds, illiquid: on, reason: reason.trim() || undefined });
+          message.success(`Изменено: ${r.updated}`);
+          qc.invalidateQueries({ queryKey: ["materials-explorer"] });
+          setSelectedUnitIds([]);
+        } catch (e) {
+          message.error(apiErrorMessage(e, "Не удалось изменить"));
+          throw e;
+        }
+      },
+    });
+  };
 
   const exportSelected = () => {
                   const chosen = new Set(selectedUnitIds);
@@ -501,6 +540,16 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                     { label: "Штрипсы", value: "strip" },
                   ]}
                 />
+                <Select
+                  style={{ width: 170 }}
+                  value={illiquidFilter}
+                  onChange={setIlliquidFilter}
+                  options={[
+                    { value: "all", label: "Неликвид: все" },
+                    { value: "only", label: "Только неликвид" },
+                    { value: "none", label: "Без неликвида" },
+                  ]}
+                />
                 <InputNumber placeholder="Ширина, мм" min={1} value={filters.width_mm} onChange={(v) => setFilter("width_mm", v ?? undefined)} />
                 <InputNumber placeholder="Мин. длина, м" min={0} step={0.1} value={filters.min_length_m} onChange={(v) => setFilter("min_length_m", v ?? undefined)} />
                 <Select placeholder="Статус" allowClear style={{ width: 160 }} options={statusOptions} value={filters.status} onChange={(v) => setFilter("status", v)} />
@@ -586,7 +635,21 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                 render: (_, r) => `${r.material}, ${r.color}, ${r.thickness} мм`,
                 sorter: (a, b) => a.material.localeCompare(b.material),
               },
-              { title: "Остаток, м²", dataIndex: "total_area_m2", sorter: (a, b) => a.total_area_m2 - b.total_area_m2 },
+              {
+                title: "Остаток, м²",
+                dataIndex: "total_area_m2",
+                sorter: (a, b) => a.total_area_m2 - b.total_area_m2,
+                render: (v: number, r) => (
+                  <Space direction="vertical" size={0}>
+                    {v}
+                    {(r.illiquid_area_m2 ?? 0) > 0 && (
+                      <Typography.Text type="warning" style={{ fontSize: 12 }}>
+                        в т.ч. неликвид {r.illiquid_area_m2}
+                      </Typography.Text>
+                    )}
+                  </Space>
+                ),
+              },
               ...(canSeePrice
                 ? [
                     {
@@ -648,7 +711,8 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                       render: (_: unknown, r: StockSummaryLine) => {
                         const o = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
                         const reserved = o?.reserved_area_m2 ?? 0;
-                        const available = Math.round((r.total_area_m2 - reserved) * 10) / 10;
+                        // неликвид (23.10) — не в «доступно»
+                        const available = Math.round((r.total_area_m2 - (r.illiquid_area_m2 ?? 0) - reserved) * 10) / 10;
                         return (
                           <Tag color={available < 0 ? "red" : reserved > 0 && available < reserved * 0.2 ? "gold" : "green"}>
                             {available}
@@ -772,6 +836,12 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                     ...(canReturn ? [{ key: "return", label: "Вернуть на склад…" }] : []),
                     ...(canTransfer ? [{ key: "transfer", label: "Переместить на другой склад…" }] : []),
                     ...(canIssue ? [{ key: "link", label: "Привязать к строке задания…" }] : []),
+                    ...(canMarkIlliquid
+                      ? [
+                          { key: "illiquid-on", label: "Пометить неликвидом…" },
+                          { key: "illiquid-off", label: "Снять пометку неликвид" },
+                        ]
+                      : []),
                     { key: "export", label: "Экспорт выбранных в Excel" },
                     ...(canWriteOff
                       ? [
@@ -783,6 +853,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                   ],
                   onClick: ({ key }) => {
                     if (key === "export") exportSelected();
+                    else if (key === "illiquid-on" || key === "illiquid-off") markIlliquid(key === "illiquid-on");
                     else if (key === "writeoff") setWriteOffOpen(true);
                     else setBulkAction(key as BulkAction);
                   },
@@ -816,7 +887,17 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
               },
             })}
             columns={[
-              { title: "ID", dataIndex: "id", sorter: (a, b) => a.id - b.id, render: (v: number) => rollNo(v) },
+              {
+                title: "ID",
+                dataIndex: "id",
+                sorter: (a, b) => a.id - b.id,
+                render: (v: number, u) => (
+                  <Space size={4}>
+                    {rollNo(v)}
+                    {u.marked_illiquid && <Tag color="orange" style={{ margin: 0 }}>неликвид</Tag>}
+                  </Space>
+                ),
+              },
               { title: "Материал", render: (_, u) => skuLabel(u.material_sku) },
               { title: "Тип", render: (_, u) => (u.is_strip ? "штрипс" : "рулон") },
               { title: "Ширина×длина", render: (_, u) => `${u.width_mm} мм × ${u.length_m} м`, sorter: (a, b) => a.width_mm - b.width_mm },

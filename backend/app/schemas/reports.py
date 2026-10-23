@@ -15,6 +15,8 @@ class StockSummaryLine(BaseModel):
     # Стоимость остатка по ценам рулонов (08.10) и сколько м² без цены.
     value_rub: float | None = None
     unpriced_area_m2: float = 0.0
+    # в т.ч. неликвид (23.10) — в остатке, но не в «доступно»
+    illiquid_area_m2: float = 0.0
 
     @field_serializer("value_rub")
     def _hide_prices(self, v):  # только с правом «Просмотр цен» (14.10)

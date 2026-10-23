@@ -196,6 +196,7 @@ def group_stock_area_m2(
                 MaterialSku.color_id == color_id,
                 MaterialSku.thickness_id == thickness_id,
                 MaterialUnit.status == UnitStatus.NA_KHRANENII,
+                MaterialUnit.marked_illiquid.is_(False),  # неликвид (23.10) не в остатке позиции
             )
             .scalar()
         )

@@ -26,6 +26,8 @@ export interface MaterialUnit {
   width_mm: number;
   length_m: number;
   is_strip: boolean;
+  /** неликвид (23.10): обычные задания не берут */
+  marked_illiquid?: boolean;
   status: string;
   area: string | null;
   location_code: string | null;
@@ -257,6 +259,8 @@ export interface CuttingPlanRequest {
   // одного участка), чтобы точное совпадение и подбор донора искали в
   // первую очередь на его домашнем складе, как и /units/issue.
   area?: AreaValue;
+  /** группа строк «из неликвида» (23.10) — подбор только из неликвида */
+  illiquid?: boolean;
 }
 
 export interface CuttingPlanDonor {
@@ -459,6 +463,8 @@ export interface UnitBulkEditRequest {
   thickness?: number;
   manufacturer?: string;
   location_code?: string;
+  /** неликвид (23.10): пометить / снять */
+  illiquid?: boolean;
   reason?: string;
 }
 
@@ -497,6 +503,8 @@ export interface SearchParams {
   unplaced?: boolean;
   warehouse_id?: number;
   is_strip?: boolean;
+  /** неликвид (23.10): true — только, false — без */
+  illiquid?: boolean;
 }
 
 // Сервер отдаёт не больше стольких единиц (см. SEARCH_LIMIT в api/units.py).

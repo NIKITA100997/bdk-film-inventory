@@ -51,6 +51,8 @@ class MaterialUnit(Base):
     # уже нарезанный поставщиком). Источник истины для размещения
     # (рулонный/штрипсовый стеллаж) и для вида этикетки.
     is_strip: Mapped[bool] = mapped_column(Boolean, default=False)
+    # неликвид (23.10): обычные задания не берут, строка «из неликвида» — только его
+    marked_illiquid: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     status: Mapped[UnitStatus] = mapped_column(Enum(UnitStatus, name="unit_status"))
     area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)

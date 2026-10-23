@@ -190,6 +190,8 @@ class ProductionTaskLine(Base):
     # remaining_pieces — рост quantity_pieces (план пересмотрели в
     # бо́льшую сторону) НЕ переоткрывает автоматически, только вручную.
     production_closed: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # «из неликвида» (23.10): под строку подбираются только рулоны с пометкой неликвид
+    use_illiquid: Mapped[bool] = mapped_column(default=False, server_default="false")
 
     # Ручная правка при запуске (02.10): программа станка (фрезеровка),
     # указание мастеру и что поменяли против расчёта — «Кол-во 2 → 4 · Иванов».

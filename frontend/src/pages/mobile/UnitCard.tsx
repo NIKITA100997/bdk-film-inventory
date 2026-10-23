@@ -421,6 +421,7 @@ export default function UnitCard() {
             </Descriptions.Item>
             <Descriptions.Item label="Статус">
               <Tag color="blue">{statusLabels[unit.status] ?? unit.status}</Tag>
+              {unit.marked_illiquid && <Tag color="orange">неликвид</Tag>}
             </Descriptions.Item>
             <Descriptions.Item label="Где сейчас">
               {unit.location_code ?? (unit.area ? areaLabel(unit.area) : "—")}

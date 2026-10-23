@@ -154,7 +154,7 @@ def film_stock_m2(db: Session) -> dict[tuple[int, int, int], float]:
     q = (
         db.query(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id, MaterialUnit.width_mm, MaterialUnit.length_m)
         .join(MaterialUnit, MaterialUnit.material_sku_id == MaterialSku.id)
-        .filter(MaterialUnit.status == UnitStatus.NA_KHRANENII)
+        .filter(MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.marked_illiquid.is_(False))  # неликвид (23.10)
     )
     for m, c, t, w, l in q:
         out[(m, c, t)] += float(w) * float(l) / 1000

@@ -9,6 +9,8 @@ export interface StockSummaryLine {
   /** стоимость по ценам рулонов (08.10) и сколько м² без цены */
   value_rub?: number | null;
   unpriced_area_m2?: number;
+  /** в т.ч. неликвид (23.10) — в остатке, но не в «доступно» */
+  illiquid_area_m2?: number;
 }
 
 export interface StockByWidthLine {

@@ -786,7 +786,7 @@ def bulk_edit_units(
     sku_fields = (payload.material, payload.color, payload.thickness, payload.manufacturer)
     change_sku = any(v not in (None, "") for v in sku_fields)
     location = (payload.location_code or "").strip() or None
-    if payload.is_strip is None and not change_sku and location is None:
+    if payload.is_strip is None and not change_sku and location is None and payload.illiquid is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не выбрано, что менять")
     if payload.is_strip is not None:
         need("units.correct", "тип рулон/штрипс")
@@ -801,6 +801,8 @@ def bulk_edit_units(
             )
     if location is not None:
         need("units.place", "место хранения")
+    if payload.illiquid is not None and not user.is_superuser and not ({"units.correct", "materials.manage"} & perms):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Нет права помечать неликвид")
 
     units = _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
     missing = sorted(set(payload.unit_ids) - {u.id for u in units})
@@ -847,6 +849,15 @@ def bulk_edit_units(
             record_event(
                 db, unit=u, event_type=EventType.PRIHOD, user_id=user.id, from_cell=from_cell, to_cell=location,
                 occurred_at=payload.occurred_at,
+            )
+            changed = True
+        if payload.illiquid is not None and payload.illiquid != u.marked_illiquid:
+            u.marked_illiquid = payload.illiquid
+            what = "Помечен неликвидом" if payload.illiquid else "Снята пометка неликвид"
+            note = f"{what}. {payload.reason.strip()}" if (payload.reason or "").strip() else what
+            record_event(
+                db, unit=u, event_type=EventType.KORREKTIROVKA, user_id=user.id, quantity_delta_m=0,
+                write_off_note=note[:255], occurred_at=payload.occurred_at,
             )
             changed = True
         updated += changed
@@ -969,6 +980,9 @@ def issue_to_area(
     # /units/cutting-plan).
     from app.services import film_reserve
 
+    from app.services.illiquid import line_wants
+
+    illiquid = line_wants(db, payload.production_task_line_id)  # строка «из неликвида» (23.10)
     reserved_skip: set[int] = set()
     while True:
         exact = find_exact_stock_match(
@@ -978,6 +992,7 @@ def issue_to_area(
             length_m=payload.length_m,
             home_warehouse_id=home_id,
             exclude_unit_ids=reserved_skip,
+            illiquid=illiquid,
         )
         # рулон под чужим резервом (15.10) — ищем следующий
         if exact is None or not film_reserve.blocked_for(db, exact, float(exact.length_m), payload.production_task_line_id):
@@ -1026,6 +1041,7 @@ def issue_to_area(
                     MaterialUnit.material_sku_id == sku.id,
                     MaterialUnit.width_mm.in_(eligible_widths),
                     MaterialUnit.length_m >= payload.length_m,
+                    MaterialUnit.marked_illiquid.is_(illiquid),
                 ),
                 MaterialUnit.location_code,
                 db,
@@ -1175,6 +1191,7 @@ def get_cutting_plan(
             home_warehouse_id=home_id,
             exclude_unit_ids=claimed_unit_ids,
             any_width=any_width,
+            illiquid=payload.illiquid,
         )
         if match is None:
             continue
@@ -1198,6 +1215,7 @@ def get_cutting_plan(
             home_warehouse_id=home_id,
             exclude_unit_ids=claimed_unit_ids,
             any_width=any_width,
+            illiquid=payload.illiquid,
         )
         if match is not None:
             claimed_unit_ids.add(match.id)
@@ -1227,6 +1245,7 @@ def get_cutting_plan(
         MaterialUnit.status == UnitStatus.NA_KHRANENII,
         MaterialUnit.material_sku_id == sku.id,
         MaterialUnit.width_mm >= min(remaining_widths),
+        MaterialUnit.marked_illiquid.is_(payload.illiquid),  # неликвид (23.10)
     )
     if len(remaining_widths) == 1:
         eligible_widths = {
@@ -2034,6 +2053,7 @@ def search_units(
     unplaced: bool | None = None,
     warehouse_id: int | None = None,
     is_strip: bool | None = None,
+    illiquid: bool | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[MaterialUnitOut]:
@@ -2081,6 +2101,8 @@ def search_units(
         query = query.filter(MaterialUnit.length_m >= min_length_m)
     if is_strip is not None:
         query = query.filter(MaterialUnit.is_strip.is_(is_strip))
+    if illiquid is not None:  # неликвид (23.10): только / без
+        query = query.filter(MaterialUnit.marked_illiquid.is_(illiquid))
     query = filter_by_warehouse(query, MaterialUnit.location_code, db, warehouse_id)
     # Было 200: при сортировке по ширине список молча обрезался до 200 самых
     # узких штрипсов — рулонов в «По физическим единицам» не было видно

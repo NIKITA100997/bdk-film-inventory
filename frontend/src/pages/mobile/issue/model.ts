@@ -192,12 +192,13 @@ export function neededLengthM(row: QueueRowData): number {
  * остаётся построчной (каждая линия — свой список/своя точная длина). */
 export function groupQueueRows(rows: QueueRowData[]) {
   const order: string[] = [];
-  const groups = new Map<string, { key: string; material: string; color: string; thickness: number; rows: QueueRowData[] }>();
+  const groups = new Map<string, { key: string; material: string; color: string; thickness: number; illiquid: boolean; rows: QueueRowData[] }>();
   for (const r of rows) {
-    const key = `${r.task.area}|${r.line.material}|${r.line.color}|${r.line.thickness}`;
+    // строки «из неликвида» (23.10) — отдельной группой: режутся только из неликвида
+    const key = `${r.task.area}|${r.line.material}|${r.line.color}|${r.line.thickness}|${r.line.use_illiquid ? "illiquid" : ""}`;
     let g = groups.get(key);
     if (!g) {
-      g = { key, material: r.line.material ?? "", color: r.line.color ?? "", thickness: r.line.thickness ?? 0, rows: [] };
+      g = { key, material: r.line.material ?? "", color: r.line.color ?? "", thickness: r.line.thickness ?? 0, illiquid: !!r.line.use_illiquid, rows: [] };
       groups.set(key, g);
       order.push(key);
     }
@@ -236,6 +237,7 @@ export function useGroupCuttingPlan(sku: MaterialSku | undefined, rows: QueueRow
       widths.join(","),
       lengths.join(","),
       rows[0]?.task.area,
+      !!rows[0]?.line.use_illiquid,
     ],
     queryFn: () =>
       getCuttingPlan({
@@ -246,6 +248,7 @@ export function useGroupCuttingPlan(sku: MaterialSku | undefined, rows: QueueRow
         needed_widths_mm: widths,
         needed_lengths_m: lengths,
         area: rows[0]?.task.area,
+        illiquid: !!rows[0]?.line.use_illiquid,
       }),
     enabled: !!sku,
   });

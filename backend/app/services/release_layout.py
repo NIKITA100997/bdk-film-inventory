@@ -56,6 +56,7 @@ def _film_stock_m(db: Session, area: str, spec: tuple[int, int, int], min_width:
         MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.material_sku_id.in_(sku_ids),
         MaterialUnit.width_mm >= min_width - 0.5,
     )
+    q = q.filter(MaterialUnit.marked_illiquid.is_(False))  # неликвид — не под обычный запуск (23.10)
     q = filter_by_warehouse(q, MaterialUnit.location_code, db, area_home_warehouse_id(db, area))
     return round(sum(float(u.length_m) for u in q), 1)
 

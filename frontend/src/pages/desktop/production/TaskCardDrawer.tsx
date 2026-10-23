@@ -9,6 +9,7 @@ import {
   archiveProductionTask,
   closeProductionLine,
   closeTaskLine,
+  setLineIlliquid,
   deleteProductionTask,
   completeProductionTask,
   getProductionTask,
@@ -339,7 +340,7 @@ function TaskCardBody({
   );
 }
 
-type LineAction = "report" | "assign" | "spec" | "issue-close" | "prod-close";
+type LineAction = "report" | "assign" | "spec" | "issue-close" | "prod-close" | "illiquid";
 
 function LinesTab({
   t,
@@ -369,15 +370,25 @@ function LinesTab({
     onSuccess: done,
     onError: fail,
   });
+  // «из неликвида» (23.10): подбор и резерв строки — только рулоны с пометкой неликвид
+  const illiquid = useMutation({
+    mutationFn: (l: ProductionTaskLine) => setLineIlliquid(t.id, l.id, !l.use_illiquid),
+    onSuccess: done,
+    onError: fail,
+  });
   const actionsOf = (l: ProductionTaskLine) => [
     ...(canReport && t.is_active && !l.production_closed ? [{ key: "report", label: "Отчитаться (подробно)…" }] : []),
     ...(canReport && t.is_active && !l.production_closed && dailyPlan ? [{ key: "assign", label: "Распределить по дням…" }] : []),
     ...(canManage && l.material !== null ? [{ key: "spec", label: "Изменить размер/материал…" }] : []),
+    ...(canManage && l.material !== null && t.is_active
+      ? [{ key: "illiquid", label: l.use_illiquid ? "Брать обычные рулоны (не неликвид)" : "Делать из неликвида" }]
+      : []),
     ...(canManage && l.material !== null ? [{ key: "issue-close", label: l.is_closed ? "Открыть выдачу заново" : "Закрыть по выдаче (больше не выдавать)" }] : []),
     ...(canManage ? [{ key: "prod-close", label: l.production_closed ? "Возобновить производство" : "Завершить производство по строке" }] : []),
   ];
   const onAction = (key: LineAction, l: ProductionTaskLine) => {
-    if (key === "issue-close") issueClose.mutate(l);
+    if (key === "illiquid") illiquid.mutate(l);
+    else if (key === "issue-close") issueClose.mutate(l);
     else if (key === "prod-close") prodClose.mutate(l);
     else setTarget({ action: key, line: l });
   };
@@ -414,7 +425,22 @@ function LinesTab({
               </Space>
             ),
           },
-          { title: "Плёнка", render: (_, l) => (l.material ? lineFilmLabel(l) : "—") },
+          {
+            title: "Плёнка",
+            render: (_, l) =>
+              l.material ? (
+                <Space size={4} wrap>
+                  {lineFilmLabel(l)}
+                  {l.use_illiquid && (
+                    <Tooltip title="Под строку берутся только рулоны с пометкой «неликвид»">
+                      <Tag color="orange">из неликвида</Tag>
+                    </Tooltip>
+                  )}
+                </Space>
+              ) : (
+                "—"
+              ),
+          },
           {
             title: "Рулон",
             render: (_, l) => {

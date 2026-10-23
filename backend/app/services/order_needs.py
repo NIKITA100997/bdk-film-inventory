@@ -189,7 +189,7 @@ def film_stock_m2(db: Session) -> dict[str, float]:
     for m, c, t, area in (
         db.query(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id, func.sum(MaterialUnit.width_mm * MaterialUnit.length_m / 1000))
         .join(MaterialUnit, MaterialUnit.material_sku_id == MaterialSku.id)
-        .filter(MaterialUnit.status != UnitStatus.SPISAN)
+        .filter(MaterialUnit.status != UnitStatus.SPISAN, MaterialUnit.marked_illiquid.is_(False))  # неликвид (23.10)
         .group_by(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id)
     ):
         film_stock[f"film:{m}-{c}-{t}"] = float(area or 0)

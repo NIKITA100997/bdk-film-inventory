@@ -104,7 +104,8 @@ def _stock_and_reserve_by_group(
             func.sum(MaterialUnit.width_mm * MaterialUnit.length_m / 1000),
         )
         .join(MaterialUnit, MaterialUnit.material_sku_id == MaterialSku.id)
-        .filter(MaterialUnit.status != UnitStatus.SPISAN)
+        # неликвид (23.10) не в «доступно» и «заказать» — иначе маскировал бы нехватку цвета
+        .filter(MaterialUnit.status != UnitStatus.SPISAN, MaterialUnit.marked_illiquid.is_(False))
         .group_by(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id)
         .all()
     )
@@ -144,7 +145,7 @@ def _stock_and_reserve_by_group(
             ),
         )
         for line in lines
-        if line.material_id is not None
+        if line.material_id is not None and not line.use_illiquid  # «из неликвида» резервирует неликвид (23.10)
     ]
     reserved_by_group = reserved_area_m2_by_group(reserve_input)
     # Плёнка под ламинацию панелей заказанных дверей — тоже резерв.

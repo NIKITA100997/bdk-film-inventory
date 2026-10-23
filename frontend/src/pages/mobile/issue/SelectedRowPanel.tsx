@@ -46,7 +46,7 @@ export default function SelectedRowPanel({ s }: { s: IssueState }) {
               <tr>
                 <td style={{ color: "#6B6B68" }}>Плёнка</td>
                 <td style={{ fontWeight: 600 }}>
-                  {selected.line.material}, {selected.line.color}, {selected.line.thickness} мм
+                  {selected.line.material}, {selected.line.color}, {selected.line.thickness} мм{selected.line.use_illiquid ? " · из неликвида" : ""}
                 </td>
               </tr>
               <tr>

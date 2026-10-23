@@ -44,6 +44,7 @@ class MaterialUnitOut(BaseModel):
     width_mm: float
     length_m: float
     is_strip: bool
+    marked_illiquid: bool = False  # неликвид (23.10)
     status: UnitStatus
     area: str | None
     location_code: str | None
@@ -142,6 +143,8 @@ class UnitBulkEditRequest(BaseModel):
     thickness: float | None = None
     manufacturer: str | None = None
     location_code: str | None = None
+    # неликвид (23.10): True — пометить, False — снять (units.correct или materials.manage)
+    illiquid: bool | None = None
     reason: str | None = None
     occurred_at: datetime | None = None
 
@@ -289,6 +292,8 @@ class CuttingPlanRequest(BaseModel):
     # /units/issue, а не по всей системе. Опционально — старое поведение
     # (без ограничения по складу) сохраняется, если не передан.
     area: str | None = None
+    # строки группы «из неликвида» (23.10): подбирать только рулоны с пометкой неликвид
+    illiquid: bool = False
 
 
 class CuttingPlanStockMatch(BaseModel):

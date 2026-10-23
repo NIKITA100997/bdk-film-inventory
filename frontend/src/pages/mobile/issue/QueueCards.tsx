@@ -96,7 +96,7 @@ export default function QueueCards({ s }: { s: IssueState }) {
           <div style={{ fontSize: 13, color: "#6E6A61" }}>
             {showTask
               ? `${row.task.product_model_name ?? row.task.name ?? `Задание №${row.task.id}`} · `
-              : `${row.line.material}, ${row.line.color}, ${row.line.thickness} мм · штрипс ${row.line.strip_width_mm || row.line.width_mm} мм · `}
+              : `${row.line.material}, ${row.line.color}, ${row.line.thickness} мм${row.line.use_illiquid ? " · из неликвида" : ""} · штрипс ${row.line.strip_width_mm || row.line.width_mm} мм · `}
             {issuedNote ? `выдано ${row.line.issued_length_m} м` : `нужно ${need}`}
             {row.assignment ? ` · ${row.assignment.line_name}` : ""}
           </div>
@@ -137,7 +137,7 @@ export default function QueueCards({ s }: { s: IssueState }) {
               </>
             ) : (
               <>
-                {r.line.material}, {r.line.color}, {r.line.thickness} мм
+                {r.line.material}, {r.line.color}, {r.line.thickness} мм{r.line.use_illiquid ? " · из неликвида" : ""}
                 <Typography.Text type="secondary" style={{ fontWeight: 400 }}>
                   {" "}
                   · штрипс {r.line.strip_width_mm || r.line.width_mm} мм

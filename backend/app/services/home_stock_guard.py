@@ -81,6 +81,8 @@ def home_stock_block_reason(db: Session, *, sku_id: int, width_mm: float, to_war
         MaterialUnit.status == UnitStatus.NA_KHRANENII,
         MaterialUnit.material_sku_id == sku.id,
         MaterialUnit.width_mm.in_(list(widths)),
+        # неликвид (23.10): строки «из неликвида» — только он, остальные — без него
+        MaterialUnit.marked_illiquid.is_(all(ln.use_illiquid for ln in lines)),
     )
     units = filter_by_warehouse(stock_q, MaterialUnit.location_code, db, to_warehouse_id).order_by(MaterialUnit.created_at).all()
     stock = sum(float(u.length_m) for u in units)

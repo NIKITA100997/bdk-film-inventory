@@ -83,6 +83,9 @@ def stock_summary(
             func.sum(
                 case((MaterialUnit.price_per_m2.is_(None), MaterialUnit.width_mm * MaterialUnit.length_m / 1000), else_=0)
             ).label("unpriced"),
+            func.sum(
+                case((MaterialUnit.marked_illiquid.is_(True), MaterialUnit.width_mm * MaterialUnit.length_m / 1000), else_=0)
+            ).label("illiquid"),
         )
         .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
         .join(Material, MaterialSku.material_id == Material.id)
@@ -100,8 +103,9 @@ def stock_summary(
         StockSummaryLine(
             material=m, color=c, thickness=float(t), total_area_m2=round(float(area or 0), 3), unit_count=cnt,
             value_rub=round(float(value), 2) if value is not None else None, unpriced_area_m2=round(float(unpriced or 0), 3),
+            illiquid_area_m2=round(float(illiquid or 0), 3),
         )
-        for m, c, t, area, cnt, value, unpriced in rows
+        for m, c, t, area, cnt, value, unpriced, illiquid in rows
     ]
 
 

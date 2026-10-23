@@ -234,6 +234,7 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
         if racks and need_m2:
             q = db.query(MaterialUnit).filter(
                 MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.production_task_line_id.is_(None),
+                MaterialUnit.marked_illiquid.is_(False),  # неликвид не свободен под обычные строки (23.10)
                 or_(*[MaterialUnit.location_code.like(f"{c}-%") for c in racks]),
             )
             for u in q:

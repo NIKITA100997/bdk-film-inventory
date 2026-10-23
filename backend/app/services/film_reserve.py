@@ -98,9 +98,11 @@ class Need:
     home_warehouse_id: int | None
     task_line_id: int | None = None
     customer_order_id: int | None = None
+    illiquid: bool = False  # строка «из неликвида» (23.10)
 
 
 def _candidates(db: Session, need: Need) -> list[MaterialUnit]:
+    from app.services.illiquid import only as illiquid_only
     from app.services.warehouses import filter_by_warehouse
     from app.services.width_analogs import equivalent_widths
 
@@ -116,6 +118,7 @@ def _candidates(db: Session, need: Need) -> list[MaterialUnit]:
         # единица, уже выданная под другую строку (едет/лежит на Фабрике), — не трогаем
         (MaterialUnit.production_task_line_id.is_(None)) | (MaterialUnit.production_task_line_id == (need.task_line_id or -1)),
     )
+    q = illiquid_only(q, need.illiquid)
     q = filter_by_warehouse(q, MaterialUnit.location_code, db, need.home_warehouse_id)
     equiv = set(equivalent_widths(db, need.strip_w))
     units = q.all()
@@ -177,7 +180,8 @@ def reserve_lines(db: Session, lines: list[ProductionTaskLine], user_id: int) ->
         if need_m - have_m <= EPS:
             continue
         got, short = reserve(db, Need(ln.material_id, ln.color_id, ln.thickness_id, sw, need_m - have_m,
-                                      area_home_warehouse_id(db, ln.task.area), task_line_id=ln.id), user_id)
+                                      area_home_warehouse_id(db, ln.task.area), task_line_id=ln.id,
+                                      illiquid=bool(ln.use_illiquid)), user_id)
         out["reserved_m2"] += got
         out["short_m2"] += short
         out["lines"] += 1

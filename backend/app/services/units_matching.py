@@ -11,6 +11,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.models.units import MaterialUnit, UnitStatus
+from app.services.illiquid import only as illiquid_only
 from app.services.warehouses import filter_by_warehouse
 from app.services.width_analogs import equivalent_widths
 
@@ -24,6 +25,7 @@ def find_exact_stock_match(
     home_warehouse_id: int | None,
     exclude_unit_ids: set[int],
     any_width: bool = False,
+    illiquid: bool = False,
 ) -> MaterialUnit | None:
     """Тот же запрос, что раньше был только в /units/issue: На_хранении,
     та же номенклатура, подходящая ширина, достаточная длина, отфильтровано
@@ -48,6 +50,8 @@ def find_exact_stock_match(
         query = query.filter(MaterialUnit.width_mm >= width_mm)
     else:
         query = query.filter(MaterialUnit.width_mm.in_(equivalent_widths(db, width_mm)))
+    # неликвид (23.10): обычной строке — без него, строке «из неликвида» — только он
+    query = illiquid_only(query, illiquid)
     if exclude_unit_ids:
         query = query.filter(MaterialUnit.id.notin_(exclude_unit_ids))
     return (

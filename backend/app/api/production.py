@@ -294,6 +294,7 @@ def _task_line_out(
         operation_name=db.get(PartStage, line.part_stage_id).name if line.part_stage_id else None,
         is_closed=line.is_closed,
         production_closed=line.production_closed,
+        use_illiquid=bool(line.use_illiquid),
         produced_good_pieces=good,
         defect_pieces=defect,
         remaining_pieces=remaining_pieces,
@@ -921,7 +922,8 @@ def get_blanks_demand(
     supply_rows = (
         db.query(MaterialSku.material_id, MaterialSku.color_id, MaterialSku.thickness_id, MaterialUnit.width_mm, MaterialUnit.length_m)
         .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
-        .filter(MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.production_task_line_id.is_(None))
+        .filter(MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.production_task_line_id.is_(None),
+                MaterialUnit.marked_illiquid.is_(False))  # неликвид (23.10)
         .all()
     )
     supply_lines = [
@@ -2106,6 +2108,40 @@ def update_task_line_spec(
     db.commit()
     task = db.get(ProductionTask, task_id)
     return _task_out(db, task)
+
+
+class LineIlliquidIn(BaseModel):
+    value: bool
+
+
+@router.patch("/production-tasks/{task_id}/lines/{line_id}/illiquid", response_model=ProductionTaskOut)
+def set_line_illiquid(
+    task_id: int,
+    line_id: int,
+    payload: LineIlliquidIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(manage_production),
+) -> ProductionTaskOut:
+    """Строка «из неликвида» (23.10): подбор, резерв и донор — только рулоны с
+    пометкой неликвид; снять — обратно на обычные рулоны. Резерв строки
+    перекладывается сразу (если резерв включён)."""
+    from app.services import film_reserve
+
+    _guard_task(db, user, task_id)
+    line = db.get(ProductionTaskLine, line_id)
+    if line is None or line.task_id != task_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Строка задания не найдена")
+    if line.material_id is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="У строки нет плёнки")
+    if bool(line.use_illiquid) != payload.value:
+        line.use_illiquid = payload.value
+        db.flush()
+        if film_reserve.enabled(db):
+            film_reserve.release_lines(db, [line.id], user.id, "строка переведена " + ("на неликвид" if payload.value else "на обычные рулоны"))
+            db.flush()
+            film_reserve.reserve_lines(db, [line], user.id)
+    db.commit()
+    return _task_out(db, db.get(ProductionTask, task_id))
 
 
 def delete_production_task_impl(db: Session, task: ProductionTask) -> None:

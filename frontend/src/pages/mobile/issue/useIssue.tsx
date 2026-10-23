@@ -992,7 +992,7 @@ export function useIssue() {
           rows.push({
             part: line.part_name ?? "Деталь",
             qty: `${line.quantity_pieces} шт`,
-            material: `${line.material}, ${line.color}, ${line.thickness} мм`,
+            material: `${line.material}, ${line.color}, ${line.thickness} мм${line.use_illiquid ? " · из неликвида" : ""}`,
             unit: u.id,
             status:
               u.status === "В_перемещении"
@@ -1009,7 +1009,7 @@ export function useIssue() {
         rows.push({
           part: line.part_name ?? "Деталь",
           qty: `${line.quantity_pieces} шт`,
-          material: `${line.material}, ${line.color}, ${line.thickness} мм`,
+          material: `${line.material}, ${line.color}, ${line.thickness} мм${line.use_illiquid ? " · из неликвида" : ""}`,
           unit: `${stockDecision.unitId}`,
           status: "решено, ещё не выдано",
         });
@@ -1020,7 +1020,7 @@ export function useIssue() {
         rows.push({
           part: line.part_name ?? "Деталь",
           qty: `${line.quantity_pieces} шт`,
-          material: `${line.material}, ${line.color}, ${line.thickness} мм`,
+          material: `${line.material}, ${line.color}, ${line.thickness} мм${line.use_illiquid ? " · из неликвида" : ""}`,
           unit: `${cutPiece.e.donorUnitId} (донор)`,
           status: "запланировано, ещё не разрезан",
         });

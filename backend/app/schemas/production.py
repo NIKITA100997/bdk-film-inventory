@@ -415,6 +415,8 @@ class ProductionTaskLineOut(BaseModel):
     # зависит от remaining_pieces — рост quantity_pieces (план
     # пересмотрели) не переоткрывает автоматически.
     production_closed: bool = False
+    # «из неликвида» (23.10): под строку берутся только рулоны с пометкой неликвид
+    use_illiquid: bool = False
     # Агрегаты по ProductionTaskLineReport (раздел про брак в
     # производстве) — quantity_pieces сама не мутируется, остаток считается
     # на лету из накопительного журнала отчётов.

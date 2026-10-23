@@ -142,6 +142,8 @@ export interface ProductionTaskLine {
   // ось): не зависит от remaining_pieces, не переоткрывается сам, если
   // quantity_pieces потом вырос.
   production_closed: boolean;
+  /** «из неликвида» (23.10): под строку — только рулоны с пометкой неликвид */
+  use_illiquid?: boolean;
   produced_good_pieces: number;
   defect_pieces: number;
   remaining_pieces: number;
@@ -564,6 +566,10 @@ export const closeTaskLine = async (taskId: number, lineId: number, isClosed: bo
 // независимая ось от closeTaskLine выше (тот про выдачу/остаток
 // рулона): этот флаг про то, что строку больше не предлагают для новых
 // отчётов о производстве.
+/** Строка «из неликвида» (23.10): подбор и резерв — только рулоны с пометкой неликвид. */
+export const setLineIlliquid = async (taskId: number, lineId: number, value: boolean): Promise<ProductionTask> =>
+  (await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/lines/${lineId}/illiquid`, { value })).data;
+
 export const closeProductionLine = async (taskId: number, lineId: number, productionClosed: boolean): Promise<ProductionTask> =>
   (
     await apiClient.patch<ProductionTask>(`/production-tasks/${taskId}/lines/${lineId}/close-production`, null, {
