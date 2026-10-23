@@ -79,10 +79,12 @@ export function FlowStrip({
   flow,
   active,
   onPick,
+  title,
 }: {
   flow: Flow;
   active: string | null;
   onPick: (op: string | null) => void;
+  title?: string;
 }) {
   const { token } = theme.useToken();
   if (!flow.ops.length) return null;
@@ -100,6 +102,11 @@ export function FlowStrip({
   const num = { fontVariantNumeric: "tabular-nums" as const, fontWeight: 600, fontSize: 16 };
   return (
     <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, alignItems: "stretch" }}>
+      {title && (
+        <div style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: 11, letterSpacing: ".06em", textTransform: "uppercase", color: token.colorTextSecondary, textAlign: "center" }}>
+          {title}
+        </div>
+      )}
       {flow.ops.map((f, i) => {
         const inc = opIncludes(f.op);
         const on = active === f.op;

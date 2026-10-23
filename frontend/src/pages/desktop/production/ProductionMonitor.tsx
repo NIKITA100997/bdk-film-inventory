@@ -13,6 +13,7 @@ import { useAuth } from "../../../auth/AuthContext";
 import { hasPerm } from "../../../auth/permissions";
 import OrdersView, { buildLines } from "./monitor/OrdersView";
 import AreasView from "./monitor/AreasView";
+import PrepView from "./monitor/PrepView";
 import TaskCardDrawer from "./TaskCardDrawer";
 
 // Вид продукции (16.10): у дверей, погонажа и панелей свои этапы — по одному виду.
@@ -20,6 +21,7 @@ const PRODUCTS = ["shield", "tsarg", "trim", "panel", "other"] as const;
 const productOf = (r: MonitorRow) => (r.direction && (PRODUCTS as readonly string[]).includes(r.direction) ? r.direction : "other");
 const productLabel = (p: string) => (p === "other" ? "Прочее" : DIRECTIONS[p] ?? p);
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
+type View = "orders" | "areas" | "prep";
 
 /** Монитор производства (переработан 21.10).
  * «Заказы на производство» — как лист «График»: строка на позицию заказа,
@@ -31,10 +33,10 @@ export default function ProductionMonitor() {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const [showDone, setShowDone] = usePersistentState("monitor.showDone", false);
-  const [savedView, setSavedView] = usePersistentState<"orders" | "areas">("monitor.view", "orders");
+  const [savedView, setSavedView] = usePersistentState<View>("monitor.view", "orders");
   const [savedProduct, setSavedProduct] = usePersistentState<string>("monitor.product", "shield");
   const [savedArea, setSavedArea] = usePersistentState<string | undefined>("monitor.area", undefined);
-  const view = (params.get("view") as "orders" | "areas") ?? savedView;
+  const view = (params.get("view") as View) ?? savedView;
   const area = params.get("area") ?? savedArea;
   const [q, setQ] = useState("");
   const [orderIds, setOrderIds] = useState<number[]>([]);
@@ -52,7 +54,8 @@ export default function ProductionMonitor() {
   };
   const products = PRODUCTS.filter((p) => (data?.rows ?? []).some((r) => productOf(r) === p));
   const product = params.get("product") ?? (view === "areas" ? "all" : savedProduct);
-  const productOk = product === "all" || !products.length ? null : products.includes(product as never) ? product : products[0];
+  // «Подготовка к склейке» — п/ф щитовых, вид продукции у детали может быть другим
+  const productOk = view === "prep" || product === "all" || !products.length ? null : products.includes(product as never) ? product : products[0];
 
   const rows = useMemo(() => {
     const needle = norm(q.trim());
@@ -107,15 +110,16 @@ export default function ProductionMonitor() {
           <Segmented
             value={view}
             onChange={(v) => {
-              setSavedView(v as "orders" | "areas");
+              setSavedView(v as View);
               set({ view: v as string });
             }}
             options={[
               { label: "Заказы на производство", value: "orders" },
               { label: "Задания цехов", value: "areas" },
+              { label: "Подготовка к склейке", value: "prep" },
             ]}
           />
-          {products.length > 0 && (
+          {products.length > 0 && view !== "prep" && (
             <Segmented
               value={productOk ?? "all"}
               onChange={(v) => {
@@ -156,7 +160,9 @@ export default function ProductionMonitor() {
           </Typography.Text>
         </Space>
       </Card>
-      {!data ? null : view === "orders" ? (
+      {!data ? null : view === "prep" ? (
+        <PrepView rows={rows} orders={data.orders} areas={data.areas} onOpenTask={setTaskId} />
+      ) : view === "orders" ? (
         <OrdersView rows={rows} orders={data.orders} areas={data.areas} hideDone={!showDone} onOpenTask={setTaskId} />
       ) : (
         <AreasView

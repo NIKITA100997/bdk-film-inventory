@@ -99,7 +99,7 @@ const sumOp = (rs: MonitorRow[] = []) => ({
   defect: rs.reduce((s, r) => s + r.defect, 0),
 });
 
-function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined; ready?: number; onOpenTask: (id: number) => void }) {
+export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined; ready?: number; onOpenTask: (id: number) => void }) {
   const [open, setOpen] = useState(false);
   if (!rs?.length) return <Typography.Text type="secondary">—</Typography.Text>;
   const s = sumOp(rs);
