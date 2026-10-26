@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Checkbox, Dropdown, Input, Modal, Progress, Space, Tag, Typography, message } from "antd";
+import { Button, Card, Checkbox, Dropdown, Input, Progress, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
@@ -9,6 +9,7 @@ import { STAGE_COLOR, launchCustomerOrders, listCustomerOrders, type CustomerOrd
 import { PRIORITY_COLOR, PRIORITY_LABEL } from "../../../api/productionOrders";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { CustomerOrderModal, fmt, fmtShort, useCustomerOrderRights } from "./parts";
+import LaunchFromOrders from "./LaunchFromOrders";
 
 type Filter = "all" | "wait" | "accepted" | "work" | "ready" | "mine";
 const FILTERS: [Filter, string, (o: CustomerOrder) => boolean][] = [
@@ -49,7 +50,8 @@ export default function CustomerOrders() {
     );
   const pickedOrders = all.filter((o) => picked.includes(o.id));
   const launch = useMutation({
-    mutationFn: () => launchCustomerOrders(picked, launchName?.trim() || null),
+    // состав и выбор строк — в окне «Собрать запуск» (27.10)
+    mutationFn: (v: { ids: number[]; name: string | null; lineIds: number[] }) => launchCustomerOrders(v.ids, v.name, v.lineIds),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["customer-orders"] });
       qc.invalidateQueries({ queryKey: ["production-orders"] });
@@ -234,32 +236,13 @@ export default function CustomerOrders() {
           }}
         />
       )}
-      <Modal
+      <LaunchFromOrders
         open={launchName !== null}
-        title="Собрать запуск"
-        okText="Собрать и открыть"
-        cancelText="Отмена"
-        onCancel={() => setLaunchName(null)}
-        okButtonProps={{ loading: launch.isPending }}
-        onOk={() => launch.mutate()}
-      >
-        <Space direction="vertical" style={{ width: "100%" }}>
-          <Typography.Text>
-            Заказов: {pickedOrders.length}, незапущенных штук:{" "}
-            {pickedOrders.reduce((s, o) => s + Math.max(0, o.qty - o.launched), 0)}. Срок запуска — по самому раннему заказу,
-            приоритет — по самому срочному.
-          </Typography.Text>
-          <Typography.Text type="secondary">{pickedOrders.map((o) => o.invoice_no).join(", ")}</Typography.Text>
-          <Input
-            placeholder={`Название (по умолчанию — «Запуск ${dayjs().format("DD.MM")}: счета…»)`}
-            value={launchName ?? ""}
-            onChange={(e) => setLaunchName(e.target.value)}
-          />
-          <Typography.Text type="secondary">
-            Получится черновик заказа на производство: там выбираются п/ф со склада, площадки ламинации и сроки, затем «Запустить».
-          </Typography.Text>
-        </Space>
-      </Modal>
+        orders={pickedOrders}
+        busy={launch.isPending}
+        onClose={() => setLaunchName(null)}
+        onLaunch={(ids, name, lineIds) => launch.mutate({ ids, name, lineIds })}
+      />
     </Space>
   );
 }

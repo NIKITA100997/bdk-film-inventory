@@ -150,7 +150,7 @@ def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
 
     kind_of: dict[int, str] = {}
     dir_of: dict[int, str | None] = {}
-    if full:
+    if True:  # и в списке (27.10): вид строк нужен в окне «Собрать запуск»
         its = db.query(Item).filter(Item.id.in_({ln.item_id for ln in co.lines} or {-1})).all()
         tps = {t.id: t for t in db.query(ItemType).filter(ItemType.id.in_({i.type_id for i in its if i.type_id} or {-1}))}
         kn = {k.id: k.name for k in db.query(ItemKind)}
