@@ -145,7 +145,7 @@ def build_production_order(
     for i, (co, ln, left) in enumerate(rows, start=1):
         po.lines.append(ProductionOrderLine(
             item_id=ln.item_id, quantity=left, note=ln.note, invoice_no=co.invoice_no, source_text=ln.source_text,
-            sort_order=i, customer_order_line_id=ln.id,
+            sort_order=i, customer_order_line_id=ln.id, options=ln.options,
         ))
     db.add(po)
     db.flush()
@@ -244,30 +244,30 @@ def line_decor(note: str | None, source: str | None) -> str:
 
     m = re.search(r"декор:\s*([^,]+)", note or "")
     d = m.group(1) if m else (decor_of(source or "") or "")
-    # цвет уплотнителя (26.10) — разные строки одной коробки, не сливать
-    s = re.search(r"уплотнитель:\s*([^,]+)", note or "")
-    if s:
-        d = f"{d} | {s.group(1)}"
     return " ".join(d.lower().replace("ё", "е").split())
 
 
-def merge_lines(db: Session, co: CustomerOrder, lines: list[tuple[int, float, str | None, str | None]]) -> tuple[int, int]:
+def merge_lines(db: Session, co: CustomerOrder, lines: list[tuple]) -> tuple[int, int]:
     """Повторная загрузка счёта (20.10): позиции, которых нет, — добавить;
     те, что есть, — количество по счёту, но не меньше запущенного. Строки
     заказа, которых в счёте нет, не трогаем (их могли добавить вручную).
-    lines — (item_id, кол-во, примечание, исходный текст). Возвращает
-    (добавлено, изменено)."""
+    lines — (item_id, кол-во, примечание, исходный текст[, исполнение]).
+    Возвращает (добавлено, изменено)."""
+    from app.services import line_options
+
     launched = progress(db, co).line_launched if co.id else {}
-    # позиция + декор: у погонажа одна позиция в разных декорах — разные строки
-    by_item = {(ln.item_id, line_decor(ln.note, ln.source_text)): ln for ln in co.lines}
+    # позиция + декор + исполнение (26.10): у погонажа одна позиция в разных
+    # декорах и с разным уплотнителем — разные строки
+    by_item = {(ln.item_id, line_decor(ln.note, ln.source_text), line_options.key(ln.options)): ln for ln in co.lines}
     added = changed = 0
     n = max((ln.sort_order for ln in co.lines), default=0)
-    for item_id, qty, note, src in lines:
-        key = (item_id, line_decor(note, src))
+    for item_id, qty, note, src, *rest in lines:
+        opts = rest[0] if rest else None
+        key = (item_id, line_decor(note, src), line_options.key(opts))
         ex = by_item.get(key)
         if ex is None:
             n += 1
-            ln = CustomerOrderLine(item_id=item_id, quantity=qty, note=note, source_text=src, sort_order=n)
+            ln = CustomerOrderLine(item_id=item_id, quantity=qty, note=note, source_text=src, sort_order=n, options=opts or None)
             co.lines.append(ln)
             by_item[key] = ln
             added += 1

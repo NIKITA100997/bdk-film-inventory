@@ -27,6 +27,7 @@ from app.models.users import User
 from app.services import bitrix
 from app.services import bitrix_deals as deals
 from app.services import customer_orders as cos
+from app.services import line_options
 from app.services.components import live_item_names
 
 router = APIRouter(prefix="/customer-orders", tags=["customer-orders"])
@@ -54,6 +55,7 @@ class LineIn(BaseModel):
     item_id: int
     quantity: float = Field(gt=0)
     note: str | None = Field(default=None, max_length=255)  # длиннее — была ошибка 500 (14.10)
+    options: list[dict] | None = None  # исполнение (26.10); None — не менять
 
 
 class OrderIn(BaseModel):
@@ -79,6 +81,10 @@ class LineOut(BaseModel):
     direction: str | None = None  # код вида: trim / shield / tsarg / panel (сделки по видам)
     kind_name: str | None = None
     received: float = 0  # принято на склад ГП (по запуску или «Готово…» без запуска)  # вид позиции — запуск по видам (погонаж отдельно от дверей, 20.10)
+    # исполнение (26.10): [{code, name, value, op}] и какие выборы есть у типа позиции
+    options: list[dict] = []
+    option_fields: list[dict] = []
+    source_text: str | None = None
 
 
 class ChangeOut(BaseModel):
@@ -181,7 +187,9 @@ def _out(db: Session, co: CustomerOrder, full: bool = True) -> OrderOut:
         production_orders=[{"id": i, "name": n, "status": st} for i, n, st in p.production_orders],
         lines=[LineOut(id=ln.id, item_id=ln.item_id, item_name=names.get(ln.item_id, "?"), quantity=float(ln.quantity),
                        launched=round(p.line_launched.get(ln.id, 0.0), 2), note=ln.note, kind_name=kind_of.get(ln.item_id), direction=dir_of.get(ln.item_id),
-                       received=round(p.line_received.get(ln.id, 0.0), 2)) for ln in co.lines],
+                       received=round(p.line_received.get(ln.id, 0.0), 2), options=ln.options or [],
+                       option_fields=line_options.option_fields(db, db.get(Item, ln.item_id)) if full else [],
+                       source_text=ln.source_text) for ln in co.lines],
         date_changes=changes,
         bitrix_deal_id=co.bitrix_deal_id,
         bitrix_deal_url=deals.deal_url(bitrix.get_settings(db), co.bitrix_deal_id) if co.bitrix_deal_id else None,
@@ -337,8 +345,11 @@ def _write(db: Session, co: CustomerOrder, payload: OrderIn) -> None:
                 if ln.quantity < launched.get(ex.id, 0.0):
                     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Нельзя уменьшить ниже запущенного — уменьшайте в заказе на производство")
                 ex.quantity, ex.note, ex.sort_order = ln.quantity, (ln.note or "").strip() or None, i
+                if ln.options is not None:
+                    ex.options = ln.options or None
             else:
-                co.lines.append(CustomerOrderLine(item_id=ln.item_id, quantity=ln.quantity, note=(ln.note or "").strip() or None, sort_order=i))
+                co.lines.append(CustomerOrderLine(item_id=ln.item_id, quantity=ln.quantity, note=(ln.note or "").strip() or None, sort_order=i,
+                                                  options=ln.options or None))
         for ex in by_item.values():
             if launched.get(ex.id):
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Запущенную позицию нельзя убрать — отмените её в заказе на производство")
@@ -346,7 +357,8 @@ def _write(db: Session, co: CustomerOrder, payload: OrderIn) -> None:
     else:
         db.flush()
         for i, ln in enumerate(payload.lines, start=1):
-            co.lines.append(CustomerOrderLine(item_id=ln.item_id, quantity=ln.quantity, note=(ln.note or "").strip() or None, sort_order=i))
+            co.lines.append(CustomerOrderLine(item_id=ln.item_id, quantity=ln.quantity, note=(ln.note or "").strip() or None, sort_order=i,
+                                              options=ln.options or None))
 
 
 @router.post("", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
@@ -917,7 +929,7 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
         color_films=payload.color_films, colors_out=colors, invoice_no=(payload.invoice_no or "").strip() or None,
         other_types=others, item_choices=payload.item_choices,
     )
-    out_rows = [{k: getattr(r, k) for k in ("series", "size", "color", "name_text", "qty", "invoice_no", "ship_date", "item_name", "exists", "type_name", "errors", "notes", "candidates")} for r in rows]
+    out_rows = [{k: getattr(r, k) for k in ("series", "size", "color", "name_text", "qty", "invoice_no", "ship_date", "item_name", "exists", "type_name", "errors", "notes", "candidates", "options")} for r in rows]
     invoices = sorted({(r.invoice_no or "").strip() for r in rows if (r.invoice_no or "").strip()})
     no_inv = [r.name_text for r in rows if not (r.invoice_no or "").strip()]
     # один счёт — один заказ (20.10): счёт, по которому заказ уже есть, —
@@ -946,7 +958,7 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
     po_lines = sorted(po.lines, key=lambda x: x.sort_order)
     updated: list[int] = []
     for inv, co in existing.items():
-        cos.merge_lines(db, co, [(ln.item_id, float(ln.quantity), ln.note, ln.source_text) for ln in po_lines if (ln.invoice_no or "").strip() == inv])
+        cos.merge_lines(db, co, [(ln.item_id, float(ln.quantity), ln.note, ln.source_text, ln.options) for ln in po_lines if (ln.invoice_no or "").strip() == inv])
         if payload.customer and not co.customer:
             co.customer = payload.customer.strip()
         if payload.bitrix_deal_id and len(invoices) == 1:
@@ -971,7 +983,8 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
                     co.amount_rub = payload.amount_rub
             db.add(co)
             by_inv[inv] = co
-        co.lines.append(CustomerOrderLine(item_id=ln.item_id, quantity=ln.quantity, note=ln.note, source_text=ln.source_text, sort_order=i))
+        co.lines.append(CustomerOrderLine(item_id=ln.item_id, quantity=ln.quantity, note=ln.note, source_text=ln.source_text, sort_order=i,
+                                          options=ln.options))
     db.delete(db.get(ProductionOrder, po.id))
     db.flush()
     for co, did in link_after:
@@ -979,3 +992,29 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
     created = [co.id for co in by_inv.values()]
     db.commit()
     return {"rows": out_rows, "problems": [], "invoices": invoices, "colors": [], "created": created, "updated": updated, "merges": merges}
+
+
+class LineOptionsIn(BaseModel):
+    options: list[dict] = []
+
+
+@router.patch("/{order_id}/lines/{line_id}/options", response_model=OrderOut)
+def set_line_options(order_id: int, line_id: int, payload: LineOptionsIn, db: Session = Depends(get_db), user: User = Depends(edit)) -> OrderOut:
+    """Исполнение строки (26.10): цвет кромки, тип стекла, уплотнитель… —
+    дописать то, чего не было в счёте. Не запущенные строки заказов на
+    производство (черновики) получают то же."""
+    from app.models.production_orders import ORDER_DRAFT, ProductionOrder, ProductionOrderLine
+
+    co = _get(db, order_id)
+    ln = next((x for x in co.lines if x.id == line_id), None)
+    if ln is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Строка не найдена")
+    opts = [o for o in line_options.merge([], payload.options) if (o.get("value") or "").strip()]
+    ln.options = opts or None
+    for pol in (
+        db.query(ProductionOrderLine).join(ProductionOrder, ProductionOrder.id == ProductionOrderLine.order_id)
+        .filter(ProductionOrderLine.customer_order_line_id == ln.id, ProductionOrder.status == ORDER_DRAFT)
+    ):
+        pol.options = ln.options
+    db.commit()
+    return _out(db, co)

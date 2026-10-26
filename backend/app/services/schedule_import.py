@@ -35,6 +35,8 @@ class ImportRow:
     notes: list[str] = field(default_factory=list)
     # несколько подходящих позиций (21.10): выбор в окне загрузки — [{id, name}]
     candidates: list[dict] = field(default_factory=list)
+    # исполнение из строки (26.10): [{code, name, value, op}] — в строку заказа, не в позицию
+    options: list[dict] = field(default_factory=list)
 
 
 def film_for_color(db: Session, color: str, index=None) -> tuple[str, str, float | None] | None:
@@ -525,6 +527,9 @@ def import_schedule(
                             add_alias(db, item, base_name(r.name_text), source="счёт: выбор позиции", user_id=user_id)
                         except ValueError:
                             pass  # текст уже синоним другой позиции — выбор только для этой загрузки
+                from app.services import line_options
+
+                ir.options = line_options.seal_option(r.name_text)
                 if item is not None:
                     row_items[-1] = item
                     ir.item_id, ir.item_name, ir.exists = item.id, item.name, True
@@ -557,6 +562,9 @@ def import_schedule(
         if new_series_note:
             ir.notes.append(new_series_note)
         values, errors = _values_for_row(rt, tpl, r, db, choices)
+        from app.services import line_options
+
+        values, ir.options = line_options.split_values(db, rt, values)
         c = tpl.color_text(r, color_code)
         cprop = next((p for p in rt.properties if p.code == color_code), None)
         if c and rt.id == type_.id and cprop is not None and cprop.value_type == "list":
@@ -605,11 +613,10 @@ def import_schedule(
         notes = [f"отгрузка {r.ship_date.strftime('%d.%m')}" if r.ship_date else None]
         if (fixed is not None) and decor_of(r.name_text):
             notes.append(f"декор: {decor_of(r.name_text)}")
-        if seal_of(r.name_text):
-            notes.append(f"уплотнитель: {seal_of(r.name_text)}")
         note = ", ".join(n for n in notes if n) or None
         order.lines.append(ProductionOrderLine(
             item_id=item.id, quantity=r.qty, note=note, invoice_no=(r.invoice_no or "").strip() or None, sort_order=i,
+            options=ir.options or None,
             source_text=(getattr(r, "name_text", "") or "").strip()[:500] or None,
         ))
     db.flush()

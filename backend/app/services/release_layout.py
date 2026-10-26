@@ -76,6 +76,9 @@ def build_release_layout(
     fill_programs(db, order)  # программы фрезеровки — до ручных правок
     skipped: set[str] = set()
     override_errors = apply_overrides(db, order, overrides or [], user_name, keep_skipped=skipped)
+    from app.services.line_options import apply_to_tasks
+
+    apply_to_tasks(db, order)  # исполнение строк (26.10) — указанием мастеру
     from app.services.release_merge import merge_pf_lines
 
     merged_keys = merge_pf_lines(db, order, skipped)  # одинаковые строки п/ф — одной (08.10)

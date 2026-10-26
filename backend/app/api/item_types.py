@@ -66,6 +66,9 @@ class PropertyIn(BaseModel):
     unit: str | None = None
     is_required: bool = False
     option_fields: list[OptionField] = []
+    # роль (26.10): construction — задаёт позицию; execution — выбор в строке заказа
+    role: str = "construction"
+    operation: str | None = None  # на какой операции нужно (указание мастеру)
 
 
 class PropertyOut(BaseModel):
@@ -79,6 +82,8 @@ class PropertyOut(BaseModel):
     option_fields: list[OptionField]
     options: list[PropertyOptionOut]
     used: int
+    role: str = "construction"
+    operation: str | None = None
 
 
 class ItemTypeIn(BaseModel):
@@ -166,6 +171,7 @@ def _property_out(db: Session, p: ItemProperty) -> PropertyOut:
             for o in p.options
         ],
         used=used or 0,
+        role=p.role or "construction", operation=p.operation,
     )
 
 
@@ -416,6 +422,7 @@ def create_property(
         unit=(payload.unit or "").strip() or None, is_required=payload.is_required,
         sort_order=max((x.sort_order for x in t.properties), default=0) + 1,
         option_fields=[f.model_dump() for f in payload.option_fields] if payload.value_type == "list" else [],
+        role=_role(payload.role), operation=(payload.operation or "").strip() or None,
     )
     db.add(p)
     db.commit()
@@ -442,9 +449,15 @@ def update_property(
     p.unit = (payload.unit or "").strip() or None
     p.is_required = payload.is_required
     p.option_fields = [f.model_dump() for f in payload.option_fields] if payload.value_type == "list" else []
+    p.role, p.operation = _role(payload.role), (payload.operation or "").strip() or None
     db.commit()
     db.refresh(p)
     return _property_out(db, p)
+
+
+def _role(v: str | None) -> str:
+    return "execution" if v == "execution" else "construction"
+
 
 
 @router.delete("/item-properties/{property_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -260,6 +260,11 @@ class ItemProperty(Base):
     is_required: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     option_fields: Mapped[list] = mapped_column(JSON, default=list)
+    # Роль (26.10): "construction" — задаёт позицию (маршрут, состав, название);
+    # "execution" — исполнение (цвет кромки, тип стекла…): позицию не плодит,
+    # хранится в строке заказа, указанием мастеру на операции `operation`.
+    role: Mapped[str] = mapped_column(String(16), default="construction", server_default="construction")
+    operation: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     type: Mapped[ItemType] = relationship(back_populates="properties", foreign_keys=[type_id])
     options: Mapped[list["ItemPropertyOption"]] = relationship(

@@ -92,6 +92,8 @@ class ProductionOrderLine(Base):
     # программы фрезеровки — в позиции двери их нет.
     source_text: Mapped[str | None] = mapped_column(String(500), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    # исполнение (26.10): [{code, name, value, op}] — из строки заказа клиента / счёта
+    options: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Строка заказа клиента (13.10): что из счёта закрывает эта строка запуска.
     customer_order_line_id: Mapped[int | None] = mapped_column(
         ForeignKey("customer_order_lines.id", ondelete="SET NULL"), nullable=True, index=True

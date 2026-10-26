@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, event, func
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, event, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -69,6 +69,8 @@ class CustomerOrderLine(Base):
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_text: Mapped[str | None] = mapped_column(String(500), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # исполнение (26.10): [{code, name, value, op}] — цвет кромки, тип стекла, уплотнитель…
+    options: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     order: Mapped[CustomerOrder] = relationship(back_populates="lines")
 

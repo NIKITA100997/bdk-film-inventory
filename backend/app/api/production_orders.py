@@ -15,6 +15,7 @@ from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import PartStage
 from app.models.items import Item, ItemComponent, ItemKind
+from app.services import line_options
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.production_orders import (
     OrderCategory,
@@ -66,6 +67,10 @@ class OrderLineIn(BaseModel):
     quantity: float = Field(gt=0)
     note: str | None = None
     invoice_no: str | None = None  # счёт / заказ 1С
+    options: list[dict] | None = None  # исполнение (26.10)
+    # строка счёта и заказа клиента — не терять при правке черновика
+    source_text: str | None = None
+    customer_order_line_id: int | None = None
 
 
 class OrderIn(BaseModel):
@@ -158,6 +163,11 @@ class OrderLineOut(BaseModel):
     components: list[ComponentNeed]
     # полный состав деревом (20.10) — «из чего состоит изделие» в черновике
     composition: list[ComponentNeed] = []
+    # исполнение (26.10): [{code, name, value, op}] и какие выборы есть у типа позиции
+    options: list[dict] = []
+    option_fields: list[dict] = []
+    source_text: str | None = None
+    customer_order_line_id: int | None = None
 
 
 class OrderTaskOut(BaseModel):
@@ -289,6 +299,8 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
                     for c in comps
                 ],
                 composition=_composition(db, item.id, float(ln.quantity), kinds, comp_cache),
+                options=ln.options or [], option_fields=line_options.option_fields(db, item),
+                source_text=ln.source_text, customer_order_line_id=ln.customer_order_line_id,
             )
         )
     author = db.get(User, order.created_by)
@@ -457,6 +469,7 @@ def _write_lines(db: Session, order: ProductionOrder, lines: list[OrderLineIn]) 
             ProductionOrderLine(
                 item_id=ln.item_id, quantity=ln.quantity, note=(ln.note or "").strip() or None,
                 invoice_no=(ln.invoice_no or "").strip() or None, sort_order=i,
+                options=ln.options or None, source_text=ln.source_text, customer_order_line_id=ln.customer_order_line_id,
             )
         )
 
@@ -958,7 +971,9 @@ def release(
             if errs:
                 raise OrderError("; ".join(errs))
         from app.services.release_merge import merge_pf_lines
+        from app.services.line_options import apply_to_tasks
 
+        apply_to_tasks(db, order)  # исполнение строк (26.10) — указанием мастеру
         merge_pf_lines(db, order)  # одинаковые строки п/ф — одной (08.10)
         schedule_order(db, order, user.id)
         if payload and (payload.dates or payload.shift_days):
@@ -1460,3 +1475,37 @@ def order_from_schedule(
         order=_order_out(db, order) if order is not None else None,
     )
 
+
+
+class LinesOptionIn(BaseModel):
+    """Задать один выбор исполнения сразу нескольким строкам (26.10)."""
+    line_ids: list[int] = Field(min_length=1)
+    code: str
+    name: str
+    value: str | None = None  # пусто — убрать выбор
+    op: str | None = None
+
+
+@router.post("/production-orders/{order_id}/lines/options", response_model=OrderOut)
+def set_lines_option(order_id: int, payload: LinesOptionIn, db: Session = Depends(get_db), user: User = Depends(manage_orders)) -> OrderOut:
+    """Исполнение строк заказа на производство (26.10): что не пришло из счёта —
+    перед запуском; у запущенного заказа — дописывается указанием мастеру."""
+    from app.models.customer_orders import CustomerOrderLine
+
+    order = _get_order(db, order_id)
+    lines = [ln for ln in order.lines if ln.id in set(payload.line_ids)]
+    if not lines:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Строки не найдены")
+    one = {"code": payload.code.strip(), "name": payload.name.strip(), "value": (payload.value or "").strip(), "op": payload.op}
+    for ln in lines:
+        ln.options = line_options.merge(ln.options, [one]) or None
+        if ln.customer_order_line_id:
+            col = db.get(CustomerOrderLine, ln.customer_order_line_id)
+            if col is not None:
+                col.options = line_options.merge(col.options, [one]) or None
+    db.flush()
+    if order.status == ORDER_RELEASED:
+        line_options.apply_to_tasks(db, order)
+    db.commit()
+    db.refresh(order)
+    return _order_out(db, order)

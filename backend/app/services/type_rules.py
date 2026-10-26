@@ -516,7 +516,13 @@ def ensure_item(db: Session, type_: ItemType, values: dict[int, object]) -> tupl
 
     if not type_.name_template:
         return None, False, ["У типа не задан шаблон названия позиции"]
-    missing = [p.name for p in type_.properties if p.is_required and p.value_type != "bool" and values.get(p.id) in (None, "")]
+    # исполнение (26.10) — в строке заказа, позицию не задаёт
+    execution = {p.id for p in type_.properties if (p.role or "construction") == "execution"}
+    values = {pid: v for pid, v in values.items() if pid not in execution}
+    missing = [
+        p.name for p in type_.properties
+        if p.is_required and p.id not in execution and p.value_type != "bool" and values.get(p.id) in (None, "")
+    ]
     if missing:
         return None, False, ["Не заполнено: " + ", ".join(missing)]
     res = compute(db, type_, context_from_values(db, type_, values))
