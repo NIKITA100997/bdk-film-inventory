@@ -381,6 +381,10 @@ class ProductIndex:
         elif len(found) > 1:
             plain = [i for i in found if not qualifiers(i.name, drop_decor=False)]
             found = plain if len(plain) == 1 else found
+        if len(found) > 1:
+            # цвет уплотнителя выбирают при запуске (26.10): позиция без него в названии
+            noseal = [i for i in found if not seal_of(i.name)]
+            found = noseal if len(noseal) == 1 else found
         if len(found) == 1:
             return found[0], None
         if len(found) > 1:
