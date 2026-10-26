@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { LineOption } from "../api/customerOrders";
 import { Button, Empty, Input, InputNumber, Segmented, Select, Space, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import VariantPicker from "./VariantPicker";
@@ -7,7 +8,16 @@ import { listItemTypes, type ItemType } from "../api/itemTypes";
 import { listAreas } from "../api/areas";
 import { CheckModal } from "../pages/desktop/nomenclature/TypeRulesPanel";
 
-export type LineDraft = { item_id: number | null; quantity: number | null; note: string; invoice_no: string };
+export type LineDraft = {
+  item_id: number | null;
+  quantity: number | null;
+  note: string;
+  invoice_no: string;
+  // не редактируются здесь — сохраняются при правке строк (26.10)
+  options?: LineOption[] | null;
+  source_text?: string | null;
+  customer_order_line_id?: number | null;
+};
 
 export const emptyLine = (): LineDraft => ({ item_id: null, quantity: null, note: "", invoice_no: "" });
 

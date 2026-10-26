@@ -39,6 +39,8 @@ import {
 import type { PfDemandRow } from "../../../api/pfDemand";
 import LaminationAreaSelect from "../../../components/LaminationAreaSelect";
 import GroupedTable from "../../../components/GroupedTable";
+import LineOptions from "../../../components/LineOptions";
+import OptionsToClarify, { saveOrderLineOptions } from "./OptionsToClarify";
 import { ItemChars } from "../../../components/ItemChars";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { EditLineModal, SectionsView, SheetTable, d, period, type Agg, type SectionItem } from "./LayoutSheets";
@@ -260,6 +262,10 @@ export default function ReleaseWorkspace({
       group: "Заказ",
       label: "Строки заказа",
       sub: `${order.lines.length} строк · ${doors} шт`,
+      // исполнение не из счёта (26.10) — уточнить до запуска
+      mark: order.lines.some((l) => (l.option_fields ?? []).some((f) => !(l.options ?? []).some((o) => o.code === f.code && o.value)))
+        ? "уточнить исполнение"
+        : undefined,
       children: <LinesSection order={order} canManage={canManage} onEditLines={onEditLines} />,
     },
     {
@@ -882,6 +888,8 @@ function LinesSection({ order, canManage, onEditLines }: { order: ProductionOrde
   const [open, setOpen] = useState<Set<number>>(new Set());
   const withComp = order.lines.filter((l) => (l.composition ?? []).length > 0);
   const allOpen = withComp.length > 0 && withComp.every((l) => open.has(l.id));
+  const qc = useQueryClient();
+  const hasOptions = order.lines.some((l) => (l.options ?? []).length || (l.option_fields ?? []).length);
   const toggle = (id: number) =>
     setOpen((prev) => {
       const next = new Set(prev);
@@ -904,6 +912,8 @@ function LinesSection({ order, canManage, onEditLines }: { order: ProductionOrde
           {canManage && <Button onClick={onEditLines}>Изменить строки заказа</Button>}
         </Space>
       </Space>
+      {/* исполнение (26.10): что не пришло из счёта — уточнить перед запуском */}
+      <OptionsToClarify order={order} canManage={canManage} />
       <GroupedTable<OrderLine>
         storageKey="release.lines"
         dims={[
@@ -950,6 +960,35 @@ function LinesSection({ order, canManage, onEditLines }: { order: ProductionOrde
             groupRender: (rows) => <b>{sumOf(rows, (l) => l.quantity)}</b>,
           },
           { key: "invoice", title: "Счёт", sortValue: (l) => l.invoice_no ?? "", render: (_, l) => l.invoice_no ?? "" },
+          ...(hasOptions
+            ? [
+                {
+                  key: "options",
+                  title: "Исполнение",
+                  render: (_: unknown, l: OrderLine) => (
+                    <LineOptions
+                      compact
+                      options={l.options}
+                      fields={l.option_fields}
+                      onSave={
+                        canManage
+                          ? async (next) => {
+                              try {
+                                await saveOrderLineOptions(order, l, next);
+                                qc.invalidateQueries({ queryKey: ["production-order", order.id] });
+                                message.success("Исполнение сохранено");
+                              } catch (e) {
+                                message.error(apiErrorMessage(e, "Не удалось сохранить"));
+                                throw e;
+                              }
+                            }
+                          : undefined
+                      }
+                    />
+                  ),
+                },
+              ]
+            : []),
           { key: "note", title: "Примечание", sortValue: (l) => l.note ?? "", render: (_, l) => l.note ?? "" },
           {
             key: "route",

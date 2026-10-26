@@ -262,6 +262,11 @@ export default function TypesTab() {
                         <Space size={4}>
                           <span>{p.name}</span>
                           {p.is_required && <Tag color="orange">обязательное</Tag>}
+                          {p.role === "execution" && (
+                            <Tag color="geekblue" title="Не плодит позиции — выбор в строке заказа, указание мастеру">
+                              исполнение{p.operation ? ` · ${p.operation}` : ""}
+                            </Tag>
+                          )}
                         </Space>
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                           код: {p.code}
@@ -366,6 +371,7 @@ export default function TypesTab() {
         <PropertyModal
           typeId={propTarget.typeId}
           prop={propTarget.prop}
+          operations={(types ?? []).find((t) => t.id === propTarget.typeId)?.operations.map((o) => o.name) ?? []}
           onClose={() => setPropTarget(null)}
           onSaved={invalidate}
         />
@@ -380,11 +386,13 @@ function PropertyModal({
   prop,
   onClose,
   onSaved,
+  operations,
 }: {
   typeId: number;
   prop: ItemProperty | null;
   onClose: () => void;
   onSaved: () => void;
+  operations: string[];
 }) {
   const [draft, setDraft] = useState<PropertyInput>(
     prop
@@ -395,8 +403,10 @@ function PropertyModal({
           unit: prop.unit,
           is_required: prop.is_required,
           option_fields: prop.option_fields,
+          role: prop.role ?? "construction",
+          operation: prop.operation ?? null,
         }
-      : { name: "", code: "", value_type: "number", unit: "", is_required: false, option_fields: [] },
+      : { name: "", code: "", value_type: "number", unit: "", is_required: false, option_fields: [], role: "construction", operation: null },
   );
   const mutation = useMutation({
     mutationFn: () => (prop ? updateProperty(prop.id, draft) : createProperty(typeId, draft)),
@@ -452,6 +462,39 @@ function PropertyModal({
               Обязательное
             </Checkbox>
           </Form.Item>
+        </Space>
+        {/* роль свойства (26.10) */}
+        <Space size={12} style={{ display: "flex" }} wrap align="start">
+          <Form.Item
+            label="Роль"
+            style={{ width: 260 }}
+            tooltip="Конструкция — задаёт позицию (маршрут, состав, название). Исполнение — цвет кромки, тип стекла и т.п.: позицию не плодит, выбирается в строке заказа (из счёта — что есть) и уходит указанием мастеру"
+          >
+            <Select
+              value={draft.role ?? "construction"}
+              onChange={(v) => setDraft({ ...draft, role: v })}
+              options={[
+                { value: "construction", label: "Конструкция (своя позиция)" },
+                { value: "execution", label: "Исполнение (выбор в строке)" },
+              ]}
+            />
+          </Form.Item>
+          {draft.role === "execution" && (
+            <Form.Item
+              label="Нужно на операции"
+              style={{ width: 300 }}
+              tooltip="Указание мастеру — в строки этой операции. Несколько — по приоритету: берётся первая, что есть у позиции (кромка у алюм. профиля — на «Сборке»). Пусто — всем"
+            >
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="всем операциям"
+                value={(draft.operation ?? "").split(",").map((s) => s.trim()).filter(Boolean)}
+                onChange={(v: string[]) => setDraft({ ...draft, operation: v.length ? v.join(", ") : null })}
+                options={operations.map((o) => ({ value: o, label: o }))}
+              />
+            </Form.Item>
+          )}
         </Space>
         {draft.value_type === "list" && (
           <>

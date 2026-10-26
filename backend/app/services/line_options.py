@@ -96,6 +96,15 @@ def type_execution_props(type_: ItemType | None) -> list[dict]:
     ]
 
 
+def _pick_op(op: str | None, have: set[str]) -> str | None:
+    """Операция выбора у этой позиции: список по приоритету («Кромка, Сборка»)
+    — первая, что есть в маршруте; ни одной нет — всем операциям (None)."""
+    for o in (op or "").replace("/", ",").split(","):
+        if o.strip() and o.strip().lower() in have:
+            return o.strip()
+    return None
+
+
 def apply_to_tasks(db: Session, order) -> int:
     """Запуск: выборы строк заказа — указанием мастеру в строки заданий
     своей операции (не затирая ручное указание). Возвращает число строк."""
@@ -112,18 +121,34 @@ def apply_to_tasks(db: Session, order) -> int:
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
         .filter(ProductionTask.production_order_id == order.id, ProductionTaskLine.order_line_id.in_(list(lines)))
     )
+    tls = [tl for tl in tls if tl.part_id is None]  # детали п/ф — без исполнения двери
+    stage_name = {tl.id: (db.get(PartStage, tl.part_stage_id).name if tl.part_stage_id else None) for tl in tls}
+    # операции каждой строки заказа: выбор, чьей операции у позиции нет
+    # (цвет кромки у двери с алюм. профилем — без «Кромки»), — всем её строкам
+    # операция выбора — из актуальной настройки типа позиции (поменяли — действует и на загруженные строки)
+    from app.models.items import Item
+
+    op_cfg: dict[int, dict[str, str | None]] = {}
+    for ol_id, ol in lines.items():
+        it = db.get(Item, ol.item_id)
+        if it is not None and it.type is not None:
+            op_cfg[ol_id] = {p.code: p.operation for p in it.type.properties if is_execution(p)}
+    ops_of: dict[int, set[str]] = {}
     for tl in tls:
-        if tl.part_id is not None:
-            continue  # детали п/ф — без исполнения двери
-        st = db.get(PartStage, tl.part_stage_id) if tl.part_stage_id else None
-        add = instruction_for(lines[tl.order_line_id].options, st.name if st else None)
-        if not add:
-            continue
-        cur = (tl.instruction or "").strip()
-        if add.lower() in cur.lower():
-            continue
-        tl.instruction = (f"{cur}; {add}" if cur else add)[:255]
-        n += 1
+        if stage_name[tl.id]:
+            ops_of.setdefault(tl.order_line_id, set()).add(stage_name[tl.id].strip().lower())
+    for tl in tls:
+        have = ops_of.get(tl.order_line_id, set())
+        cfg = op_cfg.get(tl.order_line_id, {})
+        opts = [{**o, "op": _pick_op(cfg.get(o.get("code"), o.get("op")), have)} for o in lines[tl.order_line_id].options]
+        add = instruction_for(opts, stage_name[tl.id])
+        # прежние выборы в указании — заменить (поправили выбор у запущенного заказа)
+        names = {o["name"].strip().lower() + ":" for o in lines[tl.order_line_id].options if o.get("name")}
+        keep = [s.strip() for s in (tl.instruction or "").split(";") if s.strip() and not any(s.strip().lower().startswith(nm) for nm in names)]
+        new = "; ".join(keep + ([add] if add else []))[:255] or None
+        if new != (tl.instruction or None):
+            tl.instruction = new
+            n += 1
     return n
 
 
@@ -133,6 +158,20 @@ def option_fields(db: Session, item) -> list[dict]:
     if item is None:
         return []
     out = type_execution_props(item.type) if item.type_id else []
+    if out and item.type is not None:
+        # уместно, только если у позиции есть то, к чему выбор: «тип_стекла» —
+        # при «стекло», «цвет_молдинга» — при «молдинг» (код после «_»)
+        from app.services.type_rules import context_from_values, item_values
+
+        ctx = context_from_values(db, item.type, item_values(db, item))
+        def base(code: str) -> str | None:
+            # «тип_стекла» → «стекло», «цвет_молдинга» → «молдинг», «цвет_кромки» → «кромка» (по основе)
+            if "_" not in code:
+                return None
+            tail = code.split("_", 1)[1]
+            return next((k for k in ctx if len(k) > 3 and k != code and tail.startswith(k[:-1])), None)
+
+        out = [f for f in out if (b := base(f["code"])) is None or bool(ctx.get(b))]
     if "упл" in (item.name or "").lower() and not any(f["code"] == SEAL["code"] for f in out):
         out.append({**SEAL, "value_type": "text", "options": []})
     return out

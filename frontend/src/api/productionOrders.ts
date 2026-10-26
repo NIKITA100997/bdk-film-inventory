@@ -1,5 +1,6 @@
 import type { ItemChar } from "../components/ItemChars";
 import { apiClient } from "./client";
+import type { LineOption, OptionField } from "./customerOrders";
 
 // Заказ на производство (единая модель, пункт 4): позиции любого вида и
 // количества; запуск раскладывает заказ по маршрутам на задания участкам.
@@ -53,7 +54,18 @@ export interface OrderLine {
   components: OrderComponent[];
   /** полный состав деревом (20.10): изделие → щит, каркас, панели → заготовки… */
   composition?: OrderComponent[];
+  /** исполнение (26.10) */
+  options?: LineOption[];
+  option_fields?: OptionField[];
+  source_text?: string | null;
+  customer_order_line_id?: number | null;
 }
+
+/** Задать один выбор исполнения нескольким строкам (26.10). */
+export const setOrderLinesOption = async (
+  orderId: number,
+  payload: { line_ids: number[]; code: string; name: string; value: string | null; op?: string | null },
+): Promise<ProductionOrder> => (await apiClient.post<ProductionOrder>(`/production-orders/${orderId}/lines/options`, payload)).data;
 
 export interface ProductionOrder {
   id: number;
@@ -235,7 +247,16 @@ export interface OrderInput {
   note: string | null;
   kind?: OrderKind;
   category_id?: number | null;
-  lines: { item_id: number; quantity: number; note: string | null; invoice_no?: string | null }[];
+  lines: {
+    item_id: number;
+    quantity: number;
+    note: string | null;
+    invoice_no?: string | null;
+    // не терять при правке черновика (26.10)
+    options?: LineOption[] | null;
+    source_text?: string | null;
+    customer_order_line_id?: number | null;
+  }[];
 }
 
 /** Категория заказа — для аналитики (справочник, заполняют пользователи). */
@@ -460,6 +481,8 @@ export interface ScheduleImportRow {
   notes?: string[];
   /** несколько подходящих позиций (21.10) — выбор в окне загрузки, запоминается синонимом */
   candidates?: { id: number; name: string }[];
+  /** исполнение из строки счёта (26.10) */
+  options?: LineOption[];
 }
 
 /** Цвет из графика и его плёнка (привязка варианта «Цвет»). status: ok —

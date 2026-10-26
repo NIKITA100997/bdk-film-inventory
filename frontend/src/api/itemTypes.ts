@@ -33,6 +33,9 @@ export interface ItemProperty {
   option_fields: OptionField[];
   options: PropertyOption[];
   used: number;
+  /** роль (26.10): construction — задаёт позицию; execution — выбор в строке заказа */
+  role?: "construction" | "execution";
+  operation?: string | null;
 }
 
 export interface TypeOperation {
@@ -91,6 +94,8 @@ export interface PropertyInput {
   unit?: string | null;
   is_required: boolean;
   option_fields: OptionField[];
+  role?: "construction" | "execution";
+  operation?: string | null;
 }
 
 export type PropertyValue = number | string | boolean | null;

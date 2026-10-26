@@ -664,7 +664,10 @@ export function OrderModal({
   });
   const [lines, setLines] = useState<LineDraft[]>(
     order
-      ? order.lines.map((l) => ({ item_id: l.item_id, quantity: l.quantity, note: l.note ?? "", invoice_no: l.invoice_no ?? "" }))
+      ? order.lines.map((l) => ({
+          item_id: l.item_id, quantity: l.quantity, note: l.note ?? "", invoice_no: l.invoice_no ?? "",
+          options: l.options ?? null, source_text: l.source_text ?? null, customer_order_line_id: l.customer_order_line_id ?? null,
+        }))
       : [emptyLine()],
   );
   const initialKind: "izdelie" | "other" =
@@ -689,6 +692,9 @@ export function OrderModal({
           quantity: l.quantity as number,
           note: l.note.trim() || null,
           invoice_no: l.invoice_no.trim() || null,
+          options: l.options ?? null,
+          source_text: l.source_text ?? null,
+          customer_order_line_id: l.customer_order_line_id ?? null,
         })),
       };
       return order ? updateProductionOrder(order.id, payload) : createProductionOrder(payload);

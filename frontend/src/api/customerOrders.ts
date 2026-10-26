@@ -45,7 +45,30 @@ export interface CustomerOrderLine {
   direction?: string | null;
   /** принято на склад ГП: по запуску или «Готово…» без запуска (20.10) */
   received?: number;
+  /** исполнение (26.10): цвет кромки, тип стекла, уплотнитель… */
+  options?: LineOption[];
+  option_fields?: OptionField[];
+  source_text?: string | null;
 }
+
+/** Выбор исполнения строки (26.10). */
+export interface LineOption {
+  code: string;
+  name: string;
+  value: string;
+  op?: string | null;
+}
+/** Какой выбор можно задать строке: варианты списка или свободный текст. */
+export interface OptionField {
+  code: string;
+  name: string;
+  op?: string | null;
+  value_type: string;
+  options: string[];
+}
+
+export const setCustomerLineOptions = async (orderId: number, lineId: number, options: LineOption[]): Promise<CustomerOrder> =>
+  (await apiClient.patch<CustomerOrder>(`/customer-orders/${orderId}/lines/${lineId}/options`, { options })).data;
 
 export interface CustomerDateChange {
   field: "ship" | "ready" | "ready_fact" | "ship_to";
@@ -107,7 +130,7 @@ export interface CustomerOrderInput {
   ship_from: string | null;
   ship_to: string | null;
   note: string | null;
-  lines: { item_id: number; quantity: number; note: string | null }[];
+  lines: { item_id: number; quantity: number; note: string | null; options?: LineOption[] | null }[];
 }
 
 const base = "/customer-orders";

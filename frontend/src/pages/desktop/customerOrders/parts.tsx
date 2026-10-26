@@ -48,7 +48,7 @@ export function CustomerOrderModal({ order, onClose, onSaved }: { order: Custome
   ]);
   const [note, setNote] = useState(order?.note ?? "");
   const [lines, setLines] = useState<LineDraft[]>(
-    order ? order.lines.map((l) => ({ item_id: l.item_id, quantity: l.quantity, note: l.note ?? "", invoice_no: "" })) : [emptyLine()],
+    order ? order.lines.map((l) => ({ item_id: l.item_id, quantity: l.quantity, note: l.note ?? "", invoice_no: "", options: l.options ?? null })) : [emptyLine()],
   );
   const launched = (order?.launched ?? 0) > 0;
   const mutation = useMutation({
@@ -62,7 +62,7 @@ export function CustomerOrderModal({ order, onClose, onSaved }: { order: Custome
         ship_from: iso(win[0]),
         ship_to: iso(win[1]),
         note: note.trim() || null,
-        lines: lines.map((l) => ({ item_id: l.item_id as number, quantity: l.quantity as number, note: l.note.trim() || null })),
+        lines: lines.map((l) => ({ item_id: l.item_id as number, quantity: l.quantity as number, note: l.note.trim() || null, options: l.options ?? null })),
       };
       return order ? updateCustomerOrder(order.id, p) : createCustomerOrder(p);
     },

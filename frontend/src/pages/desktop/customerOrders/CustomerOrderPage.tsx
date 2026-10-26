@@ -13,6 +13,7 @@ import {
   launchCustomerOrders,
   markCustomerLineReady,
   returnCustomerOrder,
+  setCustomerLineOptions,
   submitCustomerOrder,
   type CustomerDateChange,
   type CustomerOrder,
@@ -24,6 +25,7 @@ import { apiErrorMessage } from "../../../utils/apiError";
 import { OrderNeedsCard } from "../production/NeedsViews";
 import BitrixDealCard from "./BitrixDealCard";
 import FilmReserveCard from "./FilmReserveCard";
+import LineOptions from "../../../components/LineOptions";
 import { CustomerOrderModal, MoveDatesModal, PlanCheckView, editableBy, fmt, useCustomerOrderRights } from "./parts";
 
 const FIELD: Record<CustomerDateChange["field"], string> = { ship: "отгрузка", ready: "готовность", ready_fact: "факт готовности", ship_to: "отгрузка клиенту (по)" };
@@ -155,6 +157,16 @@ export default function CustomerOrderPage() {
   const kinds = [...new Set(openLines.map((l) => l.kind_name ?? "Прочее"))];
   const canLaunch = production && o.status === "accepted" && left > 0;
   const canChange = canEdit && editableBy(o, production);
+  const saveOptions = async (lineId: number, next: NonNullable<CustomerOrderLine["options"]>) => {
+    try {
+      await setCustomerLineOptions(o.id, lineId, next);
+      qc.invalidateQueries({ queryKey: ["customer-order", o.id] });
+      message.success("Исполнение сохранено");
+    } catch (e) {
+      message.error(apiErrorMessage(e, "Не удалось сохранить"));
+      throw e;
+    }
+  };
   const canCancel =
     canEdit && o.status !== "cancelled" && o.launched <= 0 && (production || o.status !== "accepted") && o.stage !== "shipped";
   const askCancel = () => {
@@ -369,7 +381,21 @@ export default function CustomerOrderPage() {
               : undefined
           }
           columns={[
-            { title: "Позиция", dataIndex: "item_name" },
+            {
+              title: "Позиция",
+              render: (_, l) => (
+                <Space direction="vertical" size={2}>
+                  <span>{l.item_name}</span>
+                  {/* исполнение (26.10): из счёта, дописать — до запуска */}
+                  <LineOptions
+                    compact
+                    options={l.options}
+                    fields={l.option_fields}
+                    onSave={canEdit && o.status !== "cancelled" ? (next) => saveOptions(l.id, next) : undefined}
+                  />
+                </Space>
+              ),
+            },
             { title: "Вид", render: (_, l) => l.kind_name ?? "" },
             { title: "Кол-во", dataIndex: "quantity", align: "right" },
             {

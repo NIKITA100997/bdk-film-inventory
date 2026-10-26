@@ -1,4 +1,5 @@
 import { useAuth } from "../../../auth/AuthContext";
+import LineOptions from "../../../components/LineOptions";
 import { useRef, useState } from "react";
 import { Alert, Button, DatePicker, Input, Modal, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
@@ -396,6 +397,11 @@ export default function ScheduleImportModal({
                 { title: "Серия", dataIndex: "series" },
                 { title: "Размер", dataIndex: "size" },
                 { title: "Цвет", dataIndex: "color" },
+                {
+                  // исполнение из строки счёта (26.10): в строку заказа, не в позицию
+                  title: "Исполнение",
+                  render: (_: unknown, r: ScheduleImportRow) => <LineOptions compact options={r.options} />,
+                },
                 { title: "Кол-во", dataIndex: "qty" },
                 {
                   title: "Позиция",
