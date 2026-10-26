@@ -93,11 +93,14 @@ def test_new_series_goes_to_type_with_same_letter():
 
 
 def test_nested_decor_and_qualifiers():
-    from app.services.schedule_import import decor_of, product_key, qualifiers
+    from app.services.schedule_import import decor_of, product_key, qualifiers, seal_of
 
     t = "Коробка с упл. (серо-белый УК-6) телескоп МДФ 32х75х2070 (ПЭТ Бежевый (cream silk))"
     assert decor_of(t) == "ПЭТ Бежевый (cream silk)"
     assert product_key(t) == product_key("Коробка с упл. (белый УК-6) телескоп МДФ 32*75*2070")
-    assert qualifiers(t, drop_decor=True) == ("серо-белый ук-6",)
-    assert qualifiers("Коробка с упл. (белый УК-6) телескоп МДФ 32*75*2070", drop_decor=False) == ("белый ук-6",)
+    # цвет уплотнителя — не уточнение позиции, выбирается при запуске (26.10)
+    assert qualifiers(t, drop_decor=True) == ()
+    assert seal_of(t) == "серо-белый УК-6"
+    assert qualifiers("Коробка с упл. (белый УК-6) телескоп МДФ 32*75*2070", drop_decor=False) == ()
+    assert qualifiers("Поперечная (серия Б) 30х110 (Дуб)", drop_decor=True) == ("серия б",)
     assert qualifiers("Наличник телескоп 8х70х2150 (Бьянко)", drop_decor=True) == ()

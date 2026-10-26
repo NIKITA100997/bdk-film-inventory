@@ -318,14 +318,29 @@ def decor_of(name: str) -> str | None:
     return " ".join(t[a + 1 : b - 1].split()) or None
 
 
-def qualifiers(name: str, drop_decor: bool) -> tuple[str, ...]:
-    """Уточнения в скобках («белый УК-6», «серия Б») — чем отличаются позиции
-    с одним ключом; у строки счёта последние скобки — декор, не в счёт."""
+_SEAL_RE = re.compile(r"\bук-?\s*\d|уплотнит", re.I)
+
+
+def _groups_text(name: str, drop_decor: bool) -> list[str]:
     t = (name or "").rstrip()
     g = _paren_groups(t)
     if drop_decor and g and g[-1][1] == len(t):
         g = g[:-1]
-    return tuple(sorted(" ".join(t[a + 1 : b - 1].lower().replace("ё", "е").split()) for a, b in g))
+    return [" ".join(t[a + 1 : b - 1].split()) for a, b in g]
+
+
+def seal_of(name: str) -> str | None:
+    """Цвет уплотнителя из скобок («серо-белый УК-6») — выбирается при запуске,
+    позицию не меняет (26.10): в примечание строки заказа."""
+    hits = [s for s in _groups_text(name, True) if _SEAL_RE.search(s)]
+    return "; ".join(hits) or None
+
+
+def qualifiers(name: str, drop_decor: bool) -> tuple[str, ...]:
+    """Уточнения в скобках («серия Б») — чем отличаются позиции с одним ключом;
+    у строки счёта последние скобки — декор, не в счёт. Цвет уплотнителя
+    («белый УК-6») — не уточнение позиции (26.10): выбирается при запуске."""
+    return tuple(sorted(s.lower().replace("ё", "е") for s in _groups_text(name, drop_decor) if not _SEAL_RE.search(s)))
 
 
 class ProductIndex:
@@ -586,6 +601,8 @@ def import_schedule(
         notes = [f"отгрузка {r.ship_date.strftime('%d.%m')}" if r.ship_date else None]
         if (fixed is not None) and decor_of(r.name_text):
             notes.append(f"декор: {decor_of(r.name_text)}")
+        if seal_of(r.name_text):
+            notes.append(f"уплотнитель: {seal_of(r.name_text)}")
         note = ", ".join(n for n in notes if n) or None
         order.lines.append(ProductionOrderLine(
             item_id=item.id, quantity=r.qty, note=note, invoice_no=(r.invoice_no or "").strip() or None, sort_order=i,

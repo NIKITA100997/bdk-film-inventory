@@ -244,6 +244,10 @@ def line_decor(note: str | None, source: str | None) -> str:
 
     m = re.search(r"декор:\s*([^,]+)", note or "")
     d = m.group(1) if m else (decor_of(source or "") or "")
+    # цвет уплотнителя (26.10) — разные строки одной коробки, не сливать
+    s = re.search(r"уплотнитель:\s*([^,]+)", note or "")
+    if s:
+        d = f"{d} | {s.group(1)}"
     return " ".join(d.lower().replace("ё", "е").split())
 
 
