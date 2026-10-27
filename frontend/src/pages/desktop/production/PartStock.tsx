@@ -156,7 +156,7 @@ export default function PartStock() {
             </Button>
           )}
           {canCount && (
-            <Button size="small" onClick={() => navigate("/inventory?tab=pf")}>
+            <Button size="small" onClick={() => navigate("/inventory")}>
               Инвентаризация п/ф
             </Button>
           )}

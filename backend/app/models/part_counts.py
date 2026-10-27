@@ -1,5 +1,10 @@
 """Пересчёт п/ф на участке (06.10, единые окна операций — инвентаризация).
 
+С 27.10 — единая инвентаризация по месту: место (place_type) — участок,
+склад плёнки, склад материалов или склад ГП площадки; строки любого вида
+(kind): плёнка — по рулону/штрипсу (метры), п/ф — по партии (шт), материалы
+и изделия — по позиции. Ниже — исходное описание пересчёта п/ф.
+
 П/ф хранятся на участках, без бирок и ячеек: инвентаризация — не скан бирок
 (как у плёнки, models/inventory.py), а пересчёт участка. Охват — участок и
 по желанию группы номенклатуры и стадия; лист — партии, сгруппированные по
@@ -15,6 +20,18 @@ from sqlalchemy.sql import func
 
 from app.db.base import Base
 
+# место инвентаризации
+PLACE_AREA = "area"  # участок: п/ф и выданная участку плёнка; place_ref — код участка
+PLACE_WAREHOUSE = "warehouse"  # склад плёнки: рулоны и штрипсы на хранении; place_ref — id склада
+PLACE_MATERIALS = "materials"  # склад материалов (один на всё)
+PLACE_FG = "fg"  # склад ГП площадки; place_ref — id площадки
+
+# вид строки
+KIND_FILM = "plenka"
+KIND_PF = "pf"
+KIND_MATERIAL = "material"
+KIND_FG = "fg"
+
 COUNT_IN_PROGRESS = "in_progress"
 COUNT_CLOSED = "closed"
 
@@ -28,7 +45,10 @@ class PartCountSession(Base):
     __tablename__ = "part_count_sessions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    area: Mapped[str] = mapped_column(ForeignKey("areas.code"), index=True)
+    place_type: Mapped[str] = mapped_column(String(16), default=PLACE_AREA, server_default=PLACE_AREA)
+    place_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # участок — у места «участок» (как раньше), у прочих мест пусто
+    area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True, index=True)
     # охват внутри участка: {"group_ids": [...], "stages": [...]} — пусто = всё
     scope: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default=COUNT_IN_PROGRESS)
@@ -44,15 +64,20 @@ class PartCountLine(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("part_count_sessions.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16), default=KIND_PF, server_default=KIND_PF)
+    # плёнка — рулон/штрипс; материалы и изделия — позиция (у изделий — на площадке)
+    material_unit_id: Mapped[int | None] = mapped_column(ForeignKey("material_units.id"), nullable=True)
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id"), nullable=True)
+    site_id: Mapped[int | None] = mapped_column(ForeignKey("sites.id"), nullable=True)
     # партия из листа; NULL — найдено сверх листа (новая партия при решении)
     part_unit_id: Mapped[int | None] = mapped_column(ForeignKey("part_units.id"), nullable=True)
-    part_id: Mapped[int] = mapped_column(ForeignKey("parts.id"))
-    stage_id: Mapped[int] = mapped_column(ForeignKey("part_stages.id"))
+    part_id: Mapped[int | None] = mapped_column(ForeignKey("parts.id"), nullable=True)
+    stage_id: Mapped[int | None] = mapped_column(ForeignKey("part_stages.id"), nullable=True)
     # по учёту — свободное количество партии; обновляется в момент ввода факта
     # (между открытием и пересчётом участок мог отчитаться — сравниваем с тем,
     # что числилось, когда считали)
-    expected_qty: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
-    counted_qty: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    expected_qty: Mapped[float] = mapped_column(Numeric(14, 3), default=0)
+    counted_qty: Mapped[float | None] = mapped_column(Numeric(14, 3), nullable=True)
     counted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     counted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decision: Mapped[str | None] = mapped_column(String(16), nullable=True)

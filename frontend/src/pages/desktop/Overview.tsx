@@ -9,6 +9,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { listMaterialDemand } from "../../api/materialStock";
 import { getStockOverview, listPurchaseRequests } from "../../api/purchasing";
 import { listSessions } from "../../api/inventory";
+import { listPartCounts } from "../../api/partCounts";
 import { getCuttingDiscrepancies, getDefectsOverview, getDonorAccuracy, getRollsVsStrips, getStaleUnits, getStockSummary } from "../../api/reports";
 import { getBlanksDemand, listProductionTasks } from "../../api/production";
 import { getOrdersReadiness, listProductionOrders } from "../../api/productionOrders";
@@ -99,6 +100,8 @@ export default function Overview() {
   const reorderQ = useQuery({ queryKey: ["stock-overview", "overview"], queryFn: getStockOverview, enabled: canPurch });
   const matQ = useQuery({ queryKey: ["material-demand", "overview"], queryFn: listMaterialDemand, enabled: canShop || canPurch });
   const sessionsQ = useQuery({ queryKey: ["inventory-sessions"], queryFn: listSessions, enabled: canInv });
+  // единая инвентаризация по месту (27.10) + незакрытые прежние пересчёты плёнки сканом
+  const countsQ = useQuery({ queryKey: ["part-counts"], queryFn: listPartCounts, enabled: canInv });
   const staleQ = useQuery({ queryKey: ["stale-units", "overview"], queryFn: () => getStaleUnits(), enabled: canReports });
   const blanksQ = useQuery({ queryKey: ["blanks-demand", "overview"], queryFn: getBlanksDemand, enabled: hasIssue });
   const unplacedQ = useQuery({ queryKey: ["units-unplaced"], queryFn: () => searchUnits({ unplaced: true }), enabled: hasPlace });
@@ -134,7 +137,9 @@ export default function Overview() {
   const rolls = (rollsQ.data ?? []).reduce((s, r) => s + r.roll_count, 0);
   const strips = (rollsQ.data ?? []).reduce((s, r) => s + r.strip_count, 0);
   const stockM2 = (stockSumQ.data ?? []).reduce((s, r) => s + r.total_area_m2, 0);
-  const openSessions = (sessionsQ.data ?? []).filter((s) => s.status === "in_progress").length;
+  const openSessions =
+    (sessionsQ.data ?? []).filter((s) => s.status === "in_progress").length +
+    (countsQ.data ?? []).filter((s) => s.status === "in_progress").length;
   const mainSite = (sitesQ.data ?? []).find((s) => s.is_fg_main && s.is_active);
   const fgTotal = (fgQ.data ?? []).reduce((s, r) => s + r.qty, 0);
   const fgToMove = mainSite ? (fgQ.data ?? []).filter((r) => r.site_id !== mainSite.id).reduce((s, r) => s + r.qty, 0) : 0;
