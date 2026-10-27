@@ -54,10 +54,26 @@ export default function Nomenclature() {
           { key: "models", label: "Модели продукции (BOM)", children: <ProductModels /> },
         ]
       : []),
-    { key: "unlinked", label: "Строки без детали", children: <UnlinkedTab /> },
-    { key: "manual", label: "Связанные вручную", children: <ManualLinksTab /> },
-    // Справочники (материалы, цвета, толщины, причины брака…) — вкладкой, не пунктом меню (30.09).
-    ...(canDicts ? [{ key: "dicts", label: "Справочники", children: <DictionaryAdmin /> }] : []),
+    // Справочники (материалы, цвета, толщины, причины брака…) — вкладкой, не пунктом меню (30.09);
+    // служебные «Строки без детали» и «Связанные вручную» — внутри них (27.10)
+    ...(canDicts
+      ? [
+          {
+            key: "dicts",
+            label: "Справочники",
+            children: (
+              <Tabs
+                size="small"
+                items={[
+                  { key: "dicts", label: "Справочники", children: <DictionaryAdmin /> },
+                  { key: "unlinked", label: "Служебное: строки без детали", children: <UnlinkedTab /> },
+                  { key: "manual", label: "Служебное: связанные вручную", children: <ManualLinksTab /> },
+                ]}
+              />
+            ),
+          },
+        ]
+      : []),
   ];
   const active = tabs.some((t) => t.key === params.get("tab")) ? (params.get("tab") as string) : "items";
   return <Tabs activeKey={active} onChange={(k) => setParams(k === "items" ? {} : { tab: k })} items={tabs} destroyOnHidden />;
