@@ -116,7 +116,7 @@ const appPageRoutes = (
     {/* Раздел 6 плана «Детали/П/ф остатки» — сквозной ERP-справочник
     по всем доменам сразу, виден так же широко, как сам /stock (сам
     экран внутри уже сужает п/ф-часть по part_units.view/manage). */}
-    <Route path="/general-stock" element={<StockRedirect kind="all" tab="items" />} />
+    <Route path="/general-stock" element={<Navigate to="/nomenclature?stock=1" replace />} />
     <Route path="/storage-places" element={<StockRedirect kind="all" tab="map" />} />
 
     <Route

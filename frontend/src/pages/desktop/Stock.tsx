@@ -8,7 +8,6 @@ import PartStorage from "./PartStorage";
 import PartStock from "./production/PartStock";
 import PartUnits from "./production/PartUnits";
 import { FgStockTab } from "./FinishedGoodsStock";
-import GeneralStock from "./GeneralStock";
 import StoragePlaces from "./StoragePlaces";
 import { LotsTab, MovementsPanel } from "./StockLotsMovements";
 import { MaterialsStockTab } from "./MaterialsStock";
@@ -74,8 +73,8 @@ export default function Stock() {
       { key: "items", label: "Остатки" },
       { key: "movements", label: "Движения" },
     ],
+    // «По позициям» по всем видам — теперь номенклатура с «Только с остатком» (27.10)
     all: [
-      { key: "items", label: "По позициям" },
       { key: "lots", label: "По партиям" },
       { key: "movements", label: "Движения" },
       // Все стеллажи плёнки и п/ф одним справочником (бывшие «Места хранения»).
@@ -84,6 +83,7 @@ export default function Stock() {
   };
   const tabs = tabsByKind[kind];
   const tabParam = params.get("tab") as StockTab | null;
+  if (kind === "all" && tabParam === "items") return <Navigate to="/nomenclature?stock=1" replace />;
   const tab: StockTab = tabs.some((t) => t.key === tabParam) ? (tabParam as StockTab) : tabs[0].key;
 
   const go = (nextKind: StockKind, nextTab: StockTab) =>
@@ -127,7 +127,7 @@ export default function Stock() {
     content = tab === "movements" ? <MovementsPanel fixedKind="material" defaultDays={30} /> : <MaterialsStockTab />;
   } else {
     content =
-      tab === "items" ? <GeneralStock /> : tab === "lots" ? <LotsTab /> : tab === "map" ? <StoragePlaces /> : <MovementsPanel />;
+      tab === "lots" ? <LotsTab /> : tab === "map" ? <StoragePlaces /> : <MovementsPanel />;
   }
 
   const kindSwitch =
@@ -139,7 +139,7 @@ export default function Stock() {
         <Segmented
           value={kind}
           options={kinds}
-          onChange={(v) => go(v as StockKind, tabsByKind[v as StockKind].some((t) => t.key === tab) ? tab : "items")}
+          onChange={(v) => go(v as StockKind, tabsByKind[v as StockKind].some((t) => t.key === tab) ? tab : tabsByKind[v as StockKind][0].key)}
         />
         {wide && <Divider type="vertical" style={{ height: 24 }} />}
       </Space>
