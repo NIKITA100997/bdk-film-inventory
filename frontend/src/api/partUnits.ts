@@ -101,6 +101,17 @@ export const writeOffPartUnit = async (
   payload: { quantity_pieces: number; reason: string; note?: string; occurred_at?: string | null },
 ): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${id}/write-off`, payload)).data;
 
+// Списать N шт детали сразу (27.10) — с партий по FIFO, не по одной.
+export const writeOffPartFifo = async (payload: {
+  part_id: number;
+  quantity_pieces: number;
+  reason: string;
+  area?: string | null;
+  stage_id?: number | null;
+  note?: string;
+  occurred_at?: string | null;
+}): Promise<{ written_off: number; units: number }> => (await apiClient.post("/part-units/write-off", payload)).data;
+
 // Раздел про мобильный скан-сценарий по этапам — прямой перевод партии
 // на следующий этап, не через отчёт о производстве (для переходов без
 // расхода плёнки, где заводить задание незачем).

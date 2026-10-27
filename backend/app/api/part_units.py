@@ -31,6 +31,7 @@ from app.services.part_units import (
     recycle_part_units_fifo,
     reported_good_pieces_by_unit,
     return_part_unit,
+    write_off_part_fifo,
     write_off_part_unit,
 )
 from app.services.production_orders import detail_targets, make_detail_from_unit, recycle_to_detail
@@ -312,6 +313,46 @@ def advance_part_unit_endpoint(
     db.commit()
     db.refresh(target)
     return _part_unit_out_single(db, target)
+
+
+class PartWriteOffFifo(BaseModel):
+    part_id: int
+    quantity_pieces: float = Field(gt=0)
+    reason: str
+    area: str | None = None
+    stage_id: int | None = None
+    note: str | None = None
+    occurred_at: datetime | None = None
+
+
+class PartWriteOffFifoOut(BaseModel):
+    written_off: float
+    units: int
+
+
+@router.post("/write-off", response_model=PartWriteOffFifoOut)
+def write_off_part_fifo_endpoint(
+    payload: PartWriteOffFifo, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
+) -> PartWriteOffFifoOut:
+    """Списать N шт детали сразу (27.10) — с партий по FIFO, не по одной."""
+    if db.get(Part, payload.part_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Деталь не найдена")
+    try:
+        done = write_off_part_fifo(
+            db,
+            part_id=payload.part_id,
+            quantity_pieces=payload.quantity_pieces,
+            reason=payload.reason,
+            user_id=user.id,
+            area=payload.area,
+            stage_id=payload.stage_id,
+            note=payload.note,
+            occurred_at=payload.occurred_at,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    db.commit()
+    return PartWriteOffFifoOut(written_off=round(sum(float(u.quantity_pieces) for u in done), 2), units=len(done))
 
 
 @router.post("/{unit_id}/write-off", response_model=PartUnitOut)

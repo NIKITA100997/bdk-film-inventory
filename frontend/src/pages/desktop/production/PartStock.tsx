@@ -17,6 +17,7 @@ import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
 import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
 import { FileExcelOutlined } from "@ant-design/icons";
 import { hasPerm } from "../../../auth/permissions";
+import PartWriteOffModal from "../../../components/PartWriteOffModal";
 
 interface PartStockGroup {
   partId: number;
@@ -44,6 +45,8 @@ export default function PartStock() {
   // ниже не завязана на конкретную строку — свой выбор детали, как в
   // форме "Учёт п/ф".
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [writeOff, setWriteOff] = useState<{ id: number; name: string } | null>(null);
+  const canCount = hasPerm(user, "part_units.count");
   const [search, setSearch] = useState("");
   // Раздел про удобство работы мастера участка п/ф — у аккаунта с
   // закреплённым участком (см. isUchastka в MaterialsExplorer.tsx, тот же
@@ -150,6 +153,11 @@ export default function PartStock() {
           {canManage && (
             <Button size="small" type="primary" onClick={() => setRegisterOpen(true)}>
               + Оприходовать партию
+            </Button>
+          )}
+          {canCount && (
+            <Button size="small" onClick={() => navigate("/inventory?tab=pf")}>
+              Инвентаризация п/ф
             </Button>
           )}
           <Button icon={<FileExcelOutlined />} size="small" onClick={exportRows}>
@@ -268,6 +276,27 @@ export default function PartStock() {
               </Space>
             ),
           },
+          ...(canManage
+            ? [
+                {
+                  title: "",
+                  width: 90,
+                  render: (_: unknown, g: PartStockGroup) => (
+                    <Button
+                      size="small"
+                      danger
+                      type="text"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setWriteOff({ id: g.partId, name: g.partName });
+                      }}
+                    >
+                      Списать
+                    </Button>
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
         )}
@@ -279,6 +308,7 @@ export default function PartStock() {
       )}
 
       {registerOpen && <RegisterPartUnitModal onClose={() => setRegisterOpen(false)} />}
+      <PartWriteOffModal partId={writeOff?.id ?? null} partName={writeOff?.name} open={!!writeOff} onClose={() => setWriteOff(null)} />
     </Card>
   );
 }

@@ -865,6 +865,50 @@ def regrade_part_unit(db: Session, *, unit: PartUnit, part_id: int, user_id: int
     return unit
 
 
+def write_off_part_fifo(
+    db: Session,
+    *,
+    part_id: int,
+    quantity_pieces: float,
+    reason: str,
+    user_id: int,
+    area: str | None = None,
+    stage_id: int | None = None,
+    note: str | None = None,
+    occurred_at: datetime | None = None,
+) -> list[PartUnit]:
+    """Списать N шт детали одним действием (27.10) — с партий по FIFO (старые
+    первыми), а не каждую партию отдельно. Охват — по желанию участок и этап.
+    Свободно у партии — количество минус отчитанное. Не хватает — ошибка,
+    ничего не списывается."""
+    db.flush()
+    q = db.query(PartUnit).filter(
+        PartUnit.part_id == part_id,
+        PartUnit.status.in_([PartUnitStatus.NA_KHRANENII, PartUnitStatus.VYDAN_UCHASTKU]),
+    )
+    if area is not None:
+        q = q.filter(PartUnit.area == area)
+    if stage_id is not None:
+        q = q.filter(PartUnit.stage_id == stage_id)
+    units = q.order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc()).all()
+    reported = reported_good_pieces_by_unit(db, [u.id for u in units])
+    free = {u.id: round(float(u.quantity_pieces) - reported.get(u.id, 0.0), 2) for u in units}
+    total = round(sum(max(0.0, v) for v in free.values()), 2)
+    if quantity_pieces > total + 1e-9:
+        raise ValueError(f"Доступно только {total:g} шт — списать {quantity_pieces:g} нельзя")
+    left, out = float(quantity_pieces), []
+    for u in units:
+        if left <= 1e-9:
+            break
+        take = round(min(free[u.id], left), 2)
+        if take <= 0:
+            continue
+        out.append(write_off_part_unit(db, unit=u, quantity_pieces=take, reason=reason, user_id=user_id, note=note, occurred_at=occurred_at))
+        db.flush()
+        left = round(left - take, 2)
+    return out
+
+
 def write_off_fifo_at_area(db: Session, *, part_id: int, area: str, quantity_pieces: float, user_id: int, note: str) -> float:
     """Списать готовые детали с участка по FIFO (21.10): строку закрыли «всё
     сделано» без отчёта — детали на неё физически ушли, а партии висели на

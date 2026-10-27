@@ -13,6 +13,7 @@ import {
 import { listParts, listAllMaterialSkus } from "../../../api/dictionaries";
 import { listProductModels } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
+import PartWriteOffModal from "../../../components/PartWriteOffModal";
 import { listUsers } from "../../../api/users";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { skuLabel } from "../../../api/units";
@@ -69,6 +70,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
 
   const units = unitsQuery.data ?? [];
+  const [writeOffOpen, setWriteOffOpen] = useState(false);
   // Остаток — без списанных партий, как в «Остатках п/ф»: у списанной
   // партии quantity_available не обнуляется, и «Доступно всего» расходилось.
   const liveUnits = units.filter((u) => u.status !== "Списан");
@@ -214,7 +216,14 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
           <Typography.Title level={4} style={{ margin: 0 }}>
             {part ? `Деталь «${part.name}»` : "Деталь"}
           </Typography.Title>
-          <Button onClick={() => navigate("/stock?kind=pf&tab=items")}>← К остаткам</Button>
+          <Space wrap>
+            {canManage && totalAvailable > 0 && (
+              <Button danger onClick={() => setWriteOffOpen(true)}>
+                Списать
+              </Button>
+            )}
+            <Button onClick={() => navigate("/stock?kind=pf&tab=items")}>← К остаткам</Button>
+          </Space>
         </div>
         {part && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, fontSize: 13 }}>
@@ -243,6 +252,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
             </div>
           </div>
         )}
+        <PartWriteOffModal partId={partId ?? null} partName={part?.name} open={writeOffOpen} onClose={() => setWriteOffOpen(false)} />
         {byStage.length > 0 && (
           <div style={{ marginTop: 12 }}>
             <Space size={4} wrap>
