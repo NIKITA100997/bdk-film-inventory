@@ -67,3 +67,19 @@ export const listMovements = async (params: {
 }): Promise<Movement[]> => (await apiClient.get<Movement[]>("/unified-stock/movements", { params })).data;
 
 export const KIND_LABEL: Record<string, string> = { plenka: "Плёнка", pf: "П/ф", material: "Материалы", fg: "Изделия" };
+
+/** Остаток по позиции (27.10) — колонки «Остаток / Резерв / Доступно / Где» в номенклатуре. */
+export interface ItemStock {
+  item_id: number;
+  kind: string;
+  qty: number;
+  unit: string;
+  reserved: number;
+  free: number;
+  lots: number;
+  area_m2: number | null;
+  places: string[];
+}
+
+export const getStockByItem = async (): Promise<ItemStock[]> =>
+  (await apiClient.get<ItemStock[]>("/unified-stock/by-item")).data;

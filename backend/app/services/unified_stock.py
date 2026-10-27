@@ -137,3 +137,87 @@ def totals_by_item(rows: list[LotRow]) -> dict[int | None, dict]:
         a["lots"] += 1
         a["area_m2"] += r.area_m2 or 0.0
     return agg
+
+
+@dataclass
+class ItemStock:
+    item_id: int
+    kind: str  # plenka / pf / material / fg
+    qty: float  # остаток в своей единице (м / шт / ед. материала)
+    unit: str
+    reserved: float  # из остатка закреплено за заданиями / заказами
+    lots: int  # рулонов и штрипсов / партий (у материалов и изделий — 0)
+    area_m2: float | None  # у плёнки
+    places: list[str]  # склады / участки / площадки
+
+
+def stock_by_item(db: Session, *, with_pf: bool = True) -> list[ItemStock]:
+    """Остаток по позиции номенклатуры (27.10, «Номенклатура = остатки»):
+    все четыре учёта одной строкой на позицию — плёнка (м, по рулонам),
+    п/ф (шт, по партиям), материалы и готовые изделия (одним числом)."""
+    from app.models.areas import Area
+    from app.models.film_reserve import RES_ACTIVE, FilmReservation
+    from app.models.items import Item, item_unit
+    from app.models.sites import Site
+    from app.services import finished_goods, materials
+    from app.services.pf_demand import reserves_by_part
+    from app.services.warehouses import rack_warehouse_names, resolve_warehouse_name
+
+    areas = {a.code: a.name for a in db.query(Area)}
+    wh = rack_warehouse_names(db)
+    acc: dict[int, ItemStock] = {}
+    places: dict[int, set[str]] = defaultdict(set)
+
+    def row(item_id: int, kind: str, unit: str) -> ItemStock:
+        if item_id not in acc:
+            acc[item_id] = ItemStock(item_id, kind, 0.0, unit, 0.0, 0, None, [])
+        return acc[item_id]
+
+    film = [r for r in list_lots(db, kind=KIND_FILM) if r.item_id is not None and r.qty > 0]
+    res_m = dict(
+        db.query(FilmReservation.unit_id, func.sum(FilmReservation.length_m))
+        .filter(FilmReservation.status == RES_ACTIVE)
+        .group_by(FilmReservation.unit_id)
+    )
+    for r in film:
+        s = row(r.item_id, KIND_FILM, "м")
+        s.qty += r.qty
+        s.lots += 1
+        s.area_m2 = (s.area_m2 or 0.0) + (r.area_m2 or 0.0)
+        s.reserved += min(r.qty, float(res_m.get(r.lot_id) or 0))
+        places[r.item_id].add(areas.get(r.area) if r.area else resolve_warehouse_name(wh, r.location_code) or "без места")
+
+    if with_pf:
+        part_item: dict[int, int] = {}
+        for r in list_lots(db, kind=KIND_PF):
+            if r.item_id is None or r.qty <= 0 or r.status == "В переработку":
+                continue
+            part_item[r.part_id] = r.item_id
+            s = row(r.item_id, KIND_PF, "шт")
+            s.qty += r.qty
+            s.lots += 1
+            places[r.item_id].add(areas.get(r.area) if r.area else "склад п/ф")
+        for pr in reserves_by_part(db):
+            if pr.part_id in part_item:
+                acc[part_item[pr.part_id]].reserved += pr.reserved
+
+    mat = {i: q for i, q in materials.balances(db).items() if q > 1e-9}
+    fg = [b for b in finished_goods.balances(db) if b.qty > 0]
+    items = {i.id: i for i in db.query(Item).filter(Item.id.in_(set(mat) | {b.item_id for b in fg}))} if mat or fg else {}
+    for item_id, q in mat.items():
+        it = items.get(item_id)
+        s = row(item_id, "material", item_unit(it) if it else "")
+        s.qty += q
+        places[item_id].add("склад материалов")
+    sites = {x.id: x.name for x in db.query(Site)}
+    for b in fg:
+        s = row(b.item_id, "fg", "шт")
+        s.qty += b.qty
+        places[b.item_id].add(sites.get(b.site_id) or "склад ГП")
+
+    for item_id, s in acc.items():
+        s.qty = round(s.qty, 2)
+        s.reserved = round(min(s.reserved, s.qty), 2)
+        s.area_m2 = round(s.area_m2, 2) if s.area_m2 is not None else None
+        s.places = sorted(places[item_id])
+    return list(acc.values())

@@ -33,6 +33,7 @@ import {
   type UnlinkedLineGroup,
 } from "../../api/items";
 import { apiErrorMessage } from "../../utils/apiError";
+import { getStockByItem, type ItemStock } from "../../api/unifiedStock";
 import { hasPerm } from "../../auth/permissions";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
@@ -93,6 +94,9 @@ function ItemsTab() {
   const [bulkStagesOpen, setBulkStagesOpen] = useState(false);
   const [q, setQ] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
+  // Номенклатура = остатки (27.10): «Только с остатком» — бывшие «Остатки по позициям».
+  const [onlyStock, setOnlyStock] = useState(urlParams.get("stock") === "1");
+  const [place, setPlace] = useState<string | undefined>(urlParams.get("place") ?? undefined);
   const [group, setGroup] = useState<number | undefined>();
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [moveTo, setMoveTo] = useState<number | undefined>();
@@ -108,6 +112,12 @@ function ItemsTab() {
     queryKey: ["items", includeInactive],
     queryFn: () => listItems({ include_inactive: includeInactive }),
   });
+  const stockQuery = useQuery({ queryKey: ["unified-stock", "by-item"], queryFn: getStockByItem });
+  const stockOf = useMemo(() => new Map((stockQuery.data ?? []).map((s) => [s.item_id, s])), [stockQuery.data]);
+  const placeOptions = useMemo(
+    () => [...new Set((stockQuery.data ?? []).flatMap((s) => s.places))].sort().map((p) => ({ value: p, label: p })),
+    [stockQuery.data],
+  );
 
   // Модели — строками, их варианты — внутри (как характеристики в 1С).
   // Поиск: подошла модель — все её варианты; подошёл вариант — модель с ним.
@@ -120,6 +130,11 @@ function ItemsTab() {
       i.name.toLowerCase().replace(/ё/g, "е").includes(needle) ||
       (i.code_1c ?? "").toLowerCase().includes(needle) ||
       (i.aliases ?? []).some((a) => a.toLowerCase().replace(/ё/g, "е").includes(needle));
+    const stocked = (i: Item) => {
+      if (!onlyStock && !place) return true;
+      const s = stockOf.get(i.id);
+      return !!s && s.qty > 0 && (!place || s.places.includes(place));
+    };
     const models = new Set(all.filter((i) => i.is_model).map((i) => i.id));
     const variants = new Map<number, Item[]>();
     for (const i of all) if (i.model_id != null && models.has(i.model_id)) variants.set(i.model_id, [...(variants.get(i.model_id) ?? []), i]);
@@ -136,15 +151,15 @@ function ItemsTab() {
       if (!inSelectedGroup(i) && !(i.is_model && (variants.get(i.id) ?? []).some(inSelectedGroup))) continue;
       if (i.is_model) {
         const own = variants.get(i.id) ?? [];
-        const kids = matches(i) ? own : own.filter(matches);
-        if (!matches(i) && kids.length === 0) continue;
+        const kids = (matches(i) ? own : own.filter(matches)).filter(stocked);
+        if ((!matches(i) || ((onlyStock || place) && !stocked(i))) && kids.length === 0) continue;
         out.push({ ...i, variant_count: own.length, children: kids.length ? kids : undefined });
-      } else if (matches(i)) {
+      } else if (matches(i) && stocked(i)) {
         out.push(i);
       }
     }
     return out;
-  }, [itemsQuery.data, kind, q, group, groups, direction, stage]);
+  }, [itemsQuery.data, kind, q, group, groups, direction, stage, onlyStock, place, stockOf]);
 
   const petMutation = useMutation({
     mutationFn: (pet: "2d" | "3d") => setItemsPet({ item_ids: selectedIds, pet_type: pet }),
@@ -224,6 +239,19 @@ function ItemsTab() {
           {kind === "pf" && (
             <Select allowClear placeholder="Стадия" style={{ width: 190 }} value={stage} onChange={setStage} options={toOptions(STAGES)} />
           )}
+          <Checkbox checked={onlyStock} onChange={(e) => setOnlyStock(e.target.checked)}>
+            Только с остатком
+          </Checkbox>
+          <Select
+            allowClear
+            showSearch
+            placeholder="Где лежит"
+            style={{ width: 200 }}
+            value={place}
+            onChange={setPlace}
+            options={placeOptions}
+            loading={stockQuery.isLoading}
+          />
           <Checkbox checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)}>
             С архивными
           </Checkbox>
@@ -302,6 +330,7 @@ function ItemsTab() {
       <ResponsiveTable<ItemRow>
         tableKey="nomenclature"
         lockedColumns={["Наименование"]}
+        defaultHiddenColumns={["Код 1С", "Статус"]}
         size="small"
         rowKey="id"
         loading={itemsQuery.isLoading}
@@ -369,6 +398,38 @@ function ItemsTab() {
               ]
             : []),
           { title: "Ед.", dataIndex: "unit" },
+          {
+            title: "Остаток",
+            align: "right" as const,
+            render: (_: unknown, i: ItemRow) => <StockQty s={stockSum(i, stockOf)} />,
+          },
+          {
+            title: "Резерв",
+            align: "right" as const,
+            render: (_: unknown, i: ItemRow) => {
+              const s = stockSum(i, stockOf);
+              return s && s.reserved > 0 ? <Typography.Text type="warning">{fmt(s.reserved)}</Typography.Text> : null;
+            },
+          },
+          {
+            title: "Доступно",
+            align: "right" as const,
+            render: (_: unknown, i: ItemRow) => {
+              const s = stockSum(i, stockOf);
+              return s && s.qty > 0 ? <b>{fmt(s.free)}</b> : null;
+            },
+          },
+          {
+            title: "Где",
+            render: (_: unknown, i: ItemRow) => {
+              const s = stockSum(i, stockOf);
+              return s && s.places.length ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {s.places.join(", ")}
+                </Typography.Text>
+              ) : null;
+            },
+          },
           { title: "Код 1С", render: (_, i) => i.code_1c ?? <Typography.Text type="secondary">—</Typography.Text> },
           { title: "Статус", render: (_, i) => (i.is_active ? <Tag color="green">активна</Tag> : <Tag>архив</Tag>) },
         ]}
@@ -378,6 +439,40 @@ function ItemsTab() {
 }
 
 type ItemRow = Item & { variant_count?: number; children?: Item[] };
+
+const fmt = (v: number) => v.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+
+/** Остаток позиции; у модели — сумма по её вариантам (единица у них одна). */
+function stockSum(i: ItemRow, stockOf: Map<number, ItemStock>): ItemStock | undefined {
+  if (!i.is_model) return stockOf.get(i.id);
+  const parts = [i, ...(i.children ?? [])].map((x) => stockOf.get(x.id)).filter((x): x is ItemStock => !!x);
+  if (!parts.length) return undefined;
+  return parts.reduce((a, b) => ({
+    ...a,
+    qty: a.qty + b.qty,
+    reserved: a.reserved + b.reserved,
+    free: a.free + b.free,
+    lots: a.lots + b.lots,
+    area_m2: a.area_m2 != null || b.area_m2 != null ? (a.area_m2 ?? 0) + (b.area_m2 ?? 0) : null,
+    places: [...new Set([...a.places, ...b.places])].sort(),
+  }));
+}
+
+function StockQty({ s }: { s?: ItemStock }) {
+  if (!s || s.qty <= 0) return <Typography.Text type="secondary">—</Typography.Text>;
+  const lots = s.lots ? ` · ${s.kind === "plenka" ? "рул./штр." : "парт."} ${s.lots}` : "";
+  return (
+    <span title={s.area_m2 != null ? `${fmt(s.area_m2)} м²` : undefined}>
+      {fmt(s.qty)} {s.unit}
+      {(s.area_m2 != null || lots) && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {s.area_m2 != null ? ` · ${fmt(s.area_m2)} м²` : ""}
+          {lots}
+        </Typography.Text>
+      )}
+    </span>
+  );
+}
 
 /** Своё значение — жирным, взятое у типа / по правилу — обычным. */
 function AttrText({ value, labels, own }: { value?: string | null; labels: Record<string, string>; own?: boolean }) {

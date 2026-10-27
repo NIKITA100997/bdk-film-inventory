@@ -93,6 +93,28 @@ def get_lots(
     ]
 
 
+class ItemStockOut(BaseModel):
+    item_id: int
+    kind: str
+    qty: float
+    unit: str
+    reserved: float
+    free: float
+    lots: int
+    area_m2: float | None
+    places: list[str]
+
+
+@router.get("/by-item", response_model=list[ItemStockOut])
+def get_stock_by_item(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[ItemStockOut]:
+    """Остаток по позиции — колонки «Остаток / Резерв / Доступно / Где» в
+    номенклатуре (27.10). П/ф — с правами на учёт п/ф, как /lots."""
+    from app.services.unified_stock import stock_by_item
+
+    rows = stock_by_item(db, with_pf=_can(user, "part_units.view", "part_units.manage"))
+    return [ItemStockOut(**{**r.__dict__, "free": round(max(0.0, r.qty - r.reserved), 2)}) for r in rows]
+
+
 @router.get("/movements", response_model=list[MovementOut])
 def get_movements(
     kind: str | None = Query(default=None),
