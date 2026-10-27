@@ -321,6 +321,14 @@ def decor_of(name: str) -> str | None:
 
 
 _SEAL_RE = re.compile(r"\bук-?\s*\d|уплотнит", re.I)
+# «Коробка с упл. (серо-белый) …» — цвет уплотнителя бывает и без «УК» (27.10):
+# у позиции «с упл.» одно слово цвета в скобках — тоже уплотнитель.
+_WITH_SEAL_RE = re.compile(r"\bс\s*упл", re.I)
+_SEAL_COLOR_RE = re.compile(r"^(?:[а-яё]+-)?(?:бел|сер|черн|чёрн|коричн|беж|графит|антрацит)[а-яё]*$", re.I)
+
+
+def _is_seal(group: str, name: str) -> bool:
+    return bool(_SEAL_RE.search(group) or (_WITH_SEAL_RE.search(name or "") and _SEAL_COLOR_RE.match(group)))
 
 
 def _groups_text(name: str, drop_decor: bool) -> list[str]:
@@ -334,7 +342,7 @@ def _groups_text(name: str, drop_decor: bool) -> list[str]:
 def seal_of(name: str) -> str | None:
     """Цвет уплотнителя из скобок («серо-белый УК-6») — выбирается при запуске,
     позицию не меняет (26.10): в примечание строки заказа."""
-    hits = [s for s in _groups_text(name, True) if _SEAL_RE.search(s)]
+    hits = [s for s in _groups_text(name, True) if _is_seal(s, name)]
     return "; ".join(hits) or None
 
 
@@ -342,7 +350,7 @@ def qualifiers(name: str, drop_decor: bool) -> tuple[str, ...]:
     """Уточнения в скобках («серия Б») — чем отличаются позиции с одним ключом;
     у строки счёта последние скобки — декор, не в счёт. Цвет уплотнителя
     («белый УК-6») — не уточнение позиции (26.10): выбирается при запуске."""
-    return tuple(sorted(s.lower().replace("ё", "е") for s in _groups_text(name, drop_decor) if not _SEAL_RE.search(s)))
+    return tuple(sorted(s.lower().replace("ё", "е") for s in _groups_text(name, drop_decor) if not _is_seal(s, name)))
 
 
 class ProductIndex:

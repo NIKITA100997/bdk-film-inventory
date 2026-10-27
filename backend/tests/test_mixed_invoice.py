@@ -102,5 +102,10 @@ def test_nested_decor_and_qualifiers():
     assert qualifiers(t, drop_decor=True) == ()
     assert seal_of(t) == "серо-белый УК-6"
     assert qualifiers("Коробка с упл. (белый УК-6) телескоп МДФ 32*75*2070", drop_decor=False) == ()
+    # без «УК»: у позиции «с упл.» цвет в скобках — тоже уплотнитель (27.10)
+    t2 = "Коробка с упл. (серо-белый) телескоп (серия Б) МДФ 32х70х2070 (Бьянко)"
+    assert seal_of(t2) == "серо-белый"
+    assert qualifiers(t2, drop_decor=True) == ("серия б",)
+    assert seal_of("Наличник (белый) 8х70 (Бьянко)") is None
     assert qualifiers("Поперечная (серия Б) 30х110 (Дуб)", drop_decor=True) == ("серия б",)
     assert qualifiers("Наличник телескоп 8х70х2150 (Бьянко)", drop_decor=True) == ()
