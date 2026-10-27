@@ -5,6 +5,7 @@ import {
   Col,
   Collapse,
   DatePicker,
+  Drawer,
   Form,
   Input,
   InputNumber,
@@ -37,11 +38,15 @@ import DetailModalBody from "./issue/DetailModalBody";
 import QueueCards from "./issue/QueueCards";
 import ManualPanel from "./issue/ManualPanel";
 import { useIssue } from "./issue/useIssue";
+import { useState } from "react";
+import FilmReservesPanel from "../../components/FilmReservesPanel";
 
 /** «Выдача участку» (06.10: разделён — логика в issue/useIssue, куски
  * разметки — issue/*; здесь только сборка экрана). */
 export default function Issue() {
   const s = useIssue();
+  // Резерв плёнки (27.10): на компьютере — вкладка доски выдачи, здесь — шторка.
+  const [reserveOpen, setReserveOpen] = useState(false);
   const { canReturn, canIssue, canManage, areaFilter, setAreaFilter, taskFilter, setTaskFilter, statusFilter, setStatusFilter, search, setSearch, queueView, pickQueueView, cardTab, setCardTab, cardGroup, setCardGroup, manualOpen, setManualOpen, cuttingSession, setCuttingSession, cuttingBatch, setCuttingBatch, cuttingBatchOpen, setCuttingBatchOpen, slipModalOpen, setSlipModalOpen, slipTaskId, setSlipTaskId, addToCuttingBatch, removeFromCuttingBatch, stockDecisions, setStockDecisions, addStockDecision, removeStockDecision, decidedLineIds, executingAll, lineInfoMap, reportGroupInfos, manualPickerTarget, setManualPickerTarget, detailRow, executeAllDecisions, shortageModalOpen, setShortageModalOpen, shortageForm, occurredAt, setOccurredAt, skusQuery, tasksQuery, areaLabel, areaRequiresDailyPlan, areaOptions, taskOptions, confirmIfWrongWarehouse, overdueCount, todayCount, weekRowsNeedingMaterial, areasWaiting, pendingReturnByTask, shopFloorRequestMutation, closeLineMutation, issuedNoteForLine, lineActuals, UnitLink, renderStatusPill, findStockSiblingCandidates, filteredTableRows, cuttingGroups, groupRowsByRowKey, printFactorySlip, openDetail, closeDetail, decisionsCount } = s;
   return (
     <div>
@@ -56,6 +61,9 @@ export default function Issue() {
         )}
         <Button size="small" onClick={() => setSlipModalOpen(true)}>
           📋 Сопроводительный лист
+        </Button>
+        <Button size="small" onClick={() => setReserveOpen(true)}>
+          📌 Резерв
         </Button>
         {canIssue && (
           <Button size="small" type="primary" ghost onClick={() => setManualOpen(true)}>
@@ -72,6 +80,10 @@ export default function Issue() {
           ]}
         />
       </Space>
+
+      <Drawer title="Резерв плёнки" open={reserveOpen} onClose={() => setReserveOpen(false)} width="min(1000px, 100vw)" destroyOnHidden>
+        {reserveOpen && <FilmReservesPanel />}
+      </Drawer>
 
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={12} md={6}>
