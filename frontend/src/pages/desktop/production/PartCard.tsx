@@ -69,7 +69,10 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
 
   const units = unitsQuery.data ?? [];
-  const stageIds = [...new Set(units.map((u) => u.stage_id))];
+  // Остаток — без списанных партий, как в «Остатках п/ф»: у списанной
+  // партии quantity_available не обнуляется, и «Доступно всего» расходилось.
+  const liveUnits = units.filter((u) => u.status !== "Списан");
+  const stageIds = [...new Set(liveUnits.map((u) => u.stage_id))];
 
   const eventsByUnit = useQueries({
     queries: units.map((u) => ({ queryKey: ["part-unit-events", u.id], queryFn: () => listPartUnitEvents(u.id) })),
@@ -80,11 +83,11 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
   );
   allEvents.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
 
-  const totalAvailable = units.reduce((sum, u) => sum + u.quantity_available, 0);
+  const totalAvailable = liveUnits.reduce((sum, u) => sum + u.quantity_available, 0);
   // stageId вместо имени — по нему, а не по строке, ищем следующий этап
   // маршрута (sequence_order) для быстрого действия "Перевести".
   const byStage = stageIds.map((stageId) => {
-    const stageUnits = units.filter((u) => u.stage_id === stageId);
+    const stageUnits = liveUnits.filter((u) => u.stage_id === stageId);
     return {
       stageId,
       stageName: stageUnits[0]?.stage_name ?? `#${stageId}`,
