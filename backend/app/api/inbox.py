@@ -41,13 +41,13 @@ def collect(db: Session, user: User) -> list[InboxItem]:
         sent = db.query(CustomerOrder).filter(CustomerOrder.status == CO_SUBMITTED).count()
         if sent:
             out.append(InboxItem(key="co_submitted", title="Заказы клиентов ждут приёма", count=sent,
-                                 link="/customer-orders?filter=wait", level="urgent",
+                                 link="/customer-orders?section=intake", level="urgent",
                                  hint="менеджер отправил в производство — принять с датами или вернуть"))
         drafts = db.query(CustomerOrder).filter(CustomerOrder.status == CO_DRAFT).count()
         if drafts:
             out.append(InboxItem(key="co_drafts", title="Черновики заказов клиентов не отправлены", count=drafts,
-                                 link="/customer-orders?filter=mine",
-                                 hint="производство может принять и черновик — откройте заказ, «Принять»"))
+                                 link="/customer-orders?section=intake",
+                                 hint="производство может принять и черновик — «Приём в производство»"))
         from app.services.customer_orders import progress
 
         unlaunched = 0

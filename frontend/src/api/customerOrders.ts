@@ -206,6 +206,23 @@ export const moveCustomerOrder = async (
 ): Promise<CustomerOrder> => (await apiClient.post<CustomerOrder>(`${base}/${id}/promise`, p)).data;
 export const cancelCustomerOrder = async (id: number, reason: string): Promise<CustomerOrder> =>
   (await apiClient.post<CustomerOrder>(`${base}/${id}/cancel`, { reason })).data;
+/** Что нужно заказу к приёму (28.10): в конце очереди, после принятого и отправленного. */
+export interface IntakeNeeds {
+  group: string | null;
+  error: string | null;
+  rows: { kind: string; name: string; unit: string; need: number; allocated: number; shortage: number; incoming: number; incoming_date: string | null }[];
+  fg: { item_id: number; name: string; need: number; free: number }[];
+}
+export const getCustomerIntakeNeeds = async (id: number): Promise<IntakeNeeds> => (await apiClient.get<IntakeNeeds>(`${base}/${id}/intake-needs`)).data;
+/** Массовый приём (28.10): всё или ничего; launch — сразу черновик заказа на производство. */
+export const acceptManyCustomerOrders = async (p: {
+  orders: { order_id: number; ship_date: string | null; ready_date: string | null }[];
+  comment: string | null;
+  launch: boolean;
+  launch_name: string | null;
+}): Promise<{ accepted: number[]; production_order_id: number | null }> => (await apiClient.post(`${base}/accept-many`, p)).data;
+export const returnManyCustomerOrders = async (orderIds: number[], comment: string): Promise<{ returned: number[] }> =>
+  (await apiClient.post(`${base}/return-many`, { order_ids: orderIds, comment })).data;
 export const getCustomerPlanCheck = async (id: number): Promise<PlanCheck> => (await apiClient.get<PlanCheck>(`${base}/${id}/plan-check`)).data;
 /** lineIds — только эти строки (20.10): погонаж и двери одного счёта запускаются отдельно. */
 export const launchCustomerOrders = async (orderIds: number[], name: string | null, lineIds?: number[]): Promise<{ production_order_id: number }> =>

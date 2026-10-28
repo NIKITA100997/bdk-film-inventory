@@ -415,18 +415,24 @@ def submit(order_id: int, payload: DecisionIn | None = None, db: Session = Depen
     return _out(db, co)
 
 
-@router.post("/{order_id}/return", response_model=OrderOut)
-def return_order(order_id: int, payload: DecisionIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> OrderOut:
-    co = _get(db, order_id)
-    if co.status != CO_SUBMITTED:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Вернуть можно только отправленный заказ")
-    comment = (payload.comment or "").strip()
+def _return_one(db: Session, co: CustomerOrder, comment: str | None, user: User) -> None:
+    # черновик тоже можно вернуть с замечанием (28.10, массовый приём):
+    # менеджер увидит его в «Ждёт меня» как возвращённый
+    if co.status not in (CO_SUBMITTED, CO_DRAFT):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{co.invoice_no}: вернуть можно только отправленный заказ или черновик")
+    comment = (comment or "").strip()
     if not comment:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Напишите, почему возвращаете")
     co.status, co.request_comment = CO_RETURNED, comment
     co.decided_by, co.decided_at = user.id, datetime.now(timezone.utc)
     bitrix.on_request_decided(db, co, accepted=False)
     deals.comment(db, co, f"Производство вернуло заказ менеджеру. Причина: {comment}")
+
+
+@router.post("/{order_id}/return", response_model=OrderOut)
+def return_order(order_id: int, payload: DecisionIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> OrderOut:
+    co = _get(db, order_id)
+    _return_one(db, co, payload.comment, user)
     db.commit()
     db.refresh(co)
     return _out(db, co)
@@ -438,34 +444,122 @@ def _log(db: Session, co: CustomerOrder, field: str, old: date | None, new: date
                                comment=(comment or "").strip() or None, user_id=uid))
 
 
-@router.post("/{order_id}/accept", response_model=OrderOut)
-def accept(order_id: int, payload: DecisionIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> OrderOut:
+def _accept_one(db: Session, co: CustomerOrder, ship_date: date | None, ready_date: date | None, comment: str | None, user: User) -> None:
     from app.services.weekly_plan import note_change
 
-    co = _get(db, order_id)
     # производство принимает и без отправки (20.10): заказ из сделки,
     # царговые — просто проставить даты, без запуска
     if co.status not in (CO_SUBMITTED, CO_DRAFT, CO_RETURNED):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Заказ уже принят или отменён")
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{co.invoice_no}: заказ уже принят или отменён")
     if not co.lines:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "В заказе нет позиций")
-    if payload.ship_date is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите дату отгрузки")
-    if payload.ready_date and payload.ready_date > payload.ship_date:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Готовность позже отгрузки")
-    _log(db, co, "ship", co.ship_date, payload.ship_date, user.id, comment="заказ принят")
-    _log(db, co, "ready", co.promised_ready, payload.ready_date, user.id, comment="заказ принят")
-    co.ship_date, co.promised_ready = payload.ship_date, payload.ready_date
-    co.status, co.request_comment = CO_ACCEPTED, (payload.comment or "").strip() or None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{co.invoice_no}: в заказе нет позиций")
+    if ship_date is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{co.invoice_no}: укажите дату отгрузки")
+    if ready_date and ready_date > ship_date:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{co.invoice_no}: готовность позже отгрузки")
+    _log(db, co, "ship", co.ship_date, ship_date, user.id, comment="заказ принят")
+    _log(db, co, "ready", co.promised_ready, ready_date, user.id, comment="заказ принят")
+    co.ship_date, co.promised_ready = ship_date, ready_date
+    co.status, co.request_comment = CO_ACCEPTED, (comment or "").strip() or None
     co.decided_by, co.decided_at = user.id, datetime.now(timezone.utc)
     bitrix.on_request_decided(db, co, accepted=True)
     deals.comment(db, co, f"Заказ принят производством: готовность {deals.fmt(co.promised_ready)}, отгрузка {deals.fmt(co.ship_date)}"
                   + (f". {co.request_comment}" if co.request_comment else ""))
     deals.push_ship_date(db, co)
     note_change(db, co, None, co.promised_ready or co.ship_date, ("СРОЧНЫЙ, " if co.priority == 2 else "") + "принят заказ", user.id)
+
+
+@router.post("/{order_id}/accept", response_model=OrderOut)
+def accept(order_id: int, payload: DecisionIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> OrderOut:
+    co = _get(db, order_id)
+    _accept_one(db, co, payload.ship_date, payload.ready_date, payload.comment, user)
     db.commit()
     db.refresh(co)
     return _out(db, co)
+
+
+class AcceptManyItem(BaseModel):
+    order_id: int
+    ship_date: date | None = None
+    ready_date: date | None = None
+
+
+class AcceptManyIn(BaseModel):
+    orders: list[AcceptManyItem] = Field(min_length=1)
+    comment: str | None = Field(default=None, max_length=500)
+    # сразу собрать принятые в один заказ на производство (черновик запуска)
+    launch: bool = False
+    launch_name: str | None = Field(default=None, max_length=255)
+
+
+@router.post("/accept-many")
+def accept_many(payload: AcceptManyIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> dict:
+    """Массовый приём (28.10): все заказы с датами — всё или ничего; по
+    галочке — сразу черновик заказа на производство из принятых."""
+    orders = [_get(db, it.order_id) for it in payload.orders]
+    if len({o.id for o in orders}) != len(orders):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Заказ указан дважды")
+    try:
+        for co, it in zip(orders, payload.orders):
+            _accept_one(db, co, it.ship_date, it.ready_date, payload.comment, user)
+        po_id = None
+        if payload.launch:
+            db.flush()
+            try:
+                po_id = cos.build_production_order(db, orders, user.id, payload.launch_name, None).id
+            except ValueError as e:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    except HTTPException:
+        db.rollback()
+        raise
+    db.commit()
+    return {"accepted": [o.id for o in orders], "production_order_id": po_id}
+
+
+class ReturnManyIn(BaseModel):
+    order_ids: list[int] = Field(min_length=1)
+    comment: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/return-many")
+def return_many(payload: ReturnManyIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> dict:
+    """Вернуть менеджерам несколько заказов с одним замечанием — всё или ничего."""
+    orders = [_get(db, i) for i in dict.fromkeys(payload.order_ids)]
+    try:
+        for co in orders:
+            _return_one(db, co, payload.comment, user)
+    except HTTPException:
+        db.rollback()
+        raise
+    db.commit()
+    return {"returned": [o.id for o in orders]}
+
+
+@router.get("/{order_id}/intake-needs")
+def intake_needs(order_id: int, db: Session = Depends(get_db), user: User = Depends(manage)) -> dict:
+    """Что нужно заказу к приёму (28.10): плёнка и материалы по его
+    незапущенному остатку — в конце очереди, после принятого и
+    отправленного: хватит ли того, что останется. Готовые изделия на складе
+    без заказа — можно отдать вместо производства."""
+    from app.services.order_needs import compute
+
+    co = _get(db, order_id)
+    try:
+        res = next((on for on in compute(db, user.id, extra=[co]) if on.customer_order_id == co.id), None)
+        if res is None:
+            return {"rows": [], "fg": [], "error": "Всё уже запущено — смотрите заказ на производство", "group": None}
+        return {
+            "group": res.group,
+            "error": res.error,
+            "rows": [
+                {"kind": r.kind, "name": r.name, "unit": r.unit, "need": r.need, "allocated": r.allocated, "shortage": r.shortage,
+                 "incoming": r.incoming, "incoming_date": r.incoming_date}
+                for r in res.rows
+            ],
+            "fg": [f.__dict__ for f in res.fg],
+        }
+    finally:
+        db.rollback()
 
 
 class PromiseIn(BaseModel):

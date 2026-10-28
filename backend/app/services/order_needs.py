@@ -31,7 +31,7 @@ from app.models.purchasing import PurchaseRequest
 from app.models.units import MaterialUnit, UnitStatus
 from app.services.production import calc_default_strip_width
 
-GROUP_NAMES = {0: "запущен", 1: "принят", 2: "заявка", 3: "черновик"}
+GROUP_NAMES = {0: "запущен", 1: "принят", 2: "заявка", 3: "черновик", 9: "к приёму"}
 
 
 @dataclass
@@ -209,7 +209,9 @@ def incoming_lots(db: Session) -> dict[str, list[list]]:
     return incoming
 
 
-def compute(db: Session, user_id: int) -> list[OrderNeeds]:
+def compute(db: Session, user_id: int, extra: list[CustomerOrder] | None = None) -> list[OrderNeeds]:
+    """extra — заказы клиентов к приёму (28.10): в конец очереди, после всего
+    принятого и отправленного, — хватит ли им того, что останется."""
     from app.services.materials import balances as material_balances
 
     film_stock = film_stock_m2(db)
@@ -217,7 +219,11 @@ def compute(db: Session, user_id: int) -> list[OrderNeeds]:
 
     mat_stock: dict[int, float] = {}  # остаток материала, общий на все заказы
     result: list[OrderNeeds] = []
-    for rank, order in _open_orders(db):
+    queue = _open_orders(db)
+    if extra:
+        queued = {o.id for _, o in queue if isinstance(o, CustomerOrder)}
+        queue += [(9, co) for co in extra if co.id not in queued]
+    for rank, order in queue:
         is_co = isinstance(order, CustomerOrder)
         on = OrderNeeds(order_id=order.id, name=("Заказ клиента: " + order.name) if is_co else order.name, group=GROUP_NAMES[rank],
                         priority=order.priority or 0, date=order.promised_ready or order.ship_date or order.ship_to,

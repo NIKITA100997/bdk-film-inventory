@@ -2,6 +2,7 @@ import { useAuth } from "../../../auth/AuthContext";
 import { hasPerm } from "../../../auth/permissions";
 import SectionTabs from "../../../components/SectionTabs";
 import CustomerOrders from "./CustomerOrders";
+import IntakeTab from "./IntakeTab";
 import OrderReadiness from "../OrderReadiness";
 import OrderDeadlines from "../production/OrderDeadlines";
 import { ShipmentsBody } from "../Shipments";
@@ -17,6 +18,8 @@ export default function CustomerOrdersHub() {
     ...(hasPerm(user, "production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve")
       ? [{ key: "orders", label: "Заказы", children: <CustomerOrders /> }]
       : []),
+    // приём в производство (28.10): массово, с составом и потребностью
+    ...(hasPerm(user, "production_tasks.manage") ? [{ key: "intake", label: "Приём в производство", children: <IntakeTab /> }] : []),
     ...(hasPerm(user, "sales_calculator.view", "production_tasks.manage", "production_tasks.view", "production_tasks.report")
       ? [{ key: "readiness", label: "Готовность по этапам", children: <OrderReadiness /> }]
       : []),
