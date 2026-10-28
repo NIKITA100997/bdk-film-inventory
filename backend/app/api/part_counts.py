@@ -299,13 +299,32 @@ def start_session(payload: SessionCreate, db: Session = Depends(get_db), user: U
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет прав на инвентаризацию этого места")
     if place_type == PLACE_AREA and (not ref or db.get(Area, ref) is None):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Участок не найден")
-    if place_type == PLACE_WAREHOUSE and (not ref or db.get(Warehouse, int(ref)) is None):
+    if place_type == PLACE_WAREHOUSE and (not (ref or "").isdigit() or db.get(Warehouse, int(ref)) is None):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Склад не найден")
-    if place_type == PLACE_FG and (not ref or db.get(Site, int(ref)) is None):
+    if place_type == PLACE_FG and (not (ref or "").isdigit() or db.get(Site, int(ref)) is None):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Площадка не найдена")
+    # одна открытая инвентаризация на место: расхождение берётся из листа, и
+    # два листа одного места провели бы одну недостачу дважды (28.10)
+    place_ref = ref if place_type != PLACE_MATERIALS else None
+    busy = (
+        db.query(PartCountSession.id)
+        .filter(
+            PartCountSession.status == COUNT_IN_PROGRESS,
+            PartCountSession.place_type == place_type,
+            # у участка — по area: в пересчётах п/ф до 27.10 place_ref пуст
+            PartCountSession.area == ref if place_type == PLACE_AREA
+            else PartCountSession.place_ref.is_(None) if place_ref is None
+            else PartCountSession.place_ref == place_ref,
+        )
+        .first()
+    )
+    if busy:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"По этому месту уже идёт инвентаризация №{busy.id} — продолжите её или отмените"
+        )
     scope = payload.scope.model_dump() if (payload.scope.group_ids or payload.scope.stages) else None
     s = PartCountSession(
-        place_type=place_type, place_ref=ref if place_type != PLACE_MATERIALS else None,
+        place_type=place_type, place_ref=place_ref,
         area=ref if place_type == PLACE_AREA else None, scope=scope if place_type == PLACE_AREA else None,
         status=COUNT_IN_PROGRESS, note=payload.note, started_by=user.id,
     )
