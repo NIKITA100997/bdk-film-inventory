@@ -71,7 +71,7 @@ export default function Demand() {
  * операции) + мин. остаток; есть = остаток на складе; заказать — не меньше
  * мин. партии, вверх до кратного. Комплектующие-п/ф (каркас, панели) — на
  * вкладке «П/ф». */
-function MaterialsDemand() {
+export function MaterialsDemand() {
   const q = useQuery({ queryKey: ["material-demand"], queryFn: listMaterialDemand });
   const [onlyShort, setOnlyShort] = useState(true);
   const [buy, setBuy] = useState<MaterialDemandRow | null>(null);

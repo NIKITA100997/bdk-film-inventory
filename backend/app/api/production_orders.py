@@ -1564,3 +1564,45 @@ def set_lines_option(order_id: int, payload: LinesOptionIn, db: Session = Depend
     db.commit()
     db.refresh(order)
     return _order_out(db, order)
+
+
+class AreaLoadOut(BaseModel):
+    area: str
+    name: str
+    queue_pieces: float
+    per_day: float | None
+    per_day_source: str | None
+    days: int | None
+    free_from: date | None
+
+
+@router.get("/area-load", response_model=list[AreaLoadOut])
+def area_load(db: Session = Depends(get_db), user: User = Depends(view_orders)) -> list[AreaLoadOut]:
+    """Загрузка участков (28.10, модуль «Общего»): остаток открытых заданий
+    и сколько это рабочих дней при мощности (задана или по факту за 4
+    недели); когда участок освободится."""
+    import math
+
+    from app.models.areas import Area
+    from app.services.areas import area_capacities
+    from app.services.order_requests import _queue
+    from app.services.planning import add_workdays, load_calendar, to_workday
+
+    load_calendar(db)
+    queue = _queue(db, -1)
+    set_caps = area_capacities(db)
+    caps = area_capacities(db, with_fact=True)
+    today = to_workday(date.today())
+    out = []
+    for a in db.query(Area):
+        q = queue.get(a.code, 0.0)
+        per_day = caps.get(a.code)
+        if q <= 0 and not per_day:
+            continue
+        days = math.ceil(q / per_day) if per_day else None
+        out.append(AreaLoadOut(
+            area=a.code, name=a.name, queue_pieces=round(q, 2), per_day=per_day,
+            per_day_source=("set" if a.code in set_caps else "fact") if per_day else None, days=days,
+            free_from=add_workdays(today, days) if days else None,
+        ))
+    return sorted(out, key=lambda r: (-(r.days or 0), -r.queue_pieces))

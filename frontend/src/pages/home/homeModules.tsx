@@ -12,6 +12,13 @@ const DailyPlanTab = lazyPage(() => import("../desktop/production/DailyPlanTab")
 const FilmIssueBoard = lazyPage(() => import("../desktop/FilmIssueBoard"));
 const AreaRequestsPanel = lazyPage(() => import("../../components/areaSupply/AreaRequestsPanel"));
 const TransfersInTransit = lazyPage(() => import("../desktop/WarehouseTransfers").then((m) => ({ default: m.InTransitTab })));
+const IntakeTab = lazyPage(() => import("../desktop/customerOrders/IntakeTab"));
+const ShortagesTab = lazyPage(() => import("../desktop/production/NeedsViews").then((m) => ({ default: m.ShortagesTab })));
+const MaterialsDemand = lazyPage(() => import("../desktop/production/Demand").then((m) => ({ default: m.MaterialsDemand })));
+const ReorderTab = lazyPage(() => import("../desktop/Reports").then((m) => ({ default: m.ReorderTab })));
+const OrderDeadlines = lazyPage(() => import("../desktop/production/OrderDeadlines"));
+const AreaLoadWidget = lazyPage(() => import("./homeWidgets").then((m) => ({ default: m.AreaLoadWidget })));
+const MyOrdersWidget = lazyPage(() => import("./homeWidgets").then((m) => ({ default: m.MyOrdersWidget })));
 const TransfersHub = lazyPage(() => import("../desktop/WarehouseTransfers").then((m) => ({ default: m.HubTab })));
 
 /** Модуль «Общего» (28.10): не сводка, а место работы — встроенная рабочая
@@ -104,6 +111,40 @@ export const MODULES: HomeModule[] = [
     available: (u) => hasPerm(u, "warehouse_transfers.manage"), render: () => <TransfersHub />,
   },
   {
+    key: "my-orders", title: "Мои заказы", hint: "ваши заказы покупателей; черновик — «Отправить в производство» в строке", wide: true,
+    link: "/customer-orders", available: (u) => hasPerm(u, "orders.request"), render: () => <MyOrdersWidget />,
+  },
+  {
+    key: "intake", title: "Приём в производство", hint: "заказы покупателей ждут приёма — состав, потребность, принять сразу несколько", wide: true,
+    link: "/customer-orders?section=intake", available: (u) => hasPerm(u, "production_tasks.manage"), render: () => <IntakeTab />,
+  },
+  {
+    key: "area-load", title: "Загрузка участков", hint: "остаток заданий в рабочих днях — когда участок освободится", wide: false,
+    link: "/planning", available: (u) => hasPerm(u, "production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "production_tasks.report"),
+    render: () => <AreaLoadWidget />,
+  },
+  {
+    key: "deadlines", title: "Сроки и переносы", hint: "обещанные даты заказов и их переносы", wide: true,
+    link: "/customer-orders?section=deadlines",
+    available: (u) => hasPerm(u, "production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "plan.approve"),
+    render: () => <OrderDeadlines />,
+  },
+  {
+    key: "shortages", title: "Дефицит по заказам", hint: "чего не хватает заказам — заказать", wide: true, link: "/demand?tab=orders",
+    available: (u) => hasPerm(u, "production_tasks.manage", "production_tasks.view", "purchasing.manage", "orders.request"),
+    render: () => <ShortagesTab />,
+  },
+  {
+    key: "materials-demand", title: "Материалы: что заказать", hint: "под задания и до мин. остатка — «Заявка» в строке", wide: true,
+    link: "/demand?tab=components",
+    available: (u) => hasPerm(u, "production_tasks.manage", "production_tasks.view", "materials.manage", "purchasing.manage", "units.receive"),
+    render: () => <MaterialsDemand />,
+  },
+  {
+    key: "reorder", title: "Плёнка: пора заказывать", hint: "остаток на сколько дней, сколько заказать", wide: true, link: "/purchasing",
+    available: (u) => hasPerm(u, "purchasing.manage"), render: () => <ReorderTab />,
+  },
+  {
     key: "summary", title: "Сводка", hint: "требует внимания, производство, склад, закупки — как на прежнем «Обзоре»", wide: true,
     available: () => true, render: () => <Overview embedded />,
   },
@@ -117,5 +158,12 @@ export function renderModule(m: HomeModule, user: User): ReactNode {
 export function defaultModules(u: User): string[] {
   if (isMaster(u)) return ["my-area", "inbox", "quick", "area-requests"];
   if (isWarehouse(u)) return ["inbox", "quick", "search", "film-issue", "transfers-in", "area-requests"];
+  // начальник цеха (ведёт все участки): приём, загрузка, сроки
+  if (hasPerm(u, "production_tasks.manage") && (u.is_superuser || !u.area || hasPerm(u, "production_tasks.all_areas")))
+    return ["inbox", "area-load", "quick", "intake", "deadlines", "summary"];
+  // закупщик: что и когда заказывать
+  if (hasPerm(u, "purchasing.manage")) return ["inbox", "quick", "reorder", "materials-demand", "shortages"];
+  // менеджер: свои заказы, отправка в производство, сроки
+  if (hasPerm(u, "orders.request")) return ["inbox", "quick", "my-orders", "deadlines"];
   return ["inbox", "quick", "search", "summary"];
 }
