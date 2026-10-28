@@ -34,3 +34,15 @@ def test_pf_uses_same_rule_with_multiple():
 def test_merge_takes_largest():
     n = merge([Norms(min_stock=100), Norms(min_stock=300, batch_multiple=50), Norms()])
     assert n == Norms(min_stock=300, min_batch=None, batch_multiple=50)
+
+
+def test_split_shortage_tasks_first():
+    from app.services.normatives import split_shortage
+
+    # задания 30, мин. остаток 50, есть 10: не хватает 70 — 20 под задания, 50 до мин. остатка
+    assert split_shortage(demand=30, have=10, shortage=70) == (20, 50)
+    # задания покрыты остатком — вся нехватка только до мин. остатка
+    assert split_shortage(demand=30, have=40, shortage=40) == (0, 40)
+    # мин. остатка нет — всё под задания
+    assert split_shortage(demand=30, have=10, shortage=20) == (20, 0)
+    assert split_shortage(demand=0, have=0, shortage=0) == (0, 0)

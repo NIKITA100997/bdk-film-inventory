@@ -66,6 +66,9 @@ class PfDemandRow:
     reserved: float = 0.0  # остатка в резерве под задания
     free: float = 0.0  # остаток без резервов
     item_id: int | None = None  # позиция номенклатуры — у неё нормативы
+    # нехватка по приоритетам (28.10): под задания — срочно, до мин. остатка — пополнение
+    shortage_tasks: float = 0.0
+    shortage_min: float = 0.0
 
 
 def compute_suggestion(
@@ -302,6 +305,8 @@ def _row(st: _State, p: Part, *, sources, task_demand, stock, in_work, min_stock
         part_id=p.id, part_name=p.name,
         min_stock=norms.min_stock, min_batch=min_batch, batch_multiple=norms.batch_multiple,
         task_demand=task_demand, stock=stock, in_work=in_work, need=need, shortage=shortage, suggested=suggested,
+        **dict(zip(("shortage_tasks", "shortage_min"),
+                   normatives.split_shortage(demand=task_demand, have=stock + in_work, shortage=shortage))),
         first_stage_id=fs.id, first_stage_name=fs.name, first_stage_area=fs.area, sources=sources,
         reserved=round(reserved, 2), free=round(max(0.0, total - reserved), 2), item_id=p.item_id,
     )
@@ -469,7 +474,8 @@ def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[Pf
         rows.append(
             _row(st, p, sources=sources, task_demand=d, stock=st.stock.get(p.id, 0.0), in_work=w, min_stock=min_stock)
         )
-    return sorted(rows, key=lambda r: (-r.shortage, r.part_name))
+    # сначала нехватка под задания, потом пополнение до мин. остатка (28.10)
+    return sorted(rows, key=lambda r: (-r.shortage_tasks, -r.shortage, r.part_name))
 
 
 def compute_pf_preview(db: Session, items: list[tuple[int, float]]) -> list[PfDemandRow]:

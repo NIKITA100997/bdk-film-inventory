@@ -114,6 +114,9 @@ class MaterialDemandOut(BaseModel):
     need: float
     shortage: float
     to_order: float
+    # нехватка по приоритетам (28.10): под задания — срочно, до мин. остатка — пополнение
+    shortage_tasks: float = 0.0
+    shortage_min: float = 0.0
 
 
 @router.get("/demand", response_model=list[MaterialDemandOut])
@@ -141,7 +144,9 @@ def material_demand(db: Session = Depends(get_db), user: User = Depends(get_curr
         demand = round(sum(q for *_, q in src), 4)
         norms = normatives.norms_of(i)
         # заказанное (открытые заявки) уже едет — повторно не предлагаем
-        need, shortage, to_order = normatives.suggest(demand=demand, have=bal[i.id] + ordered.get(i.id, 0.0), norms=norms)
+        have = bal[i.id] + ordered.get(i.id, 0.0)
+        need, shortage, to_order = normatives.suggest(demand=demand, have=have, norms=norms)
+        sh_tasks, sh_min = normatives.split_shortage(demand=demand, have=have, shortage=shortage)
         agg: dict[int, DemandSource] = {}
         for tid, tname, oid, q in src:
             prev = agg.get(tid)
@@ -151,8 +156,10 @@ def material_demand(db: Session = Depends(get_db), user: User = Depends(get_curr
             ordered=round(ordered.get(i.id, 0.0), 4),
             demand=demand, sources=sorted(agg.values(), key=lambda x: -x.qty), min_stock=norms.min_stock,
             min_batch=norms.min_batch, batch_multiple=norms.batch_multiple, need=need, shortage=shortage, to_order=to_order,
+            shortage_tasks=sh_tasks, shortage_min=sh_min,
         ))
-    return sorted(out, key=lambda r: (-r.to_order, r.name))
+    # сначала нехватка под задания, потом пополнение до мин. остатка
+    return sorted(out, key=lambda r: (-r.shortage_tasks, -r.to_order, r.name))
 
 
 class MaterialIn(BaseModel):

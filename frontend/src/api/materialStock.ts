@@ -38,6 +38,9 @@ export interface MaterialDemandRow {
   need: number;
   shortage: number;
   to_order: number;
+  /** нехватка по приоритетам (28.10) */
+  shortage_tasks?: number;
+  shortage_min?: number;
 }
 
 export const listMaterialDemand = async (): Promise<MaterialDemandRow[]> =>

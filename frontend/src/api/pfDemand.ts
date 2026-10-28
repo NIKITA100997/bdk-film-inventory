@@ -28,6 +28,9 @@ export interface PfDemandRow {
   need: number;
   shortage: number;
   suggested: number;
+  /** нехватка по приоритетам (28.10) */
+  shortage_tasks?: number;
+  shortage_min?: number;
   first_stage_id: number;
   first_stage_name: string;
   first_stage_area: string | null;

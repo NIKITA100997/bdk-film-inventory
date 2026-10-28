@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ShortageTags from "../../../components/ShortageTags";
 import { Button, Card, Empty, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -107,7 +108,10 @@ function MaterialsDemand() {
             { title: "По заданиям", render: (_, r) => (r.demand ? `${fmt(r.demand)} ${r.unit}` : "—") },
             { title: "В заявках", render: (_, r) => (r.ordered ? `${fmt(r.ordered)} ${r.unit}` : "—") },
             { title: "Нормативы", render: (_, r) => normsLabel(r.min_stock, r.min_batch, r.batch_multiple) },
-            { title: "Не хватает", render: (_, r) => (r.shortage ? `${fmt(r.shortage)} ${r.unit}` : "—") },
+            {
+              title: "Не хватает",
+              render: (_, r) => (r.shortage ? <ShortageTags total={r.shortage} tasks={r.shortage_tasks} min={r.shortage_min} unit={r.unit} /> : "—"),
+            },
             {
               title: "Заказать",
               sorter: (a, b) => a.to_order - b.to_order,

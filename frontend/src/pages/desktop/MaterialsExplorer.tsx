@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import ShortageTags from "../../components/ShortageTags";
 import {
   Alert,
   Button,
@@ -736,7 +737,12 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                         return (
                           <Space direction="vertical" size={0}>
                             {label !== "—" && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{label}</Typography.Text>}
-                            {(o?.to_order_m2 ?? 0) > 0 ? <Tag color="orange">заказать {o!.to_order_m2}</Tag> : label === "—" ? "—" : <Tag color="green">хватает</Tag>}
+                            {(o?.to_order_m2 ?? 0) > 0 ? (
+                              <Space size={4} wrap>
+                                <Tag color="orange">заказать {o!.to_order_m2}</Tag>
+                                <ShortageTags total={o!.shortage_m2 ?? 0} tasks={o!.shortage_tasks_m2} min={o!.shortage_min_m2} />
+                              </Space>
+                            ) : label === "—" ? "—" : <Tag color="green">хватает</Tag>}
                           </Space>
                         );
                       },

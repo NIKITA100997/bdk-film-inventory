@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import ShortageTags from "../../../components/ShortageTags";
 import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
 import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
 import dayjs, { type Dayjs } from "dayjs";
@@ -271,7 +272,7 @@ export default function PfDemand() {
           { title: "В работе", render: (_, r) => fmt(r.in_work) },
           {
             title: "Не хватает",
-            render: (_, r) => (r.shortage > 0 ? <Tag color="red">{fmt(r.shortage)}</Tag> : <Tag color="green">хватает</Tag>),
+            render: (_, r) => <ShortageTags total={r.shortage} tasks={r.shortage_tasks} min={r.shortage_min} />,
           },
           {
             title: "К производству, шт",

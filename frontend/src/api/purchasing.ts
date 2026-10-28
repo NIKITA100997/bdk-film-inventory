@@ -81,6 +81,8 @@ export interface StockOverviewLine {
   min_batch_m2?: number | null;
   batch_multiple_m2?: number | null;
   shortage_m2?: number;
+  shortage_tasks_m2?: number;
+  shortage_min_m2?: number;
   to_order_m2?: number;
 }
 

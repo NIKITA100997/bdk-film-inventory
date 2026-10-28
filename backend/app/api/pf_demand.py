@@ -53,6 +53,8 @@ class PfDemandOut(BaseModel):
     need: float
     shortage: float
     suggested: float
+    shortage_tasks: float = 0.0
+    shortage_min: float = 0.0
     first_stage_id: int
     first_stage_name: str
     first_stage_area: str | None

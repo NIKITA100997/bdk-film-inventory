@@ -69,6 +69,14 @@ def suggest(*, demand: float, have: float, norms: Norms) -> tuple[float, float, 
     return round(need, 3), shortage, round_batch(shortage, norms)
 
 
+def split_shortage(*, demand: float, have: float, shortage: float) -> tuple[float, float]:
+    """Нехватка по приоритетам (28.10): (под задания, до мин. остатка).
+    Сначала закрываются задания — что не покрыто остатком из их потребности;
+    остальное — пополнение до минимального остатка, не срочно."""
+    for_tasks = round(min(shortage, max(0.0, demand - have)), 3)
+    return for_tasks, round(max(0.0, shortage - for_tasks), 3)
+
+
 def merge(norms: list[Norms]) -> Norms:
     """Нормативы группы позиций (плёнка: материал + цвет + толщина у разных
     производителей — один пул остатка): берётся наибольшее заданное."""

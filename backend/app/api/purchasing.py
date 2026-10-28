@@ -243,11 +243,9 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
     for material_id, color_id, thickness_id in all_groups:
         g = (material_id, color_id, thickness_id)
         norms = group_norms.get(g, normatives.Norms())
-        _, shortage, to_order = normatives.suggest(
-            demand=reserved_by_group.get(g, 0.0),
-            have=stock_by_group.get(g, 0.0) + open_requested_by_group.get(g, 0.0),
-            norms=norms,
-        )
+        have = stock_by_group.get(g, 0.0) + open_requested_by_group.get(g, 0.0)
+        _, shortage, to_order = normatives.suggest(demand=reserved_by_group.get(g, 0.0), have=have, norms=norms)
+        sh_tasks, sh_min = normatives.split_shortage(demand=reserved_by_group.get(g, 0.0), have=have, shortage=shortage)
         supplier_id = usual_supplier_id_by_group.get((material_id, color_id, thickness_id))
         reorder = compute_reorder_signal(
             ReorderInput(
@@ -271,7 +269,7 @@ def stock_overview(db: Session = Depends(get_db), user: User = Depends(manage_pu
                 days_of_stock_remaining=reorder.days_of_stock_remaining,
                 reorder_suggested=reorder.reorder_suggested,
                 min_stock_m2=norms.min_stock, min_batch_m2=norms.min_batch, batch_multiple_m2=norms.batch_multiple,
-                shortage_m2=shortage, to_order_m2=to_order,
+                shortage_m2=shortage, to_order_m2=to_order, shortage_tasks_m2=sh_tasks, shortage_min_m2=sh_min,
             )
         )
     result.sort(key=lambda r: (r.material, r.color, r.thickness))

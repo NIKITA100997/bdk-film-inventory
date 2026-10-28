@@ -144,6 +144,9 @@ class StockOverviewLine(BaseModel):
     batch_multiple_m2: float | None = None
     shortage_m2: float = 0.0
     to_order_m2: float = 0.0
+    # нехватка по приоритетам (28.10): под задания (резерв) / до мин. остатка
+    shortage_tasks_m2: float = 0.0
+    shortage_min_m2: float = 0.0
 
 
 class StockForSkusRequest(BaseModel):
