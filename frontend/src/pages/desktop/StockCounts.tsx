@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import NextStep from "../../components/NextStep";
 import {
   Alert,
   Button,
@@ -398,6 +399,26 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
   return (
     <Card title={`Инвентаризация №${d.id} · ${d.place_name}`} extra={<Tag color="blue">идёт</Tag>}>
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        {left > 0 ? (
+          <NextStep
+            tone="action"
+            title={`Посчитайте: осталось ${left} из ${d.lines_total}`}
+            text={
+              d.kinds.includes("plenka") || d.kinds.includes("pf")
+                ? "Сканируйте бирки (или вводите номер) — «Есть»; количество — в строке. Найденное не по листу — «Найдено сверх листа». Сошлось целым разделом — «Остальное сходится»."
+                : "Введите, сколько есть на самом деле, в каждой строке. Сошлось — «Остальное сходится»."
+            }
+          />
+        ) : (
+          <NextStep
+            tone="action"
+            title="Всё посчитано — закройте пересчёт"
+            text="После закрытия по каждому расхождению решите: списать, оприходовать или оставить."
+            actionLabel="Закрыть пересчёт"
+            onAction={() => close.mutate()}
+            loading={close.isPending}
+          />
+        )}
         <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
           <Space wrap>
             {(d.kinds.includes("plenka") || d.kinds.includes("pf")) && (
@@ -739,6 +760,15 @@ function CountResult({ d }: { d: PartCountDetail }) {
       extra={d.lines_open > 0 ? <Tag color="orange">без решения: {d.lines_open}</Tag> : <Tag color="green">все решения приняты</Tag>}
     >
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        {d.lines_open > 0 ? (
+          <NextStep
+            tone="action"
+            title={`Решите расхождения: ${d.lines_open}`}
+            text="Недостача — списать с причиной или оставить; излишек — оприходовать или оставить. Можно сразу всем — кнопками ниже. Пока не решено, остатки не поправлены."
+          />
+        ) : (
+          <NextStep tone="done" title={d.lines_diff ? "Все решения приняты — остатки поправлены" : "Всё сошлось — расхождений нет"} />
+        )}
         <Typography.Text type="secondary">
           Закрыта {d.closed_at ? dayjs(d.closed_at).format("DD.MM.YYYY HH:mm") : ""} · посчитано {d.lines_counted} из {d.lines_total} ·
           расхождений {d.lines_diff}
