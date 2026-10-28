@@ -11,8 +11,6 @@ import { isVerticalPrint, setVerticalPrint } from "../utils/printLabel";
 import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
 import NotificationBell from "../components/NotificationBell";
-import ActionRequestsBadge from "../components/ActionRequestsBadge";
-import AreaRequestsBadge from "../components/AreaRequestsBadge";
 import { InboxBadge } from "../components/InboxList";
 import ActionRequestPrompt from "../components/ActionRequestPrompt";
 import PhoneTabBar from "./PhoneTabBar";
@@ -102,6 +100,12 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
       disabled: true,
     },
     { type: "divider" },
+    {
+      // запросы администратору (28.10): раньше — значок в шапке; ответы — в «Ждёт меня»
+      key: "my-requests",
+      label: "Мои запросы администратору",
+      onClick: () => navigate("/requests?section=actions"),
+    },
     {
       // Повторное открытие приветственной карточки (раздел 16 бэклога
       // доработок — онбординг) — не отдельная иконка в шапке, там и так
@@ -273,8 +277,6 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               type="primary"
             />
             <InboxBadge />
-            <AreaRequestsBadge />
-            <ActionRequestsBadge />
             <NotificationBell />
             <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
               {/* кнопка, а не картинка — доступна с клавиатуры и скринридеру (14.10) */}

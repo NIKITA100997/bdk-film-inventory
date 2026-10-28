@@ -131,7 +131,18 @@ def collect(db: Session, user: User) -> list[InboxItem]:
 
     # ---- запросы администратору ----
     from app.api.control import can_approve
-    from app.models.control import REQ_PENDING, ActionRequest
+    from app.models.control import REQ_DONE, REQ_FAILED, REQ_PENDING, REQ_REJECTED, ActionRequest
+
+    # ответы администратора на мои запросы — не просмотренные (раньше — отдельный значок в шапке)
+    n = (
+        db.query(ActionRequest)
+        .filter(ActionRequest.requested_by == user.id, ActionRequest.seen.is_(False),
+                ActionRequest.status.in_([REQ_DONE, REQ_FAILED, REQ_REJECTED]))
+        .count()
+    )
+    if n:
+        out.append(InboxItem(key="my_requests", title="Администратор ответил на ваши запросы", count=n,
+                             link="/requests?section=actions"))
 
     if can_approve(user):
         n = db.query(ActionRequest).filter(ActionRequest.status == REQ_PENDING).count()
