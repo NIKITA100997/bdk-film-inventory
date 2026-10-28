@@ -13,6 +13,7 @@ import OfflineBanner from "../components/OfflineBanner";
 import NotificationBell from "../components/NotificationBell";
 import ActionRequestsBadge from "../components/ActionRequestsBadge";
 import AreaRequestsBadge from "../components/AreaRequestsBadge";
+import { InboxBadge } from "../components/InboxList";
 import ActionRequestPrompt from "../components/ActionRequestPrompt";
 import PhoneTabBar from "./PhoneTabBar";
 import WorkspaceTabs from "./WorkspaceTabs";
@@ -271,6 +272,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               tooltip="Сканировать QR камерой"
               type="primary"
             />
+            <InboxBadge />
             <AreaRequestsBadge />
             <ActionRequestsBadge />
             <NotificationBell />

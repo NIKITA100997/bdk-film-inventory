@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button, Card, Checkbox, Dropdown, Input, Progress, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import ScheduleImportModal from "../production/ScheduleImportModal";
@@ -14,7 +14,7 @@ import LaunchFromOrders from "./LaunchFromOrders";
 type Filter = "all" | "wait" | "accepted" | "work" | "ready" | "mine";
 const FILTERS: [Filter, string, (o: CustomerOrder) => boolean][] = [
   ["all", "Все", () => true],
-  ["wait", "Ждут решения", (o) => o.status === "submitted"],
+  ["wait", "Ждут приёма", (o) => o.status === "submitted"],
   ["accepted", "Принятые без запуска", (o) => o.status === "accepted" && o.launched < o.qty - 0.001],
   ["work", "В запуске и производстве", (o) => o.stage === "in_production" || o.stage === "assembled"],
   ["ready", "Готовы / отгружаются", (o) => o.stage === "ready" || o.stage === "shipped_part"],
@@ -32,7 +32,16 @@ export default function CustomerOrders() {
   const qc = useQueryClient();
   const { production, canEdit } = useCustomerOrderRights();
   const [includeClosed, setIncludeClosed] = useState(false);
-  const [filter, setFilter] = useState<Filter>("all");
+  // фильтр — в адресе (28.10): ссылки из «Ждёт меня» открывают нужный
+  const [params, setParams] = useSearchParams();
+  const filter = (FILTERS.find(([k]) => k === params.get("filter"))?.[0] ?? "all") as Filter;
+  const setFilter = (f: Filter) =>
+    setParams((p) => {
+      const n = new URLSearchParams(p);
+      if (f === "all") n.delete("filter");
+      else n.set("filter", f);
+      return n;
+    }, { replace: true });
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -128,7 +137,10 @@ export default function CustomerOrders() {
             ? {
                 selectedRowKeys: picked,
                 onChange: (k) => setPicked(k as number[]),
-                getCheckboxProps: (o) => ({ disabled: !launchable(o) }),
+                getCheckboxProps: (o) => ({
+                  disabled: !launchable(o),
+                  title: launchable(o) ? undefined : o.status === "accepted" ? "Запущен целиком" : "Сначала примите заказ — откройте его, «Принять»",
+                }),
               }
             : undefined
         }
@@ -166,6 +178,11 @@ export default function CustomerOrders() {
                 <Tag color={STAGE_COLOR[o.stage]} style={{ marginInlineEnd: 0 }}>
                   {o.stage_label}
                 </Tag>
+                {production && (o.status === "submitted" || o.status === "draft") && (
+                  <Typography.Text type={o.status === "submitted" ? "danger" : "secondary"} style={{ fontSize: 12 }}>
+                    {o.status === "submitted" ? "ждёт приёма производством" : "не отправлен — можно принять"}
+                  </Typography.Text>
+                )}
                 {o.status === "accepted" && o.launched > 0 && o.launched < o.qty - 0.001 && (
                   <Typography.Text type="warning" style={{ fontSize: 12 }}>
                     запущено {o.launched} из {o.qty}

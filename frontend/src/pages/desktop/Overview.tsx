@@ -24,6 +24,7 @@ import { isOnboardingSeen } from "../../utils/onboarding";
 import OnboardingCard from "../../components/OnboardingCard";
 import { UnplacedUnitsCard } from "./StorageMap";
 import DataHealthCard from "../../components/DataHealthCard";
+import { InboxList, useInbox } from "../../components/InboxList";
 import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "../../components/ColumnSettings";
 
 // Блоки «Обзора» (07.10): шестерёнка включает и выключает их, как столбцы таблиц.
@@ -50,6 +51,7 @@ const LEVEL_COLOR = { critical: "#cf1322", warning: "#C97A2B", info: "#4b6584" }
  * компактные блоки по направлениям. Состав — по правам роли; мастер с
  * участком сюда не попадает (Home → «Мой участок»). */
 export default function Overview() {
+  const inboxQ = useInbox();
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -265,6 +267,12 @@ export default function Overview() {
         </Space>
         <ColumnSettingsButton columns={BLOCKS} settings={blocks} itemLabel="блоков" panelTitle="Блоки обзора" />
       </Space>
+
+      {(inboxQ.data?.length ?? 0) > 0 && (
+        <Card size="small" title="Ждёт меня">
+          <InboxList items={inboxQ.data ?? []} />
+        </Card>
+      )}
 
       {showOnboarding && <OnboardingCard onClose={() => setShowOnboarding(false)} />}
 
