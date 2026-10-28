@@ -6,6 +6,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   acceptManyCustomerOrders,
   getCustomerIntakeNeeds,
+  getIntakeLoad,
   getCustomerPlanCheck,
   listCustomerOrders,
   returnManyCustomerOrders,
@@ -102,6 +103,8 @@ export default function IntakeTab() {
             </Typography.Text>
           )}
         </Space>
+
+        {selected.length > 0 && <IntakeLoad ids={selected.map((o) => o.id)} />}
 
         <Table<CustomerOrder>
           size="small"
@@ -234,6 +237,83 @@ function IntakeDetail({ order }: { order: CustomerOrder }) {
         {check.isLoading ? <div><Spin size="small" /> считается…</div> : check.data ? <PlanCheckView check={check.data} shipTo={order.ship_to} /> : null}
       </div>
     </Space>
+  );
+}
+
+/** Загрузка участков, если принять и запустить выбранные: очередь открытых
+ * заданий и сколько добавят выбранные — в рабочих днях при мощности участка. */
+function IntakeLoad({ ids }: { ids: number[] }) {
+  const key = [...ids].sort((a, b) => a - b);
+  const q = useQuery({ queryKey: ["intake-load", key], queryFn: () => getIntakeLoad(key), staleTime: 60_000 });
+  const areas = q.data?.areas ?? [];
+  const maxDays = Math.max(1, ...areas.map((a) => a.days ?? 0));
+  return (
+    <Card size="small" title={`Загрузка участков, если принять выбранные (${ids.length})`} loading={q.isLoading}>
+      {q.error ? (
+        <Alert type="error" showIcon message={apiErrorMessage(q.error, "Не посчиталось")} />
+      ) : q.data?.error ? (
+        <Alert type="warning" showIcon message={q.data.error} />
+      ) : (
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Typography.Text>
+            {q.data?.earliest ? (
+              <>
+                Раньше всего всё выбранное готово к <b>{fmt(q.data.earliest)}</b>
+                {q.data.bottleneck ? <> — держит загрузка участка «{q.data.bottleneck}»</> : <> — держат сроки операций по маршруту</>}
+              </>
+            ) : (
+              "Срок не посчитался"
+            )}
+          </Typography.Text>
+          <Table
+            size="small"
+            rowKey="area"
+            pagination={false}
+            dataSource={areas}
+            columns={[
+              { title: "Участок", dataIndex: "name" },
+              { title: "В очереди, шт", align: "right", render: (_, a) => n(a.queue_pieces) },
+              { title: "+ выбранные, шт", align: "right", render: (_, a) => <b>{n(a.order_pieces)}</b> },
+              {
+                title: "Мощность в день",
+                align: "right",
+                render: (_, a) =>
+                  a.per_day == null ? (
+                    <Typography.Text type="secondary">не задана</Typography.Text>
+                  ) : (
+                    <>
+                      {n(a.per_day)}
+                      {a.per_day_source === "fact" && <Typography.Text type="secondary"> по факту</Typography.Text>}
+                    </>
+                  ),
+              },
+              {
+                title: "Рабочих дней: очередь + выбранные",
+                width: 320,
+                render: (_, a) =>
+                  a.days == null ? (
+                    <Typography.Text type="secondary">—</Typography.Text>
+                  ) : (
+                    <Space size={8} style={{ width: "100%" }}>
+                      <div style={{ display: "flex", width: 200, height: 12, background: "rgba(0,0,0,0.04)", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{ width: `${((a.queue_days ?? 0) / maxDays) * 100}%`, background: "#bfbfbf" }} />
+                        <div style={{ width: `${((a.days - (a.queue_days ?? 0)) / maxDays) * 100}%`, background: "#d46b08" }} />
+                      </div>
+                      <span style={{ whiteSpace: "nowrap" }}>
+                        {a.queue_days ?? 0} + {a.days - (a.queue_days ?? 0)} = <b>{a.days}</b>
+                      </span>
+                    </Space>
+                  ),
+              },
+            ]}
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Очередь — остаток открытых заданий участка. Мощность «по факту» — сколько участок сдавал в рабочий день за 4 недели; задать вручную —
+            «Настройки → Участки».
+          </Typography.Text>
+        </Space>
+      )}
+    </Card>
   );
 }
 

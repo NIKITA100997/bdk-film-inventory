@@ -43,6 +43,8 @@ class AreaLoad:
     queue_pieces: float  # уже в очереди: остаток открытых заданий
     per_day: float | None  # мощность в день; None — не задана
     days: int | None  # очередь + заказ, рабочих дней
+    per_day_source: str | None = None  # set — задана, fact — по факту отчётов за 4 недели
+    queue_days: int | None = None  # одна очередь, без этого заказа
 
 
 @dataclass
@@ -79,7 +81,8 @@ def plan_check(db: Session, order: ProductionOrder, user_id: int, today: date | 
     load_calendar(db)
     today = to_workday(today or date.today())
     queue = _queue(db, order.id)
-    caps = area_capacities(db)
+    set_caps = area_capacities(db)
+    caps = area_capacities(db, with_fact=True)
     names = {a.code: a.name for a in db.query(Area)}
     from app.services.trial_release import trial_release
 
@@ -99,7 +102,9 @@ def plan_check(db: Session, order: ProductionOrder, user_id: int, today: date | 
         per_day = caps.get(area)
         days = math.ceil((queue.get(area, 0.0) + pieces) / per_day) if per_day else None
         loads.append(AreaLoad(area=area, name=names.get(area, area), order_pieces=round(pieces, 2),
-                              queue_pieces=round(queue.get(area, 0.0), 2), per_day=per_day, days=days))
+                              queue_pieces=round(queue.get(area, 0.0), 2), per_day=per_day, days=days,
+                              per_day_source=("set" if area in set_caps else "fact") if per_day else None,
+                              queue_days=math.ceil(queue.get(area, 0.0) / per_day) if per_day else None))
         if days is not None and days > worst:
             worst, bottleneck = days, area
     by_route = sched.finish

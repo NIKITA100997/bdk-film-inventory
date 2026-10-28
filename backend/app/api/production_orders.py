@@ -1124,6 +1124,8 @@ class PlanCheckAreaOut(BaseModel):
     queue_pieces: float
     per_day: float | None
     days: int | None
+    per_day_source: str | None = None
+    queue_days: int | None = None
 
 
 class PlanCheckOut(BaseModel):

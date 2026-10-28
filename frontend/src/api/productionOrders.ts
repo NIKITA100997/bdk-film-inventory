@@ -146,7 +146,12 @@ export interface PlanCheck {
   by_route: string | null;
   bottleneck: string | null;
   fits: boolean | null;
-  areas: { area: string; name: string; order_pieces: number; queue_pieces: number; per_day: number | null; days: number | null }[];
+  areas: {
+    area: string; name: string; order_pieces: number; queue_pieces: number; per_day: number | null; days: number | null;
+    /** set — задана, fact — по факту отчётов за 4 недели (28.10) */
+    per_day_source?: "set" | "fact" | null;
+    queue_days?: number | null;
+  }[];
   error: string | null;
 }
 

@@ -535,6 +535,34 @@ def return_many(payload: ReturnManyIn, db: Session = Depends(get_db), user: User
     return {"returned": [o.id for o in orders]}
 
 
+class IntakeLoadIn(BaseModel):
+    order_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+@router.post("/intake-load")
+def intake_load(payload: IntakeLoadIn, db: Session = Depends(get_db), user: User = Depends(manage)) -> dict:
+    """Загрузка участков, если принять и запустить выбранные (28.10): по
+    участкам — очередь открытых заданий, сколько добавят выбранные и сколько
+    это рабочих дней при мощности (задана или по факту за 4 недели); когда
+    раньше всего всё готово. Ничего не сохраняет."""
+    from app.services.order_requests import plan_check as _check
+
+    orders = [_get(db, i) for i in dict.fromkeys(payload.order_ids)]
+    try:
+        try:
+            po = cos.build_production_order(db, orders, user.id, "проба приёма", None)
+        except ValueError as e:
+            return {"earliest": None, "by_route": None, "bottleneck": None, "areas": [], "error": str(e)}
+        ends = [o.ship_to for o in orders if o.ship_to]
+        po.ship_to = min(ends) if ends else None
+        db.flush()
+        r = _check(db, po, user.id)
+        return {"earliest": r.earliest, "by_route": r.by_route, "bottleneck": r.bottleneck, "fits": r.fits, "error": r.error,
+                "areas": [a.__dict__ for a in r.areas]}
+    finally:
+        db.rollback()
+
+
 @router.get("/{order_id}/intake-needs")
 def intake_needs(order_id: int, db: Session = Depends(get_db), user: User = Depends(manage)) -> dict:
     """Что нужно заказу к приёму (28.10): плёнка и материалы по его

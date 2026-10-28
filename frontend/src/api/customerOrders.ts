@@ -221,6 +221,9 @@ export const acceptManyCustomerOrders = async (p: {
   launch: boolean;
   launch_name: string | null;
 }): Promise<{ accepted: number[]; production_order_id: number | null }> => (await apiClient.post(`${base}/accept-many`, p)).data;
+/** Загрузка участков, если принять и запустить выбранные (28.10). */
+export const getIntakeLoad = async (orderIds: number[]): Promise<PlanCheck> =>
+  (await apiClient.post<PlanCheck>(`${base}/intake-load`, { order_ids: orderIds })).data;
 export const returnManyCustomerOrders = async (orderIds: number[], comment: string): Promise<{ returned: number[] }> =>
   (await apiClient.post(`${base}/return-many`, { order_ids: orderIds, comment })).data;
 export const getCustomerPlanCheck = async (id: number): Promise<PlanCheck> => (await apiClient.get<PlanCheck>(`${base}/${id}/plan-check`)).data;

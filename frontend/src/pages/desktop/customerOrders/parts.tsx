@@ -270,7 +270,7 @@ export function PlanCheckView({ check, shipTo }: { check: PlanCheck; shipTo: str
         description={
           check.bottleneck
             ? `Держит загрузка участка «${check.bottleneck}». По срокам операций — ${fmt(check.by_route)}.`
-            : "Держат сроки операций по маршруту. Мощность задана не у всех участков — там очередь не учтена."
+            : "Держат сроки операций по маршруту. У участков без мощности (не задана и нет отчётов за 4 недели) очередь не учтена."
         }
       />
       <Table
@@ -282,7 +282,20 @@ export function PlanCheckView({ check, shipTo }: { check: PlanCheck; shipTo: str
           { title: "Участок", dataIndex: "name" },
           { title: "Этот заказ, шт", dataIndex: "order_pieces", align: "right" },
           { title: "Уже в очереди, шт", dataIndex: "queue_pieces", align: "right" },
-          { title: "Мощность в день", dataIndex: "per_day", align: "right", render: (v) => v ?? <Typography.Text type="secondary">не задана</Typography.Text> },
+          {
+            title: "Мощность в день",
+            dataIndex: "per_day",
+            align: "right",
+            render: (v, a) =>
+              v == null ? (
+                <Typography.Text type="secondary">не задана</Typography.Text>
+              ) : (
+                <span title={a.per_day_source === "fact" ? "по отчётам за 4 недели — задать вручную: Настройки → Участки" : "задана у участка"}>
+                  {v}
+                  {a.per_day_source === "fact" && <Typography.Text type="secondary"> по факту</Typography.Text>}
+                </span>
+              ),
+          },
           { title: "Дней", dataIndex: "days", align: "right", render: (v) => v ?? "—" },
         ]}
       />
