@@ -1,4 +1,6 @@
 import { useState } from "react";
+import NextStep, { scrollToId } from "../../../components/NextStep";
+import { apiClient } from "../../../api/client";
 import { Card, Collapse, Space, Typography, DatePicker, Tag, Button, Empty, Select, Progress, Table } from "antd";
 import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
@@ -48,6 +50,7 @@ export default function DailyPlanTab() {
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   const tasks = (tasksQuery.data ?? []).filter((t) => (!effectiveArea || t.area === effectiveArea) && t.is_active);
+  const openLines = tasks.reduce((n, t) => n + t.lines.filter((l) => !l.is_closed && !l.production_closed).length, 0);
 
   const areaPicker = !user?.area && (
     <Select
@@ -64,8 +67,11 @@ export default function DailyPlanTab() {
     return (
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         {areaPicker}
+        <MasterNextStep area={effectiveArea} openLines={openLines} mode="report" />
         {/* Главное у станка — отчёт; план и задания участка — ниже, по запросу. */}
-        <FastReportPanel area={effectiveArea} allowLegacy onOpenTask={setReportCardTask} />
+        <div id="area-report">
+          <FastReportPanel area={effectiveArea} allowLegacy onOpenTask={setReportCardTask} />
+        </div>
         <TaskCardDrawer taskId={reportCardTask} onClose={() => setReportCardTask(null)} canManage={canManage} canReport={canReport} />
         <Collapse
           items={[
@@ -98,9 +104,21 @@ export default function DailyPlanTab() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       {areaPicker}
+      {effectiveArea && (
+        <MasterNextStep
+          area={effectiveArea}
+          openLines={openLines}
+          mode="daily"
+          isToday={selectedDate.isSame(dayjs(), "day")}
+          planned={dailyItems.length}
+          unreported={dailyItems.filter((r) => !r.assignment.produced_good_pieces && !r.assignment.defect_pieces).length}
+          canManage={canManage}
+        />
+      )}
       {effectiveArea && <PlanForDay area={effectiveArea} canReport={canReport} />}
-      {effectiveArea && <AreaTasks tasks={tasks} canManage={canManage} canReport={canReport} />}
+      {effectiveArea && <div id="area-tasks"><AreaTasks tasks={tasks} canManage={canManage} canReport={canReport} /></div>}
       <Card
+        id="area-daily"
         title={`📅 Суточный план участка на ${selectedDate.format("DD.MM.YYYY")}`}
         extra={
           <Space>
@@ -321,4 +339,66 @@ function AreaTasks({ tasks, canManage, canReport }: { tasks: ProductionTask[]; c
       <TaskCardDrawer taskId={cardTask} onClose={() => setCardTask(null)} canManage={canManage} canReport={canReport} />
     </Card>
   );
+}
+
+
+/** «Что дальше» мастеру (28.10): сначала отставание участка, потом —
+ * распределить смену или сдать отчёт; всё сдано — «готово». */
+function MasterNextStep({
+  area,
+  openLines,
+  mode,
+  isToday = true,
+  planned = 0,
+  unreported = 0,
+  canManage = false,
+}: {
+  area: string;
+  openLines: number;
+  mode: "report" | "daily";
+  isToday?: boolean;
+  planned?: number;
+  unreported?: number;
+  canManage?: boolean;
+}) {
+  const overdue = useQuery({
+    queryKey: ["planning-overdue"],
+    queryFn: async () => (await apiClient.get<{ area: string; since: string; overdue: number }[]>("/planning/overdue")).data,
+    staleTime: 120_000,
+    retry: false,
+  });
+  const mine = (overdue.data ?? []).filter((r) => r.area === area);
+  if (mine.length) {
+    const since = mine.map((r) => r.since).sort()[0];
+    const qty = mine.reduce((n, r) => n + r.overdue, 0);
+    return (
+      <NextStep
+        tone="warn"
+        title={`Отстаёте: ${mine.length} строк, ${Math.round(qty)} шт — с ${dayjs(since).format("DD.MM")}`}
+        text="План прошедших дней не сделан. Сделали, но не отчитались — сдайте отчёт; не успели — скажите начальнику цеха, он перенесёт."
+        actionLabel="К отчёту ↓"
+        onAction={() => scrollToId(mode === "report" ? "area-report" : "area-daily")}
+      />
+    );
+  }
+  if (!openLines) return <NextStep tone="done" title="Открытых заданий нет" text="Новые появятся, когда начальник цеха запустит заказ." />;
+  if (mode === "report")
+    return (
+      <NextStep tone="action" title={`Отчитайтесь о сделанном — открытых строк ${openLines}`} text="Выберите строку, впишите годные и брак — отчёт сразу спишет плёнку и п/ф."
+        actionLabel="К отчёту ↓" onAction={() => scrollToId("area-report")} />
+    );
+  if (!isToday) return null;
+  if (!planned)
+    return canManage ? (
+      <NextStep tone="action" title="Распределите смену на сегодня" text={`Открытых строк ${openLines} — разложите по линиям и людям, потом по ним сдаётся отчёт.`}
+        actionLabel="К заданиям ↓" onAction={() => scrollToId("area-tasks")} />
+    ) : (
+      <NextStep tone="wait" title="На сегодня смена ещё не распределена" text="Распределяет начальник участка или цеха." />
+    );
+  if (unreported)
+    return (
+      <NextStep tone="action" title={`Сдайте отчёт: ${unreported} из ${planned} распределений без отчёта`} text="В суточном плане ниже — по каждой строке годные и брак."
+        actionLabel="К суточному плану ↓" onAction={() => scrollToId("area-daily")} />
+    );
+  return <NextStep tone="done" title="Отчёт за сегодня сдан по всем распределениям" />;
 }
