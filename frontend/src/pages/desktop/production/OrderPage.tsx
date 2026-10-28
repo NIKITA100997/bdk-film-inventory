@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Button, Result, Space, Spin } from "antd";
+import { Button, Result, Space, Spin, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { getProductionOrder, type ProductionOrder } from "../../../api/productionOrders";
 import { useAuth } from "../../../auth/AuthContext";
 import { useTabTitle } from "../../../layout/tabTitle";
@@ -36,6 +36,18 @@ export default function OrderPage() {
       <Button type="link" style={{ padding: 0 }} onClick={() => navigate("/production-orders")}>
         ← Заказы на производство
       </Button>
+      {(order.customer_orders?.length ?? 0) > 0 && (
+        <Typography.Text>
+          Из заказов покупателей:{" "}
+          {order.customer_orders!.map((c, i) => (
+            <span key={c.id}>
+              {i > 0 && ", "}
+              <Link to={`/customer-orders/${c.id}`}>{c.invoice_no}</Link>
+              {c.customer && <Typography.Text type="secondary"> ({c.customer})</Typography.Text>}
+            </span>
+          ))}
+        </Typography.Text>
+      )}
       <OrderView
         order={order}
         onClose={() => navigate("/production-orders")}

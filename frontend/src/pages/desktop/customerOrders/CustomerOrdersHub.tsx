@@ -3,6 +3,7 @@ import { hasPerm } from "../../../auth/permissions";
 import SectionTabs from "../../../components/SectionTabs";
 import CustomerOrders from "./CustomerOrders";
 import IntakeTab from "./IntakeTab";
+import ProductionOrders from "../production/ProductionOrders";
 import OrderReadiness from "../OrderReadiness";
 import OrderDeadlines from "../production/OrderDeadlines";
 import { ShipmentsBody } from "../Shipments";
@@ -16,10 +17,14 @@ export default function CustomerOrdersHub() {
   const { user } = useAuth();
   const sections = [
     ...(hasPerm(user, "production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve")
-      ? [{ key: "orders", label: "Заказы", children: <CustomerOrders /> }]
+      ? [{ key: "orders", label: "Заказы покупателей", children: <CustomerOrders /> }]
       : []),
     // приём в производство (28.10): массово, с составом и потребностью
     ...(hasPerm(user, "production_tasks.manage") ? [{ key: "intake", label: "Приём в производство", children: <IntakeTab /> }] : []),
+    // заказы на производство (28.10) — в одном разделе с заказами покупателей, связи в обе стороны
+    ...(hasPerm(user, "production_tasks.manage", "production_tasks.view", "production_tasks.report")
+      ? [{ key: "production", label: "Заказы на производство", children: <ProductionOrders /> }]
+      : []),
     ...(hasPerm(user, "sales_calculator.view", "production_tasks.manage", "production_tasks.view", "production_tasks.report")
       ? [{ key: "readiness", label: "Готовность по этапам", children: <OrderReadiness /> }]
       : []),
@@ -34,5 +39,5 @@ export default function CustomerOrdersHub() {
       ? [{ key: "shipping", label: "Отгрузка", children: <ShipmentsBody /> }]
       : []),
   ];
-  return <SectionTabs title="Заказы клиентов" sections={sections} />;
+  return <SectionTabs title="Заказы" sections={sections} />;
 }

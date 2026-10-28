@@ -70,6 +70,8 @@ export const setOrderLinesOption = async (
 export interface ProductionOrder {
   id: number;
   name: string;
+  /** из каких заказов клиентов собран (28.10) */
+  customer_orders?: { id: number; invoice_no: string; customer: string | null }[];
   ship_date: string | null;
   note: string | null;
   status: OrderStatus;

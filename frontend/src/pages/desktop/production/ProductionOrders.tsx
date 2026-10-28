@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -200,7 +200,7 @@ function OrdersList() {
         }
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          Заказы клиентов (счета 1С) принимаются в «Продажи и заказы → Заказы клиентов» и оттуда собираются в запуск.
+          Заказы покупателей (счета 1С) принимаются на вкладке «Приём в производство» и собираются в запуск — сразу при приёме или позже из «Заказов покупателей».
           Вся работа цеху заводится здесь. Новый заказ (вручную или из графика) — черновик: на его странице видно, что
           получит каждый участок; там же выбираются п/ф со склада, площадки ламинации и сроки — настройка сохраняется,
           к ней можно вернуться. «Запустить заказ» создаёт задания участкам, их выполняют в «Заданиях цеха». Окутка из
@@ -263,6 +263,21 @@ function OrdersList() {
                 </Typography.Text>
               </Space>
             ),
+          },
+          {
+            title: "Из счетов",
+            render: (_, o) =>
+              o.customer_orders?.length ? (
+                <Space size={[4, 0]} wrap style={{ maxWidth: 220 }}>
+                  {o.customer_orders.map((c) => (
+                    <Link key={c.id} to={`/customer-orders/${c.id}`} onClick={(e) => e.stopPropagation()} title={c.customer ?? undefined}>
+                      {c.invoice_no}
+                    </Link>
+                  ))}
+                </Space>
+              ) : (
+                <Typography.Text type="secondary">{o.kind === "stock" ? "на склад" : "без заказа клиента"}</Typography.Text>
+              ),
           },
           { title: "Статус", render: (_, o) => <Tag color={STATUS_COLOR[o.status]}>{ORDER_STATUS_LABEL[o.status]}</Tag> },
           {

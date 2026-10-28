@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button, Card, Checkbox, Dropdown, Input, Progress, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import ScheduleImportModal from "../production/ScheduleImportModal";
@@ -227,6 +227,21 @@ export default function CustomerOrders() {
                     {o.shipped ? `, отгр. ${o.shipped}` : ""}
                   </span>
                 </Space>
+              ),
+          },
+          {
+            title: "Запущено в",
+            render: (_, o) =>
+              o.production_orders.length ? (
+                <Space direction="vertical" size={0}>
+                  {o.production_orders.map((p) => (
+                    <Link key={p.id} to={`/production-orders/${p.id}`} onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
+                      №{p.id}
+                    </Link>
+                  ))}
+                </Space>
+              ) : (
+                <Typography.Text type="secondary">—</Typography.Text>
               ),
           },
           { title: "Менеджер", render: (_, o) => o.manager_name ?? "—" },

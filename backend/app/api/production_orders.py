@@ -225,6 +225,8 @@ class OrderTaskOut(BaseModel):
 class OrderOut(BaseModel):
     id: int
     name: str
+    # из каких заказов клиентов собран (28.10): связь в обе стороны
+    customer_orders: list[dict] = []
     ship_date: date | None
     note: str | None
     status: str
@@ -260,6 +262,22 @@ class OrderOut(BaseModel):
     plan_late: bool = False
     plan_overdue: float = 0.0
     planned: bool = False
+
+
+def _customer_orders_of(db: Session, order: ProductionOrder) -> list[dict]:
+    from app.models.customer_orders import CustomerOrder, CustomerOrderLine
+
+    ids = {ln.customer_order_line_id for ln in order.lines if ln.customer_order_line_id}
+    if not ids:
+        return []
+    rows = (
+        db.query(CustomerOrder.id, CustomerOrder.invoice_no, CustomerOrder.customer)
+        .join(CustomerOrderLine, CustomerOrderLine.order_id == CustomerOrder.id)
+        .filter(CustomerOrderLine.id.in_(ids))
+        .distinct()
+        .order_by(CustomerOrder.id)
+    )
+    return [{"id": i, "invoice_no": inv, "customer": c} for i, inv, c in rows]
 
 
 def _order_out(db: Session, order: ProductionOrder, comp_cache: dict | None = None) -> OrderOut:
@@ -342,6 +360,7 @@ def _order_out(db: Session, order: ProductionOrder, comp_cache: dict | None = No
         category_name=(db.get(OrderCategory, order.category_id).name if order.category_id else None),
         created_by_name=(author.full_name or author.username) if author else "—", created_at=order.created_at,
         released_at=order.released_at, task_ids=[t.id for t in tasks], lines=out_lines,
+        customer_orders=_customer_orders_of(db, order),
         ship_from=order.ship_from, ship_to=order.ship_to, request_status=order.request_status,
         request_comment=order.request_comment, submitted_at=order.submitted_at,
         submitted_by_name=_user_name(db, order.submitted_by), decided_by_name=_user_name(db, order.decided_by),

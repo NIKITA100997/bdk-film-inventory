@@ -27,7 +27,6 @@ const ProductionTasks = lazyPage(() => import("./pages/desktop/ProductionTasks")
 const Demand = lazyPage(() => import("./pages/desktop/production/Demand"));
 const Settings = lazyPage(() => import("./pages/desktop/Settings"));
 const Reconciliation = lazyPage(() => import("./pages/desktop/Reconciliation"));
-const ProductionOrders = lazyPage(() => import("./pages/desktop/production/ProductionOrders"));
 const Planning = lazyPage(() => import("./pages/desktop/Planning"));
 const Requests = lazyPage(() => import("./pages/desktop/Requests"));
 const Nomenclature = lazyPage(() => import("./pages/desktop/Nomenclature"));
@@ -215,14 +214,8 @@ const appPageRoutes = (
       path="/production-orders/:id"
       element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "sales_calculator.view", "orders.request"]}><OrderPage /></RequirePermission>}
     />
-    <Route
-      path="/production-orders"
-      element={
-        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "sales_calculator.view", "orders.request"]}>
-          <ProductionOrders />
-        </RequirePermission>
-      }
-    />
+    {/* заказы на производство — вкладкой раздела «Заказы» (28.10); ?order=ID сохраняется */}
+    <Route path="/production-orders" element={<RedirectToSection to="/customer-orders" section="production" />} />
 
     <Route
       path="/demand"

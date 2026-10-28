@@ -98,7 +98,7 @@ export const navTree: NavBlock[] = [
     items: [
       {
         key: "production-orders",
-        path: "/production-orders",
+        path: "/customer-orders?section=production",
         label: "Заказы на производство",
         permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view"],
       },
@@ -146,7 +146,7 @@ export const navTree: NavBlock[] = [
     items: [
       // заказ клиента = счёт 1С; из принятых собирается запуск (13.10)
       // заказы, готовность по этапам, сроки и переносы — вкладками (14.10)
-      { key: "customer-orders", path: "/customer-orders", label: "Заказы клиентов", permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve", "fg.ship"] },
+      { key: "customer-orders", path: "/customer-orders", label: "Заказы", permissions: ["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve", "fg.ship"] },
       { key: "sales-calculator", path: "/sales-calculator", label: "Калькулятор заказа", permissions: ["sales_calculator.view"] },
       // календарь заказов: вехи, план и факт по дням и участкам (09.10, 14.10)
       {
