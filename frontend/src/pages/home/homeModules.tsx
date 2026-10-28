@@ -33,6 +33,8 @@ export interface HomeModule {
   /** «Открыть полностью» — экран, где этот модуль живёт */
   link?: string;
   available: (u: User) => boolean;
+  /** цветная метка заголовка (28.10): работа — оранжевая (по умолчанию), действия — зелёная, сведения — тёмная */
+  accent?: "green" | "navy" | "blue" | "red";
   render: () => ReactNode;
 }
 
@@ -81,11 +83,11 @@ export const MODULES: HomeModule[] = [
     available: () => true, render: () => <InboxModule />,
   },
   {
-    key: "quick", title: "Быстрые действия", hint: "кнопки ваших ежедневных операций", wide: false,
+    key: "quick", title: "Быстрые действия", hint: "кнопки ваших ежедневных операций", wide: false, accent: "green",
     available: () => true, render: () => null, // подставляется с пользователем, см. renderModule
   },
   {
-    key: "search", title: "Найти", hint: "рулон, партия, задание, заказ — по номеру или скану", wide: false,
+    key: "search", title: "Найти", hint: "рулон, партия, задание, заказ — по номеру или скану", wide: false, accent: "navy",
     available: () => true, render: () => <SearchBox />,
   },
   {
@@ -116,15 +118,15 @@ export const MODULES: HomeModule[] = [
   },
   {
     key: "intake", title: "Приём в производство", hint: "заказы покупателей ждут приёма — состав, потребность, принять сразу несколько", wide: true,
-    link: "/customer-orders?section=intake", available: (u) => hasPerm(u, "production_tasks.manage"), render: () => <IntakeTab />,
+    link: "/customer-orders?section=intake", available: (u) => hasPerm(u, "production_tasks.manage"), render: () => <IntakeTab embedded />,
   },
   {
-    key: "area-load", title: "Загрузка участков", hint: "остаток заданий в рабочих днях — когда участок освободится", wide: false,
+    key: "area-load", accent: "blue", title: "Загрузка участков", hint: "остаток заданий в рабочих днях — когда участок освободится", wide: false,
     link: "/planning", available: (u) => hasPerm(u, "production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "production_tasks.report"),
     render: () => <AreaLoadWidget />,
   },
   {
-    key: "deadlines", title: "Сроки и переносы", hint: "обещанные даты заказов и их переносы", wide: true,
+    key: "deadlines", accent: "blue", title: "Сроки и переносы", hint: "обещанные даты заказов и их переносы", wide: true,
     link: "/customer-orders?section=deadlines",
     available: (u) => hasPerm(u, "production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "plan.approve"),
     render: () => <OrderDeadlines />,
@@ -145,7 +147,7 @@ export const MODULES: HomeModule[] = [
     available: (u) => hasPerm(u, "purchasing.manage"), render: () => <ReorderTab />,
   },
   {
-    key: "summary", title: "Сводка", hint: "требует внимания, производство, склад, закупки — как на прежнем «Обзоре»", wide: true,
+    key: "summary", accent: "navy", title: "Сводка", hint: "требует внимания, производство, склад, закупки — как на прежнем «Обзоре»", wide: true,
     available: () => true, render: () => <Overview embedded />,
   },
 ];

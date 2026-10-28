@@ -1,11 +1,12 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { Button, Card, Checkbox, Col, Drawer, List, Row, Space, Spin, Typography, message } from "antd";
+import { Badge, Button, Card, Checkbox, Col, Drawer, List, Row, Space, Spin, Typography, message } from "antd";
 import { ArrowDownOutlined, ArrowUpOutlined, SettingOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
 import dayjs from "dayjs";
 import { useAuth } from "../../auth/AuthContext";
 import { getHomeModules, setHomeModules } from "../../api/home";
+import { useInbox } from "../../components/InboxList";
 import { apiErrorMessage } from "../../utils/apiError";
 import { isOnboardingSeen } from "../../utils/onboarding";
 import OnboardingCard from "../../components/OnboardingCard";
@@ -18,6 +19,8 @@ export default function ModularHome() {
   const { user } = useAuth();
   const location = useLocation();
   const q = useQuery({ queryKey: ["home-modules"], queryFn: getHomeModules, staleTime: Infinity });
+  const inbox = useInbox();
+  const urgent = (inbox.data ?? []).some((i) => i.level === "urgent");
   const [editing, setEditing] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   useEffect(() => {
@@ -68,7 +71,16 @@ export default function ModularHome() {
               <Col key={m.key} xs={24} lg={m.wide || row.length === 1 ? 24 : 12}>
                 <Card
                   size="small"
-                  title={m.title}
+                  className={`card-accent-${m.key === "inbox" ? (urgent ? "red" : "blue") : m.accent ?? "orange"}`}
+                  title={
+                    m.key === "inbox" && (inbox.data?.length ?? 0) > 0 ? (
+                      <span>
+                        {m.title} <Badge count={inbox.data!.length} color={urgent ? "#C0392B" : "#2F6FB2"} />
+                      </span>
+                    ) : (
+                      m.title
+                    )
+                  }
                   extra={m.link ? <Link to={m.link}>Открыть полностью →</Link> : null}
                   styles={{ body: { minHeight: 48 } }}
                 >

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import NextStep, { scrollToId, type NextStepProps } from "../../../components/NextStep";
 import dayjs, { type Dayjs } from "dayjs";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -496,6 +497,23 @@ export function OrderView({
         )
       }
     >
+      {/* «Что дальше» (28.10) — один шаг и кнопка */}
+      {order && (() => {
+        const { qty, done } = orderTotals(order);
+        const step: NextStepProps =
+          order.status === "closed"
+            ? { tone: "done", title: "Заказ закрыт" }
+            : order.status === "draft"
+              ? canManage
+                ? { tone: "action", title: "Запустите заказ", text: "Проверьте ниже п/ф со склада, площадки ламинации и сроки — «Запустить заказ» создаст задания участкам.", actionLabel: "К запуску ↓", onAction: () => scrollToId("po-release") }
+                : { tone: "wait", title: "Черновик — ждёт запуска производством" }
+              : qty > 0 && done >= qty - 0.001
+                ? canManage
+                  ? { tone: "action", title: "Всё сделано — закройте заказ", text: `Сделано ${done} из ${qty} шт.`, actionLabel: "Закрыть: всё сделано", onAction: () => completeMutation.mutate(order.id), loading: completeMutation.isPending }
+                  : { tone: "done", title: `Всё сделано: ${done} из ${qty} шт` }
+                : { tone: "wait", title: `В производстве — сделано ${done} из ${qty} шт`, text: "Мастера отчитываются в «Заданиях цеха»; ход по участкам — на вкладке «Ход» ниже." };
+        return <div style={{ marginBottom: 12 }}><NextStep {...step} /></div>;
+      })()}
       {/* комментарий заказа (13.10) — виден сразу и печатается в шапке каждого задания */}
       {order?.note && <Alert type="info" showIcon style={{ marginBottom: 12 }} message={<span>Комментарий к заказу: <b>{order.note}</b></span>} />}
       {order && order.status === "draft" ? (
@@ -521,7 +539,9 @@ export function OrderView({
           )}
           {(order.ship_date || order.promised_ready) && <OrderNeedsCard orderId={order.id} />}
           {canManage ? (
-            <ReleaseWorkspace order={order} canManage={canManage} onEditLines={() => onEdit(order)} />
+            <div id="po-release">
+              <ReleaseWorkspace order={order} canManage={canManage} onEditLines={() => onEdit(order)} />
+            </div>
           ) : (
             <Card size="small" title={`Позиции — ${order.lines.length}, ${order.lines.reduce((s, l) => s + l.quantity, 0)} шт`}>
               <ResponsiveTable

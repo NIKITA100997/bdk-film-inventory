@@ -14,8 +14,15 @@ export const palette = {
   orangeTint: "#FBF0E3",
   green: "#1D9E75",
   greenTint: "#E7F5EE",
-  pageBg: "#F5F5F4",
-  cardBg: "#ECECEA",
+  pageBg: "#F1F1EE",
+  // 28.10: карточки белые на тёплом сером фоне — раньше серое на сером, всё сливалось
+  cardBg: "#FFFFFF",
+  cardInner: "#FAFAF7",
+  headTint: "#F3F4F8",
+  red: "#C0392B",
+  redTint: "#FBEAE8",
+  blue: "#2F6FB2",
+  blueTint: "#EAF2FB",
   white: "#FFFFFF",
 };
 
@@ -56,6 +63,21 @@ export const theme: ThemeConfig = {
     Card: {
       colorBgContainer: palette.cardBg,
       borderRadiusLG: 12,
+      headerFontSize: 16,
+    },
+    Table: {
+      headerBg: palette.headTint,
+      headerColor: palette.navy,
+      headerSplitColor: "transparent",
+      rowHoverBg: palette.orangeTint,
+    },
+    Tabs: {
+      itemSelectedColor: palette.orange,
+      inkBarColor: palette.orange,
+      titleFontSize: 15,
+    },
+    Alert: {
+      withDescriptionPadding: "12px 16px",
     },
     Button: {
       borderRadius: 8,

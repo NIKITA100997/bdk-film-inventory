@@ -14,6 +14,7 @@ import {
 } from "../../../api/customerOrders";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { PlanCheckView, fmt } from "./parts";
+import NextStep from "../../../components/NextStep";
 
 const WAITING = ["submitted", "draft", "returned"] as const;
 const STATUS: Record<string, { label: string; color: string }> = {
@@ -35,7 +36,7 @@ function byKind(orders: CustomerOrder[]): [string, number][] {
 /** Приём в производство (28.10): заказы клиентов, которые ждут приёма —
  * отправленные, черновики менеджеров, возвращённые. Состав и что нужно
  * заказу видно в строке, принимаются и возвращаются сразу несколько. */
-export default function IntakeTab() {
+export default function IntakeTab({ embedded = false }: { embedded?: boolean }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["customer-orders", false], queryFn: () => listCustomerOrders(false) });
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -67,9 +68,16 @@ export default function IntakeTab() {
     qc.invalidateQueries({ queryKey: ["inbox"] });
   };
 
+  if (!q.isLoading && waiting.length === 0) {
+    const done = <NextStep tone="done" title="Все заказы покупателей приняты" text="Новые появятся здесь, когда менеджер заведёт заказ или отправит его в производство." />;
+    return embedded ? done : <Card title="Приём в производство">{done}</Card>;
+  }
   return (
     <Card
-      title="Приём в производство"
+      title={embedded ? undefined : "Приём в производство"}
+      bordered={!embedded}
+      style={embedded ? { boxShadow: "none", background: "transparent", border: 0 } : undefined}
+      styles={embedded ? { body: { padding: 0 } } : undefined}
       extra={
         <Typography.Text type="secondary">
           ждут: {waiting.filter((o) => o.status === "submitted").length} отправленных, {waiting.filter((o) => o.status === "draft").length} черновиков,{" "}
@@ -78,6 +86,13 @@ export default function IntakeTab() {
       }
     >
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        {embedded && waiting.length > 0 && (
+          <NextStep
+            tone="action"
+            title={`Ждут приёма: ${waiting.length}`}
+            text="Отметьте заказы — ниже видно загрузку участков; раскройте строку, чтобы увидеть состав и что нужно."
+          />
+        )}
         <Space wrap>
           {(["all", ...WAITING] as StatusFilter[]).map((k) => (
             <Tag.CheckableTag key={k} checked={status === k} onChange={() => setStatus(k)} style={{ fontSize: 13, padding: "3px 10px" }}>

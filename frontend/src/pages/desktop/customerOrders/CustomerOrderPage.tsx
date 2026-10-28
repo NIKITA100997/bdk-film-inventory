@@ -1,4 +1,5 @@
 import { useState } from "react";
+import NextStep, { scrollToId, type NextStepProps } from "../../../components/NextStep";
 import { Alert, Button, Card, DatePicker, Descriptions, Input, InputNumber, Modal, Popconfirm, Popover, Progress, Result, Space, Spin, Table, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -156,6 +157,39 @@ export default function CustomerOrderPage() {
   const pickedQty = Math.round(openLines.filter((l) => picked.includes(l.id)).reduce((s, l) => s + l.quantity - l.launched, 0) * 100) / 100;
   const kinds = [...new Set(openLines.map((l) => l.kind_name ?? "Прочее"))];
   const canLaunch = production && o.status === "accepted" && left > 0;
+  // «Что дальше» (28.10): по статусу и роли — один шаг и кнопка, которая его делает
+  const waiting = o.status === "draft" || o.status === "returned";
+  const nextStep: NextStepProps =
+    o.status === "cancelled"
+      ? { tone: "done", title: "Заказ отменён" }
+      : waiting && production
+        ? { tone: "action", title: "Примите заказ в производство", text: "Поставьте дату отгрузки (и готовности) в блоке «В производство» ниже — или верните менеджеру.", actionLabel: "К приёму ↓", onAction: () => scrollToId("co-decision") }
+        : waiting && canEdit && !o.ship_to
+          ? { tone: "warn", title: "Задайте вилку отгрузки", text: "Без неё производство не увидит, к какому сроку нужен заказ.", actionLabel: "Изменить заказ", onAction: () => setEditing(true) }
+          : waiting && canEdit
+            ? {
+                tone: "action",
+                title: o.status === "returned" ? "Исправьте и отправьте снова" : "Отправьте заказ в производство",
+                text: o.status === "returned" ? `Вернули: ${o.request_comment ?? "без комментария"}` : "Пока заказ — черновик, производство не видит его в очереди на приём.",
+                actionLabel: o.status === "returned" ? "Отправить снова" : "Отправить в производство",
+                onAction: () => submit.mutate(),
+                loading: submit.isPending,
+              }
+            : o.status === "submitted" && production
+              ? { tone: "action", title: "Примите или верните заказ", text: "Менеджер отправил заказ — поставьте даты и примите, или верните с комментарием.", actionLabel: "К приёму ↓", onAction: () => scrollToId("co-decision") }
+              : o.status === "submitted"
+                ? { tone: "wait", title: "Ждёт приёма производством", text: "Вам ничего делать не нужно — о решении придёт сообщение." }
+                : canLaunch
+                  ? { tone: "action", title: `Соберите запуск — не запущено ${left} шт`, text: "Отметьте строки (погонаж и двери можно отдельно) и «Собрать запуск».", actionLabel: "К позициям ↓", onAction: () => scrollToId("co-lines") }
+                  : o.status === "accepted" && left > 0
+                    ? { tone: "wait", title: "Принят, ждёт запуска", text: `Производство запустит ${left} шт.` }
+                    : o.stage === "ready"
+                      ? { tone: "action", title: "Готов — отгрузите", text: `На складе ${o.received} из ${o.qty} шт.`, actionLabel: "К отгрузке", onAction: () => navigate("/customer-orders?section=shipping") }
+                      : o.stage === "shipped_part"
+                        ? { tone: "action", title: `Отгружено ${o.shipped} из ${o.qty} — догрузите остальное`, actionLabel: "К отгрузке", onAction: () => navigate("/customer-orders?section=shipping") }
+                        : o.stage === "shipped"
+                          ? { tone: "done", title: "Заказ отгружен полностью" }
+                          : { tone: "wait", title: "В производстве", text: `Готово ${o.received} из ${o.qty} шт${o.plan_finish ? `, по плану к ${dayjs(o.plan_finish).format("DD.MM")}` : ""}.` };
   const canChange = canEdit && editableBy(o, production);
   const saveOptions = async (lineId: number, next: NonNullable<CustomerOrderLine["options"]>) => {
     try {
@@ -190,8 +224,9 @@ export default function CustomerOrderPage() {
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Button type="link" style={{ padding: 0 }} onClick={() => navigate("/customer-orders")}>
-        ← Заказы клиентов
+        ← Заказы
       </Button>
+      <NextStep {...nextStep} />
       <Card
         title={
           <Space wrap>
@@ -231,7 +266,7 @@ export default function CustomerOrderPage() {
 
       {/* Заявка в производство */}
       {o.status !== "cancelled" && o.status !== "accepted" && (
-        <Card size="small" title="В производство">
+        <Card size="small" title="В производство" id="co-decision" className="card-accent-blue">
           <Space direction="vertical" size="middle" style={{ width: "100%" }}>
             {o.request_comment && (
               <Alert
@@ -349,6 +384,7 @@ export default function CustomerOrderPage() {
       {/* Позиции и запуски */}
       <Card
         size="small"
+        id="co-lines"
         title={`Позиции — ${o.lines.length}, ${o.qty} шт`}
         extra={
           canLaunch && (

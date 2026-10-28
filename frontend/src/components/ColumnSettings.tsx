@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Space, Tooltip } from "antd";
+import { Popover, Space, Tooltip } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import { useAuth } from "../auth/AuthContext";
 
@@ -83,48 +83,21 @@ export function ColumnSettingsButton({
   if (!settings.enabled) return null;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <span style={{ fontSize: 12, color: "#6B6B68" }}>
         {settings.visibleKeys.length} из {columns.length} {itemLabel}
       </span>
-      <Tooltip title={panelTitle}>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: 6,
-            border: "1px solid #D2CEC1",
-            background: open ? "#FBEADD" : "#fff",
-            color: open ? "#C97A2B" : "inherit",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-          aria-label={panelTitle}
-        >
-          <SettingOutlined />
-        </button>
-      </Tooltip>
-      {open && (
-        <>
-          <div style={{ position: "fixed", inset: 0, zIndex: 19 }} onClick={() => setOpen(false)} />
-          <div
-            style={{
-              position: "absolute",
-              top: 36,
-              right: 0,
-              width: 280,
-              background: "#fff",
-              border: "1px solid #D2CEC1",
-              borderRadius: 10,
-              boxShadow: "0 8px 24px -12px rgba(30,31,43,0.3)",
-              padding: 14,
-              zIndex: 20,
-            }}
-          >
+      <Popover
+        open={open}
+        onOpenChange={setOpen}
+        trigger="click"
+        placement="bottomRight"
+        arrow={false}
+        // 28.10: окно само остаётся в пределах экрана (раньше — прижато к
+        // кнопке и уезжало за край); длинный список — с прокруткой
+        autoAdjustOverflow
+        content={
+          <div style={{ width: "min(300px, calc(100vw - 48px))", maxHeight: "min(60vh, 520px)", overflowY: "auto", paddingRight: 4 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <span style={{ fontSize: 13, fontWeight: 700 }}>{panelTitle}</span>
               <button
@@ -162,8 +135,29 @@ export function ColumnSettingsButton({
               Сохраняется в вашем профиле на этом устройстве — у коллег может быть другой набор.
             </div>
           </div>
-        </>
-      )}
+        }
+      >
+        <Tooltip title={panelTitle} open={open ? false : undefined}>
+          <button
+            type="button"
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 6,
+              border: "1px solid #D2CEC1",
+              background: open ? "#FBEADD" : "#fff",
+              color: open ? "#C97A2B" : "inherit",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            aria-label={panelTitle}
+          >
+            <SettingOutlined />
+          </button>
+        </Tooltip>
+      </Popover>
     </div>
   );
 }
