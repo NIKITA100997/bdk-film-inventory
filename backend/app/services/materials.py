@@ -85,14 +85,15 @@ def consume(
     return record(db, item=item, kind=MOVE_CONSUMPTION, qty=-qty, user_id=user_id, task_line_id=task_line_id, note=note)
 
 
-def demand_by_item(db: Session) -> dict[int, list[tuple[int, str, int | None, float]]]:
+def demand_by_item(db: Session, task_ids: set[int] | None = None) -> dict[int, list[tuple[int, str, int | None, float]]]:
     """Потребность в материалах по открытым операциям (08.10): строка задания
     с операцией (заказ на производство или задание на п/ф) × состав позиции
     на этой операции × ещё не сделанное по строке. То же правило, по
     которому материал списывается при отчёте
     (production_orders.consume_components_at_operation): компонент без
     операции — на первой операции позиции; из группы «или» — основной
-    вариант. → {материал: [(задание, название, заказ, сколько)]}."""
+    вариант. → {материал: [(задание, название, заказ, сколько)]}.
+    task_ids — только эти задания (потребность одного заказа, 28.10)."""
     from app.models.dictionaries import PartStage
     from app.models.items import ItemComponent, ItemKind
     from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
@@ -108,6 +109,7 @@ def demand_by_item(db: Session) -> dict[int, list[tuple[int, str, int | None, fl
             ProductionTask.is_active.is_(True),
             ProductionTaskLine.part_stage_id.isnot(None),
             ProductionTaskLine.production_closed.is_(False),
+            *([ProductionTask.id.in_(task_ids)] if task_ids is not None else []),
         )
         .all()
     )

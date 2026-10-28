@@ -139,7 +139,7 @@ def _line_needs(db: Session, order: ProductionOrder, line_dates: dict[int, date]
             r.need_by = d
         rows[key] = r
     task_ids = {t.id for t in tasks}
-    for item_id, uses in demand_by_item(db).items():
+    for item_id, uses in demand_by_item(db, task_ids).items():
         mine = [u for u in uses if u[0] in task_ids]
         if not mine:
             continue
