@@ -1566,6 +1566,13 @@ def set_lines_option(order_id: int, payload: LinesOptionIn, db: Session = Depend
     return _order_out(db, order)
 
 
+class AreaWeekOut(BaseModel):
+    week_start: date
+    planned: float  # разложено в плане на эту неделю и ещё не сделано
+    capacity: float | None  # мощность в день × рабочие дни недели (с сегодняшнего)
+    load_pct: int | None
+
+
 class AreaLoadOut(BaseModel):
     area: str
     name: str
@@ -1574,25 +1581,74 @@ class AreaLoadOut(BaseModel):
     per_day_source: str | None
     days: int | None
     free_from: date | None
+    # по неделям (28.10): план против мощности; отставание и не разложенное по дням
+    overdue: float = 0.0
+    unplanned: float = 0.0
+    weeks: list[AreaWeekOut] = []
+
+
+WEEKS_AHEAD = 4
 
 
 @router.get("/area-load", response_model=list[AreaLoadOut])
 def area_load(db: Session = Depends(get_db), user: User = Depends(view_orders)) -> list[AreaLoadOut]:
     """Загрузка участков (28.10, модуль «Общего»): остаток открытых заданий
     и сколько это рабочих дней при мощности (задана или по факту за 4
-    недели); когда участок освободится."""
+    недели); когда участок освободится. По неделям — разложенное в плане
+    против мощности недели: сделанное закрывает сначала самые ранние дни
+    (как в планировщике), несделанное прошлых дней — отставание, остаток
+    строки сверх плана — «без плана»."""
     import math
+    from datetime import timedelta
 
+    from app.api.planning import _active_lines, _good
     from app.models.areas import Area
+    from app.models.production import PlanSlot
     from app.services.areas import area_capacities
-    from app.services.order_requests import _queue
-    from app.services.planning import add_workdays, load_calendar, to_workday
+    from app.services.planning import add_workdays, is_workday, load_calendar, to_workday
 
     load_calendar(db)
-    queue = _queue(db, -1)
     set_caps = area_capacities(db)
     caps = area_capacities(db, with_fact=True)
-    today = to_workday(date.today())
+    real_today = date.today()
+    today = to_workday(real_today)
+    monday = real_today - timedelta(days=real_today.weekday())
+    weeks = [monday + timedelta(days=7 * i) for i in range(WEEKS_AHEAD)]
+
+    pairs = _active_lines(db)
+    area_of = {ln.id: t.area for ln, t in pairs}
+    good = _good(db, list(area_of))
+    slots: dict[int, list] = defaultdict(list)
+    if area_of:
+        for sl in db.query(PlanSlot).filter(PlanSlot.task_line_id.in_(list(area_of))):
+            slots[sl.task_line_id].append(sl)
+    queue: dict[str, float] = defaultdict(float)
+    overdue: dict[str, float] = defaultdict(float)
+    unplanned: dict[str, float] = defaultdict(float)
+    planned: dict[tuple[str, date], float] = defaultdict(float)
+    for ln, t in pairs:
+        done = good.get(ln.id, 0.0)
+        left_line = max(0.0, float(ln.quantity_pieces) - done)
+        queue[t.area] += left_line
+        planned_total = 0.0
+        for sl in sorted(slots.get(ln.id, []), key=lambda x: x.date):
+            q = float(sl.quantity)
+            planned_total += q
+            take = min(done, q)
+            done -= take
+            rest = q - take
+            if rest <= 0.001:
+                continue
+            if sl.date < real_today:
+                overdue[t.area] += rest
+            else:
+                wk = sl.date - timedelta(days=sl.date.weekday())
+                planned[(t.area, wk)] += rest
+        unplanned[t.area] += max(0.0, float(ln.quantity_pieces) - max(planned_total, good.get(ln.id, 0.0)))
+
+    def workdays_in(wk: date, area: str) -> int:
+        return sum(1 for i in range(7) if (d := wk + timedelta(days=i)) >= real_today and is_workday(d, area))
+
     out = []
     for a in db.query(Area):
         q = queue.get(a.code, 0.0)
@@ -1600,9 +1656,15 @@ def area_load(db: Session = Depends(get_db), user: User = Depends(view_orders)) 
         if q <= 0 and not per_day:
             continue
         days = math.ceil(q / per_day) if per_day else None
+        wk_out = []
+        for wk in weeks:
+            cap = round(per_day * workdays_in(wk, a.code), 1) if per_day else None
+            pl = round(planned.get((a.code, wk), 0.0), 2)
+            wk_out.append(AreaWeekOut(week_start=wk, planned=pl, capacity=cap, load_pct=round(pl / cap * 100) if cap else None))
         out.append(AreaLoadOut(
             area=a.code, name=a.name, queue_pieces=round(q, 2), per_day=per_day,
             per_day_source=("set" if a.code in set_caps else "fact") if per_day else None, days=days,
             free_from=add_workdays(today, days) if days else None,
+            overdue=round(overdue.get(a.code, 0.0), 2), unplanned=round(unplanned.get(a.code, 0.0), 2), weeks=wk_out,
         ))
     return sorted(out, key=lambda r: (-(r.days or 0), -r.queue_pieces))

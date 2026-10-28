@@ -10,6 +10,13 @@ import { apiErrorMessage } from "../../utils/apiError";
 const n = (v: number) => v.toLocaleString("ru-RU", { maximumFractionDigits: 1 });
 const d = (v: string | null) => (v ? dayjs(v).format("DD.MM") : "—");
 
+interface AreaWeek {
+  week_start: string;
+  planned: number;
+  capacity: number | null;
+  load_pct: number | null;
+}
+
 interface AreaLoad {
   area: string;
   name: string;
@@ -18,51 +25,83 @@ interface AreaLoad {
   per_day_source: "set" | "fact" | null;
   days: number | null;
   free_from: string | null;
+  overdue: number;
+  unplanned: number;
+  weeks: AreaWeek[];
 }
 
-/** Загрузка участков (28.10): остаток открытых заданий в рабочих днях. */
+const loadColor = (pct: number) => (pct > 100 ? "#C0392B" : pct >= 80 ? "#D46B08" : "#1D9E75");
+
+/** Загрузка участков по неделям (28.10): разложенное в плане против мощности
+ * недели — зелёный до 80 %, оранжевый до 100 %, красный — перегруз;
+ * отдельно отставание и то, что ещё не разложено по дням. */
 export function AreaLoadWidget() {
   const q = useQuery({ queryKey: ["area-load"], queryFn: async () => (await apiClient.get<AreaLoad[]>("/area-load")).data, refetchInterval: 300_000 });
   const rows = q.data ?? [];
-  const max = Math.max(1, ...rows.map((r) => r.days ?? 0));
+  const weeks = rows[0]?.weeks?.map((w) => w.week_start) ?? [];
   return (
-    <Table
-      size="small"
-      rowKey="area"
-      loading={q.isLoading}
-      pagination={false}
-      dataSource={rows}
-      locale={{ emptyText: "Открытых заданий нет" }}
-      columns={[
-        { title: "Участок", dataIndex: "name" },
-        { title: "В очереди, шт", align: "right", render: (_, r) => n(r.queue_pieces) },
-        {
-          title: "В день",
-          align: "right",
-          render: (_, r) =>
-            r.per_day == null ? <Typography.Text type="secondary">не задана</Typography.Text> : (
-              <>
-                {n(r.per_day)}
-                {r.per_day_source === "fact" && <Typography.Text type="secondary"> по факту</Typography.Text>}
-              </>
-            ),
-        },
-        {
-          title: "Работы на, раб. дней",
-          width: 260,
-          render: (_, r) =>
-            r.days == null ? "—" : (
-              <Space size={8}>
-                <div style={{ width: 140, height: 10, background: "rgba(0,0,0,0.05)", borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{ width: `${(r.days / max) * 100}%`, height: "100%", background: r.days > 10 ? "#d4380d" : "#d46b08" }} />
-                </div>
-                <b>{r.days}</b>
-                <Typography.Text type="secondary">до {d(r.free_from)}</Typography.Text>
+    <Space direction="vertical" style={{ width: "100%" }}>
+      <Table<AreaLoad>
+        size="small"
+        rowKey="area"
+        loading={q.isLoading}
+        pagination={false}
+        dataSource={rows}
+        scroll={{ x: "max-content" }}
+        locale={{ emptyText: "Открытых заданий нет" }}
+        columns={[
+          {
+            title: "Участок",
+            fixed: "left",
+            render: (_, r) => (
+              <Space direction="vertical" size={0}>
+                <span>{r.name}</span>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {r.per_day == null ? "мощность не задана" : `${n(r.per_day)} шт/день${r.per_day_source === "fact" ? " по факту" : ""}`}
+                </Typography.Text>
               </Space>
             ),
-        },
-      ]}
-    />
+          },
+          {
+            title: "Отстаёт",
+            align: "right",
+            render: (_, r) => ((r.overdue ?? 0) > 0 ? <Tag color="red">{n(r.overdue)}</Tag> : <Typography.Text type="secondary">—</Typography.Text>),
+          },
+          ...weeks.map((wk, i) => ({
+            title: i === 0 ? "Эта неделя" : `с ${d(wk)}`,
+            key: wk,
+            render: (_: unknown, r: AreaLoad) => {
+              const w = r.weeks?.[i];
+              if (!w || (!w.planned && w.capacity == null)) return <Typography.Text type="secondary">—</Typography.Text>;
+              if (w.load_pct == null) return <span>{n(w.planned)}</span>;
+              const pct = Math.min(w.load_pct, 150);
+              return (
+                <div title={`в плане ${n(w.planned)} из ${n(w.capacity ?? 0)} шт`} style={{ minWidth: 92 }}>
+                  <div style={{ height: 8, background: "rgba(0,0,0,0.06)", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${(pct / 150) * 100}%`, height: "100%", background: loadColor(w.load_pct) }} />
+                  </div>
+                  <span style={{ fontSize: 12, color: loadColor(w.load_pct), fontWeight: 600 }}>{w.load_pct}%</span>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}> {n(w.planned)}</Typography.Text>
+                </div>
+              );
+            },
+          })),
+          {
+            title: "Без плана",
+            align: "right",
+            render: (_, r) => ((r.unplanned ?? 0) > 0 ? <Tag color="gold">{n(r.unplanned)}</Tag> : <Typography.Text type="secondary">—</Typography.Text>),
+          },
+          {
+            title: "Освободится",
+            render: (_, r) => (r.free_from ? <span>{d(r.free_from)} <Typography.Text type="secondary">({r.days} р.д.)</Typography.Text></span> : "—"),
+          },
+        ]}
+      />
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        Неделя — разложенное в плане и ещё не сделанное против мощности (в день × рабочие дни): зелёный до 80 %, оранжевый до 100 %, красный —
+        перегруз. «Без плана» — задания, ещё не разложенные по дням, «Отстаёт» — план прошедших дней не сделан.
+      </Typography.Text>
+    </Space>
   );
 }
 

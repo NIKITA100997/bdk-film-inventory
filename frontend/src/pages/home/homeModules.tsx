@@ -123,7 +123,7 @@ export const MODULES: HomeModule[] = [
     link: "/customer-orders?section=intake", available: (u) => hasPerm(u, "production_tasks.manage"), render: () => <IntakeTab embedded />,
   },
   {
-    key: "area-load", accent: "blue", title: "Загрузка участков", hint: "остаток заданий в рабочих днях — когда участок освободится", wide: false,
+    key: "area-load", accent: "blue", title: "Загрузка участков", hint: "по неделям: план против мощности, отставание, не разложенное по дням", wide: true,
     link: "/planning", available: (u) => hasPerm(u, "production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "production_tasks.report"),
     render: () => <AreaLoadWidget />,
   },
