@@ -466,7 +466,7 @@ export default function CreateTaskModal({
 
   return (
     <Modal
-      title={orderId ? `Задание с плёнкой в заказ №${orderId}` : "Новый заказ: задание с плёнкой (окутка, ламинация…)"}
+      title={orderId ? `Задание с плёнкой в заказ №${orderId}` : "Новое задание участку: с плёнкой (окутка, ламинация…)"}
       open={open}
       onCancel={resetAndClose}
       footer={null}

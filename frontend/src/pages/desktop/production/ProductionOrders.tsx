@@ -24,7 +24,6 @@ import {
 } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
-import ScheduleImportModal from "./ScheduleImportModal";
 import OrderDatesCard from "./OrderDatesCard";
 import { OrderNeedsCard } from "./NeedsViews";
 import { ReduceModal, useCancelOrder } from "./OrderControl";
@@ -139,7 +138,6 @@ function OrdersList() {
     if (id) navigate(`/production-orders/${id}`, { replace: true });
   }, [params, navigate]);
   const [editing, setEditing] = useState<ProductionOrder | "new" | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [taskCreate, setTaskCreate] = useState<TaskCreate | null>(null);
   const [supplyTarget, setSupplyTarget] = useState<{ id: number; name: string } | null>(null);
   const [includeClosedDefault] = useState(!!params.get("order"));
@@ -177,19 +175,19 @@ function OrdersList() {
               <Dropdown
                 trigger={["click"]}
                 menu={{
+                  // три входа вместо пяти (28.10): для покупателя — только через его
+                  // заказ (счёт, график, сделка — там); внутренний — без клиента;
+                  // задание участку — в «Заданиях цеха»
                   items: [
-                    { key: "customer", label: "Из заказов клиентов (принятые счета) →" },
+                    { key: "customer", label: "Для покупателя — принять и собрать из его заказа →" },
+                    { key: "items", label: "Внутренний заказ — на склад или п/ф, из позиций номенклатуры…" },
                     { type: "divider" },
-                    { key: "film", label: "Окутка / ламинация — из наряда, плана заготовок или вручную" },
-                    { key: "ops", label: "Работы участка без плёнки (операции техкарт)" },
-                    { key: "items", label: "Из позиций номенклатуры (по маршрутам)" },
-                    { key: "schedule", label: "Из графика запуска или счёта 1С…" },
+                    { key: "task", label: "Задание участку (окутка, ламинация, работы) — в «Заданиях цеха» →" },
                   ],
                   onClick: ({ key }) => {
-                    if (key === "customer") navigate("/customer-orders");
-                    else if (key === "film" || key === "ops") setTaskCreate({ kind: key });
+                    if (key === "customer") navigate("/customer-orders?section=intake");
                     else if (key === "items") setEditing("new");
-                    else setImportOpen(true);
+                    else navigate("/production-tasks?tab=tasks&new=1");
                   },
                 }}
               >
@@ -320,15 +318,6 @@ function OrdersList() {
           taskName={supplyTarget.name}
           canManage={canManage}
           onClose={() => setSupplyTarget(null)}
-        />
-      )}
-      {importOpen && (
-        <ScheduleImportModal
-          onClose={() => setImportOpen(false)}
-          onCreated={(o) => {
-            setImportOpen(false);
-            openOrder(o.id);
-          }}
         />
       )}
       {editing && (

@@ -56,7 +56,7 @@ export default function OperationTaskModal({ open, onClose, orderId }: { open: b
   });
 
   return (
-    <Modal title={orderId ? `Задание без плёнки в заказ №${orderId}` : "Новый заказ: работы без плёнки"} open={open} onCancel={onClose} footer={null} destroyOnHidden width={780}>
+    <Modal title={orderId ? `Задание без плёнки в заказ №${orderId}` : "Новое задание участку: работы без плёнки"} open={open} onCancel={onClose} footer={null} destroyOnHidden width={780}>
       <Typography.Paragraph type="secondary">
         Для работ без плёнки: сборка, склейка, фрезеровка, упаковка… Строка — операция детали п/ф (отчёт по ней
         двигает партии детали дальше по маршруту) или просто работа, которую считают штуками.

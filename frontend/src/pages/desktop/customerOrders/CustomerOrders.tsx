@@ -75,7 +75,7 @@ export default function CustomerOrders() {
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Card
-        title="Заказы клиентов"
+        title="Заказы покупателей"
         extra={
           <Space wrap>
             <Checkbox checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)}>
@@ -85,14 +85,17 @@ export default function CustomerOrders() {
               <Dropdown
                 trigger={["click"]}
                 menu={{
+                  // один заказ покупателя — источник на выбор (28.10)
                   items: [
-                    { key: "manual", label: "Вручную" },
-                    { key: "import", label: "Из счёта 1С или графика…" },
+                    { key: "import", label: "Из счёта 1С — файл или строки, или из графика…" },
+                    { key: "deal", label: "Из сделки Битрикс24 — вкладка «Сделки» →" },
+                    { key: "manual", label: "Вручную…" },
                   ],
-                  onClick: ({ key }) => (key === "manual" ? setCreating(true) : setImporting(true)),
+                  onClick: ({ key }) =>
+                    key === "manual" ? setCreating(true) : key === "deal" ? navigate("/customer-orders?section=bitrix") : setImporting(true),
                 }}
               >
-                <Button type="primary">Новый заказ клиента ▾</Button>
+                <Button type="primary">Новый заказ покупателя ▾</Button>
               </Dropdown>
             )}
           </Space>
