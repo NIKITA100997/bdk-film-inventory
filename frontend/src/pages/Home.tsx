@@ -1,16 +1,9 @@
-import { Navigate } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
-import Overview from "./desktop/Overview";
+import ModularHome from "./home/ModularHome";
 
-// Обзор (5.5 ТЗ) — единая посадочная страница на "/" для всех ролей (8.2
-// раздел бэклога доработок: один пункт "Обзор" в едином дереве, не два
-// разных входа для десктопных/складских ролей). Overview.tsx сам решает,
-// какие карточки показать конкретной роли, и молчит, если нечего показать.
-// Мастер (участок закреплён, отчитывается о производстве) — сразу в «Мой
-// участок»: на «Обзоре» ему делать нечего (30.09, проверка с планшета).
+// «Общее» (28.10) — единая посадочная страница на "/" для всех ролей, теперь
+// модульная: рабочие модули сотрудника по его ролям, каждый настраивает свой.
+// Мастеру по умолчанию первым — «Мой участок» (раньше его сразу уводило в
+// «Задания цеха»: на прежнем «Обзоре» ему делать было нечего, 30.09).
 export default function Home() {
-  const { user } = useAuth();
-  const reports = !!user?.permissions.includes("production_tasks.report");
-  if (user && !user.is_superuser && user.area && reports) return <Navigate to="/production-tasks" replace />;
-  return <Overview />;
+  return <ModularHome />;
 }

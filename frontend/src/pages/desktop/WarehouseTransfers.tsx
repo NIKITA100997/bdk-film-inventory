@@ -48,7 +48,7 @@ function linesColumns(extra: (line: WarehouseTransferLine) => React.ReactNode) {
   ];
 }
 
-function HubTab() {
+export function HubTab() {
   const qc = useQueryClient();
   const transfersQuery = useQuery({
     queryKey: ["warehouse-transfers", "sobiraetsya"],
@@ -107,7 +107,7 @@ function HubTab() {
   );
 }
 
-function InTransitTab() {
+export function InTransitTab() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const transfersQuery = useQuery({

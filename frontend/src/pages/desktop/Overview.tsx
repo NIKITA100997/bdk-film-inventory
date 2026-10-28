@@ -50,7 +50,8 @@ const LEVEL_COLOR = { critical: "#cf1322", warning: "#C97A2B", info: "#4b6584" }
  * (ненулевые сигналы по срочности, каждый ведёт в свой раздел), ниже —
  * компактные блоки по направлениям. Состав — по правам роли; мастер с
  * участком сюда не попадает (Home → «Мой участок»). */
-export default function Overview() {
+/** embedded — модулем «Сводки» на «Общем» (28.10): без заголовка, «Ждёт меня» и приветствия — они там свои. */
+export default function Overview({ embedded = false }: { embedded?: boolean }) {
   const inboxQ = useInbox();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -259,22 +260,26 @@ export default function Overview() {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Space align="center" style={{ justifyContent: "space-between", width: "100%" }}>
-        <Space align="baseline" size={12}>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            Обзор
-          </Typography.Title>
-          <Typography.Text type="secondary">{dayjs().format("dddd, D MMMM")}</Typography.Text>
-        </Space>
+        {embedded ? (
+          <span />
+        ) : (
+          <Space align="baseline" size={12}>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              Обзор
+            </Typography.Title>
+            <Typography.Text type="secondary">{dayjs().format("dddd, D MMMM")}</Typography.Text>
+          </Space>
+        )}
         <ColumnSettingsButton columns={BLOCKS} settings={blocks} itemLabel="блоков" panelTitle="Блоки обзора" />
       </Space>
 
-      {(inboxQ.data?.length ?? 0) > 0 && (
+      {!embedded && (inboxQ.data?.length ?? 0) > 0 && (
         <Card size="small" title="Ждёт меня">
           <InboxList items={inboxQ.data ?? []} />
         </Card>
       )}
 
-      {showOnboarding && <OnboardingCard onClose={() => setShowOnboarding(false)} />}
+      {!embedded && showOnboarding && <OnboardingCard onClose={() => setShowOnboarding(false)} />}
 
       {show("attention") && (
         <Card size="small" title="Требует внимания" loading={anyLoading && signals.length === 0}>
@@ -342,7 +347,7 @@ export default function Overview() {
   );
 }
 
-function SearchBox() {
+export function SearchBox() {
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   return (

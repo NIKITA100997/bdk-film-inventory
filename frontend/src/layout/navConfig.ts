@@ -57,7 +57,7 @@ export const navTree: NavBlock[] = [
   {
     key: "main",
     label: "Основное",
-    items: [{ key: "overview", path: "/", label: "Обзор" }],
+    items: [{ key: "overview", path: "/", label: "Общее" }],
   },
   {
     key: "nomenclature",

@@ -83,6 +83,7 @@ OPEN = {"POST /api/auth/login", "POST /api/auth/forgot-password", "GET /health",
 # Изменяющие адреса «только вход» — право проверяется внутри или менять нечего.
 LOGIN_ONLY_MUTATIONS = {
     "POST /api/auth/change-password",  # свой пароль
+    "PUT /api/home",  # свой набор модулей главной
     "POST /api/action-requests",  # просьба администратору
     "POST /api/units/cutting-operations/{operation_id}/undo",  # has_undo_permission внутри
     "POST /api/units/bulk-edit",  # право на каждое поле внутри

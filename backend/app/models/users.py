@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -52,3 +52,5 @@ class User(Base):
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # «Забыл пароль» на экране входа — заявка администратору; снимается сбросом.
     password_reset_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # «Общее» (28.10): модули главной по порядку; пусто — стандартный набор по ролям
+    home_modules: Mapped[list | None] = mapped_column(JSON, nullable=True)

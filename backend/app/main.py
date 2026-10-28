@@ -49,6 +49,7 @@ from app.api.storage_places import router as storage_places_router
 from app.api.search import router as search_router
 from app.api.control import router as control_router
 from app.api.inbox import router as inbox_router
+from app.api.home import router as home_router
 from app.api.productivity import router as productivity_router
 from app.api.production_monitor import router as production_monitor_router
 from app.api.film_issue import router as film_issue_router
@@ -205,6 +206,7 @@ app.include_router(daily_sheet_router, prefix=API_PREFIX)
 app.include_router(finished_goods_router, prefix=API_PREFIX)
 app.include_router(control_router, prefix=API_PREFIX)
 app.include_router(inbox_router, prefix=API_PREFIX)
+app.include_router(home_router, prefix=API_PREFIX)
 app.include_router(productivity_router, prefix=API_PREFIX)
 app.include_router(production_monitor_router, prefix=API_PREFIX)
 app.include_router(film_issue_router, prefix=API_PREFIX)
