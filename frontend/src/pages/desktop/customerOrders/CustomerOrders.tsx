@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import NextStep from "../../../components/NextStep";
+import { useAuth } from "../../../auth/AuthContext";
 import { Button, Card, Checkbox, Dropdown, Input, Progress, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -29,6 +31,7 @@ const launchable = (o: CustomerOrder) => o.status === "accepted" && o.launched <
  * принятые заказы в запуск — заказ на производство. */
 export default function CustomerOrders() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const qc = useQueryClient();
   const { production, canEdit } = useCustomerOrderRights();
   const [includeClosed, setIncludeClosed] = useState(false);
@@ -107,6 +110,19 @@ export default function CustomerOrders() {
           в запуск — заказ на производство. Стадия дальше считается сама: в производстве, готов, отгружен.
         </Typography.Paragraph>
       </Card>
+      {(() => {
+        // «Что дальше» по роли (28.10): одно главное дело и кнопка
+        const waitN = all.filter((o) => o.status === "submitted" || o.status === "draft").length;
+        const unl = all.filter(launchable).length;
+        const mineDraft = all.filter((o) => (o.status === "draft" || o.status === "returned") && o.manager_id === user?.id).length;
+        if (production && waitN)
+          return <NextStep tone="action" title={`Ждут приёма в производство: ${waitN}`} text="Отправленные менеджерами и черновики — принять сразу несколько, с датами." actionLabel="К приёму" onAction={() => navigate("/customer-orders?section=intake")} />;
+        if (production && unl)
+          return <NextStep tone="action" title={`Принятые без запуска: ${unl}`} text="Отметьте заказы галочками и «Собрать запуск из выбранных»." actionLabel="Показать их" onAction={() => setFilter("accepted")} />;
+        if (!production && mineDraft)
+          return <NextStep tone="action" title={`Ваши заказы не отправлены в производство: ${mineDraft}`} text="Пока заказ — черновик, производство его не принимает. Откройте заказ и «Отправить в производство»." actionLabel="Показать их" onAction={() => setFilter("mine")} />;
+        return null;
+      })()}
       <Space wrap size={[6, 6]}>
         <Input.Search allowClear placeholder="Счёт, клиент, менеджер, позиция" style={{ width: 300 }} value={q} onChange={(e) => setQ(e.target.value)} />
         {FILTERS.map(([k, label, fn]) => (
