@@ -435,3 +435,57 @@ def check_move_endpoint(payload: MoveCheckIn, db: Session = Depends(get_db), use
         ],
         will_shift=sorted(will, key=lambda x: x.after),
     )
+
+
+class OverdueLineOut(BaseModel):
+    task_id: int
+    task_name: str
+    area: str
+    area_name: str
+    line_id: int
+    part_name: str
+    since: date  # самый ранний несделанный день плана
+    overdue: float  # запланировано на прошедшие дни и не сделано
+    workdays_late: int
+
+
+@router.get("/overdue", response_model=list[OverdueLineOut])
+def overdue_lines(db: Session = Depends(get_db), user: User = Depends(view)) -> list[OverdueLineOut]:
+    """Отставание (28.10, модуль «Общего»): строки заданий, где план на
+    прошедшие дни не выполнен — сделанное закрывает сначала самые ранние
+    дни, как в планировщике. Мастер с участком видит свой участок."""
+    from app.api.production import _can_see_all_areas
+    from app.services.planning import workdays_between
+
+    load_calendar(db)
+    today = date.today()
+    pairs = _active_lines(db)
+    if user.area and not _can_see_all_areas(user):
+        pairs = [(ln, t) for ln, t in pairs if t.area == user.area]
+    by_id = {ln.id: (ln, t) for ln, t in pairs}
+    good = _good(db, list(by_id))
+    past: dict[int, list[PlanSlot]] = defaultdict(list)
+    if by_id:
+        for s in db.query(PlanSlot).filter(PlanSlot.task_line_id.in_(list(by_id)), PlanSlot.date < today):
+            past[s.task_line_id].append(s)
+    areas = {a.code: a.name for a in db.query(Area)}
+    out = []
+    for lid, ss in past.items():
+        done = good.get(lid, 0.0)
+        left, since = 0.0, None
+        for s in sorted(ss, key=lambda x: x.date):
+            take = min(done, float(s.quantity))
+            done -= take
+            rest = float(s.quantity) - take
+            if rest > 0.001:
+                left += rest
+                since = since or s.date
+        if left <= 0.001:
+            continue
+        ln, t = by_id[lid]
+        out.append(OverdueLineOut(
+            task_id=t.id, task_name=t.name or f"Задание №{t.id}", area=t.area, area_name=areas.get(t.area, t.area),
+            line_id=ln.id, part_name=ln.part_name or "—", since=since, overdue=round(left, 2),
+            workdays_late=max(1, workdays_between(since, today)),
+        ))
+    return sorted(out, key=lambda r: (r.since, -r.overdue))[:300]

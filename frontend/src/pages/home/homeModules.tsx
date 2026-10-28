@@ -18,6 +18,8 @@ const MaterialsDemand = lazyPage(() => import("../desktop/production/Demand").th
 const ReorderTab = lazyPage(() => import("../desktop/Reports").then((m) => ({ default: m.ReorderTab })));
 const OrderDeadlines = lazyPage(() => import("../desktop/production/OrderDeadlines"));
 const AreaLoadWidget = lazyPage(() => import("./homeWidgets").then((m) => ({ default: m.AreaLoadWidget })));
+const OverdueWidget = lazyPage(() => import("./homeWidgets").then((m) => ({ default: m.OverdueWidget })));
+const DeliveriesWidget = lazyPage(() => import("./homeWidgets").then((m) => ({ default: m.DeliveriesWidget })));
 const MyOrdersWidget = lazyPage(() => import("./homeWidgets").then((m) => ({ default: m.MyOrdersWidget })));
 const TransfersHub = lazyPage(() => import("../desktop/WarehouseTransfers").then((m) => ({ default: m.HubTab })));
 
@@ -126,6 +128,15 @@ export const MODULES: HomeModule[] = [
     render: () => <AreaLoadWidget />,
   },
   {
+    key: "overdue", accent: "red", title: "Отставание", hint: "строки заданий, где план прошедших дней не сделан — с какого дня и сколько", wide: true,
+    link: "/planner", available: (u) => hasPerm(u, "production_tasks.manage", "production_tasks.view", "production_tasks.report"),
+    render: () => <OverdueWidget />,
+  },
+  {
+    key: "deliveries", accent: "blue", title: "Ожидаемые поставки", hint: "заказано поставщику и ещё не пришло — по обещанной дате", wide: true,
+    link: "/purchasing", available: (u) => hasPerm(u, "purchasing.manage", "units.receive"), render: () => <DeliveriesWidget />,
+  },
+  {
     key: "deadlines", accent: "blue", title: "Сроки и переносы", hint: "обещанные даты заказов и их переносы", wide: true,
     link: "/customer-orders?section=deadlines",
     available: (u) => hasPerm(u, "production_tasks.manage", "production_tasks.view", "orders.request", "sales_calculator.view", "plan.approve"),
@@ -158,13 +169,13 @@ export function renderModule(m: HomeModule, user: User): ReactNode {
 
 /** Стандартный набор — по тому, что сотрудник делает (анализ действий 28.10). */
 export function defaultModules(u: User): string[] {
-  if (isMaster(u)) return ["my-area", "inbox", "quick", "area-requests"];
-  if (isWarehouse(u)) return ["inbox", "quick", "search", "film-issue", "transfers-in", "area-requests"];
+  if (isMaster(u)) return ["my-area", "inbox", "quick", "overdue", "area-requests"];
+  if (isWarehouse(u)) return ["inbox", "quick", "search", "film-issue", "transfers-in", "area-requests", "deliveries"];
   // начальник цеха (ведёт все участки): приём, загрузка, сроки
   if (hasPerm(u, "production_tasks.manage") && (u.is_superuser || !u.area || hasPerm(u, "production_tasks.all_areas")))
-    return ["inbox", "area-load", "quick", "intake", "deadlines", "summary"];
+    return ["inbox", "area-load", "quick", "overdue", "intake", "deadlines", "summary"];
   // закупщик: что и когда заказывать
-  if (hasPerm(u, "purchasing.manage")) return ["inbox", "quick", "reorder", "materials-demand", "shortages"];
+  if (hasPerm(u, "purchasing.manage")) return ["inbox", "quick", "deliveries", "reorder", "materials-demand", "shortages"];
   // менеджер: свои заказы, отправка в производство, сроки
   if (hasPerm(u, "orders.request")) return ["inbox", "quick", "my-orders", "deadlines"];
   return ["inbox", "quick", "search", "summary"];

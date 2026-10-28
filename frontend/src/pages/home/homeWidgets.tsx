@@ -128,3 +128,114 @@ export function MyOrdersWidget() {
     />
   );
 }
+
+interface OverdueLine {
+  task_id: number;
+  task_name: string;
+  area: string;
+  area_name: string;
+  line_id: number;
+  part_name: string;
+  since: string;
+  overdue: number;
+  workdays_late: number;
+}
+
+/** Отставание (28.10): строки заданий, где план прошедших дней не сделан —
+ * по участкам, самые давние первыми; строка ведёт в задание. */
+export function OverdueWidget() {
+  const q = useQuery({ queryKey: ["planning-overdue"], queryFn: async () => (await apiClient.get<OverdueLine[]>("/planning/overdue")).data, refetchInterval: 300_000 });
+  const rows = q.data ?? [];
+  if (q.isError) return <Typography.Text type="danger">Не удалось посчитать отставание — обновите страницу.</Typography.Text>;
+  if (!q.isLoading && !rows.length)
+    return <Typography.Text type="success">Отставания нет — план прошедших дней выполнен.</Typography.Text>;
+  const byArea = new Map<string, { name: string; lines: number; qty: number }>();
+  for (const r of rows) {
+    const a = byArea.get(r.area) ?? { name: r.area_name, lines: 0, qty: 0 };
+    a.lines += 1;
+    a.qty += r.overdue;
+    byArea.set(r.area, a);
+  }
+  return (
+    <Space direction="vertical" style={{ width: "100%" }}>
+      <Space wrap size={[6, 6]}>
+        {[...byArea.values()].sort((a, b) => b.qty - a.qty).map((a) => (
+          <Tag key={a.name} color="red">
+            {a.name}: {a.lines} стр., {n(a.qty)} шт
+          </Tag>
+        ))}
+      </Space>
+      <Table<OverdueLine>
+        size="small"
+        rowKey="line_id"
+        loading={q.isLoading}
+        dataSource={rows}
+        pagination={{ pageSize: 8, showSizeChanger: false, hideOnSinglePage: true }}
+        columns={[
+          { title: "С какого дня", render: (_, r) => <Tag color={r.workdays_late > 5 ? "red" : "orange"}>{d(r.since)} · {r.workdays_late} р.д.</Tag> },
+          { title: "Участок", dataIndex: "area_name" },
+          { title: "Деталь / работа", render: (_, r) => <Link to={`/production-tasks?tab=tasks&task=${r.task_id}`}>{r.part_name}</Link> },
+          { title: "Не сделано, шт", align: "right", render: (_, r) => <b>{n(r.overdue)}</b> },
+        ]}
+      />
+    </Space>
+  );
+}
+
+interface Delivery {
+  id: number;
+  material: string | null;
+  color: string | null;
+  thickness: number | null;
+  item_name?: string | null;
+  requested_area_m2: number | null;
+  quantity?: number | null;
+  unit?: string | null;
+  supplier: string | null;
+  promised_delivery_date: string | null;
+  order_id: number | null;
+  status: string;
+}
+
+/** Ожидаемые поставки (28.10): открытые заявки, уже заказанные поставщику, —
+ * по обещанной дате; просроченные — красным, без даты — в конце. */
+export function DeliveriesWidget() {
+  const q = useQuery({ queryKey: ["purchase-requests", "open"], queryFn: async () => (await apiClient.get<Delivery[]>("/purchase-requests", { params: { status_filter: "open" } })).data });
+  const today = dayjs().format("YYYY-MM-DD");
+  const rows = (q.data ?? [])
+    .filter((r) => r.status === "open" && r.order_id)
+    .sort((a, b) => (a.promised_delivery_date ?? "9999").localeCompare(b.promised_delivery_date ?? "9999"));
+  const waitingOrder = (q.data ?? []).filter((r) => r.status === "open" && !r.order_id).length;
+  return (
+    <Space direction="vertical" style={{ width: "100%" }}>
+      {waitingOrder > 0 && (
+        <Typography.Text type="warning">
+          Ещё {waitingOrder} заявок не заказаны поставщику — <Link to="/purchasing">объединить в заказ</Link>
+        </Typography.Text>
+      )}
+      <Table<Delivery>
+        size="small"
+        rowKey="id"
+        loading={q.isLoading}
+        dataSource={rows}
+        locale={{ emptyText: "Заказанных и ещё не пришедших поставок нет" }}
+        pagination={{ pageSize: 8, showSizeChanger: false, hideOnSinglePage: true }}
+        columns={[
+          {
+            title: "Когда",
+            render: (_, r) =>
+              !r.promised_delivery_date ? <Typography.Text type="secondary">дата не названа</Typography.Text> : (
+                <Tag color={r.promised_delivery_date < today ? "red" : r.promised_delivery_date === today ? "gold" : "blue"}>
+                  {r.promised_delivery_date < today ? "опаздывает · " : ""}{d(r.promised_delivery_date)}
+                </Tag>
+              ),
+          },
+          { title: "Что", render: (_, r) => r.item_name ?? [r.material, r.color, r.thickness ? `${r.thickness} мм` : null].filter(Boolean).join(" ") },
+          { title: "Сколько", align: "right", render: (_, r) => (r.quantity != null ? `${n(r.quantity)} ${r.unit ?? ""}` : r.requested_area_m2 != null ? `${n(r.requested_area_m2)} м²` : "—") },
+          { title: "Поставщик", render: (_, r) => r.supplier ?? "—" },
+          { title: "Заказ", render: (_, r) => (r.order_id ? `№${r.order_id}` : "—") },
+        ]}
+      />
+    </Space>
+  );
+}
