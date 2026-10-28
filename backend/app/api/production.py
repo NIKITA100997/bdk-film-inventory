@@ -662,7 +662,36 @@ def _task_borrowable_and_shortfall(
     return {k: v for k, v in group_shortfall_by_line.items() if k in {l.id for l in task.lines}}, borrowable_by_line
 
 
+def _keep_refs(db: Session, lines: list[ProductionTaskLine]) -> None:
+    """Держать справочники строк в сессии на весь запрос. Сессия хранит
+    объекты по слабым ссылкам: материал, цвет, этап, деталь после первой
+    строки выбрасывались, и db.get шёл в базу на каждой строке — список
+    заданий на проде делал ~10 000 запросов (28.10)."""
+    from app.models.items import Item
+    from app.models.production_orders import ProductionOrderLine
+
+    keep = db.info.setdefault("keep_refs", {"objs": [], "done": set()})
+    if "base" not in keep["done"]:
+        keep["objs"] += [*db.query(Material), *db.query(Color), *db.query(Thickness)]
+        keep["done"].add("base")
+
+    def load(model, ids: set[int]) -> list:
+        ids = {i for i in ids if i and (model.__name__, i) not in keep["done"]}
+        if not ids:
+            return []
+        objs = db.query(model).filter(model.id.in_(ids)).all()
+        keep["objs"] += objs
+        keep["done"].update((model.__name__, i) for i in ids)
+        return objs
+
+    load(PartStage, {l.part_stage_id for l in lines})
+    parts = load(Part, {l.part_id for l in lines})
+    load(Item, {p.item_id for p in parts})
+    load(ProductionOrderLine, {l.order_line_id for l in lines})
+
+
 def _task_out(db: Session, task: ProductionTask, pool_cache: dict | None = None) -> ProductionTaskOut:
+    _keep_refs(db, task.lines)
     model = db.get(ProductModel, task.product_model_id) if task.product_model_id else None
     order = db.get(ProductionOrder, task.production_order_id) if task.production_order_id else None
     line_ids = [l.id for l in task.lines]
