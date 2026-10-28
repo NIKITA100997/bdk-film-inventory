@@ -1,3 +1,4 @@
+import NextStep from "../../components/NextStep";
 import {
   Alert,
   Button,
@@ -101,6 +102,26 @@ export default function Issue() {
         {reserveOpen && <FilmReservesPanel />}
       </Drawer>
 
+      {/* «Что дальше» складу (28.10): сначала просроченное, потом сегодняшнее, возвраты */}
+      {!tasksQuery.isLoading && (
+        <div style={{ marginBottom: 12 }}>
+          {overdueCount > 0 ? (
+            <NextStep tone="warn" title={`Просрочено выдач: ${overdueCount} — выдайте их первыми`}
+              text="Участки ждут плёнку с прошлых дней — в очереди ниже они отмечены красным." />
+          ) : todayCount > 0 ? (
+            <NextStep tone="action" title={`Выдайте на сегодня: ${todayCount}`}
+              text="Выберите строку — рулон или штрипс подберётся сам; резать под несколько строк сразу — «В пакет резки»." />
+          ) : pendingReturnByTask.length > 0 ? (
+            <NextStep tone="action" title={`Примите возвраты: ${pendingReturnByTask.length} ${pendingReturnByTask.length === 1 ? "задание" : "заданий"}`}
+              text="Участки закончили — заберите остатки и закройте записи (плашка «Готово к возврату» ниже)." />
+          ) : weekRowsNeedingMaterial.length > 0 ? (
+            <NextStep tone="wait" title="На сегодня всё выдано"
+              text={`Впереди ${weekRowsNeedingMaterial.length} строк на неделю — можно нарезать заранее.`} />
+          ) : (
+            <NextStep tone="done" title="Всё выдано — очередь пуста" />
+          )}
+        </div>
+      )}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={12} md={6}>
           <Card size="small">

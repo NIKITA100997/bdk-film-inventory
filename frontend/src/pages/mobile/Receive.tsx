@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Segmented, Select, Space, Tag, Typography, List, Row, Col, message } from "antd";
+import NextStep from "../../components/NextStep";
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Segmented, Select, Space, Steps, Tag, Typography, List, Row, Col, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import InitialStock from "./InitialStock";
@@ -161,6 +162,17 @@ export default function Receive() {
         <InitialStock embedded />
       ) : (
         <>
+          {/* путь приёмки (28.10): где вы сейчас и что дальше */}
+          <Steps
+            size="small"
+            style={{ margin: "8px 0 16px" }}
+            current={finished ? 2 : sessionStarted ? 1 : 0}
+            items={[
+              { title: "Документ", description: sessionStarted ? `УПД ${upd}` : "УПД, паллета, склад" },
+              { title: "Рулоны", description: sessionStarted ? `добавлено ${sessionUnits.length}` : "по одному, «Добавить и дальше»" },
+              { title: "Этикетки и места", description: "напечатать и наклеить" },
+            ]}
+          />
           {!sessionStarted && (
             <Form
               form={headerForm}
@@ -315,6 +327,23 @@ export default function Receive() {
 
           {finished && (
             <>
+              <div style={{ marginBottom: 16 }}>
+                {unplacedCount > 0 ? (
+                  <NextStep
+                    tone="warn"
+                    title={`Без места: ${unplacedCount} — найдите им ячейку`}
+                    text="Свободной подходящей ячейки не нашлось. Положите рулоны и укажите ячейку в карточке рулона (скан этикетки) — иначе их не найдут при выдаче."
+                  />
+                ) : (
+                  <NextStep
+                    tone="action"
+                    title="Напечатайте этикетки и наклейте на рулоны"
+                    text="Ячейка каждого рулона — на этикетке. Потом — «Новая приёмка» или на главную."
+                    actionLabel="Печать всех этикеток"
+                    onAction={() => printLabelsBatch(sessionUnits.map((u) => u.id))}
+                  />
+                )}
+              </div>
               <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                 <Col xs={12} sm={8}>
                   <Statistic title="Рулонов принято" value={sessionUnits.length} />
