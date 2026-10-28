@@ -157,6 +157,18 @@ def option_fields(db: Session, item) -> list[dict]:
     у коробки с уплотнителем — цвет уплотнителя."""
     if item is None:
         return []
+    # кэш на сессию (один запрос — одна сессия), как item_chars_cached: список
+    # заказов спрашивает одну и ту же позицию в десятках строк (28.10)
+    cache = db.info.setdefault("option_fields", {})
+    if item.id is not None and item.id in cache:
+        return [dict(f) for f in cache[item.id]]
+    out = _option_fields(db, item)
+    if item.id is not None:
+        cache[item.id] = out
+    return [dict(f) for f in out]
+
+
+def _option_fields(db: Session, item) -> list[dict]:
     out = type_execution_props(item.type) if item.type_id else []
     if out and item.type is not None:
         # уместно, только если у позиции есть то, к чему выбор: «тип_стекла» —

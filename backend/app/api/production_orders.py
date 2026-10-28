@@ -113,37 +113,71 @@ class ComponentNeed(BaseModel):
     depth: int = 0  # уровень в полном составе (composition): 0 — прямо в изделии
 
 
+# узел состава: (позиция, на единицу родителя, название, единица, этап id, этап)
+_Node = tuple[int, float, str, str, int | None, str | None]
+
+
+def _prefetch_nodes(db: Session, root_ids: set[int], cache: dict, max_depth: int = 5) -> dict[int, list[_Node]]:
+    """Состав узлов дерева — пакетно, по запросу на уровень, один раз за
+    запрос API: одни и те же каркасы и заготовки встречаются в десятках
+    изделий (28.10 — список заказов на проде делал ~10 000 запросов)."""
+    nodes: dict[int, list[_Node]] = cache.setdefault("_nodes", {})
+    frontier = {i for i in root_ids if i not in nodes}
+    if not frontier:
+        return nodes
+    kinds = cache.get("_kinds") or cache.setdefault("_kinds", {k.id: k for k in db.query(ItemKind)})
+    for _ in range(max_depth + 1):
+        if not frontier:
+            break
+        by_parent: dict[int, list[ItemComponent]] = defaultdict(list)
+        for c in db.query(ItemComponent).filter(ItemComponent.parent_item_id.in_(frontier)):
+            by_parent[c.parent_item_id].append(c)
+        planned = {p: planned_components(by_parent.get(p, [])) for p in frontier}
+        ids = {c.component_item_id for cs in planned.values() for c in cs}
+        names = live_item_names(db, ids)
+        items = {i.id: i for i in db.query(Item).filter(Item.id.in_(ids))} if ids else {}
+        stage_ids = {c.stage_id for cs in planned.values() for c in cs if c.stage_id}
+        stages = {s.id: s.name for s in db.query(PartStage).filter(PartStage.id.in_(stage_ids))} if stage_ids else {}
+        for p, cs in planned.items():
+            nodes[p] = [
+                (
+                    c.component_item_id, float(c.qty_per_unit), names.get(c.component_item_id, "—"),
+                    kinds[items[c.component_item_id].kind_id].unit if c.component_item_id in items else "шт",
+                    c.stage_id, stages.get(c.stage_id) if c.stage_id else None,
+                )
+                for c in cs
+            ]
+        frontier = {i for i in ids if i not in nodes}
+    return nodes
+
+
 def _composition(db: Session, item_id: int, qty: float, kinds: dict, cache: dict | None = None, max_depth: int = 5) -> list[ComponentNeed]:
     """Полный состав изделия деревом (20.10): изделие → щит, каркас, панели →
     их заготовки…; «на изделие» — сколько на одну штуку строки, «всего» — на
     количество строки. Порядок — как в дереве (родитель, затем его состав)."""
-    if cache is not None and item_id in cache:
+    if cache is None:
+        cache = {}
+    if item_id in cache:
         return [c.model_copy(update={"total": round(c.per_unit * qty, 2)}) for c in cache[item_id]]
     out: list[ComponentNeed] = []
+    nodes = _prefetch_nodes(db, {item_id}, cache, max_depth)
 
     def walk(parent_id: int, per_unit: float, depth: int, seen: frozenset[int]) -> None:
-        comps = planned_components(db.query(ItemComponent).filter(ItemComponent.parent_item_id == parent_id).all())
-        if not comps:
-            return
-        names = live_item_names(db, {c.component_item_id for c in comps})
-        items = {i.id: i for i in db.query(Item).filter(Item.id.in_([c.component_item_id for c in comps]))}
-        for c in comps:
-            per = per_unit * float(c.qty_per_unit)
-            st = db.get(PartStage, c.stage_id) if c.stage_id else None
-            it = items.get(c.component_item_id)
+        if parent_id not in nodes:
+            _prefetch_nodes(db, {parent_id}, cache, max_depth)
+        for comp_id, qty_per_unit, name, unit, _stage_id, op_name in nodes[parent_id]:
+            per = per_unit * qty_per_unit
             out.append(
                 ComponentNeed(
-                    item_id=c.component_item_id, name=names.get(c.component_item_id, "—"), per_unit=round(per, 4),
-                    total=round(per * qty, 2), unit=kinds[it.kind_id].unit if it else "шт",
-                    operation_name=st.name if st else None, depth=depth,
+                    item_id=comp_id, name=name, per_unit=round(per, 4), total=round(per * qty, 2), unit=unit,
+                    operation_name=op_name, depth=depth,
                 )
             )
-            if depth + 1 < max_depth and c.component_item_id not in seen:
-                walk(c.component_item_id, per, depth + 1, seen | {c.component_item_id})
+            if depth + 1 < max_depth and comp_id not in seen:
+                walk(comp_id, per, depth + 1, seen | {comp_id})
 
     walk(item_id, 1.0, 0, frozenset({item_id}))
-    if cache is not None:
-        cache[item_id] = out
+    cache[item_id] = out
     return out
 
 
@@ -228,7 +262,8 @@ class OrderOut(BaseModel):
     planned: bool = False
 
 
-def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
+def _order_out(db: Session, order: ProductionOrder, comp_cache: dict | None = None) -> OrderOut:
+    """comp_cache — состав изделий, общий на запрос (список заказов)."""
     names = live_item_names(db, {ln.item_id for ln in order.lines})
     kinds = {k.id: k for k in db.query(ItemKind)}
     area_names = {a.code: a.name for a in db.query(Area)}
@@ -263,7 +298,8 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
 
     fg = totals_by_order_line(db, [ln.id for ln in order.lines])
     out_lines = []
-    comp_cache: dict = {}
+    comp_cache = {} if comp_cache is None else comp_cache
+    nodes = _prefetch_nodes(db, {ln.item_id for ln in order.lines}, comp_cache)
     for ln in order.lines:
         item = db.get(Item, ln.item_id)
         simple = without_route(item)
@@ -279,9 +315,6 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
                     task_line_id=tl.id if tl else None, good=good, defect=defect, remaining=max(0.0, float(ln.quantity) - good),
                 )
             )
-        comps = planned_components(db.query(ItemComponent).filter(ItemComponent.parent_item_id == item.id).all())
-        comp_names = live_item_names(db, {c.component_item_id for c in comps})
-        comp_items = {i.id: i for i in db.query(Item).filter(Item.id.in_([c.component_item_id for c in comps]))} if comps else {}
         out_lines.append(
             OrderLineOut(
                 id=ln.id, item_id=item.id, item_name=names.get(item.id, item.name), kind_name=kinds[item.kind_id].name,
@@ -291,12 +324,10 @@ def _order_out(db: Session, order: ProductionOrder) -> OrderOut:
                 without_route=simple, operations=ops,
                 components=[
                     ComponentNeed(
-                        item_id=c.component_item_id, name=comp_names.get(c.component_item_id, "—"),
-                        per_unit=float(c.qty_per_unit), total=round(float(c.qty_per_unit) * float(ln.quantity), 2),
-                        unit=kinds[comp_items[c.component_item_id].kind_id].unit if c.component_item_id in comp_items else "шт",
-                        operation_name=stage_names.get(c.stage_id) if c.stage_id else None,
+                        item_id=comp_id, name=name, per_unit=per, total=round(per * float(ln.quantity), 2), unit=unit,
+                        operation_name=stage_names.get(stage_id) if stage_id else None,
                     )
-                    for c in comps
+                    for comp_id, per, name, unit, stage_id, _op in nodes[item.id]
                 ],
                 composition=_composition(db, item.id, float(ln.quantity), kinds, comp_cache),
                 options=ln.options or [], option_fields=line_options.option_fields(db, item),
@@ -492,7 +523,10 @@ def list_orders(
         q = q.filter(ProductionOrder.lines.any(ProductionOrderLine.item_id == item_id))
     if not include_closed:
         q = q.filter(ProductionOrder.status != ORDER_CLOSED)
-    return [_order_out(db, o) for o in q.order_by(ProductionOrder.id.desc())]
+    orders = q.order_by(ProductionOrder.id.desc()).all()
+    comp_cache: dict = {}
+    _prefetch_nodes(db, {ln.item_id for o in orders for ln in o.lines}, comp_cache)
+    return [_order_out(db, o, comp_cache) for o in orders]
 
 
 view_readiness = require_permission(
