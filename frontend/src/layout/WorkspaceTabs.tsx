@@ -49,7 +49,10 @@ const menuTitles: { path: string; pathname: string; label: string }[] = navTree.
 function defaultTitle(location: Location): string {
   const exact = menuTitles.find((m) => m.path === location.pathname + location.search);
   if (exact) return exact.label;
-  const byPath = menuTitles.find((m) => m.pathname === location.pathname);
+  // не точное совпадение — пункт без параметров главнее (/customer-orders → «Заказы»,
+  // а не «Заказы на производство» с ?section=production)
+  const byPath =
+    menuTitles.find((m) => m.path === location.pathname) ?? menuTitles.find((m) => m.pathname === location.pathname);
   if (byPath) return byPath.label;
   const unitId = (location.state as { unitId?: number } | null)?.unitId;
   if (location.pathname === "/m/unit-card") return unitId != null ? `Рулон ${rollNo(unitId)}` : "Карточка единицы";
