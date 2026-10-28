@@ -45,6 +45,22 @@ import FilmReservesPanel from "../../components/FilmReservesPanel";
  * разметки — issue/*; здесь только сборка экрана). */
 export default function Issue() {
   const s = useIssue();
+  const [returnsHidden, setReturnsHidden] = useState(() => {
+    try {
+      return localStorage.getItem("issue-returns-hidden") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleReturns = () => {
+    const next = !returnsHidden;
+    setReturnsHidden(next);
+    try {
+      localStorage.setItem("issue-returns-hidden", next ? "1" : "0");
+    } catch {
+      // приватный режим — просто не запомнится
+    }
+  };
   // Резерв плёнки (27.10): на компьютере — вкладка доски выдачи, здесь — шторка.
   const [reserveOpen, setReserveOpen] = useState(false);
   const { canReturn, canIssue, canManage, areaFilter, setAreaFilter, taskFilter, setTaskFilter, statusFilter, setStatusFilter, search, setSearch, queueView, pickQueueView, cardTab, setCardTab, cardGroup, setCardGroup, manualOpen, setManualOpen, cuttingSession, setCuttingSession, cuttingBatch, setCuttingBatch, cuttingBatchOpen, setCuttingBatchOpen, slipModalOpen, setSlipModalOpen, slipTaskId, setSlipTaskId, addToCuttingBatch, removeFromCuttingBatch, stockDecisions, setStockDecisions, addStockDecision, removeStockDecision, decidedLineIds, executingAll, lineInfoMap, reportGroupInfos, manualPickerTarget, setManualPickerTarget, detailRow, executeAllDecisions, shortageModalOpen, setShortageModalOpen, shortageForm, occurredAt, setOccurredAt, skusQuery, tasksQuery, areaLabel, areaRequiresDailyPlan, areaOptions, taskOptions, confirmIfWrongWarehouse, overdueCount, todayCount, weekRowsNeedingMaterial, areasWaiting, pendingReturnByTask, shopFloorRequestMutation, closeLineMutation, issuedNoteForLine, lineActuals, UnitLink, renderStatusPill, findStockSiblingCandidates, filteredTableRows, cuttingGroups, groupRowsByRowKey, printFactorySlip, openDetail, closeDetail, decisionsCount } = s;
@@ -113,8 +129,17 @@ export default function Issue() {
           type="success"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`🏁 Готово к возврату — ${pendingReturnByTask.length} ${pendingReturnByTask.length === 1 ? "задание" : "задания"}`}
+          // скрыть список (28.10): заголовок с числом виден всегда, выбор — на этом устройстве
+          message={
+            <Space style={{ width: "100%", justifyContent: "space-between" }}>
+              <span>{`🏁 Готово к возврату — ${pendingReturnByTask.length} ${pendingReturnByTask.length === 1 ? "задание" : "задания"}`}</span>
+              <a onClick={toggleReturns} style={{ fontSize: 12.5 }}>
+                {returnsHidden ? "показать ▾" : "скрыть ▴"}
+              </a>
+            </Space>
+          }
           description={
+            returnsHidden ? null : (
             <Space direction="vertical" size={10} style={{ width: "100%" }}>
               {pendingReturnByTask.map(({ task, units }) => {
                 // Раздел про "штрипсы с остатком 0 в баннере" — среди
@@ -156,6 +181,7 @@ export default function Issue() {
                 );
               })}
             </Space>
+            )
           }
         />
       )}
