@@ -255,6 +255,7 @@ export default function CalendarDeals({
             amount: creating.amount,
             assignedBx: creating.assigned_bx,
             shipDate: creating.ship_date ?? null,
+            created: creating.created,
           }}
           onClose={() => setCreating(null)}
           onCustomerCreated={(ids) => {

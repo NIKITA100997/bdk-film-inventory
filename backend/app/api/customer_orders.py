@@ -881,14 +881,16 @@ def launch(payload: LaunchIn, db: Session = Depends(get_db), user: User = Depend
 async def read_invoice_file(file: UploadFile = File(...), user: User = Depends(edit)) -> dict:
     """Выгрузка счёта из 1С (.xls/.xlsx): номер счёта — имя файла, строки —
     «наименование<TAB>кол-во» для окна импорта. Ничего не создаёт."""
-    from app.services.invoice_1c import invoice_no_from_filename, read_invoice
+    from app.services.invoice_1c import invoice_no_from_filename, read_invoice, read_invoice_date
 
+    data = await file.read()
     try:
-        lines, problems = read_invoice(await file.read(), file.filename or "")
+        lines, problems = read_invoice(data, file.filename or "")
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     return {
         "invoice_no": invoice_no_from_filename(file.filename or ""),
+        "invoice_date": read_invoice_date(data, file.filename or ""),
         "text": "\n".join(f"{name}\t{qty}" for name, qty in lines),
         "lines": len(lines),
         "problems": problems,
@@ -899,6 +901,7 @@ class ImportIn(BaseModel):
     text: str
     type_id: int | None = None  # нет — тип строки по серии (16.10)
     invoice_no: str | None = None
+    invoice_date: date | None = None  # дата счёта (28.10): из файла 1С, сделки или вручную
     customer: str | None = None
     ship_from: date | None = None
     ship_to: date | None = None
@@ -961,6 +964,8 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
         cos.merge_lines(db, co, [(ln.item_id, float(ln.quantity), ln.note, ln.source_text, ln.options) for ln in po_lines if (ln.invoice_no or "").strip() == inv])
         if payload.customer and not co.customer:
             co.customer = payload.customer.strip()
+        if payload.invoice_date and not co.invoice_date:
+            co.invoice_date = payload.invoice_date
         if payload.bitrix_deal_id and len(invoices) == 1:
             deals.link_deal(db, co, payload.bitrix_deal_id, deals.direction_of_title(payload.bitrix_deal_title or ""), payload.bitrix_deal_title)
         cos.apply_actual_ship_date(db, co, payload.ship_to or ship_by_inv.get(inv), user.id, "счёт загружен повторно")
@@ -974,7 +979,7 @@ def import_orders(payload: ImportIn, db: Session = Depends(get_db), user: User =
             mgr = None
             if payload.manager_bitrix_id:
                 mgr = db.query(User).filter(User.bitrix_user_id == payload.manager_bitrix_id, User.is_active.is_(True)).first()
-            co = CustomerOrder(invoice_no=inv, customer=(payload.customer or "").strip() or None, created_by=user.id,
+            co = CustomerOrder(invoice_no=inv, invoice_date=payload.invoice_date, customer=(payload.customer or "").strip() or None, created_by=user.id,
                                manager_id=mgr.id if mgr else user.id,
                                status=CO_DRAFT, ship_from=payload.ship_from, ship_to=payload.ship_to or ship_by_inv.get(inv))
             if payload.bitrix_deal_id and len(invoices) == 1:

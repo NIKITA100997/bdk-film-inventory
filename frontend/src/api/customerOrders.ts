@@ -230,7 +230,7 @@ export const readInvoiceFile = async (file: File) => {
   const fd = new FormData();
   fd.append("file", file);
   return (
-    await apiClient.post<{ invoice_no: string; text: string; lines: number; problems: string[] }>(`${base}/invoice-file`, fd, {
+    await apiClient.post<{ invoice_no: string; invoice_date: string | null; text: string; lines: number; problems: string[] }>(`${base}/invoice-file`, fd, {
       headers: { "Content-Type": "multipart/form-data" },
     })
   ).data;
@@ -240,6 +240,8 @@ export const importCustomerOrders = async (p: {
   text: string;
   type_id: number | null;
   invoice_no: string | null;
+  /** дата счёта (28.10) */
+  invoice_date?: string | null;
   customer: string | null;
   ship_from: string | null;
   ship_to: string | null;

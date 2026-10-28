@@ -1,10 +1,11 @@
 import io
+from datetime import date
 
 import pytest
 from openpyxl import Workbook
 
 from app.services.import_template import _NAME_SERIES_RE
-from app.services.invoice_1c import invoice_no_from_filename, read_invoice
+from app.services.invoice_1c import invoice_date_of, invoice_no_from_filename, read_invoice, read_invoice_date
 
 
 def _xlsx(rows):
@@ -62,3 +63,34 @@ def test_invoice_key_one_invoice_one_order():
     assert invoice_key("309-CKУ(M)") == invoice_key("309-СКУ")
     assert invoice_key("1029") != invoice_key("1029-ЛД")
     assert invoice_key("1125ЛД") == invoice_key("1125-ЛД") == invoice_key("1125 - лд")
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Счет на оплату № 309 от 16 октября 2026 г.", date(2026, 10, 16)),
+        ("Счёт на оплату № 2080-ТДС(М) от 5 Сентября 2026 г.", date(2026, 9, 5)),
+        ("Счет № 1 от 07.10.26", date(2026, 10, 7)),
+        ("от 31 февраля 2026", None),
+        ("Номенклатура Количество", None),
+    ],
+)
+def test_invoice_date_of(text, expected):
+    assert invoice_date_of(text) == expected
+
+
+def test_read_invoice_date_from_header():
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Счет на оплату № 309 от 16 октября 2026 г."])
+    ws.append(["Номенклатура", "Количество"])
+    ws.append(["А-1 800х2000 - Манхэттен", 2])
+    buf = io.BytesIO()
+    wb.save(buf)
+    assert read_invoice_date(buf.getvalue(), "309.xlsx") == date(2026, 10, 16)
+    # выгрузка без шапки — даты нет, не ошибка
+    wb2 = Workbook()
+    wb2.active.append(["Номенклатура", "Количество"])
+    buf2 = io.BytesIO()
+    wb2.save(buf2)
+    assert read_invoice_date(buf2.getvalue(), "309.xlsx") is None

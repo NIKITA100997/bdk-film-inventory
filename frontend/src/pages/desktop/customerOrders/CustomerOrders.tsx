@@ -140,6 +140,7 @@ export default function CustomerOrders() {
               <Space direction="vertical" size={0}>
                 <span>
                   <b>{o.invoice_no}</b>
+                  {o.invoice_date && <Typography.Text type="secondary"> от {dayjs(o.invoice_date).format("DD.MM.YY")}</Typography.Text>}
                   {o.customer ? ` · ${o.customer}` : ""}{" "}
                   {o.priority > 0 && <Tag color={PRIORITY_COLOR[o.priority]}>{PRIORITY_LABEL[o.priority]}</Tag>}
                 </span>
@@ -212,7 +213,11 @@ export default function CustomerOrders() {
               ),
           },
           { title: "Менеджер", render: (_, o) => o.manager_name ?? "—" },
-          { title: "Создан", render: (_, o) => dayjs(o.created_at).format("DD.MM.YYYY") },
+          {
+            title: "Появился",
+            sorter: (x, y) => x.created_at.localeCompare(y.created_at),
+            render: (_, o) => dayjs(o.created_at).format("DD.MM.YYYY"),
+          },
         ]}
       />
       {creating && (

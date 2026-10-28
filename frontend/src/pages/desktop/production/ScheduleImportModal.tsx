@@ -17,6 +17,23 @@ import { importCustomerOrders, readInvoiceFile } from "../../../api/customerOrde
 import { apiErrorMessage } from "../../../utils/apiError";
 import { hasPerm } from "../../../auth/permissions";
 
+/** Дата счёта из сделки: дата в названии («… 16.10», «… 12.10.26», «… 19.10.2026»),
+ * иначе дата создания сделки. Дата без года — ближайшая прошедшая. */
+function dealInvoiceDate(title: string, created?: string | null): Dayjs | null {
+  const m = /(?:^|[\s,(])(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\.?(?=$|[\s,)])/.exec(title);
+  if (m) {
+    const now = dayjs();
+    let y = m[3] ? Number(m[3]) : now.year();
+    if (y < 100) y += 2000;
+    let d = dayjs(new Date(y, Number(m[2]) - 1, Number(m[1])));
+    if (d.isValid() && d.date() === Number(m[1])) {
+      if (!m[3] && d.isAfter(now, "day")) d = d.subtract(1, "year");
+      return d;
+    }
+  }
+  return created ? dayjs(created) : null;
+}
+
 const COLOR_STATUS: Record<ScheduleImportColor["status"], { color: string; text: string }> = {
   ok: { color: "green", text: "плёнка подобрана" },
   pet: { color: "blue", text: "ПЭТ 2Д/3Д — по детали" },
@@ -41,7 +58,10 @@ export default function ScheduleImportModal({
   target?: "production" | "customer";
   onCustomerCreated?: (ids: number[]) => void;
   /** заказ из сделки Битрикс24 (19.10): счёт и клиент подставлены, сделка привяжется */
-  fromDeal?: { id: number; title: string; invoice: string | null; company: string | null; amount: number | null; assignedBx: number | null; shipDate?: string | null };
+  fromDeal?: {
+    id: number; title: string; invoice: string | null; company: string | null; amount: number | null; assignedBx: number | null;
+    shipDate?: string | null; created?: string | null;
+  };
 }) {
   const forCustomer = target === "customer";
   const qc = useQueryClient();
@@ -60,6 +80,8 @@ export default function ScheduleImportModal({
   const [name, setName] = useState("");
   // счёт из 1С целиком (07.10): строки «наименование — кол-во», номер и отгрузка — здесь
   const [invoiceNo, setInvoiceNo] = useState(fromDeal?.invoice ?? "");
+  // дата счёта (28.10): из сделки — дата в названии или дата сделки; из файла 1С — если есть в шапке
+  const [invoiceDate, setInvoiceDate] = useState<Dayjs | null>(fromDeal ? dealInvoiceDate(fromDeal.title, fromDeal.created) : null);
   const [customer, setCustomer] = useState(fromDeal?.company ?? "");
   const [shipDate, setShipDate] = useState<Dayjs | null>(null);
   // Вилка отгрузки менеджера (09.10)
@@ -98,6 +120,7 @@ export default function ScheduleImportModal({
           text: src.text,
           type_id: sendType,
           invoice_no: src.invoiceNo.trim() || null,
+          invoice_date: invoiceDate ? invoiceDate.format("YYYY-MM-DD") : null,
           customer: customer.trim() || null,
           ship_from: shipWindow[0] ? shipWindow[0].format("YYYY-MM-DD") : null,
           ship_to: shipWindow[1] ? shipWindow[1].format("YYYY-MM-DD") : null,
@@ -154,6 +177,7 @@ export default function ScheduleImportModal({
       // номер — из имени файла здесь: в заголовке запроса кириллица имени может прийти в чужой кодировке
       const inv = f.name.replace(/\.xlsx?$/i, "").replace(/\s+\(\d+\)$/, "").trim() || r.invoice_no;
       setInvoiceNo(inv);
+      if (r.invoice_date) setInvoiceDate(dayjs(r.invoice_date));
       setText(r.text);
       setFileProblems(r.problems);
       setPreview(null);
@@ -255,6 +279,9 @@ export default function ScheduleImportModal({
               setPreview(null);
             }}
           />
+          {forCustomer && (
+            <DatePicker placeholder="Дата счёта" format="DD.MM.YYYY" value={invoiceDate} onChange={setInvoiceDate} />
+          )}
           {isManager && !forCustomer && (
             <DatePicker
               placeholder="Дата отгрузки"

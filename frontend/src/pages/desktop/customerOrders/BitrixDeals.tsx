@@ -202,7 +202,7 @@ export default function BitrixDeals() {
           target="customer"
           fromDeal={{
             id: fromDeal.id, title: fromDeal.title, invoice: fromDeal.invoice, company: fromDeal.company,
-            amount: fromDeal.amount, assignedBx: fromDeal.assigned_bx,
+            amount: fromDeal.amount, assignedBx: fromDeal.assigned_bx, created: fromDeal.created,
           }}
           onClose={() => setFromDeal(null)}
           onCustomerCreated={(ids) => {

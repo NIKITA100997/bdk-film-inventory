@@ -4,6 +4,7 @@
 окно «Из счёта 1С или графика», дальше обычный разбор по шаблону типа."""
 
 import io
+from datetime import date
 import re
 
 import xlrd
@@ -83,3 +84,42 @@ def read_invoice(data: bytes, filename: str) -> tuple[list[tuple[str, int]], lis
     if not out and not problems:
         problems.append("В счёте нет строк с позициями")
     return out, problems
+
+
+_MONTHS = {
+    "января": 1, "февраля": 2, "марта": 3, "апреля": 4, "мая": 5, "июня": 6,
+    "июля": 7, "августа": 8, "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+}
+_DATE_WORDS_RE = re.compile(r"\bот\s+(\d{1,2})\s+([а-яё]+)\s+(\d{4})", re.I)
+_DATE_DOTS_RE = re.compile(r"\bот\s+(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b", re.I)
+
+
+def invoice_date_of(text: str) -> date | None:
+    """Дата из «Счет на оплату № 309 от 16 октября 2026 г.» или «… от 16.10.2026»."""
+    for m in _DATE_WORDS_RE.finditer(text or ""):
+        month = _MONTHS.get(m.group(2).lower().replace("ё", "е"))
+        if month:
+            try:
+                return date(int(m.group(3)), month, int(m.group(1)))
+            except ValueError:
+                continue
+    for m in _DATE_DOTS_RE.finditer(text or ""):
+        y = int(m.group(3))
+        try:
+            return date(y + 2000 if y < 100 else y, int(m.group(2)), int(m.group(1)))
+        except ValueError:
+            continue
+    return None
+
+
+def read_invoice_date(data: bytes, filename: str) -> date | None:
+    """Дата счёта из шапки выгрузки 1С (28.10) — первые строки до таблицы."""
+    try:
+        rows = _rows(data, filename)
+    except Exception:  # noqa: BLE001 — нет даты, не ошибка: строки читает read_invoice
+        return None
+    for r in rows[:30]:
+        d = invoice_date_of(" ".join(str(c) for c in r if c not in (None, "")))
+        if d:
+            return d
+    return None
