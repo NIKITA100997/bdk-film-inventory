@@ -48,11 +48,6 @@ export default function PfDemand() {
   // пустом фильтре это тот же запрос, что и таблица.
   const allQuery = useQuery({ queryKey: ["pf-demand", []], queryFn: () => listPfDemand([]) });
   const demandQuery = useQuery({ queryKey: ["pf-demand", taskFilter], queryFn: () => listPfDemand(taskFilter) });
-  const taskOptions = useMemo(() => {
-    const byId = new Map<number, string>();
-    for (const r of allQuery.data ?? []) for (const s of r.sources) byId.set(s.task_id, s.task_name);
-    return [...byId.entries()].sort((a, b) => a[0] - b[0]).map(([id, name]) => ({ value: id, label: `№${id} · ${name}` }));
-  }, [allQuery.data]);
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts, enabled: !!user?.area });
   const myParts = useMemo(
@@ -75,6 +70,37 @@ export default function PfDemand() {
     [demandQuery.data, onlyShortage, onlyMine, myParts, user?.area, pf, pfAttrs, itemGroups],
   );
   const sections = sectionsPf(rows, (r) => r.part_id, pf, pfAttrs, itemGroups);
+
+  // Задания для отбора (28.10) — только те, которым нужны детали из текущей
+  // выборки (у мастера — своего участка), а не все задания завода; по
+  // нехватке: самые нужные — метками над таблицей, остальные — в списке.
+  const taskStats = useMemo(() => {
+    const base = filterPf(
+      (allQuery.data ?? [])
+        .filter((r) => !onlyShortage || r.shortage > 0)
+        .filter((r) => !onlyMine || !user?.area || myParts.has(r.part_id)),
+      (r) => r.part_id,
+      pf,
+      pfAttrs,
+      itemGroups,
+    );
+    const by = new Map<number, { id: number; name: string; parts: number; shortage: number }>();
+    for (const r of base)
+      for (const src of r.sources) {
+        const t = by.get(src.task_id) ?? { id: src.task_id, name: src.task_name, parts: 0, shortage: 0 };
+        t.parts += 1;
+        t.shortage += src.shortage;
+        by.set(src.task_id, t);
+      }
+    return [...by.values()].sort((a, b) => b.shortage - a.shortage || b.parts - a.parts || a.id - b.id);
+  }, [allQuery.data, onlyShortage, onlyMine, user?.area, myParts, pf, pfAttrs, itemGroups]);
+  const TOP = 8;
+  const topTasks = taskStats.slice(0, TOP);
+  const taskOptions = taskStats.map((t) => ({
+    value: t.id,
+    label: `№${t.id} · ${t.name} — деталей ${t.parts}${t.shortage > 0 ? `, не хватает ${fmt(t.shortage)}` : ""}`,
+  }));
+  const toggleTask = (id: number) => setTaskFilter((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]));
 
   useEffect(() => {
     const data = demandQuery.data ?? [];
@@ -138,8 +164,8 @@ export default function PfDemand() {
             allowClear
             showSearch
             optionFilterProp="label"
-            style={{ minWidth: 420 }}
-            placeholder="Все задания цеха"
+            style={{ minWidth: 320 }}
+            placeholder={taskStats.length > TOP ? `ещё ${taskStats.length - TOP} заданий…` : "Задание…"}
             options={taskOptions}
             value={taskFilter}
             onChange={setTaskFilter}
@@ -165,6 +191,29 @@ export default function PfDemand() {
           )}
           <PfFilterBar value={pf} onChange={setPf} groups={itemGroups} />
         </Space>
+        {topTasks.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <Typography.Text type="secondary" style={{ marginRight: 8 }}>
+              {onlyMine && user?.area ? "Задания, которым нужны детали вашего участка:" : "Задания с нехваткой п/ф:"}
+            </Typography.Text>
+            <Space wrap size={[6, 6]}>
+              <Tag.CheckableTag checked={taskFilter.length === 0} onChange={() => setTaskFilter([])} style={{ fontSize: 13, padding: "3px 10px" }}>
+                Все ({taskStats.length})
+              </Tag.CheckableTag>
+              {topTasks.map((t) => (
+                <Tag.CheckableTag
+                  key={t.id}
+                  checked={taskFilter.includes(t.id)}
+                  onChange={() => toggleTask(t.id)}
+                  style={{ fontSize: 13, padding: "3px 10px", border: "1px solid #E4E4DF" }}
+                >
+                  №{t.id} {t.name.length > 28 ? t.name.slice(0, 27) + "…" : t.name}
+                  {t.shortage > 0 && <b style={{ color: taskFilter.includes(t.id) ? undefined : "#C0392B" }}> −{fmt(t.shortage)}</b>}
+                </Tag.CheckableTag>
+              ))}
+            </Space>
+          </div>
+        )}
         {taskFilter.length > 0 && (
           <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
             Только выбранные задания: «Нужно» — их остаток без минимального остатка детали. «Есть» — свободный остаток
