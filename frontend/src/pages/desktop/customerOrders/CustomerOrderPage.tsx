@@ -27,6 +27,7 @@ import { OrderNeedsCard } from "../production/NeedsViews";
 import BitrixDealCard from "./BitrixDealCard";
 import FilmReserveCard from "./FilmReserveCard";
 import LineOptions from "../../../components/LineOptions";
+import OrderTimelineCard from "./OrderTimelineCard";
 import { CustomerOrderModal, MoveDatesModal, PlanCheckView, editableBy, fmt, useCustomerOrderRights } from "./parts";
 
 const FIELD: Record<CustomerDateChange["field"], string> = { ship: "отгрузка", ready: "готовность", ready_fact: "факт готовности", ship_to: "отгрузка клиенту (по)" };
@@ -227,6 +228,7 @@ export default function CustomerOrderPage() {
         ← Заказы
       </Button>
       <NextStep {...nextStep} />
+      <OrderTimelineCard orderId={orderId} />
       <Card
         title={
           <Space wrap>

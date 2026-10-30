@@ -12,6 +12,8 @@ import { PRIORITY_COLOR, PRIORITY_LABEL } from "../../../api/productionOrders";
 import { apiErrorMessage } from "../../../utils/apiError";
 import { CustomerOrderModal, fmt, fmtShort, useCustomerOrderRights } from "./parts";
 import LaunchFromOrders from "./LaunchFromOrders";
+import { OrderTimelineModal } from "./OrderTimelineCard";
+import DraftsCleanupModal from "./DraftsCleanupModal";
 
 type Filter = "all" | "wait" | "accepted" | "work" | "ready" | "mine";
 const FILTERS: [Filter, string, (o: CustomerOrder) => boolean][] = [
@@ -49,6 +51,8 @@ export default function CustomerOrders() {
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [picked, setPicked] = useState<number[]>([]);
+  const [timelineOrderId, setTimelineOrderId] = useState<number | null>(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [launchName, setLaunchName] = useState<string | null>(null);
   const query = useQuery({ queryKey: ["customer-orders", includeClosed], queryFn: () => listCustomerOrders(includeClosed) });
   const all = useMemo(() => query.data ?? [], [query.data]);
@@ -84,6 +88,11 @@ export default function CustomerOrders() {
             <Checkbox checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)}>
               С отгруженными и отменёнными
             </Checkbox>
+            {canEdit && (
+              <Button onClick={() => setCleanupOpen(true)}>
+                🧹 Разобрать черновики
+              </Button>
+            )}
             {canEdit && (
               <Dropdown
                 trigger={["click"]}
@@ -263,6 +272,21 @@ export default function CustomerOrders() {
                 <Typography.Text type="secondary">—</Typography.Text>
               ),
           },
+          {
+            title: "Таймлайн",
+            width: 100,
+            render: (_, o) => (
+              <Button
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setTimelineOrderId(o.id);
+                }}
+              >
+                ⏱️ Этапы
+              </Button>
+            ),
+          },
           { title: "Менеджер", render: (_, o) => o.manager_name ?? "—" },
           {
             title: "Появился",
@@ -292,6 +316,15 @@ export default function CustomerOrders() {
           }}
         />
       )}
+      <OrderTimelineModal
+        orderId={timelineOrderId}
+        open={timelineOrderId !== null}
+        onClose={() => setTimelineOrderId(null)}
+      />
+      <DraftsCleanupModal
+        open={cleanupOpen}
+        onClose={() => setCleanupOpen(false)}
+      />
       <LaunchFromOrders
         open={launchName !== null}
         orders={pickedOrders}

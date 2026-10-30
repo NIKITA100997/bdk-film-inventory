@@ -307,6 +307,178 @@ def order_calendar(
     return [CalendarRowOut(**asdict(r)) for r in rows]
 
 
+class CheckInvoiceOut(BaseModel):
+    exists: bool
+    order_id: int | None = None
+    invoice_no: str | None = None
+    status: str | None = None
+    customer: str | None = None
+    created_at: datetime | None = None
+
+
+class DraftAuditItem(BaseModel):
+    id: int
+    invoice_no: str
+    customer: str | None = None
+    created_at: datetime
+    days_idle: int
+    lines_count: int
+    total_qty: float
+    reason_code: str  # "duplicate", "empty", "stale", "already_produced"
+    reason_label: str
+    suggested_action: str  # "delete" or "cancel"
+
+
+class BulkCleanupIn(BaseModel):
+    order_ids: list[int]
+    action: str = "delete"  # "delete" or "cancel"
+    reason: str = "stale_draft"  # "duplicate", "already_produced", "client_cancelled", "stale_draft"
+    comment: str | None = None
+
+
+class BulkCleanupOut(BaseModel):
+    cleaned_count: int
+    action: str
+    ids: list[int]
+
+
+@router.get("/check-invoice", response_model=CheckInvoiceOut)
+def check_invoice(
+    no: str = Query(..., min_length=1),
+    exclude_id: int | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(view),
+) -> CheckInvoiceOut:
+    """Быстрая проверка номера счёта на дубликаты перед созданием заказа."""
+    dup = cos.find_by_invoice(db, no.strip(), exclude_id=exclude_id)
+    if dup:
+        return CheckInvoiceOut(
+            exists=True,
+            order_id=dup.id,
+            invoice_no=dup.invoice_no,
+            status=dup.status,
+            customer=dup.customer,
+            created_at=dup.created_at,
+        )
+    return CheckInvoiceOut(exists=False)
+
+
+@router.get("/drafts-audit", response_model=list[DraftAuditItem])
+def get_drafts_audit(
+    days: int = Query(default=7, ge=1, le=365),
+    db: Session = Depends(get_db),
+    user: User = Depends(edit),
+) -> list[DraftAuditItem]:
+    """Аудит зависших и ошибочных черновиков заказов покупателей для массовой очистки."""
+    now = datetime.now(timezone.utc)
+    drafts = (
+        db.query(CustomerOrder)
+        .filter(CustomerOrder.status.in_([CO_DRAFT, CO_RETURNED]))
+        .order_by(CustomerOrder.created_at.asc())
+        .all()
+    )
+    items: list[DraftAuditItem] = []
+    for co in drafts:
+        p = cos.progress(db, co)
+        if p.launched > 0:
+            continue
+
+        co_dt = co.created_at if co.created_at.tzinfo else co.created_at.replace(tzinfo=timezone.utc)
+        days_idle = (now - co_dt).days
+
+        other_active = (
+            db.query(CustomerOrder)
+            .filter(
+                CustomerOrder.invoice_key == co.invoice_key,
+                CustomerOrder.id != co.id,
+                CustomerOrder.status.in_([CO_ACCEPTED, "in_production", "ready", "shipped", "shipped_part"]),
+            )
+            .first()
+        )
+        lines_cnt = len(co.lines)
+        total_q = sum(float(ln.quantity) for ln in co.lines)
+
+        reason_code = None
+        reason_label = None
+        suggested_action = "delete"
+
+        if other_active:
+            reason_code = "duplicate"
+            reason_label = f"Дубль активного счёта №{other_active.id} ({other_active.invoice_no})"
+            suggested_action = "delete"
+        elif lines_cnt == 0:
+            reason_code = "empty"
+            reason_label = "Пустой черновик (0 позиций)"
+            suggested_action = "delete"
+        elif days_idle >= days:
+            reason_code = "stale"
+            reason_label = f"Зависший черновик (> {days} дн. без движения)"
+            suggested_action = "delete"
+
+        if reason_code:
+            items.append(
+                DraftAuditItem(
+                    id=co.id,
+                    invoice_no=co.invoice_no,
+                    customer=co.customer,
+                    created_at=co.created_at,
+                    days_idle=days_idle,
+                    lines_count=lines_cnt,
+                    total_qty=round(total_q, 2),
+                    reason_code=reason_code,
+                    reason_label=reason_label,
+                    suggested_action=suggested_action,
+                )
+            )
+    return items
+
+
+@router.post("/bulk-cleanup", response_model=BulkCleanupOut)
+def bulk_cleanup_customer_orders(
+    payload: BulkCleanupIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(edit),
+) -> BulkCleanupOut:
+    """Массовая очистка или отмена выбранных черновиков заказов покупателей."""
+    from app.services import film_reserve
+
+    cleaned_ids: list[int] = []
+    for oid in payload.order_ids:
+        co = db.get(CustomerOrder, oid)
+        if co is None:
+            continue
+        p = cos.progress(db, co)
+        if p.launched > 0:
+            continue
+        if payload.action == "delete":
+            film_reserve.release_customer_order(db, co.id, user.id, f"массовая очистка: {payload.reason}")
+            db.delete(co)
+            cleaned_ids.append(oid)
+        elif payload.action == "cancel":
+            co.status = CO_CANCELLED
+            co.note = f"Отменён массово: {payload.reason}" + (f" ({payload.comment})" if payload.comment else "")
+            film_reserve.release_customer_order(db, co.id, user.id, f"массовая очистка: {payload.reason}")
+            cleaned_ids.append(oid)
+    db.commit()
+    return BulkCleanupOut(cleaned_count=len(cleaned_ids), action=payload.action, ids=cleaned_ids)
+
+
+@router.get("/{order_id}/timeline")
+def get_customer_order_timeline_api(
+    order_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(view),
+) -> dict:
+    """Сквозной интерактивный таймлайн заказа покупателя по этапам."""
+    from app.services.order_timeline import get_customer_order_timeline
+
+    try:
+        tl = get_customer_order_timeline(db, order_id)
+        return tl.to_dict()
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+
+
 @router.get("/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: Session = Depends(get_db), user: User = Depends(view)) -> OrderOut:
     return _out(db, _get(db, order_id))

@@ -321,3 +321,80 @@ export const getBitrixFunnel = async (refresh = false) =>
 export const linkAllBitrixDeals = async () => (await apiClient.post<{ linked: number }>(`${base}/bitrix/link-all`)).data;
 export const linkBitrixDeal = async (orderId: number, dealId: number) =>
   (await apiClient.post(`${base}/${orderId}/bitrix-deal`, { deal: String(dealId) })).data;
+
+export interface TimelineStage {
+  key: string;
+  name: string;
+  status: "completed" | "in_progress" | "waiting" | "warning";
+  progress_pct: number;
+  qty_done: number;
+  qty_total: number;
+  description: string;
+  detail: string | null;
+  date: string | null;
+  is_bottleneck: boolean;
+}
+
+export interface OrderTimeline {
+  order_id: number;
+  invoice_no: string;
+  customer: string | null;
+  qty: number;
+  received: number;
+  shipped: number;
+  promised_ready: string | null;
+  ship_date: string | null;
+  plan_finish: string | null;
+  overall_progress_pct: number;
+  current_stage_key: string;
+  current_stage_label: string;
+  status_summary: string;
+  delay_days: number;
+  stages: TimelineStage[];
+  client_message: string;
+}
+
+export interface CheckInvoiceResult {
+  exists: boolean;
+  order_id?: number;
+  invoice_no?: string;
+  status?: string;
+  customer?: string;
+  created_at?: string;
+}
+
+export interface DraftAuditItem {
+  id: number;
+  invoice_no: string;
+  customer: string | null;
+  created_at: string;
+  days_idle: number;
+  lines_count: number;
+  total_qty: number;
+  reason_code: "duplicate" | "empty" | "stale" | "already_produced";
+  reason_label: string;
+  suggested_action: "delete" | "cancel";
+}
+
+export interface BulkCleanupResult {
+  cleaned_count: number;
+  action: string;
+  ids: number[];
+}
+
+export const getCustomerOrderTimeline = async (orderId: number): Promise<OrderTimeline> =>
+  (await apiClient.get<OrderTimeline>(`${base}/${orderId}/timeline`)).data;
+
+export const checkCustomerOrderInvoice = async (no: string, excludeId?: number): Promise<CheckInvoiceResult> =>
+  (await apiClient.get<CheckInvoiceResult>(`${base}/check-invoice`, { params: { no, exclude_id: excludeId } })).data;
+
+export const getDraftsAudit = async (days = 7): Promise<DraftAuditItem[]> =>
+  (await apiClient.get<DraftAuditItem[]>(`${base}/drafts-audit`, { params: { days } })).data;
+
+export const bulkCleanupCustomerOrders = async (payload: {
+  order_ids: number[];
+  action: "delete" | "cancel";
+  reason: string;
+  comment?: string;
+}): Promise<BulkCleanupResult> =>
+  (await apiClient.post<BulkCleanupResult>(`${base}/bulk-cleanup`, payload)).data;

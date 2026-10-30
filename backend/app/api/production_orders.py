@@ -776,6 +776,101 @@ def invoices_readiness(
     return sorted(out, key=lambda x: (x.ship_date or date.max, x.invoice))
 
 
+class PoDraftAuditItem(BaseModel):
+    id: int
+    name: str
+    customer: str | None = None
+    created_at: datetime
+    days_idle: int
+    lines_count: int
+    total_qty: float
+    has_tasks: bool
+    reason_label: str
+
+
+@router.get("/production-orders/drafts-audit", response_model=list[PoDraftAuditItem])
+def get_production_drafts_audit(
+    days: int = Query(default=7, ge=1, le=365),
+    db: Session = Depends(get_db),
+    user: User = Depends(manage_orders),
+) -> list[PoDraftAuditItem]:
+    """Аудит зависших черновиков заказов на производство."""
+    now = datetime.now(timezone.utc)
+    drafts = (
+        db.query(ProductionOrder)
+        .filter(ProductionOrder.status == ORDER_DRAFT)
+        .order_by(ProductionOrder.created_at.asc())
+        .all()
+    )
+    items: list[PoDraftAuditItem] = []
+    for po in drafts:
+        tasks_count = db.query(ProductionTask.id).filter(ProductionTask.production_order_id == po.id).count()
+        po_dt = po.created_at if po.created_at.tzinfo else po.created_at.replace(tzinfo=timezone.utc)
+        days_idle = (now - po_dt).days
+        lines_cnt = len(po.lines)
+        total_q = sum(float(ln.quantity) for ln in po.lines)
+
+        reason = None
+        if tasks_count == 0 and lines_cnt == 0:
+            reason = "Пустой черновик запуска (0 позиций, 0 заданий)"
+        elif tasks_count == 0 and days_idle >= days:
+            reason = f"Зависший незапущенный заказ (> {days} дн. без заданий)"
+
+        if reason:
+            items.append(
+                PoDraftAuditItem(
+                    id=po.id,
+                    name=po.name,
+                    customer=po.customer,
+                    created_at=po.created_at,
+                    days_idle=days_idle,
+                    lines_count=lines_cnt,
+                    total_qty=round(total_q, 2),
+                    has_tasks=tasks_count > 0,
+                    reason_label=reason,
+                )
+            )
+    return items
+
+
+@router.post("/production-orders/bulk-cleanup-drafts")
+def bulk_cleanup_production_drafts(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(manage_orders),
+) -> dict:
+    """Массовое удаление неиспользуемых черновиков заказов на производство."""
+    order_ids = payload.get("order_ids", [])
+    cleaned = []
+    for oid in order_ids:
+        po = db.get(ProductionOrder, oid)
+        if po is None or po.status != ORDER_DRAFT:
+            continue
+        tasks_count = db.query(ProductionTask.id).filter(ProductionTask.production_order_id == po.id).count()
+        if tasks_count > 0:
+            continue
+        db.delete(po)
+        cleaned.append(oid)
+    db.commit()
+    return {"cleaned_count": len(cleaned), "ids": cleaned}
+
+
+@router.get("/production-orders/{order_id}/timeline")
+def get_production_order_timeline_api(
+    order_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(view_orders),
+) -> dict:
+    """Сквозной интерактивный таймлайн заказа на производство."""
+    from app.services.order_timeline import get_production_order_timeline
+
+    try:
+        tl = get_production_order_timeline(db, order_id)
+        return tl.to_dict()
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+
+
 @router.get("/production-orders/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: Session = Depends(get_db), user: User = Depends(view_orders)) -> OrderOut:
     return _order_out(db, _get_order(db, order_id))

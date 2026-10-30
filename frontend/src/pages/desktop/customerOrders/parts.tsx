@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, DatePicker, Form, Input, InputNumber, Modal, Segmented, Select, Space, Table, Typography, message } from "antd";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";
 import ItemLinesEditor, { emptyLine, type LineDraft } from "../../../components/ItemLinesEditor";
 import {
+  checkCustomerOrderInvoice,
+  type CheckInvoiceResult,
   createCustomerOrder,
   moveCustomerOrder,
   updateCustomerOrder,
@@ -38,6 +40,28 @@ export const editableBy = (o: CustomerOrder, production: boolean) =>
 export function CustomerOrderModal({ order, onClose, onSaved }: { order: CustomerOrder | null; onClose: () => void; onSaved: (o: CustomerOrder) => void }) {
   const qc = useQueryClient();
   const [invoiceNo, setInvoiceNo] = useState(order?.invoice_no ?? "");
+  const [dupWarning, setDupWarning] = useState<CheckInvoiceResult | null>(null);
+
+  useEffect(() => {
+    const trimmed = invoiceNo.trim();
+    if (!trimmed || (order && trimmed === order.invoice_no)) {
+      setDupWarning(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await checkCustomerOrderInvoice(trimmed, order?.id);
+        if (res.exists) {
+          setDupWarning(res);
+        } else {
+          setDupWarning(null);
+        }
+      } catch {
+        // ignore
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [invoiceNo, order]);
   const [invoiceDate, setInvoiceDate] = useState<Dayjs | null>(order?.invoice_date ? dayjs(order.invoice_date) : null);
   const [customer, setCustomer] = useState(order?.customer ?? "");
   const [amount, setAmount] = useState<number | null>(order?.amount_rub ?? null);
@@ -90,6 +114,15 @@ export function CustomerOrderModal({ order, onClose, onSaved }: { order: Custome
         <Space size={12} wrap style={{ display: "flex" }}>
           <Form.Item label="№ счёта 1С" required>
             <Input style={{ width: 160 }} value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
+            {dupWarning && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginTop: 8 }}
+                message={`Счёт ${dupWarning.invoice_no} уже существует`}
+                description={`Найден заказ №${dupWarning.order_id} (${dupWarning.customer ?? "клиент не указан"}), статус: ${dupWarning.status}. Рекомендуется дополнить его.`}
+              />
+            )}
           </Form.Item>
           <Form.Item label="Дата счёта">
             <DatePicker format="DD.MM.YYYY" value={invoiceDate} onChange={setInvoiceDate} />
