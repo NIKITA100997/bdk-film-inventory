@@ -46,7 +46,7 @@ export default function ChangePasswordModal({
         onClose();
       }}
       closable={!forced}
-      maskClosable={!forced}
+      mask={{ closable: !forced }}
       keyboard={!forced}
       cancelButtonProps={forced ? { style: { display: "none" } } : undefined}
       destroyOnHidden

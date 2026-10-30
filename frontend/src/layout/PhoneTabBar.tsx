@@ -158,7 +158,7 @@ export default function PhoneTabBar({ onManualSearchRequest }: PhoneTabBarProps)
         onManualEntry={onManualSearchRequest}
       />
 
-      <Drawer title="Ещё" placement="bottom" open={moreOpen} onClose={() => setMoreOpen(false)} height="72%">
+      <Drawer title="Ещё" placement="bottom" open={moreOpen} onClose={() => setMoreOpen(false)} size="large">
         {moreBlocks.map(({ block, items }) => (
           <div key={block.key} style={{ marginBottom: 18 }}>
             <div

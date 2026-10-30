@@ -52,7 +52,7 @@ export default function ResponsiveTable<T extends object>({
   columns,
   dataSource,
   rowKey,
-  cardBreakpoint = "md",
+  cardBreakpoint = "sm",
   locale,
   loading,
   tableKey,

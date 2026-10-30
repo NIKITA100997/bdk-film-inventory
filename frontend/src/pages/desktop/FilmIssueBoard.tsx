@@ -102,15 +102,15 @@ export default function FilmIssueBoard() {
                       </div>
                       <Space size={20} style={{ marginTop: 6 }} wrap>
                         {a.site === "Фабрика" ? (
-                          <Statistic title="нужно, м²" value={r1(a.toIssue)} valueStyle={{ fontSize: 18 }} />
+                          <Statistic title="нужно, м²" value={r1(a.toIssue)} styles={{ content: { fontSize: 18 } }} />
                         ) : (
                           <>
-                            <Statistic title="не выдано" value={a.none} valueStyle={{ fontSize: 18, color: a.none ? "#cf1322" : undefined }} />
-                            <Statistic title="частично" value={a.partial} valueStyle={{ fontSize: 18 }} />
-                            <Statistic title="ещё выдать, м²" value={r1(a.toIssue)} valueStyle={{ fontSize: 18 }} />
+                            <Statistic title="не выдано" value={a.none} styles={{ content: { fontSize: 18, color: a.none ? "#cf1322" : undefined } }} />
+                            <Statistic title="частично" value={a.partial} styles={{ content: { fontSize: 18 } }} />
+                            <Statistic title="ещё выдать, м²" value={r1(a.toIssue)} styles={{ content: { fontSize: 18 } }} />
                           </>
                         )}
-                        <Statistic title="на участке, м²" value={r1(a.onArea)} valueStyle={{ fontSize: 18 }} />
+                        <Statistic title="на участке, м²" value={r1(a.onArea)} styles={{ content: { fontSize: 18 } }} />
                       </Space>
                       {a.overdue > 0 && (
                         <Typography.Text type="danger" style={{ fontSize: 12 }}>

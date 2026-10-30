@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Button, Tabs } from "antd";
+import { Button, Grid, Tabs } from "antd";
 import {
   createRoutesFromChildren,
   useLocation,
@@ -107,6 +107,9 @@ export default function WorkspaceTabs({ pageRoutes }: { pageRoutes: ReactNode })
   const [tabs, setTabs] = useState<Tab[]>(restoreTabs);
   const activeKey = tabKey(location);
   const prevKey = useRef<string | null>(null);
+  const screens = Grid.useBreakpoint();
+  const isCompact = !screens.xl;
+  const showTabBar = isCompact ? tabs.length > 1 : tabs.length > 0;
 
   // Адрес браузера — источник правды: активная вкладка — та, чей ключ у
   // текущего адреса; новый ключ — новая вкладка (или замена при REPLACE).
@@ -168,7 +171,8 @@ export default function WorkspaceTabs({ pageRoutes }: { pageRoutes: ReactNode })
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-      <Tabs
+      {showTabBar && (
+        <Tabs
         type="editable-card"
         hideAdd
         size="small"
@@ -200,6 +204,7 @@ export default function WorkspaceTabs({ pageRoutes }: { pageRoutes: ReactNode })
         tabBarStyle={{ margin: 0, padding: "6px 8px 0" }}
         style={{ flexShrink: 0 }}
       />
+      )}
       <div style={{ flex: "1 1 auto", minHeight: 0, position: "relative" }}>
         {tabs
           .filter((t) => t.mounted)

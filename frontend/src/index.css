@@ -130,7 +130,13 @@ h5 {
 }
 @media (max-width: 991px) {
   .app-page {
-    padding: 16px;
+    padding: 12px;
+  }
+  /* Компактное меню Супер-Хабов на планшетах: 7 пунктов умещаются в одну строку без «...» */
+  .ant-menu-horizontal > .ant-menu-item,
+  .ant-menu-horizontal > .ant-menu-submenu {
+    padding-inline: 10px !important;
+    font-size: 13px !important;
   }
 }
 @media (max-width: 575px) {

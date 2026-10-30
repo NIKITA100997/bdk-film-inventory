@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import NextStep from "../../../components/NextStep";
 import { useAuth } from "../../../auth/AuthContext";
-import { Button, Card, Checkbox, Dropdown, Input, Progress, Space, Tag, Typography, message } from "antd";
+import { Button, Checkbox, Dropdown, Input, Progress, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
@@ -83,44 +83,37 @@ export default function CustomerOrders() {
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Card
-        title="Заказы покупателей"
-        extra={
-          <Space wrap>
-            <Checkbox checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)}>
-              С отгруженными и отменёнными
-            </Checkbox>
-            {canEdit && (
-              <Button onClick={() => setCleanupOpen(true)}>
-                🧹 Разобрать черновики
-              </Button>
-            )}
-            {canEdit && (
-              <Dropdown
-                trigger={["click"]}
-                menu={{
-                  // один заказ покупателя — источник на выбор (28.10)
-                  items: [
-                    { key: "import", label: "Из счёта 1С — файл или строки, или из графика…" },
-                    { key: "deal", label: "Из сделки Битрикс24 — вкладка «Сделки» →" },
-                    { key: "manual", label: "Вручную…" },
-                  ],
-                  onClick: ({ key }) =>
-                    key === "manual" ? setCreating(true) : key === "deal" ? navigate("/customer-orders?section=bitrix") : setImporting(true),
-                }}
-              >
-                <Button type="primary">Новый заказ покупателя ▾</Button>
-              </Dropdown>
-            )}
-          </Space>
-        }
-      >
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          Заказ клиента — это счёт 1С: клиент, позиции, вилка отгрузки. Менеджер отправляет его в производство; начальник
-          производства принимает с датами готовности и отгрузки (или возвращает с комментарием) и собирает принятые заказы
-          в запуск — заказ на производство. Стадия дальше считается сама: в производстве, готов, отгружен.
-        </Typography.Paragraph>
-      </Card>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "2px 0" }}>
+        <Space wrap align="center">
+          <Typography.Text strong style={{ fontSize: 16 }}>Реестр счетов 1С</Typography.Text>
+          <Checkbox checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)}>
+            С закрытыми
+          </Checkbox>
+        </Space>
+        <Space wrap>
+          {canEdit && (
+            <Button onClick={() => setCleanupOpen(true)}>
+              🧹 Разобрать черновики
+            </Button>
+          )}
+          {canEdit && (
+            <Dropdown
+              trigger={["click"]}
+              menu={{
+                items: [
+                  { key: "import", label: "Из счёта 1С — файл или строки, или из графика…" },
+                  { key: "deal", label: "Из сделки Битрикс24 — вкладка «Сделки» →" },
+                  { key: "manual", label: "Вручную…" },
+                ],
+                onClick: ({ key }) =>
+                  key === "manual" ? setCreating(true) : key === "deal" ? navigate("/customer-orders?section=bitrix") : setImporting(true),
+              }}
+            >
+              <Button type="primary">Новый заказ покупателя ▾</Button>
+            </Dropdown>
+          )}
+        </Space>
+      </div>
       {(() => {
         // «Что дальше» по роли (28.10): одно главное дело и кнопка
         const waitN = all.filter((o) => o.status === "submitted" || o.status === "draft").length;
