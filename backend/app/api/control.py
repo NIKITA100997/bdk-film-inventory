@@ -298,3 +298,44 @@ def get_data_health(refresh: bool = False, db: Session = Depends(get_db), user: 
     from app.services.data_health import data_health
 
     return data_health(db, refresh)
+
+
+# ── Аудит изменений и Dead Letter Queue (DLQ) ──
+@router.get("/control/audit-history")
+def get_audit_history_endpoint(
+    entity_type: str,
+    entity_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict]:
+    """История изменений сущности (Audit Trail): дата, автор, старые и новые значения полей."""
+    from app.services.audit import get_audit_history
+
+    return get_audit_history(db, entity_type=entity_type, entity_id=entity_id, limit=limit)
+
+
+@router.get("/control/dead-letter-queue")
+def get_dead_letter_queue_endpoint(
+    status: str | None = None,
+    service: str | None = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("period.manage")),
+) -> list[dict]:
+    """Список недоставленных внешних событий (Bitrix24, вебхуки) в Dead Letter Queue."""
+    from app.services.async_queue import list_dead_letters
+
+    return list_dead_letters(db, status=status, service=service, limit=limit)
+
+
+@router.post("/control/dead-letter-queue/{event_id}/retry")
+def retry_dead_letter_event_endpoint(
+    event_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("period.manage")),
+) -> dict:
+    """Повторная отправка недоставленного события из Dead Letter Queue."""
+    from app.services.async_queue import retry_dead_letter
+
+    return retry_dead_letter(db, event_id=event_id)

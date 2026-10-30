@@ -95,3 +95,5 @@ from app.models.control import ActionRequest, PeriodClosing
 from app.models.milling_programs import MillingProgram
 from app.models.film_reserve import FilmReservation
 from app.models.area_supply import AreaRequest, AreaStockNorm
+
+from app.models.audit import EntityAuditLog, DeadLetterEvent

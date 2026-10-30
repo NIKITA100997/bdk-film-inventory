@@ -1,3 +1,4 @@
+import PickRouteSheet from "./PickRouteSheet";
 import { useMemo, useState } from "react";
 import { Alert, Card, Empty, Input, Segmented, Select, Space, Spin, Statistic, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
@@ -239,6 +240,7 @@ export default function FilmIssueBoard() {
             : []),
           ...(q.data?.reserve_enabled ? [{ key: "reserve", label: "Резерв", children: <FilmReservesPanel /> }] : []),
           // прессы и ламинация без заданий — «закончилась — выдают» (15.10)
+          { key: "pick-route", label: "📋 Маршрутный лист сборки (Pick Route)", children: <PickRouteSheet /> },
           { key: "requests", label: "Заявки участков", children: <AreaRequestsPanel /> },
           { key: "norms", label: "Неснижаемый остаток", children: <AreaNormsPanel /> },
           { key: "fact", label: "Факт резки и выдачи", children: <IssueFactPanel /> },

@@ -39,6 +39,7 @@ const ProductionMonitor = lazyPage(() => import("./pages/desktop/production/Prod
 const SearchPage = lazyPage(() => import("./pages/desktop/SearchPage"));
 const ShipmentSchedule = lazyPage(() => import("./pages/desktop/ShipmentSchedule"));
 const CustomerOrdersHub = lazyPage(() => import("./pages/desktop/customerOrders/CustomerOrdersHub"));
+const PickRouteSheet = lazyPage(() => import("./pages/desktop/PickRouteSheet"));
 const CustomerOrderPage = lazyPage(() => import("./pages/desktop/customerOrders/CustomerOrderPage"));
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
@@ -54,6 +55,7 @@ const appPageRoutes = (
     {/* выдача плёнки и заявки участков — вкладкой «Задания цеха» (15.10); старые адреса ведут туда */}
     <Route path="/area-supply" element={<Navigate to="/production-tasks?tab=film-issue&sub=requests" replace />} />
     <Route path="/film-issue" element={<Navigate to="/production-tasks?tab=film-issue" replace />} />
+    <Route path="/pick-route" element={<RequirePermission permissions={["units.issue", "production_tasks.view"]}><PickRouteSheet /></RequirePermission>} />
     <Route path="/m/issue" element={<RequirePermission permissions={["units.issue", "units.return", "part_units.manage"]}><IssueHub /></RequirePermission>} />
     <Route path="/blanks" element={<StockRedirect kind="film" tab="free" />} />
     <Route
