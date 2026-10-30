@@ -3,7 +3,7 @@ import { ThunderboltOutlined } from "@ant-design/icons";
 import { useState } from "react";
 import NextStep, { scrollToId } from "../../../components/NextStep";
 import { apiClient } from "../../../api/client";
-import { Card, Collapse, Space, Typography, DatePicker, Tag, Button, Empty, Select, Progress, Table } from "antd";
+import { Card, Collapse, Space, Typography, DatePicker, Tag, Button, Empty, Select, Progress, Table, Segmented } from "antd";
 import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
@@ -38,6 +38,7 @@ export default function DailyPlanTab() {
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
   const [viewArea, setViewArea] = useState<string | null>(null);
   const [smartBatchingOpen, setSmartBatchingOpen] = useState(false);
+  const [stationMode, setStationMode] = useState<"touch" | "plan">("touch");
   // Карточка задания — из панели ввода быстрого отчёта («Задание №… →»).
   const [reportCardTask, setReportCardTask] = useState<number | null>(null);
   const [reportTarget, setReportTarget] = useState<
@@ -56,29 +57,41 @@ export default function DailyPlanTab() {
   const openLines = tasks.reduce((n, t) => n + t.lines.filter((l) => !l.is_closed && !l.production_closed).length, 0);
 
   const areaPicker = (
-    <Space wrap>
-      {!user?.area && (
-        <Select
-          allowClear
-          placeholder="Все участки"
-          style={{ width: 280 }}
-          value={viewArea ?? undefined}
-          onChange={(v) => setViewArea(v ?? null)}
-          options={(areasQuery.data ?? []).map((a) => ({ value: a.code, label: a.name }))}
-        />
-      )}
+    <Space wrap align="center" style={{ width: "100%", justifyContent: "space-between" }}>
+      <Space wrap align="center">
+        {!user?.area && (
+          <Select
+            allowClear
+            placeholder="Все участки"
+            style={{ width: 260 }}
+            value={viewArea ?? undefined}
+            onChange={(v) => setViewArea(v ?? null)}
+            options={(areasQuery.data ?? []).map((a) => ({ value: a.code, label: a.name }))}
+          />
+        )}
+        {effectiveArea && (
+          <Segmented
+            value={stationMode}
+            onChange={(v) => setStationMode(v as "touch" | "plan")}
+            options={[
+              { value: "touch", label: "⚡ Сенсорный терминал сдачи" },
+              { value: "plan", label: "📅 Суточный план" },
+            ]}
+          />
+        )}
+      </Space>
       {effectiveArea && (
         <Button
           icon={<ThunderboltOutlined style={{ color: "#faad14" }} />}
           onClick={() => setSmartBatchingOpen(true)}
         >
-          🎯 Умная оптимизация очереди (Smart Batching)
+          🎯 Оптимизация (Smart Batching)
         </Button>
       )}
     </Space>
   );
 
-  if (effectiveArea && !areaRequiresDailyPlan(effectiveArea)) {
+  if (effectiveArea && (stationMode === "touch" || !areaRequiresDailyPlan(effectiveArea))) {
     return (
       <Space orientation="vertical" size="large" style={{ width: "100%" }}>
         {areaPicker}
@@ -139,6 +152,12 @@ export default function DailyPlanTab() {
       )}
       {effectiveArea && <PlanForDay area={effectiveArea} canReport={canReport} />}
       {effectiveArea && <div id="area-tasks"><AreaTasks tasks={tasks} canManage={canManage} canReport={canReport} /></div>}
+      <SmartBatchingModal
+        open={smartBatchingOpen}
+        onClose={() => setSmartBatchingOpen(false)}
+        area={effectiveArea ?? ""}
+        areaName={areasQuery.data?.find((a) => a.code === effectiveArea)?.name}
+      />
       <Card
         id="area-daily"
         title={`📅 Суточный план участка на ${selectedDate.format("DD.MM.YYYY")}`}
