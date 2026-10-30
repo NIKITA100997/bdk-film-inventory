@@ -49,7 +49,7 @@ async function searchById(n: number, navigate: NavigateFunction): Promise<void> 
     icon: null,
     okText: "Отмена",
     content: (
-      <Space direction="vertical" style={{ width: "100%", marginTop: 8 }}>
+      <Space orientation="vertical" style={{ width: "100%", marginTop: 8 }}>
         {hits.map((h) => (
           <Button
             key={`${h.kind}-${h.id}`}
@@ -60,7 +60,7 @@ async function searchById(n: number, navigate: NavigateFunction): Promise<void> 
               openHit(h, navigate);
             }}
           >
-            <Space direction="vertical" size={0}>
+            <Space orientation="vertical" size={0}>
               <span>{h.title}</span>
               {h.subtitle && (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>

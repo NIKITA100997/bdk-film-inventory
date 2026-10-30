@@ -81,7 +81,7 @@ export default function QuickReport({ row, compact = false, onDone }: { row: Mon
   );
   if (compact) return <Space size={4} wrap>{fields}</Space>;
   return (
-    <Space direction="vertical" size={6} style={{ minWidth: 260 }}>
+    <Space orientation="vertical" size={6} style={{ minWidth: 260 }}>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
         {row.operation ?? "Операция"}: сделано {r2(row.good)} из {r2(row.plan)}
         {row.defect ? `, брак ${r2(row.defect)}` : ""}

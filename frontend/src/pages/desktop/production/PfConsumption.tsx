@@ -48,7 +48,7 @@ export default function PfConsumption() {
   const outdated = (data?.rows ?? []).filter((r) => r.reserve_days != null && r.suggested_min !== r.min_stock).length;
 
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Расход — всё, что списано с остатка за период: в работу по заданиям, брак и пусковые. В день — на рабочий день по календарю
         производства. Дни запаса задаёте вы; мин. остаток = расход в день × дни запаса, он сразу идёт в потребность п/ф. Сам мин.

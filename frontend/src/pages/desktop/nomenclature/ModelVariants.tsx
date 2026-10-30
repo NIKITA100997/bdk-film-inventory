@@ -43,7 +43,7 @@ export default function ModelVariants({ modelId, typeId }: { modelId: number; ty
   }, [summary, modelProp?.name]);
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card size="small">
         <Row gutter={[16, 16]}>
           <Col xs={12} md={4}>
@@ -77,7 +77,7 @@ export default function ModelVariants({ modelId, typeId }: { modelId: number; ty
 
       {summary && Object.keys(summary.by_property).length > 0 && (
         <Card size="small" title="Из чего состоит модель">
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={8} style={{ width: "100%" }}>
             {Object.entries(summary.by_property)
               .filter(([name]) => propColumns.includes(name))
               .map(([name, vals]) => (
@@ -101,7 +101,7 @@ export default function ModelVariants({ modelId, typeId }: { modelId: number; ty
       )}
 
       <Card size="small">
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           <Typography.Text type="secondary">
             Варианты — отдельные позиции (у каждого цвета свои панели и кромка на складе). Новый вариант не обязательно
             заводить заранее: в заказе на производство выберите модель — размер и цвет зададите там, вариант заведётся

@@ -68,7 +68,7 @@ export default function PartLotCreditTab() {
   const line = target?.lines.find((x) => x.task_line_id === lineId);
 
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Партии п/ф, заведённые без задания (сделали заранее, оприходовали вручную). Если под эту деталь есть открытое задание —
         засчитайте партию в него: задание считается сделанным на эти штуки, партия остаётся в остатке и уходит в работу как обычно.
@@ -100,7 +100,7 @@ export default function PartLotCreditTab() {
             title: "Задания на эту деталь",
             render: (_, l) =>
               l.lines.length ? (
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   {l.lines.slice(0, 3).map((x) => (
                     <Typography.Text key={x.task_line_id} style={{ fontSize: 12 }}>
                       №{x.task_id} «{x.task_name}» — осталось {x.remaining}
@@ -133,7 +133,7 @@ export default function PartLotCreditTab() {
         onOk={() => credit.mutate()}
       >
         {target && (
-          <Space direction="vertical" style={{ width: "100%" }}>
+          <Space orientation="vertical" style={{ width: "100%" }}>
             <Radio.Group
               value={lineId}
               onChange={(e) => {
@@ -142,7 +142,7 @@ export default function PartLotCreditTab() {
                 if (x) setQty(Math.min(target.quantity_pieces, x.remaining));
               }}
             >
-              <Space direction="vertical">
+              <Space orientation="vertical">
                 {target.lines.map((x) => (
                   <Radio key={x.task_line_id} value={x.task_line_id}>
                     №{x.task_id} «{x.task_name}» — сделано {x.done} из {x.planned}, осталось {x.remaining}

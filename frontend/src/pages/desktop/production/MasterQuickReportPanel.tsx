@@ -487,7 +487,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                 render: (_, r) => {
                   const available = availableForLine(r.line);
                   return (
-                    <Space direction="vertical" size={0}>
+                    <Space orientation="vertical" size={0}>
                       <Typography.Text strong>{r.line.part_name ?? r.line.material}</Typography.Text>
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                         {lineFilmLabel(r.line)} — произведено {r.line.produced_good_pieces} из{" "}
@@ -551,7 +551,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                           })),
                         ];
                         return (
-                          <Space direction="vertical" size={4}>
+                          <Space orientation="vertical" size={4}>
                             <RollPicker
                               options={rollPickerOptions}
                               value={r.materialUnitId}
@@ -597,7 +597,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                   const needM = r.goodPieces * r.line.length_m;
                   const short = remain != null && needM > remain;
                   return (
-                    <Space direction="vertical" size={2}>
+                    <Space orientation="vertical" size={2}>
                       <InputNumber size="small" min={0} style={{ width: 90 }} value={r.goodPieces} onChange={(v) => updateRow(r.key, { goodPieces: v ?? 0 })} />
                       {short && (
                         <Typography.Text type="warning" style={{ fontSize: 11 }}>
@@ -612,7 +612,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                 title: "Брак",
                 key: "defect",
                 render: (_, r) => (
-                  <Space direction="vertical" size={4}>
+                  <Space orientation="vertical" size={4}>
                     {r.defects.map((d, i) => (
                       <Tag key={i} closable onClose={() => removeDefectEntry(r.key, i)} style={{ marginRight: 0 }}>
                         {reasonName(d.reason)}: {d.qty} шт{d.disposition === "pererabotka" && " ♻️"}{d.disposition === "snyat" && " 🔁"}
@@ -652,11 +652,11 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
 
           {suggestedLines.length > 0 && (
             <Card size="small" style={{ marginBottom: 16, background: "#e6f7f9", borderColor: "#8dd3dc" }}>
-              <Space direction="vertical" style={{ width: "100%" }}>
+              <Space orientation="vertical" style={{ width: "100%" }}>
                 <Typography.Text>
                   💡 Уже выбранный рулон подходит по ширине ещё этим строкам того же задания:
                 </Typography.Text>
-                <Space direction="vertical" size={4}>
+                <Space orientation="vertical" size={4}>
                   {suggestedLines.map((s) => (
                     <Checkbox
                       key={s.line.id}
@@ -702,7 +702,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         {defectRow && (
           <>
             {defectRow.defects.length > 0 && (
-              <Space direction="vertical" style={{ width: "100%", marginBottom: 16 }}>
+              <Space orientation="vertical" style={{ width: "100%", marginBottom: 16 }}>
                 {defectRow.defects.map((d, i) => (
                   <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <span>

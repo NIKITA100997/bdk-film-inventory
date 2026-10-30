@@ -21,7 +21,7 @@ export default function OrderDeadlines() {
   const shipped = rows.filter((r) => r.ship_on_time !== null);
   const onTime = shipped.filter((r) => r.ship_on_time).length;
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card size="small" title="Сроки заказов">
         <Space wrap>
           <DatePicker.RangePicker format="DD.MM.YYYY" value={range} allowClear={false} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />

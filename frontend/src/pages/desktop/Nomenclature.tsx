@@ -191,7 +191,7 @@ function ItemsTab() {
   const navigate = useNavigate();
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card>
         <Typography.Paragraph type="secondary">
           Все позиции в одном списке: плёнка, п/ф, изделия. Вид задаёт, в чём позиция учитывается. Клик по строке —
@@ -525,7 +525,7 @@ function AttrsModal({ itemIds, pf, onClose }: { itemIds: number[]; pf: boolean; 
       onOk={() => mutation.mutate()}
       onCancel={() => onClose(false)}
     >
-      <Space direction="vertical" style={{ width: "100%" }} size="middle">
+      <Space orientation="vertical" style={{ width: "100%" }} size="middle">
         {row("Направление", "direction", DIRECTIONS, "как у типа")}
         {pf && row("Стадия", "stage", STAGES, "как у типа")}
         {pf && row("Режим", "make_mode", MODES, "по правилу")}
@@ -560,7 +560,7 @@ function UnlinkedTab() {
   });
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card>
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
           Названия деталей в строках заданий цеха и BOM моделей, которых нет в справочнике деталей. Такие строки не
@@ -652,7 +652,7 @@ function ManualLinksTab() {
   });
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card>
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
           Строки, связанные с деталью вручную кнопкой «Связать» (название в строке отличается от названия детали).
@@ -759,7 +759,7 @@ function SizePartsModal({ onClose }: { onClose: () => void }) {
       onOk={() => mutation.mutate()}
       cancelText="Закрыть"
     >
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Text type="secondary">
           Отметьте группы — каждая станет позицией п/ф с этим размером, её строки в заданиях и BOM сразу свяжутся с ней.
           Размеры и ширина штрипса берутся из строк. Новые строки с тем же названием и размером дальше будут
@@ -794,7 +794,7 @@ function SizePartsModal({ onClose }: { onClose: () => void }) {
             {
               title: "Новая позиция",
               render: (_, c) => (
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   <span>{c.proposed_name}</span>
                   {c.existing_part_id && <Tag color="blue">уже есть — только связать</Tag>}
                 </Space>

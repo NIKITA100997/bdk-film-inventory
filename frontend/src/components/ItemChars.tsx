@@ -40,7 +40,7 @@ export function ItemChars({
   const inName = (v: string) => !by["серия"] && !!name && name.toLowerCase().includes(v.toLowerCase());
   const flags = chars.filter((c) => !used.has(c.code) && !inName(c.value));
   return (
-    <Space direction="vertical" size={2}>
+    <Space orientation="vertical" size={2}>
       <Space size={[6, 4]} wrap>
         {head && (strong ? <Typography.Text strong>{head}</Typography.Text> : <span>{head}</span>)}
         {by["цвет"] && (

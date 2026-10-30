@@ -41,7 +41,7 @@ function HitList({ title, hits }: { title: string; hits: TextHit[] }) {
         dataSource={hits}
         renderItem={(h) => (
           <List.Item>
-            <Space direction="vertical" size={0} style={{ minWidth: 0 }}>
+            <Space orientation="vertical" size={0} style={{ minWidth: 0 }}>
               <Space size={6} wrap>
                 <Link to={HREF[h.kind](h.id)}>{h.title}</Link>
                 {!h.active && <Tag>{h.kind === "order" ? "закрыт" : h.kind === "task" ? "в архиве" : "не используется"}</Tag>}
@@ -76,7 +76,7 @@ export default function SearchPage() {
   const total = data ? data.items.length + data.tasks.length + data.orders.length : 0;
 
   return (
-    <Space direction="vertical" size={12} style={{ width: "100%", maxWidth: 960 }}>
+    <Space orientation="vertical" size={12} style={{ width: "100%", maxWidth: 960 }}>
       <Input.Search
         allowClear
         enterButton={<SearchOutlined />}

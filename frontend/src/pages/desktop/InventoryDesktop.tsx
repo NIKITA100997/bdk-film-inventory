@@ -158,7 +158,7 @@ export default function InventoryDesktop() {
   const unresolvedShortages = closeResult?.shortages.length ?? 0;
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Row gutter={[12, 12]}>
         <Col xs={24} sm={12} md={8}>
           <Card size="small">

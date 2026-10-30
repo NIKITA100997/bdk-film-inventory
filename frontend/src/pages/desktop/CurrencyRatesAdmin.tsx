@@ -27,7 +27,7 @@ export default function CurrencyRatesAdmin() {
   });
   const missing = (q.data ?? []).filter((c) => c.rate == null);
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%", maxWidth: 720 }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%", maxWidth: 720 }}>
       <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
         У каждой позиции цена заводится в своей валюте (рубли, евро, доллары); в рубли она пересчитывается по этому курсу —
         одному на всё приложение. Поменяли курс — себестоимость и прайс сразу считаются по новому.

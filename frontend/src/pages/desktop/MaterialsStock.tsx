@@ -79,7 +79,7 @@ export function MaterialsStockTab() {
   const minusCount = (stockQuery.data ?? []).filter((r) => r.balance < 0).length;
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card
         title="Остатки материалов"
         extra={
@@ -178,7 +178,7 @@ export function MaterialsStockTab() {
                   title: "Стоимость",
                   render: (_: unknown, r: MaterialStockRow) =>
                     r.value_rub != null ? (
-                      <Space direction="vertical" size={0}>
+                      <Space orientation="vertical" size={0}>
                         <span style={{ fontVariantNumeric: "tabular-nums" }}>{rub(r.value_rub)}</span>
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                           по {fmt(r.avg_price_rub ?? 0)} ₽/{r.unit}

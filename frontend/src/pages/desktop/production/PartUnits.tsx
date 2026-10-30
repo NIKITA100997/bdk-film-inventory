@@ -301,7 +301,7 @@ export default function PartUnits() {
   const unitSections = sectionsPf(filteredUnits, (u) => u.part_id, pf, pfAttrs, itemGroups);
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       {canManage && (
         <Card title="Оприходовать партию" extra={<Typography.Text type="secondary">без списания заготовки</Typography.Text>}>
           <Form
@@ -666,7 +666,7 @@ export default function PartUnits() {
         {(recycleTargetsQuery.data ?? []).length > 0 && (
           <div style={{ marginBottom: 16 }}>
             <Typography.Text strong>По составу из этого брака делают:</Typography.Text>
-            <Space direction="vertical" style={{ width: "100%", marginTop: 6 }}>
+            <Space orientation="vertical" style={{ width: "100%", marginTop: 6 }}>
               {(recycleTargetsQuery.data ?? []).map((t) => (
                 <Button
                   key={t.part_id}
@@ -751,7 +751,7 @@ export default function PartUnits() {
         destroyOnHidden
       >
         {cardTarget && (
-          <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Space orientation="vertical" style={{ width: "100%" }} size="middle">
             <div
               style={{
                 display: "grid",
@@ -824,7 +824,7 @@ export default function PartUnits() {
               <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
                 История
               </Typography.Text>
-              <Space direction="vertical" size={0} style={{ width: "100%", marginTop: 6 }}>
+              <Space orientation="vertical" size={0} style={{ width: "100%", marginTop: 6 }}>
                 {(eventsQuery.data ?? []).map((ev, i) => (
                   <div
                     key={ev.id}

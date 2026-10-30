@@ -58,7 +58,7 @@ export default function OrderCalendarDrawer({
         </Button>
       }
     >
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {late && (
           <Alert
             type="error"
@@ -100,7 +100,7 @@ export default function OrderCalendarDrawer({
           {areas.length === 0 ? (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="В производство ещё не запущен" />
           ) : (
-            <Space direction="vertical" style={{ width: "100%" }} size={6}>
+            <Space orientation="vertical" style={{ width: "100%" }} size={6}>
               {areas.map((a) => (
                 <div key={a.area}>
                   <Space style={{ width: "100%", justifyContent: "space-between" }}>

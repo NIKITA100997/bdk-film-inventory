@@ -290,7 +290,7 @@ function RacksConsole() {
   }
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <UnplacedUnitsCard />
       {/* wrap — без него на узком планшетном портрете "+ Добавить стеллаж"
           выдавливался за правый край экрана вместо переноса на свою строку
@@ -471,7 +471,7 @@ function RacksConsole() {
               )}
             </Space>
             {rulesForSelected && rulesForSelected.length > 0 ? (
-              <Space direction="vertical" style={{ width: "100%" }} size={6}>
+              <Space orientation="vertical" style={{ width: "100%" }} size={6}>
                 {rulesForSelected.map((rule: MacroZoneRule) => (
                   <Card key={rule.id} size="small" style={{ background: "#fff" }}>
                     <Space style={{ width: "100%", justifyContent: "space-between" }}>
@@ -590,7 +590,7 @@ export function UnplacedUnitsCard() {
 
   return (
     <CollapsibleWarningBanner storageKey="film-unplaced" count={unplacedQuery.data.length} label="Без места">
-      <Space direction="vertical" style={{ width: "100%" }} size={6}>
+      <Space orientation="vertical" style={{ width: "100%" }} size={6}>
         {unplacedQuery.data.map((u) => (
           <UnplacedRow key={u.id} unit={u} />
         ))}
@@ -824,7 +824,7 @@ function WarehousesTab() {
   });
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Card
         title="Склады"
         extra={

@@ -79,7 +79,7 @@ function ShipCell({ order: o }: { order: ProductionOrder }) {
   const req =
     o.request_status === "submitted" ? <Tag color="gold">заявка ждёт</Tag> : o.request_status === "returned" ? <Tag color="red">возвращена</Tag> : null;
   return (
-    <Space direction="vertical" size={0}>
+    <Space orientation="vertical" size={0}>
       <span>
         {o.ship_date && o.request_status !== "submitted" ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—"} {req}
       </span>
@@ -164,7 +164,7 @@ function OrdersList() {
     );
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card
         title="Заказы на производство"
         extra={
@@ -244,7 +244,7 @@ function OrdersList() {
           {
             title: "Заказ",
             render: (_, o) => (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <span>
                   №{o.id} «{o.name}» {o.kind === "stock" && <Tag color="green">на склад</Tag>}
                   {(o.priority ?? 0) > 0 && <Tag color={PRIORITY_COLOR[o.priority ?? 0]}>{PRIORITY_LABEL[o.priority ?? 0]}</Tag>}
@@ -517,7 +517,7 @@ export function OrderView({
       {/* комментарий заказа (13.10) — виден сразу и печатается в шапке каждого задания */}
       {order?.note && <Alert type="info" showIcon style={{ marginBottom: 12 }} message={<span>Комментарий к заказу: <b>{order.note}</b></span>} />}
       {order && order.status === "draft" ? (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           {(order.tasks ?? []).length > 0 && (
             <Alert
               type="info"
@@ -561,7 +561,7 @@ export function OrderView({
           )}
         </Space>
       ) : order && (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {/* заказ без строк (окутка из наряда, заготовки) — сразу задание; даты — если заданы, потребность — под заданием */}
         {order.kind !== "stock" && (order.lines.length > 0 || order.ship_date || order.promised_ready) && (
           <OrderDatesCard order={order} canManage={canManage} totalQty={orderTotals(order).qty} />
@@ -575,7 +575,7 @@ export function OrderView({
               key: "flow",
               label: "Ход",
               children: (
-                <Space direction="vertical" size="large" style={{ width: "100%" }}>
+                <Space orientation="vertical" size="large" style={{ width: "100%" }}>
           <Space wrap>
             <Typography.Text type="secondary">
               {order.ship_date ? `Отгрузка ${dayjs(order.ship_date).format("DD.MM.YYYY")}. ` : ""}
@@ -622,7 +622,7 @@ function OrderReport({ order }: { order: ProductionOrder }) {
   const current = area && areas.some(([code]) => code === area) ? area : areas[0]?.[0];
   if (!current) return null;
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       {areas.length > 1 && (
         <Segmented value={current} onChange={(v) => setArea(v as string)} options={areas.map(([value, label]) => ({ value, label }))} />
       )}

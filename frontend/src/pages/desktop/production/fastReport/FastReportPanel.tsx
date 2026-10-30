@@ -177,7 +177,7 @@ export default function FastReportPanel({
       {view === "legacy" ? (
         <MasterQuickReportPanel area={area} />
       ) : (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           <Space wrap>
             {!narrow && (
               <Segmented
@@ -407,7 +407,7 @@ function Tiles({
     return [...m.entries()];
   }, [lines]);
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       {groups.map(([film, fls]) => (
         <div key={film}>
           <Typography.Text strong>{film}</Typography.Text>
@@ -453,7 +453,7 @@ function Tiles({
                     style={{ justifyContent: "space-between", width: "100%" }}
                     align="start"
                   >
-                    <Space direction="vertical" size={0}>
+                    <Space orientation="vertical" size={0}>
                       <ItemChars chars={fl.line.item_chars} name={fl.line.part_name} showName={false} />
                       {fl.line.program && <Typography.Text style={{ fontSize: 12 }}>программа {fl.line.program}</Typography.Text>}
                       {fl.line.instruction && <Typography.Text type="warning" style={{ fontSize: 12 }}>⚑ {fl.line.instruction}</Typography.Text>}
@@ -608,7 +608,7 @@ function TableView(props: {
   const [grouped, setGrouped] = useState(true);
   if (!hasGroups) return <LinesTableView {...props} />;
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Segmented
         value={grouped ? "groups" : "lines"}
         onChange={(v) => setGrouped(v === "groups")}
@@ -886,7 +886,7 @@ function LineSheet({
       destroyOnHidden
     >
       <div className="fr-sheet">
-        <Space direction="vertical" size={10} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={10} style={{ width: "100%" }}>
           <Typography.Text type="secondary">
             {onOpenTask ? (
               <a onClick={() => onOpenTask(fl.task.id)}>
@@ -905,7 +905,7 @@ function LineSheet({
             <Alert key={w} type="warning" showIcon message={w} />
           ))}
           {r.requiresRoll && fl.line.material !== null && (
-            <Space direction="vertical" size={6} style={{ width: "100%" }}>
+            <Space orientation="vertical" size={6} style={{ width: "100%" }}>
               <Space wrap>
                 <Typography.Text>Рулон:</Typography.Text>
                 {rolls.length === 0 ? (
@@ -1123,7 +1123,7 @@ function DefectModal({
       destroyOnHidden
     >
       {current.length > 0 && (
-        <Space direction="vertical" style={{ width: "100%", marginBottom: 12 }}>
+        <Space orientation="vertical" style={{ width: "100%", marginBottom: 12 }}>
           {current.map((d, i) => (
             <Space key={i}>
               <Tag>

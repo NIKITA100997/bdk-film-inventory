@@ -167,7 +167,7 @@ export default function GroupedTable<T extends object>({
   const same = active.length === defaultDims.length && active.every((k, i) => k === defaultDims[i]);
 
   return (
-    <Space direction="vertical" size={6} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={6} style={{ width: "100%" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
         <Typography.Text type="secondary">Группировка:</Typography.Text>
         {used.length === 0 && <Typography.Text type="secondary">нет</Typography.Text>}

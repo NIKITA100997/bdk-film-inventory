@@ -39,7 +39,7 @@ export function useReleaseReservation() {
       destroyOnClose
     >
       {target && (
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <Typography.Text>
             {target.unit_label}: {r1(target.length_m)} м под {target.task_name ?? `заказ ${target.invoice_no ?? target.customer_order_id}`}
           </Typography.Text>
@@ -69,7 +69,7 @@ export default function FilmReservesPanel() {
   const release = useReleaseReservation();
   const rows = (list.data ?? []).filter((r) => !spec || r.spec_key === spec);
   return (
-    <Space direction="vertical" style={{ width: "100%" }} size="large">
+    <Space orientation="vertical" style={{ width: "100%" }} size="large">
       <Table
         size="small"
         rowKey="spec_key"

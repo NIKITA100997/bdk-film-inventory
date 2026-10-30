@@ -492,7 +492,7 @@ export default function UnitCard() {
           </Descriptions>
 
           {!action && (
-            <Space direction="vertical" style={{ width: "100%" }} size="middle">
+            <Space orientation="vertical" style={{ width: "100%" }} size="middle">
               <Space wrap size="middle">
                 {availableActions(unit)
                   .filter((a) => (a === "cut" ? hasPermission("units.split") || hasPermission("units.cut") : hasPermission(actionPermissions[a])))
@@ -606,7 +606,7 @@ export default function UnitCard() {
           )}
 
           {action === "transfer" && (
-            <Space direction="vertical" style={{ width: "100%", marginTop: 16 }}>
+            <Space orientation="vertical" style={{ width: "100%", marginTop: 16 }}>
               <Typography.Text>Склад назначения</Typography.Text>
               <Select
                 style={{ width: "100%" }}
@@ -711,7 +711,7 @@ export default function UnitCard() {
             locale={{ emptyText: "Событий пока нет" }}
             renderItem={(ev) => (
               <List.Item>
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   <span>
                     <Tag>{ev.event_type.replace(/_/g, " ")}</Tag>
                     {fmtDateTime(ev.timestamp)} — {userName(ev.user_id)}

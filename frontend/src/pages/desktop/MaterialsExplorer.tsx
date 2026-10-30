@@ -352,7 +352,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
     Modal.confirm({
       title: on ? `Пометить неликвидом: ${selectedUnitIds.length} шт.` : `Снять пометку неликвид: ${selectedUnitIds.length} шт.`,
       content: (
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <Typography.Text type="secondary">
             {on
               ? "Обычные задания эти рулоны брать не будут — только строки «из неликвида». В «доступно» и «заказать» они не считаются."
@@ -439,7 +439,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
   });
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Card
         title="Материалы"
         extra={
@@ -463,7 +463,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
           </Space>
         }
       >
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           <Input
             size="large"
             // enterKeyHint — на этой странице ниже есть ещё несколько
@@ -641,7 +641,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                 dataIndex: "total_area_m2",
                 sorter: (a, b) => a.total_area_m2 - b.total_area_m2,
                 render: (v: number, r) => (
-                  <Space direction="vertical" size={0}>
+                  <Space orientation="vertical" size={0}>
                     {v}
                     {(r.illiquid_area_m2 ?? 0) > 0 && (
                       <Typography.Text type="warning" style={{ fontSize: 12 }}>
@@ -658,7 +658,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                       title: "Стоимость, ₽",
                       sorter: (a: StockSummaryLine, b: StockSummaryLine) => (a.value_rub ?? 0) - (b.value_rub ?? 0),
                       render: (_: unknown, r: StockSummaryLine) => (
-                        <Space direction="vertical" size={0}>
+                        <Space orientation="vertical" size={0}>
                           <span style={{ fontVariantNumeric: "tabular-nums" }}>{r.value_rub != null ? rub(r.value_rub) : "—"}</span>
                           {(r.unpriced_area_m2 ?? 0) > 0 && (
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -735,7 +735,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                         const o = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
                         const label = normsLabel(o?.min_stock_m2, o?.min_batch_m2, o?.batch_multiple_m2);
                         return (
-                          <Space direction="vertical" size={0}>
+                          <Space orientation="vertical" size={0}>
                             {label !== "—" && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{label}</Typography.Text>}
                             {(o?.to_order_m2 ?? 0) > 0 ? (
                               <Space size={4} wrap>
@@ -1370,7 +1370,7 @@ function OrderToCart({ inCart, suggested, onAdd }: { inCart: number; suggested: 
   const [m, setM] = useState<number | null>(null);
   const value = m ?? suggested;
   return (
-    <Space direction="vertical" size={2} onClick={(e) => e.stopPropagation()}>
+    <Space orientation="vertical" size={2} onClick={(e) => e.stopPropagation()}>
       <Space.Compact size="small">
         <InputNumber size="small" min={1} style={{ width: 90 }} placeholder="метров" value={value} onChange={setM} aria-label="Метров заказать" />
         <Button

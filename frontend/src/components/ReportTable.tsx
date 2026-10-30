@@ -48,7 +48,7 @@ export default function ReportTable<T extends object>({ title, filename, rowKey,
   const toPrintRows = () => data.map((r) => Object.fromEntries(visibleColumns.map((c) => [c.key, c.printValue(r)])));
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
         <Space wrap>
           <Button

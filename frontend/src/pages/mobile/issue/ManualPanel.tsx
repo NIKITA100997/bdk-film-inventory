@@ -21,7 +21,7 @@ import { type IssueState } from "./useIssue";
 export default function ManualPanel({ s }: { s: IssueState }) {
   const { navigate, qc, setCuttingSession, manualSkuId, setManualSkuId, manualArea, setManualArea, manualForm, manualDonor, setManualDonor, manualElsewhere, manualSkusQuery, areaOptions, confirmIfWrongWarehouse, finishSingleCut, manualSku, manualAvailableQuery, manualDirectMutation, manualFindMutation } = s;
   return (
-              <Space direction="vertical" style={{ width: "100%" }}>
+              <Space orientation="vertical" style={{ width: "100%" }}>
                 <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
                   Для случаев, когда плёнка не относится ни к одному заданию — проба, списание и т.п. Строгая
                   проверка соответствия здесь не действует.

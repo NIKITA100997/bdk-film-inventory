@@ -72,7 +72,7 @@ export default function BitrixDeals() {
     return <Alert type="warning" showIcon message="Сделки не загрузились" description={apiErrorMessage(funnel.error, "Битрикс24 не ответил")} />;
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Все сделки воронки Битрикс24 против заказов клиентов: сделка и заказ сопоставляются по номеру счёта в начале
         названия сделки. «Нет заказа» — продано, но в программе не заведено.
@@ -169,14 +169,14 @@ export default function BitrixDeals() {
               title: "Заказ",
               render: (_, d) =>
                 d.state === "linked" ? (
-                  <Space direction="vertical" size={0}>
+                  <Space orientation="vertical" size={0}>
                     <Link to={`/customer-orders/${d.order_id}`}>{d.order_invoice}</Link>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       {d.order_stage}
                     </Typography.Text>
                   </Space>
                 ) : d.candidates.length > 0 ? (
-                  <Space direction="vertical" size={4}>
+                  <Space orientation="vertical" size={4}>
                     {d.candidates.map((c) => (
                       <Space key={c.id} size={6}>
                         <Link to={`/customer-orders/${c.id}`}>{c.invoice}</Link>

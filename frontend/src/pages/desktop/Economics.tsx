@@ -59,7 +59,7 @@ function FilmTab({ rows, loading }: { rows: FilmPlanFactRow[]; loading: boolean 
   ), [rows]);
   const unpriced = rows.filter((r) => r.price_m2 == null).length;
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Row gutter={[12, 12]}>
         <Col xs={12} md={6}><Card size="small"><Statistic title="Норма, м" value={f1(t.norm)} /></Card></Col>
         <Col xs={12} md={6}><Card size="small"><Statistic title="Факт, м" value={f1(t.fact)} /></Card></Col>
@@ -105,7 +105,7 @@ function FilmTab({ rows, loading }: { rows: FilmPlanFactRow[]; loading: boolean 
           {
             title: by === "line" ? "Деталь" : by === "order" ? "Счёт / заказ" : by === "area" ? "Участок" : "Плёнка",
             render: (_, a) => (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <span>{a.label}</span>
                 {a.sub && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{a.sub}</Typography.Text>}
               </Space>
@@ -174,7 +174,7 @@ function OutputTab({ rows, loading }: { rows: OutputRow[]; loading: boolean }) {
   const good = rows.reduce((s, r) => s + r.good, 0);
   const defect = rows.reduce((s, r) => s + r.defect, 0);
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Row gutter={[12, 12]}>
         <Col xs={12} md={6}><Card size="small"><Statistic title="Годных, шт" value={f1(good)} /></Card></Col>
         <Col xs={12} md={6}><Card size="small"><Statistic title="Брак, шт" value={f1(defect)} /></Card></Col>
@@ -231,12 +231,12 @@ function DailyTab({ days, rows, loading }: { days: string[]; rows: DailyRow[]; l
   const [sel, setSel] = useState<{ row: DailyRow; day: string } | null>(null);
   const fmtCell = (r: DailyRow, v: number, x: number) =>
     r.group === "production" ? (
-      <Space direction="vertical" size={0}>
+      <Space orientation="vertical" size={0}>
         <b>{f1(v)}</b>
         {x > 0 && <Typography.Text type="danger" style={{ fontSize: 11 }}>брак {f1(x)}</Typography.Text>}
       </Space>
     ) : (
-      <Space direction="vertical" size={0}>
+      <Space orientation="vertical" size={0}>
         <b>{f1(v)}</b>
         {x > 0 && <Typography.Text type="secondary" style={{ fontSize: 11 }}>{r.extra_label === "метров" ? `${f1(x)} м` : `${f1(x)} ед.`}</Typography.Text>}
       </Space>
@@ -248,7 +248,7 @@ function DailyTab({ days, rows, loading }: { days: string[]; rows: DailyRow[]; l
   if (wh.length) data.push({ key: "h-wh", header: "Склад плёнки — операций (метров / единиц)" }, ...wh);
   const isHead = (r: DailyRow | { key: string; header: string }): r is { key: string; header: string } => "header" in r;
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <ResponsiveTable
         exportTitle="Выработка по дням"
         size="small"
@@ -267,7 +267,7 @@ function DailyTab({ days, rows, loading }: { days: string[]; rows: DailyRow[]; l
               isHead(r) ? (
                 <Typography.Text strong>{r.header}</Typography.Text>
               ) : (
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   <span>{r.label}</span>
                   {r.capacity ? <Typography.Text type="secondary" style={{ fontSize: 11 }}>мощность {f1(r.capacity)} в день</Typography.Text> : null}
                 </Space>
@@ -336,7 +336,7 @@ function CostTab({ rows, loading }: { rows: AreaCostRow[]; loading: boolean }) {
   );
   const issues = rows.filter((r) => r.issues.length).length;
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Row gutter={[12, 12]}>
         <Col xs={12} md={6}><Card size="small"><Statistic title="Работа" value={rub(t.labor)} /></Card></Col>
         <Col xs={12} md={6}><Card size="small"><Statistic title="Плёнка" value={rub(t.film)} /></Card></Col>
@@ -404,7 +404,7 @@ export default function Economics({ embedded = false }: { embedded?: boolean }) 
     queryFn: () => getDailyOutput({ date_from: p.date_from, date_to: p.date_to }),
   });
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card title={embedded ? undefined : "Экономика производства"} size={embedded ? "small" : undefined}>
         <Space wrap>
           <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />

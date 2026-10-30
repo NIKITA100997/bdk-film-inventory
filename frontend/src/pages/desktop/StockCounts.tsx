@@ -283,7 +283,7 @@ function CountView({ id, onBack }: { id: number; onBack: () => void }) {
   if (q.isLoading) return <Spin style={{ display: "block", margin: 48 }} />;
   if (!q.data) return <Empty description="Инвентаризация не найдена" />;
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Button type="link" style={{ padding: 0 }} onClick={onBack}>
         ← Все инвентаризации
       </Button>
@@ -398,7 +398,7 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
 
   return (
     <Card title={`Инвентаризация №${d.id} · ${d.place_name}`} extra={<Tag color="blue">идёт</Tag>}>
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {left > 0 ? (
           <NextStep
             tone="action"
@@ -493,7 +493,7 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
                           {
                             title: "Рулон",
                             render: (_: unknown, l: PartCountLine) => (
-                              <Space size={4} direction="vertical">
+                              <Space size={4} orientation="vertical">
                                 <b>{rollNo(l.material_unit_id)}</b>
                                 {l.elsewhere && <Tag color="orange">по учёту: {l.elsewhere}</Tag>}
                               </Space>
@@ -587,7 +587,7 @@ function PfGroups({
     return [...map.values()];
   }, [rows]);
   return (
-    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="small" style={{ width: "100%" }}>
       {groups.map((g) => {
         const exp = g.lines.reduce((s, l) => s + l.expected_qty, 0);
         const counted = g.lines.every((l) => l.counted_qty != null) ? g.lines.reduce((s, l) => s + (l.counted_qty ?? 0), 0) : null;
@@ -759,7 +759,7 @@ function CountResult({ d }: { d: PartCountDetail }) {
       title={`Инвентаризация №${d.id} · ${d.place_name}`}
       extra={d.lines_open > 0 ? <Tag color="orange">без решения: {d.lines_open}</Tag> : <Tag color="green">все решения приняты</Tag>}
     >
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {d.lines_open > 0 ? (
           <NextStep
             tone="action"

@@ -86,7 +86,7 @@ export default function FilmIssueBoard() {
             key: "tasks",
             label: "По заданиям",
             children: (
-              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+              <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
                 <Space wrap size={[12, 12]}>
                   {areaStats.map((a) => (
                     <Card
@@ -263,7 +263,7 @@ function RollsOnAreas({ rolls }: { rolls: AreaRoll[] }) {
     }, {}),
   );
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Text type="secondary">
         Рулоны и штрипсы, которые числятся на участках. «Остаток прошлого задания» — задание уже закрыто, а рулон не сдали на склад: он общий
         для участка и покрывает новые задания той же плёнки, но его стоит вернуть или списать по факту. «Выдан без задания» — по запросу участка
@@ -329,7 +329,7 @@ function RollsOnAreas({ rolls }: { rolls: AreaRoll[] }) {
 
 function Fabrika({ rows }: { rows: SiteStock[] }) {
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Text type="secondary">
         Фабрика работает со своего склада. Здесь — сколько плёнки нужно её открытым заданиям (по тому, что ещё не произведено), сколько
         свободно на складе Фабрики и сколько собрать на Северном и переместить. Если задания Фабрики не отчитываются, потребность завышена.

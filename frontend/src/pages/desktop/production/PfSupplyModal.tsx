@@ -175,7 +175,7 @@ export default function PfSupplyModal({
                 render: (_, r) => {
                   const s = r.sources[0];
                   return (
-                    <Space size={4} direction="vertical">
+                    <Space size={4} orientation="vertical">
                       <InputNumber
                         min={0}
                         size="small"

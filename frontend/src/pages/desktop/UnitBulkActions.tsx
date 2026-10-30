@@ -106,7 +106,7 @@ export default function UnitBulkActionModal({
       {action === "transfer" && <TransferBody busy={busy} run={run} />}
       {action === "link" && <LinkBody busy={busy} run={run} />}
       {action === "delete" && (
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <Alert
             type="warning"
             showIcon
@@ -139,7 +139,7 @@ function IssueBody({ units, busy, run }: { units: MaterialUnit[]; busy: boolean;
   const task = tasks.find((t) => t.id === taskId);
   const notStored = units.filter((u) => u.status !== "На_хранении").length;
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
         Как «Выдать» в карточке: единица со склада другой площадки уйдёт в перемещение. Со строкой задания проверяется,
         что материал и ширина подходят.
@@ -198,7 +198,7 @@ function ReturnBody({ units, busy, run }: { units: MaterialUnit[]; busy: boolean
     Object.fromEntries(issued.map((u) => [u.id, u.length_m])),
   );
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
         Укажите, сколько метров реально вернулось по каждой. Меньше выданного — остаток станет штрипсом, разница
         досчитается в расход по заданию, как при одиночном возврате.
@@ -248,7 +248,7 @@ function TransferBody({ busy, run }: { busy: boolean; run: Run }) {
   const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
   const [to, setTo] = useState<number | undefined>();
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
         Выбранные попадут в собирающееся перемещение на этот склад (одно на пару «откуда — куда»). Отправить его — в
         «Перемещениях между складами».
@@ -270,7 +270,7 @@ function TransferBody({ busy, run }: { busy: boolean; run: Run }) {
 function LinkBody({ busy, run }: { busy: boolean; run: Run }) {
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
         Привязка задним числом, как в карточке единицы: у каждой проверяется, что материал и ширина подходят строке.
       </Typography.Paragraph>

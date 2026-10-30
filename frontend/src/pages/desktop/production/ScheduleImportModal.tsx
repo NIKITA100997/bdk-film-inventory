@@ -220,7 +220,7 @@ export default function ScheduleImportModal({
         </Space>
       }
     >
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {fromDeal && (
           <Alert
             type="info"
@@ -434,7 +434,7 @@ export default function ScheduleImportModal({
                   title: "Позиция",
                   render: (_, r) =>
                     (r.candidates ?? []).length > 0 ? (
-                      <Space direction="vertical" size={2}>
+                      <Space orientation="vertical" size={2}>
                         <Typography.Text type="warning">Подходит несколько — выберите (запомнится):</Typography.Text>
                         <Select
                           size="small"

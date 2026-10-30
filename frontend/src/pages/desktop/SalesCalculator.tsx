@@ -180,7 +180,7 @@ export default function SalesCalculator() {
   );
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Typography.Title level={4}>Калькулятор заказа</Typography.Title>
 
       <Typography.Title level={5} style={{ marginBottom: 0 }}>
@@ -192,7 +192,7 @@ export default function SalesCalculator() {
         складе, сколько уже зарезервировано под текущие задания цеха и сколько реально свободно.
       </Typography.Paragraph>
 
-      <Space direction="vertical" style={{ width: "100%" }} size="small">
+      <Space orientation="vertical" style={{ width: "100%" }} size="small">
         {linesComputed.map((l) => (
           <Card key={l.key} size="small">
             <Space wrap size="middle" align="start">

@@ -65,7 +65,7 @@ export default function NeedsWeekly() {
   };
 
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Typography.Text type="secondary">
         Сколько плёнки и материалов нужно открытым заказам — заказам клиентов (ещё не запущенное — по пробному запуску) и заказам на
         производство (по плану) — по неделям операций. Под «нужно» — прогноз остатка на конец недели: склад + заявки на закупку с датой
@@ -170,7 +170,7 @@ function CellView({ cell, unit }: { cell?: WeekCell; unit: string }) {
     <Popover
       title={`Нужно ${n(cell.need)} ${unit}`}
       content={
-        <Space direction="vertical" size={2}>
+        <Space orientation="vertical" size={2}>
           {cell.orders.map((o, i) => (
             <span key={i}>
               {o.customer_order_id ? (

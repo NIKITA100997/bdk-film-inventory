@@ -157,13 +157,13 @@ export default function QueueCards({ s }: { s: IssueState }) {
         </Typography.Paragraph>
       );
     return (
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {[...byArea.entries()].map(([area, list]) => (
           <div key={area}>
             <Typography.Text type="secondary" style={{ fontSize: 12, letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 700 }}>
               {areaLabel(area)}
             </Typography.Text>
-            <Space direction="vertical" size="middle" style={{ width: "100%", marginTop: 6 }}>
+            <Space orientation="vertical" size="middle" style={{ width: "100%", marginTop: 6 }}>
               {list.map((g, gi) => {
                 const ready = g.rows.filter(readyRow);
                 const totalM = g.rows.reduce((sum, r) => sum + (issuedNoteForLine(r.line) ? 0 : neededLengthM(r)), 0);

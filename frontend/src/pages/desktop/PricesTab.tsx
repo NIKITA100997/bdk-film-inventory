@@ -29,7 +29,7 @@ export default function PricesTab({ canManage }: { canManage: boolean }) {
   const noPrice = all.filter((r) => r.price == null).length;
   const noRate = all.filter((r) => r.price != null && r.rub == null).length;
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap>
         <Segmented
           value={kind}
@@ -183,7 +183,7 @@ function Import1CModal({ onClose }: { onClose: () => void }) {
         </Space>
       }
     >
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Text type="secondary">
           Выгрузите из 1С прайс или список номенклатуры с ценами в Excel и выберите файл. Позиция ищется по коду 1С, потом по
           названию; найденная по названию запоминает код. Валюта — из колонки, если её нет — своя валюта позиции, иначе
@@ -194,7 +194,7 @@ function Import1CModal({ onClose }: { onClose: () => void }) {
         </Upload>
         {table.length > 0 && (
           <Space wrap align="end">
-            <Space direction="vertical" size={2}>
+            <Space orientation="vertical" size={2}>
               <Typography.Text type="secondary">Строка заголовков</Typography.Text>
               <Select
                 style={{ width: 120 }}
@@ -207,7 +207,7 @@ function Import1CModal({ onClose }: { onClose: () => void }) {
               />
             </Space>
             {(Object.keys(FIELD_LABEL) as Field[]).map((f) => (
-              <Space key={f} direction="vertical" size={2}>
+              <Space key={f} orientation="vertical" size={2}>
                 <Typography.Text type="secondary">
                   {FIELD_LABEL[f]}
                   {f === "price" ? " *" : ""}
@@ -225,7 +225,7 @@ function Import1CModal({ onClose }: { onClose: () => void }) {
                 />
               </Space>
             ))}
-            <Space direction="vertical" size={2}>
+            <Space orientation="vertical" size={2}>
               <Typography.Text type="secondary">Валюта по умолчанию</Typography.Text>
               <Select
                 style={{ width: 140 }}
@@ -234,7 +234,7 @@ function Import1CModal({ onClose }: { onClose: () => void }) {
                 options={(curQ.data ?? []).map((c) => ({ value: c.code, label: `${c.name} (${c.symbol})` }))}
               />
             </Space>
-            <Space direction="vertical" size={2}>
+            <Space orientation="vertical" size={2}>
               <Typography.Text type="secondary">Действует с</Typography.Text>
               <DatePicker format="DD.MM.YYYY" allowClear={false} value={validFrom} onChange={(d) => d && setValidFrom(d)} />
             </Space>

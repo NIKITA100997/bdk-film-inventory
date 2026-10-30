@@ -109,7 +109,7 @@ export default function WeeklyPlan() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card size="small" title="План недели">
         <Space wrap size={[12, 8]}>
           <Space size={4}>
@@ -266,7 +266,7 @@ export default function WeeklyPlan() {
             {p.events.length === 0 ? (
               <Typography.Text type="secondary">Пока пусто</Typography.Text>
             ) : (
-              <Space direction="vertical" size={4}>
+              <Space orientation="vertical" size={4}>
                 {p.events.map((e, i) => (
                   <span key={i}>
                     <Typography.Text type="secondary">{dayjs(e.created_at).format("DD.MM HH:mm")}</Typography.Text> {e.text}

@@ -23,7 +23,7 @@ export function InboxList({ items, onOpen }: { items: InboxItem[]; onOpen?: () =
           }}
           actions={[<RightOutlined key="go" style={{ color: "#999" }} />]}
         >
-          <Space direction="vertical" size={0}>
+          <Space orientation="vertical" size={0}>
             <Space size={8}>
               <Badge count={it.count} overflowCount={999} color={it.level === "urgent" ? "#d4380d" : "#8c8c8c"} />
               <Typography.Text strong={it.level === "urgent"}>{it.title}</Typography.Text>

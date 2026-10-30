@@ -139,7 +139,7 @@ function NameDictTab({ kind, label }: { kind: NameDictKind; label: string }) {
   });
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Space style={{ width: "100%", justifyContent: "space-between" }}>
         <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
           Показывать архивные
@@ -396,7 +396,7 @@ function ThicknessTab() {
   });
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Space style={{ width: "100%", justifyContent: "space-between" }}>
         <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
           Показывать архивные
@@ -548,7 +548,7 @@ function WidthAnalogsTab() {
   const groups = groupsQuery.data ?? [];
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary">
         Ширины внутри одной группы считаются взаимозаменяемыми при подборе рулона на выдаче и в плане раскроя —
         например, штрипс 290мм подходит туда, где нужен 285 или 287. Заводите группу только когда ширины
@@ -742,7 +742,7 @@ export function WriteOffReasonsTab() {
   });
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Space style={{ width: "100%", justifyContent: "space-between" }}>
         <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
           Показывать архивные

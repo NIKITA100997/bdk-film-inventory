@@ -50,7 +50,7 @@ export default function FilmAliasesTab() {
   };
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Как плёнку называют в графиках запуска, нарядах, планах заготовок и 1С → позиция справочника. Работает во всей
         программе: подбор плёнки по тексту сначала смотрит сюда. Импорт графика сам дополняет список, когда плёнку

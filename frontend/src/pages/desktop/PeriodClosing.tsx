@@ -54,7 +54,7 @@ export default function PeriodClosing() {
 
   return (
     <Card title="Закрытие периода">
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Paragraph type="secondary" style={{ maxWidth: 820, margin: 0 }}>
           После закрытия по выбранную дату включительно ничего нельзя записать, исправить или удалить задним числом: движения
           рулонов и партий п/ф, склад готовой продукции, отчёты о производстве, цены. Остатки и себестоимость закрытых месяцев
@@ -120,7 +120,7 @@ export default function PeriodClosing() {
         onCancel={() => setCloseOpen(false)}
         destroyOnHidden
       >
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <Typography.Text>Закрыть по дату включительно (обычно — последний день месяца):</Typography.Text>
           <DatePicker
             value={closeDate}
@@ -143,7 +143,7 @@ export default function PeriodClosing() {
         onCancel={() => setReopenOpen(false)}
         destroyOnHidden
       >
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <Typography.Text>
             Сейчас закрыто по {current?.format("DD.MM.YYYY")}. Оставить закрытым по (пусто — открыть всё):
           </Typography.Text>

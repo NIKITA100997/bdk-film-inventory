@@ -273,7 +273,7 @@ export default function SelectedRowPanel({ s }: { s: IssueState }) {
                       key: "substitute",
                       label: "🔁 Выдать другим материалом (замена)",
                       children: (
-                        <Space direction="vertical" style={{ width: "100%" }} size="small">
+                        <Space orientation="vertical" style={{ width: "100%" }} size="small">
                           <Typography.Text type="secondary">
                             Если нужной номенклатуры сейчас не хватает — выберите другой материал/цвет/толщину; сервер
                             запомнит замену прямо в строке задания.
@@ -386,7 +386,7 @@ export default function SelectedRowPanel({ s }: { s: IssueState }) {
             </div>
           )}
 
-          <Space direction="vertical" style={{ width: "100%", marginTop: 10 }}>
+          <Space orientation="vertical" style={{ width: "100%", marginTop: 10 }}>
             <div
               style={{
                 display: "flex",

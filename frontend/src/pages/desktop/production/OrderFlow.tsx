@@ -38,7 +38,7 @@ function ReadyButton({ order, line }: { order: ProductionOrder; line: OrderLine 
       }}
       title="Сколько готово сейчас"
       content={
-        <Space direction="vertical">
+        <Space orientation="vertical">
           <Space>
             <InputNumber min={1} max={left} value={qty} onChange={setQty} addonAfter="шт" style={{ width: 140 }} />
             <Button type="primary" disabled={!qty} loading={m.isPending} onClick={() => m.mutate()}>
@@ -149,7 +149,7 @@ export default function OrderFlow({
           fixed: "right",
           width: 150,
           render: (_, l) => (
-            <Space direction="vertical" size={2} style={{ width: "100%" }}>
+            <Space orientation="vertical" size={2} style={{ width: "100%" }}>
               <Progress percent={pct(l.done, l.quantity)} size="small" format={() => `${l.done}/${l.quantity}`} />
               {l.without_route && canManage && order.status === "released" && l.done < l.quantity && <ReadyButton order={order} line={l} />}
               {l.without_route && order.status === "released" && l.done === 0 && (
@@ -169,7 +169,7 @@ export default function OrderFlow({
       l.operations.filter((op) => op.task_id === t.id).map((op) => ({ key: `${l.id}-${op.stage_id}`, l, op })),
     );
     return (
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Space wrap>
           {rows.length > 0 && (
             <Button type="primary" onClick={() => onOpenTask(t.id)}>

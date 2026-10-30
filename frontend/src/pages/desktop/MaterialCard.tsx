@@ -120,7 +120,7 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
 
   return (
     <Modal title={`Аналоги и фото: ${skuLabel(sku)}`} open onCancel={onClose} footer={null} width={640} destroyOnHidden>
-      <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="large" style={{ width: "100%" }}>
         <Card size="small" title="Фото плёнки">
           <Space align="start">
             {photoUrl ? (
@@ -141,7 +141,7 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
               </div>
             )}
             {canEdit && (
-              <Space direction="vertical">
+              <Space orientation="vertical">
                 <Upload {...uploadProps}>
                   <Button icon={<UploadOutlined />} loading={photoMutation.isPending}>
                     {photoUrl ? "Заменить фото" : "Загрузить фото"}
@@ -253,7 +253,7 @@ function MergeSkuModal({ sku, allSkus, onClose }: { sku: MaterialSku; allSkus: M
 
   return (
     <Modal title={`Объединить позицию: ${skuLabel(sku)}`} open onCancel={onClose} footer={null} width={520} destroyOnHidden>
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Paragraph type="secondary">
           Для двух позиций, оказавшихся одним и тем же материалом под разными названиями (дубль/опечатка в
           справочнике) — весь остаток, история движений и связи объединяемой позиции переносятся на оставшуюся,
@@ -271,7 +271,7 @@ function MergeSkuModal({ sku, allSkus, onClose }: { sku: MaterialSku; allSkus: M
         {other && (
           <>
             <Radio.Group value={survivor} onChange={(e) => setSurvivor(e.target.value)}>
-              <Space direction="vertical">
+              <Space orientation="vertical">
                 <Radio value="current">Останется: {skuLabel(sku)} (эта карточка)</Radio>
                 <Radio value="other">Останется: {skuLabel(other)}</Radio>
               </Space>
@@ -517,7 +517,7 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
   };
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Card title="Карточка материала">
         {canEdit && (
           <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ marginBottom: 8 }}>
@@ -538,7 +538,7 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
         {warehousePicker && groupKey && <span style={{ marginLeft: 12 }}>{warehousePicker}</span>}
 
         {groupKey && (
-          <Space direction="vertical" size="middle" style={{ marginTop: 16, width: "100%" }}>
+          <Space orientation="vertical" size="middle" style={{ marginTop: 16, width: "100%" }}>
             <ResponsiveTable<MaterialSku>
               tableKey="material-card-skus"
               lockedColumns={["Производитель"]}

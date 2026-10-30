@@ -100,7 +100,7 @@ export default function ItemOverview({
       : [];
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <section>
         <ItemPropertiesSection
           itemId={card.item_id}

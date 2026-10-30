@@ -79,7 +79,7 @@ export function HubTab() {
   }
 
   return (
-    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+    <Space orientation="vertical" style={{ width: "100%" }} size="middle">
       {transfers.map((t) => (
         <TransferGroup key={t.id} transfer={t}>
           <ResponsiveTable<WarehouseTransferLine>
@@ -139,7 +139,7 @@ export function InTransitTab() {
   }
 
   return (
-    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+    <Space orientation="vertical" style={{ width: "100%" }} size="middle">
       {transfers.map((t) => {
         const openLines = t.lines.filter((l) => !l.received_at);
         return (
@@ -195,7 +195,7 @@ function HistoryTab() {
     : allTransfers;
 
   return (
-    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+    <Space orientation="vertical" style={{ width: "100%" }} size="middle">
     <Input.Search
       allowClear
       placeholder="Поиск — склад, № единицы…"

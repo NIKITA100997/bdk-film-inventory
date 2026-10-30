@@ -103,7 +103,7 @@ export default function StoragePlaces() {
   }, [placesQuery.data, kind, q, showArchived]);
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card
         title="Места хранения"
         extra={
@@ -228,7 +228,7 @@ function PlaceCells({ place }: { place: Place }) {
                 свободна
               </Typography.Text>
             ) : (
-              <Space direction="vertical" size={0} style={{ width: "100%" }}>
+              <Space orientation="vertical" size={0} style={{ width: "100%" }}>
                 {c.lots.slice(0, 4).map((l) => (
                   <Tooltip key={l.lot_id} title={`${lotNo(place.kind, l.lot_id)} · ${l.status}${l.detail ? ` · ${l.detail}` : ""}`}>
                     <a style={{ fontSize: 12 }} onClick={() => l.item_id && navigate(`/item/${l.item_id}?tab=stock`)}>

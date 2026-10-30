@@ -275,7 +275,7 @@ export default function ResponsiveTable<T extends object>({
   return (
     <div ref={containerRef}>
       {settingsBar}
-      <Space direction="vertical" size={8} style={{ width: "100%" }}>
+      <Space orientation="vertical" size={8} style={{ width: "100%" }}>
         {pagedRows.map((record, localIndex) => {
           const index = paginationEnabled ? (currentPage - 1) * pageSize + localIndex : localIndex;
           return (

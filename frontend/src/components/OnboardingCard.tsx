@@ -99,7 +99,7 @@ export default function OnboardingCard({ onClose }: Props) {
 
   return (
     <Card title="Добро пожаловать — с чего начать" style={{ marginBottom: 16 }}>
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {roleBlocks.map((b) => (
           <div key={b.title}>
             <Typography.Text strong>{b.title}</Typography.Text>

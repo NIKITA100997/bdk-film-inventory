@@ -88,7 +88,7 @@ export default function Planner() {
   const dayTotal = (d: string) => (board?.areas ?? []).reduce((s, a) => s + (cell.get(`${a.code}|${d}`)?.quantity ?? 0), 0);
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card
         title="Планировщик производства"
         extra={
@@ -99,7 +99,7 @@ export default function Planner() {
           </Space>
         }
       >
-        <Space direction="vertical" size={8} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={8} style={{ width: "100%" }}>
           <Typography.Text type="secondary">
             Сроки ставятся при запуске заказа — назад от отгрузки по рабочим дням. Перетащите клетку на другой день, чтобы
             перенести всё, что в ней; нажмите на клетку, чтобы перенести или разделить отдельную операцию. Красное —
@@ -332,7 +332,7 @@ function SlotsDrawer({ target, onClose }: { target: Target; onClose: () => void 
           {
             title: "Что",
             render: (_, s) => (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <span>
                   {s.what}
                   {s.operation && <Typography.Text type="secondary"> · {s.operation}</Typography.Text>}
@@ -432,7 +432,7 @@ function SplitPopover({
       trigger="click"
       title="Разделить по дням"
       content={
-        <Space direction="vertical">
+        <Space orientation="vertical">
           <Space>
             <InputNumber min={1} max={slot.quantity - 1} value={qty} onChange={setQty} addonAfter="шт" style={{ width: 140 }} />
             <DatePicker format="DD.MM" value={date} onChange={setDate} disabledDate={disabledDate} placeholder="на день" />

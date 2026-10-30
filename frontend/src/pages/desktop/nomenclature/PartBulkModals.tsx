@@ -91,7 +91,7 @@ function StageRowsEditor({
       rs.map((r, j) => (j === i ? { code: area ?? "", name: areaOptions.find((a) => a.value === area)?.label ?? "", area } : r)),
     );
   return (
-    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+    <Space orientation="vertical" style={{ width: "100%" }} size="middle">
       {rows.map((row, i) => (
         <Space key={i} style={{ width: "100%" }}>
           <Typography.Text type="secondary" style={{ width: 20 }}>

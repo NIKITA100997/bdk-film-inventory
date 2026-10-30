@@ -176,7 +176,7 @@ export default function Stock() {
     ) : null;
 
   return (
-    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="small" style={{ width: "100%" }}>
       {/* Быстрая панель ключевых операций склада (WMS) */}
       <Card
         size="small"

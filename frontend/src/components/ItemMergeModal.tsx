@@ -71,7 +71,7 @@ export default function ItemMergeModal({
         </Space>
       }
     >
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
           Эта позиция — дубль. Всё, что на неё ссылается (партии, строки заданий и заказов, резервы, движения, цены, состав,
           синонимы), переедет на основную; этапы сопоставятся по порядку или названию. Дубль уйдёт в архив, его название станет

@@ -313,7 +313,7 @@ export default function PartUnitCard() {
             locale={{ emptyText: "Событий пока нет" }}
             renderItem={(ev) => (
               <List.Item>
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   <span>
                     <Tag>{ev.event_type.replace(/_/g, " ")}</Tag>
                     {fmtDateTime(ev.occurred_at)} — {userName(ev.user_id)}

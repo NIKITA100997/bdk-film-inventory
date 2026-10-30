@@ -197,7 +197,7 @@ export default function NewModelWizard({
             <VariantChoices type={type} modelProp={modelProp} hints={hints?.properties ?? {}} choices={choices} onChange={setChoices} />
           </Col>
           <Col xs={24} lg={13}>
-            <Space direction="vertical" style={{ width: "100%" }}>
+            <Space orientation="vertical" style={{ width: "100%" }}>
               {missing.length > 0 ? (
                 <Alert type="info" showIcon message={`Выберите: ${missing.map((p) => p.name).join(", ")}`} />
               ) : (
@@ -220,7 +220,7 @@ export default function NewModelWizard({
       )}
 
       {step === 3 && type && (
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+        <Space orientation="vertical" style={{ width: "100%" }} size="middle">
           <Space wrap>
             <Typography.Text>Схема варианта:</Typography.Text>
             <Select
@@ -246,7 +246,7 @@ function TypeStep({ types, onPick }: { types: ItemType[]; onPick: (t: ItemType) 
     .filter((t) => t.is_active && t.name_template)
     .sort((a, b) => (a.kind_code === "izdelie" ? 0 : 1) - (b.kind_code === "izdelie" ? 0 : 1) || a.name.localeCompare(b.name, "ru"));
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Typography.Text type="secondary">
         Что делаем? Тип задаёт свойства, маршрут по участкам и состав — у новой модели всё это будет сразу. Нужного
         типа нет — заведите его в «Типы и правила» (можно начать с копии похожего).
@@ -255,7 +255,7 @@ function TypeStep({ types, onPick }: { types: ItemType[]; onPick: (t: ItemType) 
         {usable.map((t) => (
           <Col key={t.id} xs={24} sm={12} lg={8}>
             <Card size="small" hoverable onClick={() => onPick(t)} style={{ height: "100%" }}>
-              <Space direction="vertical" size={4} style={{ width: "100%" }}>
+              <Space orientation="vertical" size={4} style={{ width: "100%" }}>
                 <Space wrap>
                   <b>{t.name}</b>
                   <Tag>{t.kind_name}</Tag>
@@ -329,7 +329,7 @@ function ModelStep({
   });
 
   return (
-    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+    <Space orientation="vertical" style={{ width: "100%" }} size="middle">
       <Segmented
         value={mode}
         onChange={(v) => setMode(v as "new" | "existing")}
@@ -356,7 +356,7 @@ function ModelStep({
       ) : (
         <Row gutter={24}>
           <Col xs={24} md={12}>
-            <Space direction="vertical" style={{ width: "100%" }}>
+            <Space orientation="vertical" style={{ width: "100%" }}>
               <Typography.Text strong>
                 {modelProp.name} — название модели
               </Typography.Text>
@@ -374,7 +374,7 @@ function ModelStep({
             </Space>
           </Col>
           <Col xs={24} md={12}>
-            <Space direction="vertical" style={{ width: "100%" }}>
+            <Space orientation="vertical" style={{ width: "100%" }}>
               <Space wrap>
                 <Typography.Text strong>Параметры модели</Typography.Text>
                 <Select
@@ -449,7 +449,7 @@ function VariantChoices({
     if (!cur.some((x) => x === v)) set(pid, [...cur, v]);
   };
   return (
-    <Space direction="vertical" style={{ width: "100%" }} size={14}>
+    <Space orientation="vertical" style={{ width: "100%" }} size={14}>
       <Typography.Text type="secondary">
         Выберите значения — сделаю варианты «всё со всем». Можно несколько размеров и цветов сразу; подсказки — что
         чаще всего уже заведено у этого типа.
@@ -533,7 +533,7 @@ function VariantsTable({ rows, loading }: { rows: VariantRow[]; loading: boolean
         {
           title: "Вариант",
           render: (_, r) => (
-            <Space direction="vertical" size={0}>
+            <Space orientation="vertical" size={0}>
               <span>{r.name ?? "—"}</span>
               {r.errors.map((e) => (
                 <Typography.Text key={e} type="danger" style={{ fontSize: 12 }}>

@@ -104,7 +104,7 @@ export default function ProductionMonitor() {
   };
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card size="small">
         <Space wrap size={[12, 8]}>
           <Segmented

@@ -6,6 +6,7 @@ import {
   useNavigate,
   useNavigationType,
   useRoutes,
+  UNSAFE_RouteContext,
   type Location,
   type RouteObject,
 } from "react-router-dom";
@@ -85,7 +86,17 @@ function saveTabs(tabs: Tab[]): void {
   }
 }
 
+const ROOT_ROUTE_CONTEXT = { outlet: null, matches: [], isDataRoute: false };
+
 function TabPane({ routes, location, active }: { routes: RouteObject[]; location: Location; active: boolean }) {
+  return (
+    <UNSAFE_RouteContext.Provider value={ROOT_ROUTE_CONTEXT}>
+      <TabPaneContent routes={routes} location={location} active={active} />
+    </UNSAFE_RouteContext.Provider>
+  );
+}
+
+function TabPaneContent({ routes, location, active }: { routes: RouteObject[]; location: Location; active: boolean }) {
   const element = useRoutes(routes, location);
   return (
     <div

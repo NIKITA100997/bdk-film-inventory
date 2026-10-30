@@ -26,7 +26,7 @@ function reportPurchase(r: { film_requests: number[]; item_requests?: number[]; 
     Modal.info({
       title: "Материалы не отправлены — Битрикс24 не подключён",
       content: (
-        <Space direction="vertical">
+        <Space orientation="vertical">
           <Typography.Text>Передайте закупщику:</Typography.Text>
           {r.not_sent.map((t) => (
             <Typography.Text key={t} copyable>
@@ -160,7 +160,7 @@ export function ShortagesTab() {
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось создать заявки")),
   });
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         По всем открытым заказам: запущенные, принятые и отправленные заявки, черновики с датой. Склад отдаётся по очереди — сначала
         запущенные, потом принятые, потом заявки; внутри — срочные раньше, потом по дате. Открытая заявка на плёнку с датой поставки
@@ -184,7 +184,7 @@ export function ShortagesTab() {
         rowSelection={canPurchase ? { selectedRowKeys: picked, onChange: (k) => setPicked(k as string[]) } : undefined}
         expandable={{
           expandedRowRender: (r) => (
-            <Space direction="vertical" size={2}>
+            <Space orientation="vertical" size={2}>
               {r.orders.map((o) => (
                 <span key={o.order_id}>
                   {o.customer_order_id ? (

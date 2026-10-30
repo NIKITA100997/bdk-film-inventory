@@ -48,7 +48,7 @@ function StockSummaryTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap>
         <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
         <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} allowCreate={false} />
@@ -96,7 +96,7 @@ function StockByWidthTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap>
         <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
         <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} allowCreate={false} />
@@ -145,7 +145,7 @@ function RollsVsStripsTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap>
         <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
         <DictAutoComplete kind="colors" placeholder="Цвет" value={color} onChange={(v) => setColor(v || undefined)} allowCreate={false} />
@@ -173,7 +173,7 @@ function DonorAccuracyTab() {
   });
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <DatePicker.RangePicker
         format="DD.MM.YYYY"
         value={range}
@@ -216,7 +216,7 @@ function StaleUnitsTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <span style={{ color: "rgba(0,0,0,0.45)" }}>
         Единицы На_хранении без единого события дольше порога из настроек (Настройки → «давно не двигалась») —
         сигнал провести внеплановую ревизию адреса, а не ошибка.
@@ -276,7 +276,7 @@ function CuttingDiscrepancyTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <span style={{ color: "rgba(0,0,0,0.45)" }}>
         Резка по плану на несколько ширин за проход (Выдача участку → «Взять в работу») — где контрольная длина,
         введённая по факту резки, заметно отличается от расчётной (донор той же длины, что и до резки).
@@ -331,7 +331,7 @@ export function UnitReconciliationTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <span style={{ color: "rgba(0,0,0,0.45)" }}>
         Сверка по всем рулонам/штрипсам, привязанным к заданию: выданное должно сходиться с расходом по отчётам,
         списанием и фактическим остатком. Показаны только расхождения больше допуска (5%, не меньше 0.1 м).
@@ -377,7 +377,7 @@ export function PartUnitReconciliationTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <span style={{ color: "rgba(0,0,0,0.45)" }}>
         Партии п/ф, по которым отчитано (по FIFO) больше готовых деталей, чем в них когда-либо было —
         признак задвоенного расхода.
@@ -414,7 +414,7 @@ export function ReorderTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <span style={{ color: "rgba(0,0,0,0.45)" }}>
         Позиции, по которым расход обгоняет остаток и открытые заявки поставщику — тот же сигнал, что карточка «Пора
         заказывать» на «Обзоре».
@@ -466,7 +466,7 @@ export default function Reports() {
   const tab = group.tabs.find((t) => t.key === params.get("tab")) ?? group.tabs[0];
   return (
     <Card title="Отчёты">
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Segmented
           value={group.key}
           onChange={(v) => setParams({ group: v as string }, { replace: true })}

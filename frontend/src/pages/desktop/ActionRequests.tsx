@@ -100,7 +100,7 @@ function RequestsTable({ scope, canApprove }: { scope: "pending" | "all" | "mine
           {
             title: "Действие",
             render: (_, r) => (
-              <Space direction="vertical" size={2} style={{ maxWidth: 420 }}>
+              <Space orientation="vertical" size={2} style={{ maxWidth: 420 }}>
                 <Typography.Text strong>{r.summary}</Typography.Text>
                 <Space size={4} wrap>
                   <Tag color={r.kind === "period_closed" ? "purple" : "orange"}>{r.kind === "period_closed" ? "период закрыт" : "нет прав"}</Tag>
@@ -114,7 +114,7 @@ function RequestsTable({ scope, canApprove }: { scope: "pending" | "all" | "mine
           {
             title: "Статус",
             render: (_, r) => (
-              <Space direction="vertical" size={2}>
+              <Space orientation="vertical" size={2}>
                 <Tag color={REQUEST_STATUS[r.status].color}>{REQUEST_STATUS[r.status].label}</Tag>
                 {r.result && <Typography.Text style={{ fontSize: 12, maxWidth: 260, display: "block", whiteSpace: "normal" }}>{r.result}</Typography.Text>}
                 {r.resolved_by_name && (

@@ -68,7 +68,7 @@ export default function FilmCartDrawer({
       {lines.length === 0 ? (
         <Empty description="Корзина пуста — в «Остатках» укажите метры у плёнки и нажмите «В корзину»" />
       ) : (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           <Table<CartLine & { idx: number }>
             size="small"
             pagination={false}

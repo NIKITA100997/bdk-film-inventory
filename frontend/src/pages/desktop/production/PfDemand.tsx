@@ -238,7 +238,7 @@ export default function PfDemand() {
   const toCreate = selected.filter((id) => visible.has(id) && (qty[id] ?? 0) > 0);
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Card
         title="Детали п/ф: сколько произвести"
         extra={
@@ -355,7 +355,7 @@ export default function PfDemand() {
       </Card>
 
       {viewMode === "tasks" ? (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           {tasksList.length === 0 ? (
             <Card style={{ textAlign: "center", padding: 32 }}>
               <Typography.Text type="secondary">
@@ -428,7 +428,7 @@ export default function PfDemand() {
                         title: "Деталь",
                         dataIndex: "partName",
                         render: (name, s) => (
-                          <Space direction="vertical" size={0}>
+                          <Space orientation="vertical" size={0}>
                             <span style={{ fontWeight: 500 }}>{name}</span>
                             {s.firstStageArea && (
                               <Typography.Text type="secondary" style={{ fontSize: 12 }}>

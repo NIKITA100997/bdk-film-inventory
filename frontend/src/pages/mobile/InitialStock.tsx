@@ -242,7 +242,7 @@ export default function InitialStock({ embedded = false }: { embedded?: boolean 
                   </List.Item>
                 )}
               />
-              <Space style={{ width: "100%", marginTop: 16 }} direction="vertical">
+              <Space style={{ width: "100%", marginTop: 16 }} orientation="vertical">
                 <Button block onClick={() => printLabelsBatch(sessionUnits.map((u) => u.id))}>
                   Печать этикеток на всё внесённое
                 </Button>

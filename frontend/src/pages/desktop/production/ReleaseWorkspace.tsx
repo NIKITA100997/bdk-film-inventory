@@ -274,7 +274,7 @@ export default function ReleaseWorkspace({
       label: "П/ф: со склада и в работу",
       sub: needs.length ? `${needs.filter((n) => st(n).picked).length} из ${needs.length} деталей` : "не нужны",
       children: needs.length ? (
-        <Space direction="vertical" size="small" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="small" style={{ width: "100%" }}>
           <Typography.Text type="secondary">
             «Со склада» — свободный остаток уходит в резерв этого заказа; «в работу» — задания на п/ф по маршруту детали.
             Детали «на склад» по умолчанию берутся с остатка, «под заказ» (щиты, панели, детали в плёнке) — запускаются.
@@ -323,7 +323,7 @@ export default function ReleaseWorkspace({
                 title: "Деталь",
                 sortValue: (n) => n.part_name,
                 render: (_, n) => (
-                  <Space direction="vertical" size={0} style={{ paddingLeft: n.depth * 18 }}>
+                  <Space orientation="vertical" size={0} style={{ paddingLeft: n.depth * 18 }}>
                     <span>
                       {n.part_name}{" "}
                       {n.mode && <Tag color={n.mode === "stock" ? "green" : "orange"}>{n.mode === "stock" ? "на склад" : "под заказ"}</Tag>}
@@ -408,7 +408,7 @@ export default function ReleaseWorkspace({
             sub: unassigned.length ? `не выбрано: ${unassigned.length}` : "выбраны",
             mark: unassigned.length ? "нужно выбрать" : undefined,
             children: (
-              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+              <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
                 <Alert
                   type={unassigned.length ? "warning" : "success"}
                   showIcon
@@ -502,7 +502,7 @@ export default function ReleaseWorkspace({
                         const common = vals.size === 1 ? [...vals][0] : "";
                         const first = rows.find((n) => n.lamination_area && n.factory_area) ?? rows[0];
                         return (
-                          <Space direction="vertical" size={2}>
+                          <Space orientation="vertical" size={2}>
                             <LaminationAreaSelect
                               row={{ lamination_area: first.lamination_area, factory_area: first.factory_area, factory_min_pieces: first.factory_min_pieces } as PfDemandRow}
                               value={common || undefined}
@@ -543,7 +543,7 @@ export default function ReleaseWorkspace({
       sub: lay ? `готово к ${d(lay.finish)}${lay.late ? " · не успевает" : ""}` : "",
       mark: manualDates || plan.shift_days ? "вручную" : undefined,
       children: (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           <Typography.Text type="secondary">
             Сроки считаются назад от отгрузки {order.ship_date ? dayjs(order.ship_date).format("DD.MM.YYYY") : "(не указана — от сегодня)"} по
             рабочим дням и сроку операции каждого участка. Можно поставить участок на дату или сдвинуть весь заказ.
@@ -713,7 +713,7 @@ export default function ReleaseWorkspace({
       // 13.10: каждая группа (комплектующие, МДФ, пенопласт…) — отдельным
       // блоком со своей печатью и Excel
       children: (
-        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="large" style={{ width: "100%" }}>
           {[...new Set((lay?.materials ?? []).map((m) => m.group ?? "Прочее"))].map((g) => {
             const rows = (lay?.materials ?? []).filter((m) => (m.group ?? "Прочее") === g);
             return (
@@ -792,7 +792,7 @@ export default function ReleaseWorkspace({
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card size="small" style={{ position: "sticky", top: 0, zIndex: 5 }}>
         <Space wrap size={[16, 8]} style={{ width: "100%", justifyContent: "space-between" }}>
           <Space wrap size={[16, 4]}>
@@ -898,7 +898,7 @@ function LinesSection({ order, canManage, onEditLines }: { order: ProductionOrde
       return next;
     });
   return (
-    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="small" style={{ width: "100%" }}>
       <Space style={{ justifyContent: "space-between", width: "100%" }} wrap>
         <Typography.Text type="secondary">
           {order.note ?? ""} {order.category_name ? `· категория «${order.category_name}»` : ""}

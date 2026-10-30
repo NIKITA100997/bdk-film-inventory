@@ -72,7 +72,7 @@ export default function LaminationPrelaunchModal({ order, onClose }: { order: Pr
       okButtonProps={{ disabled: chosen.length === 0, loading: mutation.isPending }}
       onOk={() => mutation.mutate()}
     >
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Alert
           type="info"
           showIcon

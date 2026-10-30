@@ -122,7 +122,7 @@ export default function ProductModels() {
   };
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Card
         title="Модели продукции"
         extra={

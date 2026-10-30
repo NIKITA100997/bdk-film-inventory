@@ -85,7 +85,7 @@ export default function IntakeTab({ embedded = false }: { embedded?: boolean }) 
         </Typography.Text>
       }
     >
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {embedded && waiting.length > 0 && (
           <NextStep
             tone="action"
@@ -133,7 +133,7 @@ export default function IntakeTab({ embedded = false }: { embedded?: boolean }) 
             {
               title: "Счёт",
               render: (_, o) => (
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   <span>
                     <Link to={`/customer-orders/${o.id}`} onClick={(e) => e.stopPropagation()}>
                       <b>{o.invoice_no}</b>
@@ -147,7 +147,7 @@ export default function IntakeTab({ embedded = false }: { embedded?: boolean }) 
             {
               title: "Статус",
               render: (_, o) => (
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   <Tag color={STATUS[o.status]?.color}>{STATUS[o.status]?.label}</Tag>
                   {o.status === "returned" && o.request_comment && (
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>{o.request_comment}</Typography.Text>
@@ -159,7 +159,7 @@ export default function IntakeTab({ embedded = false }: { embedded?: boolean }) 
             {
               title: "Состав",
               render: (_, o) => (
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   {byKind([o]).map(([k, v]) => (
                     <span key={k} style={{ whiteSpace: "nowrap" }}>
                       {k} <b>{n(v)}</b>
@@ -192,7 +192,7 @@ function IntakeDetail({ order }: { order: CustomerOrder }) {
   const needs = useQuery({ queryKey: ["customer-order", order.id, "intake-needs"], queryFn: () => getCustomerIntakeNeeds(order.id), staleTime: 60_000 });
   const check = useQuery({ queryKey: ["customer-order", order.id, "plan-check"], queryFn: () => getCustomerPlanCheck(order.id), staleTime: 60_000 });
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Table
         size="small"
         rowKey="id"
@@ -269,7 +269,7 @@ function IntakeLoad({ ids }: { ids: number[] }) {
       ) : q.data?.error ? (
         <Alert type="warning" showIcon message={q.data.error} />
       ) : (
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <Typography.Text>
             {q.data?.earliest ? (
               <>
@@ -376,7 +376,7 @@ function AcceptManyModal({ orders, onClose, onDone }: { orders: CustomerOrder[];
       okButtonProps={{ disabled: missing.length > 0, loading: m.isPending }}
       onOk={() => m.mutate()}
     >
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Space wrap>
           <Typography.Text>Отгрузка всем:</Typography.Text>
           <DatePicker format="DD.MM.YYYY" value={all} onChange={setAll} />
@@ -440,7 +440,7 @@ function ReturnManyModal({ orders, onClose, onDone }: { orders: CustomerOrder[];
   return (
     <Modal open title={`Вернуть менеджерам: ${orders.length}`} onCancel={onClose} okText="Вернуть"
       okButtonProps={{ disabled: !comment.trim() || bad.length > 0, loading: m.isPending }} onOk={() => m.mutate()}>
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Typography.Text>{orders.map((o) => o.invoice_no).join(", ")}</Typography.Text>
         {bad.length > 0 && <Typography.Text type="danger">Уже возвращены: {bad.map((o) => o.invoice_no).join(", ")} — снимите с них отметку</Typography.Text>}
         <Input.TextArea autoFocus rows={3} maxLength={500} placeholder="Что не так — увидит менеджер (обязательно)" value={comment} onChange={(e) => setComment(e.target.value)} />

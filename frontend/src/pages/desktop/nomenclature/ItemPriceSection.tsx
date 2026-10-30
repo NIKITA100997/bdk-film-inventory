@@ -73,7 +73,7 @@ export default function ItemPriceSection({ itemId, kindCode, canManage }: { item
         }
       />
       {d && (
-        <Space direction="vertical" size="small" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="small" style={{ width: "100%" }}>
           <Space wrap size={[16, 4]}>
             <Typography.Text>
               Действующая:{" "}

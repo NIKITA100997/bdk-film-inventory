@@ -79,7 +79,7 @@ export default function ActionRequestPrompt() {
       }
       destroyOnHidden
     >
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         {denied.error && <Alert type="warning" showIcon message={denied.error} />}
         <Typography.Text>
           Администратор получит запрос именно на это действие и сможет выполнить его или отклонить. Ответ появится в «Запросах»

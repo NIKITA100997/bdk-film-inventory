@@ -125,7 +125,7 @@ export default function PrepView({
       render: (_, l) => {
         const cs = [...(colorsOf.get(l.key) ?? [])];
         return (
-          <Space direction="vertical" size={0}>
+          <Space orientation="vertical" size={0}>
             <b>{l.source}</b>
             {cs.length > 0 && (
               <Tooltip title={cs.join("; ")}>
@@ -169,7 +169,7 @@ export default function PrepView({
     },
   ];
   return (
-    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="small" style={{ width: "100%" }}>
       {nothingReported && (
         <Alert
           type="warning"

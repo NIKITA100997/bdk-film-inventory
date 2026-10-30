@@ -62,7 +62,7 @@ export default function ComponentsEditorModal({ card, onClose }: { card: TechCar
         добирается из следующей. «Только брак» — компонент берётся из брака этой детали, отложенного в переработку.
         {bomRows.length > 0 && " Строки из BOM модели правятся на экране моделей изделий — здесь их нет."}
       </Typography.Paragraph>
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         {rows.map((r, i) => (
           <Space key={i} wrap>
             <Select

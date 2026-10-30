@@ -63,7 +63,7 @@ export default function RouteEditorModal({ card, onClose }: { card: TechCard; on
         Операции по порядку: что делают и на каком участке. Партии и история остаются на своих операциях; операцию,
         на которой есть партии, убрать нельзя — можно поменять участок или порядок. {OPERATION_ROLE_HINT}
       </Typography.Paragraph>
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         {rows.map((r, i) => (
           <Space key={i} wrap>
             <Typography.Text type="secondary" style={{ width: 20, display: "inline-block" }}>

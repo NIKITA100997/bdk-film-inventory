@@ -74,7 +74,7 @@ export default function AreasView({
   );
   if (!used.length) return <Empty description="Открытых заданий нет" />;
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       {sites.map((site) => (
         <div key={site} style={{ display: "grid", gap: 6 }}>
           <Typography.Text type="secondary" style={{ fontSize: 11, letterSpacing: ".06em", textTransform: "uppercase" }}>

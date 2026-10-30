@@ -190,7 +190,7 @@ export default function ManualCuttingPlanModal({
             {" · "}
             <a onClick={() => setDonor(null)}>сменить донора</a>
           </Typography.Paragraph>
-          <Space direction="vertical" style={{ width: "100%" }} size="small">
+          <Space orientation="vertical" style={{ width: "100%" }} size="small">
             {pieces.map((p) => (
               <div key={p.id} style={{ border: "1px solid #EDEDE8", borderRadius: 8, padding: 8 }}>
                 <Space wrap align="start">
@@ -237,7 +237,7 @@ export default function ManualCuttingPlanModal({
                 }
               />
             )}
-            <Space style={{ width: "100%" }} direction="vertical">
+            <Space style={{ width: "100%" }} orientation="vertical">
               {onCut && (
                 <Button type="primary" block disabled={includedPieces.length === 0 || overflow} onClick={handleCut}>
                   ✂️ Резать

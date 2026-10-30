@@ -21,7 +21,7 @@ export default function PfIssueList() {
     [units.data, needle],
   );
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Input.Search size="large" allowClear placeholder="Деталь, этап, ячейка или № партии" value={q} onChange={(e) => setQ(e.target.value)} />
       <Typography.Text type="secondary">
         Партии на хранении. Старые — выше: выдавайте их первыми. Часть партии — укажите количество в окне выдачи.

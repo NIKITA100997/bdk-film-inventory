@@ -53,7 +53,7 @@ export default function NotificationBell() {
   };
 
   const content = (
-    <Space direction="vertical" size="middle" style={{ width: 340, maxHeight: 420, overflowY: "auto" }}>
+    <Space orientation="vertical" size="middle" style={{ width: 340, maxHeight: 420, overflowY: "auto" }}>
       <div>
         <Typography.Text strong>Давно не двигалось ({notifications.length})</Typography.Text>
         {notifications.length === 0 ? (
@@ -69,7 +69,7 @@ export default function NotificationBell() {
                 style={{ cursor: n.read_at ? "default" : "pointer" }}
                 onClick={() => !n.read_at && readMutation.mutate(n.id)}
               >
-                <Space direction="vertical" size={0} style={{ width: "100%" }}>
+                <Space orientation="vertical" size={0} style={{ width: "100%" }}>
                   <Space>
                     {!n.read_at && <Tag color="blue">новое</Tag>}
                     <Typography.Text strong={!n.read_at}>{n.title}</Typography.Text>

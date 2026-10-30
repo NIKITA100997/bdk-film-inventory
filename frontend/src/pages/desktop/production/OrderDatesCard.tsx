@@ -120,7 +120,7 @@ export default function OrderDatesCard({ order, canManage, totalQty }: { order: 
         }}
         onOk={() => mutation.mutate()}
       >
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <Space wrap>
             <span>Готовность:</span>
             <DatePicker format="DD.MM.YYYY" value={ready} onChange={setReady} />

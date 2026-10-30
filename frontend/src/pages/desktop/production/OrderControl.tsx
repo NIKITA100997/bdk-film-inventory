@@ -86,7 +86,7 @@ export function ReduceModal({ order, onClose }: { order: ProductionOrder; onClos
       okButtonProps={{ disabled: !preview || !reason.trim(), loading: run.isPending && run.variables }}
       onOk={() => run.mutate(true)}
     >
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Space wrap>
           <Select
             style={{ width: 420 }}
@@ -139,7 +139,7 @@ export function useCancelOrder(order: ProductionOrder | null) {
     Modal.confirm({
       title: `Отменить заказ №${order.id}?`,
       content: (
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <Typography.Text>Задания уйдут в архив; сделанные п/ф останутся в остатке участков под другие заказы.</Typography.Text>
           <Input placeholder="Причина (обязательно)" onChange={(e) => (reason = e.target.value)} />
         </Space>

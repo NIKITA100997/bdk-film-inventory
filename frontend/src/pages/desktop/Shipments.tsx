@@ -97,7 +97,7 @@ function ShipByInvoice() {
   }, [invQuery.data, q]);
   const current = invoices.find((i) => i.invoice_no === sel) ?? null;
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Input.Search allowClear placeholder="Номер счёта, заказ или изделие" style={{ maxWidth: 360 }} value={q} onChange={(e) => setQ(e.target.value)} />
       <Table<FgInvoice>
         size="small"
@@ -167,7 +167,7 @@ function InvoicePanel({ inv, canShip, onShipped }: { inv: FgInvoice; canShip: bo
   });
   return (
     <Card size="small" title={`Счёт ${inv.invoice_no}`} extra={<Typography.Text type="secondary">{inv.orders.join(", ")}</Typography.Text>}>
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Table
           size="small"
           rowKey="order_line_id"
@@ -363,7 +363,7 @@ function ReturnModal({ sh, onClose }: { sh: FgShipment; onClose: () => void }) {
       width={720}
       destroyOnHidden
     >
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Typography.Text type="secondary">
           Двери вернутся на склад под тот же заказ и счёт — их можно отгрузить снова или скорректировать, если они в браке.
         </Typography.Text>

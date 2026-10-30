@@ -45,7 +45,7 @@ export default function ModularHome() {
   }
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Space align="center" style={{ justifyContent: "space-between", width: "100%" }}>
         <Space align="baseline" size={12}>
           <Typography.Title level={4} style={{ margin: 0 }}>
@@ -173,7 +173,7 @@ function HomeSettings({
                   })
                 }
               >
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   <b>{m.title}</b>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>{m.hint}</Typography.Text>
                 </Space>

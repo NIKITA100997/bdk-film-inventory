@@ -29,7 +29,7 @@ function UnplacedPartUnitsCard({ areaLabel }: { areaLabel: (code: string | null)
   return (
     <div style={{ marginBottom: 16 }}>
       <CollapsibleWarningBanner storageKey="part-unplaced" count={unplaced.length} label="Без адреса">
-        <Space direction="vertical" style={{ width: "100%" }} size={6}>
+        <Space orientation="vertical" style={{ width: "100%" }} size={6}>
           {unplaced.map((u) => (
             <UnplacedPartUnitRow key={u.id} unit={u} areaLabel={areaLabel} onPlaced={() => qc.invalidateQueries({ queryKey: ["part-units"] })} />
           ))}

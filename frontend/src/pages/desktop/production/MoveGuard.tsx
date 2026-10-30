@@ -60,7 +60,7 @@ export function useMoveGuard() {
         </Space>
       }
     >
-      <Space direction="vertical" style={{ width: "100%" }} size="middle">
+      <Space orientation="vertical" style={{ width: "100%" }} size="middle">
         {next.length > 0 && (
           <Alert
             type="warning"

@@ -79,7 +79,7 @@ export default function GroupsModal({
 
   return (
     <Modal open={open} onCancel={onClose} footer={null} title={`Группы: ${kindName}`} width={560} destroyOnHidden>
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {nodes.length ? (
           <Tree
             treeData={nodes}
@@ -108,7 +108,7 @@ export default function GroupsModal({
           </Button>
         </Space.Compact>
         {current && (
-          <Space direction="vertical" style={{ width: "100%" }}>
+          <Space orientation="vertical" style={{ width: "100%" }}>
             <Typography.Text strong>Выбрана: {current.name}</Typography.Text>
             <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Название" />
             <TreeSelect

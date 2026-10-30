@@ -40,7 +40,7 @@ export function AreaLoadWidget() {
   const rows = q.data ?? [];
   const weeks = rows[0]?.weeks?.map((w) => w.week_start) ?? [];
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Table<AreaLoad>
         size="small"
         rowKey="area"
@@ -54,7 +54,7 @@ export function AreaLoadWidget() {
             title: "Участок",
             fixed: "left",
             render: (_, r) => (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <span>{r.name}</span>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {r.per_day == null ? "мощность не задана" : `${n(r.per_day)} шт/день${r.per_day_source === "fact" ? " по факту" : ""}`}
@@ -137,7 +137,7 @@ export function MyOrdersWidget() {
         {
           title: "Счёт",
           render: (_, o) => (
-            <Space direction="vertical" size={0}>
+            <Space orientation="vertical" size={0}>
               <Link to={`/customer-orders/${o.id}`}><b>{o.invoice_no}</b></Link>
               {o.customer && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{o.customer}</Typography.Text>}
             </Space>
@@ -153,7 +153,7 @@ export function MyOrdersWidget() {
           title: "",
           render: (_, o) =>
             WAIT.has(o.status) ? (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <Button size="small" type="primary" loading={send.isPending && send.variables?.id === o.id} onClick={() => send.mutate(o)}>
                   Отправить в производство
                 </Button>
@@ -196,7 +196,7 @@ export function OverdueWidget() {
     byArea.set(r.area, a);
   }
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Space wrap size={[6, 6]}>
         {[...byArea.values()].sort((a, b) => b.qty - a.qty).map((a) => (
           <Tag key={a.name} color="red">
@@ -246,7 +246,7 @@ export function DeliveriesWidget() {
     .sort((a, b) => (a.promised_delivery_date ?? "9999").localeCompare(b.promised_delivery_date ?? "9999"));
   const waitingOrder = (q.data ?? []).filter((r) => r.status === "open" && !r.order_id).length;
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       {waitingOrder > 0 && (
         <Typography.Text type="warning">
           Ещё {waitingOrder} заявок не заказаны поставщику — <Link to="/purchasing">объединить в заказ</Link>

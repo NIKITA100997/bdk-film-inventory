@@ -131,7 +131,7 @@ export default function Productivity() {
 
   return (
     <Card title="Производительность участков">
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Space wrap>
           <DatePicker.RangePicker
             value={range}

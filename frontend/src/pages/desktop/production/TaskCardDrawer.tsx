@@ -280,7 +280,7 @@ function TaskCardBody({
     <div>
       <div style={{ padding: "16px 20px 0", display: "grid", gap: 8 }}>
         <Space style={{ justifyContent: "space-between", width: "100%" }} align="start" wrap>
-          <Space direction="vertical" size={4}>
+          <Space orientation="vertical" size={4}>
             <Space size={12}>
               {onBack && (
                 <Button type="link" style={{ padding: 0 }} onClick={onBack}>
@@ -393,7 +393,7 @@ function LinesTab({
     else setTarget({ action: key, line: l });
   };
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       {fabrika && t.is_active && canManage && (
         <Alert
           type="info"
@@ -412,7 +412,7 @@ function LinesTab({
           {
             title: "Деталь",
             render: (_, l) => (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <ItemChars chars={l.item_chars} name={l.part_name} />
                 {l.operation_name && <Typography.Text type="secondary">{l.operation_name}</Typography.Text>}
                 {l.program && <Tag color="geekblue">программа {l.program}</Tag>}
@@ -501,7 +501,7 @@ function LinesTab({
 
 function PfTab({ tasks, onGo, areaName }: { tasks: ProductionTask[]; onGo: (id: number) => void; areaName: (code: string) => string }) {
   return (
-    <Space direction="vertical" style={{ width: "100%" }} size="middle">
+    <Space orientation="vertical" style={{ width: "100%" }} size="middle">
       {!tasks.every(pfReady) && (
         <Alert type="warning" showIcon message="П/ф ещё не готов: отчёт окутки по этим деталям не пройдёт проверку остатка, пока деталей нет на участке." />
       )}

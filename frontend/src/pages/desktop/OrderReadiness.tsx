@@ -42,9 +42,9 @@ export default function OrderReadiness() {
   }, [rows]);
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card title="Готовность заказов">
-        <Space direction="vertical" size={8} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={8} style={{ width: "100%" }}>
           <Typography.Text type="secondary">
             Счёт (или заказ) — строка, этапы — колонки: готово, в работе (сколько из скольких и до какого дня), запланировано на
             день или просрочено. Справа — когда заказ будет готов по плану и успевает ли к отгрузке. Раскройте строку —
@@ -207,7 +207,7 @@ function InvoiceTable({ q, withClosed, onlyRisk }: { q: string; withClosed: bool
           title: "Счёт",
           fixed: "left",
           render: (_, o) => (
-            <Space direction="vertical" size={0}>
+            <Space orientation="vertical" size={0}>
               <Typography.Text strong>
                 {o.invoice}
                 {o.customer ? <Typography.Text type="secondary"> · {o.customer}</Typography.Text> : null}
@@ -223,7 +223,7 @@ function InvoiceTable({ q, withClosed, onlyRisk }: { q: string; withClosed: bool
           title: "Отгрузка",
           sorter: (a, b) => (a.ship_date ?? "9").localeCompare(b.ship_date ?? "9"),
           render: (_, o) => (
-            <Space direction="vertical" size={0}>
+            <Space orientation="vertical" size={0}>
               <span>{o.ship_date ? dayjs(o.ship_date).format("DD.MM.YYYY") : "—"}</span>
               {o.promised_ready && (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>

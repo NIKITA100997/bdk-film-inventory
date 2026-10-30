@@ -89,7 +89,7 @@ export default function DeletionRequests() {
   });
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Card title="Заявки на удаление">
         <Typography.Paragraph type="secondary">
           Сотрудники без прав суперпользователя вместо прямого удаления отправляют заявку сюда — «Одобрить» удаляет
@@ -144,7 +144,7 @@ export default function DeletionRequests() {
                 title: "Статус",
                 dataIndex: "status",
                 render: (v: DeletionRequest["status"], r) => (
-                  <Space direction="vertical" size={0}>
+                  <Space orientation="vertical" size={0}>
                     <Tag color={STATUS_TAG[v].color}>{STATUS_TAG[v].label}</Tag>
                     {r.resolution_note && (
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>

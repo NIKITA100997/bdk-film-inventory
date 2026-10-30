@@ -205,7 +205,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
   }
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Card loading={partsQuery.isLoading}>
         {/* Раздел про адаптацию под смартфон — обычный Card title/extra
          * не переносит строку на узких экранах и обрезает многоточием
@@ -393,7 +393,7 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
         {allEvents.length === 0 ? (
           <Typography.Text type="secondary">Событий пока нет.</Typography.Text>
         ) : (
-          <Space direction="vertical" size={0} style={{ width: "100%" }}>
+          <Space orientation="vertical" size={0} style={{ width: "100%" }}>
             {allEvents.map((ev, i) => (
               <div
                 key={ev.id}
@@ -448,12 +448,12 @@ export default function PartCard({ partId: partIdProp }: { partId?: number } = {
         {advanceRows.length === 0 ? (
           <Typography.Text type="secondary">На этом этапе нет партий, выданных участку.</Typography.Text>
         ) : (
-          <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Space orientation="vertical" style={{ width: "100%" }} size="middle">
             <Typography.Text type="secondary">
               Отметьте партии и при необходимости поправьте количество — можно перевести сразу несколько партий одним
               действием.
             </Typography.Text>
-            <Space direction="vertical" style={{ width: "100%" }} size={4}>
+            <Space orientation="vertical" style={{ width: "100%" }} size={4}>
               {advanceRows.map((u) => {
                 const checked = advanceQty[u.id] != null;
                 return (

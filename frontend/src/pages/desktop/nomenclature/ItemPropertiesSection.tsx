@@ -91,7 +91,7 @@ export default function ItemPropertiesSection({
     );
     const props = type?.properties ?? [];
     return (
-      <Space direction="vertical" size="small" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="small" style={{ width: "100%" }}>
         {title && (
           <Space style={{ justifyContent: "space-between", width: "100%" }} align="center">
             <Typography.Title level={5} style={{ margin: 0 }}>

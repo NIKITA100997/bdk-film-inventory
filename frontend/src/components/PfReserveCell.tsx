@@ -9,7 +9,7 @@ export default function PfReserveCell({ reserve }: { reserve: PartReserve | unde
   return (
     <Tooltip
       title={
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           {reserve.tasks.map((t) => (
             <span key={t.task_id}>
               №{t.task_id} · {t.task_name}: {fmt(t.reserved)} шт

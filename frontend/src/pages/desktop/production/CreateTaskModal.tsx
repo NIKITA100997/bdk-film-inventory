@@ -650,7 +650,7 @@ export default function CreateTaskModal({
                   width: 260,
                   render: (_, l, index) =>
                     index === editingIndex ? (
-                      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                      <Space orientation="vertical" size={4} style={{ width: "100%" }}>
                         {!(l.width_mm > 0 && l.length_m > 0) && l.part_name && (
                           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                             Из файла: «{l.part_name}»
@@ -696,7 +696,7 @@ export default function CreateTaskModal({
                   width: 280,
                   render: (_, l, index) =>
                     index === editingIndex ? (
-                      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                      <Space orientation="vertical" size={4} style={{ width: "100%" }}>
                         {!l.material && (
                           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                             Цвет из файла: «{l.color || "—"}»

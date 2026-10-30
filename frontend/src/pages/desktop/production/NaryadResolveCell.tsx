@@ -40,7 +40,7 @@ export default function NaryadResolveCell({
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось сопоставить")),
   });
   return (
-    <Space direction="vertical" size={4} style={{ width: "100%", minWidth: 260 }}>
+    <Space orientation="vertical" size={4} style={{ width: "100%", minWidth: 260 }}>
       <Typography.Text type="danger" style={{ fontSize: 12 }}>
         Не распознано: «{partName}»
       </Typography.Text>

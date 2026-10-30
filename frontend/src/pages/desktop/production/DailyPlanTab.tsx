@@ -80,7 +80,7 @@ export default function DailyPlanTab() {
 
   if (effectiveArea && !areaRequiresDailyPlan(effectiveArea)) {
     return (
-      <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="large" style={{ width: "100%" }}>
         {areaPicker}
         <MasterNextStep area={effectiveArea} openLines={openLines} mode="report" />
         {/* Главное у станка — отчёт; план и задания участка — ниже, по запросу. */}
@@ -124,7 +124,7 @@ export default function DailyPlanTab() {
   );
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       {areaPicker}
       {effectiveArea && (
         <MasterNextStep

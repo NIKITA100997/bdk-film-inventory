@@ -161,7 +161,7 @@ export default function Issue() {
           }
           description={
             returnsHidden ? null : (
-            <Space direction="vertical" size={10} style={{ width: "100%" }}>
+            <Space orientation="vertical" size={10} style={{ width: "100%" }}>
               {pendingReturnByTask.map(({ task, units }) => {
                 // Раздел про "штрипсы с остатком 0 в баннере" — среди
                 // готовых к возврату часто больше половины уже
@@ -275,7 +275,7 @@ export default function Issue() {
       ))}
 
       {queueView === "cards" && (
-        <Space direction="vertical" size="middle" style={{ width: "100%", paddingBottom: decisionsCount ? 72 : 0 }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%", paddingBottom: decisionsCount ? 72 : 0 }}>
           <Segmented
             block
             size="large"

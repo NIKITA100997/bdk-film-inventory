@@ -23,7 +23,7 @@ export function LinkTaskLineForm({
   const [lineId, setLineId] = useState<number | null>(null);
   const task = tasks.find((t) => t.id === taskId);
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <div>
         <Typography.Text>Задание</Typography.Text>
         <Select

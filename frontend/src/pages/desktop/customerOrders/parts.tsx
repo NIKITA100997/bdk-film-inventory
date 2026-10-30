@@ -239,7 +239,7 @@ export function MoveDatesModal({
       }}
       onOk={() => mutation.mutate()}
     >
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Space wrap>
           <span>Вилка клиента:</span>
           <DatePicker.RangePicker

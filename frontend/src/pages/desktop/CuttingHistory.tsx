@@ -110,7 +110,7 @@ export default function CuttingHistory() {
   };
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Каждая резка донора — одной строкой: что было нарезано, кем и когда. Отменить можно только в течение 2 часов
         после резки и только пока ни один из кусков ещё не тронут (не выдан, не перемещён, не списан, не разрезан
@@ -174,7 +174,7 @@ export default function CuttingHistory() {
               r.resulting_pieces.length === 0 ? (
                 <Typography.Text type="secondary">без куска (отрезано в отход)</Typography.Text>
               ) : (
-                <Space direction="vertical" size={2}>
+                <Space orientation="vertical" size={2}>
                   {r.resulting_pieces.map((p) => (
                     <span key={p.id}>
                       {rollNo(p.id)}: {p.width_mm}×{p.length_m} м — {destinationLabel(p.destination_kind, p.area, areaLabel)}

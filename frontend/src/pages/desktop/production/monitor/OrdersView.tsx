@@ -133,7 +133,7 @@ export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined
       onOpenChange={setOpen}
       title="Отчёт"
       content={
-        <Space direction="vertical">
+        <Space orientation="vertical">
           {quick.map((r) => (
             <QuickReport key={r.task_line_id} row={r} onDone={() => setOpen(false)} />
           ))}
@@ -265,7 +265,7 @@ export default function OrdersView({
     ),
   ];
   return (
-    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="small" style={{ width: "100%" }}>
     <FlowStrip flow={flow} active={stageOn} onPick={setStage} />
     {stageOn && (
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>

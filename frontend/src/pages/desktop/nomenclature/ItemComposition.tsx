@@ -57,7 +57,7 @@ export default function ItemComposition({ card, canEdit }: { card: TechCard; can
   if (card.source_type === "sku") return <UsedIn card={card} />;
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <section>
         <Space style={{ justifyContent: "space-between", width: "100%" }}>
           <Typography.Title level={5} style={{ margin: 0 }}>
@@ -130,7 +130,7 @@ export default function ItemComposition({ card, canEdit }: { card: TechCard; can
                 render: (_, o) => {
                   const list = consumedAt(o);
                   return list.length ? (
-                    <Space direction="vertical" size={0}>
+                    <Space orientation="vertical" size={0}>
                       {list.map((i, k) => (
                         <span key={k}>
                           {i.component_item_id ? <a onClick={() => navigate(`/item/${i.component_item_id}`)}>{i.name}</a> : i.name}
@@ -289,7 +289,7 @@ function ReplaceModal({ card, target, onClose }: { card: TechCard; target: Input
       onOk={() => mutation.mutate()}
       destroyOnHidden
     >
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Typography.Text>
           {card.name}: {target.qty_per_unit} {target.unit} на 1 шт{target.operation_name ? `, на «${target.operation_name}»` : ""}.
         </Typography.Text>

@@ -43,7 +43,7 @@ export default function BitrixDealCard({ order, canEdit }: { order: CustomerOrde
   const dirParam = dir === undefined ? undefined : dir;
   return (
     <Card size="small" title={`Сделки в Битрикс24${links.length ? ` — ${links.length}` : ""}`}>
-      <Space direction="vertical" size={8} style={{ width: "100%" }}>
+      <Space orientation="vertical" size={8} style={{ width: "100%" }}>
         {links.length > 0 && (
           <Table
             size="small"

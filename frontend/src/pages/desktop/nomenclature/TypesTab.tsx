@@ -209,7 +209,7 @@ export default function TypesTab() {
               )
             }
           >
-            <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
               {(selected.kind_code === "pf" || selected.kind_code === "izdelie") && (
                 <Space wrap>
                   <Typography.Text type="secondary">Направление:</Typography.Text>
@@ -258,7 +258,7 @@ export default function TypesTab() {
                   {
                     title: "Свойство",
                     render: (_, p) => (
-                      <Space direction="vertical" size={0}>
+                      <Space orientation="vertical" size={0}>
                         <Space size={4}>
                           <span>{p.name}</span>
                           {p.is_required && <Tag color="orange">обязательное</Tag>}
@@ -284,7 +284,7 @@ export default function TypesTab() {
                       p.value_type !== "list" ? (
                         "—"
                       ) : (
-                        <Space direction="vertical" size={2}>
+                        <Space orientation="vertical" size={2}>
                           <span>
                             {p.options.length === 0
                               ? "нет"
@@ -503,7 +503,7 @@ function PropertyModal({
               Необязательно. Например, у серии: толщина каркаса, толщина панели, кромка — их потом используют правила
               состава.
             </Typography.Paragraph>
-            <Space direction="vertical" style={{ width: "100%" }}>
+            <Space orientation="vertical" style={{ width: "100%" }}>
               {draft.option_fields.map((f, i) => (
                 <Space key={i} wrap>
                   <Input placeholder="Название" value={f.name} style={{ width: 220 }} onChange={(e) => setField(i, { name: e.target.value })} />

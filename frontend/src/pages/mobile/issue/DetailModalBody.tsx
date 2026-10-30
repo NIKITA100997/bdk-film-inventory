@@ -19,7 +19,7 @@ export default function DetailModalBody({ s, row }: { s: IssueState; row: NeedTa
       // через CuttingForm) показываются ВМЕСТЕ, не взаимоисключающе —
       // так же, как раньше банер и карточка строки сосуществовали.
       return (
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+        <Space orientation="vertical" style={{ width: "100%" }} size="middle">
           <GroupDecisionPanel
             sku={findSku(skusQuery.data, row.line.material, row.line.color, row.line.thickness)}
             rows={groupRows}

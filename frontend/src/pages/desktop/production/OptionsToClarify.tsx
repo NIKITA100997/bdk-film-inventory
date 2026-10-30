@@ -26,7 +26,7 @@ export default function OptionsToClarify({ order, canManage }: { order: Producti
       showIcon
       message="Уточнить перед запуском — нет в счёте"
       description={
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           {[...fields.values()].map(({ f, lines }) => (
             <FieldRow key={f.code} order={order} field={f} lines={lines} canManage={canManage} />
           ))}

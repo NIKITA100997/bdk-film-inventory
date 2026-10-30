@@ -210,7 +210,7 @@ export default function AreaRequestsPanel({ kind }: { kind?: SupplyKind }) {
   });
   const today = dayjs().format("YYYY-MM-DD");
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Space wrap>
         <Segmented
           value={mode}
@@ -299,7 +299,7 @@ export default function AreaRequestsPanel({ kind }: { kind?: SupplyKind }) {
           {
             title: "Статус",
             render: (_, r) => (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <Tag color={STATUS[r.status].color}>{STATUS[r.status].label}</Tag>
                 {r.closed_at && (
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>

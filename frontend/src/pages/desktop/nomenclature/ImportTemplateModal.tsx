@@ -128,7 +128,7 @@ export default function ImportTemplateModal({ type, onClose }: { type: ItemType;
             key: "columns",
             label: `Колонки (${tpl.columns.length})`,
             children: (
-              <Space direction="vertical" style={{ width: "100%" }}>
+              <Space orientation="vertical" style={{ width: "100%" }}>
                 <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
                   Колонки графика по порядку, как они идут в Excel. Нужны «Наименование» и «Количество»; остальное —
                   свойства позиции. Строка-шапка (названия колонок) и заглушки «#VALUE!» пропускаются сами.
@@ -224,7 +224,7 @@ export default function ImportTemplateModal({ type, onClose }: { type: ItemType;
             key: "rules",
             label: `Признаки из наименования (${(tpl.rules ?? []).length})`,
             children: (
-              <Space direction="vertical" style={{ width: "100%" }}>
+              <Space orientation="vertical" style={{ width: "100%" }}>
                 <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
                   Правила по порядку: если в тексте найден шаблон — свойство получает значение; более позднее совпавшее
                   правило перекрывает раннее. Флажок — «да», если найдено; текст — найденное в скобках ( ); список — выбранный
@@ -377,7 +377,7 @@ export default function ImportTemplateModal({ type, onClose }: { type: ItemType;
             key: "test",
             label: "Проверить",
             children: (
-              <Space direction="vertical" style={{ width: "100%" }}>
+              <Space orientation="vertical" style={{ width: "100%" }}>
                 <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
                   Вставьте несколько строк графика — покажем, какие свойства получит каждая строка по текущему (ещё не
                   сохранённому) шаблону. Ничего не сохраняется.

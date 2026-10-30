@@ -51,7 +51,7 @@ export default function CloseByLinesModal({ task, onClose }: { task: ProductionT
       onOk={() => save.mutate()}
       onCancel={onClose}
     >
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Typography.Text type="secondary">
           Укажите, сколько сделано всего по каждой позиции. Недостающее до этого числа засчитается без рулона и без списания плёнки и п/ф —
           как «Закрыть: всё сделано»; готовое изделие придёт на склад. Строки без галочки не трогаются и остаются открытыми.

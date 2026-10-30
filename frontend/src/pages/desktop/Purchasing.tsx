@@ -222,7 +222,7 @@ export default function Purchasing() {
   };
 
   return (
-    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="small" style={{ width: "100%" }}>
       {/* Унифицированная шапка Хаба Закупок */}
       <Card
         size="small"
@@ -408,7 +408,7 @@ export default function Purchasing() {
                       title: "Статус",
                       dataIndex: "status",
                       render: (v: string, r) => (
-                        <Space direction="vertical" size={0}>
+                        <Space orientation="vertical" size={0}>
                           {v === "open" ? <Tag color="orange">Открыта</Tag> : <Tag color="green">Закрыта</Tag>}
                           {r.linked_upd_number && (
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -572,7 +572,7 @@ export default function Purchasing() {
                           </Space>
                         ),
                         children: (
-                          <Space direction="vertical" size="small" style={{ width: "100%" }}>
+                          <Space orientation="vertical" size="small" style={{ width: "100%" }}>
                             {order.note && <Typography.Text type="secondary">{order.note}</Typography.Text>}
                             {order.lines.map((line, i) => (
                               <div
@@ -815,7 +815,7 @@ export default function Purchasing() {
         footer={null}
         destroyOnHidden
       >
-        <Space direction="vertical" size="small" style={{ width: "100%", marginBottom: 16 }}>
+        <Space orientation="vertical" size="small" style={{ width: "100%", marginBottom: 16 }}>
           {selectedLines.map((line, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px dashed #E2DFD6", paddingBottom: 6 }}>
               <span>{line.label}</span>

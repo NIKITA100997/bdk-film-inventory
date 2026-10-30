@@ -61,7 +61,7 @@ function LineReadyButton({ orderId, line }: { orderId: number; line: CustomerOrd
       }}
       title="Сколько готово сейчас"
       content={
-        <Space direction="vertical">
+        <Space orientation="vertical">
           <Space>
             <InputNumber min={1} max={left} value={qty} onChange={setQty} addonAfter="шт" style={{ width: 140 }} />
             <Button type="primary" disabled={!qty} loading={m.isPending} onClick={() => m.mutate()}>
@@ -223,7 +223,7 @@ export default function CustomerOrderPage() {
   };
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Button type="link" style={{ padding: 0 }} onClick={() => navigate("/customer-orders")}>
         ← Заказы
       </Button>
@@ -269,7 +269,7 @@ export default function CustomerOrderPage() {
       {/* Заявка в производство */}
       {o.status !== "cancelled" && o.status !== "accepted" && (
         <Card size="small" title="В производство" id="co-decision" className="card-accent-blue">
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
             {o.request_comment && (
               <Alert
                 type={o.status === "returned" ? "warning" : "info"}
@@ -422,7 +422,7 @@ export default function CustomerOrderPage() {
             {
               title: "Позиция",
               render: (_, l) => (
-                <Space direction="vertical" size={2}>
+                <Space orientation="vertical" size={2}>
                   <span>{l.item_name}</span>
                   {/* исполнение (26.10): из счёта, дописать — до запуска */}
                   <LineOptions

@@ -130,7 +130,7 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
   const opNames = (opsDraft ?? type.operations).map((o) => o.name).filter(Boolean);
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Alert
         type="info"
         showIcon
@@ -282,7 +282,7 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
             </ol>
           )
         ) : (
-          <Space direction="vertical" style={{ width: "100%", marginTop: 8 }}>
+          <Space orientation="vertical" style={{ width: "100%", marginTop: 8 }}>
             {opsDraft.map((o, i) => (
               <Space key={i} wrap>
                 <Typography.Text type="secondary">{i + 1}.</Typography.Text>
@@ -361,7 +361,7 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
                   title: "Компонент",
                   render: (_, r) =>
                     r.component_type_id ? (
-                      <Space direction="vertical" size={0}>
+                      <Space orientation="vertical" size={0}>
                         <Tag color="purple">тип: {typeName(r.component_type_id) ?? "—"}</Tag>
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                           {Object.entries(r.component_values)
@@ -391,7 +391,7 @@ export default function TypeRulesPanel({ type, canManage }: { type: ItemType; ca
             />
           )
         ) : (
-          <Space direction="vertical" style={{ width: "100%", marginTop: 8 }}>
+          <Space orientation="vertical" style={{ width: "100%", marginTop: 8 }}>
             {rulesDraft.map((r, i) => (
               <Card key={i} size="small">
                 <Row gutter={[8, 8]}>
@@ -581,7 +581,7 @@ export function CheckModal({
           {!result ? (
             <Typography.Text type="secondary">Заполните свойства и нажмите «Проверить» — покажу, что получится.</Typography.Text>
           ) : (
-            <Space direction="vertical" style={{ width: "100%" }}>
+            <Space orientation="vertical" style={{ width: "100%" }}>
               {result.errors.length > 0 && (
                 <Alert type="error" showIcon message="Не хватает данных" description={<ul style={{ margin: 0 }}>{result.errors.map((e) => <li key={e}>{e}</li>)}</ul>} />
               )}

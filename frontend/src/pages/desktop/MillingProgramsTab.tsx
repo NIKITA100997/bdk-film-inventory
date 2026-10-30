@@ -42,7 +42,7 @@ export default function MillingProgramsTab() {
     return (q.data ?? []).filter((p) => !f || p.name.toLowerCase().includes(f) || (p.series ?? "").toLowerCase().includes(f));
   }, [q.data, filter]);
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ maxWidth: 860, margin: 0 }}>
         Программа подставляется в строку фрезеровки при запуске заказа, если подходит ровно одна: серия с подверсией из графика
         («В-10.2»; без неё — «.2» для ПЭТ, «.1» для остальных), ширина двери и молдинг («м5х3», «м9»). «_1» и «_2» — стороны
@@ -104,7 +104,7 @@ function Bindings({ programs }: { programs: MillingProgram[] }) {
   });
   const progOptions = programs.map((p) => ({ value: p.name, label: p.name }));
   return (
-    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="small" style={{ width: "100%" }}>
       <Typography.Title level={5} style={{ margin: "8px 0 0" }}>
         Привязка к изделиям
       </Typography.Title>

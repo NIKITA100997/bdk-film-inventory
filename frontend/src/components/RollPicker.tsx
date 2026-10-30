@@ -78,7 +78,7 @@ export default function RollPicker({
   }
 
   return (
-    <Space direction="vertical" size={4} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={4} style={{ width: "100%" }}>
       {options.map((o) => {
         const extra = extraRolls.find((e) => e.materialUnitId === o.value);
         const isPrimary = o.value === value;

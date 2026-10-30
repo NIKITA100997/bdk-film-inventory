@@ -56,7 +56,7 @@ export default function RoleAdmin() {
   const sections = Array.from(new Set((permissionsQuery.data ?? []).map((p) => p.section)));
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Space align="baseline">
         <Typography.Title level={4} style={{ margin: 0 }}>
           Роли и права
@@ -115,7 +115,7 @@ export default function RoleAdmin() {
           }
           loading={permissionsQuery.isLoading}
         >
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
             {sections.map((section) => {
               const sectionPermissions = (permissionsQuery.data ?? []).filter((p) => p.section === section);
               return (
@@ -129,7 +129,7 @@ export default function RoleAdmin() {
                         setCheckedIds([...otherSectionsChecked, ...(values as number[])]);
                       }}
                     >
-                      <Space direction="vertical">
+                      <Space orientation="vertical">
                         {sectionPermissions.map((p) => (
                           <Checkbox key={p.id} value={p.id}>
                             {p.name}

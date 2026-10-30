@@ -228,7 +228,7 @@ export function SheetTable({
 
   const comps = sheet.components ?? [];
   return (
-    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="small" style={{ width: "100%" }}>
       {comps.length > 0 && (
         <Segmented
           value={view}
@@ -374,7 +374,7 @@ export function SheetTable({
                 // дверь — наименование как в графике/1С (серия, размер, цвет — своими
                 // столбцами); п/ф — название детали (13.10: без повторов)
                 render: (_: unknown, r: Agg) => (
-                  <Space direction="vertical" size={2} style={{ wordBreak: "break-word" }}>
+                  <Space orientation="vertical" size={2} style={{ wordBreak: "break-word" }}>
                     <span style={r.skipped ? { opacity: 0.5, textDecoration: "line-through" } : undefined}>{r.series ? r.source || r.name : r.name}</span>
                     {r.skipped && <Tag>не делаем</Tag>}
                     {(r.manual || r.keys.some((k) => overrides[k])) && <Tag color="orange">изменено вручную</Tag>}
@@ -419,7 +419,7 @@ export function SheetTable({
                       width: 200,
                       sortValue: (r: Agg) => r.program ?? "",
                       render: (_: unknown, r: Agg) => (
-                        <Space direction="vertical" size={0}>
+                        <Space orientation="vertical" size={0}>
                           {r.program && <b>{r.program}</b>}
                           {r.instruction && <Typography.Text type="warning">⚑ {r.instruction}</Typography.Text>}
                         </Space>
@@ -469,7 +469,7 @@ export function SheetTable({
                         ) : null,
                       render: (_: unknown, r: Agg) =>
                         r.film ? (
-                          <Space direction="vertical" size={0}>
+                          <Space orientation="vertical" size={0}>
                             <span>{r.film.label}</span>
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                               {r.film.strip_width_mm ? `штрипс ${r.film.strip_width_mm} мм` : "рулон, режут на участке"} · {r.film.need_m} м

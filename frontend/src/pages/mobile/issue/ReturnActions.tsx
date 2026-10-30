@@ -76,7 +76,7 @@ export function AcceptStockAction({
       trigger="click"
       title="Взять со склада"
       content={
-        <Space direction="vertical" style={{ width: 260 }}>
+        <Space orientation="vertical" style={{ width: 260 }}>
           <Typography.Text style={{ fontSize: 12.5 }}>
             Эта же ширина также нужна ещё в этом задании — на складе уже есть свой штрипс и для них, взять сразу?
           </Typography.Text>

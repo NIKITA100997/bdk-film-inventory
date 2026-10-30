@@ -211,7 +211,7 @@ export default function DraftsCleanupModal({ open, onClose }: Props) {
             {
               title: "Счёт",
               render: (_, item) => (
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   <Typography.Text strong>№{item.id} · {item.invoice_no}</Typography.Text>
                   {item.customer && (
                     <Typography.Text type="secondary" style={{ fontSize: 11 }}>
@@ -243,7 +243,7 @@ export default function DraftsCleanupModal({ open, onClose }: Props) {
               title: "Возраст черновика",
               align: "right",
               render: (_, item) => (
-                <Space direction="vertical" size={0} style={{ textAlign: "right" }}>
+                <Space orientation="vertical" size={0} style={{ textAlign: "right" }}>
                   <span>{dayjs(item.created_at).format("DD.MM.YYYY")}</span>
                   <Typography.Text type="secondary" style={{ fontSize: 11 }}>
                     {item.days_idle} дн. без изменений

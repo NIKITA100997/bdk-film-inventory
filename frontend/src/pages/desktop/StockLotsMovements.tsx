@@ -79,7 +79,7 @@ export function LotsTab() {
     );
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card>
         <Space wrap size={[12, 12]}>
           <Segmented
@@ -240,7 +240,7 @@ export function MovementsPanel({
   const showAmount = rows.some((r) => r.amount_rub != null);
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap size={[12, 12]}>
         {!itemId && !fixedKind && (
           <Segmented

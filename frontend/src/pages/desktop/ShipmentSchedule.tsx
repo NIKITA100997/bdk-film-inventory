@@ -262,7 +262,7 @@ export default function ShipmentSchedule() {
     });
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card size="small" title="Календарь заказов">
         <Space wrap size={[12, 8]}>
           <Space size={4}>

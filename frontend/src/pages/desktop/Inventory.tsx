@@ -13,7 +13,7 @@ export default function Inventory() {
   const canFilm = !!user?.is_superuser || !!user?.permissions.includes("inventory.manage");
   if (canFilm && params.get("tab") === "film-archive") {
     return (
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Button type="link" style={{ padding: 0 }} onClick={() => setParams({})}>
           ← Инвентаризация
         </Button>
@@ -22,7 +22,7 @@ export default function Inventory() {
     );
   }
   return (
-    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="small" style={{ width: "100%" }}>
       <StockCounts />
       {canFilm && !params.get("count") && (
         <Button type="link" style={{ padding: 0 }} onClick={() => setParams({ tab: "film-archive" })}>

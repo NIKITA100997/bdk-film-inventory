@@ -110,7 +110,7 @@ export default function ItemLinesEditor({
       {items.length === 0 && !itemsQuery.isLoading ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Нет позиций" />
       ) : (
-        <Space direction="vertical" style={{ width: "100%", marginTop: 8 }}>
+        <Space orientation="vertical" style={{ width: "100%", marginTop: 8 }}>
           {lines.map((l, i) => (
             <Space key={i} wrap>
               <Select

@@ -70,7 +70,7 @@ export default function PartSelect({ onSelect, placeholder, area, filmFilter }: 
   );
   if (!filmFilter) return select;
   return (
-    <Space direction="vertical" size={6} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={6} style={{ width: "100%" }}>
       <Segmented<FilmFilter>
         size="small"
         value={film}

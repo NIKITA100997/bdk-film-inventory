@@ -39,7 +39,7 @@ export function FgStockTab() {
   }, [stockQuery.data, q]);
   const total = rows.reduce((s, r) => s + r.qty, 0);
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
         <Space wrap>
           <Input.Search allowClear placeholder="Изделие, счёт или заказ" style={{ width: 280 }} value={q} onChange={(e) => setQ(e.target.value)} />
@@ -83,7 +83,7 @@ export function FgStockTab() {
                   align: "right" as const,
                   render: (_: unknown, r: FgStockRow) =>
                     r.value_rub != null ? (
-                      <Space direction="vertical" size={0} style={{ alignItems: "flex-end" }}>
+                      <Space orientation="vertical" size={0} style={{ alignItems: "flex-end" }}>
                         <span style={{ fontVariantNumeric: "tabular-nums" }}>{Math.round(r.value_rub).toLocaleString("ru-RU")} ₽</span>
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                           {Math.round(r.unit_cost_rub ?? 0).toLocaleString("ru-RU")} ₽/шт

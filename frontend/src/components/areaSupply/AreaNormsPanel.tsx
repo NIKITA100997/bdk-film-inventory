@@ -38,7 +38,7 @@ export default function AreaNormsPanel({ kind }: { kind?: SupplyKind }) {
   const rows = (q.data ?? []).filter((r) => !kind || r.kind === kind);
   const short = rows.filter((r) => r.short > 0);
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       {short.length > 0 && (
         <Alert type="warning" showIcon message={`Ниже неснижаемого: ${short.length} — ${short.map((r) => `${r.area_name}: ${r.label}`).slice(0, 4).join("; ")}${short.length > 4 ? "…" : ""}`} />
       )}

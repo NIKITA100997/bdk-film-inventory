@@ -80,7 +80,7 @@ export function MaterialsDemand() {
   const rows = (q.data ?? []).filter((r) => !onlyShort || r.to_order > 0 || r.demand > 0);
   const fmt = (n: number) => Math.round(n * 100) / 100;
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       <Space wrap>
         <Typography.Text type="secondary">
           Нужно — по открытым операциям заданий и заказов плюс мин. остаток; заказать — с учётом мин. партии и кратности (задаются в

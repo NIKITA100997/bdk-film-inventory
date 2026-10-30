@@ -26,7 +26,7 @@ export default function PanelFilmTable() {
     }
   };
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
         Ламинация панелей щитовых дверей: панелей к ламинации = нужно по открытым заказам и заданиям − уже ламинированные;
         плёнки = панелей × длина × ширина плёнки: штрипс детали, если задан; на широкоформатной окутке (Фабрика) — ширина

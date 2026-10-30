@@ -116,7 +116,7 @@ export default function ItemCard() {
           children: !sampleVariant ? (
             <Empty description="Вариантов пока нет — схема появится с первым" />
           ) : treeQuery.data ? (
-            <Space direction="vertical" style={{ width: "100%" }}>
+            <Space orientation="vertical" style={{ width: "100%" }}>
               <Typography.Text type="secondary">
                 Схема варианта «{summaryQuery.data?.variants[0]?.name}» — у остальных цветов и размеров та же, меняются только
                 размеры и цвет панелей и кромки.
@@ -175,9 +175,9 @@ export default function ItemCard() {
   const active = tabs.some((t) => t.key === wanted && !("disabled" in t && t.disabled)) ? (wanted as string) : tabs[0].key;
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card size="small">
-        <Space direction="vertical" size={4}>
+        <Space orientation="vertical" size={4}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             <a onClick={() => navigate("/nomenclature")}>Номенклатура</a> / карточка позиции
           </Typography.Text>

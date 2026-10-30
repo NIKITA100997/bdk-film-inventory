@@ -94,7 +94,7 @@ export function OrderMaterials({
       comps.set(k, e);
     }
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <section>
         <Typography.Title level={5}>Плёнка</Typography.Title>
         {film.size === 0 ? (
@@ -241,7 +241,7 @@ function PlanDatesEditor({ order }: { order: ProductionOrder }) {
   const fmt = (s?: string | null) => (s ? dayjs(s).format("DD.MM") : "—");
   return (
     <Card size="small" title="Сроки — вручную">
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Space wrap>
           <Typography.Text>Весь заказ: сдвинуть на</Typography.Text>
           <InputNumber value={shift} onChange={setShift} style={{ width: 90 }} placeholder="±дн." />
@@ -323,7 +323,7 @@ export function OrderPlan({ order }: { order: ProductionOrder }) {
   const loading = qs.some((q) => q.isLoading);
   if (!loading && !rows.length)
     return (
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         {canManage && order.status === "released" && <PlanDatesEditor order={order} />}
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -333,7 +333,7 @@ export function OrderPlan({ order }: { order: ProductionOrder }) {
     );
   const ship = order.ship_date;
   return (
-    <Space direction="vertical" style={{ width: "100%" }}>
+    <Space orientation="vertical" style={{ width: "100%" }}>
       {canManage && order.status === "released" && <PlanDatesEditor order={order} />}
       {ship && (
         <Typography.Text type="secondary">

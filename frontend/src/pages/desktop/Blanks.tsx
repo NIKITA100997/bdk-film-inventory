@@ -62,7 +62,7 @@ export function BlanksDemandTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Потребность считается по всем активным заданиям цеха целиком — включая ещё не распределённые по дням и
         линиям, то есть до того, как участок формально «пришёл» за плёнкой. Строки сверху (самый большой дефицит) —

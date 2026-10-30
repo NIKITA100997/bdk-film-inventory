@@ -46,7 +46,7 @@ export default function DataHealthCard() {
           <Typography.Text>Противоречий в данных нет</Typography.Text>
         </Space>
       ) : (
-        <Space direction="vertical" size={6} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={6} style={{ width: "100%" }}>
           {visible.map((c) => (
             <div key={c.key} style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
               <Tag color={COLOR[c.level]} style={{ minWidth: 44, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>

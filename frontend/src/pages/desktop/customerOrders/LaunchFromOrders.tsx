@@ -98,7 +98,7 @@ export default function LaunchFromOrders({
       }
       destroyOnHidden
     >
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Space wrap>
           <Typography.Text strong>
             Выбрано: {pickedLines.length} поз., {r2(pickedLines.reduce((s, l) => s + l.left, 0))} шт
@@ -162,7 +162,7 @@ export default function LaunchFromOrders({
                       {r.ship && <Typography.Text type="secondary">отгрузка {dayjs(r.ship).format("DD.MM")}</Typography.Text>}
                     </Space>
                   ) : (
-                    <Space direction="vertical" size={0}>
+                    <Space orientation="vertical" size={0}>
                       <span>{r.name}</span>
                       <LineOptions compact options={r.options} />
                     </Space>
@@ -183,7 +183,7 @@ export default function LaunchFromOrders({
               {
                 title: "Позиция",
                 render: (_, r) => (
-                  <Space direction="vertical" size={0}>
+                  <Space orientation="vertical" size={0}>
                     <span>{r.name}</span>
                     {r.opts && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.opts}</Typography.Text>}
                   </Space>

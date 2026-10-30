@@ -29,7 +29,7 @@ export default function FilmReserveSettings() {
   const st = q.data?.stats;
   return (
     <Card title="Резерв плёнки под заказ" loading={q.isLoading} style={{ maxWidth: 720 }}>
-      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
           При запуске заказа в производство под строки заданий закрепляются метры на рулонах склада участка (сначала готовые штрипсы,
           потом начатые, потом самые старые рулоны). У заказа клиента — кнопка «Зарезервировать плёнку» для срочных до запуска.

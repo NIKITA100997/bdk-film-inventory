@@ -171,7 +171,7 @@ export default function RollReconciliationTab() {
             title: "Рулон",
             key: "unit",
             render: (_, r) => (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <Typography.Text strong>{rollNo(r.unit_id)}</Typography.Text>
                 <Tag color={r.status === "Выдан_участку" ? "blue" : r.status === "На_хранении" ? "green" : "default"}>
                   {r.status}
@@ -359,7 +359,7 @@ function UnitHistoryPanel({ unitId, reasons }: { unitId: number; reasons: { code
       locale={{ emptyText: "Событий пока нет" }}
       renderItem={(ev) => (
         <List.Item>
-          <Space direction="vertical" size={0}>
+          <Space orientation="vertical" size={0}>
             <span>
               <Tag color={ev.event_type === "Списание" ? "red" : undefined}>{ev.event_type.replace(/_/g, " ")}</Tag>
               {fmtDateTime(ev.timestamp)} — <Typography.Text strong>{eventLengthChange(ev)}</Typography.Text>

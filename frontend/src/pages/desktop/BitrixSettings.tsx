@@ -108,7 +108,7 @@ export default function BitrixSettings() {
   if (!s) return null;
   const set = (p: Partial<Settings>) => setS({ ...s, ...p });
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%", maxWidth: 980 }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%", maxWidth: 980 }}>
       <Card size="small" title="Подключение">
         <Alert
           type="info"
@@ -322,7 +322,7 @@ export default function BitrixSettings() {
                 r.status === "sent" ? (
                   <Tag color="green">отправлено</Tag>
                 ) : r.status === "error" ? (
-                  <Space direction="vertical" size={2}>
+                  <Space orientation="vertical" size={2}>
                     <Tag color="red">ошибка</Tag>
                     <Typography.Text type="danger" style={{ fontSize: 12 }}>{r.error}</Typography.Text>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>

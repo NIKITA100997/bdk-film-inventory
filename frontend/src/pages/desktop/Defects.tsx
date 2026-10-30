@@ -53,7 +53,7 @@ function RateTag({ value }: { value: number }) {
 function ReasonBars({ items, unit, color }: { items: ReasonShareLine[]; unit: string; color: string }) {
   if (items.length === 0) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Нет данных за период" />;
   return (
-    <Space direction="vertical" size={10} style={{ width: "100%" }}>
+    <Space orientation="vertical" size={10} style={{ width: "100%" }}>
       {items.map((r) => (
         <div key={r.reason_name}>
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
@@ -152,7 +152,7 @@ function DefectsOverviewTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
 
       {o && (
@@ -304,7 +304,7 @@ function DefectsPivotTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <span style={{ color: "rgba(0,0,0,0.45)" }}>
         Брак на производстве, сгруппированный по выбранному разрезу, с раскладкой по причинам и долей брака от годных изделий.
       </span>
@@ -391,7 +391,7 @@ function WriteOffsTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap>
         <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
         <DictAutoComplete kind="materials" placeholder="Материал" value={material} onChange={(v) => setMaterial(v || undefined)} allowCreate={false} />
@@ -450,7 +450,7 @@ function ProductionDefectsTab() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Space wrap>
         <DatePicker.RangePicker format="DD.MM.YYYY" value={range} onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
         <Select

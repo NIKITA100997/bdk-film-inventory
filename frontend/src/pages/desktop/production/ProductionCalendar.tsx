@@ -78,7 +78,7 @@ export default function ProductionCalendar() {
   for (let w = from; w.isBefore(to); w = w.add(1, "week")) weeks.push(Array.from({ length: 7 }, (_, i) => w.add(i, "day")));
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%", maxWidth: 1100 }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%", maxWidth: 1100 }}>
       <Card size="small" title="Производственный календарь">
         <Space wrap>
           <Button onClick={() => setMonth(month.subtract(1, "month"))}>←</Button>
@@ -181,7 +181,7 @@ export default function ProductionCalendar() {
         okButtonProps={{ loading: save.isPending }}
         onOk={() => save.mutate()}
       >
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <Select
             allowClear
             placeholder="Все участки"

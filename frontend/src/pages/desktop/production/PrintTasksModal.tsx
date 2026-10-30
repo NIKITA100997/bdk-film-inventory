@@ -30,7 +30,7 @@ export default function PrintTasksModal({ tasks, title, onClose }: { tasks: Prin
   };
   return (
     <Modal open title="Печать заданий по участкам" okText={`Печать (${picked.length})`} cancelText="Отмена" confirmLoading={busy} okButtonProps={{ disabled: !picked.length }} onOk={run} onCancel={onClose}>
-      <Space direction="vertical" style={{ width: "100%" }}>
+      <Space orientation="vertical" style={{ width: "100%" }}>
         <Typography.Text type="secondary">Лист на участок: все строки выбранных заданий, срок, плёнка, программа и указание; графы «Сделано / Брак / Подпись» — от руки.</Typography.Text>
         <Checkbox
           checked={picked.length === areas.length}

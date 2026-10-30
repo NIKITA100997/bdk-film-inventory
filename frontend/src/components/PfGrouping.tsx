@@ -54,7 +54,7 @@ export function PfSections<T>({
 }) {
   if (sections.length === 1 && sections[0].title === null) return <>{render(sections[0].rows, "all")}</>;
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       {sections.map((s) => (
         <div key={s.key}>
           <Typography.Title level={5} style={{ margin: "0 0 8px" }}>

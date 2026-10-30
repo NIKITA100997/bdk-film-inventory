@@ -258,7 +258,7 @@ export default function Overview({ embedded = false }: { embedded?: boolean }) {
   }
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Space align="center" style={{ justifyContent: "space-between", width: "100%" }}>
         {embedded ? (
           <span />

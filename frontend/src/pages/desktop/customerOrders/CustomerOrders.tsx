@@ -82,7 +82,7 @@ export default function CustomerOrders() {
   });
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "2px 0" }}>
         <Space wrap align="center">
           <Typography.Text strong style={{ fontSize: 16 }}>Реестр счетов 1С</Typography.Text>
@@ -172,7 +172,7 @@ export default function CustomerOrders() {
           {
             title: "Счёт",
             render: (_, o) => (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <span>
                   <b>{o.invoice_no}</b>
                   {o.invoice_date && <Typography.Text type="secondary"> от {dayjs(o.invoice_date).format("DD.MM.YY")}</Typography.Text>}
@@ -197,7 +197,7 @@ export default function CustomerOrders() {
           {
             title: "Стадия",
             render: (_, o) => (
-              <Space direction="vertical" size={2}>
+              <Space orientation="vertical" size={2}>
                 <Tag color={STAGE_COLOR[o.stage]} style={{ marginInlineEnd: 0 }}>
                   {o.stage_label}
                 </Tag>
@@ -217,7 +217,7 @@ export default function CustomerOrders() {
           {
             title: "Вилка / отгрузка",
             render: (_, o) => (
-              <Space direction="vertical" size={0}>
+              <Space orientation="vertical" size={0}>
                 <span>{o.ship_date && o.status === "accepted" ? `отгрузка ${fmt(o.ship_date)}` : "—"}</span>
                 {o.promised_ready && o.status === "accepted" && (
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -256,7 +256,7 @@ export default function CustomerOrders() {
             title: "Запущено в",
             render: (_, o) =>
               o.production_orders.length ? (
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   {o.production_orders.map((p) => (
                     <Link key={p.id} to={`/production-orders/${p.id}`} onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
                       №{p.id}

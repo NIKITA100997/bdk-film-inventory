@@ -302,7 +302,7 @@ export default function CuttingForm({
           style={{ marginBottom: 12 }}
         >
           {lengthEnabled && (
-            <Space direction="vertical" style={{ width: "100%" }} size="small">
+            <Space orientation="vertical" style={{ width: "100%" }} size="small">
               <InputNumber
                 min={0.01}
                 max={donor.length_m}
@@ -355,7 +355,7 @@ export default function CuttingForm({
 
       {canWidthCut ? (
         <Card size="small" type="inner" title="Ширины из остатка">
-          <Space direction="vertical" style={{ width: "100%" }} size="small">
+          <Space orientation="vertical" style={{ width: "100%" }} size="small">
             {widthRows.map((r) => (
               <div key={r.id} style={{ border: "1px solid #EDEDE8", borderRadius: 8, padding: 8 }}>
                 <Space wrap style={{ width: "100%" }} align="start">

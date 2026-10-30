@@ -98,7 +98,7 @@ export default function TasksBoard() {
   ) : null;
   const list = (
     <Card size="small" styles={{ body: { padding: 0 } }}>
-      <Space direction="vertical" style={{ width: "100%", padding: 12 }}>
+      <Space orientation="vertical" style={{ width: "100%", padding: 12 }}>
         <Input.Search allowClear placeholder="Номер, деталь, заказ" value={q} onChange={(e) => setQ(e.target.value)} />
         <Space wrap size={[6, 6]}>
           {!user?.area && (

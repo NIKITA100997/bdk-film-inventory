@@ -108,7 +108,7 @@ export function ColumnSettingsButton({
                 Сбросить
               </button>
             </div>
-            <Space direction="vertical" size={2} style={{ width: "100%" }}>
+            <Space orientation="vertical" size={2} style={{ width: "100%" }}>
               {columns.map((c) => (
                 <label
                   key={c.key}

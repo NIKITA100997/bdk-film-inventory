@@ -195,15 +195,15 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
       </Typography.Paragraph>
 
       <Space size="large" style={{ marginBottom: 20 }} align="center">
-        <Space direction="vertical" size={4}>
+        <Space orientation="vertical" size={4}>
           <Typography.Text type="secondary">Ширина этикетки, мм</Typography.Text>
           <InputNumber min={20} max={200} value={widthMm} onChange={(v) => setWidthMm(v ?? KIND_DEFAULTS[kind].width)} />
         </Space>
-        <Space direction="vertical" size={4}>
+        <Space orientation="vertical" size={4}>
           <Typography.Text type="secondary">Высота этикетки, мм</Typography.Text>
           <InputNumber min={20} max={200} value={heightMm} onChange={(v) => setHeightMm(v ?? KIND_DEFAULTS[kind].height)} />
         </Space>
-        <Space direction="vertical" size={4}>
+        <Space orientation="vertical" size={4}>
           <Typography.Text type="secondary">Ориентация</Typography.Text>
           <Segmented
             value={widthMm >= heightMm ? "landscape" : "portrait"}
@@ -282,7 +282,7 @@ function LabelTemplateEditor({ kind }: { kind: LabelKind }) {
  * этикетки по умолчанию. */
 export default function LabelTemplateAdmin() {
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Typography.Title level={4}>Макет этикетки</Typography.Title>
       <Tabs
         items={[
