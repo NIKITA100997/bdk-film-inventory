@@ -140,7 +140,7 @@ export default function ApprovalsDrawer({ open, onClose, defaultTab = "approvals
           </Space>
         }
         placement="right"
-        width={460}
+        size={460}
         open={open}
         onClose={onClose}
         styles={{ body: { padding: "12px 16px" } }}

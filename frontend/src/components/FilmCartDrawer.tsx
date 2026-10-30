@@ -51,7 +51,7 @@ export default function FilmCartDrawer({
       title={`Корзина заказа плёнки${lines.length ? ` · ${lines.length}` : ""}`}
       open={open}
       onClose={onClose}
-      width={Math.min(820, window.innerWidth)}
+      size={Math.min(820, window.innerWidth)}
       footer={
         lines.length > 0 && (
           <Space style={{ width: "100%", justifyContent: "space-between" }} wrap>

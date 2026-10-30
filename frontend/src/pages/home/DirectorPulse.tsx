@@ -39,7 +39,7 @@ export const DirectorPulse: React.FC = () => {
   if (isLoading) {
     return (
       <div style={{ textAlign: "center", padding: 32 }}>
-        <Spin tip="Загрузка пульса завода..." />
+        <Spin description="Загрузка пульса завода..." />
       </div>
     );
   }

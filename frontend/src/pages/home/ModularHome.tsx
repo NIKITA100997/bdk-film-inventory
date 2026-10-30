@@ -131,7 +131,7 @@ function HomeSettings({
   return (
     <Drawer
       open
-      width={520}
+      size={520}
       title="Мои модули на «Общем»"
       onClose={onClose}
       extra={

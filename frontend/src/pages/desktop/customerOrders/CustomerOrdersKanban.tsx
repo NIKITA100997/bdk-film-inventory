@@ -274,3 +274,4 @@ export default function CustomerOrdersKanban({ orders, onSelect }: CustomerOrder
     </div>
   );
 }
+

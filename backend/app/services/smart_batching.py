@@ -141,8 +141,8 @@ def plan_smart_batching(
 
         if due is None and line.task and line.task.production_order_id:
             po = db.get(ProductionOrder, line.task.production_order_id)
-            if po and po.deadline:
-                due = po.deadline
+            if po:
+                due = po.promised_ready or po.ship_date
 
         urgency = 2
         if due:

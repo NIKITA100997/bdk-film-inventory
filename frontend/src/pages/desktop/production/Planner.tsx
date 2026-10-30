@@ -317,7 +317,7 @@ function SlotsDrawer({ target, onClose }: { target: Target; onClose: () => void 
   return (
     <Drawer
       open
-      width={980}
+      size={980}
       onClose={onClose}
       title={`${target.area.name} — ${target.unplanned ? "без плана" : `${WD[dayjs(target.date).day()]}, ${dayjs(target.date).format("DD.MM.YYYY")}`}`}
     >

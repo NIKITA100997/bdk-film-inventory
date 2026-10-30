@@ -43,7 +43,7 @@ export default function OrderCalendarDrawer({
   return (
     <Drawer
       open
-      width={Math.min(560, window.innerWidth)}
+      size={Math.min(560, window.innerWidth)}
       onClose={onClose}
       title={
         <Space wrap size={6}>

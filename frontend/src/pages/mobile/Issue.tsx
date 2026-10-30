@@ -98,7 +98,7 @@ export default function Issue() {
         />
       </Space>
 
-      <Drawer title="Резерв плёнки" open={reserveOpen} onClose={() => setReserveOpen(false)} width="min(1000px, 100vw)" destroyOnHidden>
+      <Drawer title="Резерв плёнки" open={reserveOpen} onClose={() => setReserveOpen(false)} size="min(1000px, 100vw)" destroyOnHidden>
         {reserveOpen && <FilmReservesPanel />}
       </Drawer>
 

@@ -78,7 +78,7 @@ export default function CustomerOrderDrawer({ orderId, open, onClose }: Props) {
         ) : null
       }
       placement="right"
-      width={Math.min(760, typeof window !== "undefined" ? window.innerWidth - 24 : 760)}
+      size={Math.min(760, typeof window !== "undefined" ? window.innerWidth - 24 : 760)}
       open={open}
       onClose={onClose}
       styles={{ body: { padding: 16 } }}

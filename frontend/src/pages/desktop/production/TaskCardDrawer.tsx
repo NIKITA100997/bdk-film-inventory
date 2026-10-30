@@ -109,7 +109,7 @@ export default function TaskCardDrawer({
   canReport: boolean;
 }) {
   return (
-    <Drawer open={taskId != null} onClose={onClose} width={960} destroyOnHidden title={null} closable={false} styles={{ body: { padding: 0 } }}>
+    <Drawer open={taskId != null} onClose={onClose} size={960} destroyOnHidden title={null} closable={false} styles={{ body: { padding: 0 } }}>
       {taskId != null && <TaskCardPanel taskId={taskId} onClose={onClose} canManage={canManage} canReport={canReport} />}
     </Drawer>
   );

@@ -196,12 +196,12 @@ export const SmartBatchingModal: React.FC<Props> = ({ open, onClose, area, areaN
     >
       {isLoading ? (
         <div style={{ textAlign: "center", padding: 40 }}>
-          <Spin tip="Расчёт оптимальной последовательности переналадок..." />
+          <Spin description="Расчёт оптимальной последовательности переналадок..." />
         </div>
       ) : !preview || preview.total_lines === 0 ? (
         <Alert
           type="info"
-          message="Нет открытых заданий для оптимизации"
+          title="Нет открытых заданий для оптимизации"
           description="Все текущие задания по выбранному участку выполнены или закрыты."
         />
       ) : (
@@ -214,7 +214,7 @@ export const SmartBatchingModal: React.FC<Props> = ({ open, onClose, area, areaN
                   title="Текущие смены"
                   value={preview.original_changeovers}
                   suffix="переналадок"
-                  valueStyle={{ color: "#8c8c8c" }}
+                  styles={{ content: { color: "#8c8c8c" } }}
                 />
               </Card>
             </Col>
@@ -224,7 +224,7 @@ export const SmartBatchingModal: React.FC<Props> = ({ open, onClose, area, areaN
                   title="После оптимизации"
                   value={preview.optimized_changeovers}
                   suffix="переналадок"
-                  valueStyle={{ color: "#389e0d", fontWeight: "bold" }}
+                  styles={{ content: { color: "#389e0d", fontWeight: "bold" } }}
                 />
               </Card>
             </Col>
@@ -235,7 +235,7 @@ export const SmartBatchingModal: React.FC<Props> = ({ open, onClose, area, areaN
                   value={preview.changeovers_saved}
                   prefix={<SwapOutlined />}
                   suffix="смен рулона"
-                  valueStyle={{ color: "#096dd9", fontWeight: "bold" }}
+                  styles={{ content: { color: "#096dd9", fontWeight: "bold" } }}
                 />
               </Card>
             </Col>
@@ -246,7 +246,7 @@ export const SmartBatchingModal: React.FC<Props> = ({ open, onClose, area, areaN
                   value={preview.estimated_minutes_saved}
                   suffix="мин"
                   prefix={<ClockCircleOutlined />}
-                  valueStyle={{ color: "#d46b08", fontWeight: "bold" }}
+                  styles={{ content: { color: "#d46b08", fontWeight: "bold" } }}
                 />
               </Card>
             </Col>
@@ -256,7 +256,7 @@ export const SmartBatchingModal: React.FC<Props> = ({ open, onClose, area, areaN
             <Alert
               type="success"
               showIcon
-              message={
+              title={
                 <span>
                   Оптимизация сокращает <strong>{preview.changeovers_saved} лишних смен рулонов и перенастроек роликов</strong>, экономя цеху ориентировочно <strong>{preview.estimated_minutes_saved} минут</strong> рабочего времени!
                 </span>
@@ -266,7 +266,7 @@ export const SmartBatchingModal: React.FC<Props> = ({ open, onClose, area, areaN
             <Alert
               type="info"
               showIcon
-              message="Текущая очередь уже близка к оптимальной (минимальное число переналадок)."
+              title="Текущая очередь уже близка к оптимальной (минимальное число переналадок)."
             />
           )}
 
