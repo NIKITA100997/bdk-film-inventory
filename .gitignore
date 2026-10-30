@@ -18,6 +18,7 @@ frontend/.env
 .vscode/
 .idea/
 Thumbs.db
+GEMINI.md
 
 # Dev server logs
 *.log
