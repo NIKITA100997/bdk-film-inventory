@@ -14,6 +14,7 @@ import { CustomerOrderModal, fmt, fmtShort, useCustomerOrderRights } from "./par
 import LaunchFromOrders from "./LaunchFromOrders";
 import { OrderTimelineModal } from "./OrderTimelineCard";
 import DraftsCleanupModal from "./DraftsCleanupModal";
+import CustomerOrderDrawer from "./CustomerOrderDrawer";
 
 type Filter = "all" | "wait" | "accepted" | "work" | "ready" | "mine";
 const FILTERS: [Filter, string, (o: CustomerOrder) => boolean][] = [
@@ -52,6 +53,7 @@ export default function CustomerOrders() {
   const [importing, setImporting] = useState(false);
   const [picked, setPicked] = useState<number[]>([]);
   const [timelineOrderId, setTimelineOrderId] = useState<number | null>(null);
+  const [drawerOrderId, setDrawerOrderId] = useState<number | null>(null);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [launchName, setLaunchName] = useState<string | null>(null);
   const query = useQuery({ queryKey: ["customer-orders", includeClosed], queryFn: () => listCustomerOrders(includeClosed) });
@@ -172,7 +174,7 @@ export default function CustomerOrders() {
               }
             : undefined
         }
-        onRow={(o) => ({ onClick: () => navigate(`/customer-orders/${o.id}`), style: { cursor: "pointer" } })}
+        onRow={(o) => ({ onClick: () => setDrawerOrderId(o.id), style: { cursor: "pointer" } })}
         columns={[
           {
             title: "Счёт",
@@ -324,6 +326,11 @@ export default function CustomerOrders() {
       <DraftsCleanupModal
         open={cleanupOpen}
         onClose={() => setCleanupOpen(false)}
+      />
+      <CustomerOrderDrawer
+        orderId={drawerOrderId}
+        open={drawerOrderId !== null}
+        onClose={() => setDrawerOrderId(null)}
       />
       <LaunchFromOrders
         open={launchName !== null}
