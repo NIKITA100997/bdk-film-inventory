@@ -1,5 +1,6 @@
+import { useMemo } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Card, Divider, Grid, Segmented, Space, Tabs, Typography } from "antd";
+import { Button, Card, Grid, Segmented, Space, Tabs, Typography } from "antd";
 import { useAuth } from "../../auth/AuthContext";
 import MaterialsExplorer from "./MaterialsExplorer";
 import StorageMap from "./StorageMap";
@@ -18,19 +19,20 @@ export type StockTab = "items" | "lots" | "free" | "movements" | "map";
 /** Остатки — единый WMS-терминал на плёнку, п/ф, материалы и изделия.
  * Вверху — быстрые кнопки ключевых складских операций (Приёмка, Сборка Pick Route,
  * Выдача, Инвентаризация).
- * Вид (плёнка / п/ф / материалы / изделия / всё) и вкладка — в адресе (?kind=&tab=). */
+ * 4 ключевые вкладки: «По позициям», «Рулоны и партии», «Движения», «Стеллажи»
+ * с переключателем вида («Плёнка», «П/ф», «Материалы», «Изделия», «Всё»). */
 export default function Stock() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
-  const wide = Grid.useBreakpoint().md ?? true;
+  const screens = Grid.useBreakpoint();
+  const wide = screens.md ?? true;
 
   const has = (...perms: string[]) =>
     !!user?.is_superuser || perms.some((p) => user?.permissions.includes(p));
 
   const canPf = has("part_units.view", "part_units.manage", "part_storage.manage");
-  const canPfLots = has("part_units.view", "part_units.manage");
   const canFilmOps = !!user?.is_superuser || !!user?.permissions.some((p) => p.startsWith("units."));
   const canBlanks = has("units.issue");
 
@@ -39,13 +41,27 @@ export default function Stock() {
   const canIssue = has("units.issue", "units.return", "part_units.manage");
   const canInventory = has("inventory.manage", "part_units.count");
 
-  const kinds: { value: StockKind; label: string }[] = [
-    { value: "film", label: "Плёнка" },
-    ...(canPf ? [{ value: "pf" as const, label: "П/ф" }] : []),
-    { value: "materials", label: "Материалы" },
-    { value: "fg", label: "Изделия" },
-    ...(canPf || has("reports.view") ? [{ value: "all" as const, label: "Всё" }] : []),
-  ];
+  const kinds: { value: StockKind; label: string }[] = useMemo(
+    () => [
+      { value: "film", label: "Плёнка" },
+      ...(canPf ? [{ value: "pf" as const, label: "П/ф" }] : []),
+      { value: "materials", label: "Материалы" },
+      { value: "fg", label: "Изделия" },
+      ...(canPf || has("reports.view") ? [{ value: "all" as const, label: "Всё" }] : []),
+    ],
+    [canPf, user]
+  );
+
+  const mainTabs: { key: StockTab; label: string }[] = useMemo(
+    () => [
+      { key: "items", label: "📦 По позициям" },
+      { key: "lots", label: "🏷️ Рулоны и партии" },
+      ...(canBlanks ? [{ key: "free" as const, label: "✂️ Свободный остаток" }] : []),
+      { key: "movements", label: "🔄 Движения" },
+      { key: "map", label: "🗺️ Стеллажи" },
+    ],
+    [canBlanks]
+  );
 
   const filmState =
     !!(location.state as { globalQuery?: string; usualSupplierFilter?: string } | null)?.globalQuery ||
@@ -53,46 +69,25 @@ export default function Stock() {
 
   const defaultKind: StockKind = canPf && !canFilmOps && !filmState ? "pf" : "film";
   const kindParam = params.get("kind") as StockKind | null;
-  const kind: StockKind = kinds.some((k) => k.value === kindParam)
-    ? (kindParam as StockKind)
-    : defaultKind;
-
-  const tabsByKind: Record<StockKind, { key: StockTab; label: string }[]> = {
-    film: [
-      { key: "items", label: "По позициям" },
-      { key: "lots", label: "Рулоны и штрипсы" },
-      ...(canBlanks ? [{ key: "free" as const, label: "Свободный остаток" }] : []),
-      { key: "movements", label: "Движения" },
-      { key: "map", label: "Стеллажи" },
-    ],
-    pf: [
-      { key: "items", label: "По деталям" },
-      ...(canPfLots ? [{ key: "lots" as const, label: "Партии" }] : []),
-      { key: "movements", label: "Движения" },
-      { key: "map", label: "Стеллажи" },
-    ],
-    materials: [
-      { key: "items", label: "Остатки" },
-      { key: "movements", label: "Движения" },
-    ],
-    fg: [
-      { key: "items", label: "Остатки" },
-      { key: "movements", label: "Движения" },
-    ],
-    all: [
-      { key: "lots", label: "По партиям" },
-      { key: "movements", label: "Движения" },
-      { key: "map", label: "Стеллажи" },
-    ],
-  };
-
-  const tabs = tabsByKind[kind];
   const tabParam = params.get("tab") as StockTab | null;
-  if (kind === "all" && tabParam === "items")
-    return <Navigate to="/nomenclature?stock=1" replace />;
-  const tab: StockTab = tabs.some((t) => t.key === tabParam)
+
+  const tab: StockTab = mainTabs.some((t) => t.key === tabParam)
     ? (tabParam as StockTab)
-    : tabs[0].key;
+    : mainTabs[0].key;
+
+  // Виды, доступные на текущей вкладке
+  const availableKinds = useMemo(() => {
+    if (tab === "items") return kinds.filter((k) => k.value !== "all");
+    if (tab === "map") return kinds.filter((k) => k.value === "film" || k.value === "pf" || k.value === "all");
+    if (tab === "free") return [];
+    return kinds;
+  }, [tab, kinds]);
+
+  const kind: StockKind = availableKinds.some((k) => k.value === kindParam)
+    ? (kindParam as StockKind)
+    : availableKinds.some((k) => k.value === defaultKind)
+    ? defaultKind
+    : availableKinds[0]?.value ?? "film";
 
   const go = (nextKind: StockKind, nextTab: StockTab) =>
     setParams(
@@ -106,72 +101,52 @@ export default function Stock() {
     );
 
   let content: React.ReactNode;
-  if (kind === "film") {
-    content =
-      tab === "items" || tab === "lots" ? (
-        <MaterialsExplorer mode={tab === "lots" ? "units" : "positions"} />
-      ) : tab === "free" ? (
-        <Blanks />
-      ) : tab === "movements" ? (
-        <MovementsPanel fixedKind="plenka" />
-      ) : (
-        <StorageMap />
-      );
-  } else if (kind === "pf") {
-    content =
-      tab === "items" ? (
-        <PartStock />
-      ) : tab === "lots" ? (
-        <PartUnits />
-      ) : tab === "movements" ? (
-        <MovementsPanel fixedKind="pf" />
-      ) : (
-        <PartStorage />
-      );
-  } else if (kind === "fg") {
-    content =
-      tab === "movements" ? (
-        <MovementsPanel fixedKind="fg" defaultDays={30} />
-      ) : (
-        <FgStockTab />
-      );
-  } else if (kind === "materials") {
-    content =
-      tab === "movements" ? (
-        <MovementsPanel fixedKind="material" defaultDays={30} />
-      ) : (
-        <MaterialsStockTab />
-      );
-  } else {
-    content =
-      tab === "lots" ? (
-        <LotsTab />
-      ) : tab === "map" ? (
-        <StoragePlaces />
-      ) : (
-        <MovementsPanel />
-      );
+  if (tab === "items") {
+    if (kind === "pf") content = <PartStock />;
+    else if (kind === "materials") content = <MaterialsStockTab />;
+    else if (kind === "fg") content = <FgStockTab />;
+    else content = <MaterialsExplorer mode="positions" />;
+  } else if (tab === "lots") {
+    if (kind === "pf") content = <PartUnits />;
+    else if (kind === "film") content = <MaterialsExplorer mode="units" />;
+    else content = <LotsTab />;
+  } else if (tab === "free") {
+    content = <Blanks />;
+  } else if (tab === "movements") {
+    const fixedKind =
+      kind === "film"
+        ? "plenka"
+        : kind === "pf"
+        ? "pf"
+        : kind === "materials"
+        ? "material"
+        : kind === "fg"
+        ? "fg"
+        : undefined;
+    content = (
+      <MovementsPanel
+        fixedKind={fixedKind}
+        defaultDays={kind === "fg" || kind === "materials" ? 30 : undefined}
+      />
+    );
+  } else if (tab === "map") {
+    if (kind === "pf") content = <PartStorage />;
+    else if (kind === "film") content = <StorageMap />;
+    else content = <StoragePlaces />;
   }
 
   const kindSwitch =
-    kinds.length > 1 ? (
-      <Space size={8} wrap style={{ marginRight: 8, maxWidth: "100%" }}>
-        <Typography.Text type="secondary" style={{ whiteSpace: "nowrap" }}>
+    availableKinds.length > 1 ? (
+      <Space size={6} wrap align="center" style={{ margin: "2px 0" }}>
+        <Typography.Text type="secondary" style={{ fontSize: 13, whiteSpace: "nowrap" }}>
           Вид:
         </Typography.Text>
         <Segmented
+          size="small"
           value={kind}
-          options={kinds}
-          onChange={(v) =>
-            go(
-              v as StockKind,
-              tabsByKind[v as StockKind].some((t) => t.key === tab)
-                ? tab
-                : tabsByKind[v as StockKind][0].key
-            )
-          }
+          options={availableKinds}
+          onChange={(v) => go(v as StockKind, tab)}
         />
-        {wide && <Divider type="vertical" style={{ height: 24 }} />}
       </Space>
     ) : null;
 
@@ -240,8 +215,8 @@ export default function Stock() {
       <Tabs
         activeKey={tab}
         onChange={(k) => go(kind, k as StockTab)}
-        items={tabs.map((t) => ({ key: t.key, label: t.label }))}
-        tabBarExtraContent={wide ? { left: kindSwitch } : undefined}
+        items={mainTabs.map((t) => ({ key: t.key, label: t.label }))}
+        tabBarExtraContent={wide ? { right: kindSwitch } : undefined}
       />
       {content}
     </Space>
