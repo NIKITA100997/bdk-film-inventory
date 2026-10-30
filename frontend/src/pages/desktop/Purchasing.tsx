@@ -222,7 +222,46 @@ export default function Purchasing() {
   };
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space direction="vertical" size="small" style={{ width: "100%" }}>
+      {/* Унифицированная шапка Хаба Закупок */}
+      <Card
+        size="small"
+        styles={{ body: { padding: "8px 16px" } }}
+        style={{ borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          <Space align="center" size={8}>
+            <span style={{ fontSize: 18 }}>🛒</span>
+            <Typography.Title level={5} style={{ margin: 0, whiteSpace: "nowrap" }}>
+              Закупки и Снабжение
+            </Typography.Title>
+          </Space>
+          <Space wrap size={6}>
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => {
+                form.resetFields();
+                setPrefill(null);
+                setCreateOpen(true);
+              }}
+            >
+              + Новая заявка
+            </Button>
+            <Button size="small" onClick={() => setItemBuyOpen(true)}>
+              + Закупка материала
+            </Button>
+          </Space>
+        </div>
+      </Card>
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
