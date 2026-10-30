@@ -15,6 +15,7 @@ export interface PfDemandSource {
   shortage: number;
   due_date?: string | null;
   area?: string | null;
+  area_stock?: number;
 }
 
 export interface PfDemandRow {
@@ -41,6 +42,9 @@ export interface PfDemandRow {
   reserved: number;
   /** Остаток без резервов. */
   free: number;
+  storage_stock?: number;
+  area_stock?: number;
+  target_areas?: string[];
   /** Ламинация панели: участок по маршруту (прессы), альтернатива — окутка на Фабрике. */
   lamination_area?: string | null;
   factory_area?: string | null;
@@ -121,3 +125,39 @@ export const setReserveDays = async (p: { item_id: number; reserve_days: number 
   (await apiClient.put<ConsumptionRow | null>("/pf-demand/consumption/reserve-days", p)).data;
 export const applyReserveDays = async (weeks: number, itemIds: number[] = []): Promise<{ changed: number }> =>
   (await apiClient.post<{ changed: number }>("/pf-demand/consumption/apply", { weeks, item_ids: itemIds })).data;
+
+export interface PfTransferPayload {
+  part_id: number;
+  quantity_pieces: number;
+  target_area: string;
+  note?: string;
+}
+
+export interface PfTransferResponse {
+  transferred_pieces: number;
+  transferred_units_count: number;
+  target_area: string;
+}
+
+export const transferPfUnits = async (payload: PfTransferPayload): Promise<PfTransferResponse> =>
+  (await apiClient.post<PfTransferResponse>("/pf-demand/transfer", payload)).data;
+
+export interface PfProducePayload {
+  part_id: number;
+  quantity_pieces: number;
+  stage_id?: number | null;
+  transfer_to_area?: string | null;
+  note?: string;
+}
+
+export interface PfProduceResponse {
+  unit_id: number;
+  part_id: number;
+  quantity_pieces: number;
+  status: string;
+  area?: string | null;
+}
+
+export const producePfUnits = async (payload: PfProducePayload): Promise<PfProduceResponse> =>
+  (await apiClient.post<PfProduceResponse>("/pf-demand/produce", payload)).data;
+

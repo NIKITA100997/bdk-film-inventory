@@ -946,3 +946,121 @@ def write_off_fifo_at_area(db: Session, *, part_id: int, area: str, quantity_pie
         left -= take
         done += take
     return round(done, 2)
+
+
+def transfer_part_units_to_area(
+    db: Session,
+    *,
+    part_id: int,
+    quantity_pieces: float,
+    target_area: str,
+    user_id: int,
+    occurred_at: datetime | None = None,
+    note: str | None = None,
+) -> list[PartUnit]:
+    """Переместить N шт деталей со склада (На_хранении) или участка ПФ на целевой участок цеха по FIFO."""
+    db.flush()
+    # 1. Сначала берём партии со склада (На_хранении)
+    q_storage = (
+        db.query(PartUnit)
+        .filter(
+            PartUnit.part_id == part_id,
+            PartUnit.status == PartUnitStatus.NA_KHRANENII,
+        )
+        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+        .all()
+    )
+    # 2. Если на хранении не хватает, берём с других участков (где area != target_area)
+    q_other = (
+        db.query(PartUnit)
+        .filter(
+            PartUnit.part_id == part_id,
+            PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU,
+            PartUnit.area != target_area,
+        )
+        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+        .all()
+    )
+    candidate_units = q_storage + q_other
+    reported = reported_good_pieces_by_unit(db, [u.id for u in candidate_units])
+    free = {u.id: round(float(u.quantity_pieces) - reported.get(u.id, 0.0), 2) for u in candidate_units}
+    total_avail = round(sum(max(0.0, v) for v in free.values()), 2)
+    if quantity_pieces > total_avail + 1e-9:
+        part = db.get(Part, part_id)
+        part_name = part.name if part else f"ПФ №{part_id}"
+        raise ValueError(
+            f"«{part_name}»: доступно для перемещения только {total_avail:g} шт, "
+            f"попытка передать на участок {quantity_pieces:g} шт. "
+            f"Сначала оприходуйте (выпустите) недостающие детали."
+        )
+    left, out = float(quantity_pieces), []
+    for u in candidate_units:
+        if left <= 1e-9:
+            break
+        take = round(min(free[u.id], left), 2)
+        if take <= 0:
+            continue
+        target = _split_or_reuse(db, u, take)
+        from_cell = target.location_code
+        target.status = PartUnitStatus.VYDAN_UCHASTKU
+        target.area = target_area
+        target.location_code = None
+        if note:
+            target.note = f"{target.note or ''} {note}".strip()
+        record_part_event(
+            db,
+            unit=target,
+            event_type=PartEventType.VYDACHA_UCHASTKU,
+            user_id=user_id,
+            quantity_delta=take,
+            from_cell=from_cell,
+            occurred_at=occurred_at or datetime.now(),
+        )
+        out.append(target)
+        db.flush()
+        left = round(left - take, 2)
+    return out
+
+
+def produce_part_units_quick(
+    db: Session,
+    *,
+    part_id: int,
+    quantity_pieces: float,
+    user_id: int,
+    stage_id: int | None = None,
+    transfer_to_area: str | None = None,
+    note: str | None = None,
+    manufactured_at: date | None = None,
+) -> PartUnit:
+    """Быстрый выпуск партии полуфабрикатов мастером с опциональным моментальным перемещением на участок."""
+    part = db.get(Part, part_id)
+    if part is None:
+        raise ValueError(f"Деталь #{part_id} не найдена")
+    unit = mint_part_unit(
+        db,
+        part=part,
+        quantity_pieces=quantity_pieces,
+        user_id=user_id,
+        stage_id=stage_id,
+        note=note or "Выпуск полуфабрикатов",
+        manufactured_at=manufactured_at or date.today(),
+    )
+    if transfer_to_area:
+        unit.status = PartUnitStatus.VYDAN_UCHASTKU
+        unit.area = transfer_to_area
+        unit.location_code = None
+        record_part_event(
+            db,
+            unit=unit,
+            event_type=PartEventType.VYDACHA_UCHASTKU,
+            user_id=user_id,
+            quantity_delta=quantity_pieces,
+            occurred_at=datetime.now(),
+        )
+        db.flush()
+    else:
+        unit.status = PartUnitStatus.NA_KHRANENII
+        unit.area = None
+        db.flush()
+    return unit

@@ -60,3 +60,72 @@ def test_closed_line_plan_dropped_but_its_surplus_counts():
 
 def test_closed_unproduced_line_not_demanded():
     assert task_part_remaining([(55, 0, True)]) == 0
+
+
+def test_compute_pf_demand_stock_breakdown():
+    from app.db.session import SessionLocal
+    from app.services.pf_demand import compute_pf_demand
+
+    db = SessionLocal()
+    try:
+        rows = compute_pf_demand(db)
+        assert isinstance(rows, list)
+        for r in rows:
+            assert hasattr(r, "storage_stock")
+            assert hasattr(r, "area_stock")
+            assert hasattr(r, "target_areas")
+            assert isinstance(r.target_areas, list)
+            assert r.storage_stock >= 0
+            assert r.area_stock >= 0
+            for s in r.sources:
+                assert hasattr(s, "area_stock")
+                assert s.area_stock >= 0
+    finally:
+        db.close()
+
+
+def test_produce_and_transfer_quick():
+    from app.db.session import SessionLocal
+    from app.models.dictionaries import Part
+    from app.models.part_units import PartUnitStatus
+    from app.models.users import User
+    from app.services.part_units import produce_part_units_quick, transfer_part_units_to_area
+
+    db = SessionLocal()
+    try:
+        part = db.query(Part).filter(Part.is_active.is_(True)).first()
+        user = db.query(User).first()
+        if not part or not user:
+            return
+
+        # 1. Быстрый выпуск на склад
+        unit = produce_part_units_quick(
+            db,
+            part_id=part.id,
+            quantity_pieces=15.0,
+            user_id=user.id,
+            note="Тестовый выпуск",
+        )
+        assert unit.id is not None
+        assert float(unit.quantity_pieces) == 15.0
+        assert unit.status == PartUnitStatus.NA_KHRANENII
+
+        # 2. Перемещение на участок цеха
+        transferred = transfer_part_units_to_area(
+            db,
+            part_id=part.id,
+            quantity_pieces=10.0,
+            target_area="okutka_tsargovykh",
+            user_id=user.id,
+            note="Тестовое перемещение",
+        )
+        assert len(transferred) >= 1
+        assert sum(float(u.quantity_pieces) for u in transferred) == 10.0
+        for u in transferred:
+            assert u.status == PartUnitStatus.VYDAN_UCHASTKU
+            assert u.area == "okutka_tsargovykh"
+    finally:
+        # Откатываем тестовую транзакцию, чтобы не оставлять мусор в БД
+        db.rollback()
+        db.close()
+

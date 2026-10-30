@@ -60,3 +60,4 @@ def test_plan_smart_batching_db():
         assert "optimized_sequence" in dct
     finally:
         db.close()
+

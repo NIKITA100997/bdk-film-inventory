@@ -40,6 +40,7 @@ class PfDemandSourceOut(BaseModel):
     shortage: float
     due_date: date | None = None
     area: str | None = None
+    area_stock: float = 0.0
 
 
 class PfDemandOut(BaseModel):
@@ -63,6 +64,9 @@ class PfDemandOut(BaseModel):
     sources: list[PfDemandSourceOut]
     reserved: float
     free: float
+    storage_stock: float = 0.0
+    area_stock: float = 0.0
+    target_areas: list[str] = Field(default_factory=list)
     # Ламинация панели: участок по маршруту (прессы) и альтернатива — окутка
     # на Фабрике для крупной партии (от factory_min_pieces).
     lamination_area: str | None = None
@@ -106,6 +110,37 @@ class PfReservationIn(BaseModel):
 class PfDemandTasksOut(BaseModel):
     task_ids: list[int]
 
+
+manage_pf = require_permission("production_tasks.manage", "part_units.manage", "part_storage.manage")
+
+
+class PfTransferIn(BaseModel):
+    part_id: int
+    quantity_pieces: float = Field(gt=0)
+    target_area: str = Field(min_length=1)
+    note: str | None = None
+
+
+class PfTransferOut(BaseModel):
+    transferred_pieces: float
+    transferred_units_count: int
+    target_area: str
+
+
+class PfProduceIn(BaseModel):
+    part_id: int
+    quantity_pieces: float = Field(gt=0)
+    stage_id: int | None = None
+    transfer_to_area: str | None = None
+    note: str | None = None
+
+
+class PfProduceOut(BaseModel):
+    unit_id: int
+    part_id: int
+    quantity_pieces: float
+    status: str
+    area: str | None = None
 
 @router.get("", response_model=list[PfDemandOut])
 def list_pf_demand(
@@ -181,6 +216,69 @@ def set_reservation(payload: PfReservationIn, db: Session = Depends(get_db), use
         res.quantity_pieces = payload.quantity_pieces
     db.commit()
 
+
+@router.post("/transfer", response_model=PfTransferOut)
+def transfer_pf(
+    payload: PfTransferIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(manage_pf),
+) -> PfTransferOut:
+    """Переместить N шт полуфабриката со склада (или других участков) на целевой участок цеха."""
+    from app.services.part_units import transfer_part_units_to_area
+
+    try:
+        units = transfer_part_units_to_area(
+            db,
+            part_id=payload.part_id,
+            quantity_pieces=payload.quantity_pieces,
+            target_area=payload.target_area,
+            user_id=user.id,
+            note=payload.note,
+        )
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    total_qty = sum(float(u.quantity_pieces) for u in units)
+    return PfTransferOut(
+        transferred_pieces=round(total_qty, 2),
+        transferred_units_count=len(units),
+        target_area=payload.target_area,
+    )
+
+
+@router.post("/produce", response_model=PfProduceOut, status_code=status.HTTP_201_CREATED)
+def produce_pf(
+    payload: PfProduceIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(manage_pf),
+) -> PfProduceOut:
+    """Быстрый выпуск партии полуфабрикатов мастером с опциональным перемещением на участок."""
+    from app.services.part_units import produce_part_units_quick
+
+    try:
+        unit = produce_part_units_quick(
+            db,
+            part_id=payload.part_id,
+            quantity_pieces=payload.quantity_pieces,
+            user_id=user.id,
+            stage_id=payload.stage_id,
+            transfer_to_area=payload.transfer_to_area,
+            note=payload.note,
+        )
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+
+    return PfProduceOut(
+        unit_id=unit.id,
+        part_id=unit.part_id,
+        quantity_pieces=float(unit.quantity_pieces),
+        status=unit.status.value if hasattr(unit.status, "value") else str(unit.status),
+        area=unit.area,
+    )
 
 @router.post("/tasks", response_model=PfDemandTasksOut, status_code=status.HTTP_201_CREATED)
 def create_pf_tasks(

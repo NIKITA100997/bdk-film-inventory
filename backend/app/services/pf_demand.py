@@ -19,7 +19,7 @@
 или расход без задания, который залезает в него, не принимается."""
 
 from collections import defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 from sqlalchemy import func, or_
@@ -47,6 +47,7 @@ class PfDemandSource:
     shortage: float = 0.0  # не обеспечено ни резервом, ни производством
     due_date: date | None = None
     area: str | None = None
+    area_stock: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,9 @@ class PfDemandRow:
     # нехватка по приоритетам (28.10): под задания — срочно, до мин. остатка — пополнение
     shortage_tasks: float = 0.0
     shortage_min: float = 0.0
+    storage_stock: float = 0.0
+    area_stock: float = 0.0
+    target_areas: list[str] = field(default_factory=list)
 
 
 def compute_suggestion(
@@ -163,17 +167,36 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     return demand
 
 
-def _stock_by_part(db: Session) -> dict[int, float]:
+def _stock_by_part_details(
+    db: Session,
+) -> tuple[dict[int, float], dict[int, float], dict[int, float], dict[tuple[int, str], float]]:
     units = (
         db.query(PartUnit)
         .filter(PartUnit.status.in_([PartUnitStatus.NA_KHRANENII, PartUnitStatus.VYDAN_UCHASTKU]))
         .all()
     )
     reported = reported_good_pieces_by_unit(db, [u.id for u in units])
-    stock: dict[int, float] = defaultdict(float)
+    total_stock: dict[int, float] = defaultdict(float)
+    storage_stock: dict[int, float] = defaultdict(float)
+    area_stock: dict[int, float] = defaultdict(float)
+    area_part_stock: dict[tuple[int, str], float] = defaultdict(float)
     for u in units:
-        stock[u.part_id] += max(0.0, float(u.quantity_pieces) - reported.get(u.id, 0.0))
-    return stock
+        left = max(0.0, float(u.quantity_pieces) - reported.get(u.id, 0.0))
+        if left <= 0:
+            continue
+        total_stock[u.part_id] += left
+        if u.status == PartUnitStatus.NA_KHRANENII:
+            storage_stock[u.part_id] += left
+        elif u.status == PartUnitStatus.VYDAN_UCHASTKU:
+            area_stock[u.part_id] += left
+            if u.area:
+                area_part_stock[(u.part_id, u.area)] += left
+    return total_stock, storage_stock, area_stock, area_part_stock
+
+
+def _stock_by_part(db: Session) -> dict[int, float]:
+    total_stock, _, _, _ = _stock_by_part_details(db)
+    return total_stock
 
 
 def _first_stage_work(
@@ -265,6 +288,9 @@ class _State:
     reserved: dict[int, float]
     in_work: dict[int, float]  # по детали, всё
     unlinked_in_work: dict[int, float]  # по детали, не под конкретное задание
+    storage_stock: dict[int, float] = field(default_factory=dict)
+    area_stock: dict[int, float] = field(default_factory=dict)
+    area_part_stock: dict[tuple[int, str], float] = field(default_factory=dict)
 
 
 def _state(db: Session) -> _State:
@@ -276,7 +302,7 @@ def _state(db: Session) -> _State:
     raw = _task_demand_by_part(db)
     for part_id, sources in _operation_demand_by_part(db).items():
         raw.setdefault(part_id, []).extend(sources)
-    stock = _stock_by_part(db)
+    stock, storage_stock, area_stock_by_part, area_part_stock = _stock_by_part_details(db)
     in_work_by_stage, linked = _first_stage_work(db, {s.id for s in first_stage.values()})
     reserve_set = {(r.task_id, r.part_id): float(r.quantity_pieces) for r in db.query(PartReservation)}
 
@@ -292,7 +318,7 @@ def _state(db: Session) -> _State:
         for s, (got, in_work, short) in zip(merged, allocate_reserves(stock.get(part_id, 0.0), wants)):
             reserved[part_id] += got
             out.append(
-                replace(s, reserve_set=reserve_set.get((s.task_id, part_id), 0.0), reserved=got, in_work=in_work, shortage=short)
+                replace(s, reserve_set=reserve_set.get((s.task_id, part_id), 0.0), reserved=got, in_work=in_work, shortage=short, area_stock=round(area_part_stock.get((part_id, s.area), 0.0), 2) if s.area else 0.0)
             )
         demand[part_id] = out
 
@@ -303,7 +329,7 @@ def _state(db: Session) -> _State:
         in_work[p.id] = w
         linked_work = sum(v[1] for (_, pid), v in linked.items() if pid == p.id)
         unlinked[p.id] = max(0.0, w - linked_work)
-    return _State(parts, first_stage, demand, stock, reserved, in_work, unlinked)
+    return _State(parts, first_stage, demand, stock, reserved, in_work, unlinked, storage_stock, area_stock_by_part, area_part_stock)
 
 
 def _row(st: _State, p: Part, *, sources, task_demand, stock, in_work, min_stock) -> PfDemandRow:
@@ -324,6 +350,9 @@ def _row(st: _State, p: Part, *, sources, task_demand, stock, in_work, min_stock
                    normatives.split_shortage(demand=task_demand, have=stock + in_work, shortage=shortage))),
         first_stage_id=fs.id, first_stage_name=fs.name, first_stage_area=fs.area, sources=sources,
         reserved=round(reserved, 2), free=round(max(0.0, total - reserved), 2), item_id=p.item_id,
+        storage_stock=round(st.storage_stock.get(p.id, 0.0), 2),
+        area_stock=round(st.area_stock.get(p.id, 0.0), 2),
+        target_areas=list(dict.fromkeys(s.area for s in sources if s.area)),
     )
 
 
