@@ -449,3 +449,103 @@ def sync(db: Session) -> dict:
 
 def fmt(v: date | None) -> str:
     return v.strftime("%d.%m.%Y") if v else "—"
+
+
+def sync_order_deals(db: Session, co: CustomerOrder) -> int:
+    """Немедленная синхронизация стадий сделок одного заказа (только вперёд)."""
+    from app.services.customer_orders import progress
+
+    s = bx.get_settings(db)
+    if not enabled(s):
+        return 0
+    links = deal_links(db, co)
+    if not links:
+        link_or_create(db, co, allow_create=True)
+        links = deal_links(db, co)
+    if not links:
+        return 0
+
+    moved = 0
+    order = stages(s)
+    dirs = None
+    for link in links:
+        if link.direction is None:
+            stage = progress(db, co).stage
+        else:
+            dirs = dirs or line_directions(db, co)
+            own = {lid for lid, d in dirs.items() if d == link.direction}
+            if not own:
+                continue
+            stage = progress(db, co, only=own).stage
+        if stage != link.stage_sent:
+            if push_stage(db, s, link.deal_id, stage, order):
+                moved += 1
+            link.stage_sent = stage
+            db.flush()
+    return moved
+
+
+def notify_order_event(db: Session, co_id: int, event_type: str, details: dict | None = None) -> None:
+    """Отправка события и комментария в сделку Битрикс24 при ключевых вехах:
+    - launched: заказ передан в производство
+    - fg_receipt: приёмка на склад ГП
+    - ready: заказ готов на 100%
+    - shipped: отгружен
+    - delay_alert: прогнозируется отставание
+    """
+    from app.services.customer_orders import progress
+
+    s = bx.get_settings(db)
+    if not enabled(s):
+        return
+
+    co = db.get(CustomerOrder, co_id)
+    if co is None:
+        return
+
+    try:
+        sync_order_deals(db, co)
+    except Exception as e:
+        log.warning("bitrix sync_order_deals error for %s: %s", co_id, e)
+
+    msg = None
+    p = progress(db, co)
+    if event_type == "fg_receipt":
+        qty = details.get("qty", 0) if details else 0
+        msg = f"📦 Склад ГП: принято {qty:g} шт (всего на складе {p.received:g} из {p.qty:g} шт)."
+    elif event_type == "ready":
+        msg = f"🎉 Заказ по счёту {co.invoice_no} готов на складе ГП в полном объёме ({p.qty:g} шт)! Готов к отгрузке."
+    elif event_type == "shipped":
+        qty = details.get("qty", 0) if details else 0
+        msg = f"🚚 Отгрузка: отгружено {qty:g} шт клиенту (всего {p.shipped:g} из {p.qty:g} шт)."
+    elif event_type == "launched":
+        name = details.get("order_name", "") if details else ""
+        msg = f"⚙️ Заказ по счёту {co.invoice_no} передан в цех: сформирован запуск {name}."
+    elif event_type == "delay_alert":
+        days = details.get("delay_days", 1) if details else 1
+        bottleneck = details.get("bottleneck", "производство") if details else "производство"
+        msg = f"⚠️ Внимание: прогнозируется задержка готовности заказа на {days} дн. Узкий участок: {bottleneck}."
+
+    if msg:
+        try:
+            comment(db, co, msg)
+        except Exception as e:
+            log.warning("bitrix comment error for %s: %s", co_id, e)
+
+
+def notify_in_background(co_id: int, event_type: str, details: dict | None = None) -> None:
+    """Запуск уведомления в сделку Битрикс24 в фоне без задержки HTTP-ответа."""
+    def run() -> None:
+        from app.db.session import SessionLocal
+
+        db = SessionLocal()
+        try:
+            notify_order_event(db, co_id, event_type, details)
+            db.commit()
+        except Exception:
+            log.exception("bitrix notify event error %s %s", co_id, event_type)
+            db.rollback()
+        finally:
+            db.close()
+
+    threading.Thread(target=run, daemon=True).start()
