@@ -4,7 +4,7 @@ import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
 import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
 import dayjs, { type Dayjs } from "dayjs";
 import { useNavigate } from "react-router-dom";
-import { DatePicker, Button, Card, Checkbox, Form, InputNumber, Modal, Select, Space, Tag, Typography, message } from "antd";
+import { DatePicker, Button, Card, Checkbox, Form, InputNumber, Modal, Select, Space, Tag, Typography, message, Segmented, Table } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { useAuth } from "../../../auth/AuthContext";
@@ -18,6 +18,19 @@ import { normsLabel } from "../../../utils/normatives";
 import { hasPerm } from "../../../auth/permissions";
 
 const fmt = (n: number) => Math.round(n * 100) / 100;
+type Horizon = "all" | "overdue" | "today" | "week";
+
+const matchHorizon = (d: string | null | undefined, h: Horizon): boolean => {
+  if (h === "all") return true;
+  if (!d) return false;
+  const target = dayjs(d).startOf("day");
+  const today = dayjs().startOf("day");
+  if (h === "overdue") return target.isBefore(today);
+  if (h === "today") return !target.isAfter(today);
+  if (h === "week") return !target.isAfter(today.add(7, "day"));
+  return true;
+};
+
 
 /** Потребность п/ф — сколько деталей надо произвести, чтобы закрыть открытые
  * задания цеха и держать минимальный остаток; предложение округляется вверх
@@ -32,6 +45,8 @@ export default function PfDemand() {
   // Мастер участка: по умолчанию — только детали, у которых в маршруте
   // есть операция на его участке (что делать ему).
   const [onlyMine, setOnlyMine] = useState(!!user?.area);
+  const [horizon, setHorizon] = useState<Horizon>(user?.area ? "today" : "all");
+  const [viewMode, setViewMode] = useState<"parts" | "tasks">("parts");
   const [qty, setQty] = useState<Record<number, number | null>>({});
   // Срок нового заказа на п/ф — от него считаются сроки операций.
   const [dueDate, setDueDate] = useState<Dayjs | null>(null);
@@ -54,20 +69,21 @@ export default function PfDemand() {
     () => new Set((partsQuery.data ?? []).filter((p) => p.stages.some((st) => st.area === user?.area)).map((p) => p.id)),
     [partsQuery.data, user?.area],
   );
-  const areaName = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : null);
+  const areaName = (code: string | null | undefined) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : null);
 
   const rows = useMemo(
     () =>
       filterPf(
         (demandQuery.data ?? [])
           .filter((r) => !onlyShortage || r.shortage > 0)
-          .filter((r) => !onlyMine || !user?.area || myParts.has(r.part_id)),
+          .filter((r) => !onlyMine || !user?.area || myParts.has(r.part_id))
+          .filter((r) => horizon === "all" || r.sources.some((s) => matchHorizon(s.due_date, horizon))),
         (r) => r.part_id,
         pf,
         pfAttrs,
         itemGroups,
       ),
-    [demandQuery.data, onlyShortage, onlyMine, myParts, user?.area, pf, pfAttrs, itemGroups],
+    [demandQuery.data, onlyShortage, onlyMine, myParts, user?.area, horizon, pf, pfAttrs, itemGroups],
   );
   const sections = sectionsPf(rows, (r) => r.part_id, pf, pfAttrs, itemGroups);
 
@@ -78,22 +94,108 @@ export default function PfDemand() {
     const base = filterPf(
       (allQuery.data ?? [])
         .filter((r) => !onlyShortage || r.shortage > 0)
-        .filter((r) => !onlyMine || !user?.area || myParts.has(r.part_id)),
+        .filter((r) => !onlyMine || !user?.area || myParts.has(r.part_id))
+        .filter((r) => horizon === "all" || r.sources.some((s) => matchHorizon(s.due_date, horizon))),
       (r) => r.part_id,
       pf,
       pfAttrs,
       itemGroups,
     );
-    const by = new Map<number, { id: number; name: string; parts: number; shortage: number }>();
+    const by = new Map<number, { id: number; name: string; dueDate?: string | null; area?: string | null; parts: number; shortage: number }>();
     for (const r of base)
       for (const src of r.sources) {
-        const t = by.get(src.task_id) ?? { id: src.task_id, name: src.task_name, parts: 0, shortage: 0 };
+        if (horizon !== "all" && !matchHorizon(src.due_date, horizon)) continue;
+        const t = by.get(src.task_id) ?? { id: src.task_id, name: src.task_name, dueDate: src.due_date, area: src.area, parts: 0, shortage: 0 };
         t.parts += 1;
         t.shortage += src.shortage;
         by.set(src.task_id, t);
       }
     return [...by.values()].sort((a, b) => b.shortage - a.shortage || b.parts - a.parts || a.id - b.id);
-  }, [allQuery.data, onlyShortage, onlyMine, user?.area, myParts, pf, pfAttrs, itemGroups]);
+  }, [allQuery.data, onlyShortage, onlyMine, user?.area, myParts, horizon, pf, pfAttrs, itemGroups]);
+
+  interface TaskSourceItem {
+    partId: number;
+    partName: string;
+    openPlan: number;
+    done: number;
+    remaining: number;
+    reserveSet: number;
+    reserved: number;
+    inWork: number;
+    shortage: number;
+    stock: number;
+    free: number;
+    suggested: number;
+    firstStageArea: string | null;
+    firstStageName: string;
+    itemId?: number | null;
+  }
+
+  interface TaskCardData {
+    taskId: number;
+    taskName: string;
+    dueDate: string | null;
+    area: string | null;
+    sources: TaskSourceItem[];
+    totalRemaining: number;
+    totalShortage: number;
+    totalReserved: number;
+    totalInWork: number;
+  }
+
+  const tasksList = useMemo(() => {
+    const map = new Map<number, TaskCardData>();
+    for (const r of rows) {
+      for (const src of r.sources) {
+        if (horizon !== "all" && !matchHorizon(src.due_date, horizon)) continue;
+        if (taskFilter.length > 0 && !taskFilter.includes(src.task_id)) continue;
+
+        let t = map.get(src.task_id);
+        if (!t) {
+          t = {
+            taskId: src.task_id,
+            taskName: src.task_name,
+            dueDate: src.due_date ?? null,
+            area: src.area ?? null,
+            sources: [],
+            totalRemaining: 0,
+            totalShortage: 0,
+            totalReserved: 0,
+            totalInWork: 0,
+          };
+          map.set(src.task_id, t);
+        }
+        t.sources.push({
+          partId: r.part_id,
+          partName: r.part_name,
+          openPlan: src.open_plan,
+          done: src.done,
+          remaining: src.remaining,
+          reserveSet: src.reserve_set,
+          reserved: src.reserved,
+          inWork: src.in_work,
+          shortage: src.shortage,
+          stock: r.stock,
+          free: r.free,
+          suggested: r.suggested,
+          firstStageArea: r.first_stage_area,
+          firstStageName: r.first_stage_name,
+          itemId: r.item_id,
+        });
+        t.totalRemaining += src.remaining;
+        t.totalShortage += src.shortage;
+        t.totalReserved += src.reserved;
+        t.totalInWork += src.in_work;
+      }
+    }
+
+    return [...map.values()].sort((a, b) => {
+      if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+      if (a.dueDate && !b.dueDate) return -1;
+      if (!a.dueDate && b.dueDate) return 1;
+      return b.totalShortage - a.totalShortage || a.taskId - b.taskId;
+    });
+  }, [rows, horizon, taskFilter]);
   const TOP = 8;
   const topTasks = taskStats.slice(0, TOP);
   const taskOptions = taskStats.map((t) => ({
@@ -158,6 +260,36 @@ export default function PfDemand() {
           закреплённый за заданиями цеха (кнопка «Обеспечение п/ф» у задания), свободно — остальное. К производству — нехватка, но
           не меньше минимальной партии и вверх до кратного. Задания уходят на участки всех операций маршрута детали.
         </Typography.Paragraph>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+          <Space wrap size={[12, 12]}>
+            <Segmented<Horizon>
+              value={horizon}
+              onChange={setHorizon}
+              options={[
+                { label: "Все сроки", value: "all" },
+                { label: "🚨 Отстают", value: "overdue" },
+                { label: "📅 На сегодня", value: "today" },
+                { label: "📆 На неделю", value: "week" },
+              ]}
+            />
+            <Segmented<"parts" | "tasks">
+              value={viewMode}
+              onChange={setViewMode}
+              options={[
+                { label: "📋 По деталям", value: "parts" },
+                { label: "📑 По заданиям", value: "tasks" },
+              ]}
+            />
+          </Space>
+          {viewMode === "tasks" && (
+            <Typography.Text type="secondary">
+              Заданий: <b>{tasksList.length}</b>
+              {tasksList.filter((t) => t.totalShortage > 0).length > 0 && (
+                <> · с нехваткой: <b style={{ color: "#cf1322" }}>{tasksList.filter((t) => t.totalShortage > 0).length}</b></>
+              )}
+            </Typography.Text>
+          )}
+        </div>
         <Space wrap size={[12, 12]}>
           <Select
             mode="multiple"
@@ -222,7 +354,159 @@ export default function PfDemand() {
         )}
       </Card>
 
-      <PfSections
+      {viewMode === "tasks" ? (
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          {tasksList.length === 0 ? (
+            <Card style={{ textAlign: "center", padding: 32 }}>
+              <Typography.Text type="secondary">
+                {onlyShortage ? "Все задания обеспечены полуфабрикатами" : "Нет подходящих заданий"}
+              </Typography.Text>
+            </Card>
+          ) : (
+            tasksList.map((t) => {
+              const isOverdue = t.dueDate && dayjs(t.dueDate).isBefore(dayjs(), "day");
+              const isToday = t.dueDate && dayjs(t.dueDate).isSame(dayjs(), "day");
+              return (
+                <Card
+                  key={t.taskId}
+                  size="small"
+                  styles={{
+                    header: {
+                      background: isOverdue ? "#fff1f0" : isToday ? "#fffbe6" : "#fafafa",
+                      borderBottom: isOverdue ? "1px solid #ffa39e" : isToday ? "1px solid #ffe58f" : undefined,
+                    },
+                  }}
+                  title={
+                    <Space wrap align="center">
+                      <span style={{ fontWeight: 600, fontSize: 15 }}>
+                        №{t.taskId} · {t.taskName}
+                      </span>
+                      {t.dueDate ? (
+                        isOverdue ? (
+                          <Tag color="error" style={{ fontWeight: 600 }}>🚨 Отстаёт ({dayjs(t.dueDate).format("DD.MM.YYYY")})</Tag>
+                        ) : isToday ? (
+                          <Tag color="warning" style={{ fontWeight: 600 }}>📅 Срок сегодня</Tag>
+                        ) : (
+                          <Tag color="processing">📆 Срок {dayjs(t.dueDate).format("DD.MM.YYYY")}</Tag>
+                        )
+                      ) : (
+                        <Tag>Срок не указан</Tag>
+                      )}
+                      {t.area && <Tag color="cyan">{areaName(t.area)}</Tag>}
+                      {t.totalShortage > 0 ? (
+                        <Tag color="red" style={{ fontWeight: 600 }}>
+                          Не хватает: {fmt(t.totalShortage)} шт
+                        </Tag>
+                      ) : (
+                        <Tag color="green">П/ф обеспечены ({fmt(t.totalReserved)} рез. / {fmt(t.totalInWork)} в раб.)</Tag>
+                      )}
+                    </Space>
+                  }
+                  extra={
+                    canManage && t.totalShortage > 0 && (
+                      <Button
+                        size="small"
+                        type="link"
+                        onClick={() => {
+                          const shortPartIds = t.sources.filter((s) => s.shortage > 0).map((s) => s.partId);
+                          setSelected((prev) => Array.from(new Set([...prev, ...shortPartIds])));
+                          message.info(`Детали задания №${t.taskId} выбраны для запуска`);
+                        }}
+                      >
+                        Выбрать детали задания ({t.sources.filter((s) => s.shortage > 0).length})
+                      </Button>
+                    )
+                  }
+                >
+                  <Table
+                    size="small"
+                    rowKey="partId"
+                    dataSource={t.sources}
+                    pagination={false}
+                    columns={[
+                      {
+                        title: "Деталь",
+                        dataIndex: "partName",
+                        render: (name, s) => (
+                          <Space direction="vertical" size={0}>
+                            <span style={{ fontWeight: 500 }}>{name}</span>
+                            {s.firstStageArea && (
+                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                {areaName(s.firstStageArea)} · {s.firstStageName}
+                              </Typography.Text>
+                            )}
+                          </Space>
+                        ),
+                      },
+                      {
+                        title: "План задания",
+                        render: (_, s) => fmt(s.openPlan),
+                        align: "right" as const,
+                      },
+                      {
+                        title: "Сделано",
+                        render: (_, s) => fmt(s.done),
+                        align: "right" as const,
+                      },
+                      {
+                        title: "Остаток",
+                        render: (_, s) => <b>{fmt(s.remaining)}</b>,
+                        align: "right" as const,
+                      },
+                      {
+                        title: "Обеспечено",
+                        render: (_, s) => (
+                          <span>
+                            {s.reserved > 0 && <Tag color="blue">{fmt(s.reserved)} рез.</Tag>}
+                            {s.inWork > 0 && <Tag color="geekblue">{fmt(s.inWork)} в работе</Tag>}
+                            {s.reserved === 0 && s.inWork === 0 && "—"}
+                          </span>
+                        ),
+                      },
+                      {
+                        title: "Не хватает",
+                        render: (_, s) =>
+                          s.shortage > 0 ? (
+                            <Tag color="red" style={{ fontWeight: 600 }}>−{fmt(s.shortage)} шт</Tag>
+                          ) : (
+                            <Tag color="green">обеспечено</Tag>
+                          ),
+                        align: "right" as const,
+                      },
+                      {
+                        title: "Свободно на складе",
+                        render: (_, s) => (
+                          <span style={{ color: s.free > 0 ? "#52c41a" : "#8c8c8c" }}>
+                            {fmt(s.free)} / {fmt(s.stock)}
+                          </span>
+                        ),
+                        align: "right" as const,
+                      },
+                      ...(canManage
+                        ? [
+                            {
+                              title: "К производству",
+                              render: (_: any, s: (typeof t.sources)[0]) => (
+                                <InputNumber
+                                  min={0}
+                                  size="small"
+                                  style={{ width: 90 }}
+                                  value={qty[s.partId] ?? null}
+                                  onChange={(v) => setQty((prev) => ({ ...prev, [s.partId]: v }))}
+                                />
+                              ),
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
+                </Card>
+              );
+            })
+          )}
+        </Space>
+      ) : (
+        <PfSections
         sections={sections}
         total={(rs) => `не хватает ${fmt(rs.reduce((s, r) => s + r.shortage, 0))}`}
         render={(sectionRows, key) => (
@@ -245,34 +529,54 @@ export default function PfDemand() {
                 Откуда «по заданиям цеха»: остаток по заданию целиком (сделанное сверх плана одной строки закрывает
                 соседние). Если задание уже сделано — закройте его в «Заданиях цеха», и оно уйдёт отсюда.
               </Typography.Text>
-              <table style={{ marginTop: 8, borderCollapse: "collapse", width: "auto" }}>
+              <table style={{ marginTop: 8, borderCollapse: "collapse", width: "100%" }}>
                 <thead>
                   <tr>
-                    {["Задание цеха", "План", "Сделано", "Остаток", "Резерв", "Делается под задание", "Не хватает"].map((h) => (
-                      <th key={h} style={{ textAlign: "left", padding: "2px 16px 2px 0", fontWeight: 500 }}>
+                    {["Задание цеха", "Срок", "Участок", "План", "Сделано", "Остаток", "Резерв", "В работе под задание", "Не хватает"].map((h) => (
+                      <th key={h} style={{ textAlign: "left", padding: "4px 12px 4px 0", fontWeight: 500 }}>
                         {h}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {r.sources.map((s) => (
-                    <tr key={s.task_id}>
-                      <td style={{ padding: "2px 16px 2px 0" }}>
-                        №{s.task_id} · {s.task_name}
-                      </td>
-                      <td style={{ padding: "2px 16px 2px 0" }}>{fmt(s.open_plan)}</td>
-                      <td style={{ padding: "2px 16px 2px 0" }}>{fmt(s.done)}</td>
-                      <td style={{ padding: "2px 16px 2px 0" }}>
-                        <b>{fmt(s.remaining)}</b>
-                      </td>
-                      <td style={{ padding: "2px 16px 2px 0" }}>{s.reserved > 0 ? fmt(s.reserved) : "—"}</td>
-                      <td style={{ padding: "2px 16px 2px 0" }}>{s.in_work > 0 ? fmt(s.in_work) : "—"}</td>
-                      <td style={{ padding: "2px 16px 2px 0" }}>
-                        {s.shortage > 0 ? <Tag color="red">{fmt(s.shortage)}</Tag> : <Tag color="green">обеспечено</Tag>}
-                      </td>
-                    </tr>
-                  ))}
+                  {r.sources.map((s) => {
+                    const isOverdue = s.due_date && dayjs(s.due_date).isBefore(dayjs(), "day");
+                    const isToday = s.due_date && dayjs(s.due_date).isSame(dayjs(), "day");
+                    return (
+                      <tr key={s.task_id} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                        <td style={{ padding: "4px 12px 4px 0" }}>
+                          №{s.task_id} · {s.task_name}
+                        </td>
+                        <td style={{ padding: "4px 12px 4px 0" }}>
+                          {s.due_date ? (
+                            isOverdue ? (
+                              <Tag color="error">🚨 {dayjs(s.due_date).format("DD.MM.YYYY")}</Tag>
+                            ) : isToday ? (
+                              <Tag color="warning">📅 Сегодня</Tag>
+                            ) : (
+                              <Tag color="processing">📆 {dayjs(s.due_date).format("DD.MM.YYYY")}</Tag>
+                            )
+                          ) : (
+                            <span style={{ color: "#8c8c8c" }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ padding: "4px 12px 4px 0" }}>
+                          {areaName(s.area) ?? "—"}
+                        </td>
+                        <td style={{ padding: "4px 12px 4px 0" }}>{fmt(s.open_plan)}</td>
+                        <td style={{ padding: "4px 12px 4px 0" }}>{fmt(s.done)}</td>
+                        <td style={{ padding: "4px 12px 4px 0" }}>
+                          <b>{fmt(s.remaining)}</b>
+                        </td>
+                        <td style={{ padding: "4px 12px 4px 0" }}>{s.reserved > 0 ? fmt(s.reserved) : "—"}</td>
+                        <td style={{ padding: "4px 12px 4px 0" }}>{s.in_work > 0 ? fmt(s.in_work) : "—"}</td>
+                        <td style={{ padding: "4px 12px 4px 0" }}>
+                          {s.shortage > 0 ? <Tag color="red">−{fmt(s.shortage)}</Tag> : <Tag color="green">обеспечено</Tag>}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -363,6 +667,7 @@ export default function PfDemand() {
       />
         )}
       />
+      )}
 
       {editTarget && <MinValuesModal row={editTarget} onClose={() => setEditTarget(null)} />}
     </Space>

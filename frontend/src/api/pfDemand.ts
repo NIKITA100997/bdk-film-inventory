@@ -13,6 +13,8 @@ export interface PfDemandSource {
   /** Производится под это задание. */
   in_work: number;
   shortage: number;
+  due_date?: string | null;
+  area?: string | null;
 }
 
 export interface PfDemandRow {

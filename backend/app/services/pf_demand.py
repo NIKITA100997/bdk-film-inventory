@@ -20,6 +20,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass, replace
+from datetime import date
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
@@ -44,6 +45,8 @@ class PfDemandSource:
     reserved: float = 0.0  # обеспечено остатком (резерв + сделанное под задание)
     in_work: float = 0.0  # производится под задание
     shortage: float = 0.0  # не обеспечено ни резервом, ни производством
+    due_date: date | None = None
+    area: str | None = None
 
 
 @dataclass(frozen=True)
@@ -135,12 +138,17 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
             (float(line.quantity_pieces), float(good.get(line.id, 0)), line.is_closed or line.production_closed)
         )
     tasks = {line.task_id: line.task for line in lines}
+    from app.models.production_orders import ProductionOrder
+    order_ids = [t.production_order_id for t in tasks.values() if t.production_order_id]
+    orders = {o.id: o for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()} if order_ids else {}
     demand: dict[int, list[PfDemandSource]] = defaultdict(list)
     for (task_id, part_id), part_lines in by_task_part.items():
         remaining = task_part_remaining(part_lines)
         if remaining <= 0:
             continue
         task = tasks[task_id]
+        order = orders.get(task.production_order_id) if task.production_order_id else None
+        due_date = (order.ship_date or order.promised_ready) if order else None
         demand[part_id].append(
             PfDemandSource(
                 task_id=task_id,
@@ -148,6 +156,8 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
                 open_plan=sum(plan for plan, _, closed in part_lines if not closed),
                 done=sum(good for _, good, _ in part_lines),
                 remaining=remaining,
+                due_date=due_date,
+                area=task.area,
             )
         )
     return demand
@@ -235,7 +245,12 @@ def _merge_by_task(sources: list[PfDemandSource]) -> list[PfDemandSource]:
             s
             if cur is None
             else replace(
-                cur, open_plan=cur.open_plan + s.open_plan, done=cur.done + s.done, remaining=cur.remaining + s.remaining
+                cur,
+                open_plan=cur.open_plan + s.open_plan,
+                done=cur.done + s.done,
+                remaining=cur.remaining + s.remaining,
+                due_date=cur.due_date or s.due_date,
+                area=cur.area or s.area,
             )
         )
     return sorted(by_task.values(), key=lambda s: s.task_id)
@@ -367,6 +382,7 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
             continue
         order = orders.get(task.production_order_id) if task.production_order_id else None
         label = f"Заказ №{order.id} «{order.name}»" if order else (task.name or f"Задание №{task.id}")
+        due_date = (order.ship_date or order.promised_ready) if order else None
         for comp in comps:
             part = parts_by_item.get(comp.component_item_id)
             if part is None:
@@ -377,6 +393,8 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
                     task_id=task.id, task_name=f"{label}: {stage.name}",
                     open_plan=round(float(line.quantity_pieces) * per, 2), done=round(done * per, 2),
                     remaining=round(units_left * per, 2),
+                    due_date=due_date,
+                    area=task.area,
                 )
             )
     return out

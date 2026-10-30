@@ -38,6 +38,8 @@ class PfDemandSourceOut(BaseModel):
     reserved: float
     in_work: float
     shortage: float
+    due_date: date | None = None
+    area: str | None = None
 
 
 class PfDemandOut(BaseModel):
