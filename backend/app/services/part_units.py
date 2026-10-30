@@ -193,8 +193,12 @@ def _split_or_reuse(db: Session, unit: PartUnit, quantity_pieces: float) -> Part
     этап/списывает."""
     quantity_pieces = float(quantity_pieces)
     available = float(unit.quantity_pieces)
-    if quantity_pieces > available:
-        raise ValueError(f"В партии только {available} шт, запрошено {quantity_pieces}")
+    if quantity_pieces > available + 1e-9:
+        part_name = unit.part.name if unit.part else f"ПФ №{unit.part_id}"
+        raise ValueError(
+            f"«{part_name}»: в партии числится {available:g} шт, попытка списать {quantity_pieces:g} шт. "
+            f"Выполните инвентаризацию или оприходование"
+        )
     if quantity_pieces == available:
         return unit
     unit.quantity_pieces = available - quantity_pieces
@@ -895,7 +899,12 @@ def write_off_part_fifo(
     free = {u.id: round(float(u.quantity_pieces) - reported.get(u.id, 0.0), 2) for u in units}
     total = round(sum(max(0.0, v) for v in free.values()), 2)
     if quantity_pieces > total + 1e-9:
-        raise ValueError(f"Доступно только {total:g} шт — списать {quantity_pieces:g} нельзя")
+        part = db.get(Part, part_id)
+        part_name = part.name if part else f"ПФ №{part_id}"
+        raise ValueError(
+            f"«{part_name}»: на складе числится {total:g} шт, попытка списать {quantity_pieces:g} шт. "
+            f"Выполните инвентаризацию или оприходование"
+        )
     left, out = float(quantity_pieces), []
     for u in units:
         if left <= 1e-9:

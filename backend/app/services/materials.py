@@ -63,6 +63,12 @@ def manual_move(
             raise ValueError("Списание — больше нуля")
         if not (note or "").strip():
             raise ValueError("Укажите причину списания")
+        cur_bal = balances(db, [item.id])[item.id]
+        if qty > cur_bal + 1e-9:
+            raise ValueError(
+                f"«{item.name}»: на складе числится {cur_bal:g} {item.unit or 'ед'}, попытка списать {qty:g}. "
+                f"Выполните инвентаризацию или оприходование"
+            )
         delta = -qty
     elif kind == MOVE_ADJUST:
         if qty < 0:
@@ -163,6 +169,12 @@ def regrade(db: Session, *, src: Item, dst: Item, qty: float, user_id: int, reas
         raise ValueError("Количество — больше нуля")
     if not (reason or "").strip():
         raise ValueError("Укажите причину пересорта")
+    cur_src = balances(db, [src.id])[src.id]
+    if qty > cur_src + 1e-9:
+        raise ValueError(
+            f"«{src.name}»: на складе числится {cur_src:g} {src.unit or 'ед'}, попытка пересорта {qty:g}. "
+            f"Выполните инвентаризацию или оприходование"
+        )
     note = f"Пересорт: {src.name} → {dst.name}. {reason.strip()}"[:255]
     out = record(db, item=src, kind=MOVE_ADJUST, qty=-qty, user_id=user_id, doc="Пересорт", note=note)
     inn = record(db, item=dst, kind=MOVE_ADJUST, qty=qty, user_id=user_id, doc="Пересорт", note=note)
