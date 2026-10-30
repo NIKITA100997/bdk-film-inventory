@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
-import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch } from "antd";
+import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch, Badge, Tooltip } from "antd";
+import { useQuery } from "@tanstack/react-query";
 import type { MenuProps } from "antd";
-import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined, QuestionCircleOutlined, KeyOutlined } from "@ant-design/icons";
+import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined, QuestionCircleOutlined, KeyOutlined, BellOutlined, ThunderboltFilled } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { navTree, isNavItemVisible, isMasterUser, masterNav, type NavItem } from "./navConfig";
@@ -10,14 +11,53 @@ import { runUnitOrMaterialSearch } from "../utils/unitSearch";
 import { isVerticalPrint, setVerticalPrint } from "../utils/printLabel";
 import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
-import NotificationBell from "../components/NotificationBell";
-import { InboxBadge } from "../components/InboxList";
+import { useInbox } from "../components/InboxList";
+import { actionRequestsSummary } from "../api/control";
+import ApprovalsDrawer from "../components/ApprovalsDrawer";
 import ActionRequestPrompt from "../components/ActionRequestPrompt";
 import PhoneTabBar from "./PhoneTabBar";
 import WorkspaceTabs from "./WorkspaceTabs";
 import ChangePasswordModal from "../components/ChangePasswordModal";
 
 const { Header, Content } = Layout;
+
+function HeaderNotificationsButton({ onOpen }: { onOpen: (tab: "approvals" | "inbox" | "signals") => void }) {
+  const summaryQuery = useQuery({ queryKey: ["action-requests-summary"], queryFn: actionRequestsSummary, refetchInterval: 30_000 });
+  const inboxQuery = useInbox();
+  const toApprove = summaryQuery.data?.to_approve ?? 0;
+  const inboxCount = (inboxQuery.data ?? []).length;
+  const urgent = (inboxQuery.data ?? []).some((i) => i.level === "urgent");
+  const totalCount = toApprove + inboxCount;
+
+  if (totalCount === 0) {
+    return (
+      <Tooltip title="Центр согласований и задач">
+        <Button
+          type="text"
+          icon={<BellOutlined style={{ color: "#fff" }} />}
+          onClick={() => onOpen(toApprove > 0 ? "approvals" : "inbox")}
+          aria-label="Уведомления и согласования"
+        />
+      </Tooltip>
+    );
+  }
+
+  const badgeColor = toApprove > 0 || urgent ? "#d4380d" : "#1677ff";
+
+  return (
+    <Tooltip title={`Согласований: ${toApprove}, задач: ${inboxCount}`}>
+      <Badge count={totalCount} color={badgeColor} size="small" offset={[-4, 4]}>
+        <Button
+          type="text"
+          icon={toApprove > 0 ? <ThunderboltFilled style={{ color: "#FFD666" }} /> : <BellOutlined style={{ color: "#fff" }} />}
+          onClick={() => onOpen(toApprove > 0 ? "approvals" : "inbox")}
+          aria-label="Уведомления и согласования"
+        />
+      </Badge>
+    </Tooltip>
+  );
+}
+
 
 export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   const { user, logout } = useAuth();
@@ -33,6 +73,8 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [verticalPrint, setVerticalPrintState] = useState(isVerticalPrint());
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [approvalsOpen, setApprovalsOpen] = useState(false);
+  const [approvalsTab, setApprovalsTab] = useState<"approvals" | "inbox" | "signals">("approvals");
   // Короткое меню мастера: «Полное меню» в меню пользователя (запоминается на устройстве).
   const [fullMenu, setFullMenu] = useState<boolean>(() => {
     try {
@@ -276,8 +318,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               tooltip="Сканировать QR камерой"
               type="primary"
             />
-            <InboxBadge />
-            <NotificationBell />
+            <HeaderNotificationsButton onOpen={(tab) => { setApprovalsTab(tab); setApprovalsOpen(true); }} />
             <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
               {/* кнопка, а не картинка — доступна с клавиатуры и скринридеру (14.10) */}
               <Button type="text" aria-label="Профиль и выход" style={{ padding: 0, height: "auto", flexShrink: 0 }}>
@@ -332,6 +373,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
       <ChangePasswordModal open={!!user.must_change_password} onClose={() => undefined} forced />
       {/* «Попросить администратора» на любое запрещённое действие (07.10) */}
       <ActionRequestPrompt />
+      <ApprovalsDrawer open={approvalsOpen} onClose={() => setApprovalsOpen(false)} defaultTab={approvalsTab} />
     </Layout>
   );
 }
