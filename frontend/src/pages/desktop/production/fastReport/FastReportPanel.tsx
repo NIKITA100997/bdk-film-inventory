@@ -12,6 +12,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Progress,
   Radio,
   Segmented,
   Select,
@@ -20,6 +21,7 @@ import {
   Typography,
   message,
 } from "antd";
+import QrScanButton from "../../../../components/QrScanButton";
 import { apiErrorMessage } from "../../../../utils/apiError";
 import ReportModal from "../ReportModal";
 import MasterQuickReportPanel from "../MasterQuickReportPanel";
@@ -208,9 +210,33 @@ export default function FastReportPanel({
             <Input.Search
               allowClear
               placeholder="Деталь, заказ или плёнка"
-              style={{ width: 280 }}
+              style={{ width: 260 }}
               value={q}
               onChange={(e) => setQ(e.target.value)}
+            />
+            <QrScanButton
+              size="middle"
+              tooltip="Сканировать QR рулона, детали или задания"
+              onScan={(code) => {
+                const trimmed = code.trim();
+                const num = parseInt(trimmed, 10);
+                if (!isNaN(num)) {
+                  const matchRoll = r.lines.find((fl) => rollChoices(fl.line).some((rc) => rc.id === num));
+                  if (matchRoll) {
+                    r.setEntry(matchRoll.line, { rollId: num });
+                    setOpen(matchRoll);
+                    message.success(`Рулон №${num} выбран для детали ${matchRoll.line.part_name}`);
+                    return;
+                  }
+                  const matchTask = r.lines.find((fl) => fl.task.id === num);
+                  if (matchTask) {
+                    setQ(String(num));
+                    message.info(`Отфильтровано по заданию №${num}`);
+                    return;
+                  }
+                }
+                setQ(trimmed);
+              }}
             />
           </Space>
           {r.loading ? null : shown.length === 0 ? (
@@ -411,14 +437,16 @@ function Tiles({
                   style={{
                     textAlign: "left",
                     cursor: "pointer",
-                    border: `1px solid ${isFilled(r.entryOf(fl.line)) ? "#1D9E75" : "#DEDEDA"}`,
-                    borderRadius: 10,
+                    border: `2px solid ${isFilled(r.entryOf(fl.line)) ? "#1D9E75" : "#DEDEDA"}`,
+                    borderRadius: 12,
                     background: "var(--ant-color-bg-container, #fff)",
-                    padding: "10px 12px",
-                    minHeight: 76,
+                    padding: "12px 14px",
+                    minHeight: 90,
                     display: "grid",
-                    gap: 4,
+                    gap: 6,
                     font: "inherit",
+                    boxShadow: isFilled(r.entryOf(fl.line)) ? "0 2px 8px rgba(29,158,117,0.18)" : undefined,
+                    transition: "border-color 0.2s, box-shadow 0.2s",
                   }}
                 >
                   <Space
@@ -435,12 +463,21 @@ function Tiles({
                       {pinnable && <PinStar r={r} lineId={fl.line.id} />}
                     </Space>
                   </Space>
-                  <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                    {fl.task.production_order_name ?? fl.task.name} · осталось{" "}
-                    {fmt(fl.line.remaining_pieces)}
-                    {fl.today ? " · на сегодня" : ""}
-                    {warn}
-                  </Typography.Text>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                      {fl.task.production_order_name ?? fl.task.name}
+                      {fl.today ? " · 📅 на сегодня" : ""}
+                      {warn}
+                    </Typography.Text>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: fl.line.remaining_pieces > 0 ? "#1677ff" : "#52c41a" }}>
+                      осталось {fmt(fl.line.remaining_pieces)} шт
+                    </span>
+                  </div>
+                  <Progress
+                    percent={Math.min(100, Math.round(((fl.line.produced_good_pieces + (+r.entryOf(fl.line).good || 0)) / fl.line.quantity_pieces) * 100))}
+                    size="small"
+                    status={fl.line.remaining_pieces <= 0 ? "success" : "active"}
+                  />
                   <OverProductionTag line={fl.line} produced={fl.line.produced_good_pieces} />
                 </div>
               );
@@ -738,17 +775,24 @@ function LinesTableView({
 function NumPad({
   value,
   onChange,
+  remaining,
 }: {
   value: string;
   onChange: (v: string) => void;
+  remaining?: number;
 }) {
   const press = (k: string) => {
-    if (k === "⌫") onChange(value.slice(0, -1));
-    else if (k === "+10") onChange(String((+value || 0) + 10));
-    else onChange((value === "0" ? "" : value) + k);
+    if (k === "⌫") return onChange(value.slice(0, -1));
+    if (k === "+1") return onChange(String((+value || 0) + 1));
+    if (k === "+10") return onChange(String((+value || 0) + 10));
+    if (k === "+50") return onChange(String((+value || 0) + 50));
+    if (k === "all") return onChange(String(Math.max(0, remaining ?? 0)));
+    if (k === "clear") return onChange("");
+    if (value === "0") return onChange(k);
+    return onChange(value + k);
   };
   return (
-    <div style={{ display: "grid", gap: 6 }}>
+    <div style={{ display: "grid", gap: 8 }}>
       <div
         style={{
           fontSize: 32,
@@ -756,11 +800,32 @@ function NumPad({
           textAlign: "right",
           background: "#ECECEA",
           borderRadius: 8,
-          padding: "2px 12px",
+          padding: "4px 12px",
           fontVariantNumeric: "tabular-nums",
         }}
       >
         {value || 0}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+        <Button size="large" style={{ fontWeight: 600 }} onClick={() => press("+10")}>
+          +10
+        </Button>
+        <Button size="large" style={{ fontWeight: 600 }} onClick={() => press("+50")}>
+          +50
+        </Button>
+        <Button
+          size="large"
+          type="primary"
+          ghost
+          style={{ fontWeight: 600 }}
+          onClick={() => press("all")}
+          disabled={remaining == null || remaining <= 0}
+        >
+          Всё {remaining != null ? `(${remaining})` : ""}
+        </Button>
+        <Button size="large" danger onClick={() => press("clear")}>
+          Сброс
+        </Button>
       </div>
       <div
         style={{
@@ -769,13 +834,16 @@ function NumPad({
           gap: 6,
         }}
       >
-        {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "+10"].map(
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "+1"].map(
           (k) => (
             <Button
               key={k}
               size="large"
               style={{ height: 52, fontSize: 20, fontWeight: 700 }}
-              onClick={() => press(k)}
+              onClick={() => {
+                if (k === "+1") press("+1");
+                else press(k);
+              }}
             >
               {k}
             </Button>
@@ -1020,6 +1088,7 @@ function LineSheet({
         <NumPad
           value={e.good}
           onChange={(v) => r.setEntry(fl.line, { good: v })}
+          remaining={fl.line.remaining_pieces}
         />
       </div>
     </Drawer>
