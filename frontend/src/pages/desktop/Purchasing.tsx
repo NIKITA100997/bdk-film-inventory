@@ -1,3 +1,4 @@
+import MrpNeedsTab from "./purchasing/MrpNeedsTab";
 import { ReorderTab } from "./Reports";
 import { useEffect, useState } from "react";
 import { Card, Tag, Button, Modal, Form, InputNumber, Input, DatePicker, Space, Typography, Empty, Tabs, Checkbox, Collapse, message } from "antd";
@@ -227,6 +228,7 @@ export default function Purchasing() {
         onChange={setActiveTab}
         items={[
           // «Пора заказывать» — перенесено из «Отчётов» (30.09): сигнал для закупщика.
+          { key: "mrp", label: "🎯 Дефицит MRP", children: <MrpNeedsTab /> },
           { key: "reorder", label: "Пора заказывать", children: <ReorderTab /> },
           {
             key: "requests",

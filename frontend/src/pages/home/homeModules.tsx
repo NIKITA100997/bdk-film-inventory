@@ -17,6 +17,7 @@ const ShortagesTab = lazyPage(() => import("../desktop/production/NeedsViews").t
 const MaterialsDemand = lazyPage(() => import("../desktop/production/Demand").then((m) => ({ default: m.MaterialsDemand })));
 const ReorderTab = lazyPage(() => import("../desktop/Reports").then((m) => ({ default: m.ReorderTab })));
 const OrderDeadlines = lazyPage(() => import("../desktop/production/OrderDeadlines"));
+const DirectorPulse = lazyPage(() => import("./DirectorPulse").then((m) => ({ default: m.DirectorPulse })));
 const AreaLoadWidget = lazyPage(() => import("./homeWidgets").then((m) => ({ default: m.AreaLoadWidget })));
 const OverdueWidget = lazyPage(() => import("./homeWidgets").then((m) => ({ default: m.OverdueWidget })));
 const DeliveriesWidget = lazyPage(() => import("./homeWidgets").then((m) => ({ default: m.DeliveriesWidget })));
@@ -80,6 +81,15 @@ function QuickActions({ user }: { user: User }) {
 }
 
 export const MODULES: HomeModule[] = [
+  {
+    key: "pulse",
+    accent: "navy",
+    title: "Пульс завода (KPI)",
+    hint: "выпуск за смену, исполнение плана, брак, узкие места и оперативные рекомендации",
+    wide: true,
+    available: (u) => u.is_superuser || hasPerm(u, "plan.approve", "production_tasks.manage", "production_tasks.all_areas"),
+    render: () => <DirectorPulse />,
+  },
   {
     key: "inbox", title: "Ждёт меня", hint: "что ждёт вашего действия — сразу в нужное место", wide: false,
     available: () => true, render: () => <InboxModule />,
@@ -171,9 +181,9 @@ export function renderModule(m: HomeModule, user: User): ReactNode {
 export function defaultModules(u: User): string[] {
   if (isMaster(u)) return ["my-area", "inbox", "quick", "overdue", "area-requests"];
   if (isWarehouse(u)) return ["inbox", "quick", "search", "film-issue", "transfers-in", "area-requests", "deliveries"];
-  // начальник цеха (ведёт все участки): приём, загрузка, сроки
-  if (hasPerm(u, "production_tasks.manage") && (u.is_superuser || !u.area || hasPerm(u, "production_tasks.all_areas")))
-    return ["inbox", "area-load", "quick", "overdue", "intake", "deadlines", "summary"];
+  // начальник цеха и руководство (ведёт все участки): Пульс завода во главе угла!
+  if (hasPerm(u, "production_tasks.manage") && (u.is_superuser || !u.area || hasPerm(u, "production_tasks.all_areas") || hasPerm(u, "plan.approve")))
+    return ["pulse", "inbox", "area-load", "quick", "overdue", "intake", "deadlines", "summary"];
   // закупщик: что и когда заказывать
   if (hasPerm(u, "purchasing.manage")) return ["inbox", "quick", "deliveries", "reorder", "materials-demand", "shortages"];
   // менеджер: свои заказы, отправка в производство, сроки

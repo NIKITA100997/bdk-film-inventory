@@ -691,3 +691,38 @@ def receive_item_request(
     db.commit()
     db.refresh(req)
     return _out(db, req)
+
+
+class MrpOrderBatchIn(BaseModel):
+    items: list[dict]
+    create_supplier_orders: bool = True
+
+
+@router.get("/mrp-needs")
+def get_mrp_needs(
+    horizon_days: int = 14,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("purchasing.manage", "production_tasks.manage")),
+) -> list[dict]:
+    """Сводный расчёт потребностей и дефицита MRP по открытым заказам и производственным заданиям."""
+    from app.services.mrp import compute_mrp_needs
+
+    needs = compute_mrp_needs(db, horizon_days=horizon_days)
+    return [n.to_dict() for n in needs]
+
+
+@router.post("/mrp-order")
+def create_mrp_batch_order(
+    payload: MrpOrderBatchIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("purchasing.manage")),
+) -> dict:
+    """Генерация заявок на закупку и заказов поставщикам в 1 клик по строкам дефицита MRP."""
+    from app.services.mrp import create_mrp_orders
+
+    return create_mrp_orders(
+        db,
+        items=payload.items,
+        user_id=user.id,
+        create_supplier_order=payload.create_supplier_orders,
+    )

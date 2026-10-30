@@ -283,3 +283,49 @@ export async function getPanelFilm(): Promise<PanelFilmRow[]> {
   const { data } = await apiClient.get<PanelFilmRow[]>("/purchase-requests/panel-film");
   return data;
 }
+
+
+export interface MrpItemNeed {
+  item_type: "film" | "material";
+  item_id?: number | null;
+  material_id?: number | null;
+  color_id?: number | null;
+  thickness_id?: number | null;
+  width_mm?: number | null;
+  name: string;
+  unit: string;
+  gross_demand: number;
+  stock_current: number;
+  in_transit: number;
+  safety_stock: number;
+  net_deficit: number;
+  suggested_order: number;
+  supplier_id?: number | null;
+  supplier_name?: string | null;
+  urgency: "critical" | "warning" | "normal";
+  need_by?: string | null;
+}
+
+export interface MrpOrderResult {
+  created_requests_count: number;
+  created_supplier_orders_count: number;
+  request_ids: number[];
+}
+
+export async function getMrpNeeds(horizonDays: number = 14): Promise<MrpItemNeed[]> {
+  const { data } = await apiClient.get<MrpItemNeed[]>("/purchase-requests/mrp-needs", {
+    params: { horizon_days: horizonDays },
+  });
+  return data;
+}
+
+export async function createMrpOrderBatch(
+  items: Array<Partial<MrpItemNeed> & { suggested_order: number }>,
+  createSupplierOrders: boolean = true
+): Promise<MrpOrderResult> {
+  const { data } = await apiClient.post<MrpOrderResult>("/purchase-requests/mrp-order", {
+    items,
+    create_supplier_orders: createSupplierOrders,
+  });
+  return data;
+}

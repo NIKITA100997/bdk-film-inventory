@@ -2370,3 +2370,39 @@ def delete_product_model(
         db.delete(model)
         db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class SmartBatchingApplyIn(BaseModel):
+    area: str
+    line_ids: list[int]
+
+
+@router.get("/smart-batching-preview")
+def get_smart_batching_preview(
+    area: str,
+    target_date: date | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("production_tasks.manage", "production_tasks.view", "production_tasks.report")),
+) -> dict:
+    """Предпросмотр умной оптимизации очередей заданий (Smart Batching): группировка по декорам и ширинам."""
+    from app.services.smart_batching import plan_smart_batching
+
+    result = plan_smart_batching(db, area=area, target_date=target_date)
+    return result.to_dict()
+
+
+@router.post("/smart-batching-apply")
+def apply_smart_batching_endpoint(
+    payload: SmartBatchingApplyIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("production_tasks.manage")),
+) -> dict:
+    """Применение оптимизированной последовательности очередей заданий."""
+    from app.services.smart_batching import apply_smart_batching
+
+    return apply_smart_batching(
+        db,
+        area=payload.area,
+        optimized_line_ids=payload.line_ids,
+        user_id=user.id,
+    )

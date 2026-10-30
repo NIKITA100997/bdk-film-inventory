@@ -2,6 +2,7 @@
 одинаковый на всех его устройствах. Пусто — стандартный набор по ролям
 (считает интерфейс: там же и каталог модулей)."""
 
+from datetime import date
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.users import User
+from app.services.factory_pulse import compute_factory_pulse
 
 router = APIRouter(prefix="/home", tags=["home"])
 
@@ -34,3 +36,14 @@ def set_home(payload: HomeIn, db: Session = Depends(get_db), user: User = Depend
     me.home_modules = list(dict.fromkeys(m[:64] for m in payload.modules)) if payload.modules is not None else None
     db.commit()
     return HomeOut(modules=me.home_modules)
+
+
+@router.get("/pulse")
+def get_pulse(
+    target_date: date | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Сводный «Пульс завода» для руководителя: KPI смены, баланс участков, узкие места и оперативные подсказки."""
+    pulse = compute_factory_pulse(db, target_date=target_date)
+    return pulse.to_dict()

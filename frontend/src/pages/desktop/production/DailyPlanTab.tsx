@@ -1,3 +1,5 @@
+import SmartBatchingModal from "./SmartBatchingModal";
+import { ThunderboltOutlined } from "@ant-design/icons";
 import { useState } from "react";
 import NextStep, { scrollToId } from "../../../components/NextStep";
 import { apiClient } from "../../../api/client";
@@ -35,6 +37,7 @@ export default function DailyPlanTab() {
   const canManage = hasPerm(user, "production_tasks.manage");
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
   const [viewArea, setViewArea] = useState<string | null>(null);
+  const [smartBatchingOpen, setSmartBatchingOpen] = useState(false);
   // Карточка задания — из панели ввода быстрого отчёта («Задание №… →»).
   const [reportCardTask, setReportCardTask] = useState<number | null>(null);
   const [reportTarget, setReportTarget] = useState<
@@ -52,15 +55,27 @@ export default function DailyPlanTab() {
   const tasks = (tasksQuery.data ?? []).filter((t) => (!effectiveArea || t.area === effectiveArea) && t.is_active);
   const openLines = tasks.reduce((n, t) => n + t.lines.filter((l) => !l.is_closed && !l.production_closed).length, 0);
 
-  const areaPicker = !user?.area && (
-    <Select
-      allowClear
-      placeholder="Все участки"
-      style={{ width: 280 }}
-      value={viewArea ?? undefined}
-      onChange={(v) => setViewArea(v ?? null)}
-      options={(areasQuery.data ?? []).map((a) => ({ value: a.code, label: a.name }))}
-    />
+  const areaPicker = (
+    <Space wrap>
+      {!user?.area && (
+        <Select
+          allowClear
+          placeholder="Все участки"
+          style={{ width: 280 }}
+          value={viewArea ?? undefined}
+          onChange={(v) => setViewArea(v ?? null)}
+          options={(areasQuery.data ?? []).map((a) => ({ value: a.code, label: a.name }))}
+        />
+      )}
+      {effectiveArea && (
+        <Button
+          icon={<ThunderboltOutlined style={{ color: "#faad14" }} />}
+          onClick={() => setSmartBatchingOpen(true)}
+        >
+          🎯 Умная оптимизация очереди (Smart Batching)
+        </Button>
+      )}
+    </Space>
   );
 
   if (effectiveArea && !areaRequiresDailyPlan(effectiveArea)) {
@@ -83,7 +98,14 @@ export default function DailyPlanTab() {
             { key: "plan", label: "План на день из планировщика", children: <PlanForDay area={effectiveArea} canReport={canReport} /> },
           ]}
         />
-      </Space>
+      
+      <SmartBatchingModal
+        open={smartBatchingOpen}
+        onClose={() => setSmartBatchingOpen(false)}
+        area={effectiveArea ?? ""}
+        areaName={areasQuery.data?.find((a) => a.code === effectiveArea)?.name}
+      />
+</Space>
     );
   }
 
@@ -206,7 +228,14 @@ export default function DailyPlanTab() {
           onClose={() => setReportTarget(null)}
         />
       )}
-    </Space>
+    
+      <SmartBatchingModal
+        open={smartBatchingOpen}
+        onClose={() => setSmartBatchingOpen(false)}
+        area={effectiveArea ?? ""}
+        areaName={areasQuery.data?.find((a) => a.code === effectiveArea)?.name}
+      />
+</Space>
   );
 }
 
