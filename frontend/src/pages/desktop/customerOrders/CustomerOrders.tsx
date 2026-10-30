@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import NextStep from "../../../components/NextStep";
 import { useAuth } from "../../../auth/AuthContext";
-import { Button, Checkbox, Dropdown, Input, Progress, Space, Tag, Typography, message } from "antd";
+import { Button, Checkbox, Dropdown, Input, Progress, Segmented, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
@@ -15,6 +15,7 @@ import LaunchFromOrders from "./LaunchFromOrders";
 import { OrderTimelineModal } from "./OrderTimelineCard";
 import DraftsCleanupModal from "./DraftsCleanupModal";
 import CustomerOrderDrawer from "./CustomerOrderDrawer";
+import CustomerOrdersKanban from "./CustomerOrdersKanban";
 
 type Filter = "all" | "wait" | "accepted" | "work" | "ready" | "mine";
 const FILTERS: [Filter, string, (o: CustomerOrder) => boolean][] = [
@@ -48,6 +49,7 @@ export default function CustomerOrders() {
       else n.set("filter", f);
       return n;
     }, { replace: true });
+  const [view, setView] = useState<"table" | "pipeline">("table");
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -85,7 +87,16 @@ export default function CustomerOrders() {
     <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "2px 0" }}>
         <Space wrap align="center">
-          <Typography.Text strong style={{ fontSize: 16 }}>Реестр счетов 1С</Typography.Text>
+          <Typography.Text strong style={{ fontSize: 16 }}>Реестр заказов</Typography.Text>
+          <Segmented
+            size="small"
+            value={view}
+            onChange={(v) => setView(v as "table" | "pipeline")}
+            options={[
+              { value: "table", label: "📋 Таблица" },
+              { value: "pipeline", label: "📊 Пайплайн" },
+            ]}
+          />
           <Checkbox checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)}>
             С закрытыми
           </Checkbox>
@@ -135,17 +146,21 @@ export default function CustomerOrders() {
           </Tag.CheckableTag>
         ))}
       </Space>
-      {production && (
-        <Space wrap>
-          <Button type="primary" disabled={!pickedOrders.length} onClick={() => setLaunchName("")}>
-            Собрать запуск из выбранных ({pickedOrders.length})
-          </Button>
-          <Typography.Text type="secondary">
-            отметьте принятые заказы — их незапущенные позиции станут одним заказом на производство
-          </Typography.Text>
-        </Space>
-      )}
-      <ResponsiveTable<CustomerOrder>
+      {view === "pipeline" ? (
+        <CustomerOrdersKanban orders={shown} onSelect={(id) => setDrawerOrderId(id)} />
+      ) : (
+        <>
+          {production && (
+            <Space wrap>
+              <Button type="primary" disabled={!pickedOrders.length} onClick={() => setLaunchName("")}>
+                Собрать запуск из выбранных ({pickedOrders.length})
+              </Button>
+              <Typography.Text type="secondary">
+                отметьте принятые заказы — их незапущенные позиции станут одним заказом на производство
+              </Typography.Text>
+            </Space>
+          )}
+          <ResponsiveTable<CustomerOrder>
         tableKey="customer-orders"
         lockedColumns={["Счёт"]}
         size="small"
@@ -290,6 +305,8 @@ export default function CustomerOrders() {
           },
         ]}
       />
+        </>
+      )}
       {creating && (
         <CustomerOrderModal
           order={null}
