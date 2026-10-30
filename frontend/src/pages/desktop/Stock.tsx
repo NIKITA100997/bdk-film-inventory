@@ -1,5 +1,5 @@
-import { Navigate, useLocation, useSearchParams } from "react-router-dom";
-import { Divider, Grid, Segmented, Space, Tabs, Typography } from "antd";
+import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Button, Card, Divider, Grid, Segmented, Space, Tabs, Typography } from "antd";
 import { useAuth } from "../../auth/AuthContext";
 import MaterialsExplorer from "./MaterialsExplorer";
 import StorageMap from "./StorageMap";
@@ -15,41 +15,47 @@ import { MaterialsStockTab } from "./MaterialsStock";
 export type StockKind = "film" | "pf" | "materials" | "fg" | "all";
 export type StockTab = "items" | "lots" | "free" | "movements" | "map";
 
-/** Остатки — один экран на плёнку, п/ф и материалы вместо четырёх («Остатки плёнки»,
- * «Остатки и стеллажи п/ф», «Партии п/ф», «Остатки и движения»). Вид
- * (плёнка / п/ф / всё) и вкладка — в адресе (?kind=&tab=). Во вкладках —
- * те же рабочие экраны со всеми их действиями, поэтому кладовщику и мастеру
- * не нужно никуда переходить: позиции, партии, движения и стеллажи своего
- * вида — здесь. «Всё» — сводка по обоим видам для планирования. */
+/** Остатки — единый WMS-терминал на плёнку, п/ф, материалы и изделия.
+ * Вверху — быстрые кнопки ключевых складских операций (Приёмка, Сборка Pick Route,
+ * Выдача, Инвентаризация).
+ * Вид (плёнка / п/ф / материалы / изделия / всё) и вкладка — в адресе (?kind=&tab=). */
 export default function Stock() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
-  // На узком экране вид — своей строкой, иначе вкладки уходят в «…».
   const wide = Grid.useBreakpoint().md ?? true;
-  const has = (...perms: string[]) => !!user?.is_superuser || perms.some((p) => user?.permissions.includes(p));
+
+  const has = (...perms: string[]) =>
+    !!user?.is_superuser || perms.some((p) => user?.permissions.includes(p));
+
   const canPf = has("part_units.view", "part_units.manage", "part_storage.manage");
   const canPfLots = has("part_units.view", "part_units.manage");
   const canFilmOps = !!user?.is_superuser || !!user?.permissions.some((p) => p.startsWith("units."));
   const canBlanks = has("units.issue");
 
+  // Права на основные складские действия
+  const canReceive = has("units.receive", "materials.manage", "part_units.manage");
+  const canIssue = has("units.issue", "units.return", "part_units.manage");
+  const canInventory = has("inventory.manage", "part_units.count");
+
   const kinds: { value: StockKind; label: string }[] = [
     { value: "film", label: "Плёнка" },
     ...(canPf ? [{ value: "pf" as const, label: "П/ф" }] : []),
-    // Материалы (МДФ, пенопласт, клей, кромка…) — остаток одним числом.
     { value: "materials", label: "Материалы" },
-    // готовая продукция (06.10): приход — из отчёта упаковки, расход — отгрузка
     { value: "fg", label: "Изделия" },
-    // «Всё» — и тем, кто смотрит отчёты: здесь же журнал движений (бывший «Журнал действий»)
     ...(canPf || has("reports.view") ? [{ value: "all" as const, label: "Всё" }] : []),
   ];
-  // По умолчанию — свой вид: у кого нет работы с плёнкой, но есть п/ф, — п/ф.
-  // Поиск из шапки и переход из «Закупок» — всегда про плёнку.
-  const filmState = !!(location.state as { globalQuery?: string; usualSupplierFilter?: string } | null)?.globalQuery ||
+
+  const filmState =
+    !!(location.state as { globalQuery?: string; usualSupplierFilter?: string } | null)?.globalQuery ||
     !!(location.state as { usualSupplierFilter?: string } | null)?.usualSupplierFilter;
+
   const defaultKind: StockKind = canPf && !canFilmOps && !filmState ? "pf" : "film";
   const kindParam = params.get("kind") as StockKind | null;
-  const kind: StockKind = kinds.some((k) => k.value === kindParam) ? (kindParam as StockKind) : defaultKind;
+  const kind: StockKind = kinds.some((k) => k.value === kindParam)
+    ? (kindParam as StockKind)
+    : defaultKind;
 
   const tabsByKind: Record<StockKind, { key: StockTab; label: string }[]> = {
     film: [
@@ -73,18 +79,20 @@ export default function Stock() {
       { key: "items", label: "Остатки" },
       { key: "movements", label: "Движения" },
     ],
-    // «По позициям» по всем видам — теперь номенклатура с «Только с остатком» (27.10)
     all: [
       { key: "lots", label: "По партиям" },
       { key: "movements", label: "Движения" },
-      // Все стеллажи плёнки и п/ф одним справочником (бывшие «Места хранения»).
       { key: "map", label: "Стеллажи" },
     ],
   };
+
   const tabs = tabsByKind[kind];
   const tabParam = params.get("tab") as StockTab | null;
-  if (kind === "all" && tabParam === "items") return <Navigate to="/nomenclature?stock=1" replace />;
-  const tab: StockTab = tabs.some((t) => t.key === tabParam) ? (tabParam as StockTab) : tabs[0].key;
+  if (kind === "all" && tabParam === "items")
+    return <Navigate to="/nomenclature?stock=1" replace />;
+  const tab: StockTab = tabs.some((t) => t.key === tabParam)
+    ? (tabParam as StockTab)
+    : tabs[0].key;
 
   const go = (nextKind: StockKind, nextTab: StockTab) =>
     setParams(
@@ -94,14 +102,13 @@ export default function Stock() {
         p.set("tab", nextTab);
         return p;
       },
-      { replace: true },
+      { replace: true }
     );
 
   let content: React.ReactNode;
   if (kind === "film") {
     content =
       tab === "items" || tab === "lots" ? (
-        // Один и тот же экземпляр на обе вкладки — фильтры не сбрасываются.
         <MaterialsExplorer mode={tab === "lots" ? "units" : "positions"} />
       ) : tab === "free" ? (
         <Blanks />
@@ -122,12 +129,28 @@ export default function Stock() {
         <PartStorage />
       );
   } else if (kind === "fg") {
-    content = tab === "movements" ? <MovementsPanel fixedKind="fg" defaultDays={30} /> : <FgStockTab />;
+    content =
+      tab === "movements" ? (
+        <MovementsPanel fixedKind="fg" defaultDays={30} />
+      ) : (
+        <FgStockTab />
+      );
   } else if (kind === "materials") {
-    content = tab === "movements" ? <MovementsPanel fixedKind="material" defaultDays={30} /> : <MaterialsStockTab />;
+    content =
+      tab === "movements" ? (
+        <MovementsPanel fixedKind="material" defaultDays={30} />
+      ) : (
+        <MaterialsStockTab />
+      );
   } else {
     content =
-      tab === "lots" ? <LotsTab /> : tab === "map" ? <StoragePlaces /> : <MovementsPanel />;
+      tab === "lots" ? (
+        <LotsTab />
+      ) : tab === "map" ? (
+        <StoragePlaces />
+      ) : (
+        <MovementsPanel />
+      );
   }
 
   const kindSwitch =
@@ -139,7 +162,14 @@ export default function Stock() {
         <Segmented
           value={kind}
           options={kinds}
-          onChange={(v) => go(v as StockKind, tabsByKind[v as StockKind].some((t) => t.key === tab) ? tab : tabsByKind[v as StockKind][0].key)}
+          onChange={(v) =>
+            go(
+              v as StockKind,
+              tabsByKind[v as StockKind].some((t) => t.key === tab)
+                ? tab
+                : tabsByKind[v as StockKind][0].key
+            )
+          }
         />
         {wide && <Divider type="vertical" style={{ height: 24 }} />}
       </Space>
@@ -147,6 +177,65 @@ export default function Stock() {
 
   return (
     <Space direction="vertical" size="small" style={{ width: "100%" }}>
+      {/* Быстрая панель ключевых операций склада (WMS) */}
+      <Card
+        size="small"
+        styles={{ body: { padding: "8px 16px" } }}
+        style={{ borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          <Space align="center" size={8}>
+            <span style={{ fontSize: 18 }}>📦</span>
+            <Typography.Title level={5} style={{ margin: 0, whiteSpace: "nowrap" }}>
+              Склад и Остатки
+            </Typography.Title>
+          </Space>
+          <Space wrap size={6}>
+            {canReceive && (
+              <Button
+                type="primary"
+                size="small"
+                onClick={() => navigate("/m/receive")}
+              >
+                📥 Приёмка
+              </Button>
+            )}
+            {canIssue && (
+              <Button
+                size="small"
+                onClick={() => navigate("/pick-route")}
+              >
+                📋 Маршрут сборки
+              </Button>
+            )}
+            {canIssue && (
+              <Button
+                size="small"
+                onClick={() => navigate("/m/issue")}
+              >
+                📤 Выдача
+              </Button>
+            )}
+            {canInventory && (
+              <Button
+                size="small"
+                onClick={() => navigate("/inventory")}
+              >
+                🔄 Инвентаризация
+              </Button>
+            )}
+          </Space>
+        </div>
+      </Card>
+
       {!wide && kindSwitch}
       <Tabs
         activeKey={tab}
@@ -158,10 +247,14 @@ export default function Stock() {
     </Space>
   );
 }
-/** Старые адреса остатков (/part-units, /storage, сканы стеллажей…) ведут
- * сюда с нужным видом и вкладкой; state (стеллаж со скана, открыть партию,
- * фильтр) переносится как есть. */
+
 export function StockRedirect({ kind, tab }: { kind: StockKind; tab: StockTab }) {
   const location = useLocation();
-  return <Navigate to={`/stock?kind=${kind}&tab=${tab}`} replace state={location.state} />;
+  return (
+    <Navigate
+      to={`/stock?kind=${kind}&tab=${tab}`}
+      replace
+      state={location.state}
+    />
+  );
 }
