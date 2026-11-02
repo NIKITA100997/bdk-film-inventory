@@ -288,7 +288,6 @@ export default function AppRoutes() {
       <Route path="/login" element={<Login />} />
 
       <Route
-        path="/*"
         element={
           <RequireAuth>
             <AppLayout pageRoutes={appPageRoutes} />
