@@ -44,6 +44,7 @@ from app.schemas.reports import (
     TrendPoint,
     UnitReconciliationLine,
     WriteOffLine,
+    QualityMeetingReportOut,
 )
 from app.services.defects_reports import PivotInputRow, build_defect_pivot, bucket_date_range, defect_rate_percent, delta_percent
 from app.services.part_units import reported_good_pieces_by_unit
@@ -1215,3 +1216,74 @@ def defects_overview(
         top_materials=top_materials,
         top_defect_groups=_top_defect_groups(db, date_from, date_to),
     )
+
+
+@router.get("/quality-meeting", response_model=QualityMeetingReportOut)
+def quality_meeting_report_endpoint(
+    date_from: dt.date = Query(...),
+    date_to: dt.date = Query(...),
+    area: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("reports.view")),
+) -> QualityMeetingReportOut:
+    """Аналитика качества для планёрки начальника производства: Парето 80/20, станки, декоры, финансовые потери."""
+    from app.services.quality_meeting import compute_quality_meeting
+    from app.models.dictionaries import Color
+
+    query = (
+        db.query(
+            ProductionTaskLineReport.defect_pieces,
+            ProductionTaskLineReport.good_pieces,
+            ProductionTaskLineReport.defect_reason,
+            WriteOffReasonEntry.name.label("reason_name"),
+            func.coalesce(ProductionTaskLineReport.line_id, ProductionTaskLineAssignment.line_id).label("line_id"),
+            ProductionLine.name.label("line_name"),
+            ProductionTask.area.label("area_code"),
+            Area.name.label("area_name"),
+            Color.id.label("color_id"),
+            Color.name.label("color_name"),
+            ProductionTaskLineReport.cost_rub,
+            ProductionTaskLineReport.film_used_m,
+        )
+        .join(ProductionTaskLine, ProductionTaskLineReport.task_line_id == ProductionTaskLine.id)
+        .join(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+        .join(Area, ProductionTask.area == Area.code)
+        .outerjoin(
+            ProductionTaskLineAssignment, ProductionTaskLineReport.assignment_id == ProductionTaskLineAssignment.id
+        )
+        .outerjoin(
+            ProductionLine,
+            func.coalesce(ProductionTaskLineReport.line_id, ProductionTaskLineAssignment.line_id) == ProductionLine.id,
+        )
+        .outerjoin(WriteOffReasonEntry, ProductionTaskLineReport.defect_reason == WriteOffReasonEntry.code)
+        .outerjoin(MaterialUnit, ProductionTaskLineReport.material_unit_id == MaterialUnit.id)
+        .outerjoin(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
+        .outerjoin(Color, func.coalesce(ProductionTaskLine.color_id, MaterialSku.color_id) == Color.id)
+        .filter(
+            func.date(ProductionTaskLineReport.reported_at) >= date_from,
+            func.date(ProductionTaskLineReport.reported_at) <= date_to,
+        )
+    )
+    if area:
+        query = query.filter(ProductionTask.area == area)
+
+    raw_reports = [
+        {
+            "defect_pieces": float(row.defect_pieces or 0.0),
+            "good_pieces": float(row.good_pieces or 0.0),
+            "reason_code": row.defect_reason,
+            "reason_name": row.reason_name,
+            "line_id": row.line_id,
+            "line_name": row.line_name,
+            "area_code": row.area_code,
+            "area_name": row.area_name,
+            "color_id": row.color_id,
+            "color_name": row.color_name,
+            "cost_rub": float(row.cost_rub) if row.cost_rub is not None else None,
+            "film_used_m": float(row.film_used_m) if row.film_used_m is not None else None,
+        }
+        for row in query.all()
+    ]
+
+    report = compute_quality_meeting(raw_reports, date_from, date_to, area=area)
+    return QualityMeetingReportOut(**report.__dict__)

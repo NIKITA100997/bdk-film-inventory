@@ -343,3 +343,62 @@ export const getDefectsPivot = async (dateFrom: string, dateTo: string, groupBy:
       params: { date_from: dateFrom, date_to: dateTo, group_by: groupBy },
     })
   ).data;
+
+
+export interface ParetoReasonOut {
+  reason_code: string;
+  reason_name: string;
+  defect_pieces: number;
+  cost_rub: number;
+  share_percent: number;
+  cumulative_percent: number;
+  is_zone_a: boolean;
+}
+
+export interface MachineDefectOut {
+  line_id: number | null;
+  line_name: string;
+  area: string | null;
+  area_name: string | null;
+  defect_pieces: number;
+  good_pieces: number;
+  defect_rate_percent: number;
+  top_reason: string | null;
+  cost_rub: number;
+}
+
+export interface DecorDefectOut {
+  color_id: number | null;
+  color_name: string;
+  defect_pieces: number;
+  good_pieces: number;
+  defect_rate_percent: number;
+  top_reason: string | null;
+}
+
+export interface QualityMeetingReportOut {
+  date_from: string;
+  date_to: string;
+  area: string | null;
+  total_defect_pieces: number;
+  total_good_pieces: number;
+  total_defect_rate_percent: number;
+  total_loss_rub: number;
+  total_film_wasted_m: number;
+  pareto_reasons: ParetoReasonOut[];
+  machine_ranking: MachineDefectOut[];
+  decor_ranking: DecorDefectOut[];
+  zone_a_summary: string;
+  recommended_actions: string[];
+}
+
+export const getQualityMeetingReport = async (
+  dateFrom: string,
+  dateTo: string,
+  area?: string | null
+): Promise<QualityMeetingReportOut> =>
+  (
+    await apiClient.get<QualityMeetingReportOut>("/reports/quality-meeting", {
+      params: { date_from: dateFrom, date_to: dateTo, area: area || undefined },
+    })
+  ).data;

@@ -27,6 +27,7 @@ import { listAllWriteOffReasons } from "../../api/writeOffReasons";
 import { useAuth } from "../../auth/AuthContext";
 import { palette } from "../../theme";
 import { WriteOffReasonsTab } from "./DictionaryAdmin";
+import QualityMeetingTab from "./quality/QualityMeetingTab";
 import { UnitLink } from "../../components/EntityLink";
 import { fmtDate, fmtDateTime } from "../../utils/dates";
 import ResponsiveTable from "../../components/ResponsiveTable";
@@ -488,10 +489,12 @@ export default function Defects() {
   const canManageReasons = hasPerm(user, "materials.manage");
 
   return (
-    <Card title="Брак и списания">
+    <Card title="Брак и контроль качества">
       <Tabs
+        defaultActiveKey="quality-meeting"
         items={[
-          { key: "overview", label: "Обзор", children: <DefectsOverviewTab /> },
+          { key: "quality-meeting", label: "📋 Планёрка по качеству (Парето 80/20)", children: <QualityMeetingTab /> },
+          { key: "overview", label: "Обзор динамики", children: <DefectsOverviewTab /> },
           { key: "pivot", label: "Сводная таблица", children: <DefectsPivotTab /> },
           { key: "warehouse", label: "Списания по складу", children: <WriteOffsTab /> },
           { key: "production", label: "Брак на производстве", children: <ProductionDefectsTab /> },

@@ -309,3 +309,50 @@ class DefectPivotOut(BaseModel):
     reasons: list[str]
     rows: list[DefectPivotRowOut]
     total: DefectPivotRowOut
+
+
+class ParetoReasonOut(BaseModel):
+    reason_code: str
+    reason_name: str
+    defect_pieces: float
+    cost_rub: float
+    share_percent: float
+    cumulative_percent: float
+    is_zone_a: bool
+
+
+class MachineDefectOut(BaseModel):
+    line_id: int | None
+    line_name: str
+    area: str | None
+    area_name: str | None
+    defect_pieces: float
+    good_pieces: float
+    defect_rate_percent: float
+    top_reason: str | None
+    cost_rub: float
+
+
+class DecorDefectOut(BaseModel):
+    color_id: int | None
+    color_name: str
+    defect_pieces: float
+    good_pieces: float
+    defect_rate_percent: float
+    top_reason: str | None
+
+
+class QualityMeetingReportOut(BaseModel):
+    date_from: date
+    date_to: date
+    area: str | None
+    total_defect_pieces: float
+    total_good_pieces: float
+    total_defect_rate_percent: float
+    total_loss_rub: float
+    total_film_wasted_m: float
+    pareto_reasons: list[ParetoReasonOut]
+    machine_ranking: list[MachineDefectOut]
+    decor_ranking: list[DecorDefectOut]
+    zone_a_summary: str
+    recommended_actions: list[str]
