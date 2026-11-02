@@ -557,3 +557,67 @@ class AreaOperationOut(BaseModel):
     part_name: str
     stage_name: str
     is_first: bool
+
+
+class JobCardMaterialOut(BaseModel):
+    material: str | None = None
+    color: str | None = None
+    thickness: float | None = None
+    strip_width_mm: float | None = None
+    planned_meters: float = 0.0
+    issued_meters: float = 0.0
+    rolls_assigned: list[str] = []
+
+
+class JobCardLineOut(BaseModel):
+    id: int
+    line_id: int | None = None
+    line_name: str | None = None
+    part_name: str | None = None
+    operation_name: str | None = None
+    dimensions: str
+    length_mm: float
+    width_mm: float
+    thickness_mm: float | None = None
+    strip_width_mm: float | None = None
+    material_label: str | None = None
+    program: str | None = None
+    instruction: str | None = None
+    quantity_pieces: float
+    produced_good_pieces: float = 0.0
+    defect_pieces: float = 0.0
+    remaining_pieces: float = 0.0
+    production_closed: bool = False
+
+
+class JobCardRelatedTaskOut(BaseModel):
+    id: int
+    name: str | None = None
+    area: str
+    area_name: str | None = None
+    quantity: int | None = None
+    is_ready: bool = False
+
+
+class JobCardOut(BaseModel):
+    task_id: int
+    task_name: str | None = None
+    area_code: str
+    area_name: str
+    created_at: datetime
+    deadline_date: date | None = None
+    order_id: int | None = None
+    order_name: str | None = None
+    order_note: str | None = None
+    external_order_ref: int | None = None
+    total_quantity: float
+    total_produced_good: float
+    total_defects: float
+    total_remaining: float
+    completion_percent: float
+    primary_line_name: str | None = None
+    qr_code_value: str
+    materials: list[JobCardMaterialOut] = []
+    lines: list[JobCardLineOut] = []
+    pf_tasks: list[JobCardRelatedTaskOut] = []
+    for_task: JobCardRelatedTaskOut | None = None

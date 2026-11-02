@@ -33,6 +33,8 @@ import { areaRequiresRoll } from "../../../api/areas";
 import { rollChoices } from "./fastReport/useFastReport";
 import { apiErrorMessage } from "../../../utils/apiError";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import JobCardModal from "./JobCardModal";
+import { PrinterOutlined } from "@ant-design/icons";
 
 /** Готовность задания п/ф по деталям: деталь готова, когда все её строки
  * (этапы на этом участке) сделаны или закрыты. */
@@ -154,6 +156,7 @@ function TaskCardBody({
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось закрыть задание")),
   });
   const [supplyOpen, setSupplyOpen] = useState(false);
+  const [jobCardOpen, setJobCardOpen] = useState(false);
   const [closeByLines, setCloseByLines] = useState(false);
   const authUser = useAuth().user;
   const isSuper = !!authUser?.is_superuser;
@@ -198,6 +201,7 @@ function TaskCardBody({
     ...(canManage && t.is_active ? [{ key: "complete", label: "Закрыть: всё сделано" }] : []),
     ...(canManage && t.is_active && t.lines.some((l) => !l.is_closed) ? [{ key: "complete-lines", label: "Закрыть по позициям…" }] : []),
     ...(canManage ? [{ key: "archive", label: t.is_active ? "В архив" : "Вернуть из архива" }] : []),
+    { key: "job-card", label: "📄 Маршрутная карта (Job Card)" },
     { key: "list", label: "Открыть в «Задания цеха»" },
     { key: "planner", label: "Открыть в планировщике →" },
     ...(canManage ? [{ type: "divider" as const }, { key: "delete", label: isSuper ? "Удалить задание" : "Запросить удаление", danger: true }] : []),
@@ -212,6 +216,7 @@ function TaskCardBody({
         onOk: () => completeMutation.mutateAsync(),
       });
     else if (key === "complete-lines") setCloseByLines(true);
+    else if (key === "job-card") setJobCardOpen(true);
     else if (key === "archive") archiveMutation.mutate(!t.is_active);
     else if (key === "supply") setSupplyOpen(true);
     else if (key === "delete")
@@ -315,6 +320,9 @@ function TaskCardBody({
             </Space>
           </Space>
           <Space>
+            <Button icon={<PrinterOutlined />} onClick={() => setJobCardOpen(true)}>
+              Наряд на станок
+            </Button>
             {reportAllowed && (
               <Button type="primary" onClick={() => setTab("report")}>
                 Отчитаться
@@ -333,6 +341,12 @@ function TaskCardBody({
       </div>
       <Tabs activeKey={tabs.some((x) => x.key === tab) ? tab : "lines"} onChange={setTab} items={tabs} style={{ padding: "0 20px 20px" }} />
       {closeByLines && <CloseByLinesModal task={t} onClose={() => setCloseByLines(false)} />}
+      <JobCardModal
+        taskId={t.id}
+        open={jobCardOpen}
+        onClose={() => setJobCardOpen(false)}
+        onOpenFastReport={() => setTab("report")}
+      />
       {supplyOpen && (
         <PfSupplyModal taskId={t.id} taskName={t.product_model_name ?? t.name ?? ""} canManage={canManage} onClose={() => setSupplyOpen(false)} />
       )}

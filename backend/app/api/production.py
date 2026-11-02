@@ -25,6 +25,7 @@ from app.models.users import User
 from app.schemas.production import (
     TaskCardOrderOut,
     TaskCardOut,
+    JobCardOut,
     TaskCardReportOut,
     AreaOperationOut,
     OperationTaskCreate,
@@ -2096,6 +2097,25 @@ def get_task_card(task_id: int, db: Session = Depends(get_db), user: User = Depe
             for r, name in reps
         ],
     )
+
+
+@router.get("/production-tasks/{task_id}/job-card", response_model=JobCardOut)
+def get_task_job_card(
+    task_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(view_tasks),
+) -> JobCardOut:
+    """Сменный наряд-задание / маршрутная карта на станок (Job Card).
+    Включает шапку, QR-код, сводку сырья и детализацию по деталям для планшета и печати А4.
+    """
+    from app.services.job_card import build_job_card
+
+    task = db.get(ProductionTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+    _require_task_view(db, user, task)
+    task_out = _task_out(db, task)
+    return build_job_card(db, task, task_out)
 
 
 @router.patch("/production-tasks/{task_id}/lines/{line_id}", response_model=ProductionTaskOut)

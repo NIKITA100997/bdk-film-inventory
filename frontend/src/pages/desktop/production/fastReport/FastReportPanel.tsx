@@ -219,7 +219,8 @@ export default function FastReportPanel({
               tooltip="Сканировать QR рулона, детали или задания"
               onScan={(code) => {
                 const trimmed = code.trim();
-                const num = parseInt(trimmed, 10);
+                const taskMatch = trimmed.match(/(?:task[:=\-_/]?\s*)(\d+)/i);
+                const num = taskMatch ? parseInt(taskMatch[1], 10) : parseInt(trimmed, 10);
                 if (!isNaN(num)) {
                   const matchRoll = r.lines.find((fl) => rollChoices(fl.line).some((rc) => rc.id === num));
                   if (matchRoll) {

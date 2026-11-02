@@ -638,3 +638,71 @@ export const createOperationTask = async (payload: {
   ship_date?: string | null;
   lines: { part_stage_id: number | null; name: string | null; quantity_pieces: number }[];
 }): Promise<ProductionTask> => (await apiClient.post<ProductionTask>("/production-tasks/operations", payload)).data;
+
+// Сменный наряд-задание / Маршрутная карта на станок (Job Card)
+export interface JobCardMaterial {
+  material: string | null;
+  color: string | null;
+  thickness: number | null;
+  strip_width_mm: number | null;
+  planned_meters: number;
+  issued_meters: number;
+  rolls_assigned: string[];
+}
+
+export interface JobCardLine {
+  id: number;
+  line_id: number | null;
+  line_name: string | null;
+  part_name: string | null;
+  operation_name: string | null;
+  dimensions: string;
+  length_mm: number;
+  width_mm: number;
+  thickness_mm: number | null;
+  strip_width_mm: number | null;
+  material_label: string | null;
+  program: string | null;
+  instruction: string | null;
+  quantity_pieces: number;
+  produced_good_pieces: number;
+  defect_pieces: number;
+  remaining_pieces: number;
+  production_closed: boolean;
+}
+
+export interface JobCardRelatedTask {
+  id: number;
+  name: string | null;
+  area: string;
+  area_name: string | null;
+  quantity: number | null;
+  is_ready: boolean;
+}
+
+export interface JobCardData {
+  task_id: number;
+  task_name: string | null;
+  area_code: string;
+  area_name: string;
+  created_at: string;
+  deadline_date: string | null;
+  order_id: number | null;
+  order_name: string | null;
+  order_note: string | null;
+  external_order_ref: number | null;
+  total_quantity: number;
+  total_produced_good: number;
+  total_defects: number;
+  total_remaining: number;
+  completion_percent: number;
+  primary_line_name: string | null;
+  qr_code_value: string;
+  materials: JobCardMaterial[];
+  lines: JobCardLine[];
+  pf_tasks: JobCardRelatedTask[];
+  for_task: JobCardRelatedTask | null;
+}
+
+export const getJobCard = async (taskId: number): Promise<JobCardData> =>
+  (await apiClient.get<JobCardData>(`/production-tasks/${taskId}/job-card`)).data;
