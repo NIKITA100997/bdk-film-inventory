@@ -8,7 +8,7 @@ from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.dictionaries import Part
 from app.models.items import ItemComponent
-from app.models.part_units import PartUnit, PartUnitEvent, PartUnitStatus
+from app.models.part_units import PartUnit, PartUnitEvent, PartUnitStatus, PartEventType
 from app.models.users import User
 from app.schemas.part_units import (
     PartUnitAdjust,
@@ -21,6 +21,7 @@ from app.schemas.part_units import (
     PartUnitReturn,
     PartUnitIssue,
     PartUnitWriteOff,
+    PartUnitRestoreWriteOff,
 )
 from app.services.part_units import (
     issue_part_unit,
@@ -33,6 +34,7 @@ from app.services.part_units import (
     return_part_unit,
     write_off_part_fifo,
     write_off_part_unit,
+    record_part_event,
 )
 from app.services.production_orders import detail_targets, make_detail_from_unit, recycle_to_detail
 
@@ -289,6 +291,44 @@ def issue_part_unit_endpoint(
     db.commit()
     db.refresh(target)
     return _part_unit_out_single(db, target)
+
+
+@router.post("/{unit_id}/restore-write-off", response_model=PartUnitOut)
+def restore_write_off_part_unit_endpoint(
+    unit_id: int,
+    payload: PartUnitRestoreWriteOff,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("part_units.manage", "part_units.correct")),
+) -> PartUnitOut:
+    unit = db.get(PartUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    if unit.status != PartUnitStatus.SPISAN:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Отменить списание можно только для списанной партии (текущий статус: {unit.status.value})",
+        )
+    unit.status = PartUnitStatus.NA_KHRANENII
+    unit.quantity_pieces = payload.actual_quantity_pieces
+    unit.area = None
+    if payload.location_code:
+        unit.location_code = payload.location_code.strip()
+    
+    note_text = f"Отмена списания: {payload.note}" if payload.note else "Отмена ошибочного списания (восстановление на хранение)"
+    record_part_event(
+        db,
+        unit=unit,
+        event_type=PartEventType.KORREKTIROVKA,
+        user_id=user.id,
+        quantity_delta=payload.actual_quantity_pieces,
+        write_off_note=note_text,
+        note=note_text,
+        to_cell=unit.location_code,
+        occurred_at=payload.occurred_at,
+    )
+    db.commit()
+    db.refresh(unit)
+    return _part_unit_out_single(db, unit)
 
 
 @router.post("/{unit_id}/advance", response_model=PartUnitOut)

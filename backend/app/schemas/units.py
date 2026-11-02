@@ -124,6 +124,17 @@ class WriteOffRequest(BaseModel):
     occurred_at: OccurredAt = None
 
 
+class RestoreWriteOffRequest(BaseModel):
+    """Отмена ошибочного списания (восстановление единицы на хранение).
+    Возвращает рулон/штрипс в статус На_хранении, выставляет фактическую длину
+    и ячейку склада, логирует поднадзорное событие KORREKTIROVKA."""
+
+    actual_length_m: float = Field(gt=0, description="Фактическая длина для восстановления")
+    location_code: str | None = Field(None, description="Ячейка склада")
+    note: str | None = Field(None, description="Пояснение причины отмены списания")
+    occurred_at: OccurredAt = None
+
+
 class PlaceRequest(BaseModel):
     location_code: str
     occurred_at: OccurredAt = None

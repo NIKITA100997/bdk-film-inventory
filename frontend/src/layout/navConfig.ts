@@ -118,6 +118,12 @@ export const navTree: NavBlock[] = [
         permissions: ["requests.approve", "users.manage"],
       },
       {
+        key: "action-log",
+        path: "/action-log",
+        label: "📜 Журнал действий (отмена списаний)",
+        permissions: ["reports.view", "units.correct", "units.writeoff", "users.manage"],
+      },
+      {
         key: "period-closing",
         path: "/period-closing",
         label: "Закрытие периода",

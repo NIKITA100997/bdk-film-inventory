@@ -550,6 +550,21 @@ export async function writeOffUnit(
   return data;
 }
 
+export interface RestoreWriteOffRequest {
+  actual_length_m: number;
+  location_code?: string;
+  note?: string;
+  occurred_at?: string;
+}
+
+export async function restoreWriteOffUnit(
+  unitId: number,
+  payload: RestoreWriteOffRequest,
+): Promise<MaterialUnit> {
+  const { data } = await apiClient.post<MaterialUnit>(`/units/${unitId}/restore-write-off`, payload);
+  return data;
+}
+
 export async function deleteUnit(unitId: number): Promise<DeleteResult> {
   const { data } = await apiClient.delete<DeleteResult>(`/units/${unitId}`);
   return data;

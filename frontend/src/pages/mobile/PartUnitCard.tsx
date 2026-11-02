@@ -161,6 +161,22 @@ export default function PartUnitCard() {
 
       {unit && (
         <>
+          {unit.status === "Списан" && (
+            <Alert
+              type="error"
+              showIcon
+              message="Партия списана из учёта"
+              description="Если списание было ошибочным, вы можете отменить его и вернуть партию на хранение."
+              action={
+                canCorrect && (
+                  <Button size="middle" type="primary" danger onClick={() => setLotOp("restore")}>
+                    ↩️ Отменить списание
+                  </Button>
+                )
+              }
+              style={{ marginBottom: 16 }}
+            />
+          )}
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
             <Descriptions.Item label="Номер">{pfNo(unit.id)}</Descriptions.Item>
             <Descriptions.Item label="Деталь">

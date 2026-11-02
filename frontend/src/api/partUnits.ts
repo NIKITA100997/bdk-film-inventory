@@ -101,6 +101,18 @@ export const writeOffPartUnit = async (
   payload: { quantity_pieces: number; reason: string; note?: string; occurred_at?: string | null },
 ): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${id}/write-off`, payload)).data;
 
+export interface PartUnitRestoreWriteOffRequest {
+  actual_quantity_pieces: number;
+  location_code?: string;
+  note?: string;
+  occurred_at?: string | null;
+}
+
+export const restoreWriteOffPartUnit = async (
+  id: number,
+  payload: PartUnitRestoreWriteOffRequest,
+): Promise<PartUnit> => (await apiClient.post<PartUnit>(`/part-units/${id}/restore-write-off`, payload)).data;
+
 // Списать N шт детали сразу (27.10) — с партий по FIFO, не по одной.
 export const writeOffPartFifo = async (payload: {
   part_id: number;

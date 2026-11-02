@@ -399,6 +399,22 @@ export default function UnitCard() {
 
       {unit && (
         <>
+          {unit.status === "Списан" && (
+            <Alert
+              type="error"
+              showIcon
+              message="Рулон списан из учёта"
+              description="Если списание было ошибочным, вы можете отменить его и вернуть рулон на хранение."
+              action={
+                (hasPermission("units.writeoff") || hasPermission("units.correct")) && (
+                  <Button size="middle" type="primary" danger onClick={() => setLotOp("restore")}>
+                    ↩️ Отменить списание
+                  </Button>
+                )
+              }
+              style={{ marginBottom: 16 }}
+            />
+          )}
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
             <Descriptions.Item label="Номер">{rollNo(unit.id)}</Descriptions.Item>
             <Descriptions.Item label="Материал">

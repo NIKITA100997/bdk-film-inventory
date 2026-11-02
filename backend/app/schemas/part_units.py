@@ -56,6 +56,15 @@ class PartUnitWriteOff(BaseModel):
     occurred_at: datetime | None = None
 
 
+class PartUnitRestoreWriteOff(BaseModel):
+    """Отмена ошибочного списания партии п/ф (восстановление на хранение)."""
+
+    actual_quantity_pieces: float = Field(gt=0, description="Фактическое количество шт")
+    location_code: str | None = Field(None, description="Ячейка склада")
+    note: str | None = Field(None, description="Пояснение причины отмены списания")
+    occurred_at: datetime | None = None
+
+
 class PartUnitReturn(BaseModel):
     """Вернуть партию на склад п/ф, не использовав (или использовав лишь
     частично) — раздел про ревизию путей п/ф, зеркалит ReturnRequest у

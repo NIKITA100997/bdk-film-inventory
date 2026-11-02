@@ -31,6 +31,10 @@ export interface ActionLogMaterialLine {
   production_task_line_id: number | null;
   part_name: string | null;
   task_name: string | null;
+  unit_status?: string | null;
+  current_length_m?: number | null;
+  is_strip?: boolean | null;
+  current_location_code?: string | null;
 }
 
 export interface ActionLogPartUnitLine {
@@ -54,6 +58,9 @@ export interface ActionLogPartUnitLine {
   production_task_line_id: number | null;
   task_name: string | null;
   note: string | null;
+  unit_status?: string | null;
+  current_quantity_pieces?: number | null;
+  current_location_code?: string | null;
 }
 
 export interface ActionLogFilters {
@@ -79,3 +86,14 @@ export interface ActionLogPartUnitFilters extends Omit<ActionLogFilters, "unit_i
 
 export const getActionLogPartUnits = async (filters: ActionLogPartUnitFilters = {}): Promise<ActionLogPartUnitLine[]> =>
   (await apiClient.get<ActionLogPartUnitLine[]>("/reports/action-log/part-units", { params: filters })).data;
+
+
+export const adjustMaterialUnit = async (
+  unitId: number,
+  payload: { actual_length_m: number; reason: string; note?: string; occurred_at?: string },
+) => (await apiClient.post(`/units/${unitId}/adjust`, payload)).data;
+
+export const adjustPartUnitEntry = async (
+  partUnitId: number,
+  payload: { actual_quantity_pieces: number; reason: string; note?: string; occurred_at?: string },
+) => (await apiClient.post(`/part-units/${partUnitId}/adjust`, payload)).data;

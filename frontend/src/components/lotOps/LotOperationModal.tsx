@@ -8,7 +8,7 @@ import LocationSelect from "../LocationSelect";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { apiErrorMessage } from "../../utils/apiError";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
-import { adjustUnit, deleteUnit, getReturnPreview, getUnit, issueUnitDirect, placeUnit, reassignUnitSku, returnUnit, skuLabel, writeOffUnit, type MaterialUnit } from "../../api/units";
+import { adjustUnit, deleteUnit, getReturnPreview, getUnit, issueUnitDirect, placeUnit, reassignUnitSku, returnUnit, skuLabel, writeOffUnit, restoreWriteOffUnit, type MaterialUnit } from "../../api/units";
 import {
   adjustPartUnit,
   deletePartUnit,
@@ -18,6 +18,7 @@ import {
   returnPartUnit,
   splitPartUnit,
   writeOffPartUnit,
+  restoreWriteOffPartUnit,
   type PartUnit,
 } from "../../api/partUnits";
 import { listMaterialSkus, listParts } from "../../api/dictionaries";
@@ -169,6 +170,21 @@ export default function LotOperationModal({
         }
         return regradePartUnit(id, { part_id: v.target_id!, reason: v.reason!.trim(), stage_id: v.stage_id ?? null });
       }
+      if (op === "restore") {
+        return film
+          ? restoreWriteOffUnit(id, {
+              actual_length_m: v.qty!,
+              location_code: v.location_code?.trim() || undefined,
+              note: v.note || undefined,
+              occurred_at: at ?? undefined,
+            })
+          : restoreWriteOffPartUnit(id, {
+              actual_quantity_pieces: v.qty!,
+              location_code: v.location_code?.trim() || undefined,
+              note: v.note || undefined,
+              occurred_at: at ?? undefined,
+            });
+      }
       if (!full) throw new Error("Партия не загружена");
       return film
         ? adjustUnit(id, {
@@ -202,7 +218,7 @@ export default function LotOperationModal({
   });
 
   // корректировка подставляется после загрузки полной партии (fullQuery)
-  const initialQty = op === "writeoff" ? lot.qty : op === "adjust" ? undefined : film ? undefined : lot.qty;
+  const initialQty = op === "writeoff" || op === "restore" ? (lot.length_m ?? lot.qty) : op === "adjust" ? undefined : film ? undefined : lot.qty;
 
   return (
     <Modal
@@ -394,6 +410,35 @@ export default function LotOperationModal({
             message="Только для ошибочно заведённой партии"
             description="Партия удаляется вместе с журналом, как будто её не было. Израсходованную или бракованную — не удалять, а списать. У администратора удаляется сразу, у остальных уходит заявкой."
           />
+        )}
+
+        {op === "restore" && (
+          <>
+            <Alert
+              type="info"
+              showIcon
+              message="Отмена ошибочного списания"
+              description="Партия вернется в статус «На хранении». В истории движений будет зафиксировано восстановительное событие."
+              style={{ marginBottom: 16 }}
+            />
+            <Form.Item
+              name="qty"
+              label={`Фактическое количество (${unit})`}
+              rules={[{ required: true, message: `Укажите количество в ${unit}` }]}
+            >
+              <InputNumber min={0.01} step={1} precision={2} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="location_code" label="Ячейка склада (место хранения)">
+              <LocationSelect sku={lot.sku} placeholder="Выберите ячейку" />
+            </Form.Item>
+            <Form.Item
+              name="note"
+              label="Причина отмены списания"
+              rules={[{ required: true, message: "Укажите пояснение для отмены списания" }]}
+            >
+              <Input.TextArea rows={2} placeholder="Например: ошибочно списали при инвентаризации, штрипс найден на складе" />
+            </Form.Item>
+          </>
         )}
 
         {op === "regrade" && (

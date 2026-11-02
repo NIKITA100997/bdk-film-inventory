@@ -136,6 +136,10 @@ class ActionLogMaterialLine(BaseModel):
     production_task_line_id: int | None
     part_name: str | None
     task_name: str | None
+    unit_status: str | None = None
+    current_length_m: float | None = None
+    is_strip: bool | None = None
+    current_location_code: str | None = None
 
 
 class ActionLogPartUnitLine(BaseModel):
@@ -162,6 +166,9 @@ class ActionLogPartUnitLine(BaseModel):
     production_task_line_id: int | None
     task_name: str | None
     note: str | None
+    unit_status: str | None = None
+    current_quantity_pieces: float | None = None
+    current_location_code: str | None = None
 
 
 class UnitReconciliationLine(BaseModel):

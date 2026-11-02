@@ -52,6 +52,7 @@ from app.schemas.units import (
     UnitBulkEditRequest,
     UnitEventOut,
     WriteOffRequest,
+    RestoreWriteOffRequest,
 )
 from app.services.cutting_plan import DonorCandidate, build_cutting_plan
 from app.services.cutting_undo import check_undo_eligibility, has_undo_permission, undo_cutting_operation
@@ -703,6 +704,47 @@ def write_off_unit(
     if unit.status != UnitStatus.NA_KHRANENII:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Списать можно только единицу на хранении")
     _apply_write_off(db, unit, reason_code=payload.reason, note=payload.note, user_id=user.id, occurred_at=payload.occurred_at)
+    db.commit()
+    return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+
+
+@router.post("/{unit_id}/restore-write-off", response_model=MaterialUnitOut)
+def restore_write_off_unit(
+    unit_id: int,
+    payload: RestoreWriteOffRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.writeoff", "units.correct")),
+) -> MaterialUnit:
+    """Отмена ошибочного списания (восстановление единицы на хранение).
+    Переводит рулон/штрипс обратно в статус На_хранении, восстанавливает фактическую длину,
+    при необходимости меняет/задаёт ячейку склада, и фиксирует событие KORREKTIROVKA."""
+    unit = _get_storable_unit(db, unit_id)
+    if unit.status != UnitStatus.SPISAN:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Отменить списание можно только для списанной единицы (текущий статус: {unit.status.value})",
+        )
+    unit.status = UnitStatus.NA_KHRANENII
+    unit.length_m = payload.actual_length_m
+    unit.area = None
+    if payload.location_code:
+        unit.location_code = payload.location_code.strip()
+    elif not unit.location_code:
+        unit.location_code = "Д-01"
+
+    note_text = f"Отмена списания: {payload.note}" if payload.note else "Отмена ошибочного списания (восстановление на хранение)"
+    record_event(
+        db,
+        unit=unit,
+        event_type=EventType.KORREKTIROVKA,
+        user_id=user.id,
+        quantity_delta_m=payload.actual_length_m,
+        from_length=0.0,
+        to_length=payload.actual_length_m,
+        to_cell=unit.location_code,
+        write_off_note=note_text,
+        occurred_at=payload.occurred_at,
+    )
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 

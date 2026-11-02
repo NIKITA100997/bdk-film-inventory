@@ -9,7 +9,7 @@ import { lotNo } from "../../utils/lotNo";
  * правила по статусам и правам — те же, что проверяет сервер. */
 // regrade — пересорт: сменить позицию у партии (14.10), для любого вида
 // issue, split, delete — шаг 2 единых действий (14.10)
-export type LotOp = "move" | "issue" | "return" | "split" | "writeoff" | "adjust" | "regrade" | "delete";
+export type LotOp = "move" | "issue" | "return" | "split" | "writeoff" | "adjust" | "regrade" | "delete" | "restore";
 
 /** Партия для окна: строка единых остатков (api/unifiedStock — Lot) или
  * то же, собранное карточкой из рулона / партии п/ф. */
@@ -31,6 +31,7 @@ export const OP_LABEL: Record<LotOp, string> = {
   writeoff: "Списать",
   adjust: "Скорректировать",
   regrade: "Пересорт",
+  restore: "Отменить списание",
 };
 
 export const OP_DONE: Record<LotOp, string> = {
@@ -42,6 +43,7 @@ export const OP_DONE: Record<LotOp, string> = {
   writeoff: "списано",
   adjust: "скорректировано",
   regrade: "пересортировано",
+  restore: "списание отменено (восстановлен на хранение)",
 };
 
 const norm = (s: string) => s.replace(/_/g, " ");
@@ -56,12 +58,21 @@ export function lotOps(lot: LotRef, has: (code: string) => boolean): { op: LotOp
     film
       ? op === "split"
         ? false // рулон делится резкой — «Склад → Остатки → карточка плёнки»
-        : has({ move: "units.place", issue: "units.issue", return: "units.return", writeoff: "units.writeoff", adjust: "units.correct", regrade: "materials.manage", delete: "units.writeoff" }[op as Exclude<LotOp, "split">])
+        : op === "restore"
+        ? has("units.writeoff") || has("units.correct")
+        : has({ move: "units.place", issue: "units.issue", return: "units.return", writeoff: "units.writeoff", adjust: "units.correct", regrade: "materials.manage", delete: "units.writeoff" }[op as Exclude<LotOp, "split" | "restore">])
       : op === "adjust" || op === "return" || op === "regrade"
         ? has("part_units.correct")
+        : op === "restore"
+        ? has("part_units.manage") || has("part_units.correct")
         : has("part_units.manage");
   const rule = (op: LotOp): string | undefined => {
-    if (written && op !== "delete") return "Партия списана";
+    if (written) {
+      if (op === "restore") return undefined;
+      if (op === "delete") return undefined;
+      return "Партия списана";
+    }
+    if (op === "restore") return "Партия не списана";
     if (op === "move") return film && !["Принят", "На хранении"].includes(st) ? "Разместить можно рулон на хранении" : undefined;
     if (op === "return") return st !== "Выдан участку" ? "Вернуть можно только выданное участку" : undefined;
     if (op === "issue") return st !== "На хранении" ? "Выдать можно партию на хранении" : undefined;
@@ -69,7 +80,7 @@ export function lotOps(lot: LotRef, has: (code: string) => boolean): { op: LotOp
     if (op === "writeoff") return film && st !== "На хранении" ? "Списать рулон можно только с хранения (выданный — сначала вернуть)" : undefined;
     return undefined;
   };
-  return (["move", "issue", "return", "split", "writeoff", "adjust", "regrade", "delete"] as LotOp[])
+  return (["move", "issue", "return", "split", "writeoff", "adjust", "regrade", "delete", "restore"] as LotOp[])
     .filter((op) => perm(op))
     .map((op) => {
       const why = rule(op);

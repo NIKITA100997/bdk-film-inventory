@@ -562,7 +562,7 @@ def action_log_material(
     query = (
         db.query(
             MaterialEvent, Material.name, Color.name, Thickness.value_mm, User.full_name,
-            WriteOffReasonEntry, ProductionTaskLine, ProductionTask,
+            WriteOffReasonEntry, ProductionTaskLine, ProductionTask, MaterialUnit,
         )
         .join(MaterialSku, MaterialEvent.material_sku_id == MaterialSku.id)
         .join(Material, MaterialSku.material_id == Material.id)
@@ -572,6 +572,7 @@ def action_log_material(
         .outerjoin(WriteOffReasonEntry, MaterialEvent.write_off_reason == WriteOffReasonEntry.code)
         .outerjoin(ProductionTaskLine, MaterialEvent.production_task_line_id == ProductionTaskLine.id)
         .outerjoin(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+        .outerjoin(MaterialUnit, MaterialEvent.unit_id == MaterialUnit.id)
         .filter(func.date(MaterialEvent.timestamp) >= date_from, func.date(MaterialEvent.timestamp) <= date_to)
     )
     if event_type:
@@ -617,8 +618,12 @@ def action_log_material(
             production_task_line_id=ev.production_task_line_id,
             part_name=line.part_name if line else None,
             task_name=task.name if task else None,
+            unit_status=u.status.value if u else None,
+            current_length_m=float(u.length_m) if u else None,
+            is_strip=u.is_strip if u else None,
+            current_location_code=u.location_code if u else None,
         )
-        for ev, m, c, t, user_name, reason_entry, line, task in rows
+        for ev, m, c, t, user_name, reason_entry, line, task, u in rows
     ]
 
 
@@ -647,7 +652,7 @@ def action_log_part_units(
     if date_from is None:
         date_from = date_to - dt.timedelta(days=30)
     query = (
-        db.query(PartUnitEvent, Part.name, User.full_name, WriteOffReasonEntry, ProductionTaskLine, ProductionTask)
+        db.query(PartUnitEvent, Part.name, User.full_name, WriteOffReasonEntry, ProductionTaskLine, ProductionTask, PartUnit)
         .join(PartUnit, PartUnitEvent.part_unit_id == PartUnit.id)
         .join(Part, PartUnit.part_id == Part.id)
         .join(User, PartUnitEvent.user_id == User.id)
@@ -697,8 +702,11 @@ def action_log_part_units(
             production_task_line_id=ev.production_task_line_id,
             task_name=task.name if task else None,
             note=ev.note,
+            unit_status=pu.status.value if pu else None,
+            current_quantity_pieces=float(pu.quantity_pieces) if pu else None,
+            current_location_code=pu.location_code if pu else None,
         )
-        for ev, part_name, user_name, reason_entry, _line, task in rows
+        for ev, part_name, user_name, reason_entry, _line, task, pu in rows
     ]
 
 

@@ -42,6 +42,7 @@ const ShipmentSchedule = lazyPage(() => import("./pages/desktop/ShipmentSchedule
 const CustomerOrdersHub = lazyPage(() => import("./pages/desktop/customerOrders/CustomerOrdersHub"));
 const PickRouteSheet = lazyPage(() => import("./pages/desktop/PickRouteSheet"));
 const CustomerOrderPage = lazyPage(() => import("./pages/desktop/customerOrders/CustomerOrderPage"));
+const ActionLog = lazyPage(() => import("./pages/desktop/ActionLog"));
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
@@ -138,7 +139,14 @@ const appPageRoutes = (
       element={<Navigate to="/reports?group=defects" replace />}
     />
     {/* 14.10: журнал действий — это общий журнал движений («Остатки → Всё → Движения») */}
-    <Route path="/action-log" element={<Navigate to="/stock?kind=all&tab=movements" replace />} />
+    <Route
+      path="/action-log"
+      element={
+        <RequirePermission permissions={["reports.view", "units.correct", "units.writeoff", "users.manage"]}>
+          <ActionLog />
+        </RequirePermission>
+      }
+    />
     {/* "Стеллажи" видны всем (как "Остатки") — вкладка "Управление" внутри
     сама решает, показываться ли, по storage.manage. */}
     <Route path="/storage" element={<StockRedirect kind="film" tab="map" />} />
