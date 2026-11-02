@@ -17,7 +17,6 @@ import { lazyPage } from "../../utils/lazyPage";
 
 const FilmIssueBoard = lazyPage(() => import("./FilmIssueBoard"));
 const ProductionMonitor = lazyPage(() => import("./production/ProductionMonitor"));
-const Planning = lazyPage(() => import("./Planning"));
 const Demand = lazyPage(() => import("./production/Demand"));
 
 /** Производственный Хаб (APS & Shop Floor) — единое рабочее место управления цехом.
@@ -34,7 +33,6 @@ export default function ProductionTasks() {
   const navigate = useNavigate();
 
   const canManage = hasPerm(user, "production_tasks.manage");
-  const canPlan = hasPerm(user, "production_tasks.manage", "production_tasks.view", "plan.approve");
   const canMonitor = hasPerm(user, "production_tasks.manage", "production_tasks.view", "reports.view");
   const canDemand = hasPerm(user, "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view");
 
@@ -101,15 +99,6 @@ export default function ProductionTasks() {
             key: "monitor",
             label: "📊 Монитор готовности",
             children: <ProductionMonitor />,
-          },
-        ]
-      : []),
-    ...(canPlan
-      ? [
-          {
-            key: "planning",
-            label: "📅 Планирование",
-            children: <Planning />,
           },
         ]
       : []),

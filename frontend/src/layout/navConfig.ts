@@ -88,6 +88,12 @@ export const navTree: NavBlock[] = [
         ],
       },
       {
+        key: "production-calendar",
+        path: "/production-calendar",
+        label: "Производственный календарь",
+        permissions: ["production_tasks.manage", "production_tasks.view"],
+      },
+      {
         key: "prices",
         path: "/prices",
         label: "Прайс-листы и цены",

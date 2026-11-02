@@ -42,7 +42,7 @@ import { hasPerm } from "../../../auth/permissions";
 
 const fmt = (n: number) => Math.round(n * 100) / 100;
 type Horizon = "all" | "overdue" | "today" | "week";
-type FilterStatus = "all" | "shortage" | "ready_transfer" | "in_work";
+type FilterStatus = "all" | "ready_transfer" | "area_need" | "shortage" | "in_work";
 
 const matchHorizon = (d: string | null | undefined, h: Horizon): boolean => {
   if (h === "all") return true;
@@ -86,8 +86,8 @@ export default function PfDemand() {
 
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [showAllCatalog, setShowAllCatalog] = useState(false);
-  const [onlyMine, setOnlyMine] = useState(!!user?.area);
-  const [horizon, setHorizon] = useState<Horizon>(user?.area ? "today" : "all");
+  const [onlyMine, setOnlyMine] = useState(false);
+  const [horizon, setHorizon] = useState<Horizon>("all");
   const [viewMode, setViewMode] = useState<"parts" | "tasks">("parts");
   const [qty, setQty] = useState<Record<number, number | null>>({});
   const [dueDate, setDueDate] = useState<Dayjs | null>(null);
@@ -118,12 +118,13 @@ export default function PfDemand() {
   // Сводные счетчики для панели фильтров
   const stats = useMemo(() => {
     const all = demandQuery.data ?? [];
-    const shortageCount = all.filter((r) => r.shortage > 0).length;
+    const areaShortageCount = all.filter((r) => r.task_demand > (r.area_stock ?? 0)).length;
     const readyTransferCount = all.filter(
       (r) => (r.storage_stock ?? 0) > 0 && (r.task_demand > (r.area_stock ?? 0) || (r.shortage_tasks ?? 0) > 0),
     ).length;
+    const shortageCount = all.filter((r) => r.shortage > 0).length;
     const inWorkCount = all.filter((r) => r.in_work > 0).length;
-    return { total: all.length, shortageCount, readyTransferCount, inWorkCount };
+    return { total: all.length, areaShortageCount, readyTransferCount, shortageCount, inWorkCount };
   }, [demandQuery.data]);
 
   const rows = useMemo(
@@ -143,17 +144,18 @@ export default function PfDemand() {
           })
           .filter((r) => {
             if (filterStatus === "all") return true;
-            if (filterStatus === "shortage") return r.shortage > 0;
             if (filterStatus === "ready_transfer") {
               const storage = r.storage_stock ?? 0;
               const needOnArea = r.task_demand - (r.area_stock ?? 0);
               return storage > 0 && (needOnArea > 0 || (r.shortage_tasks ?? 0) > 0);
             }
+            if (filterStatus === "area_need") return r.task_demand > (r.area_stock ?? 0);
+            if (filterStatus === "shortage") return r.shortage > 0;
             if (filterStatus === "in_work") return r.in_work > 0;
             return true;
           })
           .filter((r) => !onlyMine || !user?.area || myParts.has(r.part_id))
-          .filter((r) => horizon === "all" || r.sources.some((s) => matchHorizon(s.due_date, horizon))),
+          .filter((r) => horizon === "all" || r.sources.length === 0 || r.sources.some((s) => matchHorizon(s.due_date, horizon))),
         (r) => r.part_id,
         pf,
         pfAttrs,
@@ -345,8 +347,9 @@ export default function PfDemand() {
               onChange={setFilterStatus}
               options={[
                 { label: `Все с потребностью (${stats.total})`, value: "all" },
-                { label: `🚨 К выпуску (${stats.shortageCount})`, value: "shortage" },
                 { label: `🚚 К перемещению (${stats.readyTransferCount})`, value: "ready_transfer" },
+                { label: `📍 Не хватает на участке (${stats.areaShortageCount})`, value: "area_need" },
+                { label: `🚨 К выпуску (${stats.shortageCount})`, value: "shortage" },
                 { label: `⚙️ В работе (${stats.inWorkCount})`, value: "in_work" },
               ]}
             />
@@ -537,6 +540,18 @@ export default function PfDemand() {
                         align: "right",
                       },
                       {
+                        title: "Не хватает на участке",
+                        render: (_, s) => {
+                          const areaDeficit = Math.max(0, s.remaining - s.areaStock);
+                          return areaDeficit > 0 ? (
+                            <Tag color="red" style={{ fontWeight: 700 }}>−{fmt(areaDeficit)} шт</Tag>
+                          ) : (
+                            <Tag color="green">участок обеспечен</Tag>
+                          );
+                        },
+                        align: "right",
+                      },
+                      {
                         title: "На участке",
                         render: (_, s) => (
                           <span style={{ color: s.areaStock > 0 ? "#1890ff" : "#8c8c8c", fontWeight: s.areaStock > 0 ? 600 : 400 }}>
@@ -546,69 +561,53 @@ export default function PfDemand() {
                         align: "right",
                       },
                       {
-                        title: "На складе ПФ",
+                        title: "Есть на складе ПФ",
                         render: (_, s) => (
-                          <span style={{ color: s.storageStock > 0 ? "#52c41a" : "#8c8c8c", fontWeight: s.storageStock > 0 ? 600 : 400 }}>
-                            {fmt(s.storageStock)}
+                          <span style={{ color: s.storageStock > 0 ? "#52c41a" : "#8c8c8c", fontWeight: s.storageStock > 0 ? 700 : 400 }}>
+                            {fmt(s.storageStock)} шт
                           </span>
                         ),
                         align: "right",
                       },
                       {
-                        title: "Обеспечено",
-                        render: (_, s) => (
-                          <span>
-                            {s.reserved > 0 && <Tag color="blue">{fmt(s.reserved)} рез.</Tag>}
-                            {s.inWork > 0 && <Tag color="geekblue">{fmt(s.inWork)} в работе</Tag>}
-                            {s.reserved === 0 && s.inWork === 0 && "—"}
-                          </span>
-                        ),
-                      },
-                      {
-                        title: "Не хватает",
-                        render: (_, s) =>
-                          s.shortage > 0 ? (
-                            <Tag color="red" style={{ fontWeight: 600 }}>−{fmt(s.shortage)} шт</Tag>
-                          ) : (
-                            <Tag color="green">обеспечено</Tag>
-                          ),
+                        title: "В работе",
+                        render: (_, s) => (s.inWork > 0 ? <Tag color="geekblue">{fmt(s.inWork)} шт</Tag> : "—"),
                         align: "right",
                       },
                       {
                         title: "Действия мастера",
                         render: (_, s) => {
-                          const canTransfer = s.storageStock > 0 && t.area;
                           const needToMove = Math.max(0, s.remaining - s.areaStock);
+                          const hasStock = s.storageStock > 0;
                           return (
                             <Space size={6} wrap>
-                              {canTransfer && (
-                                <Button
-                                  size="small"
-                                  type="primary"
-                                  ghost
-                                  style={{ borderColor: "#13c2c2", color: "#13c2c2" }}
-                                  disabled={!canOperate}
-                                  onClick={() =>
-                                    setTransferTarget({
-                                      part_id: s.partId,
-                                      part_name: s.partName,
-                                      storage_stock: s.storageStock,
-                                      target_area: t.area || "",
-                                      needed: needToMove > 0 ? needToMove : s.storageStock,
-                                    })
-                                  }
-                                >
-                                  🚚 Передать
-                                </Button>
-                              )}
                               <Button
                                 size="small"
+                                type={hasStock && needToMove > 0 ? "primary" : "default"}
+                                style={hasStock && needToMove > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : undefined}
+                                disabled={!canOperate || !hasStock}
+                                title={hasStock ? "Переместить на участок" : "Нет на складе ПФ"}
+                                onClick={() =>
+                                  setTransferTarget({
+                                    part_id: s.partId,
+                                    part_name: s.partName,
+                                    storage_stock: s.storageStock,
+                                    target_area: t.area || "",
+                                    needed: needToMove > 0 ? Math.min(s.storageStock, needToMove) : s.storageStock,
+                                  })
+                                }
+                              >
+                                🚚 Переместить
+                              </Button>
+                              <Button
+                                size="small"
+                                type={!hasStock || needToMove > s.storageStock ? "primary" : "default"}
                                 disabled={!canOperate}
                                 onClick={() =>
                                   setProduceTarget({
                                     part_id: s.partId,
                                     part_name: s.partName,
-                                    suggested_qty: s.shortage > 0 ? s.shortage : s.remaining,
+                                    suggested_qty: s.shortage > 0 ? s.shortage : (needToMove > 0 ? needToMove : s.remaining),
                                     target_area: t.area || null,
                                     stage_id: null,
                                   })
@@ -653,7 +652,7 @@ export default function PfDemand() {
                     <table style={{ marginTop: 8, borderCollapse: "collapse", width: "100%" }}>
                       <thead>
                         <tr>
-                          {["Задание цеха", "Срок", "Куда требуется", "На участке", "План", "Сделано", "Остаток", "Резерв", "В работе", "Не хватает", "Действие"].map((h) => (
+                          {["Задание цеха", "Срок", "Куда требуется", "Не хватает на участке", "На участке", "Склад ПФ (у меня)", "План", "Сделано", "Остаток", "В работе", "Действия мастера"].map((h) => (
                             <th key={h} style={{ textAlign: "left", padding: "4px 12px 4px 0", fontWeight: 500 }}>
                               {h}
                             </th>
@@ -664,7 +663,7 @@ export default function PfDemand() {
                         {r.sources.map((s) => {
                           const isOverdue = s.due_date && dayjs(s.due_date).isBefore(dayjs(), "day");
                           const isToday = s.due_date && dayjs(s.due_date).isSame(dayjs(), "day");
-                          const canMoveToSource = (r.storage_stock ?? 0) > 0 && s.area;
+                          const storage = r.storage_stock ?? 0;
                           const needToMove = Math.max(0, s.remaining - (s.area_stock ?? 0));
                           return (
                             <tr key={s.task_id} style={{ borderBottom: "1px solid #f0f0f0" }}>
@@ -687,38 +686,61 @@ export default function PfDemand() {
                               <td style={{ padding: "4px 12px 4px 0" }}>
                                 {areaName(s.area) ? <Tag color="blue">{areaName(s.area)}</Tag> : "—"}
                               </td>
+                              <td style={{ padding: "4px 12px 4px 0" }}>
+                                {needToMove > 0 ? (
+                                  <Tag color="red" style={{ fontWeight: 700 }}>−{fmt(needToMove)} шт</Tag>
+                                ) : (
+                                  <Tag color="green">обеспечено</Tag>
+                                )}
+                              </td>
                               <td style={{ padding: "4px 12px 4px 0", color: (s.area_stock ?? 0) > 0 ? "#1890ff" : "#8c8c8c", fontWeight: (s.area_stock ?? 0) > 0 ? 600 : 400 }}>
                                 {fmt(s.area_stock ?? 0)}
+                              </td>
+                              <td style={{ padding: "4px 12px 4px 0", color: storage > 0 ? "#389e0d" : "#8c8c8c", fontWeight: storage > 0 ? 700 : 400 }}>
+                                {fmt(storage)} шт
                               </td>
                               <td style={{ padding: "4px 12px 4px 0" }}>{fmt(s.open_plan)}</td>
                               <td style={{ padding: "4px 12px 4px 0" }}>{fmt(s.done)}</td>
                               <td style={{ padding: "4px 12px 4px 0" }}>
                                 <b>{fmt(s.remaining)}</b>
                               </td>
-                              <td style={{ padding: "4px 12px 4px 0" }}>{s.reserved > 0 ? fmt(s.reserved) : "—"}</td>
                               <td style={{ padding: "4px 12px 4px 0" }}>{s.in_work > 0 ? fmt(s.in_work) : "—"}</td>
                               <td style={{ padding: "4px 12px 4px 0" }}>
-                                {s.shortage > 0 ? <Tag color="red">−{fmt(s.shortage)}</Tag> : <Tag color="green">обеспечено</Tag>}
-                              </td>
-                              <td style={{ padding: "4px 12px 4px 0" }}>
-                                {canMoveToSource && (
+                                <Space size={6} wrap>
                                   <Button
                                     size="small"
-                                    type="link"
-                                    disabled={!canOperate}
+                                    type={storage > 0 && needToMove > 0 ? "primary" : "default"}
+                                    style={storage > 0 && needToMove > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : undefined}
+                                    disabled={!canOperate || storage <= 0}
                                     onClick={() =>
                                       setTransferTarget({
                                         part_id: r.part_id,
                                         part_name: r.part_name,
-                                        storage_stock: r.storage_stock ?? 0,
+                                        storage_stock: storage,
                                         target_area: s.area || "",
-                                        needed: needToMove > 0 ? needToMove : (r.storage_stock ?? 0),
+                                        needed: needToMove > 0 ? Math.min(storage, needToMove) : storage,
                                       })
                                     }
                                   >
-                                    🚚 Передать
+                                    🚚 Переместить
                                   </Button>
-                                )}
+                                  <Button
+                                    size="small"
+                                    type={storage <= 0 || needToMove > storage ? "primary" : "default"}
+                                    disabled={!canOperate}
+                                    onClick={() =>
+                                      setProduceTarget({
+                                        part_id: r.part_id,
+                                        part_name: r.part_name,
+                                        suggested_qty: s.shortage > 0 ? s.shortage : (needToMove > 0 ? needToMove : s.remaining),
+                                        target_area: s.area || null,
+                                        stage_id: null,
+                                      })
+                                    }
+                                  >
+                                    🏭 Выпустить
+                                  </Button>
+                                </Space>
                               </td>
                             </tr>
                           );
@@ -775,6 +797,36 @@ export default function PfDemand() {
                   ),
                 },
                 {
+                  title: "Не хватает на участке",
+                  render: (_, r) => {
+                    const areaDeficit = Math.max(0, r.task_demand - (r.area_stock ?? 0));
+                    if (areaDeficit > 0) {
+                      return (
+                        <Tag color="red" style={{ fontWeight: 700, fontSize: 13, padding: "2px 8px" }}>
+                          −{fmt(areaDeficit)} шт
+                        </Tag>
+                      );
+                    }
+                    if (r.task_demand > 0) {
+                      return <Tag color="green" style={{ fontWeight: 600 }}>✅ обеспечен</Tag>;
+                    }
+                    return <span style={{ color: "#8c8c8c" }}>—</span>;
+                  },
+                  align: "right",
+                },
+                {
+                  title: "Есть на складе ПФ (у меня)",
+                  render: (_, r) => {
+                    const storage = r.storage_stock ?? 0;
+                    return (
+                      <div style={{ color: storage > 0 ? "#389e0d" : "#8c8c8c", fontWeight: storage > 0 ? 700 : 400, fontSize: storage > 0 ? 14 : undefined }}>
+                        {storage > 0 ? `${fmt(storage)} шт` : "0"}
+                      </div>
+                    );
+                  },
+                  align: "right",
+                },
+                {
                   title: "Потребность цеха",
                   render: (_, r) => <b>{fmt(r.task_demand)}</b>,
                   align: "right",
@@ -792,33 +844,12 @@ export default function PfDemand() {
                   align: "right",
                 },
                 {
-                  title: "На складе ПФ (у меня)",
-                  render: (_, r) => {
-                    const storage = r.storage_stock ?? 0;
-                    return (
-                      <span style={{ color: storage > 0 ? "#52c41a" : "#8c8c8c", fontWeight: storage > 0 ? 700 : 400, fontSize: storage > 0 ? 14 : undefined }}>
-                        {fmt(storage)}
-                      </span>
-                    );
-                  },
-                  align: "right",
-                },
-                {
-                  title: "В резерве / свободно",
-                  render: (_, r) => (
-                    <span>
-                      {fmt(r.reserved)} / <b>{fmt(r.free)}</b>
-                    </span>
-                  ),
-                  align: "right",
-                },
-                {
                   title: "В работе",
-                  render: (_, r) => fmt(r.in_work),
+                  render: (_, r) => (r.in_work > 0 ? <Tag color="geekblue">{fmt(r.in_work)} шт</Tag> : "—"),
                   align: "right",
                 },
                 {
-                  title: "Не хватает",
+                  title: "Общий дефицит",
                   render: (_, r) => <ShortageTags total={r.shortage} tasks={r.shortage_tasks} min={r.shortage_min} />,
                   align: "right",
                 },
@@ -826,11 +857,11 @@ export default function PfDemand() {
                   title: "Статус",
                   render: (_, r) => {
                     const storage = r.storage_stock ?? 0;
-                    const needOnArea = r.task_demand - (r.area_stock ?? 0);
-                    if (storage > 0 && (needOnArea > 0 || (r.shortage_tasks ?? 0) > 0)) {
+                    const needOnArea = Math.max(0, r.task_demand - (r.area_stock ?? 0));
+                    if (storage > 0 && needOnArea > 0) {
                       return (
                         <Tag color="cyan" style={{ fontWeight: 600 }}>
-                          🚚 Готово к передаче ({Math.min(storage, Math.max(1, needOnArea))} шт)
+                          🚚 Передать ({fmt(Math.min(storage, needOnArea))} шт)
                         </Tag>
                       );
                     }
@@ -841,8 +872,8 @@ export default function PfDemand() {
                         </Tag>
                       );
                     }
-                    if (r.task_demand > 0 && (r.area_stock ?? 0) >= r.task_demand) {
-                      return <Tag color="success">✅ На участке</Tag>;
+                    if (r.task_demand > 0 && needOnArea === 0) {
+                      return <Tag color="success">✅ На участке ({fmt(r.area_stock ?? 0)} шт)</Tag>;
                     }
                     if (r.in_work > 0) {
                       return <Tag color="geekblue">⚙️ В работе ({fmt(r.in_work)} шт)</Tag>;
@@ -857,37 +888,36 @@ export default function PfDemand() {
                     const storage = r.storage_stock ?? 0;
                     const defaultTargetArea = r.target_areas?.[0] ?? "";
                     const needOnArea = Math.max(0, r.task_demand - (r.area_stock ?? 0));
+                    const hasStock = storage > 0;
                     return (
                       <Space size={6} wrap>
-                        {storage > 0 && (
-                          <Button
-                            size="small"
-                            type="primary"
-                            ghost
-                            style={{ borderColor: "#13c2c2", color: "#13c2c2" }}
-                            disabled={!canOperate}
-                            onClick={() =>
-                              setTransferTarget({
-                                part_id: r.part_id,
-                                part_name: r.part_name,
-                                storage_stock: storage,
-                                target_area: defaultTargetArea,
-                                needed: needOnArea > 0 ? needOnArea : storage,
-                              })
-                            }
-                          >
-                            🚚 Переместить
-                          </Button>
-                        )}
                         <Button
                           size="small"
-                          type="primary"
+                          type={hasStock && needOnArea > 0 ? "primary" : "default"}
+                          style={hasStock && needOnArea > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : undefined}
+                          disabled={!canOperate || !hasStock}
+                          title={hasStock ? "Переместить на участок" : "Нет на складе ПФ"}
+                          onClick={() =>
+                            setTransferTarget({
+                              part_id: r.part_id,
+                              part_name: r.part_name,
+                              storage_stock: storage,
+                              target_area: defaultTargetArea,
+                              needed: needOnArea > 0 ? Math.min(storage, needOnArea) : storage,
+                            })
+                          }
+                        >
+                          🚚 Переместить
+                        </Button>
+                        <Button
+                          size="small"
+                          type={!hasStock || needOnArea > storage ? "primary" : "default"}
                           disabled={!canOperate}
                           onClick={() =>
                             setProduceTarget({
                               part_id: r.part_id,
                               part_name: r.part_name,
-                              suggested_qty: r.suggested > 0 ? r.suggested : (r.shortage > 0 ? r.shortage : (r.min_batch || 100)),
+                              suggested_qty: r.shortage > 0 ? r.shortage : (needOnArea > 0 ? needOnArea : (r.suggested > 0 ? r.suggested : (r.min_batch || 100))),
                               target_area: defaultTargetArea || null,
                               stage_id: r.first_stage_id,
                             })
@@ -1027,6 +1057,24 @@ function TransferModal({
             <> · Потребность участка: <b>{fmt(target.needed)} шт</b></>
           )}
         </Typography.Text>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <Space wrap size={6}>
+          {target.needed > 0 && target.needed < target.storage_stock && (
+            <Button
+              size="small"
+              onClick={() => form.setFieldsValue({ quantity_pieces: Math.min(target.storage_stock, target.needed) })}
+            >
+              Под потребность ({fmt(Math.min(target.storage_stock, target.needed))} шт)
+            </Button>
+          )}
+          <Button
+            size="small"
+            onClick={() => form.setFieldsValue({ quantity_pieces: target.storage_stock })}
+          >
+            Весь остаток ({fmt(target.storage_stock)} шт)
+          </Button>
+        </Space>
       </div>
       <Form
         form={form}

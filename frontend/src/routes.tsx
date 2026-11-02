@@ -28,6 +28,7 @@ const Demand = lazyPage(() => import("./pages/desktop/production/Demand"));
 const Settings = lazyPage(() => import("./pages/desktop/Settings"));
 const Reconciliation = lazyPage(() => import("./pages/desktop/Reconciliation"));
 const Planning = lazyPage(() => import("./pages/desktop/Planning"));
+const ProductionCalendar = lazyPage(() => import("./pages/desktop/production/ProductionCalendar"));
 const Requests = lazyPage(() => import("./pages/desktop/Requests"));
 const Nomenclature = lazyPage(() => import("./pages/desktop/Nomenclature"));
 const ItemCard = lazyPage(() => import("./pages/desktop/ItemCard"));
@@ -96,7 +97,14 @@ const appPageRoutes = (
     {/* 14.10: планирование — одним пунктом; старые адреса ведут на вкладки */}
     <Route path="/weekly-plan" element={<RedirectToSection to="/planning" section="week" />} />
     <Route path="/planner" element={<RedirectToSection to="/planning" section="planner" />} />
-    <Route path="/production-calendar" element={<RedirectToSection to="/planning" section="calendar" />} />
+    <Route
+      path="/production-calendar"
+      element={
+        <RequirePermission permissions={["production_tasks.manage", "production_tasks.view"]}>
+          <ProductionCalendar />
+        </RequirePermission>
+      }
+    />
     <Route
       path="/customer-orders/:id"
       element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "orders.request", "sales_calculator.view", "plan.approve"]}><CustomerOrderPage /></RequirePermission>}

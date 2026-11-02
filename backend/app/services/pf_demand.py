@@ -516,13 +516,23 @@ def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[Pf
         d = sum(s.remaining for s in sources)
         w = st.in_work.get(p.id, 0.0)
         min_stock = part_norms(p).min_stock
-        if min_stock is None and d <= 0 and w <= 0:
+        stk = st.stock.get(p.id, 0.0)
+        if min_stock is None and d <= 0 and w <= 0 and stk <= 0:
             continue
         rows.append(
-            _row(st, p, sources=sources, task_demand=d, stock=st.stock.get(p.id, 0.0), in_work=w, min_stock=min_stock)
+            _row(st, p, sources=sources, task_demand=d, stock=stk, in_work=w, min_stock=min_stock)
         )
-    # сначала нехватка под задания, потом пополнение до мин. остатка (28.10)
-    return sorted(rows, key=lambda r: (-r.shortage_tasks, -r.shortage, r.part_name))
+    # сначала нехватка под задания и дефицит на участках-потребителях, затем пополнение до мин. остатка
+    return sorted(
+        rows,
+        key=lambda r: (
+            -r.shortage_tasks,
+            -max(0.0, r.task_demand - r.area_stock),
+            -r.shortage,
+            -r.storage_stock,
+            r.part_name,
+        ),
+    )
 
 
 def compute_pf_preview(db: Session, items: list[tuple[int, float]]) -> list[PfDemandRow]:

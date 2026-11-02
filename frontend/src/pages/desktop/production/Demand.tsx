@@ -25,20 +25,21 @@ export default function Demand() {
   const { user } = useAuth();
   const has = (...codes: string[]) => !!user?.is_superuser || codes.some((c) => user?.permissions.includes(c));
   const [params, setParams] = useSearchParams();
+  const isPfWorker = !!user?.area || has("part_units.manage", "part_storage.manage");
   const tabs = [
+    ...(has("production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view")
+      ? [
+          { key: "pf" as Tab, label: "⚡ Потребность и выпуск ПФ", children: <PfDemand /> },
+          // средний расход → мин. остаток (14.10)
+          { key: "consumption" as Tab, label: "Расход и мин. остаток п/ф", children: <PfConsumption /> },
+        ]
+      : []),
     // дефицит по заказам с очередью (12.10, планирование, этап 2)
     ...(has("production_tasks.manage", "production_tasks.view", "purchasing.manage", "orders.request")
       ? [
-          { key: "orders" as Tab, label: "Дефицит по заказам", children: <ShortagesTab /> },
+          { key: "orders" as Tab, label: "Дефицит по заказам (закупки)", children: <ShortagesTab /> },
           // по неделям (22.10): нужно и прогноз остатка на эту, следующую неделю и дальше
           { key: "weekly" as Tab, label: "По неделям", children: <NeedsWeekly /> },
-        ]
-      : []),
-    ...(has("production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view")
-      ? [
-          { key: "pf" as Tab, label: "П/ф", children: <PfDemand /> },
-          // средний расход → мин. остаток (14.10)
-          { key: "consumption" as Tab, label: "Расход и мин. остаток п/ф", children: <PfConsumption /> },
         ]
       : []),
     ...(has("units.issue", "production_tasks.manage", "production_tasks.view")
@@ -49,7 +50,8 @@ export default function Demand() {
       : []),
   ];
   const wanted = params.get("tab") as Tab | null;
-  const active = tabs.some((t) => t.key === wanted) ? wanted! : tabs[0]?.key;
+  const defaultTab = isPfWorker && tabs.some((t) => t.key === "pf") ? "pf" : tabs[0]?.key;
+  const active = tabs.some((t) => t.key === wanted) ? wanted! : defaultTab;
   return (
     <Card>
       <Typography.Title level={4}>Потребность</Typography.Title>

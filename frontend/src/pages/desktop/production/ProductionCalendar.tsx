@@ -94,7 +94,7 @@ export default function ProductionCalendar() {
           Пятидневка с праздниками. Нажмите на день, чтобы сделать его рабочим или нерабочим — для всех участков или только для одного:
           рабочая суббота, отключили свет. Сроки операций считаются по календарю.
         </Typography.Paragraph>
-        {dirty && <Alert style={{ marginTop: 8 }} type="info" showIcon message="Календарь изменён — пересчитайте сроки открытых заказов." />}
+        {dirty && <Alert style={{ marginTop: 8 }} type="info" showIcon title="Календарь изменён — пересчитайте сроки открытых заказов." />}
       </Card>
       <div style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 700, tableLayout: "fixed" }}>
