@@ -70,11 +70,11 @@ export default function Login() {
           <Alert
             type="info"
             showIcon
-            message="Сессия истекла — войдите снова, вы вернётесь туда же"
+            title="Сессия истекла — войдите снова, вы вернётесь туда же"
             style={{ marginBottom: 16 }}
           />
         )}
-        {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} />}
+        {error && <Alert type="error" title={error} style={{ marginBottom: 16 }} />}
         {!forgot ? (
           <Form form={form} layout="vertical" onFinish={onFinish}>
             <Form.Item name="username" label="Логин" rules={[{ required: true }]}>
@@ -104,7 +104,7 @@ export default function Login() {
             <Alert
               type="success"
               showIcon
-              message="Заявка отправлена администратору"
+              title="Заявка отправлена администратору"
               description="Он сбросит пароль и передаст вам временный. При входе с ним система попросит задать свой."
               style={{ marginBottom: 16 }}
             />

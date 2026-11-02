@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi import Query as FastAPIQuery
+from pydantic import BaseModel
 from sqlalchemy import and_, false, func, or_, true
 from sqlalchemy.orm import Query, Session, joinedload
 
@@ -455,6 +456,41 @@ def undo_cutting_operation_endpoint(
     donor = undo_cutting_operation(db, op, user)
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == donor.id).first()
+
+
+class VerifyPickIn(BaseModel):
+    scanned_barcode: str
+    expected_task_line_id: int
+
+
+@router.get("/pick-route")
+def get_pick_route(
+    area: str | None = None,
+    limit_lines: int = 40,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.issue", "production_tasks.view")),
+) -> dict:
+    """Генерация сменного волнового маршрутного листа сборщика (Pick Route) с упорядочиванием по ячейкам склада."""
+    from app.services.pick_route import generate_pick_route
+
+    wave = generate_pick_route(db, area=area, limit_lines=limit_lines)
+    return wave.to_dict()
+
+
+@router.post("/verify-pick")
+def verify_pick_barcode_endpoint(
+    payload: VerifyPickIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.issue", "production_tasks.report")),
+) -> dict:
+    """Контроль сканирования QR-кода при снятии рулона со стеллажа (защита от пересортицы)."""
+    from app.services.pick_route import verify_pick_scanned_barcode
+
+    return verify_pick_scanned_barcode(
+        db,
+        scanned_barcode=payload.scanned_barcode,
+        expected_task_line_id=payload.expected_task_line_id,
+    )
 
 
 # ВАЖНО: тот же порядок, что и у /cutting-operations выше — однoсегментный
@@ -2168,43 +2204,3 @@ def set_legacy_task_note(
     unit.legacy_task_note = payload.note or None
     db.commit()
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
-
-
-
-
-from pydantic import BaseModel
-
-
-class VerifyPickIn(BaseModel):
-    scanned_barcode: str
-    expected_task_line_id: int
-
-
-@router.get("/pick-route")
-def get_pick_route(
-    area: str | None = None,
-    limit_lines: int = 40,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_permission("units.issue", "production_tasks.view")),
-) -> dict:
-    """Генерация сменного волнового маршрутного листа сборщика (Pick Route) с упорядочиванием по ячейкам склада."""
-    from app.services.pick_route import generate_pick_route
-
-    wave = generate_pick_route(db, area=area, limit_lines=limit_lines)
-    return wave.to_dict()
-
-
-@router.post("/verify-pick")
-def verify_pick_barcode_endpoint(
-    payload: VerifyPickIn,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_permission("units.issue", "production_tasks.report")),
-) -> dict:
-    """Контроль сканирования QR-кода при снятии рулона со стеллажа (защита от пересортицы)."""
-    from app.services.pick_route import verify_pick_scanned_barcode
-
-    return verify_pick_scanned_barcode(
-        db,
-        scanned_barcode=payload.scanned_barcode,
-        expected_task_line_id=payload.expected_task_line_id,
-    )

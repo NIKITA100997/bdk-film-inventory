@@ -208,14 +208,18 @@ export function ShortagesTab() {
           {
             title: "Заказать",
             render: (_, r) => (
-              <InputNumber
-                size="small"
-                min={0}
-                style={{ width: 110 }}
-                value={qty[r.key] ?? Math.ceil(r.shortage)}
-                onChange={(v) => setQty({ ...qty, [r.key]: v })}
-                addonAfter={r.unit}
-              />
+              <Space.Compact size="small">
+                <InputNumber
+                  size="small"
+                  min={0}
+                  style={{ width: 75 }}
+                  value={qty[r.key] ?? Math.ceil(r.shortage)}
+                  onChange={(v) => setQty({ ...qty, [r.key]: v })}
+                />
+                <Button size="small" disabled style={{ pointerEvents: "none", color: "#8c8c8c", padding: "0 6px" }}>
+                  {r.unit}
+                </Button>
+              </Space.Compact>
             ),
           },
         ]}

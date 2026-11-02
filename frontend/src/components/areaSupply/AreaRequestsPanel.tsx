@@ -120,7 +120,7 @@ export function NewRequestModal({
       onCancel={onClose}
       confirmLoading={save.isPending}
       onOk={() => form.submit()}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}

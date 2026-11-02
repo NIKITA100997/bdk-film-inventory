@@ -140,3 +140,30 @@ def test_dead_letter_queue_and_retry():
         assert res["status"] == "delivered"
         assert dlq_event.status == "delivered"
         assert mock_sync.called
+
+
+def test_pick_route_endpoint_not_captured_by_unit_id():
+    """Проверка, что GET /units/pick-route не перехватывается маршрутом /{unit_id} с ошибкой 422."""
+    from starlette.testclient import TestClient
+    from app.main import app
+    from app.core.security import get_current_user
+    from app.models.users import User
+
+    mock_user = MagicMock(spec=User)
+    mock_user.id = 1
+    mock_user.is_superuser = True
+    mock_user.permissions = ["units.issue", "production_tasks.view"]
+    mock_user.area = None
+
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        client = TestClient(app)
+        res = client.get("/api/units/pick-route", headers={"Authorization": "Bearer test"})
+        assert res.status_code != 422, f"Got 422: {res.text}"
+        assert res.status_code == 200
+        data = res.json()
+        assert "items" in data
+        assert "total_items" in data
+    finally:
+        app.dependency_overrides.clear()
+
