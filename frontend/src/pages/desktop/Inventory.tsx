@@ -1,5 +1,6 @@
 import { Button, Space } from "antd";
-import { useSearchParams } from "react-router-dom";
+import { ThunderboltOutlined } from "@ant-design/icons";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import InventoryDesktop from "./InventoryDesktop";
 import StockCounts from "./StockCounts";
@@ -9,6 +10,7 @@ import StockCounts from "./StockCounts";
  * плёнки сканом по стеллажу — архивом (?tab=film-archive), новых там не начинают. */
 export default function Inventory() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const canFilm = !!user?.is_superuser || !!user?.permissions.includes("inventory.manage");
   if (canFilm && params.get("tab") === "film-archive") {
@@ -23,6 +25,17 @@ export default function Inventory() {
   }
   return (
     <Space orientation="vertical" size="small" style={{ width: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <div />
+        <Button
+          type="primary"
+          icon={<ThunderboltOutlined />}
+          onClick={() => navigate("/inventory/express")}
+          style={{ background: "#722ed1", borderColor: "#722ed1" }}
+        >
+          📱 Экспресс-ревизия у стеллажа (для планшета)
+        </Button>
+      </div>
       <StockCounts />
       {canFilm && !params.get("count") && (
         <Button type="link" style={{ padding: 0 }} onClick={() => setParams({ tab: "film-archive" })}>

@@ -43,6 +43,7 @@ const CustomerOrdersHub = lazyPage(() => import("./pages/desktop/customerOrders/
 const PickRouteSheet = lazyPage(() => import("./pages/desktop/PickRouteSheet"));
 const CustomerOrderPage = lazyPage(() => import("./pages/desktop/customerOrders/CustomerOrderPage"));
 const ActionLog = lazyPage(() => import("./pages/desktop/ActionLog"));
+const ExpressInventory = lazyPage(() => import("./pages/mobile/ExpressInventory"));
 
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
@@ -200,6 +201,11 @@ const appPageRoutes = (
       path="/inventory"
       element={<RequirePermission permissions={["inventory.manage", "part_units.count", "units.receive", "materials.manage", "production_tasks.manage", "part_units.manage", "fg.ship"]}><Inventory /></RequirePermission>}
     />
+    <Route
+      path="/inventory/express"
+      element={<RequirePermission permissions={["inventory.manage", "part_units.count", "units.receive", "materials.manage", "production_tasks.manage", "part_units.manage", "fg.ship"]}><ExpressInventory /></RequirePermission>}
+    />
+    <Route path="/m/inventory" element={<Navigate to="/inventory/express" replace />} />
     <Route
       path="/production-tasks"
       element={

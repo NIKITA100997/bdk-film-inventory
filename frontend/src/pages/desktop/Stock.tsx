@@ -200,12 +200,21 @@ export default function Stock() {
               </Button>
             )}
             {canInventory && (
-              <Button
-                size="small"
-                onClick={() => navigate("/inventory")}
-              >
-                🔄 Инвентаризация
-              </Button>
+              <>
+                <Button
+                  size="small"
+                  onClick={() => navigate("/inventory")}
+                >
+                  🔄 Инвентаризация
+                </Button>
+                <Button
+                  size="small"
+                  onClick={() => navigate("/inventory/express")}
+                  style={{ borderColor: "#722ed1", color: "#722ed1" }}
+                >
+                  📱 Экспресс-ревизия
+                </Button>
+              </>
             )}
           </Space>
         </div>

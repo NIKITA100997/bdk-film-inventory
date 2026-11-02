@@ -101,7 +101,7 @@ export const setPartCountLine = async (id: number, lineId: number, counted: numb
 /** Найдено сверх листа: п/ф — деталь, материал/изделие — позиция, плёнка — рулон по номеру бирки. */
 export const addPartCountExtra = async (
   id: number,
-  payload: { kind: CountKind; part_id?: number; item_id?: number; material_unit_id?: number; counted_qty?: number | null },
+  payload: { kind: CountKind; part_id?: number; part_unit_id?: number; item_id?: number; material_unit_id?: number; counted_qty?: number | null; location_code?: string },
 ): Promise<PartCountDetail> => (await apiClient.post<PartCountDetail>(`/part-counts/${id}/lines`, payload)).data;
 
 export const removePartCountExtra = async (id: number, lineId: number): Promise<PartCountDetail> =>
@@ -128,3 +128,34 @@ export const resolvePartCountLines = async (
 
 export const listAreaParts = async (area: string): Promise<AreaPart[]> =>
   (await apiClient.get<AreaPart[]>(`/part-counts/area-parts/${encodeURIComponent(area)}`)).data;
+
+
+export interface ScanCodeResponse {
+  action: "cell_selected" | "unit_confirmed" | "unit_mismatch" | "unit_added" | "part_unit_confirmed" | "part_unit_mismatch" | "part_unit_added" | "not_found";
+  message: string;
+  cell_code?: string | null;
+  line_id?: number | null;
+  is_mismatch: boolean;
+  expected_location?: string | null;
+  unit_id?: number | null;
+  part_unit_id?: number | null;
+  session: PartCountDetail;
+}
+
+export const scanPartCountCode = async (
+  sessionId: number,
+  payload: { barcode: string; current_cell?: string | null; auto_confirm?: boolean },
+): Promise<ScanCodeResponse> => (await apiClient.post<ScanCodeResponse>(`/part-counts/${sessionId}/scan`, payload)).data;
+
+export const relocatePartCountUnit = async (
+  sessionId: number,
+  lineId: number,
+  newLocationCode: string,
+): Promise<PartCountDetail> =>
+  (await apiClient.post<PartCountDetail>(`/part-counts/${sessionId}/lines/${lineId}/relocate`, { new_location_code: newLocationCode })).data;
+
+export const confirmCellPartCount = async (
+  sessionId: number,
+  cellCode: string,
+): Promise<PartCountDetail> =>
+  (await apiClient.post<PartCountDetail>(`/part-counts/${sessionId}/confirm-cell`, { cell_code: cellCode })).data;

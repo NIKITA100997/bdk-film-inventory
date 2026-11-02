@@ -370,9 +370,11 @@ def set_count(
 class ExtraIn(BaseModel):
     kind: str = KIND_PF
     part_id: int | None = None
+    part_unit_id: int | None = None
     item_id: int | None = None
     material_unit_id: int | None = None
     counted_qty: float | None = Field(default=None, gt=0)
+    location_code: str | None = None
 
 
 @router.post("/{session_id}/lines", response_model=SessionDetail, status_code=status.HTTP_201_CREATED)
@@ -387,13 +389,31 @@ def add_extra(session_id: int, payload: ExtraIn, db: Session = Depends(get_db), 
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Этот вид в этом месте не считается")
     now = datetime.now(timezone.utc)
     if payload.kind == KIND_PF:
-        if payload.part_id is None or not payload.counted_qty:
+        if payload.part_unit_id:
+            from app.models.part_units import PartUnit
+            pu = db.get(PartUnit, payload.part_unit_id)
+            if pu is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия ПФ не найдена")
+            line = (
+                db.query(PartCountLine)
+                .filter(PartCountLine.session_id == s.id, PartCountLine.part_unit_id == pu.id)
+                .first()
+            )
+            if line is not None:
+                if line.counted_qty is None or payload.counted_qty:
+                    _set_count(db, s, line, payload.counted_qty or float(line.expected_qty), user)
+            else:
+                qty = payload.counted_qty or float(pu.quantity)
+                db.add(PartCountLine(session_id=s.id, kind=KIND_PF, part_unit_id=pu.id, part_id=pu.part_id, stage_id=pu.stage_id, expected_qty=0,
+                                     counted_qty=qty, counted_by=user.id, counted_at=now))
+        elif payload.part_id is None or not payload.counted_qty:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите деталь и количество")
-        stage = pf.stage_at_area(db, payload.part_id, s.area)
-        if stage is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "У этой детали нет операции на этом участке")
-        db.add(PartCountLine(session_id=s.id, kind=KIND_PF, part_id=payload.part_id, stage_id=stage.id, expected_qty=0,
-                             counted_qty=payload.counted_qty, counted_by=user.id, counted_at=now))
+        else:
+            stage = pf.stage_at_area(db, payload.part_id, s.area)
+            if stage is None:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "У этой детали нет операции на этом участке")
+            db.add(PartCountLine(session_id=s.id, kind=KIND_PF, part_id=payload.part_id, stage_id=stage.id, expected_qty=0,
+                                 counted_qty=payload.counted_qty, counted_by=user.id, counted_at=now))
     elif payload.kind == KIND_FILM:
         unit = db.get(MaterialUnit, payload.material_unit_id) if payload.material_unit_id else None
         if unit is None:
@@ -533,3 +553,251 @@ def area_parts(area: str, db: Session = Depends(get_db), user: User = Depends(co
     for pid, pname, sname, _ in rows:
         seen.setdefault(pid, AreaPartOut(part_id=pid, part_name=pname, stage_name=sname))
     return list(seen.values())
+
+
+class ScanCodeIn(BaseModel):
+    barcode: str
+    current_cell: str | None = None
+    auto_confirm: bool = True
+
+
+class ScanCodeOut(BaseModel):
+    action: str  # "cell_selected", "unit_confirmed", "unit_mismatch", "unit_added", "part_unit_confirmed", "part_unit_added", "not_found"
+    message: str
+    cell_code: str | None = None
+    line_id: int | None = None
+    is_mismatch: bool = False
+    expected_location: str | None = None
+    unit_id: int | None = None
+    part_unit_id: int | None = None
+    session: SessionDetail
+
+
+class RelocateLineIn(BaseModel):
+    new_location_code: str
+
+
+class ConfirmCellIn(BaseModel):
+    cell_code: str
+
+
+@router.post("/{session_id}/scan", response_model=ScanCodeOut)
+def scan_code(
+    session_id: int, payload: ScanCodeIn, db: Session = Depends(get_db), user: User = Depends(count_any)
+) -> ScanCodeOut:
+    """Экспресс-сканирование штрихкода/QR у стеллажа:
+    - если отсканирована ячейка -> выбирает ячейку;
+    - если рулон/штрипс плёнки или партия ПФ -> находит в листе (или добавляет сверх листа),
+      проверяет совпадение с текущей ячейкой и подтверждает факт."""
+    from app.models.events import EventType
+    from app.models.part_units import PartUnit
+    from app.models.storage import Rack
+    from app.services.events import record_event
+    from app.services.movements import parse_lot
+
+    s = _session(db, session_id, user)
+    if s.status != COUNT_IN_PROGRESS:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Пересчёт уже закрыт")
+
+    raw = payload.barcode.strip()
+    raw_upper = raw.upper()
+
+    lines_query = db.query(PartCountLine).filter(PartCountLine.session_id == s.id).all()
+    lines_detail = _lines_out(db, s, lines_query)
+    cell_codes = {
+        (l.location_code or "").upper()
+        for l in lines_detail
+        if l.location_code
+    }
+    is_known_cell = (
+        raw_upper in cell_codes
+        or db.query(Rack.id).filter(Rack.code == raw_upper).first() is not None
+        or (("-" in raw or "_" in raw) and not any(raw_upper.startswith(p) for p in ("ПЛ", "ПФ", "PL", "PF", "РУЛ")))
+    )
+
+    if is_known_cell and not raw.isdigit():
+        return ScanCodeOut(
+            action="cell_selected",
+            cell_code=raw_upper,
+            message=f"Выбрана ячейка {raw_upper}",
+            session=_detail(db, s, user),
+        )
+
+    parsed = parse_lot(raw)
+    now = datetime.now(timezone.utc)
+
+    # Рулон плёнки
+    if parsed and (parsed[0] == "film" or parsed[0] is None):
+        unit_id = parsed[1]
+        unit = db.get(MaterialUnit, unit_id)
+        if unit is not None:
+            line = db.query(PartCountLine).filter(
+                PartCountLine.session_id == s.id, PartCountLine.material_unit_id == unit.id
+            ).first()
+            if line is not None:
+                orig_loc = unit.location_code
+                cur_loc = (payload.current_cell or "").strip().upper()
+                is_mismatch = bool(cur_loc and orig_loc and orig_loc.upper() != cur_loc)
+                if payload.auto_confirm:
+                    _set_count(db, s, line, float(line.expected_qty) if line.counted_qty is None else line.counted_qty, user)
+                    db.commit()
+                action = "unit_mismatch" if is_mismatch else "unit_confirmed"
+                msg = (
+                    f"Рулон №{unit.id} числится в {orig_loc}, но отсканирован в {cur_loc}"
+                    if is_mismatch
+                    else f"Рулон №{unit.id} подтверждён ({float(line.expected_qty):g} м)"
+                )
+                return ScanCodeOut(
+                    action=action,
+                    message=msg,
+                    line_id=line.id,
+                    unit_id=unit.id,
+                    is_mismatch=is_mismatch,
+                    expected_location=orig_loc,
+                    session=_detail(db, s, user),
+                )
+            else:
+                rem = svc.film_remaining(db, [unit])[unit.id] if unit.status.value != "Списан" else 0.0
+                qty = rem or float(unit.length_m)
+                new_line = PartCountLine(
+                    session_id=s.id,
+                    kind=KIND_FILM,
+                    material_unit_id=unit.id,
+                    expected_qty=0,
+                    counted_qty=qty,
+                    counted_by=user.id,
+                    counted_at=now,
+                )
+                db.add(new_line)
+                db.commit()
+                db.refresh(new_line)
+                return ScanCodeOut(
+                    action="unit_added",
+                    message=f"Рулон №{unit.id} добавлен сверх листа ({qty:g} м)",
+                    line_id=new_line.id,
+                    unit_id=unit.id,
+                    session=_detail(db, s, user),
+                )
+
+    # Партия ПФ
+    if parsed and parsed[0] == "pf":
+        pu_id = parsed[1]
+        pu = db.get(PartUnit, pu_id)
+        if pu is not None:
+            line = db.query(PartCountLine).filter(
+                PartCountLine.session_id == s.id, PartCountLine.part_unit_id == pu.id
+            ).first()
+            if line is not None:
+                orig_loc = pu.location_code
+                cur_loc = (payload.current_cell or "").strip().upper()
+                is_mismatch = bool(cur_loc and orig_loc and orig_loc.upper() != cur_loc)
+                if payload.auto_confirm:
+                    _set_count(db, s, line, float(line.expected_qty) if line.counted_qty is None else line.counted_qty, user)
+                    db.commit()
+                action = "part_unit_mismatch" if is_mismatch else "part_unit_confirmed"
+                msg = (
+                    f"Партия ПФ-{pu.id} числится в {orig_loc}, но отсканирована в {cur_loc}"
+                    if is_mismatch
+                    else f"Партия ПФ-{pu.id} подтверждена ({float(line.expected_qty):g} шт)"
+                )
+                return ScanCodeOut(
+                    action=action,
+                    message=msg,
+                    line_id=line.id,
+                    part_unit_id=pu.id,
+                    is_mismatch=is_mismatch,
+                    expected_location=orig_loc,
+                    session=_detail(db, s, user),
+                )
+            else:
+                qty = float(pu.quantity)
+                new_line = PartCountLine(
+                    session_id=s.id,
+                    kind=KIND_PF,
+                    part_unit_id=pu.id,
+                    part_id=pu.part_id,
+                    stage_id=pu.stage_id,
+                    expected_qty=0,
+                    counted_qty=qty,
+                    counted_by=user.id,
+                    counted_at=now,
+                )
+                db.add(new_line)
+                db.commit()
+                db.refresh(new_line)
+                return ScanCodeOut(
+                    action="part_unit_added",
+                    message=f"Партия ПФ-{pu.id} добавлена сверх листа ({qty:g} шт)",
+                    line_id=new_line.id,
+                    part_unit_id=pu.id,
+                    session=_detail(db, s, user),
+                )
+
+    return ScanCodeOut(
+        action="not_found",
+        message=f"Код «{raw}» не распознан как ячейка, рулон или партия ПФ",
+        session=_detail(db, s, user),
+    )
+
+
+@router.post("/{session_id}/lines/{line_id}/relocate", response_model=SessionDetail)
+def relocate_line_unit(
+    session_id: int,
+    line_id: int,
+    payload: RelocateLineIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(count_any),
+) -> SessionDetail:
+    """Переместить найденную единицу в текущую ячейку прямо в ходе ревизии."""
+    from app.models.events import EventType
+    from app.models.part_units import PartUnit
+    from app.services.events import record_event
+
+    s = _session(db, session_id, user)
+    if s.status != COUNT_IN_PROGRESS:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Пересчёт уже закрыт")
+    line = _line(db, s, line_id)
+    new_loc = payload.new_location_code.strip()
+    if line.material_unit_id:
+        unit = db.get(MaterialUnit, line.material_unit_id)
+        if unit:
+            from_cell = unit.location_code
+            unit.location_code = new_loc
+            record_event(
+                db,
+                unit=unit,
+                event_type=EventType.INVENTARIZATSIYA_PEREMESHCHENO,
+                user_id=user.id,
+                from_cell=from_cell,
+                to_cell=new_loc,
+                write_off_note=f"Перемещение при экспресс-инвентаризации №{s.id}",
+            )
+    elif line.part_unit_id:
+        pu = db.get(PartUnit, line.part_unit_id)
+        if pu:
+            pu.location_code = new_loc
+    db.commit()
+    return _detail(db, s, user)
+
+
+@router.post("/{session_id}/confirm-cell", response_model=SessionDetail)
+def confirm_cell(
+    session_id: int,
+    payload: ConfirmCellIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(count_any),
+) -> SessionDetail:
+    """Подтвердить все оставшиеся непосчитанные единицы в ячейке одним тапом."""
+    s = _session(db, session_id, user)
+    if s.status != COUNT_IN_PROGRESS:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Пересчёт уже закрыт")
+    lines_db = db.query(PartCountLine).filter(PartCountLine.session_id == s.id).all()
+    lines_out = _lines_out(db, s, lines_db)
+    target_cell = payload.cell_code.strip().upper()
+    for lout in lines_out:
+        if (lout.location_code or "").upper() == target_cell and lout.counted_qty is None and lout.expected_qty > 0:
+            db_ln = db.get(PartCountLine, lout.id)
+            if db_ln:
+                _set_count(db, s, db_ln, float(db_ln.expected_qty), user)
+    db.commit()
+    return _detail(db, s, user)
