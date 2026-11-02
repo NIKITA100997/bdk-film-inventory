@@ -456,6 +456,9 @@ class ProductionTaskLineOut(BaseModel):
     borrowable_units: list[BorrowableUnitOut] = []
     # Предупреждения о плёнке (services/film_check.py): ПЭТ 2Д/3Д, «Ламис».
     film_warnings: list[str] = []
+    film_deficit_m: float = 0.0
+    area_strip_stock_m: float = 0.0
+    area_strip_count: int = 0
 
 
 class ProductionTaskOut(BaseModel):

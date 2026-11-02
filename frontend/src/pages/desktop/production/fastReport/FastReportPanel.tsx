@@ -905,6 +905,23 @@ function LineSheet({
           {(fl.line.film_warnings ?? []).map((w) => (
             <Alert key={w} type="warning" showIcon message={w} />
           ))}
+          {!r.requiresRoll && fl.line.material !== null && (
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", margin: "4px 0" }}>
+              <Typography.Text type="secondary">
+                Штрипс {fl.line.strip_width_mm || fl.line.width_mm} мм:
+              </Typography.Text>
+              {fl.line.area_strip_stock_m != null && fl.line.area_strip_stock_m > 0 ? (
+                <Tag color="success">
+                  В цехе {fl.line.area_strip_stock_m} м ({fl.line.area_strip_count ?? 1} шт.) · FIFO
+                </Tag>
+              ) : (
+                <Tag color="warning">Нет штрипса в цехе</Tag>
+              )}
+              {fl.line.film_deficit_m != null && fl.line.film_deficit_m > 0 && (
+                <Tag color="error">Дефицит: -{fl.line.film_deficit_m} м</Tag>
+              )}
+            </div>
+          )}
           {r.requiresRoll && fl.line.material !== null && (
             <Space orientation="vertical" size={6} style={{ width: "100%" }}>
               <Space wrap>

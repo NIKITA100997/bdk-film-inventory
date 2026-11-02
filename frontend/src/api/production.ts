@@ -165,6 +165,9 @@ export interface ProductionTaskLine {
   borrowable_units: BorrowableUnit[];
   /** Предупреждения о плёнке: ПЭТ 2Д/3Д не совпадает, партии «после снятия» ждут декор «Ламис». */
   film_warnings?: string[];
+  film_deficit_m?: number;
+  area_strip_stock_m?: number;
+  area_strip_count?: number;
 }
 
 export interface ProductionTask {

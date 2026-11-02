@@ -257,6 +257,9 @@ def _task_line_out(
     issued_units: list[MaterialUnit] | None = None,
     shortfall_length_m: float | None = None,
     borrowable_units: list[tuple[MaterialUnit, ProductionTaskLine]] | None = None,
+    film_deficit_m: float = 0.0,
+    area_strip_stock_m: float = 0.0,
+    area_strip_count: int = 0,
 ) -> ProductionTaskLineOut:
     assignment_report_aggs = assignment_report_aggs or {}
     prod_line = db.get(ProductionLine, line.line_id) if line.line_id else None
@@ -339,6 +342,9 @@ def _task_line_out(
             for u, src_line in (borrowable_units or [])
         ],
         film_warnings=film_warnings(db, line),
+        film_deficit_m=film_deficit_m,
+        area_strip_stock_m=area_strip_stock_m,
+        area_strip_count=area_strip_count,
     )
 
 
@@ -368,6 +374,26 @@ def _line_report_aggregates(db: Session, line_ids: list[int]) -> dict[int, tuple
         .all()
     )
     return {row[0]: (float(row[1]), float(row[2])) for row in rows}
+
+
+def _line_deficit_aggregates(db: Session, line_ids: list[int]) -> dict[int, float]:
+    """Σ дефицитных штук (отчёты без рулона/штрипса) по строкам задания."""
+    if not line_ids:
+        return {}
+    rows = (
+        db.query(
+            ProductionTaskLineReport.task_line_id,
+            func.coalesce(func.sum(ProductionTaskLineReport.good_pieces + ProductionTaskLineReport.defect_pieces), 0),
+        )
+        .filter(
+            ProductionTaskLineReport.task_line_id.in_(line_ids),
+            ProductionTaskLineReport.counts_toward_line.is_(True),
+            ProductionTaskLineReport.material_unit_id.is_(None),
+        )
+        .group_by(ProductionTaskLineReport.task_line_id)
+        .all()
+    )
+    return {row[0]: float(row[1]) for row in rows}
 
 
 def _line_assignment_aggregates(db: Session, line_ids: list[int]) -> dict[int, float]:
@@ -705,20 +731,48 @@ def _task_out(db: Session, task: ProductionTask, pool_cache: dict | None = None)
     group_shortfall_by_line, borrowable_by_line = _task_borrowable_and_shortfall(
         db, task, report_aggregates, issued_length_by_line, issued_units_by_line, pool_cache
     )
-    line_outs = [
-        _task_line_out(
-            db,
-            l,
-            *report_aggregates.get(l.id, (0.0, 0.0)),
-            assignment_aggregates.get(l.id, 0.0),
-            assignment_report_aggs,
-            issued_length_by_line.get(l.id, 0.0),
-            issued_units_by_line.get(l.id, []),
-            group_shortfall_by_line.get(l.id, 0.0),
-            borrowable_by_line.get(l.id, []),
+    deficit_aggregates = _line_deficit_aggregates(db, line_ids)
+    # Пул штрипсов на участке (погонаж/фабрика)
+    area_units = (
+        db.query(MaterialUnit)
+        .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
+        .filter(
+            MaterialUnit.area == task.area,
+            MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU,
         )
-        for l in task.lines
-    ]
+        .all()
+    )
+    area_stock_map: dict[tuple, tuple[float, int]] = {}
+    for u in area_units:
+        rem = _issued_unit_remaining_m(db, u)
+        if rem > 0:
+            sku = u.material_sku
+            key = (sku.material_id, sku.color_id, round(float(u.width_mm), 1))
+            prev_m, prev_cnt = area_stock_map.get(key, (0.0, 0))
+            area_stock_map[key] = (round(prev_m + rem, 2), prev_cnt + 1)
+
+    line_outs = []
+    for l in task.lines:
+        sw = _line_effective_strip_width(l)
+        st_m, st_cnt = area_stock_map.get((l.material_id, l.color_id, round(sw, 1)), (0.0, 0)) if l.material_id and l.color_id else (0.0, 0)
+        def_pcs = deficit_aggregates.get(l.id, 0.0)
+        def_m = round(def_pcs * float(l.length_m), 2) if l.material_id and float(l.length_m) > 0 else 0.0
+        line_outs.append(
+            _task_line_out(
+                db,
+                l,
+                *report_aggregates.get(l.id, (0.0, 0.0)),
+                assignment_aggregates.get(l.id, 0.0),
+                assignment_report_aggs,
+                issued_length_by_line.get(l.id, 0.0),
+                issued_units_by_line.get(l.id, []),
+                group_shortfall_by_line.get(l.id, 0.0),
+                borrowable_by_line.get(l.id, []),
+                film_deficit_m=def_m,
+                area_strip_stock_m=st_m,
+                area_strip_count=st_cnt,
+            )
+        )
     return ProductionTaskOut(
         id=task.id,
         product_model_id=task.product_model_id,
@@ -1711,28 +1765,84 @@ def _build_task_line_report(
             )
     else:
         # Обычный путь (без п/ф-этапов, либо отчёт без good_pieces вовсе)
-        # — ровно как раньше, одна строка на весь payload. counts_toward_
-        # line берётся из payload (раздел про доп. рулон на ту же строку)
-        # — клиент явно шлёт False для синтетических отчётов "остаток
-        # такого-то рулона указан вручную", чтобы не задвоить план строки;
-        # для всех обычных отчётов поле как раньше остаётся True (значение
-        # по умолчанию в схеме).
-        reports.append(
-            ProductionTaskLineReport(
-                task_line_id=line_id,
-                assignment_id=payload.assignment_id,
-                material_unit_id=payload.material_unit_id,
-                part_unit_id=payload.part_unit_id,
+        if (
+            payload.material_unit_id is None
+            and line.material_id is not None
+            and float(line.length_m) > 0
+            and (payload.good_pieces > 0 or payload.defect_pieces > 0)
+        ):
+            from app.services.film_pool import consume_film_strips_fifo
+
+            strip_allocs = consume_film_strips_fifo(
+                db,
+                line=line,
+                area=line.task.area,
                 good_pieces=payload.good_pieces,
                 defect_pieces=payload.defect_pieces,
-                defect_reason=payload.defect_reason,
-                note=payload.note,
-                reported_by=user.id,
-                counts_toward_line=payload.counts_toward_line,
-                kind=payload.kind,
+                user_id=user.id,
+                film_used_m=payload.film_used_m,
             )
-        )
+            for alloc in strip_allocs:
+                if alloc.good_pieces > 0:
+                    note_parts = []
+                    if alloc.is_deficit:
+                        note_parts.append(f"Дефицит плёнки: {alloc.meters:.1f} м (нет штрипса на участке)")
+                    if payload.note:
+                        note_parts.append(payload.note)
+                    reports.append(
+                        ProductionTaskLineReport(
+                            task_line_id=line_id,
+                            assignment_id=payload.assignment_id,
+                            material_unit_id=alloc.material_unit_id,
+                            part_unit_id=payload.part_unit_id,
+                            good_pieces=alloc.good_pieces,
+                            defect_pieces=0,
+                            defect_reason=None,
+                            note="; ".join(note_parts) or None,
+                            reported_by=user.id,
+                            counts_toward_line=payload.counts_toward_line,
+                            kind=payload.kind,
+                        )
+                    )
+                if alloc.defect_pieces > 0:
+                    note_parts = []
+                    if alloc.is_deficit:
+                        note_parts.append(f"Дефицит плёнки: {alloc.meters:.1f} м (нет штрипса на участке)")
+                    if payload.note:
+                        note_parts.append(payload.note)
+                    reports.append(
+                        ProductionTaskLineReport(
+                            task_line_id=line_id,
+                            assignment_id=payload.assignment_id,
+                            material_unit_id=alloc.material_unit_id,
+                            part_unit_id=payload.part_unit_id,
+                            good_pieces=0,
+                            defect_pieces=alloc.defect_pieces,
+                            defect_reason=payload.defect_reason,
+                            note="; ".join(note_parts) or None,
+                            reported_by=user.id,
+                            counts_toward_line=payload.counts_toward_line,
+                            kind=payload.kind,
+                        )
+                    )
+        else:
+            reports.append(
+                ProductionTaskLineReport(
+                    task_line_id=line_id,
+                    assignment_id=payload.assignment_id,
+                    material_unit_id=payload.material_unit_id,
+                    part_unit_id=payload.part_unit_id,
+                    good_pieces=payload.good_pieces,
+                    defect_pieces=payload.defect_pieces,
+                    defect_reason=payload.defect_reason,
+                    note=payload.note,
+                    reported_by=user.id,
+                    counts_toward_line=payload.counts_toward_line,
+                    kind=payload.kind,
+                )
+            )
     db.add_all(reports)
+    db.flush()
     return reports
 
 

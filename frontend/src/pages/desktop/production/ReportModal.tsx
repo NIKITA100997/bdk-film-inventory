@@ -265,6 +265,34 @@ export default function ReportModal({
       {(line.film_warnings ?? []).map((w) => (
         <Alert key={w} type="warning" showIcon message={w} style={{ marginBottom: 8 }} />
       ))}
+      {!requiresRoll && line.material && (
+        <Alert
+          type={line.film_deficit_m && line.film_deficit_m > 0 ? "error" : "info"}
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div>
+                <strong>Плёнка:</strong> {line.material} {line.color ?? ""} · штрипс{" "}
+                {line.strip_width_mm ?? line.width_mm} мм (длина {line.length_m} м/шт)
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                <span><strong>На участке:</strong></span>
+                {line.area_strip_stock_m != null && line.area_strip_stock_m > 0 ? (
+                  <Tag color="success">
+                    {line.area_strip_stock_m} м ({line.area_strip_count ?? 1} шт.) — списание по FIFO
+                  </Tag>
+                ) : (
+                  <Tag color="warning">0 м (штрипсов на участке нет)</Tag>
+                )}
+                {line.film_deficit_m != null && line.film_deficit_m > 0 && (
+                  <Tag color="error">Дефицит: -{line.film_deficit_m} м</Tag>
+                )}
+              </div>
+            </div>
+          }
+        />
+      )}
       <Typography.Paragraph type="secondary">
         Нужно: {line.quantity_pieces} шт, уже произведено: {line.produced_good_pieces} шт, остаток: {line.remaining_pieces} шт.{" "}
         <OverProductionTag line={line} produced={line.produced_good_pieces} />
