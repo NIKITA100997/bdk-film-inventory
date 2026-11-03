@@ -1,5 +1,6 @@
 import type { JobCardData } from "../api/production";
 import { fmtDateTime } from "./dates";
+import { renderQrSvg } from "./qrSvg";
 
 const esc = (v: unknown) =>
   String(v ?? "")
@@ -107,7 +108,7 @@ export function printJobCard(card: JobCardData, qrDataUrl?: string) {
       </div>
     </div>
     <div class="qr-side">
-      ${qrDataUrl ? `<img src="${qrDataUrl}" width="90" height="90" alt="QR" />` : ""}
+      ${qrDataUrl ? `<img src="${qrDataUrl}" width="90" height="90" alt="QR" />` : renderQrSvg(card.qr_code_value, 90)}
       <div class="qr-text">${esc(card.qr_code_value)}</div>
     </div>
   </div>

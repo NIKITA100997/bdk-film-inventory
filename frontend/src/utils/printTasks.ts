@@ -1,9 +1,25 @@
 import type { TaskPrintSheet } from "../api/productionOrders";
 import { fmtDateTime } from "./dates";
+import { renderQrSvg } from "./qrSvg";
 
 const esc = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const dm = (s: string | null) => (s ? `${s.slice(8, 10)}.${s.slice(5, 7)}` : "");
 const period = (a: string | null, b: string | null) => (a && b && a !== b ? `${dm(a)}—${dm(b)}` : dm(a));
+
+/** Блок QR-кода наряда (для сканирования мастером камерой/планшетом). */
+function qrBlock(tasks: { id: number }[]): string {
+  if (!tasks.length) return "";
+  if (tasks.length === 1) {
+    const t = tasks[0];
+    return `<div class="qr-side">${renderQrSvg(`TASK:${t.id}`, 70)}<div class="qr-text">TASK:${t.id}</div></div>`;
+  }
+  if (tasks.length <= 3) {
+    return `<div class="qr-side qr-multi">${tasks
+      .map((t) => `<div class="qr-item">${renderQrSvg(`TASK:${t.id}`, 58)}<div class="qr-text">TASK:${t.id}</div></div>`)
+      .join("")}</div>`;
+  }
+  return `<div class="qr-side">${renderQrSvg(`TASK:${tasks[0].id}`, 70)}<div class="qr-text">TASK:${tasks[0].id} (+${tasks.length - 1})</div></div>`;
+}
 
 /** Шапка заказа в наряде: общий заказ и примечание. */
 function orderHead(s: TaskPrintSheet): { title: string; html: string } {
@@ -49,9 +65,15 @@ function panelPage(s: TaskPrintSheet, now: string): string {
   const head = ["№", "МДФ", "Шлифовка / Цвет", "Программа / Наименование", "Серия", "Размер заготовки", "Кол-во, шт", "Сделано", "Годно", "Брак", "Подпись"];
   const oh = orderHead(s);
   return `<section class="page">
-${oh.html}
-<div class="top"><h1>Наряд-ведомость: ${esc(s.area_name)}</h1><div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}позиций ${list.length}, всего ${s.total} шт · напечатано ${esc(now)}</div></div>
-<div class="meta">Задания: ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
+<div class="top-header">
+  <div class="info-side">
+    ${oh.html}
+    <h1>Наряд-ведомость: ${esc(s.area_name)}</h1>
+    <div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}позиций ${list.length}, всего ${s.total} шт · напечатано ${esc(now)}</div>
+    <div class="meta"><b>Задания:</b> ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
+  </div>
+  ${qrBlock(s.tasks)}
+</div>
 <table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
 <div class="sign">Выдал: ____________________ &nbsp;&nbsp; Принял (мастер): ____________________ &nbsp;&nbsp; Дата: ________</div>
 </section>`;
@@ -91,9 +113,15 @@ function groupsPage(s: TaskPrintSheet, now: string): string {
   const total = groups.reduce((a, g) => a + g.qty, 0);
   const oh = orderHead(s);
   return `<section class="page">
-${oh.html}
-<div class="top"><h1>${esc(s.area_name)}</h1><div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}групп ${groups.length}, всего ${total} шт · напечатано ${esc(now)}</div></div>
-<div class="meta">Задания: ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
+<div class="top-header">
+  <div class="info-side">
+    ${oh.html}
+    <h1>${esc(s.area_name)}</h1>
+    <div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}групп ${groups.length}, всего ${total} шт · напечатано ${esc(now)}</div>
+    <div class="meta"><b>Задания:</b> ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
+  </div>
+  ${qrBlock(s.tasks)}
+</div>
 <table><thead><tr>${["№", "Что делать (группа)", "Счета", "Срок", "Кол-во", "Сделано", "Брак", "Подпись"].map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
 ${componentsTable(s)}
 <div class="sign">Выдал: ____________________ &nbsp;&nbsp; Принял (мастер): ____________________ &nbsp;&nbsp; Дата: ________</div>
@@ -161,9 +189,15 @@ ${hasProg ? `<td>${r.program ? `<b>${esc(r.program)}</b>` : ""}${r.instruction ?
         .join("");
       const oh = orderHead(s);
       return `<section class="page">
-${oh.html}
-<div class="top"><h1>Наряд: ${esc(s.area_name)}</h1><div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}строк ${s.rows.length}, всего ${s.total} шт · напечатано ${esc(now)}</div></div>
-<div class="meta">Задания: ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
+<div class="top-header">
+  <div class="info-side">
+    ${oh.html}
+    <h1>Наряд: ${esc(s.area_name)}</h1>
+    <div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}строк ${s.rows.length}, всего ${s.total} шт · напечатано ${esc(now)}</div>
+    <div class="meta"><b>Задания:</b> ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
+  </div>
+  ${qrBlock(s.tasks)}
+</div>
 <table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
 ${componentsTable(s)}
 <div class="sign">Выдал: ____________________ &nbsp;&nbsp; Принял (мастер): ____________________ &nbsp;&nbsp; Дата: ________</div>
@@ -176,9 +210,14 @@ ${componentsTable(s)}
   body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; color: #222; margin: 0; }
   .page { page-break-after: always; padding: 4mm 2mm; }
   .page:last-child { page-break-after: auto; }
-  .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .top-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 4px; }
+  .info-side { flex: 1; min-width: 0; }
+  .qr-side { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; border: 1px solid #ccc; padding: 3px 5px; border-radius: 4px; background: #fff; flex-shrink: 0; }
+  .qr-side.qr-multi { flex-direction: row; gap: 8px; }
+  .qr-item { display: flex; flex-direction: column; align-items: center; }
+  .qr-text { font-size: 9px; font-family: monospace; font-weight: bold; margin-top: 2px; }
   h1 { font-size: 17px; margin: 0 0 2px; }
-  .meta { font-size: 11px; color: #555; margin-bottom: 4px; }
+  .meta { font-size: 11px; color: #555; margin-bottom: 2px; }
   table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 6px; }
   th, td { border: 1px solid #999; padding: 4px 6px; text-align: left; vertical-align: middle; }
   th { background: #eee; font-size: 11px; }
