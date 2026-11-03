@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { Button, Card, Checkbox, Input, Segmented, Select, Space, Typography } from "antd";
-import { DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DownloadOutlined, PrinterOutlined, ReloadOutlined } from "@ant-design/icons";
+import PrintTasksModal, { type PrintableTask } from "./PrintTasksModal";
+import ProductionOrders from "./ProductionOrders";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
@@ -21,7 +23,7 @@ const PRODUCTS = ["shield", "tsarg", "trim", "panel", "other"] as const;
 const productOf = (r: MonitorRow) => (r.direction && (PRODUCTS as readonly string[]).includes(r.direction) ? r.direction : "other");
 const productLabel = (p: string) => (p === "other" ? "Прочее" : DIRECTIONS[p] ?? p);
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
-type View = "orders" | "areas" | "prep";
+type View = "orders" | "prod_orders" | "areas" | "prep";
 
 /** Монитор производства (переработан 21.10).
  * «Заказы на производство» — как лист «График»: строка на позицию заказа,
@@ -41,6 +43,7 @@ export default function ProductionMonitor() {
   const [q, setQ] = useState("");
   const [orderIds, setOrderIds] = useState<number[]>([]);
   const [taskId, setTaskId] = useState<number | null>(null);
+  const [printOpen, setPrintOpen] = useState(false);
   const query = useQuery({
     queryKey: ["production-monitor", showDone],
     queryFn: () => getProductionMonitor(showDone),
@@ -69,6 +72,17 @@ export default function ProductionMonitor() {
           )),
     );
   }, [data, productOk, orderIds, q]);
+
+  const printableTasks = useMemo(() => {
+    const map = new Map<number, PrintableTask>();
+    const areaMap = new Map((data?.areas ?? []).map((a) => [a.code, a.name]));
+    for (const r of rows) {
+      if (r.task_id && !r.closed) {
+        map.set(r.task_id, { id: r.task_id, area: r.area, area_name: areaMap.get(r.area) ?? r.area });
+      }
+    }
+    return [...map.values()];
+  }, [rows, data?.areas]);
 
   const orderOptions = useMemo(() => {
     const ids = new Set((data?.rows ?? []).filter((r) => !productOk || productOf(r) === productOk).map((r) => r.order_id ?? 0));
@@ -114,7 +128,8 @@ export default function ProductionMonitor() {
               set({ view: v as string });
             }}
             options={[
-              { label: "Заказы на производство", value: "orders" },
+              { label: "Матрица по заказам", value: "orders" },
+              { label: "Заказы в цехе", value: "prod_orders" },
               { label: "Задания цехов", value: "areas" },
               { label: "Подготовка к склейке", value: "prep" },
             ]}
@@ -155,6 +170,14 @@ export default function ProductionMonitor() {
               Excel
             </Button>
           )}
+          <Button
+            icon={<PrinterOutlined />}
+            disabled={!printableTasks.length}
+            onClick={() => setPrintOpen(true)}
+            title="Пакетная печать нарядов по участкам"
+          >
+            Печать нарядов {printableTasks.length ? `(${printableTasks.length})` : ""}
+          </Button>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {data ? `обновлено ${dayjs(query.dataUpdatedAt).format("HH:mm")}` : ""}
           </Typography.Text>
@@ -164,6 +187,8 @@ export default function ProductionMonitor() {
         <PrepView rows={rows} orders={data.orders} areas={data.areas} onOpenTask={setTaskId} />
       ) : view === "orders" ? (
         <OrdersView rows={rows} orders={data.orders} areas={data.areas} hideDone={!showDone} onOpenTask={setTaskId} />
+      ) : view === "prod_orders" ? (
+        <ProductionOrders />
       ) : (
         <AreasView
           rows={rows}
@@ -187,6 +212,13 @@ export default function ProductionMonitor() {
         canManage={hasPerm(user, "production_tasks.manage")}
         canReport={hasPerm(user, "production_tasks.manage", "production_tasks.report")}
       />
+      {printOpen && (
+        <PrintTasksModal
+          tasks={printableTasks}
+          title={orderIds.length === 1 ? `Наряды заказа №${orderIds[0]}` : `Наряды цеха (${printableTasks.length} заданий)`}
+          onClose={() => setPrintOpen(false)}
+        />
+      )}
     </Space>
   );
 }

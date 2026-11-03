@@ -187,8 +187,14 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
                 op_seq=stages[ln.part_stage_id].sequence_order if ln.part_stage_id in stages else None,
                 part_id=ln.part_id, task_name=t.name,
                 quick=bool(
-                    t.is_active and not ln.is_closed and ln.material_id is None and t.area in area_by_code
-                    and not area_by_code[t.area].requires_daily_plan and not area_by_code[t.area].requires_roll_on_report
+                    t.is_active and not ln.is_closed and t.area in area_by_code
+                    and not area_by_code[t.area].requires_daily_plan
+                    and (
+                        ln.material_id is None
+                        or "ламинац" in ((stages[ln.part_stage_id].name if ln.part_stage_id in stages else "") or area_by_code[t.area].name or "").lower()
+                        or t.area in ("fabrika", "uchastok_membranno_vakuumnykh_pressov")
+                        or not area_by_code[t.area].requires_roll_on_report
+                    )
                 ),
                 launch_date=launched.get(t.production_order_id) if t.production_order_id else None,
             )

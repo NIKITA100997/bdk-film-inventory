@@ -64,6 +64,19 @@ def _panel_info(db: Session, ln: ProductionTaskLine, ol, cache: dict) -> dict | 
                 "series": by.get("серия") or "",
                 "blank": f"{float(by['толщина']):g}х{float(by['ширина']):g}х{float(by['высота']):g}",
             }
+    if info is None and ln.part_name and ("панел" in ln.part_name.lower() or "мдф" in ln.part_name.lower()):
+        import re
+        m = re.search(r"(\d+(?:[.,]\d+)?\s*[хx]\s*\d+\s*[хx]\s*\d+)", ln.part_name)
+        blank = m.group(1).replace(" ", "") if m else ""
+        mdf = "Kastamonu" if "kasta" in ln.part_name.lower() else ("МДФ" if "мдф" in ln.part_name.lower() else "")
+        series = next((c["value"] for c in (item_chars_cached(db, ol.item_id) if ol else []) if c["code"] == "серия"), "")
+        color = next((c["value"] for c in (item_chars_cached(db, ol.item_id) if ol else []) if c["code"] == "цвет"), "")
+        info = {
+            "mdf": mdf,
+            "sand": color or "ДА",
+            "series": series,
+            "blank": blank,
+        }
     cache[key] = info
     return info
 
@@ -152,13 +165,46 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
             if ln.material_id:
                 film = f"{mats.get(ln.material_id, '')} {cols.get(ln.color_id, '')} {ths.get(ln.thickness_id, 0):g}".strip()
                 film += f" · штрипс {float(ln.strip_width_mm):g} мм" if ln.strip_width_mm else " · рулон"
-            row_chars = [] if ln.part_id else (item_chars_cached(db, ol.item_id) if ol else [])
+            # Характеристики изделия и детали (подтягиваем размеры и параметры)
+            ol_chars = item_chars_cached(db, ol.item_id) if ol and ol.item_id else []
+            part_chars = []
+            if ln.part_id:
+                from app.models.dictionaries import Part
+                part_obj = db.get(Part, ln.part_id)
+                if part_obj and part_obj.item_id:
+                    part_chars = item_chars_cached(db, part_obj.item_id)
+
+            char_map = {c["code"]: c for c in ol_chars}
+            char_map.update({c["code"]: c for c in part_chars})
+            row_chars = list(char_map.values())
+
+            cols_data = door_cols(row_chars, ol.source_text if ol else None, ln.part_name) if row_chars else {}
+
+            # Если размер не определился door_cols, подтягиваем из параметров строки или названия
+            if not cols_data.get("size"):
+                import re
+                size_from_name = ""
+                m_size = re.search(r"(\d+(?:[.,]\d+)?\s*[хx]\s*\d+(?:\s*[хx]\s*\d+)?)", ln.part_name or "")
+                if m_size:
+                    size_from_name = m_size.group(1).replace(" ", "")
+                elif ln.width_mm and float(ln.width_mm) > 0 and ln.length_m and float(ln.length_m) > 0:
+                    size_from_name = f"{float(ln.width_mm):g}х{round(float(ln.length_m) * 1000):g}"
+                elif ln.strip_width_mm and float(ln.strip_width_mm) > 0:
+                    size_from_name = f"штрипс {float(ln.strip_width_mm):g} мм"
+                if size_from_name:
+                    cols_data["size"] = size_from_name
+
+            if not cols_data.get("color") and ln.color_id and ln.color_id in cols:
+                cols_data["color"] = cols[ln.color_id]
+
+            if not cols_data.get("source"):
+                cols_data["source"] = ln.part_name or (ol.source_text if ol else "")
+
             sheet["rows"].append({
                 "task_id": t.id,
                 "name": ln.part_name or "",
                 "chars": row_chars,
-                # столбцы как в Excel (13.10): серия, размер, цвет, наименование из графика/1С, кромка
-                **(door_cols(row_chars, ol.source_text if ol else None, ln.part_name) if row_chars else {}),
+                **cols_data,
                 "invoice_no": ol.invoice_no if ol else None,
                 "qty": float(ln.quantity_pieces),
                 "done": round(min(good.get(ln.id, 0.0), float(ln.quantity_pieces)), 2),
@@ -170,7 +216,7 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
                 "panel": _panel_info(db, ln, ol, panel_cache),
             })
             # группа участка (08.10, services/line_groups.py)
-            grp = line_group(db, ln, t.area, [] if ln.part_id else (item_chars_cached(db, ol.item_id) if ol else []))
+            grp = line_group(db, ln, t.area, row_chars)
             if grp is not None:
                 gk, gl = grp
                 g = sheet["groups"].setdefault(gk, {"label": gl, "qty": 0.0, "done": 0.0, "lines": 0, "invoices": set(), "date_from": None, "date_to": None})

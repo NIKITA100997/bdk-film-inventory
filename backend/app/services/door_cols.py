@@ -57,10 +57,17 @@ def edge_parts(by: dict, text: str) -> dict:
 def door_cols(chars: list[dict], source: str | None = None, fallback_name: str | None = None) -> dict:
     by = {c["code"]: c["value"] for c in chars or []}
     w, h = _num(by.get("ширина")), _num(by.get("высота"))
+    t = _num(by.get("толщина"))
     src = (source or fallback_name or "").strip()
+    if t and w and h:
+        size_str = f"{t}х{w}х{h}"
+    elif w and h:
+        size_str = f"{w}х{h}"
+    else:
+        size_str = ""
     return {
         "series": str(by.get("серия") or ""),
-        "size": f"{w}х{h}" if w and h else "",
+        "size": size_str,
         "color": str(by.get("цвет") or ""),
         "source": src,
         "edge": edge_label(by),

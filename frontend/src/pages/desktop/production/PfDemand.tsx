@@ -634,13 +634,16 @@ export default function PfDemand() {
             <ResponsiveTable<PfDemandRow>
               key={key}
               tableKey="pf-demand"
-              lockedColumns={["Деталь"]}
+              lockedColumns={["Деталь", "Действия мастера"]}
+              defaultHiddenColumns={["Нормативы"]}
+              stickyColumns={1}
+              sticky={true}
               size="small"
               rowKey="part_id"
               loading={demandQuery.isLoading}
               dataSource={sectionRows}
               pagination={{ pageSize: 50, hideOnSinglePage: true }}
-              scroll={{ x: "max-content" }}
+              scroll={{ x: 1350, y: "calc(100vh - 290px)" }}
               locale={{ emptyText: "Нет подходящих деталей" }}
               expandable={{
                 rowExpandable: (r) => r.sources.length > 0,
@@ -649,7 +652,8 @@ export default function PfDemand() {
                     <Typography.Text type="secondary">
                       Потребность по заданиям цеха: сделанное сверх плана одной строки закрывает соседние.
                     </Typography.Text>
-                    <table style={{ marginTop: 8, borderCollapse: "collapse", width: "100%" }}>
+                    <div style={{ marginTop: 8, overflowX: "auto", maxWidth: "100%", background: "#f8fafc", padding: "8px 12px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                    <table style={{ borderCollapse: "collapse", minWidth: 920, width: "100%" }}>
                       <thead>
                         <tr>
                           {["Задание цеха", "Срок", "Куда требуется", "Не хватает на участке", "На участке", "Склад ПФ (у меня)", "План", "Сделано", "Остаток", "В работе", "Действия мастера"].map((h) => (
@@ -747,6 +751,7 @@ export default function PfDemand() {
                         })}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 ),
               }}
@@ -767,6 +772,8 @@ export default function PfDemand() {
                 {
                   title: "Деталь",
                   dataIndex: "part_name",
+                  fixed: "left",
+                  width: 220,
                   render: (name, r) => (
                     <Space orientation="vertical" size={2}>
                       <span style={{ fontWeight: 600 }}>{name}</span>
@@ -884,6 +891,8 @@ export default function PfDemand() {
                 {
                   title: "Действия мастера",
                   key: "master_actions",
+                  fixed: "right",
+                  width: 180,
                   render: (_, r) => {
                     const storage = r.storage_stock ?? 0;
                     const defaultTargetArea = r.target_areas?.[0] ?? "";

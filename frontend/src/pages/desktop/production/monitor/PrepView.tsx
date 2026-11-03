@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Alert, Button, Space, Tag, Tooltip, Typography } from "antd";
 import type { MonitorArea, MonitorOrder, MonitorRow } from "../../../../api/productionMonitor";
 import GroupedTable, { type GroupColumn } from "../../../../components/GroupedTable";
-import { OpCell, type LineRec } from "./OrdersView";
+import { OpCell, OpGroupCell, type LineRec } from "./OrdersView";
 import { computeFlow, FlowStrip } from "./flow";
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -147,13 +147,7 @@ export default function PrepView({
         width: 104,
         align: "center",
         render: (_, l) => <OpCell rs={l.ops[op]} ready={lineFlow(l.key, op)?.ready} onOpenTask={onOpenTask} />,
-        groupRender: (ls) => {
-          const rs = ls.flatMap((l) => l.ops[op] ?? []);
-          if (!rs.length) return null;
-          const plan = rs.reduce((s, r) => s + r.plan, 0);
-          const done = rs.reduce((s, r) => s + (r.closed ? r.plan : Math.min(r.good, r.plan)), 0);
-          return <span style={{ fontVariantNumeric: "tabular-nums" }}>{r2(done)}/{r2(plan)}</span>;
-        },
+        groupRender: (ls) => <OpGroupCell ls={ls} op={op} onOpenTask={onOpenTask} />,
       }),
     ),
     {
@@ -175,7 +169,7 @@ export default function PrepView({
           type="warning"
           showIcon
           message="По этапам до склейки ещё не отчитывались"
-          description="Цифры «готово» появятся, когда участки начнут вносить отчёты: распил, шлифовка, сборка каркасов — прямо отсюда (клик по клетке), ламинация — в задании (нужен рулон)."
+          description="Цифры «готово» появятся, когда участки начнут вносить отчёты: распил, шлифовка, сборка каркасов, ламинация — прямо отсюда (клик по клетке)."
         />
       )}
       {flows.map((f) => (

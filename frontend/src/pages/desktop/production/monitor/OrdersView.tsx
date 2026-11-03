@@ -4,7 +4,7 @@ import dayjs from "dayjs";
 import { Link } from "react-router-dom";
 import type { MonitorArea, MonitorOrder, MonitorRow } from "../../../../api/productionMonitor";
 import GroupedTable, { type GroupColumn } from "../../../../components/GroupedTable";
-import QuickReport from "./QuickReport";
+import BatchQuickReport from "./BatchQuickReport";
 import { computeFlow, FlowStrip, opIncludes } from "./flow";
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -131,12 +131,10 @@ export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined
       trigger="click"
       open={open}
       onOpenChange={setOpen}
-      title="Отчёт"
+      title="Отчёт по операции"
       content={
         <Space orientation="vertical">
-          {quick.map((r) => (
-            <QuickReport key={r.task_line_id} row={r} onDone={() => setOpen(false)} />
-          ))}
+          <BatchQuickReport rows={quick} onDone={() => setOpen(false)} />
           <Button size="small" type="link" style={{ padding: 0 }} onClick={() => onOpenTask(rs[0].task_id)}>
             открыть задание №{rs[0].task_id}
           </Button>
@@ -144,6 +142,39 @@ export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined
       }
     >
       <Button type="text" size="small" style={{ padding: "0 4px" }} aria-label="Внести отчёт">
+        {text}
+      </Button>
+    </Popover>
+  );
+}
+
+export function OpGroupCell({ ls, op }: { ls: LineRec[]; op: string; onOpenTask?: (id: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const rs = ls.flatMap((l) => l.ops[op] ?? []);
+  if (!rs.length) return null;
+  const s = sumOp(rs);
+  if (!s.plan) return null;
+  const quick = rs.filter((r) => r.quick && !r.closed && r.plan - r.good > 0);
+  const text = (
+    <span style={{ fontVariantNumeric: "tabular-nums", color: s.done >= s.plan ? "#389e0d" : s.done > 0 ? "#C97A2B" : undefined, fontWeight: 600 }}>
+      {r2(s.done)}/{r2(s.plan)}
+      {s.defect > 0 && <span style={{ color: "#ff4d4f", fontSize: 11 }}> б{r2(s.defect)}</span>}
+    </span>
+  );
+
+  if (!quick.length) {
+    return text;
+  }
+
+  return (
+    <Popover
+      trigger="click"
+      open={open}
+      onOpenChange={setOpen}
+      title={`Отчёт по группе: ${op}`}
+      content={<BatchQuickReport rows={quick} title={op} onDone={() => setOpen(false)} />}
+    >
+      <Button type="text" size="small" style={{ padding: "0 4px" }} title="Быстрый отчёт по группе строк">
         {text}
       </Button>
     </Popover>
@@ -253,14 +284,7 @@ export default function OrdersView({
           return s.plan ? s.done / s.plan : -1;
         },
         render: (_, l) => <OpCell rs={l.ops[op]} ready={flow.byLine.get(l.key)?.[op]?.ready} onOpenTask={onOpenTask} />,
-        groupRender: (ls) => {
-          const s = sumOp(ls.flatMap((l) => l.ops[op] ?? []));
-          return s.plan ? (
-            <span style={{ fontVariantNumeric: "tabular-nums", color: s.done >= s.plan ? "#389e0d" : undefined }}>
-              {r2(s.done)}/{r2(s.plan)}
-            </span>
-          ) : null;
-        },
+        groupRender: (ls) => <OpGroupCell ls={ls} op={op} onOpenTask={onOpenTask} />,
       }),
     ),
   ];
