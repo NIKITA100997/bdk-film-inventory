@@ -1,3 +1,4 @@
+import StripPoolAdjustModal from "../../../components/StripPoolAdjustModal";
 import { useMemo, useRef, useState } from "react";
 import { useOpKeys } from "../../../utils/opKey";
 import OverProductionTag, { overExcess } from "../../../components/OverProductionTag";
@@ -126,6 +127,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [defectRowKey, setDefectRowKey] = useState<string | null>(null);
+  const [adjustLine, setAdjustLine] = useState<ProductionTaskLine | null>(null);
   const [defectForm] = Form.useForm<{ reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" | "snyat" }>();
 
   const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
@@ -427,6 +429,21 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         🔍 Добавить позицию…
       </Button>
 
+      {adjustLine && (
+        <StripPoolAdjustModal
+          open={!!adjustLine}
+          onClose={() => setAdjustLine(null)}
+          area={area}
+          material={adjustLine.material}
+          materialId={adjustLine.material_id}
+          color={adjustLine.color}
+          colorId={adjustLine.color_id}
+          thicknessId={adjustLine.thickness_id}
+          stripWidthMm={adjustLine.strip_width_mm || adjustLine.width_mm}
+          currentStockM={adjustLine.area_strip_stock_m}
+          deficitM={adjustLine.film_deficit_m}
+        />
+      )}
       <Modal
         title="Найти позицию"
         open={pickerOpen}
@@ -603,6 +620,15 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                             {deficit != null && deficit > 0 && (
                               <Tag color="error" title="Овердрафт: списано в дефицит">Дефицит: -{deficit} м</Tag>
                             )}
+                            <Button
+                              size="small"
+                              type="link"
+                              style={{ padding: "0 2px", fontSize: 11 }}
+                              onClick={() => setAdjustLine(r.line)}
+                              title="Экспресс-сверка остатка штрипсов в пуле"
+                            >
+                              сверка
+                            </Button>
                           </Space>
                         );
                       },

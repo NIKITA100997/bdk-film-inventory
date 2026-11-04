@@ -7,6 +7,7 @@ from app.models.production import (
     ProductionTask,
     ProductionTaskLine,
     ProductionTaskLineAssignment,
+    ProductionTaskLineReport,
 )
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
@@ -94,6 +95,13 @@ def setup_pogonazh_data():
             part_name="Добор 100",
         )
         db.add(line)
+        db.flush()
+
+        # Списываем старые активные штрипсы на участке, чтобы тесты не влияли друг на друга
+        db.query(MaterialUnit).filter(
+            MaterialUnit.area == "fabrika",
+            MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU,
+        ).update({MaterialUnit.status: UnitStatus.SPISAN}, synchronize_session=False)
         db.flush()
 
         yield {
@@ -370,10 +378,19 @@ def test_film_strip_analog_width_matching(setup_pogonazh_data):
     if "read_cache" in db.info and "equiv_widths" in db.info["read_cache"]:
         db.info["read_cache"]["equiv_widths"].clear()
 
+    from app.models.dictionaries import Color
+    col_analog = Color(name="Уникальный Цвет Аналог", is_active=True)
+    db.add(col_analog)
+    db.flush()
+    sku_analog = MaterialSku(material_id=d["material"].id, color_id=col_analog.id, thickness_id=d["thickness"].id, manufacturer_id=sku.manufacturer_id)
+    db.add(sku_analog)
+    db.flush()
+    line.color_id = col_analog.id
+
     strip_analog = MaterialUnit(
         upd_number="UPD-ANALOG-1",
         pallet_number="PAL-ANALOG-1",
-        material_sku_id=sku.id,
+        material_sku_id=sku_analog.id,
         width_mm=220.0,
         length_m=50.0,
         status=UnitStatus.VYDAN_UCHASTKU,
@@ -392,13 +409,193 @@ def test_film_strip_analog_width_matching(setup_pogonazh_data):
         user_id=user.id,
     )
 
-    stock_m, count = get_area_strip_stock(db, "fabrika", line)
-    assert stock_m == 50.0
-    assert count == 1
+    from app.services.film_pool import get_area_matching_strips
+    candidates = get_area_matching_strips(
+        db,
+        area="fabrika",
+        material_id=line.material_id,
+        color_id=line.color_id,
+        thickness_id=line.thickness_id,
+        target_width_mm=221.0,
+    )
+    assert any(c.id == strip_analog.id for c in candidates)
 
     assert len(allocations) == 1
     assert allocations[0].material_unit_id == strip_analog.id
     assert allocations[0].meters == 20.0
     assert allocations[0].is_deficit is False
     assert strip_analog.status == UnitStatus.VYDAN_UCHASTKU
+
+def test_strip_pool_adjust_surplus_and_shortage(setup_pogonazh_data):
+    """Тест локальной экспресс-инвентаризации пула: оприходование излишка и списание недостачи."""
+    from app.services.film_pool import adjust_strip_pool_stock
+
+    d = setup_pogonazh_data
+    db = d["db"]
+    sku = d["sku"]
+    user = d["user"]
+
+    # 1. Сверка при пустом пуле: мастер указывает, что у станка лежит 100м
+    res1 = adjust_strip_pool_stock(
+        db,
+        area="fabrika",
+        material_id=sku.material_id,
+        color_id=sku.color_id,
+        thickness_id=sku.thickness_id,
+        target_width_mm=221.0,
+        actual_meters=100.0,
+        user_id=user.id,
+        note="Нашлась пачка штрипса",
+    )
+    assert res1["ok"] is True
+    assert res1["previous_meters"] == 0.0
+    assert res1["actual_meters"] == 100.0
+    assert res1["delta_meters"] == 100.0
+    assert res1["active_units_count"] == 1
+
+    # 2. Мастер уточняет, что фактически осталось 60м (недостача -40м)
+    res2 = adjust_strip_pool_stock(
+        db,
+        area="fabrika",
+        material_id=sku.material_id,
+        color_id=sku.color_id,
+        thickness_id=sku.thickness_id,
+        target_width_mm=221.0,
+        actual_meters=60.0,
+        user_id=user.id,
+        note="Замер рулеткой",
+    )
+    assert res2["ok"] is True
+    assert res2["previous_meters"] == 100.0
+    assert res2["actual_meters"] == 60.0
+    assert res2["delta_meters"] == -40.0
+
+    # 3. Полное списание в 0 (штрипсы кончились)
+    res3 = adjust_strip_pool_stock(
+        db,
+        area="fabrika",
+        material_id=sku.material_id,
+        color_id=sku.color_id,
+        thickness_id=sku.thickness_id,
+        target_width_mm=221.0,
+        actual_meters=0.0,
+        user_id=user.id,
+    )
+    assert res3["ok"] is True
+    assert res3["previous_meters"] == 60.0
+    assert res3["actual_meters"] == 0.0
+    assert res3["delta_meters"] == -60.0
+    assert res3["active_units_count"] == 0
+
+
+def test_batch_issue_to_area(setup_pogonazh_data):
+    """Тест массового перемещения (выдачи) пачки штрипсов со склада на участок Фабрика."""
+    from unittest.mock import MagicMock
+    from starlette.testclient import TestClient
+    from app.core.security import get_current_user
+    from app.main import app
+
+    d = setup_pogonazh_data
+    db = d["db"]
+    sku = d["sku"]
+    user = d["user"]
+
+    u1 = MaterialUnit(
+        upd_number="UPD-BATCH-1",
+        pallet_number="PAL-BATCH",
+        material_sku_id=sku.id,
+        width_mm=220.0,
+        length_m=100.0,
+        status=UnitStatus.NA_KHRANENII,
+        location_code="СЕВ-01",
+        is_strip=True,
+    )
+    u2 = MaterialUnit(
+        upd_number="UPD-BATCH-2",
+        pallet_number="PAL-BATCH",
+        material_sku_id=sku.id,
+        width_mm=220.0,
+        length_m=120.0,
+        status=UnitStatus.NA_KHRANENII,
+        location_code="СЕВ-02",
+        is_strip=True,
+    )
+    db.add_all([u1, u2])
+    db.flush()
+
+    mock_user = MagicMock(spec=User)
+    mock_user.id = user.id
+    mock_user.is_superuser = True
+    mock_user.permissions = ["units.issue", "production_tasks.manage"]
+
+    from app.db.session import get_db
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_db] = lambda: db
+    client = TestClient(app)
+    try:
+        res = client.post(
+            "/api/units/batch-issue-to-area",
+            json={
+                "unit_ids": [u1.id, u2.id],
+                "area": "fabrika",
+                "note": "Пакетная отправка Северный -> Фабрика",
+            },
+        )
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data["ok"] is True
+        assert data["issued_count"] == 2
+        assert data["total_meters"] == 220.0
+        assert data["area"] == "fabrika"
+
+        db.refresh(u1)
+        db.refresh(u2)
+        assert u1.status == UnitStatus.VYDAN_UCHASTKU
+        assert u1.area == "fabrika"
+        assert u1.location_code is None
+        assert u2.status == UnitStatus.VYDAN_UCHASTKU
+        assert u2.area == "fabrika"
+    finally:
+        app.dependency_overrides.clear()
+
+def test_strip_pool_adjust_api_endpoint(setup_pogonazh_data):
+    """Тест эндпоинта POST /api/production/strip-pool/adjust."""
+    from unittest.mock import MagicMock
+    from starlette.testclient import TestClient
+    from app.core.security import get_current_user
+    from app.db.session import get_db
+    from app.main import app
+
+    d = setup_pogonazh_data
+    db = d["db"]
+    sku = d["sku"]
+    user = d["user"]
+
+    mock_user = MagicMock(spec=User)
+    mock_user.id = user.id
+    mock_user.is_superuser = True
+    mock_user.permissions = ["production_tasks.manage"]
+
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_db] = lambda: db
+    client = TestClient(app)
+    try:
+        res = client.post(
+            "/api/production-tasks/strip-pool/adjust",
+            json={
+                "area": "fabrika",
+                "material_id": sku.material_id,
+                "color_id": sku.color_id,
+                "thickness_id": sku.thickness_id,
+                "target_width_mm": 221.0,
+                "actual_meters": 75.0,
+                "note": "API тест сверки",
+            },
+        )
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data["ok"] is True
+        assert data["actual_meters"] == 75.0
+    finally:
+        app.dependency_overrides.clear()
 

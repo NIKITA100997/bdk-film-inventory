@@ -249,3 +249,140 @@ def consume_film_strips_fifo(
         )
 
     return allocations
+
+def adjust_strip_pool_stock(
+    db: Session,
+    *,
+    area: str,
+    material_id: int,
+    color_id: int,
+    thickness_id: int | None = None,
+    target_width_mm: float,
+    actual_meters: float,
+    user_id: int,
+    note: str | None = None,
+) -> dict:
+    """Локальная экспресс-инвентаризация пула штрипсов на участке.
+
+    Сверяет учётный остаток с физическим фактическим:
+    - При недостаче (actual < current): списывает разницу по FIFO (EventType.INVENTARIZATSIYA_NEDOSTACHA / SPISANIE).
+    - При излишке (actual > current): приходует новую партию штрипса на участок (EventType.INVENTARIZATSIYA_IZLISHEK).
+    """
+    actual_meters = max(0.0, round(float(actual_meters), 2))
+    active_strips = get_area_matching_strips(
+        db,
+        area=area,
+        material_id=material_id,
+        color_id=color_id,
+        thickness_id=thickness_id,
+        target_width_mm=target_width_mm,
+    )
+    current_meters = round(sum(get_strip_remaining_m(db, u) for u in active_strips), 2)
+    delta = round(actual_meters - current_meters, 2)
+
+    if abs(delta) < 0.01:
+        return {
+            "ok": True,
+            "area": area,
+            "target_width_mm": target_width_mm,
+            "previous_meters": current_meters,
+            "actual_meters": actual_meters,
+            "delta_meters": 0.0,
+            "active_units_count": len(active_strips),
+        }
+
+    if delta < 0:
+        # Недостача: списываем по FIFO
+        to_deduct = abs(delta)
+        for u in active_strips:
+            rem = get_strip_remaining_m(db, u)
+            if rem <= 0:
+                continue
+            deduct_this = min(to_deduct, rem)
+            if rem - deduct_this <= 0.05:
+                u.status = UnitStatus.SPISAN
+                record_event(
+                    db,
+                    unit=u,
+                    event_type=EventType.INVENTARIZATSIYA_NEDOSTACHA,
+                    user_id=user_id,
+                    quantity_delta_m=-rem,
+                    from_length=float(u.length_m),
+                    to_length=0,
+                    write_off_note=note or f"Экспресс-инвентаризация пула ({area}): списание недостачи {abs(delta)} м",
+                )
+            else:
+                old_len = float(u.length_m)
+                u.length_m = round(old_len - deduct_this, 2)
+                record_event(
+                    db,
+                    unit=u,
+                    event_type=EventType.INVENTARIZATSIYA_NEDOSTACHA,
+                    user_id=user_id,
+                    quantity_delta_m=-deduct_this,
+                    from_length=old_len,
+                    to_length=float(u.length_m),
+                    write_off_note=note or f"Экспресс-инвентаризация пула ({area}): уменьшение остатка на {deduct_this} м",
+                )
+            to_deduct = round(to_deduct - deduct_this, 2)
+            if to_deduct <= 0:
+                break
+    else:
+        # Излишек: создаём единицу штрипса на участке
+        sku_q = db.query(MaterialSku).filter(
+            MaterialSku.material_id == material_id,
+            MaterialSku.color_id == color_id,
+        )
+        if thickness_id is not None:
+            sku = sku_q.filter(MaterialSku.thickness_id == thickness_id).first()
+        else:
+            sku = sku_q.first()
+        if sku is None:
+            sku = sku_q.first()
+        if sku is None:
+            raise ValueError(f"SKU для material_id={material_id}, color_id={color_id} не найден")
+
+        from datetime import date
+        today_str = date.today().strftime("%d.%m")
+        new_unit = MaterialUnit(
+            material_sku_id=sku.id,
+            status=UnitStatus.VYDAN_UCHASTKU,
+            area=area,
+            is_strip=True,
+            width_mm=target_width_mm,
+            length_m=delta,
+            upd_number=f"ИНВ-{area.upper()}-{today_str}",
+            pallet_number=f"ПУЛ-{int(target_width_mm)}",
+        )
+        db.add(new_unit)
+        db.flush()
+        record_event(
+            db,
+            unit=new_unit,
+            event_type=EventType.INVENTARIZATSIYA_IZLISHEK,
+            user_id=user_id,
+            quantity_delta_m=delta,
+            to_length=delta,
+            write_off_note=note or f"Экспресс-инвентаризация пула ({area}): оприходование излишка +{delta} м",
+        )
+
+    db.flush()
+    active_now = get_area_matching_strips(
+        db,
+        area=area,
+        material_id=material_id,
+        color_id=color_id,
+        thickness_id=thickness_id,
+        target_width_mm=target_width_mm,
+    )
+    new_actual = round(sum(get_strip_remaining_m(db, u) for u in active_now), 2)
+    return {
+        "ok": True,
+        "area": area,
+        "target_width_mm": target_width_mm,
+        "previous_meters": current_meters,
+        "actual_meters": new_actual,
+        "delta_meters": delta,
+        "active_units_count": len(active_now),
+    }
+

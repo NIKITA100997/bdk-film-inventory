@@ -384,6 +384,9 @@ class ProductionTaskLineOut(BaseModel):
     material: str | None
     color: str | None
     thickness: float | None
+    material_id: int | None = None
+    color_id: int | None = None
+    thickness_id: int | None = None
     quantity_pieces: float
     width_mm: float
     length_m: float

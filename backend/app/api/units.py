@@ -22,6 +22,8 @@ from app.models.users import User
 from app.models.write_off_reasons import WriteOffReasonEntry
 from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.units import (
+    BatchIssueToAreaRequest,
+    BatchIssueToAreaResult,
     CutRequest,
     CuttingOperationOut,
     CuttingOperationPieceOut,
@@ -961,6 +963,50 @@ def _note_transfer_of(db, unit_id: int, note: str) -> None:
     if line is not None:
         t = db.get(WarehouseTransfer, line.transfer_id)
         t.note = (f"{t.note}; {note}" if t.note else note)[:255]
+
+
+@router.post("/batch-issue-to-area", response_model=BatchIssueToAreaResult)
+def batch_issue_to_area(
+    payload: BatchIssueToAreaRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("units.issue")),
+) -> BatchIssueToAreaResult:
+    """Массовая выдача пачки штрипсов/рулонов на участок (например, Северный -> Фабрика)."""
+    if not payload.unit_ids:
+        return BatchIssueToAreaResult(ok=True, issued_count=0, total_meters=0.0, area=payload.area, unit_ids=[])
+
+    units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
+    issued: list[MaterialUnit] = []
+    total_m = 0.0
+
+    for u in units:
+        if u.status not in (UnitStatus.NA_KHRANENII, UnitStatus.PRINYAT):
+            continue
+        from_cell = u.location_code
+        u.status = UnitStatus.VYDAN_UCHASTKU
+        u.area = payload.area
+        u.location_code = None
+        record_event(
+            db,
+            unit=u,
+            event_type=EventType.VYDACHA_UCHASTKU,
+            user_id=user.id,
+            quantity_delta_m=-float(u.length_m),
+            from_cell=from_cell,
+            occurred_at=payload.occurred_at,
+            write_off_note=payload.note or f"Массовая выдача в пул участка {payload.area}",
+        )
+        issued.append(u)
+        total_m += float(u.length_m)
+
+    db.commit()
+    return BatchIssueToAreaResult(
+        ok=True,
+        issued_count=len(issued),
+        total_meters=round(total_m, 2),
+        area=payload.area,
+        unit_ids=[u.id for u in issued],
+    )
 
 
 @router.post("/{unit_id}/issue", response_model=MaterialUnitOut)

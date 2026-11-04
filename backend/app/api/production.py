@@ -285,6 +285,9 @@ def _task_line_out(
         material=db.get(Material, line.material_id).name if line.material_id else None,
         color=db.get(Color, line.color_id).name if line.color_id else None,
         thickness=float(db.get(Thickness, line.thickness_id).value_mm) if line.thickness_id else None,
+        material_id=line.material_id,
+        color_id=line.color_id,
+        thickness_id=line.thickness_id,
         quantity_pieces=float(line.quantity_pieces),
         width_mm=float(line.width_mm),
         length_m=float(line.length_m),
@@ -751,10 +754,20 @@ def _task_out(db: Session, task: ProductionTask, pool_cache: dict | None = None)
             prev_m, prev_cnt = area_stock_map.get(key, (0.0, 0))
             area_stock_map[key] = (round(prev_m + rem, 2), prev_cnt + 1)
 
+    from app.services.width_analogs import equivalent_widths
+
     line_outs = []
     for l in task.lines:
         sw = _line_effective_strip_width(l)
-        st_m, st_cnt = area_stock_map.get((l.material_id, l.color_id, round(sw, 1)), (0.0, 0)) if l.material_id and l.color_id else (0.0, 0)
+        st_m = 0.0
+        st_cnt = 0
+        if l.material_id and l.color_id:
+            equiv_ws = {round(w, 1) for w in equivalent_widths(db, sw)}
+            for eq_w in equiv_ws:
+                m, c = area_stock_map.get((l.material_id, l.color_id, eq_w), (0.0, 0))
+                st_m += m
+                st_cnt += c
+        st_m = round(st_m, 2)
         def_pcs = deficit_aggregates.get(l.id, 0.0)
         def_m = round(def_pcs * float(l.length_m), 2) if l.material_id and float(l.length_m) > 0 else 0.0
         line_outs.append(
@@ -2536,3 +2549,51 @@ def apply_smart_batching_endpoint(
         optimized_line_ids=payload.line_ids,
         user_id=user.id,
     )
+
+class StripPoolAdjustIn(BaseModel):
+    area: str
+    material_id: int
+    color_id: int
+    thickness_id: int | None = None
+    target_width_mm: float
+    actual_meters: float
+    note: str | None = None
+
+
+class StripPoolAdjustOut(BaseModel):
+    ok: bool
+    area: str
+    target_width_mm: float
+    previous_meters: float
+    actual_meters: float
+    delta_meters: float
+    active_units_count: int
+
+
+@router.post("/production-tasks/strip-pool/adjust", response_model=StripPoolAdjustOut)
+def adjust_strip_pool_endpoint(
+    payload: StripPoolAdjustIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("production_tasks.manage", "production_tasks.report", "part_units.manage")),
+):
+    """Экспресс-инвентаризация пула штрипсов на участке (сверка и фиксация фактического остатка в метрах)."""
+    from app.services.film_pool import adjust_strip_pool_stock
+
+    try:
+        res = adjust_strip_pool_stock(
+            db,
+            area=payload.area,
+            material_id=payload.material_id,
+            color_id=payload.color_id,
+            thickness_id=payload.thickness_id,
+            target_width_mm=payload.target_width_mm,
+            actual_meters=payload.actual_meters,
+            user_id=user.id,
+            note=payload.note,
+        )
+        db.commit()
+        return res
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+

@@ -1,3 +1,4 @@
+import StripPoolAdjustModal from "../../../components/StripPoolAdjustModal";
 import { useState } from "react";
 import OverProductionTag, { overExcess } from "../../../components/OverProductionTag";
 import { ItemChars } from "../../../components/ItemChars";
@@ -373,6 +374,7 @@ function LinesTab({
 }) {
   const qc = useQueryClient();
   const [target, setTarget] = useState<{ action: LineAction; line: ProductionTaskLine } | null>(null);
+  const [adjustLine, setAdjustLine] = useState<ProductionTaskLine | null>(null);
   const done = () => {
     qc.invalidateQueries({ queryKey: ["production-tasks"] });
     message.success("Сохранено");
@@ -474,6 +476,15 @@ function LinesTab({
                         Дефицит: -{l.film_deficit_m} м
                       </Tag>
                     )}
+                    <Button
+                      size="small"
+                      type="link"
+                      style={{ padding: "0 2px", fontSize: 11 }}
+                      onClick={() => setAdjustLine(l)}
+                      title="Экспресс-сверка фактического остатка штрипсов в пуле участка"
+                    >
+                      сверка
+                    </Button>
                   </Space>
                 );
               }
@@ -527,6 +538,21 @@ function LinesTab({
       )}
       {target?.action === "assign" && <AssignmentModal task={t} line={target.line} onClose={() => setTarget(null)} />}
       {target?.action === "spec" && <LineSpecModal taskId={t.id} line={target.line} onClose={() => setTarget(null)} />}
+      {adjustLine && (
+        <StripPoolAdjustModal
+          open={!!adjustLine}
+          onClose={() => setAdjustLine(null)}
+          area={t.area}
+          material={adjustLine.material}
+          materialId={adjustLine.material_id}
+          color={adjustLine.color}
+          colorId={adjustLine.color_id}
+          thicknessId={adjustLine.thickness_id}
+          stripWidthMm={adjustLine.strip_width_mm || adjustLine.width_mm}
+          currentStockM={adjustLine.area_strip_stock_m}
+          deficitM={adjustLine.film_deficit_m}
+        />
+      )}
     </Space>
   );
 }

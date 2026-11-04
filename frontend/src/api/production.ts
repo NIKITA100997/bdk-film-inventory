@@ -116,6 +116,9 @@ export interface ProductionTaskLine {
   material: string | null;
   color: string | null;
   thickness: number | null;
+  material_id?: number | null;
+  color_id?: number | null;
+  thickness_id?: number | null;
   // Операция техкарты строки без плёнки (этап детали), иначе null.
   operation_name?: string | null;
   quantity_pieces: number;
@@ -709,3 +712,29 @@ export interface JobCardData {
 
 export const getJobCard = async (taskId: number): Promise<JobCardData> =>
   (await apiClient.get<JobCardData>(`/production-tasks/${taskId}/job-card`)).data;
+
+export interface StripPoolAdjustRequest {
+  area: string;
+  material_id: number;
+  color_id: number;
+  thickness_id?: number | null;
+  target_width_mm: number;
+  actual_meters: number;
+  note?: string | null;
+}
+
+export interface StripPoolAdjustResult {
+  ok: boolean;
+  area: string;
+  target_width_mm: number;
+  previous_meters: number;
+  actual_meters: number;
+  delta_meters: number;
+  active_units_count: number;
+}
+
+export async function adjustStripPool(payload: StripPoolAdjustRequest): Promise<StripPoolAdjustResult> {
+  const { data } = await apiClient.post<StripPoolAdjustResult>("/production-tasks/strip-pool/adjust", payload);
+  return data;
+}
+

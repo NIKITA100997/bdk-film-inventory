@@ -190,6 +190,21 @@ class IssueRequest(BaseModel):
     occurred_at: OccurredAt = None
 
 
+class BatchIssueToAreaRequest(BaseModel):
+    unit_ids: list[int]
+    area: str
+    occurred_at: OccurredAt = None
+    note: str | None = None
+
+
+class BatchIssueToAreaResult(BaseModel):
+    ok: bool
+    issued_count: int
+    total_meters: float
+    area: str
+    unit_ids: list[int]
+
+
 class IssueDirectRequest(BaseModel):
     """Выдача конкретной единицы напрямую (3 раздел обратной связи) —
     оператор выбирает готовый рулон/штрипс из списка "в наличии" вместо

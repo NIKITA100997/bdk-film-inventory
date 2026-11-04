@@ -681,3 +681,24 @@ export function printLabelsBatch(unitIds: number[], options?: PrintLabelOptions)
     .then(() => message.success({ content: "Отправлено на печать", key: PRINT_MESSAGE_KEY }))
     .catch((e) => message.error({ content: printErrorMessage(e), key: PRINT_MESSAGE_KEY }));
 }
+
+export interface BatchIssueToAreaRequest {
+  unit_ids: number[];
+  area: string;
+  occurred_at?: string | null;
+  note?: string | null;
+}
+
+export interface BatchIssueToAreaResult {
+  ok: boolean;
+  issued_count: number;
+  total_meters: number;
+  area: string;
+  unit_ids: number[];
+}
+
+export async function batchIssueToArea(payload: BatchIssueToAreaRequest): Promise<BatchIssueToAreaResult> {
+  const { data } = await apiClient.post<BatchIssueToAreaResult>("/units/batch-issue-to-area", payload);
+  return data;
+}
+

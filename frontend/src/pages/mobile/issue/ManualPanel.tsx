@@ -1,14 +1,19 @@
+import { useState, useMemo } from "react";
+import { useMutation } from "@tanstack/react-query";
 import {
   Button,
   Form,
   InputNumber,
+  Popconfirm,
   Select,
   Space,
   Tag,
   Tooltip,
   Typography,
+  message,
 } from "antd";
 import {
+  batchIssueToArea,
   skuLabel,
   type MaterialUnit,
 } from "../../../api/units";
@@ -20,6 +25,35 @@ import { type IssueState } from "./useIssue";
 /** «Выдать без задания» — ручной подбор (06.10: из Issue.tsx). */
 export default function ManualPanel({ s }: { s: IssueState }) {
   const { navigate, qc, setCuttingSession, manualSkuId, setManualSkuId, manualArea, setManualArea, manualForm, manualDonor, setManualDonor, manualElsewhere, manualSkusQuery, areaOptions, confirmIfWrongWarehouse, finishSingleCut, manualSku, manualAvailableQuery, manualDirectMutation, manualFindMutation } = s;
+  const [selectedUnitIds, setSelectedUnitIds] = useState<number[]>([]);
+  const availableUnits = manualAvailableQuery.data ?? [];
+
+  const selectedTotalM = useMemo(() => {
+    const set = new Set(selectedUnitIds);
+    return availableUnits.filter((u) => set.has(u.id)).reduce((sum, u) => sum + Number(u.length_m || 0), 0);
+  }, [availableUnits, selectedUnitIds]);
+
+  const batchIssueMutation = useMutation({
+    mutationFn: async () => {
+      if (!manualArea) throw new Error("Выберите участок выдачи");
+      if (selectedUnitIds.length === 0) throw new Error("Выберите хотя бы один рулон или штрипс");
+      return batchIssueToArea({
+        unit_ids: selectedUnitIds,
+        area: manualArea,
+        note: "Массовое перемещение пачки в цех",
+      });
+    },
+    onSuccess: (res) => {
+      message.success(`Перемещено ${res.issued_count} шт. (${res.total_meters} м) на участок ${manualArea}`);
+      setSelectedUnitIds([]);
+      qc.invalidateQueries({ queryKey: ["manual-available"] });
+      qc.invalidateQueries({ queryKey: ["units"] });
+      qc.invalidateQueries({ queryKey: ["film-issue-board"] });
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+    },
+    onError: (e: any) => message.error(e?.message || "Ошибка массового перемещения"),
+  });
+
   return (
               <Space orientation="vertical" style={{ width: "100%" }}>
                 <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
@@ -48,11 +82,30 @@ export default function ManualPanel({ s }: { s: IssueState }) {
                 />
                 {manualSku && (
                   <>
+                    {availableUnits.length > 0 && (
+                      <Space size={8} wrap style={{ marginBottom: 8, marginTop: 4 }}>
+                        <Button
+                          size="small"
+                          onClick={() => setSelectedUnitIds(availableUnits.map((u) => u.id))}
+                        >
+                          Выбрать все ({availableUnits.length} шт.)
+                        </Button>
+                        {selectedUnitIds.length > 0 && (
+                          <Button size="small" onClick={() => setSelectedUnitIds([])}>
+                            Снять выбор
+                          </Button>
+                        )}
+                      </Space>
+                    )}
                     <ResponsiveTable<MaterialUnit>
                       size="small"
                       rowKey="id"
                       loading={manualAvailableQuery.isLoading}
                       dataSource={manualAvailableQuery.data ?? []}
+                      rowSelection={{
+                        selectedRowKeys: selectedUnitIds,
+                        onChange: (keys) => setSelectedUnitIds(keys as number[]),
+                      }}
                       pagination={false}
                       scroll={{ x: "max-content" }}
                       locale={{ emptyText: "Ничего нет на хранении" }}
@@ -78,6 +131,46 @@ export default function ManualPanel({ s }: { s: IssueState }) {
                         },
                       ]}
                     />
+                    {selectedUnitIds.length > 0 && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          marginBottom: 8,
+                          padding: "10px 14px",
+                          background: "#F6FFED",
+                          border: "1px solid #B7EB8F",
+                          borderRadius: 8,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: 8,
+                        }}
+                      >
+                        <Space size={8} wrap>
+                          <Typography.Text strong>Выбрано для отправки:</Typography.Text>
+                          <Tag color="green" style={{ fontSize: 13, padding: "2px 8px" }}>
+                            {selectedUnitIds.length} шт. · {Math.round(selectedTotalM * 10) / 10} м
+                          </Tag>
+                        </Space>
+                        <Popconfirm
+                          title={`Переместить пачку из ${selectedUnitIds.length} шт. (${Math.round(selectedTotalM * 10) / 10} м) на участок ${manualArea ?? "—"}?`}
+                          disabled={!manualArea}
+                          okText="Да, переместить"
+                          cancelText="Отмена"
+                          onConfirm={() => batchIssueMutation.mutate()}
+                        >
+                          <Button
+                            type="primary"
+                            disabled={!manualArea}
+                            loading={batchIssueMutation.isPending}
+                            style={{ background: "#389e0d" }}
+                          >
+                            🚀 Переместить пачку на {manualArea ?? "участок"}
+                          </Button>
+                        </Popconfirm>
+                      </div>
+                    )}
                     <Form form={manualForm} layout="inline" onFinish={(v) => manualFindMutation.mutate(v)}>
                       <Form.Item name="width_mm" rules={[{ required: true }]}>
                         <InputNumber placeholder="Ширина, мм" min={1} style={{ width: 120 }} />

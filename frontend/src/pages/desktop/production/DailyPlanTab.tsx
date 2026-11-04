@@ -1,3 +1,4 @@
+import StripPoolAdjustModal from "../../../components/StripPoolAdjustModal";
 import SmartBatchingModal from "./SmartBatchingModal";
 import { ThunderboltOutlined } from "@ant-design/icons";
 import { useState } from "react";
@@ -44,6 +45,7 @@ export default function DailyPlanTab() {
   const [reportTarget, setReportTarget] = useState<
     { taskId: number; line: ProductionTaskLine; assignmentId: number; area: string } | null
   >(null);
+  const [adjustTarget, setAdjustTarget] = useState<{ line: ProductionTaskLine; area: string } | null>(null);
 
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaRequiresDailyPlan = (code: string) => areasQuery.data?.find((a) => a.code === code)?.requires_daily_plan ?? true;
@@ -198,6 +200,15 @@ export default function DailyPlanTab() {
                     {r.line.film_deficit_m && r.line.film_deficit_m > 0 ? (
                       <Tag color="error" title="Овердрафт: списано в дефицит">дефицит -{r.line.film_deficit_m} м</Tag>
                     ) : null}
+                    <Button
+                      size="small"
+                      type="link"
+                      style={{ padding: "0 2px", fontSize: 11 }}
+                      onClick={() => setAdjustTarget({ line: r.line, area: r.task.area })}
+                      title="Экспресс-сверка остатка штрипсов в пуле"
+                    >
+                      сверка
+                    </Button>
                   </Space>
                 ),
               },
@@ -250,6 +261,21 @@ export default function DailyPlanTab() {
         )}
       </Card>
 
+      {adjustTarget && (
+        <StripPoolAdjustModal
+          open={!!adjustTarget}
+          onClose={() => setAdjustTarget(null)}
+          area={adjustTarget.area}
+          material={adjustTarget.line.material}
+          materialId={adjustTarget.line.material_id}
+          color={adjustTarget.line.color}
+          colorId={adjustTarget.line.color_id}
+          thicknessId={adjustTarget.line.thickness_id}
+          stripWidthMm={adjustTarget.line.strip_width_mm || adjustTarget.line.width_mm}
+          currentStockM={adjustTarget.line.area_strip_stock_m}
+          deficitM={adjustTarget.line.film_deficit_m}
+        />
+      )}
       {reportTarget && (
         <ReportModal
           taskId={reportTarget.taskId}

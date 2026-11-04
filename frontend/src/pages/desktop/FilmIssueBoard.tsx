@@ -1,6 +1,6 @@
 import PickRouteSheet from "./PickRouteSheet";
 import { useMemo, useState } from "react";
-import { Alert, Card, Empty, Input, Segmented, Select, Space, Spin, Statistic, Tabs, Tag, Typography } from "antd";
+import { Alert, Button, Card, Empty, Input, Segmented, Select, Space, Spin, Statistic, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
@@ -352,6 +352,16 @@ function Fabrika({ rows }: { rows: SiteStock[] }) {
             align: "right",
             sorter: (a, b) => a.to_transfer_m2 - b.to_transfer_m2,
             render: (v: number) => (v > 0 ? <Typography.Text strong>{r1(v)}</Typography.Text> : <Tag color="green">хватает</Tag>),
+          },
+          {
+            title: "Действие",
+            render: () => (
+              <Link to="/issue?area=fabrika">
+                <Button size="small" type="primary" style={{ background: "#389e0d" }}>
+                  Выдать пачку на Фабрику →
+                </Button>
+              </Link>
+            ),
           },
         ]}
       />
