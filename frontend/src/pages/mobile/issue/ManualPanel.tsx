@@ -46,7 +46,8 @@ export default function ManualPanel({ s }: { s: IssueState }) {
     onSuccess: (res) => {
       message.success(`Перемещено ${res.issued_count} шт. (${res.total_meters} м) на участок ${manualArea}`);
       setSelectedUnitIds([]);
-      qc.invalidateQueries({ queryKey: ["manual-available"] });
+      qc.invalidateQueries({ queryKey: ["issue-manual-available"] });
+      qc.invalidateQueries({ queryKey: ["issue-manual-issued"] });
       qc.invalidateQueries({ queryKey: ["units"] });
       qc.invalidateQueries({ queryKey: ["film-issue-board"] });
       qc.invalidateQueries({ queryKey: ["production-tasks"] });
@@ -69,6 +70,7 @@ export default function ManualPanel({ s }: { s: IssueState }) {
                   filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
                   value={manualSkuId ?? undefined}
                   onChange={(v) => {
+                    setSelectedUnitIds([]);
                     setManualSkuId(v);
                     setManualDonor(null);
                   }}

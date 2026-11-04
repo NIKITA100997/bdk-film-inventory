@@ -101,6 +101,11 @@ export async function runUnitOrMaterialSearch(
 ): Promise<void> {
   const trimmed = query.trim();
   if (!trimmed) return;
+  const taskMatch = trimmed.match(/^TASK:?\s*(\d+)$/i);
+  if (taskMatch) {
+    navigate(`/production-tasks?tab=tasks&task=${Number(taskMatch[1])}`);
+    return;
+  }
   // Число. Скан — строго рулон (на бирке рулона голое число, склад не
   // должен спотыкаться о выбор). Ручной ввод — сквозной поиск по всем
   // номерам: рулон, партия п/ф, задание, заказ («№123» — тоже).

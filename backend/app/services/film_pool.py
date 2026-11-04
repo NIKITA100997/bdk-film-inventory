@@ -367,6 +367,38 @@ def adjust_strip_pool_stock(
         )
 
     db.flush()
+
+    if actual_meters > 0:
+        # Покрываем ранее зафиксированный дефицит в отчётах по активным заданиям участка
+        from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+        from app.services.width_analogs import equivalent_widths
+        equiv_ws = equivalent_widths(db, target_width_mm)
+        donor_unit = new_unit if delta > 0 else (active_strips[0] if active_strips else None)
+        if donor_unit:
+            deficit_reports = (
+                db.query(ProductionTaskLineReport)
+                .join(ProductionTaskLine, ProductionTaskLineReport.task_line_id == ProductionTaskLine.id)
+                .join(ProductionTask, ProductionTaskLine.task_id == ProductionTask.id)
+                .filter(
+                    ProductionTask.area == area,
+                    ProductionTask.is_active.is_(True),
+                    ProductionTaskLine.material_id == material_id,
+                    ProductionTaskLine.color_id == color_id,
+                    ProductionTaskLine.strip_width_mm.in_(equiv_ws),
+                    ProductionTaskLineReport.material_unit_id.is_(None),
+                    ProductionTaskLineReport.note.ilike("%Дефицит плёнки:%"),
+                    ProductionTaskLineReport.counts_toward_line.is_(True),
+                )
+                .all()
+            )
+            for rep in deficit_reports:
+                rep.material_unit_id = donor_unit.id
+                rep_note = rep.note or ""
+                suffix = f" [Покрыто сверкой пула: юнит #{donor_unit.id}]"
+                if suffix not in rep_note:
+                    rep.note = (rep_note + suffix).strip()
+            db.flush()
+
     active_now = get_area_matching_strips(
         db,
         area=area,

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Modal, Form, InputNumber, Input, Typography, Space, Tag, Alert, message } from "antd";
+import { Modal, Form, InputNumber, Input, Typography, Space, Tag, Alert, message, Button } from "antd";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { adjustStripPool } from "../api/production";
 import { apiErrorMessage } from "../utils/apiError";
@@ -81,6 +81,7 @@ export default function StripPoolAdjustModal({
       open={open}
       onCancel={onClose}
       onOk={() => mutation.mutate()}
+      okButtonProps={{ disabled: actualM == null || actualM < 0 || !materialId || !colorId }}
       confirmLoading={mutation.isPending}
       okText="Применить остаток"
       cancelText="Отмена"
@@ -128,6 +129,14 @@ export default function StripPoolAdjustModal({
               placeholder="Введите метры..."
             />
           </Form.Item>
+          <Space wrap style={{ marginTop: -8, marginBottom: 16 }}>
+            {[10, 50, 100].map((meters) => (
+              <Button key={meters} size="large" onClick={() => setActualM((actualM ?? 0) + meters)}>
+                +{meters} м
+              </Button>
+            ))}
+            <Button size="large" onClick={() => setActualM(0)}>= 0 м (пусто)</Button>
+          </Space>
 
           <div style={{ marginBottom: 16 }}>
             {delta > 0 ? (

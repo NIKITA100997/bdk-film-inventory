@@ -200,7 +200,7 @@ export default function DailyPlanTab() {
                     {r.line.film_deficit_m && r.line.film_deficit_m > 0 ? (
                       <Tag color="error" title="Овердрафт: списано в дефицит">дефицит -{r.line.film_deficit_m} м</Tag>
                     ) : null}
-                    <Button
+                    {r.line.material_id && r.line.color_id && <Button
                       size="small"
                       type="link"
                       style={{ padding: "0 2px", fontSize: 11 }}
@@ -208,7 +208,7 @@ export default function DailyPlanTab() {
                       title="Экспресс-сверка остатка штрипсов в пуле"
                     >
                       сверка
-                    </Button>
+                    </Button>}
                   </Space>
                 ),
               },

@@ -4,6 +4,8 @@ import { Alert, Button, Card, Empty, Input, Segmented, Select, Space, Spin, Stat
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
+import { useAuth } from "../../auth/AuthContext";
+import { hasPerm } from "../../auth/permissions";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { getFilmIssueBoard, type AreaRoll, type FilmIssueLine, type FilmIssueStatus, type SiteStock } from "../../api/filmIssue";
 import { UnitLink } from "../../components/EntityLink";
@@ -32,6 +34,8 @@ type Due = "all" | "today" | "tomorrow" | "week" | "overdue";
  * Фабрики — склад Фабрики против потребности и сколько переместить. */
 export default function FilmIssueBoard() {
   const [params] = useSearchParams();
+  const { user } = useAuth();
+  const canOpenReconciliation = hasPerm(user, "units.issue", "units.return", "production_tasks.manage", "reports.view");
   const q = useQuery({ queryKey: ["film-issue-board"], queryFn: getFilmIssueBoard, refetchInterval: 120000 });
   const [area, setArea] = useState<string | null>(null);
   const [only, setOnly] = useState<"need" | "all">("need");
@@ -79,6 +83,13 @@ export default function FilmIssueBoard() {
 
   return (
     <>
+      {canOpenReconciliation && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <Button>
+            <Link to="/roll-reconciliation?tab=meters">Сверка рулонов</Link>
+          </Button>
+        </div>
+      )}
       <Tabs
         defaultActiveKey={params.get("sub") ?? "tasks"}
         items={[

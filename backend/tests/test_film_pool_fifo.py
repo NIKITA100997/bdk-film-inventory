@@ -11,7 +11,7 @@ from app.models.production import (
 )
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
-from app.services.film_pool import consume_film_strips_fifo, get_area_strip_stock
+from app.services.film_pool import adjust_strip_pool_stock, consume_film_strips_fifo, get_area_strip_stock
 
 
 @pytest.fixture
@@ -599,3 +599,67 @@ def test_strip_pool_adjust_api_endpoint(setup_pogonazh_data):
     finally:
         app.dependency_overrides.clear()
 
+
+def test_strip_pool_adjust_clears_overdraft_deficit(setup_pogonazh_data):
+    """Сверка остатка пула штрипсов автоматически покрывает и обнуляет дефицит (овердрафт)."""
+    from app.models.production import ProductionTaskLineReport
+    from app.api.production import _line_deficit_aggregates
+
+    d = setup_pogonazh_data
+    db = d["db"]
+    sku = d["sku"]
+    line = d["line"]
+    user = d["user"]
+
+    # 1. Генерируем списание в дефицит (на участке 0 штрипсов)
+    allocs = consume_film_strips_fifo(
+        db,
+        line=line,
+        area="fabrika",
+        good_pieces=5,
+        defect_pieces=0,
+        user_id=user.id,
+    )
+    assert len(allocs) == 1
+    assert allocs[0].is_deficit is True
+    assert allocs[0].material_unit_id is None
+
+    rep = ProductionTaskLineReport(
+        task_line_id=line.id,
+        material_unit_id=allocs[0].material_unit_id,
+        good_pieces=allocs[0].good_pieces,
+        defect_pieces=allocs[0].defect_pieces,
+        counts_toward_line=True,
+        reported_by=user.id,
+        note=f"Дефицит плёнки: {allocs[0].meters:.1f} м (нет штрипса на участке)",
+    )
+    db.add(rep)
+    db.flush()
+
+    # До сверки: дефицит 5 шт
+    def_before = _line_deficit_aggregates(db, [line.id]).get(line.id, 0.0)
+    assert def_before == 5.0
+
+    # 2. Мастер выполняет экспресс-инвентаризацию пула: фактически 50 метров
+    res = adjust_strip_pool_stock(
+        db,
+        area="fabrika",
+        material_id=sku.material_id,
+        color_id=sku.color_id,
+        thickness_id=sku.thickness_id,
+        target_width_mm=221.0,
+        actual_meters=50.0,
+        user_id=user.id,
+        note="Сверка пула мастером",
+    )
+    assert res["ok"] is True
+    # Из фактических 50 м вычтен ранее накопленный расход (5 деталей × 2 м).
+    assert res["actual_meters"] == 40.0
+
+    # 3. После сверки: дефицит обнулён (0 шт), отчёт привязан к оприходованному юниту
+    def_after = _line_deficit_aggregates(db, [line.id]).get(line.id, 0.0)
+    assert def_after == 0.0
+
+    db.refresh(rep)
+    assert rep.material_unit_id is not None
+    assert "Покрыто сверкой пула" in rep.note or "Покрыто инвентаризацией" in rep.note
