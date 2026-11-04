@@ -428,6 +428,7 @@ export interface TaskPrintSheet {
     edge_sides?: number | null;
     /** панель щитовой двери — ведомость фрезеровки как в Excel (07.10) */
     panel?: { mdf: string; sand: string; series: string; blank: string } | null;
+    skleyka?: { frame: string; panels: string; foam: string } | null;
   }[];
   /** комплектующие без своего маршрута на все строки (детали каркаса на
    * сборке); comment — «Пилим 25 мм / шлифуем 24 мм» (07.10) */

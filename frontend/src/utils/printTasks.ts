@@ -6,6 +6,25 @@ const esc = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g,
 const dm = (s: string | null) => (s ? `${s.slice(8, 10)}.${s.slice(5, 7)}` : "");
 const period = (a: string | null, b: string | null) => (a && b && a !== b ? `${dm(a)}—${dm(b)}` : dm(a));
 
+/** Очистка наименования изделия от дублирования серии, размера, цвета и кромки. */
+function cleanItemName(name: string): string {
+  if (!name) return "—";
+  const mFeat = name.match(/(?:с\s+молдинг\w*|под\s+замок\w*|стекло\s+[^,;]+)/gi);
+  const featStr = mFeat ? mFeat.join(", ") : "";
+  const low = name.toLowerCase();
+  let base = name;
+  if (low.includes("двер") || low.includes("щит")) {
+    base = "Полотно щитовое";
+  } else if (low.includes("панел")) {
+    base = "Панель";
+  } else if (low.includes("каркас")) {
+    base = "Каркас";
+  } else if (low.includes("заготовк")) {
+    base = "Заготовка МДФ";
+  }
+  return featStr ? `${base} (${featStr})` : base;
+}
+
 /** Блок QR-кода наряда (для сканирования мастером камерой/планшетом). */
 function qrBlock(tasks: { id: number }[]): string {
   if (!tasks.length) return "";
@@ -42,8 +61,10 @@ function panelPage(s: TaskPrintSheet, now: string): string {
   for (const r of s.rows) {
     const p = r.panel ?? { mdf: "", sand: "", series: r.series ?? "", blank: r.size ?? "" };
     const blank = p.blank || r.size || "";
-    const k = [p.mdf, p.sand, r.program ?? "", p.series, blank, r.panel ? "" : r.name].join("|");
-    const g = groups.get(k) ?? { ...p, blank, program: r.program ?? "", qty: 0, done: 0, name: r.panel ? "" : r.name };
+    const series = p.series || r.series || "";
+    const mdf = p.mdf || (r.name.includes("Kastamonu") ? "Kastamonu" : r.name.includes("Беларусь") ? "Беларусь" : "МДФ");
+    const k = [mdf, p.sand, r.program ?? "", series, blank, r.panel ? "" : r.name].join("|");
+    const g = groups.get(k) ?? { ...p, mdf, series, blank, program: r.program ?? "", qty: 0, done: 0, name: r.panel ? "" : r.name };
     g.qty += r.qty;
     g.done += r.done;
     groups.set(k, g);
@@ -54,10 +75,10 @@ function panelPage(s: TaskPrintSheet, now: string): string {
   const rows = list
     .map(
       (g, i) => `<tr>
-<td class="n">${i + 1}</td><td>${esc(g.mdf || "МДФ")}</td><td>${esc(g.sand || "—")}</td>
+<td class="n">${i + 1}</td><td><b>${esc(g.mdf || "МДФ")}</b></td><td>${esc(g.sand || "—")}</td>
 <td>${g.program ? `<b>${esc(g.program)}</b>` : g.name ? esc(g.name) : '<span class="warn">уточнить программу</span>'}</td>
-<td>${esc(g.series || "—")}</td><td class="nw"><b>${esc(g.blank || "—")}</b></td>
-<td class="q">${Math.round(g.qty * 100) / 100}</td><td class="q">${g.done ? Math.round(g.done * 100) / 100 : ""}</td>
+<td><b>${esc(g.series || "—")}</b></td><td class="nw"><b>${esc(g.blank || "—")}</b></td>
+<td class="q"><b>${Math.round(g.qty * 100) / 100}</b></td><td class="q">${g.done ? Math.round(g.done * 100) / 100 : ""}</td>
 <td class="w"></td><td class="w"></td><td class="w"></td>
 </tr>`,
     )
@@ -79,20 +100,72 @@ function panelPage(s: TaskPrintSheet, now: string): string {
 </section>`;
 }
 
-/** Комплектующие без своего маршрута (детали каркаса на сборке). */
+/** Ведомость склейки щитов (подбор каркаса, панелей и наполнителя). */
+function skleykaPage(s: TaskPrintSheet, now: string): string {
+  const rows = s.rows
+    .map(
+      (r, i) => `<tr>
+<td class="n">${i + 1}</td>
+${r.invoice_no ? `<td class="nw">${esc(r.invoice_no)}</td>` : "<td></td>"}
+<td><b>${esc(r.series || "—")}</b></td>
+<td class="nw"><b>${esc(r.size || "—")}</b></td>
+<td>${esc(r.color || "—")}</td>
+<td class="q"><b>${Math.round(r.qty * 100) / 100}</b></td>
+<td><b>${esc(r.skleyka?.frame || "—")}</b></td>
+<td>${esc(r.skleyka?.panels || "—")}</td>
+<td>${esc(r.skleyka?.foam || "—")}</td>
+<td class="q">${r.done ? Math.round(r.done * 100) / 100 : ""}</td>
+<td class="w"></td><td class="w"></td><td class="w"></td>
+</tr>`,
+    )
+    .join("");
+
+  const head = [
+    "№",
+    "Счёт",
+    "Серия",
+    "Размер",
+    "Цвет / Отделка",
+    "Кол-во, шт",
+    "Каркас (1 шт)",
+    "Панели МДФ (2 шт)",
+    "Наполнитель",
+    "Сделано",
+    "Годно",
+    "Брак",
+    "Подпись",
+  ];
+  const oh = orderHead(s);
+  return `<section class="page">
+<div class="top-header">
+  <div class="info-side">
+    ${oh.html}
+    <h1>Наряд-склейка: ${esc(s.area_name)}</h1>
+    <div class="meta">${esc(s.site ?? "")}${s.site ? " · " : ""}дверей ${s.rows.length}, всего ${s.total} шт · напечатано ${esc(now)}</div>
+    <div class="meta"><b>Задания:</b> ${s.tasks.map((t) => `№${t.id}`).join(", ")}</div>
+  </div>
+  ${qrBlock(s.tasks)}
+</div>
+<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
+${componentsTable(s)}
+<div class="sign">Выдал: ____________________ &nbsp;&nbsp; Принял (мастер): ____________________ &nbsp;&nbsp; Дата: ________</div>
+</section>`;
+}
+
+/** Комплектующие без своего маршрута (детали каркаса на сборке, пенопласт). */
 function componentsTable(s: TaskPrintSheet): string {
   const list = s.components ?? [];
   if (!list.length) return "";
   const hasCut = list.some((c) => c.comment);
   const rows = list
     .map(
-      (c, i) => `<tr><td class="n">${i + 1}</td><td>${esc(c.name)}</td><td class="q">${c.qty}</td>${
+      (c, i) => `<tr><td class="n">${i + 1}</td><td><b>${esc(c.name)}</b></td><td class="q"><b>${c.qty}</b></td>${
         hasCut ? `<td><b>${esc(c.comment ?? "")}</b></td>` : ""
       }<td class="w"></td></tr>`,
     )
     .join("");
-  return `<h2 style="font-size:13px;margin:10px 0 4px">Расход комплектующих:</h2>
-<table><thead><tr><th>№</th><th>Деталь</th><th>Кол-во, шт</th>${hasCut ? "<th>Как пилить / шлифовать</th>" : ""}<th>Фактический расход</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<h2 style="font-size:13px;margin:10px 0 4px">Расход комплектующих и материалов:</h2>
+<table><thead><tr><th>№</th><th>Деталь / Комплектующее</th><th>Кол-во, шт</th>${hasCut ? "<th>Как пилить / шлифовать / раскраивать</th>" : ""}<th>Фактический расход</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 /** Сводный лист по группам участков. */
@@ -136,8 +209,12 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
   const pages = sheets
     .map((s) => {
       const areaLow = (s.area_name || "").toLowerCase();
-      const isPanelArea = /фрезер.*панел|шлиф.*панел|распил.*мдф/i.test(areaLow);
+      const isPanelArea = /фрезер.*панел|шлиф.*панел|распил.*мдф|склейк.*мдф|панел|мдф/i.test(areaLow);
       if (isPanelArea && s.rows.some((r) => r.panel)) return panelPage(s, now);
+
+      const isSkleykaArea = /склейк.*щит|skleyka_shchitov/i.test(areaLow);
+      if (isSkleykaArea && s.rows.some((r) => r.skleyka)) return skleykaPage(s, now);
+
       if ((s.groups ?? []).length > 0 && (s.groups ?? []).length < s.rows.length && !s.rows.some((r) => r.size || r.series)) {
         return groupsPage(s, now);
       }
@@ -170,21 +247,25 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
 
       const rows = s.rows
         .map(
-          (r, i) => `<tr>
+          (r, i) => {
+            const displayName = hasEdge || (hasSeries && hasSize) ? cleanItemName(r.name || r.source || "") : (r.name || r.source || "—");
+            const showSourceSub = r.source && r.source !== r.name && !hasEdge && !(hasSeries && hasSize);
+            return `<tr>
 <td class="n">${i + 1}</td>
 ${hasInv ? `<td class="nw">${esc(r.invoice_no ?? "")}</td>` : ""}
-${hasSeries ? `<td class="nw">${esc(r.series ?? "")}</td>` : ""}
-<td><b>${esc(r.name || r.source || "—")}</b>${r.source && r.source !== r.name ? `<div class="sub">${esc(r.source)}</div>` : ""}</td>
+${hasSeries ? `<td class="nw"><b>${esc(r.series ?? "")}</b></td>` : ""}
+<td><b>${esc(displayName)}</b>${showSourceSub ? `<div class="sub">${esc(r.source)}</div>` : ""}</td>
 ${hasSize ? `<td class="nw"><b>${esc(r.size ?? "")}</b></td>` : ""}
 ${hasColor ? `<td>${esc(r.color ?? "")}</td>` : ""}
 <td class="q"><b>${Math.round(r.qty * 100) / 100}</b></td>
-${hasEdge ? `<td class="nw">${r.edge_type?.includes("?") ? `<span class="warn">${esc(r.edge_type)}</span>` : `<b>${esc(r.edge_type ?? "")}</b>`}</td><td>${esc(r.edge_color ?? "")}</td><td class="q">${r.edge_sides ?? (r.edge_type ? '<span class="warn">?</span>' : "")}</td>` : ""}
+${hasEdge ? `<td class="nw">${r.edge_type?.includes("?") ? `<span class="warn">${esc(r.edge_type)}</span>` : `<b>${esc(r.edge_type ?? "")}</b>`}</td><td>${esc(r.edge_color ?? "")}</td><td class="q"><b>${r.edge_sides ? `${r.edge_sides}х` : (r.edge_type ? '<span class="warn">?</span>' : "")}</b></td>` : ""}
 ${hasFilm ? `<td>${esc(r.film ?? "")}</td>` : ""}
 ${hasProg ? `<td>${r.program ? `<b>${esc(r.program)}</b>` : ""}${r.instruction ? `<div class="warn">⚑ ${esc(r.instruction)}</div>` : ""}</td>` : ""}
 <td class="nw">${esc(period(r.date_from, r.date_to))}</td>
 <td class="q">${r.done ? Math.round(r.done * 100) / 100 : ""}</td>
 <td class="w"></td><td class="w"></td><td class="w"></td>
-</tr>`,
+</tr>`;
+          },
         )
         .join("");
       const oh = orderHead(s);

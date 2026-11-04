@@ -5,6 +5,7 @@
 Сам лист собирает браузер (печать на обычный принтер)."""
 
 from collections import defaultdict
+import re
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -26,57 +27,96 @@ def _panel_info(db: Session, ln: ProductionTaskLine, ol, cache: dict) -> dict | 
     from app.models.items import Item, ItemPropertyOption
     from app.services import type_rules
 
-    if not ln.part_id:
+    pname = ln.part_name or ""
+    pname_low = pname.lower()
+    is_panel_line = "панел" in pname_low or "мдф" in pname_low or "накладк" in pname_low
+    if not ln.part_id and not is_panel_line:
         return None
-    key = (ln.part_id, ln.task.production_order_id)
+
+    key = (ln.part_id or 0, ln.task.production_order_id if ln.task else 0, pname)
     if key in cache:
         return cache[key]
-    part = db.get(Part, ln.part_id)
+
+    part = db.get(Part, ln.part_id) if ln.part_id else None
     item = db.get(Item, part.item_id) if part is not None and part.item_id else None
-    info = None
-    codes = {p.code for p in item.type.properties} if item is not None and item.type is not None else set()
-    if {"толщина", "ширина", "высота"} <= codes and codes & {"мдф", "пэт"}:
+    by = {}
+    if item is not None and item.type is not None:
         vals = type_rules.item_values(db, item)
-        by = {}
         for p in item.type.properties:
             v = vals.get(p.id)
             by[p.code] = db.get(ItemPropertyOption, v).value if (p.value_type == "list" and v) else v
-        if by.get("толщина") and by.get("ширина") and by.get("высота"):
-            # ПЭТ-ветка панели с узором — всегда Kastamonu (ответ 07.10)
-            kast = by.get("мдф") == "Kastamonu" or bool(by.get("пэт"))
-            if kast:
-                color = by.get("цвет") or next((c["value"] for c in (item_chars_cached(db, ol.item_id) if ol else []) if c["code"] == "цвет"), "")
-                sand = color or "—"
-            else:
-                sanded = (
-                    db.query(ProductionTaskLine.id)
-                    .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
-                    .join(PartStage, PartStage.id == ProductionTaskLine.part_stage_id)
-                    .filter(ProductionTask.production_order_id == ln.task.production_order_id, ProductionTaskLine.part_id == ln.part_id,
-                            PartStage.name.ilike("%шлиф%"))
-                    .first()
+
+    # 1. Производитель МДФ (Kastamonu, Беларусь, МДФ)
+    mdf = str(by.get("мдф") or "").strip()
+    if not mdf:
+        if "kasta" in pname_low or "пэт" in pname_low or "pet" in pname_low:
+            mdf = "Kastamonu"
+        elif "беларус" in pname_low or "пвх" in pname_low or "полипропилен" in pname_low:
+            mdf = "Беларусь"
+        elif "мдф" in pname_low or is_panel_line:
+            mdf = "МДФ"
+
+    # 2. Серия модели (В-10, В-12, В-14, В-19, Е-10 и т.д.)
+    series = str(by.get("серия") or "").strip()
+    if not series:
+        m_ser = re.search(r"([А-ЯA-Z]-\d+)", pname)
+        if m_ser:
+            series = m_ser.group(1)
+        elif ol:
+            series = next((c["value"] for c in item_chars_cached(db, ol.item_id) if c["code"] == "серия"), "")
+            if not series and ol.source_text:
+                m_ser2 = re.search(r"([А-ЯA-Z]-\d+)", ol.source_text)
+                if m_ser2:
+                    series = m_ser2.group(1)
+
+    # 3. Размер заготовки толщиной вперёд (T x W x H)
+    blank = ""
+    if by.get("толщина") and by.get("ширина") and by.get("высота"):
+        blank = f"{float(by['толщина']):g}х{float(by['ширина']):g}х{float(by['высота']):g}"
+    else:
+        m_blank = re.search(r"(\d+(?:[.,]\d+)?\s*[хx]\s*\d+\s*[хx]\s*\d+)", pname)
+        if m_blank:
+            blank = m_blank.group(1).replace(" ", "")
+
+    # 4. Шлифовка или цвет покрытия
+    color = str(by.get("цвет") or "").strip()
+    if not color:
+        m_c = re.search(r"\((?:ПЭТ|ПВХ|Полипропилен)\s+([^,)]+)", pname)
+        if m_c:
+            color = m_c.group(1).strip()
+        elif ol:
+            color = next((c["value"] for c in item_chars_cached(db, ol.item_id) if c["code"] == "цвет"), "")
+
+    if color:
+        sand = color
+    else:
+        sanded = False
+        if ln.part_id and ln.task and ln.task.production_order_id:
+            sanded = bool(
+                db.query(ProductionTaskLine.id)
+                .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+                .join(PartStage, PartStage.id == ProductionTaskLine.part_stage_id)
+                .filter(
+                    ProductionTask.production_order_id == ln.task.production_order_id,
+                    ProductionTaskLine.part_id == ln.part_id,
+                    PartStage.name.ilike("%шлиф%"),
                 )
-                sand = "ДА" if sanded else "НЕТ"
-            info = {
-                # производитель МДФ — полностью, как в названиях (13.10)
-                "mdf": "Kastamonu" if kast else (str(by.get("мдф")) if by.get("мдф") else ""),
-                "sand": sand,
-                "series": by.get("серия") or "",
-                "blank": f"{float(by['толщина']):g}х{float(by['ширина']):g}х{float(by['высота']):g}",
-            }
-    if info is None and ln.part_name and ("панел" in ln.part_name.lower() or "мдф" in ln.part_name.lower()):
-        import re
-        m = re.search(r"(\d+(?:[.,]\d+)?\s*[хx]\s*\d+\s*[хx]\s*\d+)", ln.part_name)
-        blank = m.group(1).replace(" ", "") if m else ""
-        mdf = "Kastamonu" if "kasta" in ln.part_name.lower() else ("МДФ" if "мдф" in ln.part_name.lower() else "")
-        series = next((c["value"] for c in (item_chars_cached(db, ol.item_id) if ol else []) if c["code"] == "серия"), "")
-        color = next((c["value"] for c in (item_chars_cached(db, ol.item_id) if ol else []) if c["code"] == "цвет"), "")
-        info = {
-            "mdf": mdf,
-            "sand": color or "ДА",
-            "series": series,
-            "blank": blank,
-        }
+                .first()
+            )
+        if not sanded and "шлиф" in pname_low:
+            sanded = True
+        sand = "ДА" if sanded else "—"
+
+    if not is_panel_line and not blank and not series:
+        cache[key] = None
+        return None
+
+    info = {
+        "mdf": mdf or "МДФ",
+        "sand": sand or "—",
+        "series": series or "",
+        "blank": blank or "",
+    }
     cache[key] = info
     return info
 
@@ -84,35 +124,46 @@ def _panel_info(db: Session, ln: ProductionTaskLine, ol, cache: dict) -> dict | 
 def _cut_comment(name: str) -> str | None:
     """Деталь каркаса пилят толще и вышлифовывают (07.10): целая толщина —
     +1 мм, дробная — +1,5 мм. «Стойка каркаса 24х50х2010» → «Пилим 25 мм /
-    шлифуем 24 мм»."""
-    import re
-
-    if "каркас" not in name.lower():
-        return None
-    m = re.search(r"(\d+(?:[.,]\d+)?)\s*х", name)
-    if not m:
-        return None
-    t = float(m.group(1).replace(",", "."))
-    cut = t + (1 if t == int(t) else 1.5)
-    f = lambda v: f"{v:g}".replace(".", ",")  # noqa: E731
-    return f"Пилим {f(cut)} мм / шлифуем {f(t)} мм"
+    шлифуем 24 мм». У пенопласта — указание раскроя в размер."""
+    low = name.lower()
+    if "пенопласт" in low:
+        m_th = re.search(r"(\d+(?:[.,]\d+)?)\s*мм", name)
+        th = m_th.group(1) if m_th else ""
+        return f"Пенопласт {th} мм: раскрой в размер каркаса (−100 мм по ширине и высоте)"
+    if "каркас" in low or "брусок" in low or "поперечина" in low or "стойка" in low:
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*х", name)
+        if not m:
+            return None
+        t = float(m.group(1).replace(",", "."))
+        cut = t + (1 if t == int(t) else 1.5)
+        f = lambda v: f"{v:g}".replace(".", ",")  # noqa: E731
+        return f"Пилим {f(cut)} мм / шлифуем {f(t)} мм"
+    return None
 
 
 def _components(db: Session, ln: ProductionTaskLine) -> list[tuple[str, float]]:
-    """Комплектующие без своего маршрута, которые расходуются на этой строке
-    (детали каркаса на сборке): (название, всего на строку)."""
+    """Комплектующие и материалы без своего отдельного маршрута, которые расходуются на этой строке:
+    детали каркаса на сборке, пенопласт на склейке."""
     from app.models.dictionaries import Part
     from app.models.items import Item, ItemComponent
 
     part = db.get(Part, ln.part_id) if ln.part_id else None
-    if part is None or not part.item_id:
+    item_id = part.item_id if part and part.item_id else None
+    if not item_id and ln.order_line_id:
+        ol = db.get(ProductionOrderLine, ln.order_line_id)
+        if ol and ol.item_id:
+            item_id = ol.item_id
+
+    if not item_id:
         return []
+
     out = []
-    for c in db.query(ItemComponent).filter(ItemComponent.parent_item_id == part.item_id):
+    for c in db.query(ItemComponent).filter(ItemComponent.parent_item_id == item_id):
         ci = db.get(Item, c.component_item_id)
-        if ci is None or ci.stages or ci.kind.code != "pf":
+        if ci is None or ci.stages:
             continue
-        out.append((ci.name, float(c.qty_per_unit) * float(ln.quantity_pieces)))
+        if ci.kind and ci.kind.code in ("pf", "material"):
+            out.append((ci.name, float(c.qty_per_unit) * float(ln.quantity_pieces)))
     return out
 
 
@@ -165,6 +216,7 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
             if ln.material_id:
                 film = f"{mats.get(ln.material_id, '')} {cols.get(ln.color_id, '')} {ths.get(ln.thickness_id, 0):g}".strip()
                 film += f" · штрипс {float(ln.strip_width_mm):g} мм" if ln.strip_width_mm else " · рулон"
+
             # Характеристики изделия и детали (подтягиваем размеры и параметры)
             ol_chars = item_chars_cached(db, ol.item_id) if ol and ol.item_id else []
             part_chars = []
@@ -178,11 +230,11 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
             char_map.update({c["code"]: c for c in part_chars})
             row_chars = list(char_map.values())
 
-            cols_data = door_cols(row_chars, ol.source_text if ol else None, ln.part_name) if row_chars else {}
+            # Всегда вызываем door_cols с fallback_name для извлечения серий, размеров и кромок
+            cols_data = door_cols(row_chars, ol.source_text if ol else None, ln.part_name)
 
             # Если размер не определился door_cols, подтягиваем из параметров строки или названия
             if not cols_data.get("size"):
-                import re
                 size_from_name = ""
                 m_size = re.search(r"(\d+(?:[.,]\d+)?\s*[хx]\s*\d+(?:\s*[хx]\s*\d+)?)", ln.part_name or "")
                 if m_size:
@@ -200,6 +252,43 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
             if not cols_data.get("source"):
                 cols_data["source"] = ln.part_name or (ol.source_text if ol else "")
 
+            # Склейка щитов: подбор каркаса, панелей и наполнителя
+            skleyka = None
+            if "склейк" in t.area.lower() or "skleyka" in t.area.lower():
+                pname = ln.part_name or (ol.source_text if ol else "")
+                m_s = re.search(r"(\d+(?:[.,]\d+)?\s*[хx]\s*\d+)", pname)
+                sz = m_s.group(1).replace(" ", "") if m_s else cols_data.get("size", "")
+                ser = cols_data.get("series", "")
+                frame_spec = ""
+                panel_spec = ""
+                foam_spec = ""
+                if ol and ol.item_id:
+                    from app.models.items import ItemComponent, Item
+                    for c in db.query(ItemComponent).filter(ItemComponent.parent_item_id == ol.item_id):
+                        ci = db.get(Item, c.component_item_id)
+                        if ci:
+                            if "каркас" in ci.name.lower():
+                                frame_spec = ci.name
+                            elif "панел" in ci.name.lower():
+                                panel_spec = f"2 шт. {ci.name}"
+                            elif "пенопласт" in ci.name.lower():
+                                foam_spec = ci.name
+                if not frame_spec and sz:
+                    parts = sz.split("х")
+                    if len(parts) == 2:
+                        try:
+                            w_num, h_num = float(parts[0]), float(parts[1])
+                            frame_spec = f"Каркас 24х{w_num+10:g}х{h_num+10:g}"
+                            panel_spec = f"2 шт. 6х{w_num+10:g}х{h_num+10:g} ({ser})"
+                            foam_spec = f"Пенопласт 23 мм"
+                        except ValueError:
+                            pass
+                skleyka = {
+                    "frame": frame_spec,
+                    "panels": panel_spec,
+                    "foam": foam_spec,
+                }
+
             sheet["rows"].append({
                 "task_id": t.id,
                 "name": ln.part_name or "",
@@ -214,6 +303,7 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
                 "date_from": days[0].isoformat() if days else None,
                 "date_to": days[-1].isoformat() if days else None,
                 "panel": _panel_info(db, ln, ol, panel_cache),
+                "skleyka": skleyka,
             })
             # группа участка (08.10, services/line_groups.py)
             grp = line_group(db, ln, t.area, row_chars)

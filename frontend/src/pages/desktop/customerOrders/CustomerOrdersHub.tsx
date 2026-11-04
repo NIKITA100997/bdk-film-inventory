@@ -39,8 +39,8 @@ export default function CustomerOrdersHub() {
         ? [
             {
               key: "orders",
-              label: "Сводный реестр заказов",
-              shortLabel: "Реестр",
+              label: "Счета и заказы покупателей",
+              shortLabel: "Счета 1С",
               icon: "📋",
               children: <CustomerOrders />,
             },
@@ -56,7 +56,7 @@ export default function CustomerOrdersHub() {
         ? [
             {
               key: "readiness",
-              label: "Готовность по участкам",
+              label: "Готовность к отгрузке",
               shortLabel: "Готовность",
               icon: "📊",
               children: <OrderReadiness />,
@@ -74,23 +74,18 @@ export default function CustomerOrdersHub() {
         ? [
             {
               key: "deadlines",
-              label: "Сроки и риски срыва",
+              label: "Сроки и риски отгрузки",
               shortLabel: "Сроки",
               icon: "⏳",
               children: <OrderDeadlines />,
             },
           ]
         : []),
-      ...(hasPerm(
-        user,
-        "production_tasks.manage",
-        "production_tasks.view",
-        "production_tasks.report"
-      )
+      ...(hasPerm(user, "production_tasks.manage")
         ? [
             {
               key: "production",
-              label: "Заказы на производство",
+              label: "Заказы в цехе (производство)",
               shortLabel: "В цехе",
               icon: "🏭",
               children: <ProductionOrders />,

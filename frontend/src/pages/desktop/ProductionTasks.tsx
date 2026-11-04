@@ -18,6 +18,7 @@ import { lazyPage } from "../../utils/lazyPage";
 const FilmIssueBoard = lazyPage(() => import("./FilmIssueBoard"));
 const ProductionMonitor = lazyPage(() => import("./production/ProductionMonitor"));
 const Demand = lazyPage(() => import("./production/Demand"));
+const ProductionOrders = lazyPage(() => import("./production/ProductionOrders"));
 
 /** Производственный Хаб (APS & Shop Floor) — единое рабочее место управления цехом.
  * Объединяет:
@@ -83,9 +84,18 @@ export default function ProductionTasks() {
   const tab = params.get("tab");
 
   const tabItems = [
+    ...(canManage
+      ? [
+          {
+            key: "orders",
+            label: "🏭 Заказы в цехе",
+            children: <ProductionOrders />,
+          },
+        ]
+      : []),
     {
       key: "daily-plan",
-      label: "🏭 Мой участок",
+      label: user?.area ? "📍 Мой участок" : "🏭 Смена и участок",
       children: issuePoint ? <FilmIssueBoard /> : <DailyPlanTab />,
     },
     {
@@ -122,9 +132,11 @@ export default function ProductionTasks() {
   const active =
     tab && tabItems.some((t) => t.key === tab)
       ? tab
-      : params.get("task") || !user?.area
-        ? "tasks"
-        : "daily-plan";
+      : user?.area
+        ? "daily-plan"
+        : canManage && !params.get("task")
+          ? "orders"
+          : "tasks";
 
   const onTabChange = (key: string) => {
     setParams(
