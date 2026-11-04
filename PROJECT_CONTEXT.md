@@ -229,7 +229,7 @@
 ## 6. Текущий статус кодовой базы и ветки
 
 - **Активная ветка:** `shchitovye-progon`.
-- **Последний коммит:** `8bcf753` — `feat: local express inventory for strip pool and batch issue to area`.
+- **Последний коммит:** `3bb18cb` — `feat: local express inventory for strip pool and batch issue to area`.
 - **Бэкенд:** 505 тестов проходят без единой ошибки (`pytest` 100% pass).
 - **Фронтенд:** Полностью валиден по TypeScript (`tsc` 0 ошибок), Vite build проходит успешно (`npm run build` код 0).
 - **Локальная БД:** Содержит полную схему, реальные справочники и тестовый боевой заказ №425 для щитовых дверей.
