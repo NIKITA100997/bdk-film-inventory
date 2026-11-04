@@ -187,7 +187,20 @@ export default function DailyPlanTab() {
               { title: "Деталь", render: (_, r) => r.line.part_name ?? "—" },
               { title: "Линия", render: (_, r) => r.assignment.line_name },
               { title: "Плёнка (номенклатура)", render: (_, r) => lineFilmLabel(r.line) },
-              { title: "Штрипс", render: (_, r) => <Space size={4}><span>{r.line.strip_width_mm || r.line.width_mm} мм</span>{r.line.film_deficit_m && r.line.film_deficit_m > 0 ? <Tag color="error">дефицит -{r.line.film_deficit_m} м</Tag> : null}</Space> },
+              {
+                title: "Штрипс",
+                render: (_, r) => (
+                  <Space size={4} wrap>
+                    <span>{r.line.strip_width_mm || r.line.width_mm} мм</span>
+                    {r.line.area_strip_stock_m != null && r.line.area_strip_stock_m > 0 && (
+                      <Tag color="green" title="Доступно в пуле штрипсов участка">в пуле {r.line.area_strip_stock_m} м</Tag>
+                    )}
+                    {r.line.film_deficit_m && r.line.film_deficit_m > 0 ? (
+                      <Tag color="error" title="Овердрафт: списано в дефицит">дефицит -{r.line.film_deficit_m} м</Tag>
+                    ) : null}
+                  </Space>
+                ),
+              },
               { title: "План на день", render: (_, r) => <Tag color="blue">{r.assignment.quantity_pieces} шт</Tag> },
               { title: "Сотрудники линии", render: (_, r) => r.assignment.employee_names },
               {

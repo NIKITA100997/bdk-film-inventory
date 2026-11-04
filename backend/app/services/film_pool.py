@@ -43,23 +43,35 @@ def get_area_matching_strips(
     thickness_id: int | None = None,
     target_width_mm: float,
 ) -> list[MaterialUnit]:
-    """Найти все активные штрипсы на участке, подходящие по плёнке и точной ширине (FIFO)."""
-    q = (
-        db.query(MaterialUnit)
-        .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
-        .filter(
-            MaterialUnit.area == area,
-            MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU,
-            MaterialSku.material_id == material_id,
-            MaterialSku.color_id == color_id,
+    """Найти все активные штрипсы на участке, подходящие по плёнке и ширине (FIFO).
+    Поддерживает точную ширину и группы эквивалентных ширин (аналогов)."""
+    from app.services.width_analogs import equivalent_widths
+
+    equiv_widths = set(equivalent_widths(db, target_width_mm))
+
+    def _build_query(filter_thickness: bool):
+        q = (
+            db.query(MaterialUnit)
+            .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
+            .filter(
+                MaterialUnit.area == area,
+                MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU,
+                MaterialSku.material_id == material_id,
+                MaterialSku.color_id == color_id,
+            )
         )
-    )
-    if thickness_id is not None:
-        q = q.filter(MaterialSku.thickness_id == thickness_id)
-    # Точная ширина штрипса (допуск 0.5 мм на округление float)
-    q = q.filter(func.abs(MaterialUnit.width_mm - target_width_mm) < 0.5)
-    # FIFO: самые ранние по времени создания
-    return q.order_by(MaterialUnit.created_at.asc(), MaterialUnit.id.asc()).all()
+        if filter_thickness and thickness_id is not None:
+            q = q.filter(MaterialSku.thickness_id == thickness_id)
+        if equiv_widths:
+            q = q.filter(MaterialUnit.width_mm.in_(equiv_widths))
+        else:
+            q = q.filter(func.abs(MaterialUnit.width_mm - target_width_mm) < 0.5)
+        return q.order_by(MaterialUnit.created_at.asc(), MaterialUnit.id.asc()).all()
+
+    candidates = _build_query(filter_thickness=True)
+    if not candidates and thickness_id is not None:
+        candidates = _build_query(filter_thickness=False)
+    return candidates
 
 
 def get_strip_remaining_m(db: Session, unit: MaterialUnit) -> float:

@@ -71,6 +71,7 @@ class MonitorRow(BaseModel):
     film_status: str | None = None
     film_need_m: float | None = None
     film_to_issue_m: float | None = None
+    film_deficit_m: float = 0.0
     # монитор по заказам (21.10): операция маршрута и её порядок — столбцы;
     # деталь п/ф (part_id) или сама позиция заказа; быстрый отчёт из монитора —
     # участок без рулона и дневного плана, строка без плёнки и открыта
@@ -155,6 +156,9 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
         o.id: (o.released_at.date() if o.released_at else None)
         for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_({t.production_order_id for _, t in lines if t.production_order_id} or {-1}))
     }
+    from app.api.production import _line_deficit_aggregates
+    deficit_aggregates = _line_deficit_aggregates(db, [ln.id for ln, _ in lines])
+
     rows: list[MonitorRow] = []
     order_ids: set[int] = set()
     area_codes: set[str] = set()
@@ -186,6 +190,7 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
                 operation=(stages[ln.part_stage_id].name if ln.part_stage_id in stages else None) or (area_by_code[t.area].name if t.area in area_by_code else None),
                 op_seq=stages[ln.part_stage_id].sequence_order if ln.part_stage_id in stages else None,
                 part_id=ln.part_id, task_name=t.name,
+                film_deficit_m=round(deficit_aggregates.get(ln.id, 0.0) * float(ln.length_m), 2) if ln.material_id and float(ln.length_m) > 0 else 0.0,
                 quick=bool(
                     t.is_active and not ln.is_closed and t.area in area_by_code
                     and not area_by_code[t.area].requires_daily_plan

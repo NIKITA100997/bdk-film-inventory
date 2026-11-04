@@ -456,11 +456,29 @@ function LinesTab({
               ),
           },
           {
-            title: "Рулон",
+            title: "Рулон / Штрипс",
             render: (_, l) => {
-              const rolls = rollChoices(l);
               if (!l.material) return "—";
-              if (!rolls.length) return fabrika ? "—" : <Tag color="warning">не выдан</Tag>;
+              if (fabrika || !requiresRoll) {
+                return (
+                  <Space size={4} wrap>
+                    {l.area_strip_stock_m != null && l.area_strip_stock_m > 0 ? (
+                      <Tag color="green" title="Доступно в пуле штрипсов участка (списание FIFO)">
+                        В пуле {l.area_strip_stock_m} м ({l.area_strip_count ?? 1} шт.) · FIFO
+                      </Tag>
+                    ) : (
+                      <Tag color="warning" title="Штрипсов нужной ширины на участке нет">Пул пуст (0 м)</Tag>
+                    )}
+                    {l.film_deficit_m != null && l.film_deficit_m > 0 && (
+                      <Tag color="error" title="Овердрафт: списано сверх фактического остатка штрипсов в цехе">
+                        Дефицит: -{l.film_deficit_m} м
+                      </Tag>
+                    )}
+                  </Space>
+                );
+              }
+              const rolls = rollChoices(l);
+              if (!rolls.length) return <Tag color="warning">не выдан</Tag>;
               return rolls.map((u) => (
                 <Tag key={u.id} color={u.from ? "cyan" : "blue"} title={u.from ? `Общий рулон участка, выдан под «${u.from}»` : undefined}>
                   №{u.id} · {Math.round(u.left * 10) / 10} м{u.from ? " · общий" : ""}

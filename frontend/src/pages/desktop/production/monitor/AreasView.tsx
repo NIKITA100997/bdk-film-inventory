@@ -149,6 +149,11 @@ export default function AreasView({
             render: (_, r) => (
               <div style={{ whiteSpace: "normal" }}>
                 <div>{posOf(r)}</div>
+                {r.film_deficit_m != null && r.film_deficit_m > 0 && (
+                  <Tag color="error" style={{ fontSize: 11, marginTop: 2 }}>
+                    дефицит плёнки -{r2(r.film_deficit_m)} м
+                  </Tag>
+                )}
                 {r.part_id == null && r.source && (
                   <Typography.Text type="secondary" style={{ fontSize: 11 }}>
                     {r.source}

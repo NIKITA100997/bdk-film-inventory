@@ -79,17 +79,36 @@ export function buildLines(rows: MonitorRow[], orders: MonitorOrder[], areas: Mo
 const FILM_OK = new Set(["issued", "covered", "site_stock"]);
 function FilmCell({ rs }: { rs: MonitorRow[] }) {
   const open = rs.filter((r) => !r.closed && r.plan - r.good > 0);
-  if (!open.length) return rs.length ? <Typography.Text type="secondary">—</Typography.Text> : null;
+  const totalDeficit = rs.reduce((s, r) => s + (r.film_deficit_m ?? 0), 0);
+  if (!open.length) {
+    if (totalDeficit > 0) {
+      return (
+        <Tooltip title={`Овердрафт штрипсов в пуле участка: накоплен дефицит ${r2(totalDeficit)} м`}>
+          <Tag color="error" style={{ marginInlineEnd: 0 }}>дефицит -{r2(totalDeficit)} м</Tag>
+        </Tooltip>
+      );
+    }
+    return rs.length ? <Typography.Text type="secondary">—</Typography.Text> : null;
+  }
   const ok = open.filter((r) => FILM_OK.has(r.film_status ?? "")).length;
   const partial = open.filter((r) => r.film_status === "partial").length;
   const toIssue = open.reduce((s, r) => s + (FILM_OK.has(r.film_status ?? "") ? 0 : r.film_to_issue_m ?? 0), 0);
   const [color, text] = ok === open.length ? ["green", "выдана"] : ok === 0 && partial === 0 ? ["red", "не выдана"] : ["orange", `${ok} из ${open.length}`];
   return (
-    <Tooltip title={`строк с плёнкой в работе: ${open.length}; выдано: ${ok}${toIssue > 0 ? `; ещё выдать ${r2(toIssue)} м` : ""}`}>
-      <Tag color={color} style={{ marginInlineEnd: 0 }}>
-        {text}
-      </Tag>
-    </Tooltip>
+    <Space size={2} direction="vertical" align="center">
+      <Tooltip title={`строк с плёнкой в работе: ${open.length}; выдано: ${ok}${toIssue > 0 ? `; ещё выдать ${r2(toIssue)} м` : ""}`}>
+        <Tag color={color} style={{ marginInlineEnd: 0 }}>
+          {text}
+        </Tag>
+      </Tooltip>
+      {totalDeficit > 0 && (
+        <Tooltip title={`Овердрафт штрипсов в пуле участка: списано в дефицит ${r2(totalDeficit)} м`}>
+          <Tag color="error" style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>
+            -{r2(totalDeficit)} м
+          </Tag>
+        </Tooltip>
+      )}
+    </Space>
   );
 }
 

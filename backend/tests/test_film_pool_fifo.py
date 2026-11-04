@@ -342,3 +342,63 @@ def test_report_endpoint_fifo_integration(setup_pogonazh_data):
     # Проверяем агрегат дефицита
     deficits = _line_deficit_aggregates(db, [line.id])
     assert deficits.get(line.id) == 5.0
+
+def test_film_strip_analog_width_matching(setup_pogonazh_data):
+    """Проверка списания штрипса из пула по группе аналогов ширины (220мм вместо 221мм)."""
+    from app.models.width_analogs import WidthAnalogGroup, WidthAnalogMember
+
+    d = setup_pogonazh_data
+    db = d["db"]
+    sku = d["sku"]
+    line = d["line"]  # strip_width_mm = 221.0
+    user = d["user"]
+
+    # Удаляем старые тестовые группы с этими ширинами, если были
+    existing_members = db.query(WidthAnalogMember).filter(WidthAnalogMember.width_mm.in_([220.0, 221.0])).all()
+    for m in existing_members:
+        db.delete(m)
+    db.flush()
+
+    grp = WidthAnalogGroup(note="Тест 220-221")
+    db.add(grp)
+    db.flush()
+    db.add(WidthAnalogMember(group_id=grp.id, width_mm=220.0))
+    db.add(WidthAnalogMember(group_id=grp.id, width_mm=221.0))
+    db.flush()
+
+    # Очищаем кэш эквивалентных ширин в db.info, если есть
+    if "read_cache" in db.info and "equiv_widths" in db.info["read_cache"]:
+        db.info["read_cache"]["equiv_widths"].clear()
+
+    strip_analog = MaterialUnit(
+        upd_number="UPD-ANALOG-1",
+        pallet_number="PAL-ANALOG-1",
+        material_sku_id=sku.id,
+        width_mm=220.0,
+        length_m=50.0,
+        status=UnitStatus.VYDAN_UCHASTKU,
+        area="fabrika",
+        is_strip=True,
+    )
+    db.add(strip_analog)
+    db.flush()
+
+    allocations = consume_film_strips_fifo(
+        db,
+        line=line,
+        area="fabrika",
+        good_pieces=10.0,
+        defect_pieces=0.0,
+        user_id=user.id,
+    )
+
+    stock_m, count = get_area_strip_stock(db, "fabrika", line)
+    assert stock_m == 50.0
+    assert count == 1
+
+    assert len(allocations) == 1
+    assert allocations[0].material_unit_id == strip_analog.id
+    assert allocations[0].meters == 20.0
+    assert allocations[0].is_deficit is False
+    assert strip_analog.status == UnitStatus.VYDAN_UCHASTKU
+

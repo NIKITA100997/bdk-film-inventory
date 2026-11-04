@@ -48,6 +48,7 @@ export interface MonitorRow {
   film_status?: "issued" | "covered" | "partial" | "none" | "site_stock" | null;
   film_need_m?: number | null;
   film_to_issue_m?: number | null;
+  film_deficit_m?: number | null;
   /** монитор по заказам (21.10): операция маршрута и её порядок, деталь п/ф, задание,
    * можно ли отчитаться из монитора (без рулона и дневного плана), дата запуска заказа */
   operation?: string | null;

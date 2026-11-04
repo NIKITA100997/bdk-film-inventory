@@ -497,6 +497,11 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                       {r.goodPieces > 0 && !overExcess(r.line, r.line.produced_good_pieces) && (
                         <OverProductionTag line={r.line} produced={r.line.produced_good_pieces + r.goodPieces} planned />
                       )}
+                      {r.line.film_deficit_m != null && r.line.film_deficit_m > 0 && (
+                        <Tag color="error" style={{ fontSize: 11, alignSelf: "flex-start", marginTop: 2 }}>
+                          дефицит пула: -{r.line.film_deficit_m} м
+                        </Tag>
+                      )}
                       {available != null && (
                         <Space size={4}>
                           <Tag
@@ -579,7 +584,30 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                       },
                     },
                   ]
-                : []),
+                : [
+                    {
+                      title: "Штрипс / Пул",
+                      key: "strip_pool",
+                      render: (_: unknown, r: ReportRow) => {
+                        if (r.line.material === null) return <Typography.Text type="secondary">без плёнки</Typography.Text>;
+                        const stock = r.line.area_strip_stock_m;
+                        const deficit = r.line.film_deficit_m;
+                        return (
+                          <Space size={4} wrap>
+                            <span>{r.line.strip_width_mm || r.line.width_mm} мм</span>
+                            {stock != null && stock > 0 ? (
+                              <Tag color="green" title="Доступно в пуле штрипсов участка (FIFO)">В пуле: {stock} м</Tag>
+                            ) : (
+                              <Tag color="default" title="В пуле нет остатка этой ширины/цвета">Пул пуст</Tag>
+                            )}
+                            {deficit != null && deficit > 0 && (
+                              <Tag color="error" title="Овердрафт: списано в дефицит">Дефицит: -{deficit} м</Tag>
+                            )}
+                          </Space>
+                        );
+                      },
+                    },
+                  ]),
               {
                 title: "Хорошие, шт",
                 key: "good",
