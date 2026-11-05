@@ -298,7 +298,7 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
                 panel_spec = ""
                 foam_spec = ""
                 if ol and ol.item_id:
-                    from app.models.items import ItemComponent, Item
+                    from app.models.items import ItemComponent
                     for c in db.query(ItemComponent).filter(ItemComponent.parent_item_id == ol.item_id):
                         ci = db.get(Item, c.component_item_id)
                         if ci:
