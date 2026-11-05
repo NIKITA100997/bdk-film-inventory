@@ -548,7 +548,7 @@ export default function UnitCard() {
                   <Button
                     size="large"
                     onClick={() =>
-                      navigate("/m/issue", {
+                      navigate("/film-operations?tab=issue", {
                         state: {
                           material: unit.material_sku.material.name,
                           color: unit.material_sku.color.name,

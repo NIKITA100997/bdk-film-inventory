@@ -62,13 +62,15 @@ export default function ResponsiveTable<T extends object>({
   exportNote,
   stickyColumns = 0,
   cardTitleColumn,
+  cardCollapsedColumns = [],
   ...rest
 }: TableProps<T> & {
   /** Карточка на узком экране (16.10): какой столбец — заголовок карточки
    * (жирным, без подписи). По умолчанию — первый из «Деталь», «Позиция»,
    * «Название», «Что», «Наименование», «Рулон», «Плёнка», иначе первый столбец. */
   cardTitleColumn?: string;
-  cardBreakpoint?: "xs" | "sm" | "md" | "lg";
+  cardBreakpoint?: "xs" | "sm" | "md" | "lg" | "xl";
+  cardCollapsedColumns?: string[];
   tableKey?: string;
   lockedColumns?: string[];
   defaultHiddenColumns?: string[];
@@ -148,6 +150,7 @@ export default function ResponsiveTable<T extends object>({
 
   const visibleLabelable = labelable.filter((c, i) => settings.isVisible(columnKey(c, i)));
   const hiddenLabelable = labelable.filter((c, i) => !settings.isVisible(columnKey(c, i)));
+  const cardCollapsedSet = new Set(cardCollapsedColumns);
 
   const cellValue = (col: Column<T>, record: T, index: number): React.ReactNode => {
     const dataIndex = (col as { dataIndex?: string | string[] }).dataIndex;
@@ -243,6 +246,11 @@ export default function ResponsiveTable<T extends object>({
     }
     return 0;
   })();
+  const cardCollapsedLabelable = visibleLabelable.filter((c) => {
+    const sourceIndex = labelable.indexOf(c);
+    return cardCollapsedSet.has(columnKey(c, sourceIndex)) && visibleLabelable.indexOf(c) !== titleIndex;
+  });
+  const cardExtraFields = [...cardCollapsedLabelable, ...hiddenLabelable];
   const pageSize = isControlledPage ? (paginationConfig.pageSize ?? 10) : (localPageSize ?? paginationConfig.pageSize ?? 10);
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(isControlledPage ? paginationConfig.current! : localPage, totalPages);
@@ -285,7 +293,8 @@ export default function ResponsiveTable<T extends object>({
               index={index}
               titleIndex={titleIndex}
               visibleLabelable={visibleLabelable}
-              hiddenLabelable={hiddenLabelable}
+              cardCollapsedLabelable={cardCollapsedLabelable}
+              hiddenLabelable={cardExtraFields}
               unlabelable={unlabelable}
               cellValue={cellValue}
               loading={typeof loading === "boolean" ? loading : undefined}
@@ -316,6 +325,7 @@ function PlanCard<T extends object>({
   index,
   titleIndex,
   visibleLabelable,
+  cardCollapsedLabelable,
   hiddenLabelable,
   unlabelable,
   cellValue,
@@ -326,6 +336,7 @@ function PlanCard<T extends object>({
   index: number;
   titleIndex: number;
   visibleLabelable: Column<T>[];
+  cardCollapsedLabelable: Column<T>[];
   hiddenLabelable: Column<T>[];
   unlabelable: Column<T>[];
   cellValue: (col: Column<T>, record: T, index: number) => React.ReactNode;
@@ -340,7 +351,7 @@ function PlanCard<T extends object>({
   // «подпись над значением» (на телефоне 2 колонки, на планшете 3–4),
   // а не столбиком по строке на поле — карточка втрое короче.
   const titleCol = visibleLabelable[titleIndex];
-  const fields = visibleLabelable.filter((_, i) => i !== titleIndex);
+  const fields = visibleLabelable.filter((col, i) => i !== titleIndex && !cardCollapsedLabelable.includes(col));
   return (
     <Card
       size="small"

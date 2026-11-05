@@ -329,16 +329,6 @@ export default function Overview({ embedded = false }: { embedded?: boolean }) {
 
       <Card size="small">
         <Space wrap size="middle">
-          {hasReceive && (
-            <Button type="primary" onClick={() => navigate("/m/receive")}>
-              Начать приёмку
-            </Button>
-          )}
-          {hasIssue && (
-            <Button type="primary" onClick={() => navigate("/m/issue")}>
-              Выдача участку
-            </Button>
-          )}
           {(canShop || canReports) && <Button onClick={() => navigate("/productivity")}>Производительность участков</Button>}
           <SearchBox />
         </Space>

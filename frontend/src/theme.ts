@@ -70,6 +70,13 @@ export const theme: ThemeConfig = {
       headerColor: palette.navy,
       headerSplitColor: "transparent",
       rowHoverBg: palette.orangeTint,
+      cellPaddingBlock: 12,
+      cellPaddingInline: 14,
+      cellPaddingBlockSM: 12,
+      cellPaddingInlineSM: 14,
+      fontSize: 14,
+      fontSizeSM: 14,
+      borderColor: palette.border,
     },
     Tabs: {
       itemSelectedColor: palette.orange,

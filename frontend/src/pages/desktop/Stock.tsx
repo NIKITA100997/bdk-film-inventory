@@ -12,13 +12,16 @@ import { FgStockTab } from "./FinishedGoodsStock";
 import StoragePlaces from "./StoragePlaces";
 import { LotsTab, MovementsPanel } from "./StockLotsMovements";
 import { MaterialsStockTab } from "./MaterialsStock";
+import { lazyPage } from "../../utils/lazyPage";
+
+const StockSupplyPanel = lazyPage(() => import("./StockSupplyPanel"));
 
 export type StockKind = "film" | "pf" | "materials" | "fg" | "all";
-export type StockTab = "items" | "lots" | "free" | "movements" | "map";
+export type StockTab = "items" | "lots" | "free" | "movements" | "map" | "requests";
 
 /** Остатки — единый WMS-терминал на плёнку, п/ф, материалы и изделия.
- * Вверху — быстрые кнопки ключевых складских операций (Приёмка, Сборка Pick Route,
- * Выдача, Инвентаризация).
+ * Приёмка и выдача плёнки находятся в рабочем месте «Плёнка»; здесь собраны остатки,
+ * движения, заявки снабжения, маршруты сборки и инвентаризация.
  * 4 ключевые вкладки: «По позициям», «Рулоны и партии», «Движения», «Стеллажи»
  * с переключателем вида («Плёнка», «П/ф», «Материалы», «Изделия», «Всё»). */
 export default function Stock() {
@@ -35,11 +38,8 @@ export default function Stock() {
   const canPf = has("part_units.view", "part_units.manage", "part_storage.manage");
   const canFilmOps = !!user?.is_superuser || !!user?.permissions.some((p) => p.startsWith("units."));
   const canBlanks = has("units.issue");
-
-  // Права на основные складские действия
-  const canReceive = has("units.receive", "materials.manage", "part_units.manage");
-  const canIssue = has("units.issue", "units.return", "part_units.manage");
   const canInventory = has("inventory.manage", "part_units.count");
+  const canSupplyRequests = has("production_tasks.report", "production_tasks.manage", "units.issue");
 
   const kinds: { value: StockKind; label: string }[] = useMemo(
     () => [
@@ -59,8 +59,9 @@ export default function Stock() {
       ...(canBlanks ? [{ key: "free" as const, label: "✂️ Свободный остаток" }] : []),
       { key: "movements", label: "🔄 Движения" },
       { key: "map", label: "🗺️ Стеллажи" },
+      ...(canSupplyRequests ? [{ key: "requests" as const, label: "📨 Заявки участков" }] : []),
     ],
-    [canBlanks]
+    [canBlanks, canSupplyRequests]
   );
 
   const filmState =
@@ -77,6 +78,7 @@ export default function Stock() {
 
   // Виды, доступные на текущей вкладке
   const availableKinds = useMemo(() => {
+    if (tab === "requests") return [];
     if (tab === "items") return kinds.filter((k) => k.value !== "all");
     if (tab === "map") return kinds.filter((k) => k.value === "film" || k.value === "pf" || k.value === "all");
     if (tab === "free") return [];
@@ -133,6 +135,8 @@ export default function Stock() {
     if (kind === "pf") content = <PartStorage />;
     else if (kind === "film") content = <StorageMap />;
     else content = <StoragePlaces />;
+  } else if (tab === "requests") {
+    content = <StockSupplyPanel />;
   }
 
   const kindSwitch =
@@ -174,31 +178,6 @@ export default function Stock() {
             </Typography.Title>
           </Space>
           <Space wrap size={6}>
-            {canReceive && (
-              <Button
-                type="primary"
-                size="small"
-                onClick={() => navigate("/m/receive")}
-              >
-                📥 Приёмка
-              </Button>
-            )}
-            {canIssue && (
-              <Button
-                size="small"
-                onClick={() => navigate("/pick-route")}
-              >
-                📋 Маршрут сборки
-              </Button>
-            )}
-            {canIssue && (
-              <Button
-                size="small"
-                onClick={() => navigate("/m/issue")}
-              >
-                📤 Выдача
-              </Button>
-            )}
             {canInventory && (
               <>
                 <Button

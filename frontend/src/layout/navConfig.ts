@@ -51,6 +51,12 @@ export const navTree: NavBlock[] = [
         ],
       },
       {
+        key: "film",
+        path: "/film-operations",
+        label: "🎞 Плёнка",
+        permissions: ["units.issue", "units.receive", "units.return", "production_tasks.manage", "production_tasks.view", "reports.view"],
+      },
+      {
         key: "warehouse",
         path: "/stock",
         label: "📦 Склад",

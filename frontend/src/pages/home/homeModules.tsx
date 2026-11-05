@@ -9,8 +9,6 @@ import { SearchBox } from "../desktop/Overview";
 
 const Overview = lazyPage(() => import("../desktop/Overview"));
 const DailyPlanTab = lazyPage(() => import("../desktop/production/DailyPlanTab"));
-const FilmIssueBoard = lazyPage(() => import("../desktop/FilmIssueBoard"));
-const AreaRequestsPanel = lazyPage(() => import("../../components/areaSupply/AreaRequestsPanel"));
 const TransfersInTransit = lazyPage(() => import("../desktop/WarehouseTransfers").then((m) => ({ default: m.InTransitTab })));
 const IntakeTab = lazyPage(() => import("../desktop/customerOrders/IntakeTab"));
 const ShortagesTab = lazyPage(() => import("../desktop/production/NeedsViews").then((m) => ({ default: m.ShortagesTab })));
@@ -51,14 +49,9 @@ function InboxModule() {
 }
 
 const QUICK: { label: string; path: string; perms: string[] }[] = [
-  { label: "Приёмка плёнки", path: "/m/receive", perms: ["units.receive"] },
-  { label: "Приёмка материалов", path: "/m/receive?kind=material", perms: ["units.receive", "materials.manage"] },
-  { label: "Приёмка п/ф", path: "/m/receive?kind=pf", perms: ["part_units.manage"] },
-  { label: "Выдача плёнки", path: "/m/issue", perms: ["units.issue"] },
-  { label: "Выдача п/ф", path: "/m/issue?kind=pf", perms: ["units.issue", "part_units.manage"] },
   { label: "Перемещение между складами", path: "/warehouse-transfers", perms: ["warehouse_transfers.manage"] },
   { label: "Инвентаризация", path: "/inventory", perms: ["inventory.manage", "part_units.count", "fg.ship"] },
-  { label: "Заявка на склад", path: "/production-tasks?tab=film-issue&sub=requests", perms: ["production_tasks.report"] },
+  { label: "Заявки участков", path: "/stock?tab=requests", perms: ["units.issue", "production_tasks.manage", "production_tasks.report"] },
   { label: "Новое задание участку", path: "/production-tasks?tab=tasks&new=1", perms: ["production_tasks.manage"] },
   { label: "Приём в производство", path: "/customer-orders?section=intake", perms: ["production_tasks.manage"] },
   { label: "Новый заказ покупателя", path: "/customer-orders", perms: ["orders.request", "production_tasks.manage"] },
@@ -105,16 +98,6 @@ export const MODULES: HomeModule[] = [
   {
     key: "my-area", title: "Мой участок", hint: "задания на сегодня и быстрый отчёт", wide: true, link: "/production-tasks",
     available: (u) => hasPerm(u, "production_tasks.report", "production_tasks.manage"), render: () => <DailyPlanTab />,
-  },
-  {
-    key: "area-requests", title: "Заявки участков на склад", hint: "подать заявку или выдать по ней", wide: true,
-    link: "/production-tasks?tab=film-issue&sub=requests",
-    available: (u) => hasPerm(u, "production_tasks.report", "production_tasks.manage", "units.issue"), render: () => <AreaRequestsPanel />,
-  },
-  {
-    key: "film-issue", title: "Выдача плёнки участкам", hint: "что резать и выдавать под задания", wide: true,
-    link: "/production-tasks?tab=film-issue",
-    available: (u) => hasPerm(u, "units.issue", "production_tasks.manage", "production_tasks.view"), render: () => <FilmIssueBoard />,
   },
   {
     key: "transfers-in", title: "Перемещения в пути — принять", hint: "пришло с другого склада", wide: true, link: "/warehouse-transfers",
@@ -179,8 +162,8 @@ export function renderModule(m: HomeModule, user: User): ReactNode {
 
 /** Стандартный набор — по тому, что сотрудник делает (анализ действий 28.10). */
 export function defaultModules(u: User): string[] {
-  if (isMaster(u)) return ["my-area", "inbox", "quick", "overdue", "area-requests"];
-  if (isWarehouse(u)) return ["inbox", "quick", "search", "film-issue", "transfers-in", "area-requests", "deliveries"];
+  if (isMaster(u)) return ["my-area", "inbox", "quick", "overdue"];
+  if (isWarehouse(u)) return ["inbox", "quick", "search", "transfers-in", "deliveries"];
   // начальник цеха и руководство (ведёт все участки): Пульс завода во главе угла!
   if (hasPerm(u, "production_tasks.manage") && (u.is_superuser || !u.area || hasPerm(u, "production_tasks.all_areas") || hasPerm(u, "plan.approve")))
     return ["pulse", "inbox", "area-load", "quick", "overdue", "intake", "deadlines", "summary"];

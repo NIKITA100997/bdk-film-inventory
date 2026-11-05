@@ -1,16 +1,11 @@
-import PickRouteSheet from "./PickRouteSheet";
 import { useMemo, useState } from "react";
 import { Alert, Button, Card, Empty, Input, Segmented, Select, Space, Spin, Statistic, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
-import { useAuth } from "../../auth/AuthContext";
-import { hasPerm } from "../../auth/permissions";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { getFilmIssueBoard, type AreaRoll, type FilmIssueLine, type FilmIssueStatus, type SiteStock } from "../../api/filmIssue";
 import { UnitLink } from "../../components/EntityLink";
-import AreaRequestsPanel from "../../components/areaSupply/AreaRequestsPanel";
-import AreaNormsPanel from "../../components/areaSupply/AreaNormsPanel";
 import IssueFactPanel from "../../components/areaSupply/IssueFactPanel";
 import FilmReservesPanel from "../../components/FilmReservesPanel";
 
@@ -34,8 +29,6 @@ type Due = "all" | "today" | "tomorrow" | "week" | "overdue";
  * Фабрики — склад Фабрики против потребности и сколько переместить. */
 export default function FilmIssueBoard() {
   const [params] = useSearchParams();
-  const { user } = useAuth();
-  const canOpenReconciliation = hasPerm(user, "units.issue", "units.return", "production_tasks.manage", "reports.view");
   const q = useQuery({ queryKey: ["film-issue-board"], queryFn: getFilmIssueBoard, refetchInterval: 120000 });
   const [area, setArea] = useState<string | null>(null);
   const [only, setOnly] = useState<"need" | "all">("need");
@@ -83,15 +76,9 @@ export default function FilmIssueBoard() {
 
   return (
     <>
-      {canOpenReconciliation && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-          <Button>
-            <Link to="/roll-reconciliation?tab=meters">Сверка рулонов</Link>
-          </Button>
-        </div>
-      )}
       <Tabs
         defaultActiveKey={params.get("sub") ?? "tasks"}
+        destroyOnHidden
         items={[
           {
             key: "tasks",
@@ -166,6 +153,16 @@ export default function FilmIssueBoard() {
                 ) : (
                   <ResponsiveTable<Row>
                     tableKey="film-issue-board"
+                    cardBreakpoint="xl"
+                    cardCollapsedColumns={[
+                      "Деталь",
+                      "Плёнка",
+                      "Штрипс, мм",
+                      "План / сделано, шт",
+                      "Выдано, м",
+                      "Покрыто остатком участка, м",
+                      "Закреплено на складе, м",
+                    ]}
                     exportTitle="Задания на выдачу плёнки"
                     size="small"
                     rowKey="line_id"
@@ -185,12 +182,14 @@ export default function FilmIssueBoard() {
                       },
                       { title: "Участок", dataIndex: "area_name" },
                       {
-                        title: "Задание",
+                        title: "Задание участка и родительский заказ",
                         render: (_, r) => (
-                          <Link to={`/production-tasks?task=${r.task_id}`}>
-                            {r.task_name}
-                            {r.order_name && r.order_name !== r.task_name ? <Typography.Text type="secondary"> · {r.order_name}</Typography.Text> : null}
-                          </Link>
+                          <div>
+                            <Link to={`/production-tasks?task=${r.task_id}`}>Задание участка: {r.task_name}</Link>
+                            {r.order_name && r.order_name !== r.task_name ? (
+                              <div><Typography.Text type="secondary">Заказ на производство: {r.order_name}</Typography.Text></div>
+                            ) : null}
+                          </div>
                         ),
                       },
                       { title: "Деталь", dataIndex: "part_name", render: (v: string | null) => v ?? "—" },
@@ -251,9 +250,6 @@ export default function FilmIssueBoard() {
             : []),
           ...(q.data?.reserve_enabled ? [{ key: "reserve", label: "Резерв", children: <FilmReservesPanel /> }] : []),
           // прессы и ламинация без заданий — «закончилась — выдают» (15.10)
-          { key: "pick-route", label: "📋 Маршрутный лист сборки (Pick Route)", children: <PickRouteSheet /> },
-          { key: "requests", label: "Заявки участков", children: <AreaRequestsPanel /> },
-          { key: "norms", label: "Неснижаемый остаток", children: <AreaNormsPanel /> },
           { key: "fact", label: "Факт резки и выдачи", children: <IssueFactPanel /> },
         ]}
       />
@@ -367,7 +363,7 @@ function Fabrika({ rows }: { rows: SiteStock[] }) {
           {
             title: "Действие",
             render: () => (
-              <Link to="/issue?area=fabrika">
+              <Link to="/film-operations?tab=issue&area=fabrika&manual=1">
                 <Button size="small" type="primary" style={{ background: "#389e0d" }}>
                   Выдать пачку на Фабрику →
                 </Button>

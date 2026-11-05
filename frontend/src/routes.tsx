@@ -1,4 +1,4 @@
-import { Navigate, Routes, Route } from "react-router-dom";
+import { Navigate, Routes, Route, useLocation } from "react-router-dom";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import AppLayout from "./layout/AppLayout";
@@ -7,8 +7,7 @@ import { lazyPage } from "./utils/lazyPage";
 import { RedirectToSection } from "./components/SectionTabs";
 import { ITEM_VIEW_PERMISSIONS } from "./api/items";
 
-const IssueHub = lazyPage(() => import("./pages/mobile/StockOpsHub").then((m) => ({ default: m.IssueHub })));
-const ReceiveHub = lazyPage(() => import("./pages/mobile/StockOpsHub").then((m) => ({ default: m.ReceiveHub })));
+const FilmWorkbench = lazyPage(() => import("./pages/desktop/FilmWorkbench"));
 const UnitCard = lazyPage(() => import("./pages/mobile/UnitCard"));
 const PartUnitCard = lazyPage(() => import("./pages/mobile/PartUnitCard"));
 
@@ -26,7 +25,6 @@ const SalesCalculator = lazyPage(() => import("./pages/desktop/SalesCalculator")
 const ProductionTasks = lazyPage(() => import("./pages/desktop/ProductionTasks"));
 const Demand = lazyPage(() => import("./pages/desktop/production/Demand"));
 const Settings = lazyPage(() => import("./pages/desktop/Settings"));
-const Reconciliation = lazyPage(() => import("./pages/desktop/Reconciliation"));
 const Planning = lazyPage(() => import("./pages/desktop/Planning"));
 const ProductionCalendar = lazyPage(() => import("./pages/desktop/production/ProductionCalendar"));
 const Requests = lazyPage(() => import("./pages/desktop/Requests"));
@@ -45,6 +43,25 @@ const CustomerOrderPage = lazyPage(() => import("./pages/desktop/customerOrders/
 const ActionLog = lazyPage(() => import("./pages/desktop/ActionLog"));
 const ExpressInventory = lazyPage(() => import("./pages/mobile/ExpressInventory"));
 
+function LegacyFilmRedirect({ tab, extra = {} }: { tab: string; extra?: Record<string, string> }) {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const kind = params.get("kind");
+  if (kind === "pf" || kind === "material") {
+    const stockKind = kind === "pf" ? "pf" : "materials";
+    const stockTab = kind === "pf" && tab === "issue" ? "lots" : "items";
+    return <Navigate to={`/stock?kind=${stockKind}&tab=${stockTab}`} replace state={location.state} />;
+  }
+  params.set("tab", tab);
+  for (const [key, value] of Object.entries(extra)) params.set(key, value);
+  return <Navigate to={`/film-operations?${params.toString()}`} replace state={location.state} />;
+}
+
+function LegacySupplyRedirect() {
+  const location = useLocation();
+  return <Navigate to="/stock?tab=requests" replace state={location.state} />;
+}
+
 /** Экраны программы внутри шапки и меню. Отдельным списком, чтобы каждая
  * рабочая вкладка (layout/WorkspaceTabs.tsx) могла отрисовать свой экран по
  * своему адресу, а открытые вкладки не пересоздавались при переключении. */
@@ -52,14 +69,15 @@ const appPageRoutes = (
   <>
     <Route path="/" element={<Home />} />
 
-    {/* 14.10: приёмка и выдача любой позиции — вид переключателем (?kind=) */}
-    <Route path="/m/receive" element={<RequirePermission permissions={["units.receive", "materials.manage", "part_units.manage"]}><ReceiveHub /></RequirePermission>} />
-    <Route path="/m/initial-stock" element={<Navigate to="/m/receive?mode=nodoc" replace />} />
-    {/* выдача плёнки и заявки участков — вкладкой «Задания цеха» (15.10); старые адреса ведут туда */}
-    <Route path="/area-supply" element={<Navigate to="/production-tasks?tab=film-issue&sub=requests" replace />} />
-    <Route path="/film-issue" element={<Navigate to="/production-tasks?tab=film-issue" replace />} />
+    {/* Плёнка имеет отдельный рабочий процесс; ПФ и материалы открываются из складских остатков. */}
+    <Route path="/film-operations" element={<RequirePermission permissions={["units.issue", "units.receive", "units.return", "production_tasks.manage", "production_tasks.view", "reports.view"]}><FilmWorkbench /></RequirePermission>} />
+    <Route path="/m/receive" element={<LegacyFilmRedirect tab="receive" />} />
+    <Route path="/m/initial-stock" element={<LegacyFilmRedirect tab="receive" extra={{ mode: "nodoc" }} />} />
+    {/* Старые адреса операций с плёнкой ведут в единый центр */}
+    <Route path="/area-supply" element={<LegacySupplyRedirect />} />
+    <Route path="/film-issue" element={<LegacyFilmRedirect tab="plan" />} />
     <Route path="/pick-route" element={<RequirePermission permissions={["units.issue", "production_tasks.view"]}><PickRouteSheet /></RequirePermission>} />
-    <Route path="/m/issue" element={<RequirePermission permissions={["units.issue", "units.return", "part_units.manage"]}><IssueHub /></RequirePermission>} />
+    <Route path="/m/issue" element={<LegacyFilmRedirect tab="issue" />} />
     <Route path="/blanks" element={<StockRedirect kind="film" tab="free" />} />
     <Route
       path="/m/unit-card"
@@ -252,11 +270,7 @@ const appPageRoutes = (
     <Route path="/pf-demand" element={<Navigate to="/demand?tab=pf" replace />} />
     <Route
       path="/roll-reconciliation"
-      element={
-        <RequirePermission permissions={["units.issue", "units.return", "production_tasks.manage", "reports.view"]}>
-          <Reconciliation />
-        </RequirePermission>
-      }
+      element={<LegacyFilmRedirect tab="reconciliation" extra={{ recon: "rolls" }} />}
     />
     <Route
       path="/area-tasks"

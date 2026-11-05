@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Card, Dropdown, Space, Tabs, Typography } from "antd";
 import { hasPerm } from "../../auth/permissions";
-import AreaRequestsPanel from "../../components/areaSupply/AreaRequestsPanel";
-import AreaNormsPanel from "../../components/areaSupply/AreaNormsPanel";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import CreateTaskModal from "./production/CreateTaskModal";
 import OperationTaskModal from "./production/OperationTaskModal";
@@ -10,15 +8,12 @@ import PfSupplyModal from "./production/PfSupplyModal";
 import DailyPlanTab from "./production/DailyPlanTab";
 import TasksBoard from "./production/TasksBoard";
 import DailySheet from "./production/DailySheet";
-import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
-import { listAreas } from "../../api/areas";
 import { lazyPage } from "../../utils/lazyPage";
-
-const FilmIssueBoard = lazyPage(() => import("./FilmIssueBoard"));
 const ProductionMonitor = lazyPage(() => import("./production/ProductionMonitor"));
 const Demand = lazyPage(() => import("./production/Demand"));
 const ProductionOrders = lazyPage(() => import("./production/ProductionOrders"));
+const PickRouteSheet = lazyPage(() => import("./PickRouteSheet"));
 
 /** Производственный Хаб (APS & Shop Floor) — единое рабочее место управления цехом.
  * Объединяет:
@@ -42,6 +37,18 @@ export default function ProductionTasks() {
 
   const wantNew = params.get("new") === "1";
   useEffect(() => {
+    if (params.get("tab") !== "film-issue") return;
+    const oldSupplyTab = params.get("sub");
+    if (oldSupplyTab === "requests" || oldSupplyTab === "norms") {
+      navigate(`/stock?tab=requests&sub=${oldSupplyTab}`, { replace: true });
+      return;
+    }
+    const next = new URLSearchParams(params);
+    next.set("tab", "plan");
+    navigate(`/film-operations?${next.toString()}`, { replace: true });
+  }, [params, navigate]);
+
+  useEffect(() => {
     if (!wantNew) return;
     setParams(
       (p) => {
@@ -54,33 +61,6 @@ export default function ProductionTasks() {
   }, [wantNew, setParams]);
 
   const [newOpen, setNewOpen] = useState(wantNew);
-  const areas = useQuery({ queryKey: ["areas"], queryFn: listAreas });
-
-  // Участок выдачи плёнки
-  const issuePoint = !!user?.area && !!areas.data?.find((a) => a.code === user.area)?.film_issue_point;
-  const seesBoard = hasPerm(user, "units.issue", "production_tasks.manage", "production_tasks.view");
-  const canRequest = hasPerm(user, "production_tasks.report");
-
-  const issueTab = issuePoint
-    ? null
-    : seesBoard
-      ? { key: "film-issue", label: "🚚 Выдача плёнки", children: <FilmIssueBoard /> }
-      : canRequest
-        ? {
-            key: "film-issue",
-            label: "📦 Заявки на склад",
-            children: (
-              <Tabs
-                defaultActiveKey={params.get("sub") === "norms" ? "norms" : "requests"}
-                items={[
-                  { key: "requests", label: "Заявки", children: <AreaRequestsPanel /> },
-                  { key: "norms", label: "Неснижаемый остаток", children: <AreaNormsPanel /> },
-                ]}
-              />
-            ),
-          }
-        : null;
-
   const tab = params.get("tab");
 
   const tabItems = [
@@ -96,7 +76,7 @@ export default function ProductionTasks() {
     {
       key: "daily-plan",
       label: user?.area ? "📍 Мой участок" : "🏭 Смена и участок",
-      children: issuePoint ? <FilmIssueBoard /> : <DailyPlanTab />,
+      children: <DailyPlanTab />,
     },
     {
       key: "tasks",
@@ -121,7 +101,9 @@ export default function ProductionTasks() {
           },
         ]
       : []),
-    ...(issueTab ? [issueTab] : []),
+    ...(hasPerm(user, "production_tasks.manage", "production_tasks.view")
+      ? [{ key: "pick-route", label: "📋 Маршрут комплектации", children: <PickRouteSheet /> }]
+      : []),
     {
       key: "daily-sheet",
       label: "📝 Ежедневка",

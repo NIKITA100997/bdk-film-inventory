@@ -87,13 +87,14 @@ export default function ManualPanel({ s }: { s: IssueState }) {
                     {availableUnits.length > 0 && (
                       <Space size={8} wrap style={{ marginBottom: 8, marginTop: 4 }}>
                         <Button
-                          size="small"
+                          size="middle"
+                          style={{ minHeight: 44 }}
                           onClick={() => setSelectedUnitIds(availableUnits.map((u) => u.id))}
                         >
                           Выбрать все ({availableUnits.length} шт.)
                         </Button>
                         {selectedUnitIds.length > 0 && (
-                          <Button size="small" onClick={() => setSelectedUnitIds([])}>
+                          <Button size="middle" style={{ minHeight: 44 }} onClick={() => setSelectedUnitIds([])}>
                             Снять выбор
                           </Button>
                         )}
@@ -119,10 +120,11 @@ export default function ManualPanel({ s }: { s: IssueState }) {
                           title: "",
                           render: (_, u) => (
                             <Button
-                              size="small"
+                              size="middle"
                               type="primary"
                               disabled={!manualArea}
                               loading={manualDirectMutation.isPending}
+                              style={{ minHeight: 44 }}
                               onClick={() =>
                                 confirmIfWrongWarehouse(u.warehouse_name, manualArea, () => manualDirectMutation.mutate(u.id))
                               }
@@ -166,7 +168,7 @@ export default function ManualPanel({ s }: { s: IssueState }) {
                             type="primary"
                             disabled={!manualArea}
                             loading={batchIssueMutation.isPending}
-                            style={{ background: "#389e0d" }}
+                            style={{ background: "#389e0d", minHeight: 48, paddingInline: 18 }}
                           >
                             🚀 Переместить пачку на {manualArea ?? "участок"}
                           </Button>

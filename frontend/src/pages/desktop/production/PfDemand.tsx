@@ -20,7 +20,9 @@ import {
   message,
   Segmented,
   Table,
+  Grid,
 } from "antd";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { useAuth } from "../../../auth/AuthContext";
@@ -77,6 +79,8 @@ interface ProduceTarget {
 export default function PfDemand() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const screens = Grid.useBreakpoint();
+  const tabletLayout = !screens.xl;
   const { user } = useAuth();
   const canManage = hasPerm(user, "production_tasks.manage");
   const canOperate =
@@ -89,6 +93,7 @@ export default function PfDemand() {
   const [onlyMine, setOnlyMine] = useState(false);
   const [horizon, setHorizon] = useState<Horizon>("all");
   const [viewMode, setViewMode] = useState<"parts" | "tasks">("parts");
+  const [tileView, setTileView] = useState(false);
   const [qty, setQty] = useState<Record<number, number | null>>({});
   const [dueDate, setDueDate] = useState<Dayjs | null>(null);
   const [lamArea, setLamArea] = useState<Record<number, string>>({});
@@ -371,6 +376,16 @@ export default function PfDemand() {
                 { label: "📑 По заданиям", value: "tasks" },
               ]}
             />
+            {viewMode === "parts" && (
+              <Segmented<"list" | "tiles">
+                value={tileView ? "tiles" : "list"}
+                onChange={(value) => setTileView(value === "tiles")}
+                options={[
+                  { label: "Список", value: "list" },
+                  { label: "Плитка", value: "tiles" },
+                ]}
+              />
+            )}
           </Space>
           {viewMode === "tasks" && (
             <Typography.Text type="secondary">
@@ -464,9 +479,9 @@ export default function PfDemand() {
                   }}
                   title={
                     <Space wrap align="center">
-                      <span style={{ fontWeight: 600, fontSize: 15 }}>
+                      <Link to={`/production-tasks?task=${t.taskId}`} style={{ fontWeight: 600, fontSize: 15 }}>
                         №{t.taskId} · {t.taskName}
-                      </span>
+                      </Link>
                       {t.dueDate ? (
                         isOverdue ? (
                           <Tag color="error" style={{ fontWeight: 600 }}>🚨 Отстаёт ({dayjs(t.dueDate).format("DD.MM.YYYY")})</Tag>
@@ -504,7 +519,73 @@ export default function PfDemand() {
                     )
                   }
                 >
-                  <Table
+                  {tabletLayout ? (
+                    <Space orientation="vertical" size={8} style={{ width: "100%" }}>
+                      {t.sources.map((s) => {
+                        const needToMove = Math.max(0, s.remaining - s.areaStock);
+                        const areaDeficit = needToMove;
+                        const hasStock = s.storageStock > 0;
+                        return (
+                          <Card key={s.partId} size="small" styles={{ body: { padding: 12 } }}>
+                            <Space orientation="vertical" size={8} style={{ width: "100%" }}>
+                              <div>
+                                <Typography.Text strong>{s.partName}</Typography.Text>
+                                {s.firstStageArea && (
+                                  <div><Typography.Text type="secondary">{areaName(s.firstStageArea)} · {s.firstStageName}</Typography.Text></div>
+                                )}
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+                                <div><Typography.Text type="secondary">Нехватка на участке</Typography.Text><div>{areaDeficit > 0 ? <Tag color="red">−{fmt(areaDeficit)} шт</Tag> : <Tag color="green">Обеспечен</Tag>}</div></div>
+                                <div><Typography.Text type="secondary">На складе ПФ</Typography.Text><div><Typography.Text strong style={{ color: hasStock ? "#389e0d" : undefined }}>{fmt(s.storageStock)} шт</Typography.Text></div></div>
+                                <div><Typography.Text type="secondary">На участке</Typography.Text><div>{fmt(s.areaStock)} шт</div></div>
+                                <div><Typography.Text type="secondary">Остаток задания</Typography.Text><div><Typography.Text strong>{fmt(s.remaining)} шт</Typography.Text></div></div>
+                              </div>
+                              <details>
+                                <summary style={{ minHeight: 40, display: "flex", alignItems: "center", cursor: "pointer", color: "#1677ff" }}>План, сделано и в работе</summary>
+                                <Space wrap size={[16, 4]}>
+                                  <Typography.Text>План: {fmt(s.openPlan)} шт</Typography.Text>
+                                  <Typography.Text>Сделано: {fmt(s.done)} шт</Typography.Text>
+                                  <Typography.Text>В работе: {fmt(s.inWork)} шт</Typography.Text>
+                                </Space>
+                              </details>
+                              <Space wrap>
+                                <Button
+                                  size="middle"
+                                  type={hasStock && needToMove > 0 ? "primary" : "default"}
+                                  style={{ minHeight: 44, ...(hasStock && needToMove > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : {}) }}
+                                  disabled={!canOperate || !hasStock}
+                                  onClick={() => setTransferTarget({
+                                    part_id: s.partId,
+                                    part_name: s.partName,
+                                    storage_stock: s.storageStock,
+                                    target_area: t.area || "",
+                                    needed: needToMove > 0 ? Math.min(s.storageStock, needToMove) : s.storageStock,
+                                  })}
+                                >
+                                  Переместить
+                                </Button>
+                                <Button
+                                  size="middle"
+                                  type={!hasStock || needToMove > s.storageStock ? "primary" : "default"}
+                                  style={{ minHeight: 44 }}
+                                  disabled={!canOperate}
+                                  onClick={() => setProduceTarget({
+                                    part_id: s.partId,
+                                    part_name: s.partName,
+                                    suggested_qty: s.shortage > 0 ? s.shortage : (needToMove > 0 ? needToMove : s.remaining),
+                                    target_area: t.area || null,
+                                    stage_id: null,
+                                  })}
+                                >
+                                  Выпустить
+                                </Button>
+                              </Space>
+                            </Space>
+                          </Card>
+                        );
+                      })}
+                    </Space>
+                  ) : <Table
                     size="small"
                     rowKey="partId"
                     dataSource={t.sources}
@@ -620,7 +701,7 @@ export default function PfDemand() {
                         },
                       },
                     ]}
-                  />
+                  />}
                 </Card>
               );
             })
@@ -630,7 +711,136 @@ export default function PfDemand() {
         <PfSections
           sections={sections}
           total={(rs) => `не хватает ${fmt(rs.reduce((s, r) => s + r.shortage, 0))}`}
-          render={(sectionRows, key) => (
+          render={(sectionRows, key) => tabletLayout || tileView ? (
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: tileView ? "repeat(auto-fill, minmax(min(100%, 360px), 1fr))" : "minmax(0, 1fr)",
+              gap: 10,
+            }}>
+              {sectionRows.map((r) => {
+                const storage = r.storage_stock ?? 0;
+                const areaStock = r.area_stock ?? 0;
+                const needOnArea = Math.max(0, r.task_demand - areaStock);
+                const areaDeficit = Math.max(0, r.task_demand - areaStock);
+                const defaultTargetArea = r.target_areas?.[0] ?? "";
+                const status = storage > 0 && needOnArea > 0
+                  ? <Tag color="cyan">Передать на участок · {fmt(Math.min(storage, needOnArea))} шт</Tag>
+                  : r.shortage > 0
+                    ? <Tag color="error">К выпуску · {fmt(r.shortage)} шт</Tag>
+                    : r.task_demand > 0 && needOnArea === 0
+                      ? <Tag color="success">На участке достаточно</Tag>
+                      : r.in_work > 0
+                        ? <Tag color="geekblue">В работе · {fmt(r.in_work)} шт</Tag>
+                        : <Tag>В норме</Tag>;
+                return (
+                  <Card
+                    key={r.part_id}
+                    size="small"
+                    title={<Space wrap><Typography.Text strong>{r.part_name}</Typography.Text>{status}</Space>}
+                    extra={canManage ? (
+                      <Checkbox
+                        checked={selected.includes(r.part_id)}
+                        disabled={!r.first_stage_area}
+                        style={{ minHeight: 44, display: "flex", alignItems: "center" }}
+                        onChange={(e) => setSelected((prev) => e.target.checked
+                          ? Array.from(new Set([...prev, r.part_id]))
+                          : prev.filter((id) => id !== r.part_id))}
+                        aria-label={`Включить ${r.part_name} в новое задание`}
+                      />
+                    ) : null}
+                  >
+                    <Space orientation="vertical" size={12} style={{ width: "100%" }}>
+                      {r.target_areas && r.target_areas.length > 0 && (
+                        <Space wrap size={4}>
+                          <Typography.Text type="secondary">Куда требуется:</Typography.Text>
+                          {r.target_areas.map((a) => <Tag key={a} color="blue">{areaName(a)}</Tag>)}
+                        </Space>
+                      )}
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+                        <div><Typography.Text type="secondary">Потребность цеха</Typography.Text><div><Typography.Text strong>{fmt(r.task_demand)} шт</Typography.Text></div></div>
+                        <div><Typography.Text type="secondary">Дефицит на участке</Typography.Text><div>{areaDeficit > 0 ? <Tag color="red">−{fmt(areaDeficit)} шт</Tag> : <Tag color="green">Нет</Tag>}</div></div>
+                        <div><Typography.Text type="secondary">Остаток на складе ПФ</Typography.Text><div><Typography.Text strong style={{ color: storage > 0 ? "#389e0d" : undefined }}>{fmt(storage)} шт</Typography.Text></div></div>
+                        <div><Typography.Text type="secondary">На участках</Typography.Text><div>{fmt(areaStock)} шт</div></div>
+                      </div>
+                      <Space wrap size={[8, 8]}>
+                        <Button
+                          size="middle"
+                          type={storage > 0 && needOnArea > 0 ? "primary" : "default"}
+                          style={{ minHeight: 44, ...(storage > 0 && needOnArea > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : {}) }}
+                          disabled={!canOperate || storage <= 0}
+                          onClick={() => setTransferTarget({ part_id: r.part_id, part_name: r.part_name, storage_stock: storage, target_area: defaultTargetArea, needed: needOnArea > 0 ? Math.min(storage, needOnArea) : storage })}
+                        >Переместить</Button>
+                        <Button
+                          size="middle"
+                          type={!storage || needOnArea > storage ? "primary" : "default"}
+                          style={{ minHeight: 44 }}
+                          disabled={!canOperate}
+                          onClick={() => setProduceTarget({ part_id: r.part_id, part_name: r.part_name, suggested_qty: r.shortage > 0 ? r.shortage : (needOnArea > 0 ? needOnArea : (r.suggested > 0 ? r.suggested : (r.min_batch || 100))), target_area: defaultTargetArea || null, stage_id: r.first_stage_id })}
+                        >Выпустить</Button>
+                      </Space>
+                      {canManage && (
+                        <div style={{ display: "grid", gridTemplateColumns: "minmax(110px, 150px) minmax(180px, 1fr)", gap: 8, alignItems: "center" }}>
+                          <Space.Compact style={{ width: "100%" }}>
+                            <InputNumber
+                              min={0}
+                              value={qty[r.part_id] ?? null}
+                              onChange={(v) => setQty((prev) => ({ ...prev, [r.part_id]: v }))}
+                              aria-label={`Количество для задания: ${r.part_name}`}
+                              style={{ width: "100%", minHeight: 44 }}
+                            />
+                            <Button disabled style={{ height: 44, color: "#595959" }}>шт</Button>
+                          </Space.Compact>
+                          <LaminationAreaSelect
+                            row={r}
+                            disabled={!canManage}
+                            areaName={areaName}
+                            value={lamArea[r.part_id] ?? suggestLaminationArea(r, qty[r.part_id])}
+                            onChange={(v) => setLamArea((prev) => ({ ...prev, [r.part_id]: v }))}
+                          />
+                        </div>
+                      )}
+                      <details>
+                        <summary style={{ minHeight: 44, display: "flex", alignItems: "center", cursor: "pointer", color: "#1677ff" }}>
+                          Подробности · маршрут, нормы и задания ({r.sources.length})
+                        </summary>
+                        <Space orientation="vertical" size={8} style={{ width: "100%", marginTop: 8 }}>
+                          <Typography.Text type="secondary">Маршрут: {r.first_stage_area ? `${areaName(r.first_stage_area)} · ${r.first_stage_name}` : "не указан"}</Typography.Text>
+                          <Typography.Text type="secondary">Нормативы: {normsLabel(r.min_stock, r.min_batch, r.batch_multiple)}</Typography.Text>
+                          <Space wrap size={[12, 4]}>
+                            <Typography.Text>В работе: {fmt(r.in_work)} шт</Typography.Text>
+                            <Typography.Text>Общий дефицит: <ShortageTags total={r.shortage} tasks={r.shortage_tasks} min={r.shortage_min} /></Typography.Text>
+                          </Space>
+                          {r.sources.map((s) => {
+                            const sourceArea = s.area_stock ?? 0;
+                            const sourceNeed = Math.max(0, s.remaining - sourceArea);
+                            const due = s.due_date ? dayjs(s.due_date).format("DD.MM.YYYY") : "срок не указан";
+                            const sourceStorage = r.storage_stock ?? 0;
+                            return (
+                              <Card key={s.task_id} size="small" styles={{ body: { padding: 10 } }}>
+                                <Space orientation="vertical" size={6} style={{ width: "100%" }}>
+                                  <Link to={`/production-tasks?task=${s.task_id}`}>Задание участка №{s.task_id} · {s.task_name}</Link>
+                                  <Space wrap size={[12, 4]}>
+                                    <Typography.Text type="secondary">Срок: {due}</Typography.Text>
+                                    <Typography.Text>Остаток: {fmt(s.remaining)} шт</Typography.Text>
+                                    <Typography.Text>На участке: {fmt(sourceArea)} шт</Typography.Text>
+                                    <Typography.Text>Дефицит: {fmt(sourceNeed)} шт</Typography.Text>
+                                  </Space>
+                                  <Space wrap>
+                                    <Button size="middle" style={{ minHeight: 44 }} disabled={!canOperate || sourceStorage <= 0} onClick={() => setTransferTarget({ part_id: r.part_id, part_name: r.part_name, storage_stock: sourceStorage, target_area: s.area || "", needed: sourceNeed > 0 ? Math.min(sourceStorage, sourceNeed) : sourceStorage })}>Переместить на {areaName(s.area) ?? "участок"}</Button>
+                                    <Button size="middle" style={{ minHeight: 44 }} disabled={!canOperate} onClick={() => setProduceTarget({ part_id: r.part_id, part_name: r.part_name, suggested_qty: s.shortage > 0 ? s.shortage : (sourceNeed > 0 ? sourceNeed : s.remaining), target_area: s.area || null, stage_id: null })}>Выпустить под задание</Button>
+                                  </Space>
+                                </Space>
+                              </Card>
+                            );
+                          })}
+                        </Space>
+                      </details>
+                    </Space>
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
             <ResponsiveTable<PfDemandRow>
               key={key}
               tableKey="pf-demand"

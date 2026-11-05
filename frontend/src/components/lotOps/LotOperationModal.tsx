@@ -388,7 +388,7 @@ export default function LotOperationModal({
           ))}
         {op === "issue" && film && (
           <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-            Под конкретную строку задания — выдача из «Склад → Выдача участку» или из задания.
+            Под конкретную строку задания — выдайте плёнку из «Плёнка → Выдать и нарезать» или из карточки задания.
           </Typography.Paragraph>
         )}
 

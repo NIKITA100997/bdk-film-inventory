@@ -52,6 +52,8 @@ export function useIssue() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
+  const issueParams = new URLSearchParams(location.search);
+  const initialManualArea = issueParams.get("area");
   const canReturn = hasPerm(user, "units.return");
   // Раздел про мастера участка на этом же экране — у него есть units.return
   // (принимать возврат своего участка), но не units.issue: без этого флага
@@ -112,7 +114,7 @@ export function useIssue() {
   };
   const [cardTab, setCardTab] = useState<"need" | "decided" | "issued">("need");
   const [cardGroup, setCardGroup] = useState<"task" | "film">("task");
-  const [manualOpen, setManualOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(() => issueParams.get("manual") === "1");
   const [result, setResult] = useState<IssueResult | null>(null);
   const [lastIssued, setLastIssued] = useState<IssuedResult | null>(null);
   // Раздел про единую форму резки — один общий модальный CuttingForm для
@@ -252,7 +254,7 @@ export function useIssue() {
   };
 
   const [manualSkuId, setManualSkuId] = useState<number | null>(null);
-  const [manualArea, setManualArea] = useState<AreaValue | null>(null);
+  const [manualArea, setManualArea] = useState<AreaValue | null>(initialManualArea);
   const [manualForm] = Form.useForm<{ width_mm: number; length_m: number }>();
   // Раздел про нарезку в ширину без привязки к заданию — донор,
   // предложенный на "Найти и выдать" ниже, когда точного совпадения по

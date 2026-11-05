@@ -26,7 +26,7 @@ interface PhoneTab extends NavItem {
 // экран спрятан в "Ещё".
 const PINNED_TABS_BASE: PhoneTab[] = [
   { key: "home", path: "/", label: "Сегодня", icon: <HomeOutlined /> },
-  { key: "issue", path: "/m/issue", label: "Выдача", icon: <ExportOutlined />, permissions: ["units.issue", "units.return", "part_units.manage"] },
+  { key: "issue", path: "/film-operations?tab=issue", label: "Плёнка", icon: <ExportOutlined />, permissions: ["units.issue", "units.receive", "units.return", "production_tasks.manage", "production_tasks.view", "reports.view"] },
 ];
 
 interface PhoneTabBarProps {
@@ -51,14 +51,14 @@ export default function PhoneTabBar({ onManualSearchRequest }: PhoneTabBarProps)
     ? { key: "stock", path: "/stock?kind=pf&tab=items", label: "Остатки", icon: <InboxOutlined />, permissions: ["part_units.manage", "part_units.view", "part_storage.manage"] }
     : { key: "stock", path: "/stock", label: "Остатки", icon: <InboxOutlined /> };
   const pinnedTabs = [PINNED_TABS_BASE[0], stockTab, PINNED_TABS_BASE[1]];
-  const pinnedPaths = new Set(pinnedTabs.map((t) => t.path));
+  const pinnedPaths = new Set(pinnedTabs.map((t) => t.path.split("?")[0]));
 
   const visibleTabs = pinnedTabs.filter((t) => isNavItemVisible(t, user));
 
   const moreBlocks = navTree
     .map((block) => ({
       block,
-      items: block.items.filter((item) => !pinnedPaths.has(item.path) && isNavItemVisible(item, user)),
+      items: block.items.filter((item) => !pinnedPaths.has(item.path.split("?")[0]) && isNavItemVisible(item, user)),
     }))
     .filter(({ items }) => items.length > 0);
 

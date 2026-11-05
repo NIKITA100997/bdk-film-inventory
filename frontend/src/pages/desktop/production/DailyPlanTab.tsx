@@ -178,6 +178,9 @@ export default function DailyPlanTab() {
         ) : (
           <ResponsiveTable
             tableKey="daily-plan"
+            cardBreakpoint="xl"
+            cardCollapsedColumns={["Деталь", "Плёнка (номенклатура)", "Штрипс", "Сотрудники линии", "№ рулона"]}
+            stickyColumns={1}
             lockedColumns={["Модель / Задание"]}
             defaultHiddenColumns={["Деталь", "Плёнка (номенклатура)", "Штрипс", "Сотрудники линии"]}
             rowKey={(r) => `${r.line.id}-${r.assignment.id}`}
@@ -201,13 +204,13 @@ export default function DailyPlanTab() {
                       <Tag color="error" title="Овердрафт: списано в дефицит">дефицит -{r.line.film_deficit_m} м</Tag>
                     ) : null}
                     {r.line.material_id && r.line.color_id && <Button
-                      size="small"
-                      type="link"
-                      style={{ padding: "0 2px", fontSize: 11 }}
+                      size="middle"
+                      type="default"
+                      style={{ minHeight: 44, paddingInline: 12 }}
                       onClick={() => setAdjustTarget({ line: r.line, area: r.task.area })}
                       title="Экспресс-сверка остатка штрипсов в пуле"
                     >
-                      сверка
+                      Сверка
                     </Button>}
                   </Space>
                 ),

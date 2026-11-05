@@ -1,5 +1,30 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+  --bdk-navy: #2c2e3a;
+  --bdk-navy-light: #4a4d5c;
+  --bdk-text-muted: #6b6b68;
+  --bdk-border: #dededa;
+  --bdk-border-strong: #c9c9c6;
+  --bdk-orange: #c97a2b;
+  --bdk-orange-soft: #fbf0e3;
+  --bdk-green: #1d9e75;
+  --bdk-green-soft: #e7f5ee;
+  --bdk-page: #f1f1ee;
+  --bdk-surface: #ffffff;
+  --bdk-surface-muted: #fafaf7;
+  --bdk-head: #f3f4f8;
+  --bdk-danger: #c0392b;
+  --bdk-danger-soft: #fbeae8;
+  --bdk-info: #2f6fb2;
+  --bdk-info-soft: #eaf2fb;
+  --bdk-radius-card: 12px;
+  --bdk-radius-control: 8px;
+  --bdk-space-1: 4px;
+  --bdk-space-2: 8px;
+  --bdk-space-3: 12px;
+  --bdk-space-4: 16px;
+  --bdk-space-6: 24px;
+  --bdk-space-8: 32px;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -44,7 +69,7 @@ html {
 }
 
 body {
-  background: #f1f1ee;
+  background: var(--bdk-page);
   font-family: "Calibri", "Segoe UI", Arial, sans-serif;
 }
 
@@ -56,51 +81,50 @@ h5 {
   font-family: "Cambria", Georgia, serif;
 }
 
-/* Планшет / сенсорный экран (05.10, ревизия): кнопки, поля и строки таблиц
-   крупнее — под палец (было ~24 px, нужно 36–40). Только при грубом
+/* Планшет / сенсорный экран: кнопки и поля не меньше 44 px под палец. Только при грубом
    указателе: на компьютере с мышью всё как было. */
 @media (pointer: coarse) {
   .ant-btn {
-    min-height: 40px;
+    min-height: 44px;
   }
   .ant-btn.ant-btn-sm {
-    min-height: 36px;
-    padding-inline: 10px;
+    min-height: 44px;
+    padding-inline: 12px;
   }
   .ant-btn.ant-btn-icon-only {
-    min-width: 40px;
+    min-width: 44px;
   }
   .ant-btn.ant-btn-sm.ant-btn-icon-only {
-    min-width: 36px;
+    min-width: 44px;
   }
   .ant-input,
   .ant-input-affix-wrapper,
   .ant-picker,
   .ant-input-number {
-    min-height: 40px;
+    min-height: 44px;
   }
   .ant-input-number-input {
-    height: 38px;
+    height: 42px;
   }
   /* поле внутри рамки (поиск, поле с иконкой) — высоту держит рамка */
   .ant-input-affix-wrapper > .ant-input {
     min-height: 0;
   }
   .ant-input-search > .ant-input-group > .ant-input-group-addon > .ant-btn {
-    height: 40px;
+    height: 44px;
   }
   .ant-select-single:not(.ant-select-customize-input) .ant-select-selector,
   .ant-select-single {
-    min-height: 40px;
+    min-height: 44px;
     height: auto;
     align-items: center;
   }
   .ant-select-multiple .ant-select-selector {
-    min-height: 40px;
+    min-height: 44px;
   }
   .ant-segmented-item-label {
-    min-height: 36px;
-    line-height: 36px;
+    min-height: 44px;
+    line-height: 44px;
   }
   .ant-checkbox-inner,
   .ant-radio-inner {
@@ -111,14 +135,83 @@ h5 {
     padding-block: 12px;
   }
   .ant-table.ant-table-small .ant-table-tbody > tr > td {
-    padding-block: 10px;
+    padding-block: 12px;
   }
   .ant-pagination .ant-pagination-item,
   .ant-pagination .ant-pagination-prev,
   .ant-pagination .ant-pagination-next {
-    min-width: 40px;
-    height: 40px;
-    line-height: 38px;
+    min-width: 44px;
+    height: 44px;
+    line-height: 42px;
+  }
+}
+
+/* Единая визуальная система таблиц: одинаковые заголовки, плотность строк,
+   границы и фон независимо от того, использует экран Table или ResponsiveTable. */
+.ant-table-wrapper {
+  min-width: 0;
+  color: var(--bdk-navy);
+}
+.ant-table {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.ant-table-thead > tr > th {
+  color: var(--bdk-navy);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  vertical-align: middle;
+}
+.ant-table-tbody > tr > td {
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.ant-table.ant-table-small {
+  font-size: 14px;
+}
+.ant-table.ant-table-small .ant-table-thead > tr > th {
+  font-size: 13px;
+}
+.ant-table-cell {
+  overflow-wrap: anywhere;
+}
+
+/* Карточки и секции используют одну поверхность и один радиус; вложенные
+   рабочие карточки остаются компактнее внешней секции. */
+.app-page .ant-card {
+  border-color: var(--bdk-border);
+  border-radius: var(--bdk-radius-card);
+  background: var(--bdk-surface);
+}
+.app-page .ant-card-head {
+  border-bottom-color: var(--bdk-border);
+}
+.app-page .ant-card-head-title {
+  color: var(--bdk-navy);
+  font-weight: 650;
+}
+.app-page .ant-tabs-nav::before {
+  border-bottom-color: var(--bdk-border);
+}
+.app-page .ant-tabs-tab-btn {
+  font-weight: 550;
+}
+
+@media (pointer: coarse) {
+  .ant-tabs-tab {
+    min-height: 48px;
+    padding-inline: 14px;
+  }
+  .app-shell .ant-menu-horizontal > .ant-menu-item,
+  .app-shell .ant-menu-horizontal > .ant-menu-submenu {
+    min-height: 48px;
+    line-height: 48px;
+  }
+  .ant-checkbox-wrapper,
+  .ant-radio-wrapper {
+    min-height: 44px;
+    align-items: center;
   }
 }
 
