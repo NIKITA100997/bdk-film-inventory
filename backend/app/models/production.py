@@ -8,7 +8,7 @@ ProductionTaskLine; распределение по конкретным лин�
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -206,6 +206,28 @@ class ProductionTaskLine(Base):
     assignments: Mapped[list["ProductionTaskLineAssignment"]] = relationship(
         back_populates="task_line", cascade="all, delete-orphan"
     )
+    sources: Mapped[list["ProductionTaskLineSource"]] = relationship(
+        back_populates="task_line", cascade="all, delete-orphan"
+    )
+
+
+class ProductionTaskLineSource(Base):
+    """Позиция заказа и её доля в агрегированной строке задания участка."""
+
+    __tablename__ = "production_task_line_sources"
+    __table_args__ = (UniqueConstraint("task_line_id", "order_line_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_line_id: Mapped[int] = mapped_column(
+        ForeignKey("production_task_lines.id", ondelete="CASCADE"), index=True
+    )
+    order_line_id: Mapped[int] = mapped_column(
+        ForeignKey("production_order_lines.id"), index=True
+    )
+    quantity_pieces: Mapped[float] = mapped_column(Numeric(12, 2))
+
+    task_line: Mapped[ProductionTaskLine] = relationship(back_populates="sources")
+    order_line: Mapped["ProductionOrderLine"] = relationship()
 
 
 class ProductionTaskLineReport(Base):

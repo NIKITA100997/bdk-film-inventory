@@ -67,7 +67,7 @@ export default function ProductionMonitor() {
         (!productOk || productOf(r) === productOk) &&
         (orderIds.length === 0 || orderIds.includes(r.order_id ?? 0)) &&
         (!needle ||
-          [r.invoice_no ?? "", r.series ?? "", r.color ?? "", r.source ?? "", r.position, r.task_name ?? "", r.operation ?? ""].some((s) =>
+          [r.invoice_no ?? "", r.series ?? "", ...(r.source_orders ?? []).map((src) => `${src.invoice_no ?? ""} ${src.series}`), r.color ?? "", r.source ?? "", r.position, r.task_name ?? "", r.operation ?? ""].some((s) =>
             norm(s).includes(needle),
           )),
     );

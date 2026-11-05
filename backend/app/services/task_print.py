@@ -14,7 +14,9 @@ from app.models.areas import Area
 from app.models.dictionaries import Color, Material, Thickness
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.production_orders import ProductionOrder, ProductionOrderLine
+from app.models.items import Item
 from app.models.sites import Site
+from app.services.task_line_sources import source_allocations
 from app.services.door_cols import door_cols
 from app.services.type_rules import item_chars_cached
 
@@ -172,6 +174,16 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
 
     lines = [ln for t in tasks for ln in t.lines]
     ids = [ln.id for ln in lines]
+    allocations = source_allocations(db, lines)
+    source_order_line_ids = {ol_id for rows in allocations.values() for ol_id in rows}
+    source_order_lines = {
+        ol.id: ol for ol in db.query(ProductionOrderLine).filter(ProductionOrderLine.id.in_(source_order_line_ids or {-1}))
+    }
+    source_items = {
+        item.id: item for item in db.query(Item).filter(
+            Item.id.in_({ol.item_id for ol in source_order_lines.values() if ol.item_id} or {-1})
+        )
+    }
     good: dict[int, float] = {}
     slots: dict[int, list] = defaultdict(list)
     if ids:
@@ -211,6 +223,25 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
             if ln.production_closed:
                 continue
             ol = db.get(ProductionOrderLine, ln.order_line_id) if ln.order_line_id else None
+            source_orders = []
+            for source_order_line_id, source_qty in sorted(allocations.get(ln.id, {}).items()):
+                source_ol = source_order_lines.get(source_order_line_id)
+                if source_ol is None:
+                    continue
+                source_item = source_items.get(source_ol.item_id)
+                source_cols = door_cols(
+                    item_chars_cached(db, source_ol.item_id) if source_ol.item_id else [],
+                    source_ol.source_text,
+                    source_item.name if source_item else None,
+                )
+                source_orders.append({
+                    "order_line_id": source_ol.id,
+                    "invoice_no": source_ol.invoice_no,
+                    "series": source_cols.get("series", ""),
+                    "size": source_cols.get("size", ""),
+                    "color": source_cols.get("color", ""),
+                    "qty": round(source_qty, 2),
+                })
             days = sorted(slots.get(ln.id, []))
             film = None
             if ln.material_id:
@@ -232,6 +263,10 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
 
             # Всегда вызываем door_cols с fallback_name для извлечения серий, размеров и кромок
             cols_data = door_cols(row_chars, ol.source_text if ol else None, ln.part_name)
+            if source_orders:
+                source_series = sorted({src["series"] for src in source_orders if src["series"]})
+                if source_series:
+                    cols_data["series"] = ", ".join(source_series)
 
             # Если размер не определился door_cols, подтягиваем из параметров строки или названия
             if not cols_data.get("size"):
@@ -289,12 +324,15 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
                     "foam": foam_spec,
                 }
 
+            source_missing = bool(ln.part_id and t.production_order_id and not source_orders)
             sheet["rows"].append({
                 "task_id": t.id,
                 "name": ln.part_name or "",
                 "chars": row_chars,
                 **cols_data,
-                "invoice_no": ol.invoice_no if ol else None,
+                "invoice_no": ol.invoice_no if ol else ", ".join(sorted({src["invoice_no"] for src in source_orders if src["invoice_no"]})) or None,
+                "source_orders": source_orders,
+                "source_missing": source_missing,
                 "qty": float(ln.quantity_pieces),
                 "done": round(min(good.get(ln.id, 0.0), float(ln.quantity_pieces)), 2),
                 "film": film,
@@ -309,12 +347,16 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
             grp = line_group(db, ln, t.area, row_chars)
             if grp is not None:
                 gk, gl = grp
-                g = sheet["groups"].setdefault(gk, {"label": gl, "qty": 0.0, "done": 0.0, "lines": 0, "invoices": set(), "date_from": None, "date_to": None})
+                g = sheet["groups"].setdefault(gk, {"label": gl, "qty": 0.0, "done": 0.0, "lines": 0, "invoices": set(), "unresolved": False, "date_from": None, "date_to": None})
                 g["qty"] += float(ln.quantity_pieces)
                 g["done"] += min(good.get(ln.id, 0.0), float(ln.quantity_pieces))
                 g["lines"] += 1
-                if ol is not None and ol.invoice_no:
+                source_invoices = {src["invoice_no"] for src in source_orders if src["invoice_no"]}
+                if source_invoices:
+                    g["invoices"].update(source_invoices)
+                elif ol is not None and ol.invoice_no:
                     g["invoices"].add(ol.invoice_no)
+                g["unresolved"] = g["unresolved"] or source_missing
                 if days:
                     g["date_from"] = min(filter(None, [g["date_from"], days[0].isoformat()]))
                     g["date_to"] = max(filter(None, [g["date_to"], days[-1].isoformat()]))

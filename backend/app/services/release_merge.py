@@ -3,10 +3,9 @@
 release_pf рождает строку на «строку заказа × деталь × операция», поэтому
 один и тот же каркас 24×810×2010 у трёх строк заказа разного цвета шёл
 участку тремя строками (в «Графике» сборка каркасов — 32 строки на 8
-каркасов). П/ф расходуются по FIFO по участку, без привязки к строке
-заказа, — такие строки сливаются в одну: та же деталь, операция, плёнка,
-ширина штрипса, программа и указание мастеру. Количество суммируется;
-строка заказа остаётся, только если она у всех одна.
+каркасов). П/ф расходуются по FIFO по участку, поэтому одинаковые строки
+сливаются. Количество и его разбиение по исходным строкам заказа
+сохраняются; order_line_id остаётся одиночным только при одном источнике.
 
 Не трогает: строки самой позиции заказа (двери, погонаж под заказ — им нужна
 связь со строкой заказа: ход заказа, приход на склад готовой по счёту) и
@@ -19,9 +18,10 @@ release_pf рождает строку на «строку заказа × де�
 from sqlalchemy.orm import Session
 
 from app.models.dictionaries import Part
-from app.models.production import ProductionTask, ProductionTaskLine
+from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineSource
 from app.models.production_orders import ProductionOrder, ProductionOrderLine
 from app.services.release_overrides import line_key
+from app.services.task_line_sources import source_allocations
 
 
 def _merge_key(ln: ProductionTaskLine) -> tuple:
@@ -38,6 +38,7 @@ def merge_pf_lines(db: Session, order: ProductionOrder, skipped: set[str] | None
     part_item = {}
     merged_keys: dict[int, list[str]] = {}
     for task in db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).order_by(ProductionTask.id):
+        allocations = source_allocations(db, list(task.lines))
         groups: dict[tuple, list[ProductionTaskLine]] = {}
         for ln in sorted(task.lines, key=lambda x: x.id or 0):
             if ln.part_id is None or line_key(ln) in skipped:
@@ -54,7 +55,23 @@ def merge_pf_lines(db: Session, order: ProductionOrder, skipped: set[str] | None
             keep, rest = lines[0], lines[1:]
             keys = [line_key(x) for x in lines]
             keep.quantity_pieces = round(sum(float(x.quantity_pieces) for x in lines), 2)
-            if len({x.order_line_id for x in lines}) > 1:
+            source_totals: dict[int, float] = {}
+            for source_line in lines:
+                source_qty = allocations.get(source_line.id, {})
+                source_total = sum(source_qty.values())
+                line_qty = float(source_line.quantity_pieces)
+                scale = line_qty / source_total if source_total > 0 else 1.0
+                for order_line_id, qty in source_qty.items():
+                    source_totals[order_line_id] = source_totals.get(order_line_id, 0.0) + qty * scale
+
+            if source_totals:
+                keep.sources.clear()
+                for order_line_id, qty in sorted(source_totals.items()):
+                    keep.sources.append(
+                        ProductionTaskLineSource(order_line_id=order_line_id, quantity_pieces=round(qty, 2))
+                    )
+                keep.order_line_id = next(iter(source_totals)) if len(source_totals) == 1 else None
+            elif len({x.order_line_id for x in lines}) > 1:
                 keep.order_line_id = None
             notes = [c for x in lines for c in (x.manual_changes or [])]
             if notes:

@@ -37,17 +37,40 @@ export function buildLines(rows: MonitorRow[], orders: MonitorOrder[], areas: Mo
   const pfOf = new Map<string, { plan: number; done: number }>();
   const filmOf = new Map<string, MonitorRow[]>();
   for (const r of rows) {
-    if (r.order_id == null || r.order_line_id == null) continue;
-    const key = `${r.order_id}|${r.order_line_id}`;
-    if (r.film_status) (filmOf.get(key) ?? filmOf.set(key, []).get(key)!).push(r);
+    if (r.order_id == null) continue;
     if (r.part_id != null) {
-      // п/ф под эту дверь — одной сводкой (подробно — в «Заданиях цехов»)
-      const p = pfOf.get(key) ?? { plan: 0, done: 0 };
-      p.plan += r.plan;
-      p.done += r.closed ? r.plan : Math.min(r.good, r.plan);
-      pfOf.set(key, p);
+      // Агрегированное п/ф распределяем обратно по исходным позициям заказа
+      // пропорционально плану; само производственное задание остаётся общим.
+      const sources = r.source_orders?.length
+        ? r.source_orders.map((s) => ({ order_line_id: s.order_line_id, qty: s.quantity_pieces }))
+        : r.order_line_id != null ? [{ order_line_id: r.order_line_id, qty: r.plan }] : [];
+      if (!sources.length) continue;
+      for (const source of sources) {
+        const key = `${r.order_id}|${source.order_line_id}`;
+        const share = r.plan > 0 ? source.qty / r.plan : 0;
+        const done = r.closed ? source.qty : Math.min(source.qty, r.good * share);
+        const p = pfOf.get(key) ?? { plan: 0, done: 0 };
+        p.plan += source.qty;
+        p.done += done;
+        pfOf.set(key, p);
+        if (r.film_status) {
+          (filmOf.get(key) ?? filmOf.set(key, []).get(key)!).push({
+            ...r,
+            order_line_id: source.order_line_id,
+            plan: source.qty,
+            good: r.plan > 0 ? r.good * share : 0,
+            defect: r.defect * share,
+            film_need_m: (r.film_need_m ?? 0) * share,
+            film_to_issue_m: (r.film_to_issue_m ?? 0) * share,
+            film_deficit_m: (r.film_deficit_m ?? 0) * share,
+          });
+        }
+      }
       continue;
     }
+    if (r.order_line_id == null) continue;
+    const key = `${r.order_id}|${r.order_line_id}`;
+    if (r.film_status) (filmOf.get(key) ?? filmOf.set(key, []).get(key)!).push(r);
     const op = r.operation ?? r.area;
     // порядок столбцов: этап маршрута, при равных — участок по срокам плана (раньше начинается — левее)
     const seq = (r.op_seq ?? 1000) * 1000 + (areaSort.get(r.area) ?? 999);

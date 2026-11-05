@@ -410,6 +410,8 @@ export interface TaskPrintSheet {
     name: string;
     chars: ItemChar[];
     invoice_no: string | null;
+    source_orders?: { order_line_id: number; invoice_no: string | null; series: string; size: string; color: string; qty: number }[];
+    source_missing?: boolean;
     qty: number;
     done: number;
     film: string | null;
@@ -440,6 +442,7 @@ export interface TaskPrintSheet {
     done: number;
     lines: number;
     invoices: string[];
+    unresolved?: boolean;
     date_from: string | null;
     date_to: string | null;
   }[];

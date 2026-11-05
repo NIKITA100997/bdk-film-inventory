@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from app.models.production_orders import ORDER_RELEASED, ProductionOrder, Produc
 from app.models.sites import Site
 from app.services.door_cols import door_cols
 from app.services.item_attrs import effective_direction
+from app.services.task_line_sources import source_allocations
 
 router = APIRouter(prefix="/production-monitor", tags=["production-monitor"])
 view = require_permission("production_tasks.manage", "production_tasks.view", "production_tasks.report", "reports.view")
@@ -39,6 +40,13 @@ class MonitorOrder(BaseModel):
     name: str
     ship_date: date | None
     kind: str
+
+
+class MonitorSource(BaseModel):
+    order_line_id: int
+    invoice_no: str | None
+    series: str
+    quantity_pieces: float
 
 
 class MonitorRow(BaseModel):
@@ -66,6 +74,8 @@ class MonitorRow(BaseModel):
     size: str = ""
     color: str = ""
     source: str = ""
+    source_orders: list[MonitorSource] = Field(default_factory=list)
+    source_missing: bool = False
     # выдача плёнки (16.10, как на доске выдачи): issued / covered — есть,
     # partial — частично, none — не выдана, site_stock — со склада Фабрики
     film_status: str | None = None
@@ -129,14 +139,17 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
         for s in db.query(PlanSlot.task_line_id, PlanSlot.date).filter(PlanSlot.task_line_id.in_(ids)):
             slots[s.task_line_id].append(s.date)
 
+    task_lines = [ln for ln, _ in lines]
+    source_qty_by_line = source_allocations(db, task_lines)
+    source_order_line_ids = {ol_id for source_qty in source_qty_by_line.values() for ol_id in source_qty}
     order_lines = {
         ol.id: ol
         for ol in db.query(ProductionOrderLine).filter(
-            ProductionOrderLine.id.in_({ln.order_line_id for ln, _ in lines if ln.order_line_id})
+            ProductionOrderLine.id.in_({ln.order_line_id for ln, _ in lines if ln.order_line_id} | source_order_line_ids or {-1})
         )
     }
     parts = {p.id: p for p in db.query(Part).filter(Part.id.in_({ln.part_id for ln, _ in lines if ln.part_id}))}
-    item_ids = {ol.item_id for ol in order_lines.values()} | {p.item_id for p in parts.values() if p.item_id}
+    item_ids = {ol.item_id for ol in order_lines.values() if ol.item_id} | {p.item_id for p in parts.values() if p.item_id}
     items = {i.id: i for i in db.query(Item).filter(Item.id.in_(item_ids))} if item_ids else {}
     types = {t.id: t for t in db.query(ItemType)}
     mats = {m.id: m.name for m in db.query(Material)}
@@ -164,6 +177,23 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
     area_codes: set[str] = set()
     for ln, t in lines:
         ol = order_lines.get(ln.order_line_id) if ln.order_line_id else None
+        source_orders = []
+        for source_order_line_id, source_qty in sorted(source_qty_by_line.get(ln.id, {}).items()):
+            source_ol = order_lines.get(source_order_line_id)
+            if source_ol is None:
+                continue
+            source_item = items.get(source_ol.item_id) if source_ol.item_id else None
+            source_cols = door_cols(
+                item_chars_cached(db, source_ol.item_id) if source_ol.item_id else [],
+                source_ol.source_text,
+                source_item.name if source_item else None,
+            )
+            source_orders.append({
+                "order_line_id": source_ol.id,
+                "invoice_no": source_ol.invoice_no,
+                "series": source_cols.get("series", ""),
+                "quantity_pieces": round(source_qty, 2),
+            })
         part = parts.get(ln.part_id) if ln.part_id else None
         position = ln.part_name or (items[ol.item_id].name if ol and ol.item_id in items else "") or (part.name if part else "")
         film = None
@@ -179,14 +209,17 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
         rows.append(
             MonitorRow(
                 task_line_id=ln.id, task_id=t.id, area=t.area, order_id=t.production_order_id,
-                invoice_no=ol.invoice_no if ol else None, position=position,
+                invoice_no=ol.invoice_no if ol else ", ".join(sorted({src["invoice_no"] for src in source_orders if src["invoice_no"]})) or None, position=position,
                 direction=direction(ol.item_id if ol else (part.item_id if part else None)),
                 film=film, program=ln.program, plan=float(ln.quantity_pieces), good=g, defect=d,
                 closed=bool(ln.production_closed), last_report=last,
                 date_from=days[0] if days else None, date_to=days[-1] if days else None,
                 group=grp[1] if grp else None,
                 order_line_id=ol.id if ol else None, line_qty=float(ol.quantity) if ol else None,
-                series=dc.get("series", ""), size=dc.get("size", ""), color=dc.get("color", ""), source=dc.get("source", ""),
+                series=dc.get("series", "") or ", ".join(sorted({src["series"] for src in source_orders if src["series"]})),
+                size=dc.get("size", ""), color=dc.get("color", ""), source=dc.get("source", ""),
+                source_orders=source_orders,
+                source_missing=bool(ln.part_id and t.production_order_id and not source_orders),
                 operation=(stages[ln.part_stage_id].name if ln.part_stage_id in stages else None) or (area_by_code[t.area].name if t.area in area_by_code else None),
                 op_seq=stages[ln.part_stage_id].sequence_order if ln.part_stage_id in stages else None,
                 part_id=ln.part_id, task_name=t.name,

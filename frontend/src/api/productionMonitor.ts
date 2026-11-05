@@ -24,6 +24,8 @@ export interface MonitorRow {
   area: string;
   order_id: number | null;
   invoice_no: string | null;
+  source_orders?: { order_line_id: number; invoice_no: string | null; series: string; quantity_pieces: number }[];
+  source_missing?: boolean;
   position: string;
   direction: string | null;
   film: string | null;

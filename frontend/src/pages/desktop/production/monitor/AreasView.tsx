@@ -128,7 +128,7 @@ export default function AreasView({
         storageKey="monitor.area"
         dims={[
           { key: "order", label: "Заказ", value: (r) => (r.order_id != null ? orderName.get(r.order_id) ?? `№${r.order_id}` : r.task_name ?? "") },
-          { key: "invoice", label: "Счёт", value: (r) => r.invoice_no ?? "" },
+          { key: "invoice", label: "Счёт / серия", value: (r) => r.source_orders?.length ? r.source_orders.map((s) => `${s.invoice_no ?? "—"} / ${s.series || "—"} (${r2(s.quantity_pieces)})`).join(", ") : r.invoice_no ?? "" },
           { key: "op", label: "Операция", value: (r) => r.operation ?? "" },
           { key: "pos", label: "Позиция", value: (r) => posOf(r) },
         ]}
@@ -159,10 +159,25 @@ export default function AreasView({
                     {r.source}
                   </Typography.Text>
                 )}
+                {r.source_missing && (
+                  <Typography.Text type="danger" style={{ display: "block", fontSize: 11 }}>
+                    Не восстановлены счёт и серия — требуется сверка
+                  </Typography.Text>
+                )}
               </div>
             ),
           },
-          { key: "invoice", title: "Счёт", width: 100, sortValue: (r) => r.invoice_no ?? "", render: (_, r) => r.invoice_no ?? "" },
+          {
+            key: "invoice", title: "Счёт / серия", width: 180,
+            sortValue: (r) => r.invoice_no ?? "",
+            render: (_, r) => r.source_orders?.length ? (
+              <div style={{ whiteSpace: "normal" }}>
+                {r.source_orders!.map((s) => (
+                  <div key={s.order_line_id}>{s.invoice_no ?? "—"} / {s.series || "—"} · {r2(s.quantity_pieces)} шт.</div>
+                ))}
+              </div>
+            ) : r.invoice_no ?? "",
+          },
           { key: "op", title: "Операция", width: 130, sortValue: (r) => r.operation ?? "", render: (_, r) => r.operation ?? "" },
           {
             key: "plan",
