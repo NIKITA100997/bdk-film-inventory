@@ -234,7 +234,7 @@ function MergeSkuModal({ sku, allSkus, onClose }: { sku: MaterialSku; allSkus: M
   const [otherSkuId, setOtherSkuId] = useState<number | undefined>();
   const [survivor, setSurvivor] = useState<"current" | "other">("current");
 
-  const candidateSkus = allSkus.filter((s) => s.id !== sku.id);
+  const candidateSkus = allSkus.filter((s) => s.id !== sku.id && s.is_active && s.material.id === sku.material.id);
   const other = candidateSkus.find((s) => s.id === otherSkuId);
 
   const mergeMutation = useMutation({
@@ -245,7 +245,9 @@ function MergeSkuModal({ sku, allSkus, onClose }: { sku: MaterialSku; allSkus: M
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["material-skus"] });
-      message.success(`Объединено — перенесено единиц: ${result.moved_units}, событий журнала: ${result.moved_events}`);
+      message.success(
+        `Объединено: рулонов ${result.moved_units}, движений ${result.moved_events}, активных заданий ${result.updated_active_task_lines}, открытых заявок ${result.updated_open_requests}`,
+      );
       onClose();
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось объединить")),
@@ -256,8 +258,8 @@ function MergeSkuModal({ sku, allSkus, onClose }: { sku: MaterialSku; allSkus: M
       <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         <Typography.Paragraph type="secondary">
           Для двух позиций, оказавшихся одним и тем же материалом под разными названиями (дубль/опечатка в
-          справочнике) — весь остаток, история движений и связи объединяемой позиции переносятся на оставшуюся,
-          сама она уходит в архив. Отменить это действие нельзя.
+          справочнике) — остаток и история переносятся на выбранную позицию; закрепления деталей, незакрытые
+          задания и открытые заявки тоже переключаются на неё. Дубликат уходит в архив. Отменить это действие нельзя.
         </Typography.Paragraph>
         <Select
           placeholder="С какой позицией объединить"

@@ -195,6 +195,13 @@ class MaterialSkuMergeResult(BaseModel):
     survivor: MaterialSkuOut
     moved_units: int
     moved_events: int
+    moved_parts: int = 0
+    updated_active_task_lines: int = 0
+    updated_bom_components: int = 0
+    archived_items: int = 0
+    updated_aliases: int = 0
+    updated_open_requests: int = 0
+    updated_area_requests: int = 0
 
 
 class DictEntryUpdate(BaseModel):

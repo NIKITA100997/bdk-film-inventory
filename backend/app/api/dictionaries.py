@@ -22,7 +22,12 @@ from app.models.dictionaries import (
     SkuAnalog,
     Thickness,
 )
+from app.models.area_supply import AreaRequest, REQ_OPEN
 from app.models.events import MaterialEvent
+from app.models.film_aliases import FilmAlias
+from app.models.items import Item, ItemComponent
+from app.models.production import ProductionTask, ProductionTaskLine
+from app.models.purchasing import PurchaseRequest
 from app.models.units import MaterialUnit, UnitStatus
 from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.dictionaries import (
@@ -666,8 +671,9 @@ def merge_material_sku(
     той же плёнки (см. MaterialSkuMergeRequest) — та же ручная процедура,
     что в этой сессии делалась точечными SQL-скриптами, теперь как функция
     приложения. Переносим остатки (MaterialUnit), журнал движений
-    (MaterialEvent) и ссылки на донора в истории резки (CuttingOperation) с
-    объединяемой позиции на оставшуюся; связи "аналог" (SkuAnalog) —
+    (MaterialEvent), ссылки деталей и BOM, алиасы плёнки, открытые заявки
+    и незакрытые строки активных заданий на оставшуюся позицию; сам
+    Item объединяемой SKU архивируется. Связи "аналог" (SkuAnalog) —
     аккуратно: если после переноса пара стала самоссылкой или дублирует уже
     существующую связь оставшейся позиции — просто убираем такую лишнюю
     запись, а не пытаемся создать невозможную/повторную. Объединяемая
@@ -677,16 +683,96 @@ def merge_material_sku(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Нельзя объединить позицию саму с собой")
     loser = _get_sku_or_404(db, sku_id)
     survivor = _get_sku_or_404(db, payload.into_sku_id)
+    if not loser.is_active:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Объединяемая позиция уже в архиве")
+    if not survivor.is_active:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Целевая позиция находится в архиве")
+    if loser.material_id != survivor.material_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Объединять можно только позиции одного материала",
+        )
 
     moved_units = db.query(MaterialUnit).filter(MaterialUnit.material_sku_id == loser.id).update(
-        {"material_sku_id": survivor.id}
+        {"material_sku_id": survivor.id}, synchronize_session=False
     )
     moved_events = db.query(MaterialEvent).filter(MaterialEvent.material_sku_id == loser.id).update(
-        {"material_sku_id": survivor.id}
+        {"material_sku_id": survivor.id}, synchronize_session=False
     )
     db.query(CuttingOperation).filter(CuttingOperation.donor_material_sku_id == loser.id).update(
-        {"donor_material_sku_id": survivor.id}
+        {"donor_material_sku_id": survivor.id}, synchronize_session=False
     )
+
+    moved_parts = db.query(Part).filter(Part.default_material_sku_id == loser.id).update(
+        {"default_material_sku_id": survivor.id}, synchronize_session=False
+    )
+
+    old_group = (loser.material_id, loser.color_id, loser.thickness_id)
+    new_group = (survivor.material_id, survivor.color_id, survivor.thickness_id)
+    updated_aliases = db.query(FilmAlias).filter(
+        FilmAlias.material_id == loser.material_id,
+        FilmAlias.color_id == loser.color_id,
+        FilmAlias.thickness_id == loser.thickness_id,
+    ).update(
+        {"material_id": survivor.material_id, "color_id": survivor.color_id,
+         "thickness_id": survivor.thickness_id},
+        synchronize_session=False,
+    )
+
+    updated_open_requests = 0
+    if old_group != new_group:
+        updated_open_requests = db.query(PurchaseRequest).filter(
+            PurchaseRequest.status == "open",
+            PurchaseRequest.item_id.is_(None),
+            PurchaseRequest.material_id == loser.material_id,
+            PurchaseRequest.color_id == loser.color_id,
+            PurchaseRequest.thickness_id == loser.thickness_id,
+        ).update(
+            {"material_id": survivor.material_id, "color_id": survivor.color_id,
+             "thickness_id": survivor.thickness_id},
+            synchronize_session=False,
+        )
+
+    updated_area_requests = 0
+    if loser.item_id and survivor.item_id and loser.item_id != survivor.item_id:
+        updated_area_requests = db.query(AreaRequest).filter(
+            AreaRequest.item_id == loser.item_id,
+            AreaRequest.status.in_(REQ_OPEN),
+        ).update({"item_id": survivor.item_id}, synchronize_session=False)
+
+    updated_task_lines = 0
+    if old_group != new_group:
+        active_lines = (
+            db.query(ProductionTaskLine)
+            .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+            .filter(
+                ProductionTask.is_active.is_(True),
+                ProductionTaskLine.is_closed.is_(False),
+                ProductionTaskLine.production_closed.is_(False),
+                ProductionTaskLine.material_id == loser.material_id,
+                ProductionTaskLine.color_id == loser.color_id,
+                ProductionTaskLine.thickness_id == loser.thickness_id,
+            )
+            .all()
+        )
+        change_note = f"Плёнка {loser.display_name} → {survivor.display_name} (объединение номенклатуры)"
+        for line in active_lines:
+            line.material_id = survivor.material_id
+            line.color_id = survivor.color_id
+            line.thickness_id = survivor.thickness_id
+            line.manual_changes = [*(line.manual_changes or []), change_note]
+        updated_task_lines = len(active_lines)
+
+    updated_bom_components = 0
+    if loser.item_id and survivor.item_id and loser.item_id != survivor.item_id:
+        updated_bom_components = db.query(ItemComponent).filter(
+            ItemComponent.component_item_id == loser.item_id
+        ).update({"component_item_id": survivor.item_id}, synchronize_session=False)
+        archived_item = db.query(Item).filter(Item.id == loser.item_id, Item.is_active.is_(True)).update(
+            {"is_active": False}, synchronize_session=False
+        )
+    else:
+        archived_item = 0
 
     for link in db.query(SkuAnalog).filter((SkuAnalog.sku_id == loser.id) | (SkuAnalog.analog_sku_id == loser.id)).all():
         new_sku_id = survivor.id if link.sku_id == loser.id else link.sku_id
@@ -713,6 +799,13 @@ def merge_material_sku(
         survivor=_skus_query(db).filter(MaterialSku.id == survivor.id).first(),
         moved_units=moved_units,
         moved_events=moved_events,
+        moved_parts=moved_parts,
+        updated_active_task_lines=updated_task_lines,
+        updated_bom_components=updated_bom_components,
+        archived_items=archived_item,
+        updated_aliases=updated_aliases,
+        updated_open_requests=updated_open_requests,
+        updated_area_requests=updated_area_requests,
     )
 
 

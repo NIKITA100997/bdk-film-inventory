@@ -153,6 +153,13 @@ export interface MaterialSkuMergeResult {
   survivor: MaterialSku;
   moved_units: number;
   moved_events: number;
+  moved_parts: number;
+  updated_active_task_lines: number;
+  updated_bom_components: number;
+  archived_items: number;
+  updated_aliases: number;
+  updated_open_requests: number;
+  updated_area_requests: number;
 }
 
 export const mergeMaterialSku = async (skuId: number, intoSkuId: number): Promise<MaterialSkuMergeResult> =>
