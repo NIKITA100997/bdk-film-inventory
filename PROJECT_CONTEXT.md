@@ -226,12 +226,42 @@
 
 ---
 
+### 4.9. Комплексная оптимизация производительности (устранение медленной загрузки на проде)
+- **Причины тормозов на проде:**
+  - Лавина параллельных запросов (до 25–30 запросов) при открытии главной страницы `ModularHome` (виджет «Сводка» / `Overview embedded` опрашивал 21 эндпоинт одновременно).
+  - Голодание стандартного пула соединений SQLAlchemy (`pool_size=5, max_overflow=10` — лимит 15 соединений).
+  - Проблема N+1 в сериализаторе `_task_out` (расчёт остатков рулонов делал по 2 SQL-запроса на каждый рулон).
+  - Отсутствие индексов в PostgreSQL на таблицах `production_tasks`, `production_task_lines`, `production_task_line_reports`, `material_units` и `material_events`.
+  - Утечка бандла: статический импорт `SearchBox` из `Overview.tsx` в `homeModules.tsx` ломал code-splitting и утягивал весь экран `Overview` в стартовый чанк.
+  - Поведение TanStack Query (`staleTime: 0`, `refetchOnWindowFocus: true`), вызывавшее повторный шквал запросов при каждом переключении окон.
+- **Внедрённые решения:**
+  1. *Бэкенд батчинг (коммит a247022):*
+     - Реализован `fetch_consumed_length_by_unit_since_issue` в `plan_fact.py` и `_preload_issued_unit_remaining` в `production.py` (1 пакетный SQL-запрос вместо 200).
+     - Добавлен фильтр `active_only` в `/production-tasks`.
+     - Создан легковесный специализированный эндпоинт `GET /film-issue/mobile-queue` со схемой `FilmIssueQueueTaskOut` для планшетов выдачи.
+     - Батчинг маршрутов деталей и участков в `pf-demand`.
+  2. *Пул БД и индексы (коммит e412d21):*
+     - Пул SQLAlchemy расширен до `pool_size=20, max_overflow=20, pool_timeout=30`.
+     - Создана миграция Alembic `b5e7d1a3c9f2` с 11 индексами:
+       - `production_tasks (is_active)`, `(area, is_active)`, `(created_at)`.
+       - `production_task_lines (task_id)`, `(task_id, is_closed)`.
+       - `production_task_line_reports (task_line_id)`, `(reported_at)`, `(task_line_id, counts_toward_line)`.
+       - `production_task_line_assignments (task_line_id)`, `(date)`.
+       - `material_units (status)`, `(area, status)`, `(production_task_line_id)`.
+       - `material_events (unit_id, event_type, timestamp)`.
+  3. *Фронтенд и TanStack Query (коммит edab166):*
+     - Установлены глобальные `staleTime: 30_000` и `refetchOnWindowFocus: false`.
+     - Компонент `SearchBox` вынесен в отдельный модуль `components/SearchBox.tsx`, устранён `INEFFECTIVE_DYNAMIC_IMPORT`, `Overview` теперь собирается в отдельный ленивый чанк.
+     - В `Overview.tsx` отключена фоновая загрузка 30-дневных тяжелых аналитических отчётов, когда компонент встроен в главную страницу (`embedded === true`).
+
+---
+
 ## 6. Текущий статус кодовой базы и ветки
 
 - **Активная ветка:** `shchitovye-progon`.
-- **Последний коммит:** `3bb18cb` — `feat: local express inventory for strip pool and batch issue to area`.
-- **Бэкенд:** 505 тестов проходят без единой ошибки (`pytest` 100% pass).
-- **Фронтенд:** Полностью валиден по TypeScript (`tsc` 0 ошибок), Vite build проходит успешно (`npm run build` код 0).
+- **Последний коммит:** `edab166` — `perf: configure query client defaults, isolate search box chunk and skip heavy reports on embedded overview`.
+- **Бэкенд:** 506 тестов проходят без единой ошибки (`pytest` 100% pass).
+- **Фронтенд:** Полностью валиден по TypeScript (`tsc` 0 ошибок), Vite build проходит успешно за 4.7 с без предупреждений.
 - **Локальная БД:** Содержит полную схему, реальные справочники и тестовый боевой заказ №425 для щитовых дверей.
 - **Выполненные улучшения (Вариант 1, Вариант 2, Вариант 3):**
   - **Ведомости участков (Вариант 1):**
