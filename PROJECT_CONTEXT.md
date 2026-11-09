@@ -253,15 +253,22 @@
      - Установлены глобальные `staleTime: 30_000` и `refetchOnWindowFocus: false`.
      - Компонент `SearchBox` вынесен в отдельный модуль `components/SearchBox.tsx`, устранён `INEFFECTIVE_DYNAMIC_IMPORT`, `Overview` теперь собирается в отдельный ленивый чанк.
      - В `Overview.tsx` отключена фоновая загрузка 30-дневных тяжелых аналитических отчётов, когда компонент встроен в главную страницу (`embedded === true`).
+  4. *Очистка очереди выдачи плёнки (коммит b1fbc50):*
+     - Устранена ошибка валидации Pydantic v2 на эндпоинте `/film-issue/mobile-queue` при наличии `SimpleNamespace` в `issued_units` и `assignments`.
+  5. *Отсечение архивных данных при загрузке страниц (коммит 23cecc8):*
+     - `GET /production-tasks`: параметр `active_only` по умолчанию теперь `True`. Эндпоинт отдаёт только 47 активных заданий цеха вместо всех 1 111 (устранена загрузка 1 064 архивных заданий и 14 751 строк).
+     - Фронтенд-экраны цеха (`DailyPlanTab`, `OrderTabs`, `RollReconciliationTab`, `UnitCard`, `PartUnits`, `ProductionLines`, `UnitBulkActions`) переведены на кэшированный `listActiveProductionTasks` с общим ключом `["production-tasks", "active"]`.
+     - На доске нарядов (`TasksBoard`) при включении чекбокса «Архив» явно передаётся `active_only: false`.
+     - `GET /customer-orders`: фильтр закрытых/отгруженных заказов (`stage not in ('shipped', 'cancelled')`) перенесён в SQL-запрос `WHERE`, устранена фоновая обработка закрытых заказов в оперативной памяти Python.
 
 ---
 
 ## 6. Текущий статус кодовой базы и ветки
 
 - **Активная ветка:** `shchitovye-progon`.
-- **Последний коммит:** `edab166` — `perf: configure query client defaults, isolate search box chunk and skip heavy reports on embedded overview`.
-- **Бэкенд:** 506 тестов проходят без единой ошибки (`pytest` 100% pass).
-- **Фронтенд:** Полностью валиден по TypeScript (`tsc` 0 ошибок), Vite build проходит успешно за 4.7 с без предупреждений.
+- **Последний коммит:** `23cecc8` — `perf: default active_only for tasks and push customer orders stage filter to SQL`.
+- **Бэкенд:** 507 тестов проходят без единой ошибки (`pytest` 100% pass).
+- **Фронтенд:** Полностью валиден по TypeScript (`tsc` 0 ошибок), Vite build проходит успешно без предупреждений.
 - **Локальная БД:** Содержит полную схему, реальные справочники и тестовый боевой заказ №425 для щитовых дверей.
 - **Выполненные улучшения (Вариант 1, Вариант 2, Вариант 3):**
   - **Ведомости участков (Вариант 1):**
