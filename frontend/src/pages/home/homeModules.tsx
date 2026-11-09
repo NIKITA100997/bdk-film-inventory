@@ -5,7 +5,7 @@ import type { CurrentUser as User } from "../../auth/types";
 import { hasPerm } from "../../auth/permissions";
 import { lazyPage } from "../../utils/lazyPage";
 import { InboxList, useInbox } from "../../components/InboxList";
-import { SearchBox } from "../desktop/Overview";
+import { SearchBox } from "../../components/SearchBox";
 
 const Overview = lazyPage(() => import("../desktop/Overview"));
 const DailyPlanTab = lazyPage(() => import("../desktop/production/DailyPlanTab"));

@@ -16,9 +16,13 @@ dayjs.locale("ru");
 // Отказ сервера 4xx (не найдено, нет прав, неверные данные) повтором не
 // исправится — показываем сразу, а не после трёх повторов (14.10: страница
 // несуществующего заказа ждала 7–10 с). Обрыв сети и 5xx — повторяем.
+// staleTime: 30 с и refetchOnWindowFocus: false предотвращают каскадный шквал
+// десятков запросов к бэкенду при каждом переключении окон/вкладок.
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
       retry: (count, error) => {
         const st = (error as { response?: { status?: number } })?.response?.status;
         if (st && st >= 400 && st < 500) return false;
@@ -28,11 +32,11 @@ const queryClient = new QueryClient({
   },
 });
 
-// Повторное открытие производственных вкладок должно сразу показывать
-// недавно загруженные данные. Все производственные мутации инвалидируют
-// эти префиксы и по-прежнему обновляют активные экраны немедленно.
-queryClient.setQueryDefaults(["production-tasks"], { staleTime: 15_000 });
-queryClient.setQueryDefaults(["pf-demand"], { staleTime: 15_000 });
+// Производственные вкладки: повторное открытие сразу показывает недавно
+// загруженные данные. Все производственные мутации инвалидируют эти префиксы
+// и по-прежнему обновляют активные экраны немедленно.
+queryClient.setQueryDefaults(["production-tasks"], { staleTime: 30_000 });
+queryClient.setQueryDefaults(["pf-demand"], { staleTime: 30_000 });
 
 // Offline-устойчивость (раздел про ускорение работы): TanStack Query уже
 // по умолчанию ставит мутации на паузу при обрыве связи и продолжает их

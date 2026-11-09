@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Card, Col, Input, Row, Space, Typography } from "antd";
+import { Button, Card, Col, Row, Space, Typography } from "antd";
 import { CheckCircleTwoTone, RightOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -19,13 +19,13 @@ import { listFgStock } from "../../api/finishedGoods";
 import { listSites } from "../../api/sites";
 import { actionRequestsSummary, getPeriod } from "../../api/control";
 import { getProductivity } from "../../api/productivity";
-import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
 import { isOnboardingSeen } from "../../utils/onboarding";
 import OnboardingCard from "../../components/OnboardingCard";
 import { UnplacedUnitsCard } from "./StorageMap";
 import DataHealthCard from "../../components/DataHealthCard";
 import { InboxList, useInbox } from "../../components/InboxList";
 import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "../../components/ColumnSettings";
+import { SearchBox } from "../../components/SearchBox";
 
 // Блоки «Обзора» (07.10): шестерёнка включает и выключает их, как столбцы таблиц.
 const BLOCKS: ColumnOption[] = [
@@ -117,7 +117,7 @@ export default function Overview({ embedded = false }: { embedded?: boolean }) {
   });
   const fgQ = useQuery({ queryKey: ["fg-stock"], queryFn: listFgStock, enabled: canFg });
   const sitesQ = useQuery({ queryKey: ["sites"], queryFn: listSites, enabled: canFg });
-  const extra = show("film-reports") && canReports;
+  const extra = show("film-reports") && canReports && !embedded;
   const donorQ = useQuery({ queryKey: ["donor-accuracy", "overview"], queryFn: () => getDonorAccuracy(month30, today), enabled: extra });
   const defectsQ = useQuery({ queryKey: ["defects-overview", "overview"], queryFn: () => getDefectsOverview(month30, today), enabled: extra });
   const cutQ = useQuery({ queryKey: ["cutting-discrepancies", "overview"], queryFn: () => getCuttingDiscrepancies(month30, today), enabled: extra });
@@ -337,17 +337,4 @@ export default function Overview({ embedded = false }: { embedded?: boolean }) {
   );
 }
 
-export function SearchBox() {
-  const navigate = useNavigate();
-  const [q, setQ] = useState("");
-  return (
-    <Input.Search
-      placeholder="Номер (рулон, партия, задание, заказ) или материал…"
-      enterButton="Найти"
-      style={{ width: 380, maxWidth: "100%" }}
-      value={q}
-      onChange={(e) => setQ(e.target.value)}
-      onSearch={(v) => runUnitOrMaterialSearch(v, navigate)}
-    />
-  );
-}
+export { SearchBox } from "../../components/SearchBox";
