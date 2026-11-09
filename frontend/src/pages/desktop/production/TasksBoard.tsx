@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Button, Card, Checkbox, Col, Empty, Grid, Input, Progress, Row, Select, Space, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { listActiveProductionTasks, listProductionTasks, type ProductionTask } from "../../../api/production";
+import { listProductionTasks, type ProductionTask } from "../../../api/production";
 import { listProductionOrders } from "../../../api/productionOrders";
 import { listAreas } from "../../../api/areas";
 import { listParts } from "../../../api/dictionaries";
@@ -44,7 +44,7 @@ export default function TasksBoard() {
 
   const tasksQuery = useQuery({
     queryKey: ["production-tasks", archived ? "all" : "active"],
-    queryFn: archived ? listProductionTasks : listActiveProductionTasks,
+    queryFn: () => listProductionTasks(archived ? { active_only: false } : { active_only: true }),
   });
   const ordersQuery = useQuery({ queryKey: ["production-orders", "board"], queryFn: () => listProductionOrders(false) });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });

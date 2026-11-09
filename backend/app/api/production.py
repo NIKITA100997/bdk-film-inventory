@@ -1101,7 +1101,7 @@ def delete_product_model_part(
 
 @router.get("/production-tasks", response_model=list[ProductionTaskOut])
 def list_production_tasks(
-    active_only: bool = Query(default=False),
+    active_only: bool = Query(default=True),
     db: Session = Depends(get_db),
     user: User = Depends(view_tasks),
 ) -> list[ProductionTaskOut]:

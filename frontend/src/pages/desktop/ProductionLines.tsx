@@ -8,7 +8,7 @@ import {
   listProductionLines,
   createProductionLine,
   updateProductionLine,
-  listProductionTasks,
+  listActiveProductionTasks,
   type ProductionLine,
   type ProductionLineUpdate,
 } from "../../api/production";
@@ -36,7 +36,7 @@ export default function ProductionLines() {
   const [showArchived, setShowArchived] = useState(false);
 
   const linesQuery = useQuery({ queryKey: ["production-lines"], queryFn: listProductionLines });
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks", "active"], queryFn: listActiveProductionTasks });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));

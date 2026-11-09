@@ -18,9 +18,10 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 
 /** Задания этого заказа из общего списка заданий (кэш «Задания цеха»). */
 function useOrderTasks(order: ProductionOrder) {
+  const isClosed = order.status === "closed";
   const q = useQuery({
-    queryKey: ["production-tasks"],
-    queryFn: listProductionTasks,
+    queryKey: ["production-tasks", isClosed ? "all" : "active"],
+    queryFn: () => listProductionTasks({ active_only: !isClosed }),
   });
   return {
     tasks: (q.data ?? []).filter((t) => t.production_order_id === order.id),

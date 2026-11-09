@@ -3,7 +3,7 @@ import { isAxiosError } from "axios";
 import { Alert, Button, InputNumber, List, Modal, Select, Space, Table, Typography, message } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas } from "../../api/areas";
-import { listProductionTasks, type ProductionTask } from "../../api/production";
+import { listActiveProductionTasks, type ProductionTask } from "../../api/production";
 import { listWarehouses } from "../../api/storage";
 import { addUnitToTransfer } from "../../api/warehouseTransfers";
 import { deleteUnit, issueUnitDirect, linkTaskLine, returnUnit, type MaterialUnit } from "../../api/units";
@@ -131,7 +131,7 @@ const taskRef = (t: ProductionTask) => (t.external_order_ref ? `№${t.external_
 
 function IssueBody({ units, busy, run }: { units: MaterialUnit[]; busy: boolean; run: Run }) {
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks", "active"], queryFn: listActiveProductionTasks });
   const [area, setArea] = useState<string | undefined>();
   const [taskId, setTaskId] = useState<number | undefined>();
   const [lineId, setLineId] = useState<number | undefined>();
@@ -268,7 +268,7 @@ function TransferBody({ busy, run }: { busy: boolean; run: Run }) {
 }
 
 function LinkBody({ busy, run }: { busy: boolean; run: Run }) {
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks", "active"], queryFn: listActiveProductionTasks });
   return (
     <Space orientation="vertical" style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ margin: 0 }}>

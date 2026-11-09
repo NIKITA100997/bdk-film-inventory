@@ -9,7 +9,7 @@ import {
   type ReconciliationRow,
   type UnitEvent,
 } from "../../../api/units";
-import { listProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
+import { listActiveProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { useAuth } from "../../../auth/AuthContext";
@@ -65,7 +65,7 @@ export default function RollReconciliationTab() {
     queryFn: () => getReconciliation(AREA),
     enabled: !!AREA,
   });
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks", "active"], queryFn: listActiveProductionTasks });
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "warehouse"],
     queryFn: () => listWriteOffReasons("warehouse"),

@@ -8,7 +8,7 @@ import { Card, Collapse, Space, Typography, DatePicker, Tag, Button, Empty, Sele
 import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
-import { lineFilmLabel, listActiveProductionTasks, listProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
+import { lineFilmLabel, listActiveProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import ReportModal from "./ReportModal";
@@ -311,7 +311,7 @@ function PlanForDay({ area, canReport }: { area: string; canReport: boolean }) {
     queryFn: () =>
       listPlanSlots({ area, date_from: day.format("YYYY-MM-DD"), date_to: day.format("YYYY-MM-DD"), include_earlier: isToday }),
   });
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks", "active"], queryFn: listActiveProductionTasks });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const lineById = new Map((tasksQuery.data ?? []).flatMap((t) => t.lines.map((l) => [l.id, { task: t, line: l }] as const)));
   const rows = slotsQuery.data ?? [];

@@ -340,8 +340,8 @@ export interface TaskCard {
 export const getTaskCard = async (taskId: number): Promise<TaskCard> =>
   (await apiClient.get<TaskCard>(`/production-tasks/${taskId}/card`)).data;
 
-export const listProductionTasks = async (): Promise<ProductionTask[]> =>
-  (await apiClient.get<ProductionTask[]>("/production-tasks")).data;
+export const listProductionTasks = async (params?: { active_only?: boolean }): Promise<ProductionTask[]> =>
+  (await apiClient.get<ProductionTask[]>("/production-tasks", { params })).data;
 
 export const listActiveProductionTasks = async (): Promise<ProductionTask[]> =>
   (await apiClient.get<ProductionTask[]>("/production-tasks", { params: { active_only: true } })).data;

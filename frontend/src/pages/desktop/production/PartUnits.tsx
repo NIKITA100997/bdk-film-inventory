@@ -21,7 +21,7 @@ import { printPartUnitLabel } from "../../../api/partLabels";
 import { exportToExcel } from "../../../utils/excel";
 import { toOccurredAtIso } from "../../../utils/occurredAt";
 import { listPartUnits, createPartUnit, advancePartUnit, listMakeSourceParts, recyclePartUnits, listPartUnitEvents, type PartUnit, type PartUnitStatus, getRecycleTargets, type MakeTarget } from "../../../api/partUnits";
-import { listProductionTasks } from "../../../api/production";
+import { listActiveProductionTasks } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
 import { listParts, type Part } from "../../../api/dictionaries";
 import { listWriteOffReasons } from "../../../api/writeOffReasons";
@@ -152,7 +152,7 @@ export default function PartUnits() {
     const state = location.state as { partFilter?: string } | null;
     if (state?.partFilter) setPartFilter(state.partFilter);
   }, [location.state]);
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks", "active"], queryFn: listActiveProductionTasks });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });

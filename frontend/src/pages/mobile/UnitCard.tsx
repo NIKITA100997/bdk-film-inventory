@@ -41,7 +41,7 @@ import { askHomeStockOverride, homeStockBlockText, showHomeStockBlock } from "..
 import { listUsers } from "../../api/users";
 import { areaRequiresRoll, listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
-import { listProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../api/production";
+import { listActiveProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../api/production";
 import QrScanButton from "../../components/QrScanButton";
 import LocationSelect from "../../components/LocationSelect";
 import LotOperationModal from "../../components/lotOps/LotOperationModal";
@@ -196,8 +196,8 @@ export default function UnitCard() {
   // строку под "Ввести отчёт" или предложить выбор в модалке привязки.
   // Не грузим его на каждое открытие карточки единицы просто так.
   const tasksQuery = useQuery({
-    queryKey: ["production-tasks"],
-    queryFn: listProductionTasks,
+    queryKey: ["production-tasks", "active"],
+    queryFn: listActiveProductionTasks,
     enabled: !!unit && (linkOpen || reconciliationQuery.data?.task_line_id != null),
   });
   const findLine = (taskLineId: number): { task: ProductionTask; line: ProductionTaskLine } | null => {
