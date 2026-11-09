@@ -54,8 +54,8 @@ class MaterialUnit(Base):
     # неликвид (23.10): обычные задания не берут, строка «из неликвида» — только его
     marked_illiquid: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
-    status: Mapped[UnitStatus] = mapped_column(Enum(UnitStatus, name="unit_status"))
-    area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True)
+    status: Mapped[UnitStatus] = mapped_column(Enum(UnitStatus, name="unit_status"), index=True)
+    area: Mapped[str | None] = mapped_column(ForeignKey("areas.code"), nullable=True, index=True)
 
     # Полный адрес ячейки, пока единица физически на складе: "Р-3-07" или
     # "Ш-2-04-06" (раздел 4.1). Пусто, если выдана участку или ещё не размещена.
@@ -65,7 +65,7 @@ class MaterialUnit(Base):
     # выдача этой единицы (тег для прослеживаемости, копируется в
     # MaterialEvent при выдаче — см. services/events.py::record_event).
     production_task_line_id: Mapped[int | None] = mapped_column(
-        ForeignKey("production_task_lines.id"), nullable=True
+        ForeignKey("production_task_lines.id"), nullable=True, index=True
     )
     # Раздел про этикетку с назначением после резки — чтобы на бирке можно
     # было показать, для какого задания/детали эта конкретная единица (у

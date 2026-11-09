@@ -113,7 +113,7 @@ class ProductionTask(Base):
     # Раздел про удаление сущностей — задание с историей выдачи нельзя
     # удалить (см. delete_production_task_impl в api/production.py), но
     # можно скрыть из рабочих списков.
-    is_active: Mapped[bool] = mapped_column(default=True)
+    is_active: Mapped[bool] = mapped_column(default=True, index=True)
 
     lines: Mapped[list["ProductionTaskLine"]] = relationship(back_populates="task", cascade="all, delete-orphan")
     # Раздел про этикетку с назначением после резки — чтобы получить
@@ -138,7 +138,7 @@ class ProductionTaskLine(Base):
     __tablename__ = "production_task_lines"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    task_id: Mapped[int] = mapped_column(ForeignKey("production_tasks.id"))
+    task_id: Mapped[int] = mapped_column(ForeignKey("production_tasks.id"), index=True)
     line_id: Mapped[int | None] = mapped_column(ForeignKey("production_lines.id"), nullable=True)
 
     # Раздел про одно задание на любой участок (этап 3 единой модели) —
@@ -243,7 +243,7 @@ class ProductionTaskLineReport(Base):
     __tablename__ = "production_task_line_reports"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    task_line_id: Mapped[int] = mapped_column(ForeignKey("production_task_lines.id"))
+    task_line_id: Mapped[int] = mapped_column(ForeignKey("production_task_lines.id"), index=True)
     # Привязка к конкретной записи распределения (раздел про брак по дням)
     # — с этой доработки отчёт всегда за конкретный день/линию/смену, не
     # размазан по всей строке задания. Nullable — отчёты, заведённые до
@@ -311,7 +311,7 @@ class ProductionTaskLineReport(Base):
     kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     reported_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     task_line: Mapped[ProductionTaskLine] = relationship(back_populates="reports")
 
@@ -333,10 +333,10 @@ class ProductionTaskLineAssignment(Base):
     __tablename__ = "production_task_line_assignments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    task_line_id: Mapped[int] = mapped_column(ForeignKey("production_task_lines.id"))
+    task_line_id: Mapped[int] = mapped_column(ForeignKey("production_task_lines.id"), index=True)
     line_id: Mapped[int] = mapped_column(ForeignKey("production_lines.id"))
 
-    date: Mapped[date] = mapped_column(Date)
+    date: Mapped[date] = mapped_column(Date, index=True)
     # Свободный текст, не FK на users — цеховые рабочие на линии обычно без
     # логина в систему (см. обсуждение раздела про распределение).
     employee_names: Mapped[str] = mapped_column(String(255))
