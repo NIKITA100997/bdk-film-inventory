@@ -663,3 +663,62 @@ def test_strip_pool_adjust_clears_overdraft_deficit(setup_pogonazh_data):
     db.refresh(rep)
     assert rep.material_unit_id is not None
     assert "Покрыто сверкой пула" in rep.note or "Покрыто инвентаризацией" in rep.note
+
+
+def test_film_issue_mobile_queue_serialization(setup_pogonazh_data):
+    """Очередь выдачи плёнки сериализуется без ошибок даже при наличии выданных рулонов и назначений."""
+    from datetime import date
+    from app.api.film_issue import film_issue_mobile_queue
+    from app.models.production import ProductionLine, ProductionTaskLineAssignment
+    from app.models.units import MaterialUnit, UnitStatus
+
+    d = setup_pogonazh_data
+    db = d["db"]
+    task = d["task"]
+    line = d["line"]
+    user = d["user"]
+
+    # Создаём и привязываем выданный рулон к строке
+    u1 = MaterialUnit(
+        upd_number="TEST-UPD-1",
+        pallet_number="TEST-PALLET-1",
+        material_sku_id=d["sku"].id,
+        width_mm=221.0,
+        length_m=100.0,
+        status=UnitStatus.VYDAN_UCHASTKU,
+        area=task.area,
+        is_strip=True,
+        production_task_line_id=line.id,
+    )
+    db.add(u1)
+    db.flush()
+
+    # Создаём производственную линию и назначение
+    pline = ProductionLine(area="fabrika", name="Линия 1")
+    db.add(pline)
+    db.flush()
+
+    assign = ProductionTaskLineAssignment(
+        task_line_id=line.id,
+        line_id=pline.id,
+        date=date.today(),
+        employee_names="Иванов И.И.",
+        quantity_pieces=10.0,
+        created_by=user.id,
+    )
+    db.add(assign)
+    db.flush()
+
+    # Вызываем эндпоинт
+    queue = film_issue_mobile_queue(db, user)
+    assert len(queue) >= 1
+    found_task = next((t for t in queue if t.id == task.id), None)
+    assert found_task is not None
+    assert len(found_task.lines) >= 1
+    found_line = next((l for l in found_task.lines if l.id == line.id), None)
+    assert found_line is not None
+    assert len(found_line.issued_units) >= 1
+    assert found_line.issued_units[0].id == u1.id
+    assert len(found_line.assignments) >= 1
+    assert found_line.assignments[0].id == assign.id
+

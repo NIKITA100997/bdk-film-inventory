@@ -15,7 +15,7 @@ from datetime import date, datetime
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -106,6 +106,7 @@ class FilmIssueBoardOut(BaseModel):
 
 
 class FilmIssueQueueAssignmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     line_id: int
     line_name: str
@@ -115,6 +116,7 @@ class FilmIssueQueueAssignmentOut(BaseModel):
 
 
 class FilmIssueQueueUnitOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     width_mm: float
     length_m: float
@@ -127,6 +129,7 @@ class FilmIssueQueueUnitOut(BaseModel):
 
 
 class FilmIssueQueueLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     material: str | None
     color: str | None
@@ -149,6 +152,7 @@ class FilmIssueQueueLineOut(BaseModel):
 
 
 class FilmIssueQueueTaskOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     product_model_name: str | None
     name: str | None
@@ -429,8 +433,14 @@ def film_issue_mobile_queue(
                 remaining_length_m=float(line_out.remaining_length_m),
                 shortfall_length_m=float(line_out.shortfall_length_m),
                 issued_length_m=float(line_out.issued_length_m),
-                issued_units=line_out.issued_units,
-                assignments=line_out.assignments,
+                issued_units=[
+                    FilmIssueQueueUnitOut(**vars(u)) if isinstance(u, SimpleNamespace) else u
+                    for u in line_out.issued_units
+                ],
+                assignments=[
+                    FilmIssueQueueAssignmentOut(**vars(a)) if isinstance(a, SimpleNamespace) else a
+                    for a in line_out.assignments
+                ],
             )
         )
     return list(output.values())
