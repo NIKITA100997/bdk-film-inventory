@@ -8,7 +8,7 @@ import { Card, Collapse, Space, Typography, DatePicker, Tag, Button, Empty, Sele
 import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
-import { lineFilmLabel, listProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
+import { lineFilmLabel, listActiveProductionTasks, listProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import ReportModal from "./ReportModal";
@@ -54,7 +54,7 @@ export default function DailyPlanTab() {
   // выбрал вручную (по умолчанию "Все участки", как и раньше).
   const effectiveArea = user?.area ?? viewArea;
 
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks", "active"], queryFn: listActiveProductionTasks });
   const tasks = (tasksQuery.data ?? []).filter((t) => (!effectiveArea || t.area === effectiveArea) && t.is_active);
   const openLines = tasks.reduce((n, t) => n + t.lines.filter((l) => !l.is_closed && !l.production_closed).length, 0);
 

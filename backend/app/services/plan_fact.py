@@ -3,7 +3,7 @@ splitting.py — чистые функции без побочных эффек�
 
 from __future__ import annotations
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 
@@ -71,6 +71,60 @@ def fetch_consumed_length_by_unit(db: Session, unit_ids: list[int]) -> dict[int,
         )
         .join(ProductionTaskLine, ProductionTaskLineReport.task_line_id == ProductionTaskLine.id)
         .filter(ProductionTaskLineReport.material_unit_id.in_(unit_ids))
+        .all()
+    )
+    by_unit: dict[int, list[tuple]] = {}
+    for unit_id, good, defect, length_m, used in rows:
+        by_unit.setdefault(unit_id, []).append(
+            (float(good or 0), float(defect or 0), float(length_m), None if used is None else float(used))
+        )
+    return {uid: compute_unit_consumed_length_m(reps) for uid, reps in by_unit.items()}
+
+
+def fetch_consumed_length_by_unit_since_issue(db: Session, unit_ids: list[int]) -> dict[int, float]:
+    """Пакетный расход по каждой единице с момента последней выдачи.
+
+    Это сохраняет семантику api/production.py::_unit_consumed_length_m,
+    но заменяет два запроса на рулон одним запросом для всего экрана.
+    Нужен для выдачи плёнки и общих пулов участка, где часто приходится
+    одновременно пересчитывать остаток десятков/сотен выданных единиц.
+    """
+    if not unit_ids:
+        return {}
+
+    from app.models.events import EventType, MaterialEvent
+    from app.models.production import ProductionTaskLine, ProductionTaskLineReport
+    from app.services.production import compute_unit_consumed_length_m
+
+    last_issued = (
+        db.query(
+            MaterialEvent.unit_id.label("unit_id"),
+            func.max(MaterialEvent.timestamp).label("issued_at"),
+        )
+        .filter(
+            MaterialEvent.unit_id.in_(unit_ids),
+            MaterialEvent.event_type == EventType.VYDACHA_UCHASTKU,
+        )
+        .group_by(MaterialEvent.unit_id)
+        .subquery()
+    )
+    rows = (
+        db.query(
+            ProductionTaskLineReport.material_unit_id,
+            ProductionTaskLineReport.good_pieces,
+            ProductionTaskLineReport.defect_pieces,
+            ProductionTaskLine.length_m,
+            ProductionTaskLineReport.film_used_m,
+        )
+        .join(ProductionTaskLine, ProductionTaskLineReport.task_line_id == ProductionTaskLine.id)
+        .outerjoin(last_issued, last_issued.c.unit_id == ProductionTaskLineReport.material_unit_id)
+        .filter(
+            ProductionTaskLineReport.material_unit_id.in_(unit_ids),
+            or_(
+                last_issued.c.issued_at.is_(None),
+                ProductionTaskLineReport.reported_at >= last_issued.c.issued_at,
+            ),
+        )
         .all()
     )
     by_unit: dict[int, list[tuple]] = {}

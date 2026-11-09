@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.dictionaries import Part, PartStage
 from app.models.part_units import PartReservation, PartUnit, PartUnitStatus
@@ -111,6 +111,7 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     query = (
         db.query(ProductionTaskLine)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .options(joinedload(ProductionTaskLine.task).joinedload(ProductionTask.product_model))
         # Строки-операции (сделать деталь) — не потребность, а «в работе»,
         # см. _in_work_by_first_stage; потребность — строки, расходующие п/ф.
         .filter(
@@ -210,6 +211,7 @@ def _first_stage_work(
     lines = (
         db.query(ProductionTaskLine)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .options(joinedload(ProductionTaskLine.task))
         .filter(
             or_(ProductionTask.is_active.is_(True), ProductionTask.for_task_id.isnot(None)),
             ProductionTaskLine.part_stage_id.in_(first_stage_ids),
@@ -323,12 +325,14 @@ def _state(db: Session) -> _State:
         demand[part_id] = out
 
     in_work: dict[int, float] = {}
+    linked_work_by_part: dict[int, float] = defaultdict(float)
+    for (_task_id, part_id), (_made, linked_work) in linked.items():
+        linked_work_by_part[part_id] += linked_work
     unlinked: dict[int, float] = {}
     for p in parts:
         w = in_work_by_stage.get(first_stage[p.id].id, 0.0)
         in_work[p.id] = w
-        linked_work = sum(v[1] for (_, pid), v in linked.items() if pid == p.id)
-        unlinked[p.id] = max(0.0, w - linked_work)
+        unlinked[p.id] = max(0.0, w - linked_work_by_part.get(p.id, 0.0))
     return _State(parts, first_stage, demand, stock, reserved, in_work, unlinked, storage_stock, area_stock_by_part, area_part_stock)
 
 
@@ -364,19 +368,25 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     позиции нужны на этой операции (компонент без операции — на первой).
     Остаток — план строки минус годные и брак по ней: на них комплектующие
     уже списаны."""
-    from app.models.items import ItemComponent
+    from app.models.items import Item, ItemComponent
     from app.models.production_orders import ProductionOrder
+    from app.services.components import planned_components
 
     out: dict[int, list[PfDemandSource]] = defaultdict(list)
     q = (
         db.query(ProductionTaskLine, ProductionTask)
         .join(ProductionTask, ProductionTask.id == ProductionTaskLine.task_id)
+        .options(joinedload(ProductionTaskLine.task).joinedload(ProductionTask.product_model))
         .filter(ProductionTask.is_active.is_(True), ProductionTaskLine.part_stage_id.isnot(None))
     )
     rows = q.all()
     if not rows:
         return out
-    parts_by_item = {p.item_id: p for p in db.query(Part).filter(Part.is_active.is_(True)) if p.stages}
+    parts_by_item = {
+        p.item_id: p
+        for p in db.query(Part).options(selectinload(Part.stages)).filter(Part.is_active.is_(True)).all()
+        if p.stages
+    }
     done_by_line = dict(
         db.query(
             ProductionTaskLineReport.task_line_id,
@@ -389,18 +399,44 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
         .group_by(ProductionTaskLineReport.task_line_id)
         .all()
     )
-    orders = {o.id: o for o in db.query(ProductionOrder)}
+    order_ids = {task.production_order_id for _, task in rows if task.production_order_id is not None}
+    orders = {
+        o.id: o for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()
+    } if order_ids else {}
+
+    # Маршруты и составы заранее загружаются для всех строк. Раньше цикл
+    # делал отдельный запрос за этапом и за составом для каждой строки.
+    stage_ids = {line.part_stage_id for line, _ in rows if line.part_stage_id is not None}
+    stages = {
+        stage.id: stage
+        for stage in db.query(PartStage)
+        .options(joinedload(PartStage.item).selectinload(Item.stages))
+        .filter(PartStage.id.in_(stage_ids))
+        .all()
+    } if stage_ids else {}
+    parent_item_ids = {stage.item_id for stage in stages.values()}
+    components_by_parent: dict[int, list] = defaultdict(list)
+    if parent_item_ids:
+        for component in (
+            db.query(ItemComponent)
+            .filter(ItemComponent.parent_item_id.in_(parent_item_ids))
+            .order_by(ItemComponent.sort_order, ItemComponent.id)
+            .all()
+        ):
+            components_by_parent[component.parent_item_id].append(component)
+    planned_by_parent = {
+        item_id: planned_components(components)
+        for item_id, components in components_by_parent.items()
+    }
     for line, task in rows:
         if line.is_closed or line.production_closed:
             continue
-        stage = db.get(PartStage, line.part_stage_id)
+        stage = stages.get(line.part_stage_id)
         if stage is None:
             continue
         first_id = min(stage.item.stages, key=lambda s: s.sequence_order).id if stage.item.stages else stage.id
-        from app.services.components import planned_components
-
         comps = [
-            c for c in planned_components(db.query(ItemComponent).filter(ItemComponent.parent_item_id == stage.item_id).all())
+            c for c in planned_by_parent.get(stage.item_id, [])
             if c.stage_id == stage.id or (c.stage_id is None and stage.id == first_id)
         ]
         if not comps:

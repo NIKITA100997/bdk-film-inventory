@@ -343,6 +343,51 @@ export const getTaskCard = async (taskId: number): Promise<TaskCard> =>
 export const listProductionTasks = async (): Promise<ProductionTask[]> =>
   (await apiClient.get<ProductionTask[]>("/production-tasks")).data;
 
+export const listActiveProductionTasks = async (): Promise<ProductionTask[]> =>
+  (await apiClient.get<ProductionTask[]>("/production-tasks", { params: { active_only: true } })).data;
+
+export type FilmIssueAssignment = Pick<
+  ProductionTaskLineAssignment,
+  "id" | "line_id" | "line_name" | "date" | "employee_names" | "quantity_pieces"
+>;
+
+export type FilmIssueUnit = Pick<
+  ProductionTaskLineIssuedUnit,
+  "id" | "width_mm" | "length_m" | "material_sku_id" | "parent_id" | "is_strip" | "status" | "remaining_length_m" | "area"
+>;
+
+export type FilmIssueTaskLine = Pick<
+  ProductionTaskLine,
+  | "id"
+  | "material"
+  | "color"
+  | "thickness"
+  | "quantity_pieces"
+  | "width_mm"
+  | "length_m"
+  | "strip_width_mm"
+  | "part_name"
+  | "is_closed"
+  | "use_illiquid"
+  | "produced_good_pieces"
+  | "defect_pieces"
+  | "remaining_pieces"
+  | "remaining_length_m"
+  | "shortfall_length_m"
+  | "issued_length_m"
+> & {
+  issued_units: FilmIssueUnit[];
+  assignments: FilmIssueAssignment[];
+};
+
+export type FilmIssueTask = Pick<
+  ProductionTask,
+  "id" | "product_model_name" | "name" | "area" | "is_active" | "production_order_name"
+> & { lines: FilmIssueTaskLine[] };
+
+export const listFilmIssueQueue = async (): Promise<FilmIssueTask[]> =>
+  (await apiClient.get<FilmIssueTask[]>("/film-issue/mobile-queue")).data;
+
 export const createProductionTaskManual = async (payload: ProductionTaskManualCreate): Promise<ProductionTask> =>
   (await apiClient.post<ProductionTask>("/production-tasks/manual", payload)).data;
 

@@ -5,8 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   closeProductionLine,
   createTaskLineReportsBatch,
+  listActiveProductionTasks,
   listProductionLines,
-  listProductionTasks,
   type ProductionTask,
   type ProductionTaskLine,
   type ProductionTaskLineReportCreate,
@@ -118,7 +118,7 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
     }
   }, [draftKey, entries]);
 
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks", "active"], queryFn: listActiveProductionTasks });
   const today = dayjs().format("YYYY-MM-DD");
   const slotsQuery = useQuery({
     queryKey: ["plan-slots", area, today, "fast"],

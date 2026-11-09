@@ -3,7 +3,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.security import require_permission
 from app.db.session import get_db
@@ -13,7 +13,7 @@ from app.models.part_units import PartReservation
 from app.models.production import ProductionTask, ProductionTaskLine
 from app.models.users import User
 from app.models.areas import Area
-from app.services.operation_roles import big_batch, film_stage
+from app.services.operation_roles import film_stage
 from app.models.production_orders import ProductionOrder
 from app.services.production_orders import OrderError, attach_tasks_to_order
 from app.services.pf_demand import PfDemandRow, compute_pf_demand, compute_pf_preview, reserves_by_part
@@ -148,18 +148,52 @@ def list_pf_demand(
     db: Session = Depends(get_db),
     user: User = Depends(view),
 ) -> list[PfDemandOut]:
-    return [_out(row, db) for row in compute_pf_demand(db, task_ids)]
+    return _outs(compute_pf_demand(db, task_ids), db, include_lamination=True)
 
 
-def _out(row: PfDemandRow, db: Session | None = None) -> PfDemandOut:
-    extra = {}
-    if db is not None:
-        part = db.get(Part, row.part_id)
-        lam = film_stage(part.stages) if part else None
-        target, min_pieces = big_batch(db, lam.area) if lam is not None else (None, None)
-        if target:
-            extra = {"lamination_area": lam.area, "factory_area": target, "factory_min_pieces": min_pieces}
-    return PfDemandOut(**{**row.__dict__, "sources": [PfDemandSourceOut(**s.__dict__) for s in row.sources], **extra})
+def _outs(
+    rows: list[PfDemandRow], db: Session | None = None, *, include_lamination: bool = False
+) -> list[PfDemandOut]:
+    """Собрать DTO списком: маршрут и настройки участков читаются одним
+    батчем, а не отдельными запросами для каждой детали п/ф."""
+    extra_by_part: dict[int, dict] = {}
+    if db is not None and include_lamination and rows:
+        part_ids = {row.part_id for row in rows}
+        parts = {
+            part.id: part
+            for part in db.query(Part)
+            .options(selectinload(Part.stages))
+            .filter(Part.id.in_(part_ids))
+            .all()
+        }
+        lamination_areas = {
+            lam.area
+            for part in parts.values()
+            if (lam := film_stage(part.stages)) is not None and lam.area is not None
+        }
+        area_settings = {
+            area.code: (area.big_batch_area, area.big_batch_min_pieces)
+            for area in db.query(Area).filter(Area.code.in_(lamination_areas)).all()
+        } if lamination_areas else {}
+        for part_id, part in parts.items():
+            lam = film_stage(part.stages)
+            target, min_pieces = area_settings.get(lam.area, (None, None)) if lam is not None else (None, None)
+            if target:
+                extra_by_part[part_id] = {
+                    "lamination_area": lam.area,
+                    "factory_area": target,
+                    "factory_min_pieces": float(min_pieces) if min_pieces is not None else None,
+                }
+    return [
+        PfDemandOut(
+            **{
+                **row.__dict__,
+                "sources": [PfDemandSourceOut(**source.__dict__) for source in row.sources],
+                **extra_by_part.get(row.part_id, {}),
+            }
+        )
+        for row in rows
+    ]
 
 
 class PartReserveOut(BaseModel):
@@ -190,7 +224,7 @@ def preview_pf_demand(payload: PfPreviewIn, db: Session = Depends(get_db), user:
             part_id = match_part_id(db, it.part_name, it.width_mm, it.length_m)
         if part_id is not None:
             items.append((part_id, it.quantity_pieces))
-    return [_out(row) for row in compute_pf_preview(db, items)] if items else []
+    return _outs(compute_pf_preview(db, items)) if items else []
 
 
 @router.put("/reservations", status_code=status.HTTP_204_NO_CONTENT)

@@ -2178,6 +2178,7 @@ def search_units(
     warehouse_id: int | None = None,
     is_strip: bool | None = None,
     illiquid: bool | None = None,
+    unassigned_only: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[MaterialUnitOut]:
@@ -2211,6 +2212,8 @@ def search_units(
         query = query.filter(MaterialUnit.location_code.is_(None))
     if area is not None:
         query = query.filter(MaterialUnit.area == area)
+    if unassigned_only:
+        query = query.filter(MaterialUnit.production_task_line_id.is_(None))
     if material:
         query = query.filter(MaterialUnit.material_sku.has(MaterialSku.material.has(name=material)))
     if color:

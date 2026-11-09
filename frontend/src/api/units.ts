@@ -505,6 +505,8 @@ export interface SearchParams {
   is_strip?: boolean;
   /** неликвид (23.10): true — только, false — без */
   illiquid?: boolean;
+  /** Для очереди выдачи без задания — не загружать единицы, привязанные к строкам. */
+  unassigned_only?: boolean;
 }
 
 // Сервер отдаёт не больше стольких единиц (см. SEARCH_LIMIT в api/units.py).

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Button, Card, Checkbox, Col, Empty, Grid, Input, Progress, Row, Select, Space, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { listProductionTasks, type ProductionTask } from "../../../api/production";
+import { listActiveProductionTasks, listProductionTasks, type ProductionTask } from "../../../api/production";
 import { listProductionOrders } from "../../../api/productionOrders";
 import { listAreas } from "../../../api/areas";
 import { listParts } from "../../../api/dictionaries";
@@ -42,7 +42,10 @@ export default function TasksBoard() {
   const [printing, setPrinting] = useState(false);
   const [selected, setSelected] = useState<number | null>(Number(params.get("task")) || null);
 
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasksQuery = useQuery({
+    queryKey: ["production-tasks", archived ? "all" : "active"],
+    queryFn: archived ? listProductionTasks : listActiveProductionTasks,
+  });
   const ordersQuery = useQuery({ queryKey: ["production-orders", "board"], queryFn: () => listProductionOrders(false) });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaName = (c: string) => areasQuery.data?.find((a) => a.code === c)?.name ?? c;

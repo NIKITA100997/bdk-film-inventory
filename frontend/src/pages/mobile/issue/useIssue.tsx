@@ -30,11 +30,11 @@ import { listAreas } from "../../../api/areas";
 import { listSites } from "../../../api/sites";
 import { listWarehouses } from "../../../api/storage";
 import {
-  listProductionTasks,
+  listFilmIssueQueue,
   closeTaskLine,
-  type ProductionTask,
-  type ProductionTaskLine,
-  type ProductionTaskLineIssuedUnit,
+  type FilmIssueTask,
+  type FilmIssueTaskLine,
+  type FilmIssueUnit,
 } from "../../../api/production";
 import { type CuttingFormInitialWidthCut } from "../../../components/CuttingForm";
 import { useAuth } from "../../../auth/AuthContext";
@@ -290,9 +290,8 @@ export function useIssue() {
   // Выдача — только плёнка: строки без плёнки (сборка, склейка…) сюда не
   // попадают. select — только для этого экрана, общий кэш заданий не трогаем.
   const tasksQuery = useQuery({
-    queryKey: ["production-tasks"],
-    queryFn: listProductionTasks,
-    select: (tasks) => tasks.map((t) => ({ ...t, lines: t.lines.filter((l) => l.material !== null) })),
+    queryKey: ["production-tasks", "film-issue"],
+    queryFn: listFilmIssueQueue,
   });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
@@ -359,7 +358,7 @@ export function useIssue() {
   // (обратное тому, что делает issuedLines).
   const manualIssuedQuery = useQuery({
     queryKey: ["issue-manual-issued", areaFilter],
-    queryFn: () => searchUnits({ status: "Выдан_участку", area: areaFilter ?? undefined }),
+    queryFn: () => searchUnits({ status: "Выдан_участку", area: areaFilter ?? undefined, unassigned_only: true }),
   });
   const manualIssuedUnits = (manualIssuedQuery.data ?? []).filter((u) => !u.production_task_line_id);
 
@@ -450,7 +449,7 @@ export function useIssue() {
     [activeLines, linesWithTodayAssignment],
   );
 
-  const matchesFilter = (task: ProductionTask, line: ProductionTaskLine) => {
+  const matchesFilter = (task: FilmIssueTask, line: FilmIssueTaskLine) => {
     if (areaFilter && task.area !== areaFilter) return false;
     if (taskFilter && task.id !== taskFilter) return false;
     if (search.trim()) {
@@ -499,7 +498,7 @@ export function useIssue() {
   // что именно ещё физически лежит у участка, нужно забрать обратно на
   // склад — прямой ответ на "триггер" для кладовщика/логиста.
   const pendingReturnByTask = useMemo(() => {
-    const map = new Map<number, { task: ProductionTask; units: ProductionTaskLineIssuedUnit[] }>();
+    const map = new Map<number, { task: FilmIssueTask; units: FilmIssueUnit[] }>();
     for (const { task, line } of activeLines) {
       if (line.remaining_pieces > 0) continue;
       const outstanding = line.issued_units.filter((u) => u.status === "Выдан_участку" && !areaNoReturn(u.area));
@@ -808,7 +807,7 @@ export function useIssue() {
   // единиц (status теперь приходит на ProductionTaskLineIssuedUnit)
   // важнее любого производного статуса плана резки, раз материал уже
   // решён по факту.
-  const issuedNoteForLine = (line: ProductionTaskLine): string | null => {
+  const issuedNoteForLine = (line: FilmIssueTaskLine): string | null => {
     if (line.shortfall_length_m > 0) return null;
     const units = line.issued_units ?? [];
     if (units.some((u) => u.status === "В_перемещении")) return "🚚 едет через хаб";
@@ -825,7 +824,7 @@ export function useIssue() {
   // вернули кусок на склад или нет. "К сдаче" — то, что физически ещё не
   // в остатке склада (статус ещё Выдан_участку/В_перемещении); "На
   // складе" — то же самое, но возврат уже приняли (AcceptReturnButton).
-  const lineActuals = (line: ProductionTaskLine) => {
+  const lineActuals = (line: FilmIssueTaskLine) => {
     const units = line.issued_units ?? [];
     let consumed = 0;
     let stillOut = 0;
@@ -833,11 +832,11 @@ export function useIssue() {
     // Раздел про номера штрипсов на рабочем экране — отдельно от сумм
     // держим сами единицы по обеим группам, чтобы вывести кликабельный
     // номер каждого рулона (провалиться в его карточку), не только итог.
-    const stillOutUnits: ProductionTaskLineIssuedUnit[] = [];
+    const stillOutUnits: FilmIssueUnit[] = [];
     // Участок без возврата: рулон у участка, но «к сдаче» его не ждём.
     let atArea = 0;
-    const atAreaUnits: ProductionTaskLineIssuedUnit[] = [];
-    const backInStockUnits: ProductionTaskLineIssuedUnit[] = [];
+    const atAreaUnits: FilmIssueUnit[] = [];
+    const backInStockUnits: FilmIssueUnit[] = [];
     for (const u of units) {
       const remaining = u.remaining_length_m ?? u.length_m;
       consumed += u.length_m - remaining;
@@ -985,7 +984,7 @@ export function useIssue() {
   // (деталь/кол-во/материал), явным номером рулона/штрипса на каждую
   // деталь, а не общей фразой. По одному заданию за раз (выбор — Select
   // рядом с кнопкой), не общий список сразу по всем.
-  const printFactorySlip = (task: ProductionTask) => {
+  const printFactorySlip = (task: FilmIssueTask) => {
     const rows: Record<string, unknown>[] = [];
     for (const line of task.lines) {
       const issuedNote = issuedNoteForLine(line);

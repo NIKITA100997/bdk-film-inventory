@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import {
   lineFilmLabel,
-  listProductionTasks,
+  listActiveProductionTasks,
   createTaskLineReportsBatch,
   type ProductionTask,
   type ProductionTaskLine,
@@ -130,7 +130,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
   const [adjustLine, setAdjustLine] = useState<ProductionTaskLine | null>(null);
   const [defectForm] = Form.useForm<{ reason: string; qty: number; note?: string; disposition?: "spisat" | "pererabotka" | "snyat" }>();
 
-  const tasksQuery = useQuery({ queryKey: ["production-tasks"], queryFn: listProductionTasks });
+  const tasksQuery = useQuery({ queryKey: ["production-tasks", "active"], queryFn: listActiveProductionTasks });
   const writeOffReasonsQuery = useQuery({ queryKey: ["write-off-reasons", "production"], queryFn: () => listWriteOffReasons("production") });
   // Раздел про физический учёт деталей — причина брака та же, что
   // списывает и партию п/ф, пикер объединяет обе категории причин.

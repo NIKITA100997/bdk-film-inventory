@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
@@ -215,6 +215,26 @@ def _issued_unit_remaining_m(db: Session, u: MaterialUnit) -> float:
     return v
 
 
+def _preload_issued_unit_remaining(db: Session, units: list[MaterialUnit]) -> dict[int, float]:
+    """Пакетно заполнить кэш текущего остатка для уже загруженных единиц."""
+    cache = read_cache(db, "unit_remaining")
+    unit_by_id = {u.id: u for u in units}
+    missing = [uid for uid in unit_by_id if cache is None or uid not in cache]
+    if missing:
+        from app.services.plan_fact import fetch_consumed_length_by_unit_since_issue
+
+        consumed = fetch_consumed_length_by_unit_since_issue(db, missing)
+        values = {
+            uid: round(max(0.0, float(unit_by_id[uid].length_m) - consumed.get(uid, 0.0)), 2)
+            for uid in missing
+        }
+        if cache is not None:
+            cache.update(values)
+        else:
+            return values
+    return {uid: cache[uid] for uid in unit_by_id} if cache is not None else {}
+
+
 def read_cache(db: Session, name: str) -> dict | None:
     """Кэш на время одного ЧИТАЮЩЕГО запроса (16.10: список заданий цеха
     делал ~28 тыс. запросов к базе — остаток одного рулона, аналоги ширин и
@@ -226,6 +246,19 @@ def read_cache(db: Session, name: str) -> dict | None:
 
 def begin_read_cache(db: Session) -> None:
     db.info["read_cache"] = {}
+
+
+def _read_cached_map(db: Session, name: str, ids: list[int], loader, default):
+    """Кэшировать пакетные агрегаты между сериализацией нескольких задач."""
+    cache = read_cache(db, name)
+    if cache is None:
+        return loader(ids)
+    missing = list(dict.fromkeys(value for value in ids if value not in cache))
+    if missing:
+        cache.update(loader(missing))
+        for value in missing:
+            cache.setdefault(value, default() if callable(default) else default)
+    return {value: cache[value] for value in ids}
 
 
 def _line_effective_strip_width(line: ProductionTaskLine) -> float:
@@ -363,40 +396,46 @@ def _line_report_aggregates(db: Session, line_ids: list[int]) -> dict[int, tuple
     расход плёнки фиксируется независимо от готовности детали)."""
     if not line_ids:
         return {}
-    rows = (
-        db.query(
-            ProductionTaskLineReport.task_line_id,
-            func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
-            func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
+    def load(ids: list[int]) -> dict[int, tuple[float, float]]:
+        rows = (
+            db.query(
+                ProductionTaskLineReport.task_line_id,
+                func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
+                func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
+            )
+            .filter(
+                ProductionTaskLineReport.task_line_id.in_(ids),
+                ProductionTaskLineReport.counts_toward_line.is_(True),
+            )
+            .group_by(ProductionTaskLineReport.task_line_id)
+            .all()
         )
-        .filter(
-            ProductionTaskLineReport.task_line_id.in_(line_ids),
-            ProductionTaskLineReport.counts_toward_line.is_(True),
-        )
-        .group_by(ProductionTaskLineReport.task_line_id)
-        .all()
-    )
-    return {row[0]: (float(row[1]), float(row[2])) for row in rows}
+        return {row[0]: (float(row[1]), float(row[2])) for row in rows}
+
+    return _read_cached_map(db, "line_reports", line_ids, load, lambda: (0.0, 0.0))
 
 
 def _line_deficit_aggregates(db: Session, line_ids: list[int]) -> dict[int, float]:
     """Σ дефицитных штук (отчёты без рулона/штрипса) по строкам задания."""
     if not line_ids:
         return {}
-    rows = (
-        db.query(
-            ProductionTaskLineReport.task_line_id,
-            func.coalesce(func.sum(ProductionTaskLineReport.good_pieces + ProductionTaskLineReport.defect_pieces), 0),
+    def load(ids: list[int]) -> dict[int, float]:
+        rows = (
+            db.query(
+                ProductionTaskLineReport.task_line_id,
+                func.coalesce(func.sum(ProductionTaskLineReport.good_pieces + ProductionTaskLineReport.defect_pieces), 0),
+            )
+            .filter(
+                ProductionTaskLineReport.task_line_id.in_(ids),
+                ProductionTaskLineReport.counts_toward_line.is_(True),
+                ProductionTaskLineReport.material_unit_id.is_(None),
+            )
+            .group_by(ProductionTaskLineReport.task_line_id)
+            .all()
         )
-        .filter(
-            ProductionTaskLineReport.task_line_id.in_(line_ids),
-            ProductionTaskLineReport.counts_toward_line.is_(True),
-            ProductionTaskLineReport.material_unit_id.is_(None),
-        )
-        .group_by(ProductionTaskLineReport.task_line_id)
-        .all()
-    )
-    return {row[0]: float(row[1]) for row in rows}
+        return {row[0]: float(row[1]) for row in rows}
+
+    return _read_cached_map(db, "line_deficits", line_ids, load, 0.0)
 
 
 def _line_assignment_aggregates(db: Session, line_ids: list[int]) -> dict[int, float]:
@@ -405,16 +444,19 @@ def _line_assignment_aggregates(db: Session, line_ids: list[int]) -> dict[int, f
     строки задания, не N+1."""
     if not line_ids:
         return {}
-    rows = (
-        db.query(
-            ProductionTaskLineAssignment.task_line_id,
-            func.coalesce(func.sum(ProductionTaskLineAssignment.quantity_pieces), 0),
+    def load(ids: list[int]) -> dict[int, float]:
+        rows = (
+            db.query(
+                ProductionTaskLineAssignment.task_line_id,
+                func.coalesce(func.sum(ProductionTaskLineAssignment.quantity_pieces), 0),
+            )
+            .filter(ProductionTaskLineAssignment.task_line_id.in_(ids))
+            .group_by(ProductionTaskLineAssignment.task_line_id)
+            .all()
         )
-        .filter(ProductionTaskLineAssignment.task_line_id.in_(line_ids))
-        .group_by(ProductionTaskLineAssignment.task_line_id)
-        .all()
-    )
-    return {row[0]: float(row[1]) for row in rows}
+        return {row[0]: float(row[1]) for row in rows}
+
+    return _read_cached_map(db, "line_assignments", line_ids, load, 0.0)
 
 
 def _assignment_report_aggregates(
@@ -437,21 +479,34 @@ def _assignment_report_aggregates(
     для дневного распределения тоже."""
     if not assignment_ids:
         return {}
-    rows = (
-        db.query(
-            ProductionTaskLineReport.assignment_id,
-            func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
-            func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
-            func.max(ProductionTaskLineReport.material_unit_id),
+    def load(ids: list[int]) -> dict[int, tuple[float, float, int | None]]:
+        rows = (
+            db.query(
+                ProductionTaskLineReport.assignment_id,
+                func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
+                func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
+                func.max(ProductionTaskLineReport.material_unit_id),
+            )
+            .filter(
+                ProductionTaskLineReport.assignment_id.in_(ids),
+                ProductionTaskLineReport.counts_toward_line.is_(True),
+            )
+            .group_by(ProductionTaskLineReport.assignment_id)
+            .all()
         )
-        .filter(
-            ProductionTaskLineReport.assignment_id.in_(assignment_ids),
-            ProductionTaskLineReport.counts_toward_line.is_(True),
-        )
-        .group_by(ProductionTaskLineReport.assignment_id)
-        .all()
+        return {row[0]: (float(row[1]), float(row[2]), row[3]) for row in rows}
+
+    return _read_cached_map(db, "assignment_reports", assignment_ids, load, lambda: (0.0, 0.0, None))
+
+
+def _issued_length_by_task_line(db: Session, line_ids: list[int]) -> dict[int, float]:
+    return _read_cached_map(
+        db,
+        "issued_length_by_line",
+        line_ids,
+        lambda ids: fetch_issued_length_by_task_line(db, ids),
+        0.0,
     )
-    return {row[0]: (float(row[1]), float(row[2]), row[3]) for row in rows}
 
 
 def _unit_consumed_length_m(db: Session, unit_id: int) -> float:
@@ -497,29 +552,26 @@ def _line_issued_units_map(db: Session, line_ids: list[int]) -> dict[int, list[M
     осталась)."""
     if not line_ids:
         return {}
-    units = (
-        db.query(MaterialUnit)
-        .filter(
-            MaterialUnit.production_task_line_id.in_(line_ids),
-            # Раздел про цепочку выдан→на_хранении — На_хранении сюда
-            # попадает ТОЛЬКО пока area ещё указан (хаб принял, участку
-            # только предстоит локальная довыдача, см. receive_transfer_line
-            # и тот же признак physically_at_area в
-            # _task_borrowable_and_shortfall ниже). Настоящий возврат
-            # (return_unit, area=None) — рулон реально ушёл на склад,
-            # раньше оставался в issued_units навсегда и продолжал
-            # предлагаться в отчёте как будто всё ещё у участка.
-            or_(
-                MaterialUnit.status.in_([UnitStatus.VYDAN_UCHASTKU, UnitStatus.V_PEREMESHCHENII]),
-                and_(MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.area.isnot(None)),
-            ),
+    def load(ids: list[int]) -> dict[int, list[MaterialUnit]]:
+        units = (
+            db.query(MaterialUnit)
+            .filter(
+                MaterialUnit.production_task_line_id.in_(ids),
+                # Возврат с area=None не показываем как всё ещё выданный;
+                # принятое хабом с area остаётся доступно для довыдачи.
+                or_(
+                    MaterialUnit.status.in_([UnitStatus.VYDAN_UCHASTKU, UnitStatus.V_PEREMESHCHENII]),
+                    and_(MaterialUnit.status == UnitStatus.NA_KHRANENII, MaterialUnit.area.isnot(None)),
+                ),
+            )
+            .all()
         )
-        .all()
-    )
-    result: dict[int, list[MaterialUnit]] = {}
-    for u in units:
-        result.setdefault(u.production_task_line_id, []).append(u)
-    return result
+        result: dict[int, list[MaterialUnit]] = {}
+        for unit in units:
+            result.setdefault(unit.production_task_line_id, []).append(unit)
+        return result
+
+    return _read_cached_map(db, "issued_units_by_line", line_ids, load, list)
 
 
 def _area_roll_pool(db: Session, area: str) -> dict:
@@ -548,9 +600,10 @@ def _area_roll_pool(db: Session, area: str) -> dict:
         )
         .all()
     )
+    remaining_by_unit = _preload_issued_unit_remaining(db, [u for u, _src, _active in rows])
     units = []
     for u, src, src_active in rows:
-        remaining = _issued_unit_remaining_m(db, u)
+        remaining = remaining_by_unit[u.id]
         if remaining > 0:
             units.append((u, src, bool(src_active), remaining))
     ids = [l.id for l in active_lines]
@@ -558,7 +611,7 @@ def _area_roll_pool(db: Session, area: str) -> dict:
         "active_lines": active_lines,
         "units": units,
         "reports": _line_report_aggregates(db, ids),
-        "issued": fetch_issued_length_by_task_line(db, ids),
+        "issued": _issued_length_by_task_line(db, ids),
     }
 
 
@@ -644,36 +697,89 @@ def _task_borrowable_and_shortfall(
     reports = {**pool["reports"], **report_aggregates}
     issued = {**pool["issued"], **issued_length_by_line}
 
-    # Нехватка: открытые строки участка + строки этого задания; строки
-    # закрытых заданий с рулоном на участке — только как запас (остаток м).
-    by_spec: dict[tuple, dict[int, GroupShortfallLine]] = {}
-    lines_all = {l.id: l for l in pool["active_lines"]}
-    for l in task.lines:
-        lines_all[l.id] = l
-    for l in lines_all.values():
-        _good, defect = reports.get(l.id, (0.0, 0.0))
-        by_spec.setdefault(spec(l), {})[l.id] = GroupShortfallLine(
-            line_id=l.id,
-            width_key=width_key_of(l),
-            needed_length_m=(float(l.quantity_pieces) + defect) * float(l.length_m),
-            issued_length_m=issued.get(l.id, 0.0),
-            is_closed=l.is_closed,
-        )
-    for u, src, src_active, remaining in pool["units"]:
-        if src_active or src.id in lines_all:
-            continue
-        group = by_spec.setdefault(spec(src), {})
-        prev = group.get(src.id)
-        group[src.id] = GroupShortfallLine(
-            line_id=src.id,
-            width_key=width_key_of(src),
-            needed_length_m=0.0,
-            issued_length_m=(prev.issued_length_m if prev else 0.0) + remaining,
-            is_closed=True,
-        )
+    # Нехватка плёночных строк одна для всего участка. Не пересчитывать
+    # распределение общего рулона по всем заданиям при сериализации каждой
+    # карточки списка: для активных заданий результат кэшируется по участку.
     group_shortfall_by_line: dict[int, float] = {}
-    for group in by_spec.values():
-        group_shortfall_by_line.update(distribute_group_shortfall(list(group.values())))
+    film_shortfall_key = ("film_shortfall", task.area)
+    if task.is_active and pool_cache is not None and film_shortfall_key in pool_cache:
+        group_shortfall_by_line.update(pool_cache[film_shortfall_key])
+    elif task.is_active:
+        by_spec: dict[tuple, dict[int, GroupShortfallLine]] = {}
+        film_lines = {line.id: line for line in pool["active_lines"]}
+        for line in film_lines.values():
+            _good, defect = reports.get(line.id, (0.0, 0.0))
+            by_spec.setdefault(spec(line), {})[line.id] = GroupShortfallLine(
+                line_id=line.id,
+                width_key=width_key_of(line),
+                needed_length_m=(float(line.quantity_pieces) + defect) * float(line.length_m),
+                issued_length_m=issued.get(line.id, 0.0),
+                is_closed=line.is_closed,
+            )
+        for unit, source_line, source_active, remaining in pool["units"]:
+            if source_active or source_line.id in film_lines:
+                continue
+            group = by_spec.setdefault(spec(source_line), {})
+            previous = group.get(source_line.id)
+            group[source_line.id] = GroupShortfallLine(
+                line_id=source_line.id,
+                width_key=width_key_of(source_line),
+                needed_length_m=0.0,
+                issued_length_m=(previous.issued_length_m if previous else 0.0) + remaining,
+                is_closed=True,
+            )
+        for group in by_spec.values():
+            group_shortfall_by_line.update(distribute_group_shortfall(list(group.values())))
+        if pool_cache is not None:
+            pool_cache[film_shortfall_key] = dict(group_shortfall_by_line)
+
+    # Не-плёночные строки не входят в общий плёночный пул; для них сохраняем
+    # прежний расчёт внутри конкретного задания.
+    task_nonfilm_lines = [line for line in task.lines if line.material_id is None]
+    if task_nonfilm_lines:
+        by_spec: dict[tuple, dict[int, GroupShortfallLine]] = {}
+        for line in task_nonfilm_lines:
+            _good, defect = report_aggregates.get(line.id, (0.0, 0.0))
+            by_spec.setdefault(spec(line), {})[line.id] = GroupShortfallLine(
+                line_id=line.id,
+                width_key=width_key_of(line),
+                needed_length_m=(float(line.quantity_pieces) + defect) * float(line.length_m),
+                issued_length_m=issued_length_by_line.get(line.id, 0.0),
+                is_closed=line.is_closed,
+            )
+        for group in by_spec.values():
+            group_shortfall_by_line.update(distribute_group_shortfall(list(group.values())))
+
+    if not task.is_active:
+        # Архивная задача может не входить в пул активных строк участка.
+        # Её сериализуем прежним полным расчётом, сохраняя архивный экран.
+        by_spec = {}
+        lines_all = {line.id: line for line in pool["active_lines"]}
+        lines_all.update({line.id: line for line in task.lines})
+        for line in lines_all.values():
+            _good, defect = reports.get(line.id, (0.0, 0.0))
+            by_spec.setdefault(spec(line), {})[line.id] = GroupShortfallLine(
+                line_id=line.id,
+                width_key=width_key_of(line),
+                needed_length_m=(float(line.quantity_pieces) + defect) * float(line.length_m),
+                issued_length_m=issued.get(line.id, 0.0),
+                is_closed=line.is_closed,
+            )
+        for unit, source_line, source_active, remaining in pool["units"]:
+            if source_active or source_line.id in lines_all:
+                continue
+            group = by_spec.setdefault(spec(source_line), {})
+            previous = group.get(source_line.id)
+            group[source_line.id] = GroupShortfallLine(
+                line_id=source_line.id,
+                width_key=width_key_of(source_line),
+                needed_length_m=0.0,
+                issued_length_m=(previous.issued_length_m if previous else 0.0) + remaining,
+                is_closed=True,
+            )
+        group_shortfall_by_line = {}
+        for group in by_spec.values():
+            group_shortfall_by_line.update(distribute_group_shortfall(list(group.values())))
 
     borrowable_by_line: dict[int, list[tuple[MaterialUnit, ProductionTaskLine]]] = {}
     over_mm = _strip_over_mm(db)
@@ -715,9 +821,28 @@ def _keep_refs(db: Session, lines: list[ProductionTaskLine]) -> None:
         return objs
 
     load(PartStage, {l.part_stage_id for l in lines})
+    load(ProductionLine, {l.line_id for l in lines})
     parts = load(Part, {l.part_id for l in lines})
     load(Item, {p.item_id for p in parts})
     load(ProductionOrderLine, {l.order_line_id for l in lines})
+
+
+def _keep_task_refs(db: Session, tasks: list[ProductionTask]) -> None:
+    """Удерживать модели и заказы в identity map при сборке списка.
+
+    _task_out обращается к ним для каждой карточки; сильные ссылки
+    предотвращают повторные db.get после сериализации предыдущего задания.
+    """
+    keep = db.info.setdefault("keep_refs", {"objs": [], "done": set()})
+    if "task_headers" in keep["done"]:
+        return
+    model_ids = {task.product_model_id for task in tasks if task.product_model_id is not None}
+    order_ids = {task.production_order_id for task in tasks if task.production_order_id is not None}
+    if model_ids:
+        keep["objs"].extend(db.query(ProductModel).filter(ProductModel.id.in_(model_ids)).all())
+    if order_ids:
+        keep["objs"].extend(db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all())
+    keep["done"].add("task_headers")
 
 
 def _task_out(db: Session, task: ProductionTask, pool_cache: dict | None = None) -> ProductionTaskOut:
@@ -729,30 +854,37 @@ def _task_out(db: Session, task: ProductionTask, pool_cache: dict | None = None)
     assignment_aggregates = _line_assignment_aggregates(db, line_ids)
     assignment_ids = [a.id for l in task.lines for a in l.assignments]
     assignment_report_aggs = _assignment_report_aggregates(db, assignment_ids)
-    issued_length_by_line = fetch_issued_length_by_task_line(db, line_ids)
+    issued_length_by_line = _issued_length_by_task_line(db, line_ids)
     issued_units_by_line = _line_issued_units_map(db, line_ids)
     group_shortfall_by_line, borrowable_by_line = _task_borrowable_and_shortfall(
         db, task, report_aggregates, issued_length_by_line, issued_units_by_line, pool_cache
     )
     deficit_aggregates = _line_deficit_aggregates(db, line_ids)
     # Пул штрипсов на участке (погонаж/фабрика)
-    area_units = (
-        db.query(MaterialUnit)
-        .join(MaterialSku, MaterialUnit.material_sku_id == MaterialSku.id)
-        .filter(
-            MaterialUnit.area == task.area,
-            MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU,
+    area_stock_cache_key = ("area_stock", task.area)
+    if pool_cache is not None and area_stock_cache_key in pool_cache:
+        area_stock_map = pool_cache[area_stock_cache_key]
+    else:
+        area_units = (
+            db.query(MaterialUnit)
+            .options(joinedload(MaterialUnit.material_sku))
+            .filter(
+                MaterialUnit.area == task.area,
+                MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU,
+            )
+            .all()
         )
-        .all()
-    )
-    area_stock_map: dict[tuple, tuple[float, int]] = {}
-    for u in area_units:
-        rem = _issued_unit_remaining_m(db, u)
-        if rem > 0:
-            sku = u.material_sku
-            key = (sku.material_id, sku.color_id, round(float(u.width_mm), 1))
-            prev_m, prev_cnt = area_stock_map.get(key, (0.0, 0))
-            area_stock_map[key] = (round(prev_m + rem, 2), prev_cnt + 1)
+        remaining_by_unit = _preload_issued_unit_remaining(db, area_units)
+        area_stock_map: dict[tuple, tuple[float, int]] = {}
+        for u in area_units:
+            rem = remaining_by_unit[u.id]
+            if rem > 0:
+                sku = u.material_sku
+                key = (sku.material_id, sku.color_id, round(float(u.width_mm), 1))
+                prev_m, prev_cnt = area_stock_map.get(key, (0.0, 0))
+                area_stock_map[key] = (round(prev_m + rem, 2), prev_cnt + 1)
+        if pool_cache is not None:
+            pool_cache[area_stock_cache_key] = area_stock_map
 
     from app.services.width_analogs import equivalent_widths
 
@@ -968,15 +1100,38 @@ def delete_product_model_part(
 
 
 @router.get("/production-tasks", response_model=list[ProductionTaskOut])
-def list_production_tasks(db: Session = Depends(get_db), user: User = Depends(view_tasks)) -> list[ProductionTaskOut]:
+def list_production_tasks(
+    active_only: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    user: User = Depends(view_tasks),
+) -> list[ProductionTaskOut]:
     from sqlalchemy.orm import selectinload
 
     # распределения строк — одним запросом, а не по запросу на строку (16.10)
     query = db.query(ProductionTask).options(joinedload(ProductionTask.lines).selectinload(ProductionTaskLine.assignments))
+    if active_only:
+        query = query.filter(ProductionTask.is_active.is_(True))
     if not _can_see_all_areas(user):
         query = query.filter(ProductionTask.area == user.area)
     tasks = query.order_by(ProductionTask.created_at.desc()).all()
     begin_read_cache(db)
+    # Подготовить общие агрегаты одним батчем перед сериализацией. Без этого
+    # каждый вызов _task_out повторно сканировал отчёты и назначения своего
+    # набора строк, хотя запрос списка содержит сразу все задания.
+    all_lines = [line for task in tasks for line in task.lines]
+    _keep_refs(db, all_lines)
+    _keep_task_refs(db, tasks)
+    all_line_ids = [line.id for line in all_lines]
+    all_assignment_ids = [assignment.id for line in all_lines for assignment in line.assignments]
+    _line_report_aggregates(db, all_line_ids)
+    _line_deficit_aggregates(db, all_line_ids)
+    _line_assignment_aggregates(db, all_line_ids)
+    _assignment_report_aggregates(db, all_assignment_ids)
+    _issued_length_by_task_line(db, all_line_ids)
+    all_issued_units = _line_issued_units_map(db, all_line_ids)
+    _preload_issued_unit_remaining(
+        db, [unit for units in all_issued_units.values() for unit in units]
+    )
     pool_cache: dict = {}
     return [_task_out(db, t, pool_cache) for t in tasks]
 
@@ -998,7 +1153,7 @@ def get_blanks_demand(
     )
     line_ids = [l.id for l in lines]
     report_aggregates = _line_report_aggregates(db, line_ids)
-    issued_length_by_line = fetch_issued_length_by_task_line(db, line_ids)
+    issued_length_by_line = _issued_length_by_task_line(db, line_ids)
 
     demand_lines = []
     for line in lines:

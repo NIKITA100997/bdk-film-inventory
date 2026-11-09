@@ -12,23 +12,36 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.api.production import _can_see_all_areas, _issued_unit_remaining_m, _task_out
+from app.api.production import (
+    _area_roll_pool,
+    _can_see_all_areas,
+    _line_effective_strip_width,
+    _line_issued_units_map,
+    _line_report_aggregates,
+    _preload_issued_unit_remaining,
+    begin_read_cache,
+)
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import Color, Material, Thickness
 from app.models.events import EventType, MaterialEvent
-from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine
+from app.models.production import PlanSlot, ProductionLine, ProductionTask, ProductionTaskLine, ProductModel
+from app.models.production_orders import ProductionOrder
 from app.models.sites import Site
 from app.models.storage import Rack
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.users import User
+from app.services.areas import cuts_film_on_site
+from app.services.production import GroupShortfallLine, compute_remaining_length_m, compute_remaining_pieces, distribute_group_shortfall
+from app.services.width_analogs import equivalent_widths
 
 router = APIRouter(prefix="/film-issue", tags=["film-issue"])
 view = require_permission("units.issue", "production_tasks.manage", "production_tasks.view")
@@ -92,6 +105,59 @@ class FilmIssueBoardOut(BaseModel):
     reserve_enabled: bool
 
 
+class FilmIssueQueueAssignmentOut(BaseModel):
+    id: int
+    line_id: int
+    line_name: str
+    date: date
+    employee_names: str
+    quantity_pieces: float
+
+
+class FilmIssueQueueUnitOut(BaseModel):
+    id: int
+    width_mm: float
+    length_m: float
+    material_sku_id: int
+    parent_id: int | None
+    is_strip: bool
+    status: str
+    remaining_length_m: float
+    area: str | None
+
+
+class FilmIssueQueueLineOut(BaseModel):
+    id: int
+    material: str | None
+    color: str | None
+    thickness: float | None
+    quantity_pieces: float
+    width_mm: float
+    length_m: float
+    strip_width_mm: float
+    part_name: str | None
+    is_closed: bool
+    use_illiquid: bool
+    produced_good_pieces: float
+    defect_pieces: float
+    remaining_pieces: float
+    remaining_length_m: float
+    shortfall_length_m: float
+    issued_length_m: float
+    issued_units: list[FilmIssueQueueUnitOut] = []
+    assignments: list[FilmIssueQueueAssignmentOut] = []
+
+
+class FilmIssueQueueTaskOut(BaseModel):
+    id: int
+    product_model_name: str | None
+    name: str | None
+    area: str
+    is_active: bool
+    production_order_name: str | None
+    lines: list[FilmIssueQueueLineOut] = []
+
+
 @dataclass
 class FilmLineState:
     need_m: float  # (план + брак) × длина детали
@@ -102,37 +168,272 @@ class FilmLineState:
     status: str  # issued / covered / partial / none / site_stock
 
 
-def film_line_states(db: Session, tasks: list[ProductionTask], site_of):
-    """Выдача плёнки по строкам заданий (доска выдачи и монитор производства,
-    16.10 — одна логика): (задание, его вывод, строка, вывод строки, состояние)
-    для открытых строк с плёнкой."""
-    from app.api.production import begin_read_cache
+def _area_shortfalls(db: Session, area: str, pool: dict) -> dict[int, float]:
+    """Нехватка по строкам участка одним расчётом, как в _task_out.
 
+    В старом варианте этот общий расчёт запускался заново для каждого
+    задания на экране. Здесь один раз обходим пул участка и распределяем
+    общий остаток по тем же группам плёнка+аналог ширины.
+    """
+    any_width = cuts_film_on_site(db, area)
+    width_keys: dict[float, float] = {}
+
+    def width_key(line: ProductionTaskLine) -> float:
+        width = _line_effective_strip_width(line)
+        if any_width:
+            return 0.0
+        if width not in width_keys:
+            width_keys[width] = min(equivalent_widths(db, width))
+        return width_keys[width]
+
+    reports = pool["reports"]
+    issued = pool["issued"]
+    lines_by_id = {line.id: line for line in pool["active_lines"]}
+    by_spec: dict[tuple[int | None, int | None, int | None], dict[int, GroupShortfallLine]] = {}
+    for line in lines_by_id.values():
+        _good, defect = reports.get(line.id, (0.0, 0.0))
+        by_spec.setdefault((line.material_id, line.color_id, line.thickness_id), {})[line.id] = GroupShortfallLine(
+            line_id=line.id,
+            width_key=width_key(line),
+            needed_length_m=(float(line.quantity_pieces) + defect) * float(line.length_m),
+            issued_length_m=issued.get(line.id, 0.0),
+            is_closed=line.is_closed,
+        )
+
+    for _unit, source_line, source_active, remaining in pool["units"]:
+        if source_active or source_line.id in lines_by_id:
+            continue
+        group = by_spec.setdefault(
+            (source_line.material_id, source_line.color_id, source_line.thickness_id), {}
+        )
+        previous = group.get(source_line.id)
+        group[source_line.id] = GroupShortfallLine(
+            line_id=source_line.id,
+            width_key=width_key(source_line),
+            needed_length_m=0.0,
+            issued_length_m=(previous.issued_length_m if previous else 0.0) + remaining,
+            is_closed=True,
+        )
+
+    result: dict[int, float] = {}
+    for group in by_spec.values():
+        result.update(distribute_group_shortfall(list(group.values())))
+    return result
+
+
+def film_line_states(
+    db: Session,
+    tasks: list[ProductionTask],
+    site_of,
+    include_closed: bool = False,
+    include_assignments: bool = False,
+):
+    """Быстрый общий расчёт для выдачи плёнки и монитора.
+
+    Возвращает только данные, которые нужны этим экранам. Раньше здесь
+    вызывался полный _task_out для каждого задания: он строил карточки,
+    предупреждения, назначаемые рулоны и несколько наборов агрегатов,
+    хотя доске выдачи нужна лишь короткая сводка.
+    """
     begin_read_cache(db)
-    pool_cache: dict = {}
-    for t in tasks:
-        # Фабрика берёт плёнку со своего склада, выдачу под строку не ведёт:
-        # нужно — по тому, что ещё не произведено, а не «не выдано»
-        from_site_stock = site_of(t.area) == "Фабрика"
-        out = _task_out(db, t, pool_cache)
-        src = {l.id: l for l in t.lines}
-        for lo in out.lines:
-            l = src.get(lo.id)
-            if l is None or l.material_id is None or l.is_closed:
+    task_lines = [
+        line for task in tasks for line in task.lines if line.material_id is not None
+    ]
+    line_ids = [line.id for line in task_lines]
+    reports = _line_report_aggregates(db, line_ids)
+    from app.api.production import _issued_length_by_task_line
+
+    issued = _issued_length_by_task_line(db, line_ids)
+    units_by_line = _line_issued_units_map(db, line_ids)
+    all_units = [unit for units in units_by_line.values() for unit in units]
+    remaining_by_unit = _preload_issued_unit_remaining(db, all_units)
+
+    pool_by_area: dict[str, dict] = {}
+    shortfalls_by_area: dict[str, dict[int, float]] = {}
+    for task in tasks:
+        if task.area not in pool_by_area:
+            pool = _area_roll_pool(db, task.area)
+            pool_by_area[task.area] = pool
+            shortfalls_by_area[task.area] = _area_shortfalls(db, task.area, pool)
+
+    model_ids = {task.product_model_id for task in tasks if task.product_model_id is not None}
+    order_ids = {task.production_order_id for task in tasks if task.production_order_id is not None}
+    model_names = {
+        model.id: model.name for model in db.query(ProductModel).filter(ProductModel.id.in_(model_ids)).all()
+    } if model_ids else {}
+    order_names = {
+        order.id: order.name for order in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()
+    } if order_ids else {}
+
+    assignment_line_ids = {
+        assignment.line_id
+        for task in tasks
+        for line in task.lines
+        for assignment in line.assignments
+    } if include_assignments else set()
+    assignment_line_names = {
+        line.id: line.name
+        for line in db.query(ProductionLine).filter(ProductionLine.id.in_(assignment_line_ids)).all()
+    } if assignment_line_ids else {}
+
+    site_cache: dict[str, str | None] = {}
+    for task in tasks:
+        from_site_stock = site_cache.setdefault(task.area, site_of(task.area)) == "Фабрика"
+        task_out = SimpleNamespace(
+            name=task.name,
+            product_model_name=model_names.get(task.product_model_id),
+            production_order_name=order_names.get(task.production_order_id),
+        )
+        for line in task.lines:
+            if line.material_id is None or (line.is_closed and not include_closed):
                 continue
-            need = round((float(l.quantity_pieces) + float(lo.defect_pieces)) * float(l.length_m), 2)
-            issued = round(float(lo.issued_length_m), 2)
-            to_issue = round(float(lo.shortfall_length_m), 2)
-            covered = round(max(0.0, need - issued - to_issue), 2)
-            sw = float(lo.strip_width_mm or l.width_mm)
+            good, defect = reports.get(line.id, (0.0, 0.0))
+            issued_length = round(float(issued.get(line.id, 0.0)), 2)
+            shortfall = round(float(shortfalls_by_area[task.area].get(line.id, 0.0)), 2)
+            remaining_pieces = compute_remaining_pieces(float(line.quantity_pieces), good)
+            remaining_length = compute_remaining_length_m(float(line.length_m), remaining_pieces)
+            strip_width = _line_effective_strip_width(line)
+            need = round((float(line.quantity_pieces) + defect) * float(line.length_m), 2)
+            covered = round(max(0.0, need - issued_length - shortfall), 2)
+            to_issue = shortfall
             if from_site_stock:
-                to_issue = round(float(lo.remaining_length_m), 2)
-                covered, status = 0.0, "site_stock"
+                to_issue, covered, status = round(remaining_length, 2), 0.0, "site_stock"
             elif to_issue <= 0.01:
-                status = "issued" if issued >= need - 0.01 else "covered"
+                status = "issued" if issued_length >= need - 0.01 else "covered"
             else:
-                status = "partial" if issued > 0 or covered > 0 else "none"
-            yield t, out, l, lo, FilmLineState(need, issued, covered, to_issue, sw, status)
+                status = "partial" if issued_length > 0 or covered > 0 else "none"
+
+            issued_units = [
+                SimpleNamespace(
+                    id=unit.id,
+                    width_mm=float(unit.width_mm),
+                    length_m=float(unit.length_m),
+                    material_sku_id=unit.material_sku_id,
+                    parent_id=unit.parent_id,
+                    is_strip=bool(unit.is_strip),
+                    status=unit.status.value if hasattr(unit.status, "value") else str(unit.status),
+                    remaining_length_m=remaining_by_unit.get(unit.id, float(unit.length_m)),
+                    area=unit.area,
+                )
+                for unit in units_by_line.get(line.id, [])
+            ]
+            assignments = [
+                SimpleNamespace(
+                    id=assignment.id,
+                    line_id=assignment.line_id,
+                    line_name=assignment_line_names.get(assignment.line_id, "—"),
+                    date=assignment.date,
+                    employee_names=assignment.employee_names,
+                    quantity_pieces=float(assignment.quantity_pieces),
+                )
+                for assignment in line.assignments
+            ] if include_assignments else []
+            line_out = SimpleNamespace(
+                id=line.id,
+                strip_width_mm=strip_width,
+                produced_good_pieces=good,
+                defect_pieces=defect,
+                remaining_pieces=remaining_pieces,
+                remaining_length_m=remaining_length,
+                shortfall_length_m=shortfall,
+                issued_length_m=issued_length,
+                issued_units=issued_units,
+                assignments=assignments,
+            )
+            yield task, task_out, line, line_out, FilmLineState(
+                need, issued_length, covered, round(to_issue, 2), strip_width, status
+            )
+
+
+@router.get("/mobile-queue", response_model=list[FilmIssueQueueTaskOut])
+def film_issue_mobile_queue(
+    db: Session = Depends(get_db), user: User = Depends(view)
+) -> list[FilmIssueQueueTaskOut]:
+    """Компактная очередь для планшетной выдачи.
+
+    Экрану не нужны полные карточки заданий с предупреждениями, данными
+    п/ф и расчётами мастера. Загружаются только активные задания, строки
+    с плёнкой и поля, которые показывает или использует склад.
+    """
+    task_options = [
+        joinedload(ProductionTask.product_model),
+        selectinload(
+            ProductionTask.lines.and_(ProductionTaskLine.material_id.isnot(None))
+        ).selectinload(ProductionTaskLine.assignments),
+    ]
+    query = (
+        db.query(ProductionTask)
+        .options(*task_options)
+        .filter(
+            ProductionTask.is_active.is_(True),
+            ProductionTask.lines.any(ProductionTaskLine.material_id.isnot(None)),
+        )
+    )
+    if not _can_see_all_areas(user):
+        query = query.filter(ProductionTask.area == user.area)
+    tasks = [task for task in query.order_by(ProductionTask.created_at.desc()).all() if task.lines]
+    if not tasks:
+        return []
+
+    material_ids = {line.material_id for task in tasks for line in task.lines if line.material_id is not None}
+    color_ids = {line.color_id for task in tasks for line in task.lines if line.color_id is not None}
+    thickness_ids = {line.thickness_id for task in tasks for line in task.lines if line.thickness_id is not None}
+    materials = {row.id: row.name for row in db.query(Material).filter(Material.id.in_(material_ids)).all()} if material_ids else {}
+    colors = {row.id: row.name for row in db.query(Color).filter(Color.id.in_(color_ids)).all()} if color_ids else {}
+    thicknesses = {
+        row.id: float(row.value_mm) for row in db.query(Thickness).filter(Thickness.id.in_(thickness_ids)).all()
+    } if thickness_ids else {}
+    order_ids = {task.production_order_id for task in tasks if task.production_order_id is not None}
+    order_names = {
+        row.id: row.name for row in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()
+    } if order_ids else {}
+    site_by_area = dict(
+        db.query(Area.code, Site.name)
+        .join(Site, Area.site_id == Site.id)
+        .filter(Area.code.in_({task.area for task in tasks}))
+        .all()
+    )
+
+    output = {
+        task.id: FilmIssueQueueTaskOut(
+            id=task.id,
+            product_model_name=task.product_model.name if task.product_model is not None else None,
+            name=task.name,
+            area=task.area,
+            is_active=task.is_active,
+            production_order_name=order_names.get(task.production_order_id),
+            lines=[],
+        )
+        for task in tasks
+    }
+
+    for task, _task_out, line, line_out, _state in film_line_states(
+        db, tasks, lambda area: site_by_area.get(area), include_closed=True, include_assignments=True
+    ):
+        output[task.id].lines.append(
+            FilmIssueQueueLineOut(
+                id=line.id,
+                material=materials.get(line.material_id),
+                color=colors.get(line.color_id),
+                thickness=thicknesses.get(line.thickness_id),
+                quantity_pieces=float(line.quantity_pieces),
+                width_mm=float(line.width_mm),
+                length_m=float(line.length_m),
+                strip_width_mm=float(line_out.strip_width_mm),
+                part_name=line.part_name,
+                is_closed=bool(line.is_closed),
+                use_illiquid=bool(line.use_illiquid),
+                produced_good_pieces=float(line_out.produced_good_pieces),
+                defect_pieces=float(line_out.defect_pieces),
+                remaining_pieces=float(line_out.remaining_pieces),
+                remaining_length_m=float(line_out.remaining_length_m),
+                shortfall_length_m=float(line_out.shortfall_length_m),
+                issued_length_m=float(line_out.issued_length_m),
+                issued_units=line_out.issued_units,
+                assignments=line_out.assignments,
+            )
+        )
+    return list(output.values())
 
 
 @router.get("/board", response_model=FilmIssueBoardOut)
@@ -196,18 +497,26 @@ def film_issue_board(db: Session = Depends(get_db), user: User = Depends(view)) 
     )
 
     # рулоны на участках, в т.ч. остатки прошлых заданий, которые не сдали
+    rolls: list[AreaRollOut] = []
+    area_units = db.query(MaterialUnit).filter(
+        MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU, MaterialUnit.area.isnot(None)
+    )
+    if not all_areas:
+        area_units = area_units.filter(MaterialUnit.area == user.area)
+    area_units = area_units.all()
+    remaining_by_unit = _preload_issued_unit_remaining(db, area_units)
     issued_at = dict(
         db.query(MaterialEvent.unit_id, func.max(MaterialEvent.timestamp))
-        .filter(MaterialEvent.event_type == EventType.VYDACHA_UCHASTKU)
+        .filter(
+            MaterialEvent.event_type == EventType.VYDACHA_UCHASTKU,
+            MaterialEvent.unit_id.in_([u.id for u in area_units] or [-1]),
+        )
         .group_by(MaterialEvent.unit_id)
     )
-    rolls: list[AreaRollOut] = []
-    for u in db.query(MaterialUnit).filter(MaterialUnit.status == UnitStatus.VYDAN_UCHASTKU, MaterialUnit.area.isnot(None)):
-        if not all_areas and u.area != user.area:
-            continue
+    for u in area_units:
         sku = u.material_sku
         line = db.get(ProductionTaskLine, u.production_task_line_id) if u.production_task_line_id else None
-        rem = _issued_unit_remaining_m(db, u)
+        rem = remaining_by_unit[u.id]
         rolls.append(AreaRollOut(
             unit_id=u.id, area=u.area, area_name=areas[u.area].name if u.area in areas else u.area,
             film=film(sku.material_id, sku.color_id, sku.thickness_id), spec_key=f"{sku.material_id}-{sku.color_id}-{sku.thickness_id}",

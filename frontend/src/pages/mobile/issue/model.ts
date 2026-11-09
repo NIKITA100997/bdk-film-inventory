@@ -8,9 +8,9 @@ import {
   type MaterialUnit,
 } from "../../../api/units";
 import {
-  type ProductionTask,
-  type ProductionTaskLine,
-  type ProductionTaskLineAssignment,
+  type FilmIssueAssignment,
+  type FilmIssueTask,
+  type FilmIssueTaskLine,
 } from "../../../api/production";
 
 
@@ -128,9 +128,9 @@ export const statusFilterOptions: { value: StatusFilterValue; label: string }[] 
 export interface NeedTableRow {
   kind: "need";
   key: string;
-  task: ProductionTask;
-  line: ProductionTaskLine;
-  assignment?: ProductionTaskLineAssignment;
+  task: FilmIssueTask;
+  line: FilmIssueTaskLine;
+  assignment?: FilmIssueAssignment;
   overdue?: boolean;
   variant: "today" | "week";
 }
@@ -159,12 +159,12 @@ export interface IssuePrefill {
 }
 
 export interface QueueSelection {
-  task: ProductionTask;
-  line: ProductionTaskLine;
-  assignment?: ProductionTaskLineAssignment;
+  task: FilmIssueTask;
+  line: FilmIssueTaskLine;
+  assignment?: FilmIssueAssignment;
 }
 
-export type QueueRowData = { task: ProductionTask; line: ProductionTaskLine; assignment?: ProductionTaskLineAssignment; overdue?: boolean };
+export type QueueRowData = { task: FilmIssueTask; line: FilmIssueTaskLine; assignment?: FilmIssueAssignment; overdue?: boolean };
 
 /** Сколько метров плёнки реально нужно под ОДНУ строку очереди (раздел про
  * общий погонаж партии деталей, не длину одной детали) — "сегодня"-строка

@@ -11,7 +11,7 @@ import { getStockOverview, listPurchaseRequests } from "../../api/purchasing";
 import { listSessions } from "../../api/inventory";
 import { listPartCounts } from "../../api/partCounts";
 import { getCuttingDiscrepancies, getDefectsOverview, getDonorAccuracy, getRollsVsStrips, getStaleUnits, getStockSummary } from "../../api/reports";
-import { getBlanksDemand, listProductionTasks } from "../../api/production";
+import { getBlanksDemand, listActiveProductionTasks } from "../../api/production";
 import { getOrdersReadiness, listProductionOrders } from "../../api/productionOrders";
 import { listPfDemand } from "../../api/pfDemand";
 import { searchUnits } from "../../api/units";
@@ -93,7 +93,7 @@ export default function Overview({ embedded = false }: { embedded?: boolean }) {
   const ordersQ = useQuery({ queryKey: ["production-orders", "overview"], queryFn: () => listProductionOrders(false), enabled: canShop });
   const readinessQ = useQuery({ queryKey: ["order-readiness", "overview"], queryFn: () => getOrdersReadiness(false), enabled: canLate });
   const pfQ = useQuery({ queryKey: ["pf-demand", "overview"], queryFn: () => listPfDemand(), enabled: canPf });
-  const tasksQ = useQuery({ queryKey: ["production-tasks", "overview"], queryFn: listProductionTasks, enabled: canShop || !!myArea });
+  const tasksQ = useQuery({ queryKey: ["production-tasks", "active"], queryFn: listActiveProductionTasks, enabled: canShop || !!myArea });
   const prodQ = useQuery({
     queryKey: ["productivity", "overview", yesterday, today],
     queryFn: () => getProductivity({ date_from: yesterday, date_to: today }),
