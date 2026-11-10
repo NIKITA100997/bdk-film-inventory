@@ -88,7 +88,21 @@ function saveTabs(tabs: Tab[]): void {
 
 const ROOT_ROUTE_CONTEXT = { outlet: null, matches: [], isDataRoute: false };
 
-function TabPane({ routes, location, active }: { routes: RouteObject[]; location: Location; active: boolean }) {
+function TabPane({
+  routes,
+  location,
+  active,
+  isCompact,
+}: {
+  routes: RouteObject[];
+  location: Location;
+  active: boolean;
+  isCompact: boolean;
+}) {
+  // На планшетах и телефонах (isCompact) скрытые вкладки не должны оставаться
+  // смонтированными в DOM — иначе фоновые вкладки перехватывают лимит HTTP-соединений
+  // (макс 6 в HTTP/1.1) и шлют каскад запросов при инвалидации кэша.
+  if (isCompact && !active) return null;
   return (
     <UNSAFE_RouteContext.Provider value={ROOT_ROUTE_CONTEXT}>
       <TabPaneContent routes={routes} location={location} active={active} />
@@ -221,7 +235,7 @@ export default function WorkspaceTabs({ pageRoutes }: { pageRoutes: ReactNode })
           .filter((t) => t.mounted)
           .map((t) => (
             <TabTitleContext.Provider key={t.key} value={titleSetters.get(t.key) ?? null}>
-              <TabPane routes={routes} location={t.location} active={t.key === activeKey} />
+              <TabPane routes={routes} location={t.location} active={t.key === activeKey} isCompact={isCompact} />
             </TabTitleContext.Provider>
           ))}
       </div>

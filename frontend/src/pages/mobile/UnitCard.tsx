@@ -150,15 +150,16 @@ export default function UnitCard() {
   const canMarkLegacy = hasPermission("production_tasks.manage");
   const canSeePrice = hasPermission("prices.view") || hasPermission("prices.manage");
 
-  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses, staleTime: 5 * 60_000 });
   const activeWarehouses = (warehousesQuery.data ?? []).filter((w) => w.is_active);
 
-  const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
+  const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers, staleTime: 5 * 60_000 });
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "warehouse"],
     queryFn: () => listWriteOffReasons("warehouse"),
+    staleTime: 5 * 60_000,
   });
-  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas, staleTime: 5 * 60_000 });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
   // Раздел про перемещение между складами — выбор склада перед выбором
@@ -199,6 +200,7 @@ export default function UnitCard() {
     queryKey: ["production-tasks", "active"],
     queryFn: listActiveProductionTasks,
     enabled: !!unit && (linkOpen || reconciliationQuery.data?.task_line_id != null),
+    staleTime: 30_000,
   });
   const findLine = (taskLineId: number): { task: ProductionTask; line: ProductionTaskLine } | null => {
     for (const t of tasksQuery.data ?? []) {

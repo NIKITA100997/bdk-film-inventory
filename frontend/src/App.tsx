@@ -26,7 +26,9 @@ const queryClient = new QueryClient({
       retry: (count, error) => {
         const st = (error as { response?: { status?: number } })?.response?.status;
         if (st && st >= 400 && st < 500) return false;
-        return count < 3;
+        // На планшетах при плохом Wi-Fi повторы до 3 раз вызывают минутные зависания
+        // из-за исчерпания пула HTTP-соединений — повторяем максимум 1 раз.
+        return count < 1;
       },
     },
   },

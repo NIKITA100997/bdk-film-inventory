@@ -25,4 +25,26 @@ export default defineConfig({
   server: {
     https: httpsConfig,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom')) {
+              return 'vendor-react'
+            }
+            if (id.includes('antd') || id.includes('@ant-design')) {
+              return 'vendor-antd'
+            }
+            if (id.includes('@tanstack')) {
+              return 'vendor-query'
+            }
+            if (id.includes('dayjs')) {
+              return 'vendor-dayjs'
+            }
+          }
+        },
+      },
+    },
+  },
 })

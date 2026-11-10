@@ -274,26 +274,32 @@ export function useIssue() {
   // фиксируется по факту через день-два после самого события.
   const [occurredAt, setOccurredAt] = useState<Dayjs | null>(null);
 
-  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
+  const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus(), staleTime: 5 * 60_000 });
   // Раздел про аналоги ширин при выдаче — редко меняются, грузим один раз
   // на весь экран и используем во всех местах ручного подбора донора, для
   // визуальной консистентности с бэкендом (тот уже принимает аналог как
   // совпадение без override_strip_width, см. _validate_matches_task_line).
-  const widthAnalogsQuery = useQuery({ queryKey: ["width-analogs"], queryFn: listWidthAnalogGroups });
+  const widthAnalogsQuery = useQuery({ queryKey: ["width-analogs"], queryFn: listWidthAnalogGroups, staleTime: 5 * 60_000 });
   const widthAnalogGroups = widthAnalogsQuery.data ?? [];
   // Раздел про нулевые позиции при выдаче — отдельный запрос только для
   // списка в ручном подборе (skusQuery выше нужен целиком, включая
   // позиции без остатка: findSku по строке задания должен находить их
   // тоже, иначе очередь по заданию не сможет предложить донора/заявку на
   // нехватку для материала, которого сейчас физически нет вообще).
-  const manualSkusQuery = useQuery({ queryKey: ["material-skus", "in-stock"], queryFn: () => listMaterialSkus(true) });
+  const manualSkusQuery = useQuery({
+    queryKey: ["material-skus", "in-stock"],
+    queryFn: () => listMaterialSkus(true),
+    staleTime: 60_000,
+    enabled: manualOpen,
+  });
   // Выдача — только плёнка: строки без плёнки (сборка, склейка…) сюда не
   // попадают. select — только для этого экрана, общий кэш заданий не трогаем.
   const tasksQuery = useQuery({
     queryKey: ["production-tasks", "film-issue"],
     queryFn: listFilmIssueQueue,
+    staleTime: 30_000,
   });
-  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
+  const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas, staleTime: 5 * 60_000 });
   const areaLabel = (code: string) => areasQuery.data?.find((a) => a.code === code)?.name ?? code;
   // Раздел про отключение распределения по дням — для такого участка
   // строка в очереди "week" не помечается как "не распределено" (это её
@@ -313,8 +319,8 @@ export function useIssue() {
   // подбор донора в первую очередь искал "на своём" складе и предупреждал,
   // если оператор всё же берёт единицу с другого. Участок без площадки —
   // домашнего склада нет, ищем/выдаём как раньше, без ограничения.
-  const sitesQuery = useQuery({ queryKey: ["sites"], queryFn: listSites });
-  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses });
+  const sitesQuery = useQuery({ queryKey: ["sites"], queryFn: listSites, staleTime: 5 * 60_000 });
+  const warehousesQuery = useQuery({ queryKey: ["warehouses"], queryFn: listWarehouses, staleTime: 5 * 60_000 });
   const homeWarehouseFor = (areaCode: string | null | undefined): { id: number; name: string } | null => {
     const area = areasQuery.data?.find((a) => a.code === areaCode);
     if (!area?.site_id) return null;
@@ -359,6 +365,7 @@ export function useIssue() {
   const manualIssuedQuery = useQuery({
     queryKey: ["issue-manual-issued", areaFilter],
     queryFn: () => searchUnits({ status: "Выдан_участку", area: areaFilter ?? undefined, unassigned_only: true }),
+    staleTime: 30_000,
   });
   const manualIssuedUnits = (manualIssuedQuery.data ?? []).filter((u) => !u.production_task_line_id);
 

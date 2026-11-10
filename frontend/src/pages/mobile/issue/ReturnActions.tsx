@@ -142,7 +142,7 @@ function ConsumeUnitButton({ unit }: { unit: ProductionTaskLineIssuedUnit }) {
     mutationFn: () => consumeUnit(unit.id),
     onSuccess: () => {
       message.success(`${rollNo(unit.id)} израсходован`);
-      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      qc.invalidateQueries({ queryKey: ["production-tasks", "film-issue"] });
       qc.invalidateQueries({ queryKey: ["units"] });
     },
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось отметить рулон израсходованным")),
@@ -217,10 +217,12 @@ export function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineI
       return { returned, placed: !writeOff && !!locationCode.trim() };
     },
     onSuccess: ({ returned, placed }) => {
-      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      qc.invalidateQueries({ queryKey: ["production-tasks", "film-issue"] });
       qc.invalidateQueries({ queryKey: ["units-unplaced"] });
       qc.invalidateQueries({ queryKey: ["rack-occupancy"] });
       qc.invalidateQueries({ queryKey: ["issue-manual-issued"] });
+      qc.invalidateQueries({ queryKey: ["unit-events", returned.id] });
+      qc.invalidateQueries({ queryKey: ["cutting-plan"] });
       message.success(
         writeOff ? (
           `${rollNo(returned.id)} принят и сразу списан`

@@ -251,6 +251,7 @@ export function useGroupCuttingPlan(sku: MaterialSku | undefined, rows: QueueRow
         illiquid: !!rows[0]?.line.use_illiquid,
       }),
     enabled: !!sku,
+    staleTime: 60_000,
   });
 }
 
