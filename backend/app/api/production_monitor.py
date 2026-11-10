@@ -40,6 +40,8 @@ class MonitorOrder(BaseModel):
     name: str
     ship_date: date | None
     kind: str
+    has_lines: bool = True
+    lines_count: int = 0
 
 
 class MonitorSource(BaseModel):
@@ -351,8 +353,22 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
         )
         for i, a in enumerate(found)
     ]
+    orders_with_lines = dict(
+        db.query(ProductionOrderLine.order_id, func.count(ProductionOrderLine.id))
+        .filter(ProductionOrderLine.order_id.in_(order_ids))
+        .group_by(ProductionOrderLine.order_id)
+        .all()
+    ) if order_ids else {}
+
     orders = [
-        MonitorOrder(id=o.id, name=o.name, ship_date=o.ship_date, kind=o.kind)
+        MonitorOrder(
+            id=o.id,
+            name=o.name,
+            ship_date=o.ship_date,
+            kind=o.kind,
+            has_lines=bool(orders_with_lines.get(o.id, 0) > 0),
+            lines_count=orders_with_lines.get(o.id, 0),
+        )
         for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).order_by(ProductionOrder.ship_date, ProductionOrder.id)
     ] if order_ids else []
     return MonitorOut(areas=areas, orders=orders, rows=rows)

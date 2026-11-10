@@ -39,6 +39,7 @@ export default function ProductionMonitor() {
 
   const [q, setQ] = useState("");
   const [orderIds, setOrderIds] = useState<number[]>([]);
+  const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -72,6 +73,25 @@ export default function ProductionMonitor() {
 
       // 2. Фильтр по выбранным заказам
       if (orderIds.length > 0 && !orderIds.includes(r.order_id ?? 0)) return false;
+
+      // 2b. Фильтр по серии / изделию
+      if (selectedSeries.length > 0) {
+        const matches = selectedSeries.some((val) => {
+          if (val.startsWith("series:")) {
+            const ser = val.slice(7).toLowerCase();
+            const rSer = (r.series ?? "").toLowerCase();
+            if (rSer.includes(ser)) return true;
+            return (r.source_orders ?? []).some((src) => (src.series ?? "").toLowerCase().includes(ser));
+          } else if (val.startsWith("item:")) {
+            const itm = val.slice(5).toLowerCase();
+            const pos = (r.position ?? "").toLowerCase();
+            const src = (r.source ?? "").toLowerCase();
+            return pos.includes(itm) || src.includes(itm);
+          }
+          return false;
+        });
+        if (!matches) return false;
+      }
 
       // 3. Фильтр по диапазону дат отгрузки заказа
       if (dateRange && dateRange[0] && dateRange[1] && r.order_id) {
@@ -113,7 +133,7 @@ export default function ProductionMonitor() {
 
       return true;
     });
-  }, [data, productOk, orderIds, dateRange, statusFilter, q, orderMap]);
+  }, [data, productOk, orderIds, selectedSeries, dateRange, statusFilter, q, orderMap]);
 
   const printableTasks = useMemo(() => {
     const map = new Map<number, PrintableTask>();
@@ -129,11 +149,52 @@ export default function ProductionMonitor() {
   const orderOptions = useMemo(() => {
     const ids = new Set((data?.rows ?? []).filter((r) => !productOk || productOf(r) === productOk).map((r) => r.order_id ?? 0));
     return (data?.orders ?? [])
-      .filter((o) => ids.has(o.id))
+      .filter((o) => ids.has(o.id) && o.has_lines !== false)
       .map((o) => ({
         value: o.id,
         label: `№${o.id} «${o.name}»${o.ship_date ? ` · отгрузка ${dayjs(o.ship_date).format("DD.MM")}` : ""}`,
       }));
+  }, [data, productOk]);
+
+  const itemOrSeriesOptions = useMemo(() => {
+    const seriesSet = new Set<string>();
+    const itemSet = new Set<string>();
+    for (const r of data?.rows ?? []) {
+      if (productOk && productOf(r) !== productOk) continue;
+      if (r.series && r.series.trim()) {
+        r.series.split(",").forEach((s) => {
+          const t = s.trim();
+          if (t) seriesSet.add(t);
+        });
+      }
+      for (const src of r.source_orders ?? []) {
+        if (src.series && src.series.trim()) {
+          seriesSet.add(src.series.trim());
+        }
+      }
+      if (r.order_line_id != null && !r.part_id && r.position) {
+        // Извлекаем базовое имя изделия без размера (например, "Дверь щитовая Г-40")
+        const cleanName = r.position.replace(/\s*\d{3,4}\s*[хx*×]\s*\d{3,4}.*$/i, "").trim();
+        if (cleanName && cleanName.length > 2) itemSet.add(cleanName);
+      }
+    }
+    const seriesList = Array.from(seriesSet).sort((a, b) => a.localeCompare(b, "ru"));
+    const itemsList = Array.from(itemSet).sort((a, b) => a.localeCompare(b, "ru"));
+
+    const groups: { label: string; options: { value: string; label: string }[] }[] = [];
+    if (seriesList.length > 0) {
+      groups.push({
+        label: `Серии (${seriesList.length})`,
+        options: seriesList.map((s) => ({ value: `series:${s}`, label: s })),
+      });
+    }
+    if (itemsList.length > 0) {
+      groups.push({
+        label: `Изделия (${itemsList.length})`,
+        options: itemsList.map((it) => ({ value: `item:${it}`, label: it })),
+      });
+    }
+    return groups;
   }, [data, productOk]);
 
   const exportOrders = () => {
@@ -229,12 +290,24 @@ export default function ProductionMonitor() {
                 mode="multiple"
                 allowClear
                 placeholder="Фильтр по заказам"
-                style={{ minWidth: 200, maxWidth: 360 }}
+                style={{ minWidth: 190, maxWidth: 300 }}
                 value={orderIds}
                 onChange={setOrderIds}
                 optionFilterProp="label"
                 maxTagCount="responsive"
                 options={orderOptions}
+              />
+
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="Изделие / Серия"
+                style={{ minWidth: 190, maxWidth: 300 }}
+                value={selectedSeries}
+                onChange={setSelectedSeries}
+                optionFilterProp="label"
+                maxTagCount="responsive"
+                options={itemOrSeriesOptions}
               />
 
               <DatePicker.RangePicker

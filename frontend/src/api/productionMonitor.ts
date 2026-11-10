@@ -16,6 +16,8 @@ export interface MonitorOrder {
   name: string;
   ship_date: string | null;
   kind: string;
+  has_lines?: boolean;
+  lines_count?: number;
 }
 
 export interface MonitorRow {
