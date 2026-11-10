@@ -10,6 +10,17 @@ import { computeFlow, FlowStrip, opIncludes } from "./flow";
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const dm = (s: string | null | undefined) => (s ? dayjs(s).format("DD.MM") : "");
 
+export interface PfRec {
+  plan: number;
+  done: number;
+  framesPlan: number;
+  framesDone: number;
+  panelsPlan: number;
+  panelsDone: number;
+  readySets: number;
+  totalSets: number;
+}
+
 /** Строка заказа (дверь) с её операциями — как строка листа «График». */
 export interface LineRec {
   key: string;
@@ -24,9 +35,8 @@ export interface LineRec {
   source: string;
   qty: number;
   ops: Record<string, MonitorRow[]>;
-  pf: { plan: number; done: number };
-  left: number; // осталось по последней операции (упаковать)
-  film: MonitorRow[]; // строки с плёнкой под эту дверь (окутка/ламинация панелей) — выдана ли
+  pf: PfRec;
+  left: number; // осталось по последней операции конкретной позиции
 }
 
 export function buildLines(rows: MonitorRow[], orders: MonitorOrder[], areas: MonitorArea[]) {
@@ -34,43 +44,63 @@ export function buildLines(rows: MonitorRow[], orders: MonitorOrder[], areas: Mo
   const areaSort = new Map(areas.map((a) => [a.code, a.sort]));
   const lines = new Map<string, LineRec>();
   const opSeq = new Map<string, number>();
-  const pfOf = new Map<string, { plan: number; done: number }>();
-  const filmOf = new Map<string, MonitorRow[]>();
+  const pfOf = new Map<string, PfRec>();
+
   for (const r of rows) {
     if (r.order_id == null) continue;
+
+    // Полуфабрикаты: каркасы и панели
     if (r.part_id != null) {
-      // Агрегированное п/ф распределяем обратно по исходным позициям заказа
-      // пропорционально плану; само производственное задание остаётся общим.
       const sources = r.source_orders?.length
         ? r.source_orders.map((s) => ({ order_line_id: s.order_line_id, qty: s.quantity_pieces }))
-        : r.order_line_id != null ? [{ order_line_id: r.order_line_id, qty: r.plan }] : [];
+        : r.order_line_id != null
+        ? [{ order_line_id: r.order_line_id, qty: r.plan }]
+        : [];
       if (!sources.length) continue;
+
       for (const source of sources) {
         const key = `${r.order_id}|${source.order_line_id}`;
         const share = r.plan > 0 ? source.qty / r.plan : 0;
         const done = r.closed ? source.qty : Math.min(source.qty, r.good * share);
-        const p = pfOf.get(key) ?? { plan: 0, done: 0 };
-        p.plan += source.qty;
-        p.done += done;
-        pfOf.set(key, p);
-        if (r.film_status) {
-          (filmOf.get(key) ?? filmOf.set(key, []).get(key)!).push({
-            ...r,
-            order_line_id: source.order_line_id,
-            plan: source.qty,
-            good: r.plan > 0 ? r.good * share : 0,
-            defect: r.defect * share,
-            film_need_m: (r.film_need_m ?? 0) * share,
-            film_to_issue_m: (r.film_to_issue_m ?? 0) * share,
-            film_deficit_m: (r.film_deficit_m ?? 0) * share,
-          });
+
+        const p = pfOf.get(key) ?? {
+          plan: 0,
+          done: 0,
+          framesPlan: 0,
+          framesDone: 0,
+          panelsPlan: 0,
+          panelsDone: 0,
+          readySets: 0,
+          totalSets: 0,
+        };
+
+        const isFrame = /каркас/i.test(r.position);
+        const isPanel = /панел|заготовк|мдф/i.test(r.position);
+        const opLow = (r.operation || "").toLowerCase();
+
+        // Учитываем финальный передел детали:
+        // Для каркаса: сборка каркаса (или если другой нет)
+        // Для панели: ламинация / фрезеровка ламинированных панелей
+        const isFinalFrame = isFrame && (opLow.includes("сборка") || !opLow.includes("распил"));
+        const isFinalPanel = isPanel && (opLow.includes("ламинац") || opLow.includes("ламинир") || opLow.includes("окутк"));
+
+        if (isFrame && isFinalFrame) {
+          p.framesPlan += source.qty;
+          p.framesDone += done;
+        } else if (isPanel && isFinalPanel) {
+          p.panelsPlan += source.qty;
+          p.panelsDone += done;
+        } else if (!isFrame && !isPanel) {
+          p.plan += source.qty;
+          p.done += done;
         }
+        pfOf.set(key, p);
       }
       continue;
     }
+
     if (r.order_line_id == null) continue;
     const key = `${r.order_id}|${r.order_line_id}`;
-    if (r.film_status) (filmOf.get(key) ?? filmOf.set(key, []).get(key)!).push(r);
     const op = r.operation ?? r.area;
     // порядок столбцов: этап маршрута, при равных — участок по срокам плана (раньше начинается — левее)
     const seq = (r.op_seq ?? 1000) * 1000 + (areaSort.get(r.area) ?? 999);
@@ -79,60 +109,73 @@ export function buildLines(rows: MonitorRow[], orders: MonitorOrder[], areas: Mo
     if (!l) {
       const o = orderBy.get(r.order_id);
       l = {
-        key, order_id: r.order_id, order_name: o ? `№${o.id} «${o.name}»` : `№${r.order_id}`, ship: o?.ship_date ?? null,
-        launch: r.launch_date ?? null, invoice: r.invoice_no ?? "", series: r.series ?? "", size: r.size ?? "", color: r.color ?? "",
-        source: r.source || r.position, qty: r.line_qty ?? r.plan, ops: {}, pf: { plan: 0, done: 0 }, left: 0, film: [],
+        key,
+        order_id: r.order_id,
+        order_name: o ? `№${o.id} «${o.name}»` : `№${r.order_id}`,
+        ship: o?.ship_date ?? null,
+        launch: r.launch_date ?? null,
+        invoice: r.invoice_no ?? "",
+        series: r.series ?? "",
+        size: r.size ?? "",
+        color: r.color ?? "",
+        source: r.source || r.position,
+        qty: r.line_qty ?? r.plan,
+        ops: {},
+        pf: { plan: 0, done: 0, framesPlan: 0, framesDone: 0, panelsPlan: 0, panelsDone: 0, readySets: 0, totalSets: 0 },
+        left: 0,
       };
       lines.set(key, l);
     }
     (l.ops[op] ??= []).push(r);
   }
-  const ops = [...opSeq.entries()].sort((a, b) => a[1] - b[1]).map(([op]) => op);
-  const last = ops[ops.length - 1];
-  for (const l of lines.values()) {
-    l.pf = pfOf.get(l.key) ?? { plan: 0, done: 0 };
-    l.film = filmOf.get(l.key) ?? [];
-    const rs = (last && l.ops[last]) || [];
-    l.left = rs.length ? rs.reduce((s, r) => s + (r.closed ? 0 : Math.max(0, r.plan - r.good)), 0) : l.qty;
-  }
-  return { lines: [...lines.values()], ops };
-}
 
-// выдача плёнки под строки, что ещё в работе (как на доске выдачи, 16.10)
-const FILM_OK = new Set(["issued", "covered", "site_stock"]);
-function FilmCell({ rs }: { rs: MonitorRow[] }) {
-  const open = rs.filter((r) => !r.closed && r.plan - r.good > 0);
-  const totalDeficit = rs.reduce((s, r) => s + (r.film_deficit_m ?? 0), 0);
-  if (!open.length) {
-    if (totalDeficit > 0) {
-      return (
-        <Tooltip title={`Овердрафт штрипсов в пуле участка: накоплен дефицит ${r2(totalDeficit)} м`}>
-          <Tag color="error" style={{ marginInlineEnd: 0 }}>дефицит -{r2(totalDeficit)} м</Tag>
-        </Tooltip>
-      );
+  const ops = [...opSeq.entries()].sort((a, b) => a[1] - b[1]).map(([op]) => op);
+
+  for (const l of lines.values()) {
+    const p = pfOf.get(l.key) ?? {
+      plan: 0,
+      done: 0,
+      framesPlan: 0,
+      framesDone: 0,
+      panelsPlan: 0,
+      panelsDone: 0,
+      readySets: 0,
+      totalSets: 0,
+    };
+
+    // На 1 дверь идёт 2 панели и 1 каркас
+    const setsFromPanels = p.panelsPlan > 0 ? Math.floor(p.panelsDone / 2) : Infinity;
+    const totalSetsFromPanels = p.panelsPlan > 0 ? Math.floor(p.panelsPlan / 2) : Infinity;
+    const setsFromFrames = p.framesPlan > 0 ? p.framesDone : Infinity;
+    const totalSetsFromFrames = p.framesPlan > 0 ? p.framesPlan : Infinity;
+
+    const readySets = Math.min(
+      setsFromPanels !== Infinity ? setsFromPanels : l.qty,
+      setsFromFrames !== Infinity ? setsFromFrames : l.qty,
+    );
+    const totalSets = Math.min(
+      totalSetsFromPanels !== Infinity ? totalSetsFromPanels : l.qty,
+      totalSetsFromFrames !== Infinity ? totalSetsFromFrames : l.qty,
+    );
+
+    p.readySets = readySets;
+    p.totalSets = totalSets > 0 ? totalSets : l.qty;
+    p.done = readySets;
+    p.plan = p.totalSets;
+    l.pf = p;
+
+    // Вычисляем оставшееся строго по финальной операции маршрута ДАННОЙ позиции!
+    const myOps = ops.filter((op) => l.ops[op]?.length);
+    if (myOps.length > 0) {
+      const myLastOp = myOps[myOps.length - 1];
+      const rs = l.ops[myLastOp] || [];
+      l.left = rs.reduce((s, r) => s + (r.closed ? 0 : Math.max(0, r.plan - r.good)), 0);
+    } else {
+      l.left = l.qty;
     }
-    return rs.length ? <Typography.Text type="secondary">—</Typography.Text> : null;
   }
-  const ok = open.filter((r) => FILM_OK.has(r.film_status ?? "")).length;
-  const partial = open.filter((r) => r.film_status === "partial").length;
-  const toIssue = open.reduce((s, r) => s + (FILM_OK.has(r.film_status ?? "") ? 0 : r.film_to_issue_m ?? 0), 0);
-  const [color, text] = ok === open.length ? ["green", "выдана"] : ok === 0 && partial === 0 ? ["red", "не выдана"] : ["orange", `${ok} из ${open.length}`];
-  return (
-    <Space size={2} direction="vertical" align="center">
-      <Tooltip title={`строк с плёнкой в работе: ${open.length}; выдано: ${ok}${toIssue > 0 ? `; ещё выдать ${r2(toIssue)} м` : ""}`}>
-        <Tag color={color} style={{ marginInlineEnd: 0 }}>
-          {text}
-        </Tag>
-      </Tooltip>
-      {totalDeficit > 0 && (
-        <Tooltip title={`Овердрафт штрипсов в пуле участка: списано в дефицит ${r2(totalDeficit)} м`}>
-          <Tag color="error" style={{ marginInlineEnd: 0, fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>
-            -{r2(totalDeficit)} м
-          </Tag>
-        </Tooltip>
-      )}
-    </Space>
-  );
+
+  return { lines: [...lines.values()], ops };
 }
 
 const sumOp = (rs: MonitorRow[] = []) => ({
@@ -146,6 +189,7 @@ export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined
   if (!rs?.length) return <Typography.Text type="secondary">—</Typography.Text>;
   const s = sumOp(rs);
   const full = s.done >= s.plan - 1e-9;
+  const pct = s.plan > 0 ? Math.round((s.done / s.plan) * 100) : 100;
   const text = (
     <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 500, color: full ? "#389e0d" : s.done > 0 ? "#C97A2B" : undefined }}>
       {r2(s.done)}
@@ -153,21 +197,40 @@ export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined
         /{r2(s.plan)}
       </Typography.Text>
       {s.defect > 0 && <Typography.Text type="danger" style={{ fontSize: 11 }}> б{r2(s.defect)}</Typography.Text>}
-      {/* поток (23.10): сделано здесь, следующий этап ещё не сделал */}
       {(ready ?? 0) > 0 && (
         <span style={{ display: "block", fontSize: 10, fontWeight: 400, color: "#389e0d", lineHeight: 1 }}>ждёт {r2(ready!)}</span>
       )}
     </span>
   );
+
   const quick = rs.filter((r) => r.quick);
-  if (!quick.length)
+  const tipContent = (
+    <div>
+      <div><b>Этап «{rs[0]?.operation || "—"}»</b></div>
+      <div>• Сдано: <b>{r2(s.done)}</b> из <b>{r2(s.plan)} шт</b> ({pct}%)</div>
+      <div>• Осталось сделать: {r2(Math.max(0, s.plan - s.done))} шт</div>
+      {s.defect > 0 && <div style={{ color: "#ff4d4f" }}>• Брак: {r2(s.defect)} шт</div>}
+      {(ready ?? 0) > 0 && (
+        <div style={{ color: "#52c41a", marginTop: 2 }}>
+          • Задел к след. этапу: <b>{r2(ready!)} шт</b> (сдано здесь, ждёт приёмки)
+        </div>
+      )}
+      <div style={{ marginTop: 4, fontSize: 11, color: "#8c8c8c" }}>
+        Клик: {quick.length > 0 ? "быстрый отчёт" : `открыть задание №${rs[0]?.task_id}`}
+      </div>
+    </div>
+  );
+
+  if (!quick.length) {
     return (
-      <Tooltip title="Отчёт — в задании участка (нужен рулон или дневной план)">
+      <Tooltip title={tipContent}>
         <Button type="text" size="small" style={{ padding: "0 4px" }} onClick={() => onOpenTask(rs[0].task_id)}>
           {text}
         </Button>
       </Tooltip>
     );
+  }
+
   return (
     <Popover
       trigger="click"
@@ -183,43 +246,70 @@ export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined
         </Space>
       }
     >
-      <Button type="text" size="small" style={{ padding: "0 4px" }} aria-label="Внести отчёт">
-        {text}
-      </Button>
+      <Tooltip title={tipContent}>
+        <Button type="text" size="small" style={{ padding: "0 4px" }} aria-label="Внести отчёт">
+          {text}
+        </Button>
+      </Tooltip>
     </Popover>
   );
 }
 
-export function OpGroupCell({ ls, op }: { ls: LineRec[]; op: string; onOpenTask?: (id: number) => void }) {
+export function OpGroupCell({ ls, op, onOpenTask }: { ls: LineRec[]; op: string; onOpenTask?: (id: number) => void }) {
   const [open, setOpen] = useState(false);
   const rs = ls.flatMap((l) => l.ops[op] ?? []);
   if (!rs.length) return null;
   const s = sumOp(rs);
   if (!s.plan) return null;
   const quick = rs.filter((r) => r.quick && !r.closed && r.plan - r.good > 0);
+  const full = s.done >= s.plan - 1e-9;
+  const pct = s.plan > 0 ? Math.round((s.done / s.plan) * 100) : 100;
   const text = (
-    <span style={{ fontVariantNumeric: "tabular-nums", color: s.done >= s.plan ? "#389e0d" : s.done > 0 ? "#C97A2B" : undefined, fontWeight: 600 }}>
+    <span style={{ fontVariantNumeric: "tabular-nums", color: full ? "#389e0d" : s.done > 0 ? "#C97A2B" : undefined, fontWeight: 600 }}>
       {r2(s.done)}/{r2(s.plan)}
       {s.defect > 0 && <span style={{ color: "#ff4d4f", fontSize: 11 }}> б{r2(s.defect)}</span>}
     </span>
   );
 
-  if (!quick.length) {
-    return text;
-  }
+  const tip = (
+    <div>
+      <div><b>Группа «{op}»</b></div>
+      <div>• Всего сдано: <b>{r2(s.done)}</b> из <b>{r2(s.plan)} шт</b> ({pct}%)</div>
+      <div>• Осталось сделать: {r2(Math.max(0, s.plan - s.done))} шт</div>
+      {s.defect > 0 && <div style={{ color: "#ff4d4f" }}>• Брак: {r2(s.defect)} шт</div>}
+      <div style={{ marginTop: 4, fontSize: 11, color: "#8c8c8c" }}>
+        Клик: {quick.length > 0 ? "быстрый отчёт по группе" : "просмотр задания"}
+      </div>
+    </div>
+  );
 
   return (
-    <Popover
-      trigger="click"
-      open={open}
-      onOpenChange={setOpen}
-      title={`Отчёт по группе: ${op}`}
-      content={<BatchQuickReport rows={quick} title={op} onDone={() => setOpen(false)} />}
-    >
-      <Button type="text" size="small" style={{ padding: "0 4px" }} title="Быстрый отчёт по группе строк">
-        {text}
-      </Button>
-    </Popover>
+    <Tooltip title={tip}>
+      {quick.length > 0 ? (
+        <Popover
+          trigger="click"
+          open={open}
+          onOpenChange={setOpen}
+          title={`Отчёт по группе: ${op}`}
+          content={<BatchQuickReport rows={quick} title={op} onDone={() => setOpen(false)} />}
+        >
+          <Button type="text" size="small" style={{ padding: "0 4px" }} title="Быстрый отчёт по группе строк">
+            {text}
+          </Button>
+        </Popover>
+      ) : (
+        <Button
+          type="text"
+          size="small"
+          style={{ padding: "0 4px" }}
+          onClick={() => {
+            if (rs[0]?.task_id && onOpenTask) onOpenTask(rs[0].task_id);
+          }}
+        >
+          {text}
+        </Button>
+      )}
+    </Tooltip>
   );
 }
 
@@ -240,10 +330,10 @@ export default function OrdersView({
   onOpenTask: (id: number) => void;
 }) {
   const { lines, ops } = useMemo(() => buildLines(rows, orders, areas), [rows, orders, areas]);
-  // поток по этапам (23.10): готово к передаче / в работе, итого
   const flow = useMemo(() => computeFlow(lines, ops), [lines, ops]);
   const [stage, setStage] = useState<string | null>(null);
   const stageOn = stage && ops.includes(stage) ? stage : null;
+
   const data = useMemo(
     () =>
       lines.filter((l) => {
@@ -254,6 +344,7 @@ export default function OrdersView({
       }),
     [lines, hideDone, stageOn, flow],
   );
+
   const columns: GroupColumn<LineRec>[] = [
     { key: "invoice", title: "Счёт", width: 140, fixed: "left", sortValue: (l) => l.invoice, render: (_, l) => <span style={{ whiteSpace: "nowrap" }}>{l.invoice}</span> },
     { key: "series", title: "Серия", width: 80, sortValue: (l) => l.series, render: (_, l) => l.series },
@@ -277,7 +368,11 @@ export default function OrdersView({
       width: 76,
       align: "right",
       sortValue: (l) => l.qty,
-      render: (_, l) => <b>{r2(l.qty)}</b>,
+      render: (_, l) => (
+        <Tooltip title={`Общий план заказа по этой позиции: ${r2(l.qty)} шт`}>
+          <b>{r2(l.qty)}</b>
+        </Tooltip>
+      ),
       groupRender: (rs) => <b>{r2(rs.reduce((s, l) => s + l.qty, 0))}</b>,
     },
     {
@@ -286,26 +381,48 @@ export default function OrdersView({
       width: 96,
       align: "right",
       sortValue: (l) => l.left,
-      render: (_, l) => (l.left > 0 ? <b>{r2(l.left)}</b> : <Tag color="green">готово</Tag>),
+      render: (_, l) => (
+        <Tooltip
+          title={
+            l.left > 0
+              ? `Осталось изготовить по финальной операции: ${r2(l.left)} шт. из ${r2(l.qty)}`
+              : "Все операции маршрута выполнены — позиция полностью готова!"
+          }
+        >
+          {l.left > 0 ? <b>{r2(l.left)}</b> : <Tag color="green">готово</Tag>}
+        </Tooltip>
+      ),
       groupRender: (rs) => <b>{r2(rs.reduce((s, l) => s + l.left, 0))}</b>,
     },
     {
       key: "pf",
       title: "П/ф",
-      width: 70,
-      align: "right",
-      render: (_, l) =>
-        l.pf.plan ? (
-          <Tooltip title={`детали под дверь: сделано ${r2(l.pf.done)} из ${r2(l.pf.plan)}`}>
-            <Typography.Text type={l.pf.done >= l.pf.plan ? "success" : undefined}>{Math.round((l.pf.done / l.pf.plan) * 100)}%</Typography.Text>
+      width: 96,
+      align: "center",
+      render: (_, l) => {
+        if (!l.pf.totalSets) return <Typography.Text type="secondary">—</Typography.Text>;
+        const pct = Math.round((l.pf.readySets / l.pf.totalSets) * 100);
+        return (
+          <Tooltip
+            title={
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Готовность комплектов полуфабрикатов к склейке:</div>
+                <div>• Каркасы (собраны): {r2(l.pf.framesDone)} из {r2(l.pf.framesPlan)} шт. ({l.pf.framesPlan > 0 ? Math.round((l.pf.framesDone / l.pf.framesPlan) * 100) : 100}%)</div>
+                <div>• Облицовочные панели (с ламинацией): {r2(l.pf.panelsDone)} из {r2(l.pf.panelsPlan)} шт. (по 2 панели на дверь)</div>
+                <div style={{ marginTop: 6, borderTop: "1px dashed rgba(255,255,255,0.4)", paddingTop: 4 }}>
+                  <b>Формула полных комплектов:</b><br />
+                  min(каркасы: {r2(l.pf.framesDone)}, панели / 2: {r2(Math.floor(l.pf.panelsDone / 2))}) = <b>{l.pf.readySets} из {l.pf.totalSets} комплектов</b> ({pct}%)
+                </div>
+              </div>
+            }
+          >
+            <Tag color={pct >= 100 ? "green" : pct > 0 ? "orange" : "default"} style={{ marginInlineEnd: 0, cursor: "help" }}>
+              {pct}% ({l.pf.readySets}/{l.pf.totalSets})
+            </Tag>
           </Tooltip>
-        ) : (
-          ""
-        ),
+        );
+      },
     },
-    ...(lines.some((l) => l.film.length)
-      ? [{ key: "film", title: "Плёнка", width: 96, align: "center" as const, render: (_: unknown, l: LineRec) => <FilmCell rs={l.film} /> }]
-      : []),
     ...ops.map(
       (op): GroupColumn<LineRec> => ({
         key: `op:${op}`,
@@ -319,7 +436,7 @@ export default function OrdersView({
             )}
           </span>
         ),
-        width: 96,
+        width: 100,
         align: "center",
         sortValue: (l) => {
           const s = sumOp(l.ops[op]);
@@ -330,41 +447,45 @@ export default function OrdersView({
       }),
     ),
   ];
+
   return (
     <Space orientation="vertical" size="small" style={{ width: "100%" }}>
-    <FlowStrip flow={flow} active={stageOn} onPick={setStage} />
-    {stageOn && (
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        Показаны позиции, которые стоят на этапе «{stageOn}» (готово к передаче или в работе) —{" "}
-        <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setStage(null)}>
-          показать все
-        </Button>
-      </Typography.Text>
-    )}
-    <GroupedTable<LineRec>
-      storageKey="monitor.orders"
-      dims={[
-        { key: "order", label: "Заказ", value: (l) => l.order_name + (l.ship ? ` · отгрузка ${dm(l.ship)}` : "") },
-        { key: "invoice", label: "Счёт", value: (l) => l.invoice },
-        { key: "launch", label: "Запуск", value: (l) => dm(l.launch) },
-        { key: "series", label: "Серия", value: (l) => l.series },
-        { key: "color", label: "Цвет", value: (l) => l.color },
-      ]}
-      defaultDims={["order", "invoice"]}
-      labelColumn="name"
-      size="small"
-      rowKey={(l) => l.key}
-      dataSource={data}
-      pagination={false}
-      tableLayout="fixed"
-      scroll={{ x: 140 + 80 + 90 + 150 + 240 + 76 + 96 + 70 + (lines.some((l) => l.film.length) ? 96 : 0) + ops.length * 96 + 40, y: "calc(100vh - 450px)" }}
-      columns={columns}
-      extra={
+      <FlowStrip flow={flow} active={stageOn} onPick={setStage} />
+      {stageOn && (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          клик по клетке операции — отчёт; <Link to="/production-orders">заказы →</Link>
+          Показаны позиции на этапе «{stageOn}» (готово к передаче или в работе) —{" "}
+          <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setStage(null)}>
+            показать все
+          </Button>
         </Typography.Text>
-      }
-    />
+      )}
+      <GroupedTable<LineRec>
+        storageKey="monitor.orders"
+        dims={[
+          { key: "order", label: "Заказ", value: (l) => l.order_name + (l.ship ? ` · отгрузка ${dm(l.ship)}` : "") },
+          { key: "invoice", label: "Счёт", value: (l) => l.invoice },
+          { key: "launch", label: "Запуск", value: (l) => dm(l.launch) },
+          { key: "series", label: "Серия", value: (l) => l.series },
+          { key: "color", label: "Цвет", value: (l) => l.color },
+        ]}
+        defaultDims={["order", "invoice"]}
+        labelColumn="name"
+        size="small"
+        rowKey={(l) => l.key}
+        dataSource={data}
+        pagination={false}
+        tableLayout="fixed"
+        scroll={{
+          x: 140 + 80 + 90 + 150 + 240 + 76 + 96 + 96 + ops.length * 100 + 40,
+          y: "calc(100vh - 360px)",
+        }}
+        columns={columns}
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            клик по клетке операции — отчёт; <Link to="/production-orders">заказы →</Link>
+          </Typography.Text>
+        }
+      />
     </Space>
   );
 }

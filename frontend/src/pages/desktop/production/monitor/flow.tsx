@@ -110,28 +110,56 @@ export function FlowStrip({
       {flow.ops.map((f, i) => {
         const inc = opIncludes(f.op);
         const on = active === f.op;
+        const pct = f.plan > 0 ? Math.round((f.done / f.plan) * 100) : 100;
+        const full = f.done >= f.plan - 1e-9;
         return (
-          <button key={f.op} type="button" aria-pressed={on} style={card(on)} onClick={() => onPick(on ? null : f.op)}>
-            <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }}>
-              {i + 1}. {f.op}
+          <button
+            key={f.op}
+            type="button"
+            aria-pressed={on}
+            style={card(on)}
+            onClick={() => onPick(on ? null : f.op)}
+            title={`Клик для фильтрации таблицы по этапу «${f.op}»`}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }}>
+                {i + 1}. {f.op}
+              </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: full ? token.colorSuccess : f.done > 0 ? token.colorWarningText : token.colorTextSecondary,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {pct}%
+              </span>
             </div>
-            {inc && <div style={{ fontSize: 11, color: token.colorTextSecondary, maxWidth: 170 }}>вкл.: {inc}</div>}
-            <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
-              <Tooltip title={i < flow.ops.length - 1 ? "Сделано здесь, следующий этап ещё не сделал — готово к передаче" : "Последний этап"}>
-                <div>
-                  <div style={{ ...num, color: f.ready > 0 ? token.colorSuccess : token.colorTextQuaternary }}>{r2(f.ready)}</div>
-                  <div style={{ fontSize: 11, color: token.colorTextSecondary }}>готово</div>
-                </div>
-              </Tooltip>
-              <Tooltip title={i === 0 ? "Запущено, ещё не сделано" : "Предыдущий этап сделал, здесь ещё не сделано"}>
-                <div>
-                  <div style={{ ...num, color: f.inWork > 0 ? token.colorWarning : token.colorTextQuaternary }}>{r2(f.inWork)}</div>
-                  <div style={{ fontSize: 11, color: token.colorTextSecondary }}>{i === 0 ? "не сделано" : "в работе"}</div>
-                </div>
-              </Tooltip>
+            {inc && <div style={{ fontSize: 10, color: token.colorTextSecondary, maxWidth: 170 }}>вкл.: {inc}</div>}
+
+            {/* Главная цифра: СДАНО / ПЛАН — чтобы сразу было понятно состояние */}
+            <div style={{ marginTop: 4, display: "flex", alignItems: "baseline", gap: 4 }}>
+              <span style={{ ...num, color: full ? token.colorSuccess : f.done > 0 ? "#C97A2B" : token.colorTextTertiary }}>
+                {r2(f.done)}
+              </span>
+              <Typography.Text type="secondary" style={{ fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                / {r2(f.plan)} шт
+              </Typography.Text>
             </div>
-            <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
-              сделано {r2(f.done)} из {r2(f.plan)}
+
+            {/* Дополнительные параметры потока: задел и в работе */}
+            <div style={{ display: "flex", gap: 8, marginTop: 4, fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
+              <Tooltip title={`Межоперационный задел: сделано на этапе «${f.op}», ожидает передачи на следующий этап. Формула: сдано_здесь (${r2(f.done)}) - сдано_дальше.`}>
+                <span style={{ color: f.ready > 0 ? token.colorSuccess : token.colorTextQuaternary, cursor: "help" }}>
+                  ждёт: <b>{r2(f.ready)}</b>
+                </span>
+              </Tooltip>
+              <Tooltip title={`В обработке: поступило с предыдущего этапа, но на этапе «${f.op}» ещё не закрыто.`}>
+                <span style={{ color: f.inWork > 0 ? token.colorWarning : token.colorTextQuaternary, cursor: "help" }}>
+                  {i === 0 ? "к запуску" : "в работе"}: <b>{r2(f.inWork)}</b>
+                </span>
+              </Tooltip>
             </div>
           </button>
         );

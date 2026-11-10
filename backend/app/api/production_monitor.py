@@ -91,6 +91,12 @@ class MonitorRow(BaseModel):
     task_name: str | None = None
     quick: bool = False
     launch_date: date | None = None
+    # Parameter breakdown for quick reports & filters:
+    mat_name: str | None = None
+    color_name: str | None = None
+    thickness_mm: float | None = None
+    width_mm: float | None = None
+    height_mm: float | None = None
 
 
 class MonitorOut(BaseModel):
@@ -119,7 +125,15 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
             )
         )
     else:
-        q = q.filter(ProductionTask.is_active.is_(True))
+        since = date.today() - timedelta(days=14)
+        released_orders = db.query(ProductionOrder.id).filter(ProductionOrder.status == ORDER_RELEASED)
+        q = q.filter(
+            ProductionTask.is_active.is_(True),
+            or_(
+                ProductionTask.production_order_id.in_(released_orders),
+                (ProductionTask.production_order_id.is_(None)) & (ProductionTask.created_at >= since),
+            ),
+        )
     lines = q.all()
     ids = [ln.id for ln, _ in lines]
     agg: dict[int, tuple[float, float, datetime | None]] = {}
@@ -206,6 +220,74 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
         g, d, last = agg.get(ln.id, (0.0, 0.0, None))
         days = sorted(slots.get(ln.id, []))
         dc = door_cols(item_chars_cached(db, ol.item_id), ol.source_text, items[ol.item_id].name if ol.item_id in items else None) if ol else {}
+        stage_obj = stages.get(ln.part_stage_id) if ln.part_stage_id in stages else None
+        area_obj = area_by_code.get(t.area)
+        if stage_obj:
+            op_name = stage_obj.name
+            op_sequence = stage_obj.sequence_order or 50
+        elif t.area == "fabrika":
+            p_name = (ln.part_name or "").lower()
+            if any(k in p_name for k in ("добор", "коробк", "наличник", "планк", "притвор")):
+                op_name = "Окутка доборов (Фабрика)"
+            else:
+                op_name = "Ламинация (Фабрика)"
+            op_sequence = 51
+        elif t.area == "uchastok_membranno_vakuumnykh_pressov":
+            op_name = "Ламинация (прессы)"
+            op_sequence = 50
+        elif t.area == "skleyka_mdf_s_zagotovkoy":
+            p_name = (ln.part_name or "").lower()
+            if "распил" in p_name or "заготовк" in p_name:
+                op_name = "Распил заготовок"
+                op_sequence = 20
+            else:
+                op_name = area_obj.name if area_obj else t.area
+                op_sequence = 25
+        elif t.area == "frezerovka_laminirovannykh_paneley":
+            op_name = "Фрезеровка ламинир."
+            op_sequence = 60
+        elif t.area in ("frezerovka", "frezerovka_paneley"):
+            op_name = "Фрезеровка"
+            op_sequence = 30
+        elif t.area in ("shlifovka", "shlifovka_paneley"):
+            op_name = "Шлифовка"
+            op_sequence = 40
+        elif t.area == "sborka_karkasov":
+            op_name = "Сборка каркаса"
+            op_sequence = 10
+        elif t.area == "skleyka_shchitov":
+            op_name = "Склейка щитов"
+            op_sequence = 70
+        elif t.area == "frezerovka_perimetra_shchitov":
+            op_name = "Фрезеровка периметра"
+            op_sequence = 75
+        elif t.area == "kromka_shchitovykh_dverey":
+            op_name = "Кромка"
+            op_sequence = 80
+        elif t.area == "frezerovka_pod_zamok":
+            op_name = "Фрезеровка под замок"
+            op_sequence = 85
+        elif t.area == "sborka_shchitovykh_dverey":
+            op_name = "Сборка"
+            op_sequence = 90
+        elif t.area == "upakovka_shchitovykh_dverey":
+            op_name = "Упаковка"
+            op_sequence = 95
+        else:
+            op_name = area_obj.name if area_obj else t.area
+            op_sequence = 100
+
+        is_quick = bool(
+            t.is_active and not ln.is_closed
+            and (
+                ln.material_id is None
+                or "ламинац" in op_name.lower()
+                or "окутк" in op_name.lower()
+                or t.area in ("fabrika", "uchastok_membranno_vakuumnykh_pressov", "uchastok_laminatsii_naruzhnikh_tselnolistovykh_paneley_metallicheskikh_dverey", "tselnolistovye_dveri", "uchastok_laminatsii_obemnykh_filenok")
+                or not (area_obj and area_obj.requires_roll_on_report)
+            )
+        )
+
         rows.append(
             MonitorRow(
                 task_line_id=ln.id, task_id=t.id, area=t.area, order_id=t.production_order_id,
@@ -220,21 +302,17 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
                 size=dc.get("size", ""), color=dc.get("color", ""), source=dc.get("source", ""),
                 source_orders=source_orders,
                 source_missing=bool(ln.part_id and t.production_order_id and not source_orders),
-                operation=(stages[ln.part_stage_id].name if ln.part_stage_id in stages else None) or (area_by_code[t.area].name if t.area in area_by_code else None),
-                op_seq=stages[ln.part_stage_id].sequence_order if ln.part_stage_id in stages else None,
+                operation=op_name,
+                op_seq=op_sequence,
                 part_id=ln.part_id, task_name=t.name,
                 film_deficit_m=round(deficit_aggregates.get(ln.id, 0.0) * float(ln.length_m), 2) if ln.material_id and float(ln.length_m) > 0 else 0.0,
-                quick=bool(
-                    t.is_active and not ln.is_closed and t.area in area_by_code
-                    and not area_by_code[t.area].requires_daily_plan
-                    and (
-                        ln.material_id is None
-                        or "ламинац" in ((stages[ln.part_stage_id].name if ln.part_stage_id in stages else "") or area_by_code[t.area].name or "").lower()
-                        or t.area in ("fabrika", "uchastok_membranno_vakuumnykh_pressov")
-                        or not area_by_code[t.area].requires_roll_on_report
-                    )
-                ),
+                quick=is_quick,
                 launch_date=launched.get(t.production_order_id) if t.production_order_id else None,
+                mat_name=mats.get(ln.material_id) if ln.material_id else None,
+                color_name=cols.get(ln.color_id) if ln.color_id else None,
+                thickness_mm=ths.get(ln.thickness_id) if ln.thickness_id else None,
+                width_mm=float(ln.width_mm) if ln.width_mm else None,
+                height_mm=float(ln.height_mm) if ln.height_mm else None,
             )
         )
         area_codes.add(t.area)

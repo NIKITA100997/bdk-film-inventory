@@ -1559,11 +1559,13 @@ def _build_task_line_report(
     _require_task_access(user, line.task)  # отчёт — только по своему участку (14.10)
     area = db.get(Area, line.task.area)
     requires_daily_plan = area is None or area.requires_daily_plan
+    from app.core.security import get_permission_codes
+    is_manager = user.is_superuser or ("production_tasks.manage" in get_permission_codes(user))
     if payload.assignment_id is not None:
         assignment = db.get(ProductionTaskLineAssignment, payload.assignment_id)
         if assignment is None or assignment.task_line_id != line_id:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Распределение не найдено для этой строки задания")
-    elif requires_daily_plan and db.query(PlanSlot.id).filter(PlanSlot.task_line_id == line.id).first() is None:
+    elif requires_daily_plan and not is_manager and db.query(PlanSlot.id).filter(PlanSlot.task_line_id == line.id).first() is None:
         # Строка в планировщике уже разложена по дням — план и есть распределение.
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к распределению по дням")
     if line.part_stage_id is not None:

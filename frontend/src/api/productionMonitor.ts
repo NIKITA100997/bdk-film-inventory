@@ -59,6 +59,11 @@ export interface MonitorRow {
   task_name?: string | null;
   quick?: boolean;
   launch_date?: string | null;
+  mat_name?: string | null;
+  color_name?: string | null;
+  thickness_mm?: number | null;
+  width_mm?: number | null;
+  height_mm?: number | null;
 }
 
 export interface Monitor {

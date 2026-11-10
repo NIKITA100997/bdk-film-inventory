@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Checkbox, Input, Segmented, Select, Space, Typography } from "antd";
-import { DownloadOutlined, PrinterOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Button, Card, Checkbox, DatePicker, Input, Radio, Segmented, Select, Space, Tooltip } from "antd";
+import { DownloadOutlined, FullscreenExitOutlined, FullscreenOutlined, PrinterOutlined, ReloadOutlined } from "@ant-design/icons";
 import PrintTasksModal, { type PrintableTask } from "./PrintTasksModal";
 import ProductionOrders from "./ProductionOrders";
 import { useQuery } from "@tanstack/react-query";
@@ -18,18 +18,14 @@ import AreasView from "./monitor/AreasView";
 import PrepView from "./monitor/PrepView";
 import TaskCardDrawer from "./TaskCardDrawer";
 
-// Вид продукции (16.10): у дверей, погонажа и панелей свои этапы — по одному виду.
+// Вид продукции: у дверей, погонажа и панелей свои этапы
 const PRODUCTS = ["shield", "tsarg", "trim", "panel", "other"] as const;
 const productOf = (r: MonitorRow) => (r.direction && (PRODUCTS as readonly string[]).includes(r.direction) ? r.direction : "other");
 const productLabel = (p: string) => (p === "other" ? "Прочее" : DIRECTIONS[p] ?? p);
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
 type View = "orders" | "prod_orders" | "areas" | "prep";
+type StatusFilter = "all" | "in_work" | "deficit" | "ready";
 
-/** Монитор производства (переработан 21.10).
- * «Заказы на производство» — как лист «График»: строка на позицию заказа,
- * столбец на операцию (сделано/план, клик — отчёт), осталось упаковать.
- * «Задания цехов» — участок за участком: его строки по всем заказам, отчёт
- * прямо в строке. Быстрый отчёт — где не нужен рулон и дневной план. */
 export default function ProductionMonitor() {
   useTabTitle("Монитор производства");
   const { user } = useAuth();
@@ -40,38 +36,84 @@ export default function ProductionMonitor() {
   const [savedArea, setSavedArea] = usePersistentState<string | undefined>("monitor.area", undefined);
   const view = (params.get("view") as View) ?? savedView;
   const area = params.get("area") ?? savedArea;
+
   const [q, setQ] = useState("");
   const [orderIds, setOrderIds] = useState<number[]>([]);
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [taskId, setTaskId] = useState<number | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
+
   const query = useQuery({
     queryKey: ["production-monitor", showDone],
     queryFn: () => getProductionMonitor(showDone),
     refetchInterval: 120_000,
   });
   const data = query.data;
+
   const set = (next: Record<string, string | undefined>) => {
     const p = new URLSearchParams(params);
     for (const [k, v] of Object.entries(next)) (v == null ? p.delete(k) : p.set(k, v));
     setParams(p, { replace: true });
   };
+
   const products = PRODUCTS.filter((p) => (data?.rows ?? []).some((r) => productOf(r) === p));
   const product = params.get("product") ?? (view === "areas" ? "all" : savedProduct);
-  // «Подготовка к склейке» — п/ф щитовых, вид продукции у детали может быть другим
   const productOk = view === "prep" || product === "all" || !products.length ? null : products.includes(product as never) ? product : products[0];
+
+  const orderMap = useMemo(() => new Map((data?.orders ?? []).map((o) => [o.id, o])), [data?.orders]);
 
   const rows = useMemo(() => {
     const needle = norm(q.trim());
-    return (data?.rows ?? []).filter(
-      (r) =>
-        (!productOk || productOf(r) === productOk) &&
-        (orderIds.length === 0 || orderIds.includes(r.order_id ?? 0)) &&
-        (!needle ||
-          [r.invoice_no ?? "", r.series ?? "", ...(r.source_orders ?? []).map((src) => `${src.invoice_no ?? ""} ${src.series}`), r.color ?? "", r.source ?? "", r.position, r.task_name ?? "", r.operation ?? ""].some((s) =>
-            norm(s).includes(needle),
-          )),
-    );
-  }, [data, productOk, orderIds, q]);
+    return (data?.rows ?? []).filter((r) => {
+      // 1. Фильтр направления
+      if (productOk && productOf(r) !== productOk) return false;
+
+      // 2. Фильтр по выбранным заказам
+      if (orderIds.length > 0 && !orderIds.includes(r.order_id ?? 0)) return false;
+
+      // 3. Фильтр по диапазону дат отгрузки заказа
+      if (dateRange && dateRange[0] && dateRange[1] && r.order_id) {
+        const order = orderMap.get(r.order_id);
+        if (order?.ship_date) {
+          const ship = dayjs(order.ship_date);
+          if (ship.isBefore(dateRange[0], "day") || ship.isAfter(dateRange[1], "day")) {
+            return false;
+          }
+        }
+      }
+
+      // 4. Быстрый фильтр по статусу строки
+      if (statusFilter === "in_work") {
+        if (r.closed || r.good >= r.plan) return false;
+      } else if (statusFilter === "deficit") {
+        const hasDeficit = (r.film_deficit_m ?? 0) > 0 || r.film_status === "partial" || r.film_status === "none";
+        if (!hasDeficit) return false;
+      }
+
+      // 5. Текстовый поиск по всем ключевым полям
+      if (needle) {
+        const orderName = r.order_id ? orderMap.get(r.order_id)?.name ?? "" : "";
+        const searchPool = [
+          r.invoice_no ?? "",
+          r.series ?? "",
+          orderName,
+          ...(r.source_orders ?? []).map((src) => `${src.invoice_no ?? ""} ${src.series}`),
+          r.color ?? "",
+          r.color_name ?? "",
+          r.mat_name ?? "",
+          r.source ?? "",
+          r.position,
+          r.task_name ?? "",
+          r.operation ?? "",
+        ];
+        if (!searchPool.some((s) => norm(s).includes(needle))) return false;
+      }
+
+      return true;
+    });
+  }, [data, productOk, orderIds, dateRange, statusFilter, q, orderMap]);
 
   const printableTasks = useMemo(() => {
     const map = new Map<number, PrintableTask>();
@@ -88,15 +130,26 @@ export default function ProductionMonitor() {
     const ids = new Set((data?.rows ?? []).filter((r) => !productOk || productOf(r) === productOk).map((r) => r.order_id ?? 0));
     return (data?.orders ?? [])
       .filter((o) => ids.has(o.id))
-      .map((o) => ({ value: o.id, label: `№${o.id} «${o.name}»${o.ship_date ? ` · отгрузка ${dayjs(o.ship_date).format("DD.MM")}` : ""}` }));
+      .map((o) => ({
+        value: o.id,
+        label: `№${o.id} «${o.name}»${o.ship_date ? ` · отгрузка ${dayjs(o.ship_date).format("DD.MM")}` : ""}`,
+      }));
   }, [data, productOk]);
 
   const exportOrders = () => {
     const { lines, ops } = buildLines(rows, data?.orders ?? [], data?.areas ?? []);
     const out = lines.map((l) => {
       const rec: Record<string, string | number> = {
-        order: l.order_name, launch: l.launch ? dayjs(l.launch).format("DD.MM.YYYY") : "", invoice: l.invoice, series: l.series,
-        size: l.size, color: l.color, name: l.source, qty: l.qty, left: l.left,
+        order: l.order_name,
+        launch: l.launch ? dayjs(l.launch).format("DD.MM.YYYY") : "",
+        invoice: l.invoice,
+        series: l.series,
+        size: l.size,
+        color: l.color,
+        name: l.source,
+        qty: l.qty,
+        left: l.left,
+        pf: `${l.pf.readySets}/${l.pf.totalSets}`,
       };
       ops.forEach((op, i) => {
         const rs = l.ops[op] ?? [];
@@ -108,117 +161,190 @@ export default function ProductionMonitor() {
       `Монитор ${productOk ? productLabel(productOk) : ""} ${dayjs().format("DD.MM.YYYY")}`,
       out,
       [
-        { key: "order", header: "Заказ" }, { key: "launch", header: "Дата запуска" }, { key: "invoice", header: "№ счёта" },
-        { key: "series", header: "Серия" }, { key: "size", header: "Размер" }, { key: "color", header: "Цвет" },
-        { key: "name", header: "Наименование" }, { key: "qty", header: "Кол-во" }, { key: "left", header: "Осталось упаковать" },
+        { key: "order", header: "Заказ" },
+        { key: "launch", header: "Дата запуска" },
+        { key: "invoice", header: "№ счёта" },
+        { key: "series", header: "Серия" },
+        { key: "size", header: "Размер" },
+        { key: "color", header: "Цвет" },
+        { key: "name", header: "Наименование" },
+        { key: "qty", header: "Кол-во" },
+        { key: "left", header: "Осталось" },
+        { key: "pf", header: "Готовность п/ф (компл)" },
         ...ops.map((op, i) => ({ key: `op${i}`, header: op })),
       ],
       [`Монитор производства — ${productOk ? productLabel(productOk) : "все"}, ${dayjs().format("DD.MM.YYYY HH:mm")}`],
     );
   };
 
+  const containerStyle: React.CSSProperties = isFullscreen
+    ? {
+        position: "fixed",
+        inset: 0,
+        zIndex: 1050,
+        backgroundColor: "#f5f5f5",
+        padding: "10px 16px",
+        overflowY: "auto",
+        height: "100vh",
+        width: "100vw",
+      }
+    : { width: "100%" };
+
   return (
-    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-      <Card size="small">
-        <Space wrap size={[12, 8]}>
-          <Segmented
-            value={view}
-            onChange={(v) => {
-              setSavedView(v as View);
-              set({ view: v as string });
+    <div style={containerStyle}>
+      <Space orientation="vertical" size="small" style={{ width: "100%" }}>
+        {/* Панель фильтров и управления */}
+        <Card size="small" bodyStyle={{ padding: "8px 12px" }}>
+          <Space wrap size={[10, 8]} style={{ width: "100%", justifyContent: "space-between" }}>
+            <Space wrap size={[10, 8]}>
+              <Segmented
+                value={view}
+                onChange={(v) => {
+                  setSavedView(v as View);
+                  set({ view: v as string });
+                }}
+                options={[
+                  { label: "Матрица по заказам", value: "orders" },
+                  { label: "Заказы в цехе", value: "prod_orders" },
+                  { label: "Задания цехов", value: "areas" },
+                  { label: "Подготовка к склейке", value: "prep" },
+                ]}
+              />
+
+              {products.length > 0 && view !== "prep" && (
+                <Segmented
+                  value={productOk ?? "all"}
+                  onChange={(v) => {
+                    if (v !== "all") setSavedProduct(v as string);
+                    set({ product: v as string });
+                  }}
+                  options={[
+                    ...(view === "areas" ? [{ label: "Все", value: "all" }] : []),
+                    ...products.map((p) => ({ label: productLabel(p), value: p })),
+                  ]}
+                />
+              )}
+
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="Фильтр по заказам"
+                style={{ minWidth: 200, maxWidth: 360 }}
+                value={orderIds}
+                onChange={setOrderIds}
+                optionFilterProp="label"
+                maxTagCount="responsive"
+                options={orderOptions}
+              />
+
+              <DatePicker.RangePicker
+                placeholder={["Отгрузка с", "по"]}
+                format="DD.MM"
+                value={dateRange}
+                onChange={(dates) => setDateRange(dates as [dayjs.Dayjs | null, dayjs.Dayjs | null] | null)}
+                style={{ width: 190 }}
+                allowClear
+              />
+
+              <Input.Search
+                allowClear
+                placeholder="Счёт, клиент, серия, цвет..."
+                style={{ width: 220 }}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+
+              <Radio.Group
+                size="small"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="all">Все</Radio.Button>
+                <Radio.Button value="in_work">В работе</Radio.Button>
+                <Radio.Button value="deficit">Дефицит плёнки</Radio.Button>
+              </Radio.Group>
+
+              <Checkbox checked={showDone} onChange={(e) => setShowDone(e.target.checked)}>
+                показывать готовые
+              </Checkbox>
+            </Space>
+
+            <Space size={6} wrap>
+              <Tooltip title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть монитор на весь экран для удобного обзора"}>
+                <Button
+                  icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                  type={isFullscreen ? "primary" : "default"}
+                  onClick={() => setIsFullscreen(!isFullscreen)}
+                >
+                  {isFullscreen ? "Обычный экран" : "Во весь экран"}
+                </Button>
+              </Tooltip>
+
+              <Button icon={<ReloadOutlined />} loading={query.isFetching} onClick={() => query.refetch()}>
+                Обновить
+              </Button>
+
+              {view === "orders" && (
+                <Button icon={<DownloadOutlined />} disabled={!rows.length} onClick={exportOrders}>
+                  Excel
+                </Button>
+              )}
+
+              <Button
+                icon={<PrinterOutlined />}
+                disabled={!printableTasks.length}
+                onClick={() => setPrintOpen(true)}
+                title="Пакетная печать нарядов"
+              >
+                Печать нарядов {printableTasks.length ? `(${printableTasks.length})` : ""}
+              </Button>
+            </Space>
+          </Space>
+        </Card>
+
+        {/* Тело монитора */}
+        {!data ? null : view === "prep" ? (
+          <PrepView rows={rows} orders={data.orders} areas={data.areas} hideDone={!showDone} onOpenTask={setTaskId} />
+        ) : view === "orders" ? (
+          <OrdersView rows={rows} orders={data.orders} areas={data.areas} hideDone={!showDone} onOpenTask={setTaskId} />
+        ) : view === "prod_orders" ? (
+          <ProductionOrders />
+        ) : (
+          <AreasView
+            rows={rows}
+            orders={data.orders}
+            areas={data.areas}
+            area={area ?? undefined}
+            onArea={(code) => {
+              setSavedArea(code);
+              set({ area: code });
             }}
-            options={[
-              { label: "Матрица по заказам", value: "orders" },
-              { label: "Заказы в цехе", value: "prod_orders" },
-              { label: "Задания цехов", value: "areas" },
-              { label: "Подготовка к склейке", value: "prep" },
-            ]}
+            hideDone={!showDone}
+            onOpenTask={setTaskId}
           />
-          {products.length > 0 && view !== "prep" && (
-            <Segmented
-              value={productOk ?? "all"}
-              onChange={(v) => {
-                if (v !== "all") setSavedProduct(v as string);
-                set({ product: v as string });
-              }}
-              options={[
-                ...(view === "areas" ? [{ label: "Все", value: "all" }] : []),
-                ...products.map((p) => ({ label: productLabel(p), value: p })),
-              ]}
-            />
-          )}
-          <Select
-            mode="multiple"
-            allowClear
-            placeholder="Все заказы"
-            style={{ minWidth: 240, maxWidth: 460 }}
-            value={orderIds}
-            onChange={setOrderIds}
-            optionFilterProp="label"
-            maxTagCount="responsive"
-            options={orderOptions}
-          />
-          <Input.Search allowClear placeholder="Счёт, серия, цвет, позиция" style={{ width: 260 }} value={q} onChange={(e) => setQ(e.target.value)} />
-          <Checkbox checked={showDone} onChange={(e) => setShowDone(e.target.checked)}>
-            показывать готовые
-          </Checkbox>
-          <Button icon={<ReloadOutlined />} loading={query.isFetching} onClick={() => query.refetch()}>
-            Обновить
-          </Button>
-          {view === "orders" && (
-            <Button icon={<DownloadOutlined />} disabled={!rows.length} onClick={exportOrders}>
-              Excel
-            </Button>
-          )}
-          <Button
-            icon={<PrinterOutlined />}
-            disabled={!printableTasks.length}
-            onClick={() => setPrintOpen(true)}
-            title="Пакетная печать нарядов по участкам"
-          >
-            Печать нарядов {printableTasks.length ? `(${printableTasks.length})` : ""}
-          </Button>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {data ? `обновлено ${dayjs(query.dataUpdatedAt).format("HH:mm")}` : ""}
-          </Typography.Text>
-        </Space>
-      </Card>
-      {!data ? null : view === "prep" ? (
-        <PrepView rows={rows} orders={data.orders} areas={data.areas} onOpenTask={setTaskId} />
-      ) : view === "orders" ? (
-        <OrdersView rows={rows} orders={data.orders} areas={data.areas} hideDone={!showDone} onOpenTask={setTaskId} />
-      ) : view === "prod_orders" ? (
-        <ProductionOrders />
-      ) : (
-        <AreasView
-          rows={rows}
-          orders={data.orders}
-          areas={data.areas}
-          area={area ?? undefined}
-          onArea={(code) => {
-            setSavedArea(code);
-            set({ area: code });
+        )}
+
+        {/* Просторная карточка задания для начальника производства */}
+        <TaskCardDrawer
+          taskId={taskId}
+          onClose={() => {
+            setTaskId(null);
+            query.refetch();
           }}
-          hideDone={!showDone}
-          onOpenTask={setTaskId}
+          canManage={hasPerm(user, "production_tasks.manage")}
+          canReport={hasPerm(user, "production_tasks.manage", "production_tasks.report")}
         />
-      )}
-      <TaskCardDrawer
-        taskId={taskId}
-        onClose={() => {
-          setTaskId(null);
-          query.refetch();
-        }}
-        canManage={hasPerm(user, "production_tasks.manage")}
-        canReport={hasPerm(user, "production_tasks.manage", "production_tasks.report")}
-      />
-      {printOpen && (
-        <PrintTasksModal
-          tasks={printableTasks}
-          title={orderIds.length === 1 ? `Наряды заказа №${orderIds[0]}` : `Наряды цеха (${printableTasks.length} заданий)`}
-          onClose={() => setPrintOpen(false)}
-        />
-      )}
-    </Space>
+
+        {printOpen && (
+          <PrintTasksModal
+            tasks={printableTasks}
+            title={orderIds.length === 1 ? `Наряды заказа №${orderIds[0]}` : `Наряды цеха (${printableTasks.length} заданий)`}
+            onClose={() => setPrintOpen(false)}
+          />
+        )}
+      </Space>
+    </div>
   );
 }

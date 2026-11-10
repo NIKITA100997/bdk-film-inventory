@@ -99,22 +99,30 @@ export default function AreasView({
                       background: on ? token.colorPrimaryBg : token.colorBgContainer,
                     }}
                   >
-                    <div style={{ fontWeight: on ? 600 : 500 }}>{a.name}</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span style={{ fontWeight: on ? 600 : 500 }}>{a.name}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: pct >= 100 ? token.colorSuccess : token.colorPrimary }}>
+                        {pct}%
+                      </span>
+                    </div>
                     {flowByArea.get(a.code)?.inc && (
                       <div style={{ fontSize: 11, color: token.colorTextSecondary }}>вкл.: {flowByArea.get(a.code)!.inc}</div>
                     )}
+                    <div style={{ fontSize: 12, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+                      Сдано: <b>{r2(s.done)}</b> / {r2(s.plan)} шт
+                    </div>
                     {flowByArea.has(a.code) && (
-                      <div style={{ fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
-                        <span style={{ color: token.colorSuccess }}>готово {r2(flowByArea.get(a.code)!.ready)}</span>
+                      <div style={{ fontSize: 11, fontVariantNumeric: "tabular-nums", color: token.colorTextSecondary }}>
+                        <span style={{ color: token.colorSuccess }}>ждёт: {r2(flowByArea.get(a.code)!.ready)}</span>
                         {" · "}
                         <span style={{ color: token.colorWarning }}>
-                          {flowByArea.get(a.code)!.first ? "не сделано" : "в работе"} {r2(flowByArea.get(a.code)!.inWork)}
+                          {flowByArea.get(a.code)!.first ? "к запуску" : "в работе"}: {r2(flowByArea.get(a.code)!.inWork)}
                         </span>
                       </div>
                     )}
-                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                    <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 2 }}>
                       осталось {r2(s.left)} шт · строк {s.open}
-                      {!s.quick && <Tag style={{ marginLeft: 6, fontSize: 11 }}>отчёт в задании</Tag>}
+                      {!s.quick && <Tag style={{ marginLeft: 6, fontSize: 10 }}>отчёт в задании</Tag>}
                     </div>
                     <Progress percent={pct} size="small" showInfo={false} strokeColor={pct >= 100 ? token.colorSuccess : token.colorPrimary} />
                   </button>
