@@ -370,8 +370,9 @@ export default function ReportModal({
               {line.remaining_pieces > 0 && (
                 <Button
                   size="small"
-                  type="link"
-                  style={{ padding: 0, height: "auto" }}
+                  type="primary"
+                  ghost
+                  style={{ height: 26, padding: "0 8px", fontSize: 12, fontWeight: 500 }}
                   onClick={() => reportForm.setFieldValue("good_pieces", line.remaining_pieces)}
                 >
                   Весь остаток ({line.remaining_pieces} шт)

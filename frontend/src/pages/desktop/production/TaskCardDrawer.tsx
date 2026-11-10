@@ -117,7 +117,15 @@ export default function TaskCardDrawer({
   canReport: boolean;
 }) {
   return (
-    <Drawer open={taskId != null} onClose={onClose} size={960} destroyOnHidden title={null} closable={false} styles={{ body: { padding: 0 } }}>
+    <Drawer
+      open={taskId != null}
+      onClose={onClose}
+      size={Math.min(960, typeof window !== "undefined" ? window.innerWidth : 960)}
+      destroyOnHidden
+      title={null}
+      closable={false}
+      styles={{ body: { padding: 0 } }}
+    >
       {taskId != null && <TaskCardPanel taskId={taskId} onClose={onClose} canManage={canManage} canReport={canReport} />}
     </Drawer>
   );
@@ -451,6 +459,7 @@ function QuickLineReportModal({
   return (
     <Modal
       open={open}
+      width="min(540px, 95vw)"
       title={
         <Space direction="vertical" size={2}>
           <span>Сдача продукции: {line.part_name || "Деталь"}</span>
@@ -478,12 +487,13 @@ function QuickLineReportModal({
           name="good_pieces"
           label={
             <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
-              <span>Хороших деталей, шт</span>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>Хороших деталей, шт</span>
               {left > 0 && (
                 <Button
-                  size="small"
-                  type="link"
-                  style={{ padding: 0, height: "auto" }}
+                  size="middle"
+                  type="primary"
+                  ghost
+                  style={{ height: 30, padding: "0 10px", fontSize: 12 }}
                   onClick={() => form.setFieldValue("good_pieces", left)}
                 >
                   Весь остаток ({left} шт)
@@ -493,11 +503,11 @@ function QuickLineReportModal({
           }
           rules={[{ required: true, message: "Введите количество" }]}
         >
-          <InputNumber min={0} style={{ width: "100%" }} autoFocus />
+          <InputNumber min={0} size="large" style={{ width: "100%" }} autoFocus />
         </Form.Item>
 
-        <Form.Item name="defect_pieces" label="Брак, шт">
-          <InputNumber min={0} style={{ width: "100%" }} />
+        <Form.Item name="defect_pieces" label={<span style={{ fontSize: 14 }}>Брак, шт</span>}>
+          <InputNumber min={0} size="large" style={{ width: "100%" }} />
         </Form.Item>
 
         <Form.Item
@@ -513,12 +523,14 @@ function QuickLineReportModal({
                   rules={[{ required: true, message: "Выберите причину брака" }]}
                 >
                   <Select
+                    size="large"
                     placeholder="Выберите причину"
                     options={reasons.map((r) => ({ value: r.name, label: r.name }))}
                   />
                 </Form.Item>
                 <Form.Item name="defect_disposition" label="Что сделать с браком">
                   <Select
+                    size="large"
                     options={[
                       { value: "spisat", label: "Списать безвозвратно" },
                       { value: "pererabotka", label: "В переработку (остаётся в цехе)" },
@@ -531,12 +543,14 @@ function QuickLineReportModal({
         </Form.Item>
 
         <Form.Item name="note" label="Примечание (необязательно)">
-          <Input placeholder="Комментарий к сдаче..." />
+          <Input size="large" placeholder="Комментарий к сдаче..." />
         </Form.Item>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
-          <Button onClick={onClose}>Отмена</Button>
-          <Button type="primary" htmlType="submit" loading={submitting}>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 24 }}>
+          <Button size="large" onClick={onClose} style={{ minWidth: 100 }}>
+            Отмена
+          </Button>
+          <Button size="large" type="primary" htmlType="submit" loading={submitting} style={{ minWidth: 120 }}>
             Сдать
           </Button>
         </div>
@@ -671,6 +685,8 @@ function TaskShiftReportModal({
   return (
     <Modal
       open={open}
+      width="min(920px, 96vw)"
+      style={{ maxWidth: "calc(100vw - 16px)", top: 16 }}
       title={
         <Space direction="vertical" size={2}>
           <span>⚡ Быстрый отчёт за смену (все строки задания)</span>
@@ -679,21 +695,21 @@ function TaskShiftReportModal({
           </Typography.Text>
         </Space>
       }
-      width={900}
       onCancel={onClose}
       footer={
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <div>
-            <Typography.Text strong>
-              Всего к сдаче: <Tag color="green">{totalGood} годных</Tag>
-              {totalDefect > 0 && <Tag color="red">{totalDefect} брак</Tag>}
+            <Typography.Text strong style={{ fontSize: 14 }}>
+              Всего к сдаче: <Tag color="green" style={{ fontSize: 13 }}>{totalGood} годных</Tag>
+              {totalDefect > 0 && <Tag color="red" style={{ fontSize: 13 }}>{totalDefect} брак</Tag>}
             </Typography.Text>
           </div>
-          <Space>
-            <Button onClick={onClose} disabled={submitting}>
+          <Space size={10}>
+            <Button size="large" onClick={onClose} disabled={submitting}>
               Отмена
             </Button>
             <Button
+              size="large"
               type="primary"
               onClick={handleSubmit}
               loading={submitting}
@@ -707,11 +723,11 @@ function TaskShiftReportModal({
       destroyOnClose
     >
       <div style={{ margin: "12px 0", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <Space>
-          <Button size="small" type="primary" ghost onClick={fillAllRemainders}>
+        <Space size={8}>
+          <Button size="middle" type="primary" ghost onClick={fillAllRemainders} style={{ fontWeight: 500 }}>
             Заполнить все остатки
           </Button>
-          <Button size="small" onClick={clearAll}>
+          <Button size="middle" onClick={clearAll}>
             Очистить
           </Button>
         </Space>
@@ -754,24 +770,26 @@ function TaskShiftReportModal({
           },
           {
             title: "Сдано годных, шт",
-            width: 160,
+            width: 170,
             render: (_, l) => {
               const left = Math.max(0, l.quantity_pieces - l.produced_good_pieces);
               const val = entries[l.id]?.good;
               return (
-                <Space size={4}>
+                <Space size={6}>
                   <InputNumber
                     min={0}
                     value={val}
-                    style={{ width: 85 }}
+                    size="middle"
+                    style={{ width: 90 }}
                     onChange={(v) => updateEntry(l.id, "good", v ?? 0)}
                   />
                   {left > 0 && (
                     <Button
-                      size="small"
-                      type="link"
-                      style={{ padding: "0 2px", fontSize: 11 }}
+                      size="middle"
+                      type="dashed"
+                      style={{ minWidth: 44, padding: "0 8px", fontWeight: 600, fontSize: 13 }}
                       onClick={() => updateEntry(l.id, "good", left)}
+                      title={`Вписать весь остаток (${left} шт)`}
                     >
                       {left}
                     </Button>
@@ -782,25 +800,26 @@ function TaskShiftReportModal({
           },
           {
             title: "Брак, шт",
-            width: 100,
+            width: 105,
             render: (_, l) => (
               <InputNumber
                 min={0}
+                size="middle"
                 value={entries[l.id]?.defect}
-                style={{ width: 75 }}
+                style={{ width: 85 }}
                 onChange={(v) => updateEntry(l.id, "defect", v ?? 0)}
               />
             ),
           },
           {
             title: "Причина брака",
-            width: 180,
+            width: 190,
             render: (_, l) => {
               const d = Number(entries[l.id]?.defect) || 0;
               if (d <= 0) return <Typography.Text type="secondary">—</Typography.Text>;
               return (
                 <Select
-                  size="small"
+                  size="middle"
                   placeholder="Причина"
                   value={entries[l.id]?.reason}
                   style={{ width: "100%" }}
@@ -921,14 +940,16 @@ function LinesTab({
         {canReport && t.is_active && (
           <Button
             type="primary"
+            size="middle"
             icon={<ThunderboltOutlined />}
+            style={{ height: 36, fontWeight: 500 }}
             onClick={() => setShiftReportOpen(true)}
           >
             ⚡ Быстрый отчёт за смену (все строки)
           </Button>
         )}
         {(fabrika || !requiresRoll) && (
-          <Tag color="blue" style={{ padding: "4px 8px" }}>
+          <Tag color="blue" style={{ padding: "4px 8px", fontSize: 12 }}>
             ⚡ Упрощённый режим: сдача в штуках, списание плёнки по нормативу (FIFO)
           </Tag>
         )}
@@ -1034,7 +1055,7 @@ function LinesTab({
               }
               const left = Math.max(0, l.quantity_pieces - l.produced_good_pieces);
               return (
-                <Space size={4}>
+                <Space size={6} wrap>
                   {left > 0 ? (
                     <>
                       <Popconfirm
@@ -1045,30 +1066,32 @@ function LinesTab({
                         onConfirm={() => handleQuickReportAll(l)}
                       >
                         <Button
-                          size="small"
+                          size="middle"
                           type="primary"
                           ghost
                           loading={submittingLineId === l.id}
+                          style={{ height: 32, padding: "0 10px", fontWeight: 600, fontSize: 13 }}
                           title="Быстрая сдача всего остатка деталей"
                         >
                           Всё ({left})
                         </Button>
                       </Popconfirm>
                       <Button
-                        size="small"
+                        size="middle"
                         onClick={() => setQuickLine(l)}
+                        style={{ height: 32, padding: "0 10px", fontSize: 13 }}
                         title="Сдать часть партии или зафиксировать брак"
                       >
                         Сдать…
                       </Button>
                     </>
                   ) : (
-                    <Space size={2}>
-                      <Tag color="success">✓ Сдано</Tag>
+                    <Space size={4}>
+                      <Tag color="success" style={{ fontSize: 12, padding: "2px 8px" }}>✓ Сдано</Tag>
                       <Button
-                        size="small"
-                        type="text"
-                        style={{ fontSize: 11, padding: "0 4px" }}
+                        size="middle"
+                        type="default"
+                        style={{ minWidth: 32, height: 30, padding: 0, fontWeight: 700 }}
                         onClick={() => setQuickLine(l)}
                         title="Сдать сверх плана"
                       >
