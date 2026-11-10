@@ -311,8 +311,8 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
                 mat_name=mats.get(ln.material_id) if ln.material_id else None,
                 color_name=cols.get(ln.color_id) if ln.color_id else None,
                 thickness_mm=ths.get(ln.thickness_id) if ln.thickness_id else None,
-                width_mm=float(ln.width_mm) if ln.width_mm else None,
-                height_mm=float(ln.height_mm) if ln.height_mm else None,
+                width_mm=float(ln.width_mm) if getattr(ln, "width_mm", None) else None,
+                height_mm=round(float(ln.length_m) * 1000.0, 1) if getattr(ln, "length_m", None) and float(ln.length_m) > 0 else None,
             )
         )
         area_codes.add(t.area)
