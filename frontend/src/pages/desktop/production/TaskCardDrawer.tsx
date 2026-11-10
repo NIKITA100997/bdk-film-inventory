@@ -2,7 +2,7 @@ import StripPoolAdjustModal from "../../../components/StripPoolAdjustModal";
 import { useState } from "react";
 import OverProductionTag, { overExcess } from "../../../components/OverProductionTag";
 import { ItemChars } from "../../../components/ItemChars";
-import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Tabs, Tag, Typography, message, Tooltip } from "antd";
+import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Tabs, Tag, Typography, message, Tooltip, Popconfirm, InputNumber, Input, Form, Select, Table } from "antd";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,12 +16,15 @@ import {
   getProductionTask,
   getTaskCard,
   lineFilmLabel,
+  createTaskLineReportsBatch,
   type ProductionTask,
   type ProductionTaskLine,
+  type ProductionTaskLineReportCreate,
   type TaskCardReport,
 } from "../../../api/production";
 import { listAreas } from "../../../api/areas";
 import { listPlanSlots } from "../../../api/planning";
+import { listWriteOffReasons } from "../../../api/writeOffReasons";
 import { ORDER_STATUS_LABEL } from "../../../api/productionOrders";
 import { useAuth } from "../../../auth/AuthContext";
 import FastReportPanel from "./fastReport/FastReportPanel";
@@ -33,9 +36,11 @@ import LineSpecModal from "./LineSpecModal";
 import { areaRequiresRoll } from "../../../api/areas";
 import { rollChoices } from "./fastReport/useFastReport";
 import { apiErrorMessage } from "../../../utils/apiError";
+import { sendReportWithConfirm, ReportCancelled } from "../../../utils/reportConfirm";
+import { newOpKey } from "../../../utils/opKey";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import JobCardModal from "./JobCardModal";
-import { PrinterOutlined } from "@ant-design/icons";
+import { PrinterOutlined, ThunderboltOutlined } from "@ant-design/icons";
 
 /** Готовность задания п/ф по деталям: деталь готова, когда все её строки
  * (этапы на этом участке) сделаны или закрыты. */
@@ -193,7 +198,7 @@ function TaskCardBody({
   const pfAllReady = pfTasks.every(pfReady);
   // Задание другого участка (связанное п/ф ↔ окутка) — только просмотр.
   const foreign = !!userArea && t.area !== userArea;
-  const reportAllowed = canReport && t.is_active && !fabrika && !foreign;
+  const reportAllowed = canReport && t.is_active && !foreign;
 
   const moreItems = [
     ...(canManage && t.is_active && t.lines.some((l) => l.part_name && !l.operation_name)
@@ -357,6 +362,460 @@ function TaskCardBody({
 
 type LineAction = "report" | "assign" | "spec" | "issue-close" | "prod-close" | "illiquid";
 
+function QuickLineReportModal({
+  open,
+  task,
+  line,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  task: ProductionTask;
+  line: ProductionTaskLine;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [form] = Form.useForm();
+  const [submitting, setSubmitting] = useState(false);
+  const rq = useQuery({
+    queryKey: ["write-off-reasons", "production"],
+    queryFn: () => listWriteOffReasons("production"),
+    staleTime: 300_000,
+  });
+  const reasons = (rq.data ?? []).filter((r) => r.is_active !== false);
+
+  const left = Math.max(0, line.quantity_pieces - line.produced_good_pieces);
+
+  const onFinish = async (values: {
+    good_pieces?: number;
+    defect_pieces?: number;
+    defect_reason?: string;
+    defect_disposition?: "spisat" | "pererabotka";
+    note?: string;
+  }) => {
+    const good = Number(values.good_pieces || 0);
+    const defect = Number(values.defect_pieces || 0);
+    if (good <= 0 && defect <= 0) {
+      message.warning("Укажите количество годных или брак");
+      return;
+    }
+    if (defect > 0 && !values.defect_reason) {
+      message.error("Укажите причину брака");
+      return;
+    }
+
+    setSubmitting(true);
+    const opKey = newOpKey();
+    const payloads: ProductionTaskLineReportCreate[] = [];
+    if (good > 0) {
+      payloads.push({
+        assignment_id: null,
+        material_unit_id: null,
+        good_pieces: good,
+        defect_pieces: 0,
+        note: values.note || undefined,
+      });
+    }
+    if (defect > 0) {
+      payloads.push({
+        assignment_id: null,
+        material_unit_id: null,
+        good_pieces: 0,
+        defect_pieces: defect,
+        defect_reason: values.defect_reason,
+        defect_disposition: values.defect_disposition || "spisat",
+        note: values.note || undefined,
+      });
+    }
+
+    try {
+      await sendReportWithConfirm((confirmed) =>
+        createTaskLineReportsBatch(
+          task.id,
+          line.id,
+          payloads.map((p) => ({ ...p, confirmed })),
+          opKey,
+        ),
+      );
+      message.success(`Отчёт сохранён: +${good} шт`);
+      onSuccess();
+      onClose();
+    } catch (e) {
+      if (e instanceof ReportCancelled) return;
+      message.error(apiErrorMessage(e, "Не удалось сохранить отчёт"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      title={
+        <Space direction="vertical" size={2}>
+          <span>Сдача продукции: {line.part_name || "Деталь"}</span>
+          <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: "normal" }}>
+            План: {line.quantity_pieces} шт · Сдано: {line.produced_good_pieces} шт · Остаток: {left} шт
+          </Typography.Text>
+        </Space>
+      }
+      onCancel={onClose}
+      footer={null}
+      destroyOnClose
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{
+          good_pieces: left > 0 ? left : 0,
+          defect_pieces: 0,
+          defect_disposition: "spisat",
+        }}
+        onFinish={onFinish}
+        style={{ marginTop: 16 }}
+      >
+        <Form.Item
+          name="good_pieces"
+          label={
+            <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
+              <span>Хороших деталей, шт</span>
+              {left > 0 && (
+                <Button
+                  size="small"
+                  type="link"
+                  style={{ padding: 0, height: "auto" }}
+                  onClick={() => form.setFieldValue("good_pieces", left)}
+                >
+                  Весь остаток ({left} шт)
+                </Button>
+              )}
+            </div>
+          }
+          rules={[{ required: true, message: "Введите количество" }]}
+        >
+          <InputNumber min={0} style={{ width: "100%" }} autoFocus />
+        </Form.Item>
+
+        <Form.Item name="defect_pieces" label="Брак, шт">
+          <InputNumber min={0} style={{ width: "100%" }} />
+        </Form.Item>
+
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) => prev.defect_pieces !== cur.defect_pieces}
+        >
+          {({ getFieldValue }) =>
+            (getFieldValue("defect_pieces") ?? 0) > 0 ? (
+              <>
+                <Form.Item
+                  name="defect_reason"
+                  label="Причина брака"
+                  rules={[{ required: true, message: "Выберите причину брака" }]}
+                >
+                  <Select
+                    placeholder="Выберите причину"
+                    options={reasons.map((r) => ({ value: r.name, label: r.name }))}
+                  />
+                </Form.Item>
+                <Form.Item name="defect_disposition" label="Что сделать с браком">
+                  <Select
+                    options={[
+                      { value: "spisat", label: "Списать безвозвратно" },
+                      { value: "pererabotka", label: "В переработку (остаётся в цехе)" },
+                    ]}
+                  />
+                </Form.Item>
+              </>
+            ) : null
+          }
+        </Form.Item>
+
+        <Form.Item name="note" label="Примечание (необязательно)">
+          <Input placeholder="Комментарий к сдаче..." />
+        </Form.Item>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+          <Button onClick={onClose}>Отмена</Button>
+          <Button type="primary" htmlType="submit" loading={submitting}>
+            Сдать
+          </Button>
+        </div>
+      </Form>
+    </Modal>
+  );
+}
+
+function TaskShiftReportModal({
+  open,
+  task,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  task: ProductionTask;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const rq = useQuery({
+    queryKey: ["write-off-reasons", "production"],
+    queryFn: () => listWriteOffReasons("production"),
+    staleTime: 300_000,
+  });
+  const reasons = (rq.data ?? []).filter((r) => r.is_active !== false);
+
+  const [entries, setEntries] = useState<Record<number, { good?: number; defect?: number; reason?: string; note?: string }>>({});
+
+  const activeLines = task.lines.filter((l) => !l.production_closed);
+
+  const fillAllRemainders = () => {
+    const next: Record<number, { good?: number; defect?: number; reason?: string; note?: string }> = {};
+    for (const l of activeLines) {
+      const left = Math.max(0, l.quantity_pieces - l.produced_good_pieces);
+      next[l.id] = {
+        good: left,
+        defect: entries[l.id]?.defect || 0,
+        reason: entries[l.id]?.reason,
+        note: entries[l.id]?.note,
+      };
+    }
+    setEntries(next);
+  };
+
+  const clearAll = () => setEntries({});
+
+  const updateEntry = (lineId: number, field: string, value: unknown) => {
+    setEntries((prev) => ({
+      ...prev,
+      [lineId]: {
+        good: prev[lineId]?.good ?? 0,
+        defect: prev[lineId]?.defect ?? 0,
+        ...prev[lineId],
+        [field]: value,
+      },
+    }));
+  };
+
+  const totalGood = Object.values(entries).reduce((s, e) => s + (Number(e.good) || 0), 0);
+  const totalDefect = Object.values(entries).reduce((s, e) => s + (Number(e.defect) || 0), 0);
+
+  const handleSubmit = async () => {
+    const toSubmit = activeLines.filter((l) => {
+      const e = entries[l.id];
+      return e && ((Number(e.good) || 0) > 0 || (Number(e.defect) || 0) > 0);
+    });
+
+    if (toSubmit.length === 0) {
+      message.warning("Введите сданные количества хотя бы по одной строке");
+      return;
+    }
+
+    for (const l of toSubmit) {
+      const e = entries[l.id];
+      if ((Number(e.defect) || 0) > 0 && !e.reason) {
+        message.error(`Укажите причину брака для строки: ${l.part_name || "Деталь"}`);
+        return;
+      }
+    }
+
+    setSubmitting(true);
+    let successCount = 0;
+    try {
+      for (const l of toSubmit) {
+        const e = entries[l.id];
+        const g = Number(e.good) || 0;
+        const d = Number(e.defect) || 0;
+        const opKey = newOpKey();
+        const payloads: ProductionTaskLineReportCreate[] = [];
+        if (g > 0) {
+          payloads.push({
+            assignment_id: null,
+            material_unit_id: null,
+            good_pieces: g,
+            defect_pieces: 0,
+            note: e.note || undefined,
+          });
+        }
+        if (d > 0) {
+          payloads.push({
+            assignment_id: null,
+            material_unit_id: null,
+            good_pieces: 0,
+            defect_pieces: d,
+            defect_reason: e.reason,
+            defect_disposition: "spisat",
+            note: e.note || undefined,
+          });
+        }
+        await sendReportWithConfirm((confirmed) =>
+          createTaskLineReportsBatch(
+            task.id,
+            l.id,
+            payloads.map((p) => ({ ...p, confirmed })),
+            opKey,
+          ),
+        );
+        successCount++;
+      }
+      message.success(`Успешно сдано строк: ${successCount} (всего ${totalGood} шт)`);
+      onSuccess();
+      onClose();
+    } catch (e) {
+      if (e instanceof ReportCancelled) return;
+      message.error(apiErrorMessage(e, "Ошибка при сохранении отчётов"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      title={
+        <Space direction="vertical" size={2}>
+          <span>⚡ Быстрый отчёт за смену (все строки задания)</span>
+          <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: "normal" }}>
+            Задание №{task.id} «{task.name}» · Ввод готовой продукции и брака без рулонов
+          </Typography.Text>
+        </Space>
+      }
+      width={900}
+      onCancel={onClose}
+      footer={
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <Typography.Text strong>
+              Всего к сдаче: <Tag color="green">{totalGood} годных</Tag>
+              {totalDefect > 0 && <Tag color="red">{totalDefect} брак</Tag>}
+            </Typography.Text>
+          </div>
+          <Space>
+            <Button onClick={onClose} disabled={submitting}>
+              Отмена
+            </Button>
+            <Button
+              type="primary"
+              onClick={handleSubmit}
+              loading={submitting}
+              disabled={totalGood === 0 && totalDefect === 0}
+            >
+              Сдать выбранное ({totalGood + totalDefect} шт)
+            </Button>
+          </Space>
+        </div>
+      }
+      destroyOnClose
+    >
+      <div style={{ margin: "12px 0", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <Space>
+          <Button size="small" type="primary" ghost onClick={fillAllRemainders}>
+            Заполнить все остатки
+          </Button>
+          <Button size="small" onClick={clearAll}>
+            Очистить
+          </Button>
+        </Space>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          Плёнка спишется автоматически по нормативу из пула участка (FIFO)
+        </Typography.Text>
+      </div>
+
+      <Table<ProductionTaskLine>
+        size="small"
+        rowKey="id"
+        pagination={false}
+        dataSource={activeLines}
+        scroll={{ y: 400, x: "max-content" }}
+        columns={[
+          {
+            title: "Деталь",
+            width: 220,
+            render: (_, l) => (
+              <Space direction="vertical" size={0}>
+                <ItemChars chars={l.item_chars} name={l.part_name} />
+                {l.operation_name && <Typography.Text type="secondary" style={{ fontSize: 11 }}>{l.operation_name}</Typography.Text>}
+              </Space>
+            ),
+          },
+          {
+            title: "План / Остаток",
+            width: 140,
+            render: (_, l) => {
+              const left = Math.max(0, l.quantity_pieces - l.produced_good_pieces);
+              return (
+                <Space direction="vertical" size={0}>
+                  <span>{l.produced_good_pieces} из {l.quantity_pieces} шт</span>
+                  <Tag color={left > 0 ? "orange" : "green"} style={{ margin: 0, fontSize: 11 }}>
+                    {left > 0 ? `Остаток: ${left} шт` : "Сдано"}
+                  </Tag>
+                </Space>
+              );
+            },
+          },
+          {
+            title: "Сдано годных, шт",
+            width: 160,
+            render: (_, l) => {
+              const left = Math.max(0, l.quantity_pieces - l.produced_good_pieces);
+              const val = entries[l.id]?.good;
+              return (
+                <Space size={4}>
+                  <InputNumber
+                    min={0}
+                    value={val}
+                    style={{ width: 85 }}
+                    onChange={(v) => updateEntry(l.id, "good", v ?? 0)}
+                  />
+                  {left > 0 && (
+                    <Button
+                      size="small"
+                      type="link"
+                      style={{ padding: "0 2px", fontSize: 11 }}
+                      onClick={() => updateEntry(l.id, "good", left)}
+                    >
+                      {left}
+                    </Button>
+                  )}
+                </Space>
+              );
+            },
+          },
+          {
+            title: "Брак, шт",
+            width: 100,
+            render: (_, l) => (
+              <InputNumber
+                min={0}
+                value={entries[l.id]?.defect}
+                style={{ width: 75 }}
+                onChange={(v) => updateEntry(l.id, "defect", v ?? 0)}
+              />
+            ),
+          },
+          {
+            title: "Причина брака",
+            width: 180,
+            render: (_, l) => {
+              const d = Number(entries[l.id]?.defect) || 0;
+              if (d <= 0) return <Typography.Text type="secondary">—</Typography.Text>;
+              return (
+                <Select
+                  size="small"
+                  placeholder="Причина"
+                  value={entries[l.id]?.reason}
+                  style={{ width: "100%" }}
+                  onChange={(v) => updateEntry(l.id, "reason", v)}
+                  options={reasons.map((r) => ({ value: r.name, label: r.name }))}
+                />
+              );
+            },
+          },
+        ]}
+      />
+    </Modal>
+  );
+}
+
 function LinesTab({
   t,
   fabrika,
@@ -375,8 +834,15 @@ function LinesTab({
   const qc = useQueryClient();
   const [target, setTarget] = useState<{ action: LineAction; line: ProductionTaskLine } | null>(null);
   const [adjustLine, setAdjustLine] = useState<ProductionTaskLine | null>(null);
+  const [quickLine, setQuickLine] = useState<ProductionTaskLine | null>(null);
+  const [shiftReportOpen, setShiftReportOpen] = useState(false);
+  const [submittingLineId, setSubmittingLineId] = useState<number | null>(null);
+
   const done = () => {
     qc.invalidateQueries({ queryKey: ["production-tasks"] });
+    qc.invalidateQueries({ queryKey: ["production-task", t.id] });
+    qc.invalidateQueries({ queryKey: ["production-task-card", t.id] });
+    qc.invalidateQueries({ queryKey: ["production-monitor"] });
     message.success("Сохранено");
   };
   const fail = (e: unknown) => message.error(apiErrorMessage(e, "Не удалось изменить строку"));
@@ -408,16 +874,65 @@ function LinesTab({
     else if (key === "prod-close") prodClose.mutate(l);
     else setTarget({ action: key, line: l });
   };
+
+  const handleQuickReportAll = async (l: ProductionTaskLine) => {
+    const left = Math.max(0, l.quantity_pieces - l.produced_good_pieces);
+    if (left <= 0) return;
+    setSubmittingLineId(l.id);
+    const opKey = newOpKey();
+    try {
+      await sendReportWithConfirm((confirmed) =>
+        createTaskLineReportsBatch(
+          t.id,
+          l.id,
+          [
+            {
+              assignment_id: null,
+              material_unit_id: null,
+              good_pieces: left,
+              defect_pieces: 0,
+              confirmed,
+            },
+          ],
+          opKey,
+        ),
+      );
+      message.success(`Сдано: ${left} шт (${l.part_name || "деталь"})`);
+      done();
+    } catch (e) {
+      if (e instanceof ReportCancelled) return;
+      message.error(apiErrorMessage(e, "Не удалось сохранить отчёт"));
+    } finally {
+      setSubmittingLineId(null);
+    }
+  };
+
   return (
-    <Space orientation="vertical" style={{ width: "100%" }}>
+    <Space direction="vertical" style={{ width: "100%" }}>
       {fabrika && t.is_active && canManage && (
         <Alert
           type="info"
           showIcon
-          message="По заданиям этого участка не отчитываются"
-          description="Плёнка списывается метражом. Когда сделано — «Ещё → Закрыть: всё сделано»: строки засчитаются без списания плёнки, задание уйдёт в архив."
+          message="Участок «Фабрика»"
+          description="Сдача фиксируется в штуках (кнопки «Всё (N)» / «Сдать…» или «⚡ Быстрый отчёт за смену»). Также доступно «Ещё → Закрыть: всё сделано» для закрытия задания целиком без отчётов."
         />
       )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        {canReport && t.is_active && (
+          <Button
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            onClick={() => setShiftReportOpen(true)}
+          >
+            ⚡ Быстрый отчёт за смену (все строки)
+          </Button>
+        )}
+        {(fabrika || !requiresRoll) && (
+          <Tag color="blue" style={{ padding: "4px 8px" }}>
+            ⚡ Упрощённый режим: сдача в штуках, списание плёнки по нормативу (FIFO)
+          </Tag>
+        )}
+      </div>
       <ResponsiveTable<ProductionTaskLine>
         size="small"
         rowKey="id"
@@ -428,7 +943,7 @@ function LinesTab({
           {
             title: "Деталь",
             render: (_, l) => (
-              <Space orientation="vertical" size={0}>
+              <Space direction="vertical" size={0}>
                 <ItemChars chars={l.item_chars} name={l.part_name} />
                 {l.operation_name && <Typography.Text type="secondary">{l.operation_name}</Typography.Text>}
                 {l.program && <Tag color="geekblue">программа {l.program}</Tag>}
@@ -512,6 +1027,60 @@ function LinesTab({
           },
           { title: "Брак", render: (_, l) => (l.defect_pieces ? <Typography.Text type="danger">{l.defect_pieces}</Typography.Text> : "—") },
           {
+            title: "Сдача",
+            render: (_, l) => {
+              if (!canReport || !t.is_active || l.production_closed) {
+                return l.production_closed ? <Tag>закрыта</Tag> : "—";
+              }
+              const left = Math.max(0, l.quantity_pieces - l.produced_good_pieces);
+              return (
+                <Space size={4}>
+                  {left > 0 ? (
+                    <>
+                      <Popconfirm
+                        title={`Сдать весь остаток ${left} шт.?`}
+                        description="Сдача всех оставшихся деталей строки"
+                        okText="Сдать всё"
+                        cancelText="Отмена"
+                        onConfirm={() => handleQuickReportAll(l)}
+                      >
+                        <Button
+                          size="small"
+                          type="primary"
+                          ghost
+                          loading={submittingLineId === l.id}
+                          title="Быстрая сдача всего остатка деталей"
+                        >
+                          Всё ({left})
+                        </Button>
+                      </Popconfirm>
+                      <Button
+                        size="small"
+                        onClick={() => setQuickLine(l)}
+                        title="Сдать часть партии или зафиксировать брак"
+                      >
+                        Сдать…
+                      </Button>
+                    </>
+                  ) : (
+                    <Space size={2}>
+                      <Tag color="success">✓ Сдано</Tag>
+                      <Button
+                        size="small"
+                        type="text"
+                        style={{ fontSize: 11, padding: "0 4px" }}
+                        onClick={() => setQuickLine(l)}
+                        title="Сдать сверх плана"
+                      >
+                        +
+                      </Button>
+                    </Space>
+                  )}
+                </Space>
+              );
+            },
+          },
+          {
             title: "",
             render: (_, l) => {
               const items = actionsOf(l);
@@ -538,6 +1107,23 @@ function LinesTab({
       )}
       {target?.action === "assign" && <AssignmentModal task={t} line={target.line} onClose={() => setTarget(null)} />}
       {target?.action === "spec" && <LineSpecModal taskId={t.id} line={target.line} onClose={() => setTarget(null)} />}
+      {quickLine && (
+        <QuickLineReportModal
+          open={!!quickLine}
+          task={t}
+          line={quickLine}
+          onClose={() => setQuickLine(null)}
+          onSuccess={done}
+        />
+      )}
+      {shiftReportOpen && (
+        <TaskShiftReportModal
+          open={shiftReportOpen}
+          task={t}
+          onClose={() => setShiftReportOpen(false)}
+          onSuccess={done}
+        />
+      )}
       {adjustLine && (
         <StripPoolAdjustModal
           open={!!adjustLine}

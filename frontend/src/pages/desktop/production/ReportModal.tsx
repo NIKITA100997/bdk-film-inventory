@@ -319,22 +319,22 @@ export default function ReportModal({
       >
         <Form.Item
           name="assignment_id"
-          label={requiresDailyPlan ? "Распределение (день/линия)" : "Распределение (день/линия) — необязательно"}
-          rules={requiresDailyPlan ? [{ required: true }] : []}
+          label={requiresDailyPlan && requiresRoll ? "Распределение (день/линия)" : "Распределение (день/линия) — необязательно"}
+          rules={requiresDailyPlan && requiresRoll ? [{ required: true, message: "Выберите день/линию" }] : []}
         >
           <Select
-            allowClear={!requiresDailyPlan}
+            allowClear={!(requiresDailyPlan && requiresRoll)}
             disabled={!!presetAssignmentId}
-            placeholder={requiresDailyPlan ? "Выберите день/линию распределения" : "Без привязки — участок без разбивки по дням"}
+            placeholder={requiresDailyPlan && requiresRoll ? "Выберите день/линию распределения" : "Без привязки (необязательно)"}
             options={line.assignments.map((a) => ({
               value: a.id,
               label: `${dayjs(a.date).format("DD.MM.YYYY")} — ${a.line_name} (${a.employee_names}), план ${a.quantity_pieces} шт`,
             }))}
             notFoundContent={
               <Typography.Text type="secondary">
-                {requiresDailyPlan
+                {requiresDailyPlan && requiresRoll
                   ? "Сначала распределите строку по дням — кнопка «Распределить по дням»"
-                  : "Участок без разбивки по дням — можно сохранить отчёт без распределения"}
+                  : "Можно сохранить отчёт без распределения (списание по нормативу)"}
               </Typography.Text>
             }
           />
@@ -362,7 +362,25 @@ export default function ReportModal({
             />
           </Form.Item>
         )}
-        <Form.Item name="good_pieces" label="Хороших деталей, шт" rules={[{ required: true }]}>
+        <Form.Item
+          name="good_pieces"
+          label={
+            <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
+              <span>Хороших деталей, шт</span>
+              {line.remaining_pieces > 0 && (
+                <Button
+                  size="small"
+                  type="link"
+                  style={{ padding: 0, height: "auto" }}
+                  onClick={() => reportForm.setFieldValue("good_pieces", line.remaining_pieces)}
+                >
+                  Весь остаток ({line.remaining_pieces} шт)
+                </Button>
+              )}
+            </div>
+          }
+          rules={[{ required: true }]}
+        >
           <InputNumber min={0} style={{ width: "100%" }} />
         </Form.Item>
         {filmByMeters && line.material !== null && (

@@ -1565,7 +1565,12 @@ def _build_task_line_report(
         assignment = db.get(ProductionTaskLineAssignment, payload.assignment_id)
         if assignment is None or assignment.task_line_id != line_id:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Распределение не найдено для этой строки задания")
-    elif requires_daily_plan and not is_manager and db.query(PlanSlot.id).filter(PlanSlot.task_line_id == line.id).first() is None:
+    elif (
+        requires_daily_plan
+        and not is_manager
+        and (area is not None and area.requires_roll_on_report)
+        and db.query(PlanSlot.id).filter(PlanSlot.task_line_id == line.id).first() is None
+    ):
         # Строка в планировщике уже разложена по дням — план и есть распределение.
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Для этого участка отчёт должен быть привязан к распределению по дням")
     if line.part_stage_id is not None:
