@@ -16,6 +16,9 @@ import {
   placeUnit,
   searchUnits,
   executeCuttingRecipe,
+  getCuttingPlan,
+  getBatchCuttingPlans,
+  type BatchCuttingPlanItem,
   type AreaValue,
   type CuttingRecipeResponse,
   type DonorSuggestion,
@@ -188,12 +191,12 @@ export function useIssue() {
   // модалка "Подробнее", а не разворот таблицы.
   const [detailRow, setDetailRow] = useState<NeedTableRow | null>(null);
 
+  const [issuingLineId, setIssuingLineId] = useState<number | null>(null);
+
   // Раздел про разбор задания единой таблицей — решение принимается в
   // таблице заранее (склад/резка), выполнение — здесь и только по этой
-  // кнопке, по очереди (не Promise.all — чтобы точно знать, какое именно
-  // решение упало и почему, а не только "что-то из N не получилось").
-  // Успешные решения убираются из стейта сразу; проваленные остаются —
-  // можно поправить и попробовать снова.
+  // кнопке. Успешные решения убираются из стейта сразу; проваленные
+  // остаются — можно поправить и попробовать снова.
   const executeAllDecisions = async () => {
     if (executingAll) return;
     setExecutingAll(true);
@@ -202,16 +205,28 @@ export function useIssue() {
     // Общий штрипс (одна единица на несколько строк) выдаётся один раз —
     // под первую строку; остальные берут его как общий рулон участка.
     const issuedUnits = new Set<number>();
-    for (const d of stockDecisions) {
-      try {
-        if (!issuedUnits.has(d.unitId)) {
-          await issueUnitDirect(d.unitId, d.area, d.lineId, toOccurredAtIso(occurredAt));
-          issuedUnits.add(d.unitId);
-        }
+    const uniqueStockDecisions = stockDecisions.filter((d) => {
+      if (issuedUnits.has(d.unitId)) {
         removeStockDecision(d.lineId);
         okCount++;
-      } catch (e) {
-        failed.push({ label: `${d.label} — штрипс ${rollNo(d.unitId)}`, error: issueErrorMessage(e, "не удалось выдать") });
+        return false;
+      }
+      issuedUnits.add(d.unitId);
+      return true;
+    });
+
+    const stockResults = await Promise.allSettled(
+      uniqueStockDecisions.map(async (d) => {
+        await issueUnitDirect(d.unitId, d.area, d.lineId, toOccurredAtIso(occurredAt));
+        removeStockDecision(d.lineId);
+        okCount++;
+      })
+    );
+    for (let i = 0; i < stockResults.length; i++) {
+      const res = stockResults[i];
+      if (res.status === "rejected") {
+        const d = uniqueStockDecisions[i];
+        failed.push({ label: `${d.label} — штрипс ${rollNo(d.unitId)}`, error: issueErrorMessage(res.reason, "не удалось выдать") });
       }
     }
     for (const entry of cuttingBatch) {
@@ -232,9 +247,9 @@ export function useIssue() {
       }
     }
     setExecutingAll(false);
-    qc.invalidateQueries({ queryKey: ["production-tasks"] });
+    qc.invalidateQueries({ queryKey: ["production-tasks", "film-issue"] });
     qc.invalidateQueries({ queryKey: ["issue-available-units"] });
-    qc.invalidateQueries({ queryKey: ["cutting-plan"] });
+    qc.invalidateQueries({ queryKey: ["batch-cutting-plans"] });
     if (failed.length === 0) {
       message.success(`Выполнено решений: ${okCount}`);
     } else {
@@ -531,32 +546,39 @@ export function useIssue() {
   // на участке). См. neededLengthM выше.
   const selectedNeededLengthM = selected ? neededLengthM(selected) : 0;
 
-  // findMutation (issueUnit/POST /units/issue) сам выдаёт единицу и коммитит
-  // это в БД, когда находит точное совпадение по ширине — раньше вызывался
-  // сразу по выбору строки в очереди, без подтверждения (клик по карточке
-  // = реальное списание склада, баг: строку выбирали просто посмотреть, а
-  // плёнка уже уходила). Теперь при точном совпадении вызывать его вообще
-  // не нужно — оно видно и так из уже загруженного availableQuery
-  // (exactMatch ниже), показывается предпросмотром, а выдаёт по клику
-  // "Выдать" уже issueUnitDirect/directMutation (та же функция, что и в
-  // "Показать остатки" ниже) — сам find-эндпоинт вызывается только когда
-  // точного совпадения точно нет, тогда он ничего сам не выдаст, только
-  // предложит донора (или скажет, что и донора нет).
+  // findMutation безопасен: запрашивает расчёт плана резки без записи в БД
+  // (getCuttingPlan вместо мутирующего issueUnit), чтобы предложить донора
+  // если точного совпадения нет.
   const findMutation = useMutation({
-    mutationFn: () =>
-      issueUnit({
-        material: selectedSku!.material.name,
-        color: selectedSku!.color.name,
-        thickness: selectedSku!.thickness.value_mm,
-        manufacturer: selectedSku!.manufacturer.name,
-        width_mm: selectedStripWidth,
-        length_m: selectedNeededLengthM,
-        area: selected!.task.area,
-        production_task_line_id: selected!.line.id,
-        occurred_at: toOccurredAtIso(occurredAt),
-      }),
+    mutationFn: async () => {
+      if (!selectedSku || !selected) return { outcome: "not_found" } as IssueResult;
+      const plan = await getCuttingPlan({
+        material: selectedSku.material.name,
+        color: selectedSku.color.name,
+        thickness: selectedSku.thickness.value_mm,
+        manufacturer: selectedSku.manufacturer.name,
+        needed_widths_mm: [selectedStripWidth],
+        needed_lengths_m: [selectedNeededLengthM],
+        area: selected.task.area,
+      });
+      if (plan.donor) {
+        return {
+          outcome: "donor_suggested",
+          donor: {
+            unit_id: plan.donor.unit_id,
+            width_mm: plan.donor.width_mm,
+            length_m: plan.donor.length_m,
+            days_in_storage: plan.donor.days_in_storage,
+            recommended_cut_mm: selectedStripWidth,
+            waste_mm: plan.waste_mm,
+            width_class: "B/C",
+          },
+        } as IssueResult;
+      }
+      return { outcome: "not_found" } as IssueResult;
+    },
     onSuccess: (res) => setResult(res),
-    onError: (e) => message.error(issueErrorMessage(e, "Не удалось подобрать штрипс")),
+    onError: (e) => message.error(issueErrorMessage(e, "Не удалось подобрать донора")),
   });
 
   useEffect(() => {
@@ -619,15 +641,14 @@ export function useIssue() {
   }, [selected, availableQuery.data, selectedStripWidth, selectedNeededLengthM, widthAnalogGroups]);
 
   // findMutation вызывается только когда точного совпадения точно нет
-  // (availableQuery уже загрузился и exactMatch пуст) — тогда find-эндпоинт
-  // сам ничего не выдаст, только предложит донора или скажет, что и его нет.
+  // (availableQuery уже загрузился и exactMatch пуст) — без записи в БД
   useEffect(() => {
     if (!canIssue) return;
     if (!selected || !selectedSku) return;
-    if (availableQuery.isLoading || exactMatch) return;
+    if (availableQuery.isLoading || exactMatch || result || findMutation.isPending) return;
     findMutation.mutate();
     // findMutation.mutate имеет стабильную идентичность между рендерами (react-query) — не в зависимостях намеренно
-  }, [canIssue, selected?.line.id, selectedSku?.id, availableQuery.isLoading, exactMatch]);
+  }, [canIssue, selected?.line.id, selectedSku?.id, availableQuery.isLoading, exactMatch, result, findMutation.isPending]);
 
   // --- Нехватка остатка под выбранную строку задания (раздел про замену
   // "Заказов покупателей" — нехватка обнаруживается в моменте выдачи, не
@@ -661,8 +682,22 @@ export function useIssue() {
   };
 
   const directMutation = useMutation({
-    mutationFn: ({ unitId, override = false }: { unitId: number; override?: boolean }) =>
-      issueUnitDirect(unitId, selected!.task.area, selected!.line.id, toOccurredAtIso(occurredAt), override, override),
+    mutationFn: ({
+      unitId,
+      area,
+      lineId,
+      override = false,
+    }: {
+      unitId: number;
+      area?: AreaValue;
+      lineId?: number;
+      override?: boolean;
+    }) => {
+      const targetArea = area ?? selected?.task.area;
+      const targetLineId = lineId ?? selected?.line.id;
+      if (!targetArea || !targetLineId) throw new Error("Не указан участок или строка задания");
+      return issueUnitDirect(unitId, targetArea, targetLineId, toOccurredAtIso(occurredAt), override, override);
+    },
     onSuccess: (unit) => {
       // Раздел про выдачу мимо хаба — участок физически на другом складе
       // (units.py::auto_transfer_if_wrong_warehouse): сервер сам отправил
@@ -670,14 +705,15 @@ export function useIssue() {
       // неправдой — единица ещё не у участка, только в пути.
       if (unit.status === "В_перемещении") {
         message.success("Материал физически на другом складе — автоматически отправлен в хаб на перемещение");
-        qc.invalidateQueries({ queryKey: ["issue-available-units"] });
-        qc.invalidateQueries({ queryKey: ["issue-substitute-available"] });
-        return;
+      } else {
+        message.success(`Выдан ${rollNo(unit.id)} (${unit.width_mm} мм × ${unit.length_m} м)`);
       }
       setLastIssued({ unit, remainder: null, remainderPlaced: false });
       setResult(null);
+      qc.invalidateQueries({ queryKey: ["production-tasks", "film-issue"] });
       qc.invalidateQueries({ queryKey: ["issue-available-units"] });
       qc.invalidateQueries({ queryKey: ["issue-substitute-available"] });
+      qc.invalidateQueries({ queryKey: ["batch-cutting-plans"] });
     },
     onError: (e) => message.error(issueErrorMessage(e, "Не удалось выдать")),
   });
@@ -696,7 +732,9 @@ export function useIssue() {
       remainderPlaced: false,
     });
     setResult(null);
+    qc.invalidateQueries({ queryKey: ["production-tasks", "film-issue"] });
     qc.invalidateQueries({ queryKey: ["issue-available-units"] });
+    qc.invalidateQueries({ queryKey: ["batch-cutting-plans"] });
   };
 
   const remainderSuggestion = useQuery({
@@ -723,6 +761,7 @@ export function useIssue() {
     setSelected(null);
     setResult(null);
     setLastIssued(null);
+    setDetailRow(null);
   };
 
   // --- Ручной подбор без привязки к заданию (редкий случай — плёнка не
@@ -983,6 +1022,99 @@ export function useIssue() {
   const cuttingGroups = groupQueueRows(cuttingRows);
   const groupRowsByRowKey = new Map<string, QueueRowData[]>();
   for (const g of cuttingGroups) for (const r of g.rows) groupRowsByRowKey.set(`need-${r.line.id}-${r.assignment?.id ?? "week"}`, g.rows);
+
+  // Пакетный расчёт планов резки и остатков для всех групп в очереди за 1 запрос
+  const batchPlansQuery = useQuery({
+    queryKey: [
+      "batch-cutting-plans",
+      cuttingGroups
+        .map(
+          (g) =>
+            `${g.key}:${g.rows
+              .map((r) => `${r.line.strip_width_mm || r.line.width_mm}x${neededLengthM(r)}`)
+              .join(",")}`,
+        )
+        .join(";"),
+    ],
+    queryFn: async () => {
+      const items = cuttingGroups
+        .map((g) => {
+          const sku = findSku(skusQuery.data, g.material, g.color, g.thickness);
+          if (!sku) return null;
+          return {
+            group_key: g.key,
+            material: sku.material.name,
+            color: sku.color.name,
+            thickness: sku.thickness.value_mm,
+            manufacturer: sku.manufacturer.name,
+            needed_widths_mm: g.rows.map((r) => r.line.strip_width_mm || r.line.width_mm),
+            needed_lengths_m: g.rows.map((r) => neededLengthM(r)),
+            area: g.rows[0]?.task.area,
+            illiquid: g.illiquid,
+          };
+        })
+        .filter(Boolean) as BatchCuttingPlanItem[];
+      if (items.length === 0) return { plans: {} };
+      return getBatchCuttingPlans(items);
+    },
+    enabled: cuttingGroups.length > 0 && !!skusQuery.data,
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (!batchPlansQuery.data?.plans) return;
+    const plans = batchPlansQuery.data.plans;
+    const nextMap = new Map<number, RowInfo>();
+
+    for (const g of cuttingGroups) {
+      const data = plans[g.key];
+      if (!data) continue;
+      const sku = findSku(skusQuery.data, g.material, g.color, g.thickness);
+      const coveredRows = data.donor ? data.covered_indices.map((i) => g.rows[i]) : [];
+      const acceptCut = data.donor && sku
+        ? async () => {
+            const donor = data.donor!;
+            const remainderLocationCode = (await suggestLocation({ material_sku_id: sku.id, is_strip: true })) ?? undefined;
+            addToCuttingBatch({
+              donorUnitId: donor.unit_id,
+              donorWidthMm: donor.width_mm,
+              donorLengthM: donor.length_m,
+              wasteMm: data.waste_mm,
+              remainderLocationCode,
+              pieces: coveredRows.map((r) => ({
+                widthMm: r.line.strip_width_mm || r.line.width_mm,
+                label: r.line.part_name ?? "Деталь",
+                area: r.task.area,
+                productionTaskLineId: r.line.id,
+              })),
+            });
+          }
+        : undefined;
+
+      g.rows.forEach((r, i) => {
+        const stockMatch = data.stock_matches.find((m) => m.index === i);
+        if (stockMatch) {
+          nextMap.set(r.line.id, {
+            status: { kind: "stock", match: stockMatch },
+            acceptStock: () =>
+              addStockDecision({
+                lineId: r.line.id,
+                unitId: stockMatch.unit_id,
+                area: r.task.area,
+                label: r.line.part_name ?? "Деталь",
+                widthMm: stockMatch.width_mm,
+              }),
+          });
+        } else if (data.donor && data.covered_indices.includes(i)) {
+          nextMap.set(r.line.id, { status: { kind: "cut_planned" }, donorUnitId: data.donor.unit_id, acceptCut });
+        } else {
+          nextMap.set(r.line.id, { status: { kind: "no_donor" } });
+        }
+      });
+    }
+
+    setLineInfoMap(nextMap);
+  }, [batchPlansQuery.data]);
 
   // Раздел про разбор задания единой таблицей — второй печатный документ,
   // отдельный от «Списка на резку» (тот едет резчикам, без привязки к
@@ -1250,6 +1382,8 @@ export function useIssue() {
     acceptRow,
     readyRow,
     decisionsCount,
+    issuingLineId,
+    setIssuingLineId,
   };
 }
 

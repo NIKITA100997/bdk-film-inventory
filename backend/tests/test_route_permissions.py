@@ -88,6 +88,7 @@ LOGIN_ONLY_MUTATIONS = {
     "POST /api/units/cutting-operations/{operation_id}/undo",  # has_undo_permission внутри
     "POST /api/units/bulk-edit",  # право на каждое поле внутри
     "POST /api/units/cutting-plan",  # расчёт, без записи
+    "POST /api/units/batch-cutting-plans",  # расчёт, без записи
     "POST /api/units/cutting-recipe",  # расчёт, без записи
     "PATCH /api/storage-places/{kind}/{place_id}",  # _get_place проверяет право
     "DELETE /api/storage-places/{kind}/{place_id}",  # _get_place проверяет право

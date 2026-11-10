@@ -195,7 +195,11 @@ def compute_factory_pulse(db: Session, target_date: date | None = None) -> Facto
 
     for a in areas:
         area_tasks = tasks_by_area.get(a.code, [])
-        queue_pcs = sum(float(t.planned or 0) - float(t.done or 0) for t in area_tasks)
+        queue_pcs = 0.0
+        for t in area_tasks:
+            planned = float(t.quantity or sum((l.quantity_pieces or 0) for l in (t.lines or [])) or 0.0)
+            done = float(sum(sum((r.produced_pieces or 0) for r in (l.reports or [])) for l in (t.lines or [])))
+            queue_pcs += max(0.0, planned - done)
         queue_pcs = max(0.0, queue_pcs)
         cap = float(capacities.get(a.code, 100.0) or 100.0)
         days_of_work = (queue_pcs / cap) if cap > 0 else 0.0

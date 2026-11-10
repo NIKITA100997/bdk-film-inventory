@@ -18,7 +18,7 @@ import { type IssueState } from "./useIssue";
 
 /** Очередь «Выдачи участку» карточками (06.10: из Issue.tsx). */
 export default function QueueCards({ s }: { s: IssueState }) {
-  const { canReturn, canIssue, canManage, search, cardTab, cardGroup, setSlipModalOpen, setSlipTaskId, decidedLineIds, lineInfoMap, setManualPickerTarget, skusQuery, areaLabel, homeWarehouseFor, closeLineMutation, issuedNoteForLine, lineActuals, UnitLink, tableRows, groupRowsByRowKey, openDetail, whenLabel, inCardTab, acceptRow, readyRow } = s;
+  const { canReturn, canIssue, canManage, search, cardTab, cardGroup, setSlipModalOpen, setSlipTaskId, decidedLineIds, lineInfoMap, setManualPickerTarget, skusQuery, areaLabel, homeWarehouseFor, closeLineMutation, issuedNoteForLine, lineActuals, UnitLink, tableRows, groupRowsByRowKey, openDetail, whenLabel, inCardTab, acceptRow, readyRow, directMutation, confirmIfWrongWarehouse, issuingLineId, setIssuingLineId } = s;
   const cardLine = (row: NeedTableRow, showTask: boolean) => {
     const info = lineInfoMap.get(row.line.id);
     const issuedNote = issuedNoteForLine(row.line);
@@ -58,12 +58,29 @@ export default function QueueCards({ s }: { s: IssueState }) {
           })()}
         </Tag>
       );
-      if (canIssue && info.acceptStock)
+      if (canIssue && info.status.match) {
+        const matchUnitId = info.status.match.unit_id;
+        const isIssuing = directMutation.isPending && issuingLineId === row.line.id;
         action = (
-          <Button type="primary" size="large" style={{ background: "#1D8F68" }} onClick={info.acceptStock}>
-            Выдать {rollNo(info.status.match.unit_id)}
+          <Button
+            type="primary"
+            size="large"
+            style={{ background: "#1D8F68" }}
+            loading={isIssuing}
+            onClick={() => {
+              confirmIfWrongWarehouse(undefined, row.task.area, () => {
+                setIssuingLineId(row.line.id);
+                directMutation.mutate(
+                  { unitId: matchUnitId, area: row.task.area, lineId: row.line.id },
+                  { onSettled: () => setIssuingLineId(null) },
+                );
+              });
+            }}
+          >
+            Выдать {rollNo(matchUnitId)}
           </Button>
         );
+      }
     } else if (info?.status.kind === "cut_planned") {
       state = <Tag color="gold">✂ резать из {rollNo(info.donorUnitId)}</Tag>;
       if (canIssue && info.acceptCut)

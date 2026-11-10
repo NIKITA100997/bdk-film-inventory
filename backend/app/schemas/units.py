@@ -363,6 +363,26 @@ class CuttingPlanOut(BaseModel):
     stock_matches: list[CuttingPlanStockMatch] = []
 
 
+class BatchCuttingPlanItem(BaseModel):
+    group_key: str
+    material: str
+    color: str
+    thickness: float
+    manufacturer: str | None = None
+    needed_widths_mm: list[float]
+    needed_lengths_m: list[float]
+    area: ProductionArea | None = None
+    illiquid: bool = False
+
+
+class BatchCuttingPlanRequest(BaseModel):
+    items: list[BatchCuttingPlanItem]
+
+
+class BatchCuttingPlanResponse(BaseModel):
+    plans: dict[str, CuttingPlanOut]
+
+
 class CutRequest(BaseModel):
     cut_length_m: float = Field(gt=0)
     remainder_location: str | None = None

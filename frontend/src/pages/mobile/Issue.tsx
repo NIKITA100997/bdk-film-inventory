@@ -33,7 +33,6 @@ import CuttingForm from "../../components/CuttingForm";
 import ManualCuttingPlanModal from "../../components/ManualCuttingPlanModal";
 import { rollNo } from "../../utils/lotNo";
 import { statusFilterOptions, type TableRow, findSku, neededLengthM } from "./issue/model";
-import { GroupStatusReporter } from "./issue/GroupPanels";
 import { AcceptStockAction, AcceptReturnButton } from "./issue/ReturnActions";
 import DetailModalBody from "./issue/DetailModalBody";
 import QueueCards from "./issue/QueueCards";
@@ -64,7 +63,7 @@ export default function Issue() {
   };
   // Резерв плёнки (27.10): на компьютере — вкладка доски выдачи, здесь — шторка.
   const [reserveOpen, setReserveOpen] = useState(false);
-  const { canReturn, canIssue, canManage, areaFilter, setAreaFilter, taskFilter, setTaskFilter, statusFilter, setStatusFilter, search, setSearch, queueView, pickQueueView, cardTab, setCardTab, cardGroup, setCardGroup, manualOpen, setManualOpen, cuttingSession, setCuttingSession, cuttingBatch, setCuttingBatch, cuttingBatchOpen, setCuttingBatchOpen, slipModalOpen, setSlipModalOpen, slipTaskId, setSlipTaskId, addToCuttingBatch, removeFromCuttingBatch, stockDecisions, setStockDecisions, addStockDecision, removeStockDecision, decidedLineIds, executingAll, lineInfoMap, reportGroupInfos, manualPickerTarget, setManualPickerTarget, detailRow, executeAllDecisions, shortageModalOpen, setShortageModalOpen, shortageForm, occurredAt, setOccurredAt, skusQuery, tasksQuery, areaLabel, areaRequiresDailyPlan, areaOptions, taskOptions, confirmIfWrongWarehouse, overdueCount, todayCount, weekRowsNeedingMaterial, areasWaiting, pendingReturnByTask, shopFloorRequestMutation, closeLineMutation, issuedNoteForLine, lineActuals, UnitLink, renderStatusPill, findStockSiblingCandidates, filteredTableRows, cuttingGroups, groupRowsByRowKey, printFactorySlip, openDetail, closeDetail, decisionsCount } = s;
+  const { canReturn, canIssue, canManage, areaFilter, setAreaFilter, taskFilter, setTaskFilter, statusFilter, setStatusFilter, search, setSearch, queueView, pickQueueView, cardTab, setCardTab, cardGroup, setCardGroup, manualOpen, setManualOpen, cuttingSession, setCuttingSession, cuttingBatch, setCuttingBatch, cuttingBatchOpen, setCuttingBatchOpen, slipModalOpen, setSlipModalOpen, slipTaskId, setSlipTaskId, addToCuttingBatch, removeFromCuttingBatch, stockDecisions, setStockDecisions, removeStockDecision, decidedLineIds, executingAll, lineInfoMap, manualPickerTarget, setManualPickerTarget, detailRow, executeAllDecisions, shortageModalOpen, setShortageModalOpen, shortageForm, occurredAt, setOccurredAt, skusQuery, tasksQuery, areaLabel, areaRequiresDailyPlan, areaOptions, taskOptions, confirmIfWrongWarehouse, overdueCount, todayCount, weekRowsNeedingMaterial, areasWaiting, pendingReturnByTask, shopFloorRequestMutation, closeLineMutation, issuedNoteForLine, lineActuals, UnitLink, renderStatusPill, findStockSiblingCandidates, filteredTableRows, groupRowsByRowKey, printFactorySlip, openDetail, closeDetail, decisionsCount } = s;
   return (
     <div>
       <Space align="center" style={{ marginBottom: 8 }} wrap>
@@ -256,23 +255,6 @@ export default function Issue() {
           disabledDate={(d) => d.isAfter(dayjs(), "day")}
         />
       </Space>
-
-      {/* Раздел про разбор задания единой таблицей — "невидимые" репортёры
-          статуса, один на группу материал+цвет+толщина+участок (включая
-          группы из одной строки — backend сам применяет ABC-осторожность
-          именно тогда). Смонтированы всегда, не только для развёрнутой
-          строки, чтобы колонка "Статус" была верна для ВСЕХ строк сразу,
-          без необходимости открывать каждую по очереди. */}
-      {cuttingGroups.map((g) => (
-        <GroupStatusReporter
-          key={g.key}
-          sku={findSku(skusQuery.data, g.material, g.color, g.thickness)}
-          rows={g.rows}
-          onAddToBatch={addToCuttingBatch}
-          onAddStockDecision={addStockDecision}
-          onReport={reportGroupInfos}
-        />
-      ))}
 
       {queueView === "cards" && (
         <Space orientation="vertical" size="middle" style={{ width: "100%", paddingBottom: decisionsCount ? 72 : 0 }}>

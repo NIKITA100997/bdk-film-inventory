@@ -22,6 +22,9 @@ from app.models.users import User
 from app.models.write_off_reasons import WriteOffReasonEntry
 from app.schemas.deletion_requests import DeleteResultOut
 from app.schemas.units import (
+    BatchCuttingPlanItem,
+    BatchCuttingPlanRequest,
+    BatchCuttingPlanResponse,
     BatchIssueToAreaRequest,
     BatchIssueToAreaResult,
     CutRequest,
@@ -1243,32 +1246,7 @@ def issue_to_area(
     return IssueResult(outcome="not_found", elsewhere_warehouse_name=elsewhere_warehouse_name)
 
 
-@router.post("/cutting-plan", response_model=CuttingPlanOut)
-def get_cutting_plan(
-    payload: CuttingPlanRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> CuttingPlanOut:
-    """План резки одного донора сразу на несколько разных ширин штрипса
-    одной плёнки (раздел про несколько разных потребностей за день) —
-    щелевая резка режет рулон на несколько полос за один проход, поэтому
-    если сегодня нужно несколько разных ширин одной и той же плёнки,
-    выгоднее резать один донор сразу под несколько из них, а не по одной
-    независимо, как /units/issue для отдельной строки.
-
-    Раздел про разбор задания единой таблицей — теперь вызывается
-    единообразно и для групп из ОДНОЙ потребности (раньше такие строки
-    вообще не проходили через этот эндпоинт, только через /units/issue).
-    Поэтому ABC-ограничение донора здесь применяется избирательно: при
-    ОДНОЙ оставшейся (после вычета stock_matches) потребности —
-    та же осторожность, что и в /units/issue (только класс B/C, шире
-    нужного) — не резать сразу самый ходовой размер под одну мелкую
-    нужду; при двух и более — как и раньше, осознанный batch-подбор без
-    ограничения класса (это уже не "нарезать A-класс ради мелочи", а
-    закрыть сразу несколько реальных потребностей одним резом)."""
-    if len(payload.needed_lengths_m) != len(payload.needed_widths_mm):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="needed_lengths_m должен быть той же длины, что и needed_widths_mm",
-        )
+def _compute_single_cutting_plan(db: Session, payload: CuttingPlanRequest) -> CuttingPlanOut:
     sku = find_sku(
         db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
     )
@@ -1425,6 +1403,42 @@ def get_cutting_plan(
         stock_matches=stock_matches,
         covered_indices=covered_indices_original,
     )
+
+
+@router.post("/cutting-plan", response_model=CuttingPlanOut)
+def get_cutting_plan(
+    payload: CuttingPlanRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> CuttingPlanOut:
+    """План резки одного донора сразу на несколько разных ширин штрипса одной плёнки."""
+    if len(payload.needed_lengths_m) != len(payload.needed_widths_mm):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="needed_lengths_m должен быть той же длины, что и needed_widths_mm",
+        )
+    return _compute_single_cutting_plan(db, payload)
+
+
+@router.post("/batch-cutting-plans", response_model=BatchCuttingPlanResponse)
+def get_batch_cutting_plans(
+    payload: BatchCuttingPlanRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> BatchCuttingPlanResponse:
+    """Пакетный расчёт планов резки и остатков для всех групп очереди за 1 сетевой запрос."""
+    plans: dict[str, CuttingPlanOut] = {}
+    for item in payload.items:
+        if len(item.needed_lengths_m) != len(item.needed_widths_mm):
+            continue
+        req = CuttingPlanRequest(
+            material=item.material,
+            color=item.color,
+            thickness=item.thickness,
+            manufacturer=item.manufacturer,
+            needed_widths_mm=item.needed_widths_mm,
+            needed_lengths_m=item.needed_lengths_m,
+            area=item.area,
+            illiquid=item.illiquid,
+        )
+        plans[item.group_key] = _compute_single_cutting_plan(db, req)
+    return BatchCuttingPlanResponse(plans=plans)
 
 
 def _cutting_recipe_required_permissions(payload: CuttingRecipeRequest) -> set[str]:

@@ -298,6 +298,27 @@ export async function getCuttingPlan(payload: CuttingPlanRequest): Promise<Cutti
   return data;
 }
 
+export interface BatchCuttingPlanItem {
+  group_key: string;
+  material: string;
+  color: string;
+  thickness: number;
+  manufacturer?: string;
+  needed_widths_mm: number[];
+  needed_lengths_m: number[];
+  area?: AreaValue;
+  illiquid?: boolean;
+}
+
+export interface BatchCuttingPlanResponse {
+  plans: Record<string, CuttingPlan>;
+}
+
+export async function getBatchCuttingPlans(items: BatchCuttingPlanItem[]): Promise<BatchCuttingPlanResponse> {
+  const { data } = await apiClient.post<BatchCuttingPlanResponse>("/units/batch-cutting-plans", { items });
+  return data;
+}
+
 export interface CutRequest {
   cut_length_m: number;
   remainder_location?: string;
