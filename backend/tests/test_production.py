@@ -308,3 +308,41 @@ class TestAggregateBlankDemand:
 
     def test_empty_input_gives_empty_result(self):
         assert aggregate_blank_demand([], []) == []
+
+
+class TestAdjustPrimaryFilmForExtraRolls:
+    def test_deducts_extra_roll_meters_from_primary_roll(self):
+        from unittest.mock import MagicMock
+        from app.api.production import _adjust_primary_film_for_extra_rolls
+        from app.schemas.production import ProductionTaskLineReportCreate
+
+        db = MagicMock()
+        line = MagicMock()
+        line.length_m = 1.88
+        db.get.return_value = line
+
+        # Master reports 299 pieces on primary unit 5173, plus 177m remainder on extra unit 5066
+        # 177m / 1.88m = 94.1489 pieces
+        payloads = [
+            ProductionTaskLineReportCreate(
+                material_unit_id=5173,
+                good_pieces=299,
+                defect_pieces=0,
+            ),
+            ProductionTaskLineReportCreate(
+                material_unit_id=5066,
+                good_pieces=94.15,
+                defect_pieces=0,
+                kind="remainder",
+            ),
+        ]
+
+        _adjust_primary_film_for_extra_rolls(db, 100, payloads)
+
+        # Primary payload should have film_used_m reduced by extra roll's consumed meters
+        # Total need: 299 * 1.88 = 562.12m
+        # Extra consumed: 94.15 * 1.88 = 177.00m
+        # Expected primary: 562.12 - 177.00 = 385.12m
+        assert payloads[0].film_used_m == 385.12
+        assert payloads[1].film_used_m is None
+

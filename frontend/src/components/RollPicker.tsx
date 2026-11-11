@@ -91,18 +91,23 @@ export default function RollPicker({
               {isPrimary && <Tag>основной</Tag>}
             </Checkbox>
             {extra && (
-              <InputNumber
-                size="small"
-                min={0}
-                step={0.1}
-                addonBefore="остаток сейчас"
-                addonAfter="м"
-                style={{ width: 190 }}
-                value={extra.remainingM}
-                onChange={(v) =>
-                  onExtraRollsChange(extraRolls.map((e) => (e.materialUnitId === o.value ? { ...e, remainingM: v ?? 0 } : e)))
-                }
-              />
+              <Space size={6} align="center">
+                <InputNumber
+                  size="small"
+                  min={0}
+                  step={0.1}
+                  addonBefore="остаток сейчас"
+                  addonAfter="м"
+                  style={{ width: 180 }}
+                  value={extra.remainingM}
+                  onChange={(v) =>
+                    onExtraRollsChange(extraRolls.map((e) => (e.materialUnitId === o.value ? { ...e, remainingM: v ?? 0 } : e)))
+                  }
+                />
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  (спишется {Math.max(0, Math.round((o.remainingM - (extra.remainingM ?? 0)) * 10) / 10)} м)
+                </Typography.Text>
+              </Space>
             )}
           </Space>
         );

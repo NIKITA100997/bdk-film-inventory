@@ -2175,6 +2175,46 @@ def _close_used_up(db: Session, payload: ProductionTaskLineReportCreate, user: U
     )
 
 
+def _adjust_primary_film_for_extra_rolls(
+    db: Session, line_id: int, payloads: list[ProductionTaskLineReportCreate]
+) -> None:
+    """Если в пачке есть доп. рулон (kind='remainder') и основной рулон без явного film_used_m,
+    автоматически вычитаем метраж доп. рулона из расхода основного рулона, чтобы плёнка
+    не списывалась дважды."""
+    remainder_payloads = [p for p in payloads if p.kind == "remainder" and p.material_unit_id is not None]
+    if not remainder_payloads:
+        return
+    line = db.get(ProductionTaskLine, line_id)
+    if not line or not line.length_m or float(line.length_m) <= 0:
+        return
+
+    extra_m = sum(
+        (float(p.good_pieces or 0) + float(p.defect_pieces or 0)) * float(line.length_m)
+        if p.film_used_m is None else float(p.film_used_m)
+        for p in remainder_payloads
+    )
+    if extra_m <= 0:
+        return
+
+    primary_payloads = [
+        p for p in payloads
+        if p.kind != "remainder" and p.material_unit_id is not None
+        and (float(p.good_pieces or 0) > 0 or float(p.defect_pieces or 0) > 0)
+    ]
+    if not primary_payloads:
+        return
+
+    if any(p.film_used_m is not None for p in primary_payloads):
+        return
+
+    total_pieces = sum(float(p.good_pieces or 0) + float(p.defect_pieces or 0) for p in primary_payloads)
+    total_norm_m = total_pieces * float(line.length_m)
+    primary_film_m = max(0.0, round(total_norm_m - extra_m, 2))
+
+    for i, p in enumerate(primary_payloads):
+        p.film_used_m = primary_film_m if i == 0 else 0.0
+
+
 @router.post(
     "/production-tasks/{task_id}/lines/{line_id}/reports/batch",
     response_model=list[ProductionTaskLineReportOut],
@@ -2204,6 +2244,7 @@ def create_task_line_reports_batch(
     конце) — исходная строка просто остаётся как была, повторный клик
     безопасен."""
     _check_report_sanity(db, line_id, payloads, user)
+    _adjust_primary_film_for_extra_rolls(db, line_id, payloads)
     reports: list[ProductionTaskLineReport] = []
     for payload in payloads:
         built = _build_task_line_report(task_id, line_id, payload, db, user)

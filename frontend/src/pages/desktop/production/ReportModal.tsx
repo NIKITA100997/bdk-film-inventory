@@ -182,19 +182,15 @@ export default function ReportModal({
           kind: primaryRemainingM != null ? "remainder" : null,
         });
       }
-      // Раздел про второй рулон на ту же строку (двусторонние детали) —
-      // это те же самые детали, что и good_pieces выше, просто ещё один
-      // рулон физически тоже участвовал (другая сторона) — "сколько
-      // деталей именно из него" не считаем, вместо этого подбираем
-      // good_pieces под указанный вручную остаток ЭТОГО рулона и шлём
-      // отдельным отчётом с counts_toward_line=false, чтобы не задвоить
-      // план строки (эти детали уже учтены основным отчётом выше).
+      // Раздел про второй рулон на ту же строку (смена рулона / доп. рулон):
+      let totalExtraConsumedM = 0;
       for (const extra of extraRolls) {
         const unit =
           line.issued_units.find((u) => u.id === extra.materialUnitId) ??
           (line.borrowable_units ?? []).find((u) => u.id === extra.materialUnitId);
         const currentRemaining = unit?.remaining_length_m ?? unit?.length_m ?? 0;
         const consumedNeeded = Math.max(0, currentRemaining - extra.remainingM);
+        totalExtraConsumedM += consumedNeeded;
         const goodPiecesEquivalent = line.length_m > 0 ? consumedNeeded / line.length_m : 0;
         payloads.push({
           assignment_id: v.assignment_id,
@@ -205,6 +201,19 @@ export default function ReportModal({
           note: `Остаток указан вручную: ${extra.remainingM} м`,
           kind: "remainder",
           used_up: extra.remainingM === 0,
+        });
+      }
+      // Если часть плёнки взята из доп. рулона (смена рулона / остаток в ноль),
+      // вычитаем этот метраж из расхода основного рулона, чтобы плёнка не списывалась дважды
+      if (totalExtraConsumedM > 0 && line.length_m > 0 && v.material_unit_id && !filmByMeters) {
+        const totalPieces = v.good_pieces + defectRows.reduce((s, r) => s + r.qty, 0);
+        const totalNormM = totalPieces * line.length_m;
+        const primaryRollM = Math.max(0, Math.round((totalNormM - totalExtraConsumedM) * 100) / 100);
+        const primaryPayloads = payloads.filter(
+          (pl) => pl.material_unit_id === v.material_unit_id && pl.kind !== "remainder"
+        );
+        primaryPayloads.forEach((pl, i) => {
+          pl.film_used_m = i === 0 ? primaryRollM : 0;
         });
       }
       // Фактический расход основного рулона (прессы) — на первую запись,
@@ -348,6 +357,32 @@ export default function ReportModal({
             <RollPicker options={rollPickerOptions} extraRolls={extraRolls} onExtraRollsChange={setExtraRolls} />
           </Form.Item>
         )}
+        {extraRolls.length > 0 && (() => {
+          const totalExtraM = extraRolls.reduce((sum, extra) => {
+            const u = line.issued_units.find((x) => x.id === extra.materialUnitId) ?? (line.borrowable_units ?? []).find((x) => x.id === extra.materialUnitId);
+            const cur = u?.remaining_length_m ?? u?.length_m ?? 0;
+            return sum + Math.max(0, cur - extra.remainingM);
+          }, 0);
+          if (totalExtraM <= 0) return null;
+          const totalPieces = goodPiecesWatch + defectRows.reduce((s, r) => s + r.qty, 0);
+          const totalNeedM = Math.round(totalPieces * line.length_m * 10) / 10;
+          const primaryNeedM = Math.max(0, Math.round((totalNeedM - totalExtraM) * 10) / 10);
+          return (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={
+                <span>
+                  С доп. рулона спишется <strong>{Math.round(totalExtraM * 10) / 10} м</strong>.
+                  {totalNeedM > 0 && (
+                    <> С основного рулона спишется остаток потребности: <strong>{primaryNeedM} м</strong> (из {totalNeedM} м).</>
+                  )}
+                </span>
+              }
+            />
+          );
+        })()}
         {requiresRoll && primaryRollId != null && goodPiecesWatch <= 0 && defectRows.length === 0 && (
           <Form.Item
             label="Остаток на этом рулоне сейчас, м (деталь ещё не готова)"

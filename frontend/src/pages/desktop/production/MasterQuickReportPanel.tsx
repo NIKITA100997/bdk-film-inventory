@@ -326,12 +326,14 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
           // рулона и шлём отдельным отчётом с counts_toward_line=false,
           // чтобы не задвоить план строки (эти деталей уже учтены основным
           // отчётом выше).
+          let totalExtraConsumedM = 0;
           for (const extra of r.extraRolls) {
             const unit =
               r.line.issued_units.find((u) => u.id === extra.materialUnitId) ??
               (r.line.borrowable_units ?? []).find((u) => u.id === extra.materialUnitId);
             const currentRemaining = unit?.remaining_length_m ?? unit?.length_m ?? 0;
             const consumedNeeded = Math.max(0, currentRemaining - extra.remainingM);
+            totalExtraConsumedM += consumedNeeded;
             const goodPiecesEquivalent = r.line.length_m > 0 ? consumedNeeded / r.line.length_m : 0;
             payloads.push({
               assignment_id: null,
@@ -342,6 +344,19 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
               note: `Остаток указан вручную: ${extra.remainingM} м`,
               kind: "remainder",
               used_up: extra.remainingM === 0,
+            });
+          }
+          // Если часть плёнки взята из доп. рулона (смена рулона / остаток в ноль),
+          // вычитаем этот метраж из расхода основного рулона, чтобы плёнка не списывалась дважды
+          if (totalExtraConsumedM > 0 && r.line.length_m > 0 && r.materialUnitId) {
+            const totalPieces = r.goodPieces + r.defects.reduce((s, d) => s + d.qty, 0);
+            const totalNormM = totalPieces * r.line.length_m;
+            const primaryRollM = Math.max(0, Math.round((totalNormM - totalExtraConsumedM) * 100) / 100);
+            const primaryPayloads = payloads.filter(
+              (pl) => pl.material_unit_id === r.materialUnitId && pl.kind !== "remainder"
+            );
+            primaryPayloads.forEach((pl, i) => {
+              pl.film_used_m = i === 0 ? primaryRollM : 0;
             });
           }
           if (payloads.length > 0)
@@ -581,6 +596,19 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                               extraRolls={r.extraRolls}
                               onExtraRollsChange={(rolls) => updateRow(r.key, { extraRolls: rolls })}
                             />
+                            {r.extraRolls.length > 0 && (() => {
+                              const totalExtraM = r.extraRolls.reduce((sum, extra) => {
+                                const u = r.line.issued_units.find((x) => x.id === extra.materialUnitId) ?? (r.line.borrowable_units ?? []).find((x) => x.id === extra.materialUnitId);
+                                const cur = u?.remaining_length_m ?? u?.length_m ?? 0;
+                                return sum + Math.max(0, cur - extra.remainingM);
+                              }, 0);
+                              if (totalExtraM <= 0) return null;
+                              return (
+                                <Typography.Text type="secondary" style={{ fontSize: 11, color: "#1677ff" }}>
+                                  Доп. рулон: -{Math.round(totalExtraM * 10) / 10} м (вычтется из осн.)
+                                </Typography.Text>
+                              );
+                            })()}
                             {r.goodPieces <= 0 && r.defects.length === 0 && r.materialUnitId != null && (
                               <Space size={4}>
                                 <InputNumber
