@@ -95,6 +95,39 @@ type UnitLineValues = {
   occurred_at?: Dayjs | null;
 };
 
+interface GroupedStockLine {
+  key: string;
+  material: string;
+  color: string;
+  thickness?: number;
+  isParent: boolean;
+  isChild?: boolean;
+  thicknesses: number[];
+  total_area_m2: number;
+  unit_count: number;
+  value_rub?: number | null;
+  unpriced_area_m2?: number;
+  illiquid_area_m2?: number;
+  roll_count: number;
+  roll_length_m: number;
+  strip_count: number;
+  strip_length_m: number;
+  reserved_area_m2?: number;
+  panel_demand_m2?: number;
+  open_requested_area_m2?: number;
+  min_stock_m2?: number | null;
+  min_batch_m2?: number | null;
+  batch_multiple_m2?: number | null;
+  to_order_m2?: number;
+  shortage_m2?: number;
+  shortage_tasks_m2?: number;
+  shortage_min_m2?: number;
+  usual_supplier?: string | null;
+  days_of_stock_remaining?: number | null;
+  reorder_suggested?: boolean;
+  children?: GroupedStockLine[];
+}
+
 /** mode — режим задаёт экран «Остатки» своими вкладками (тогда свой
  * переключатель не показывается); без него — как раньше, сам по себе. */
 export default function MaterialsExplorer({ mode }: { mode?: "positions" | "units" } = {}) {
@@ -438,6 +471,174 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
     return true;
   });
 
+  const groupedPositions = useMemo(() => {
+    const groups = new Map<string, { material: string; color: string; lines: StockSummaryLine[] }>();
+
+    for (const p of filteredPositions) {
+      const key = `${p.material}||${p.color}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = { material: p.material, color: p.color, lines: [] };
+        groups.set(key, g);
+      }
+      g.lines.push(p);
+    }
+
+    const rows: GroupedStockLine[] = [];
+    for (const [, g] of groups) {
+      g.lines.sort((a, b) => a.thickness - b.thickness);
+      const allThs = g.lines.map((l) => l.thickness);
+
+      if (g.lines.length === 1) {
+        const p = g.lines[0];
+        const rvs = rollsVsStripsByGroup.get(`${p.material}|${p.color}|${p.thickness}`);
+        const o = overviewByGroup.get(`${p.material}|${p.color}|${p.thickness}`);
+        rows.push({
+          key: `${p.material}-${p.color}-${p.thickness}`,
+          material: p.material,
+          color: p.color,
+          thickness: p.thickness,
+          isParent: false,
+          thicknesses: [p.thickness],
+          total_area_m2: p.total_area_m2,
+          unit_count: p.unit_count,
+          value_rub: p.value_rub,
+          unpriced_area_m2: p.unpriced_area_m2,
+          illiquid_area_m2: p.illiquid_area_m2,
+          roll_count: rvs?.roll_count ?? 0,
+          roll_length_m: rvs?.roll_length_m ?? 0,
+          strip_count: rvs?.strip_count ?? 0,
+          strip_length_m: rvs?.strip_length_m ?? 0,
+          reserved_area_m2: o?.reserved_area_m2,
+          panel_demand_m2: o?.panel_demand_m2,
+          open_requested_area_m2: o?.open_requested_area_m2,
+          min_stock_m2: o?.min_stock_m2,
+          min_batch_m2: o?.min_batch_m2,
+          batch_multiple_m2: o?.batch_multiple_m2,
+          to_order_m2: o?.to_order_m2,
+          shortage_m2: o?.shortage_m2,
+          shortage_tasks_m2: o?.shortage_tasks_m2,
+          shortage_min_m2: o?.shortage_min_m2,
+          usual_supplier: o?.usual_supplier,
+          days_of_stock_remaining: o?.days_of_stock_remaining,
+          reorder_suggested: o?.reorder_suggested,
+        });
+      } else {
+        let totalArea = 0;
+        let totalUnits = 0;
+        let totalValue: number | null = null;
+        let totalUnpriced = 0;
+        let totalIlliquid = 0;
+        let totalRolls = 0;
+        let totalRollLen = 0;
+        let totalStrips = 0;
+        let totalStripLen = 0;
+        let totalReserved = 0;
+        let totalPanelDemand = 0;
+        let totalOpenReq = 0;
+        let totalToOrder = 0;
+        let totalShortage = 0;
+        let minDays: number | null = null;
+        let anyReorder = false;
+
+        const children: GroupedStockLine[] = [];
+        for (const p of g.lines) {
+          const rvs = rollsVsStripsByGroup.get(`${p.material}|${p.color}|${p.thickness}`);
+          const o = overviewByGroup.get(`${p.material}|${p.color}|${p.thickness}`);
+          const rc = rvs?.roll_count ?? 0;
+          const rl = rvs?.roll_length_m ?? 0;
+          const sc = rvs?.strip_count ?? 0;
+          const sl = rvs?.strip_length_m ?? 0;
+          const res = o?.reserved_area_m2 ?? 0;
+          const pan = o?.panel_demand_m2 ?? 0;
+          const req = o?.open_requested_area_m2 ?? 0;
+          const toOrd = o?.to_order_m2 ?? 0;
+          const sh = o?.shortage_m2 ?? 0;
+
+          totalArea += p.total_area_m2;
+          totalUnits += p.unit_count;
+          if (p.value_rub != null) {
+            totalValue = (totalValue ?? 0) + p.value_rub;
+          }
+          totalUnpriced += p.unpriced_area_m2 ?? 0;
+          totalIlliquid += p.illiquid_area_m2 ?? 0;
+          totalRolls += rc;
+          totalRollLen += rl;
+          totalStrips += sc;
+          totalStripLen += sl;
+          totalReserved += res;
+          totalPanelDemand += pan;
+          totalOpenReq += req;
+          totalToOrder += toOrd;
+          totalShortage += sh;
+          if (o?.days_of_stock_remaining != null) {
+            minDays = minDays == null ? o.days_of_stock_remaining : Math.min(minDays, o.days_of_stock_remaining);
+          }
+          if (o?.reorder_suggested) anyReorder = true;
+
+          children.push({
+            key: `${p.material}-${p.color}-${p.thickness}`,
+            material: p.material,
+            color: p.color,
+            thickness: p.thickness,
+            isParent: false,
+            isChild: true,
+            thicknesses: [p.thickness],
+            total_area_m2: p.total_area_m2,
+            unit_count: p.unit_count,
+            value_rub: p.value_rub,
+            unpriced_area_m2: p.unpriced_area_m2,
+            illiquid_area_m2: p.illiquid_area_m2,
+            roll_count: rc,
+            roll_length_m: rl,
+            strip_count: sc,
+            strip_length_m: sl,
+            reserved_area_m2: o?.reserved_area_m2,
+            panel_demand_m2: o?.panel_demand_m2,
+            open_requested_area_m2: o?.open_requested_area_m2,
+            min_stock_m2: o?.min_stock_m2,
+            min_batch_m2: o?.min_batch_m2,
+            batch_multiple_m2: o?.batch_multiple_m2,
+            to_order_m2: o?.to_order_m2,
+            shortage_m2: o?.shortage_m2,
+            shortage_tasks_m2: o?.shortage_tasks_m2,
+            shortage_min_m2: o?.shortage_min_m2,
+            usual_supplier: o?.usual_supplier,
+            days_of_stock_remaining: o?.days_of_stock_remaining,
+            reorder_suggested: o?.reorder_suggested,
+          });
+        }
+
+        rows.push({
+          key: `group-${g.material}-${g.color}`,
+          material: g.material,
+          color: g.color,
+          isParent: true,
+          thicknesses: allThs,
+          total_area_m2: Math.round(totalArea * 100) / 100,
+          unit_count: totalUnits,
+          value_rub: totalValue != null ? Math.round(totalValue) : null,
+          unpriced_area_m2: Math.round(totalUnpriced * 100) / 100,
+          illiquid_area_m2: Math.round(totalIlliquid * 100) / 100,
+          roll_count: totalRolls,
+          roll_length_m: Math.round(totalRollLen * 10) / 10,
+          strip_count: totalStrips,
+          strip_length_m: Math.round(totalStripLen * 10) / 10,
+          reserved_area_m2: totalReserved > 0 ? Math.round(totalReserved * 100) / 100 : undefined,
+          panel_demand_m2: totalPanelDemand > 0 ? Math.round(totalPanelDemand * 100) / 100 : undefined,
+          open_requested_area_m2: totalOpenReq > 0 ? Math.round(totalOpenReq * 100) / 100 : undefined,
+          to_order_m2: totalToOrder > 0 ? Math.round(totalToOrder * 100) / 100 : undefined,
+          shortage_m2: totalShortage > 0 ? Math.round(totalShortage * 100) / 100 : undefined,
+          days_of_stock_remaining: minDays,
+          reorder_suggested: anyReorder,
+          children,
+        });
+      }
+    }
+
+    return rows;
+  }, [filteredPositions, rollsVsStripsByGroup, overviewByGroup]);
+
   const displayedUnits = (unitsQuery.data ?? []).filter((u) => {
     if (donorOnly) {
       const key = `${u.material_sku.material.name}|${u.material_sku.color.name}|${u.material_sku.thickness.value_mm}|${u.width_mm}`;
@@ -631,22 +832,49 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
               </Button>
             </Space>
           )}
-          <Table<StockSummaryLine>
-            rowKey={(r) => `${r.material}-${r.color}-${r.thickness}`}
+          <Table<GroupedStockLine>
+            rowKey="key"
             loading={positionsQuery.isLoading}
-            dataSource={filteredPositions}
+            dataSource={groupedPositions}
             pagination={{ pageSize: 20 }}
             scroll={{ x: "max-content" }}
             onRow={(r) => ({
-              onClick: () => navigate("/materials", { state: { material: r.material, color: r.color, thickness: r.thickness } }),
+              style: { cursor: "pointer" },
+              onClick: () => {
+                if (r.thickness != null) {
+                  navigate("/materials", { state: { material: r.material, color: r.color, thickness: r.thickness } });
+                } else {
+                  navigate("/materials", { state: { material: r.material, color: r.color } });
+                }
+              },
             })}
             columns={[
               {
-                title: "Материал",
-                // на планшете таблица шире экрана — название остаётся на месте (05.10)
+                title: "Материал и цвет",
                 fixed: "left",
-                render: (_, r) => `${r.material}, ${r.color}, ${r.thickness} мм`,
-                sorter: (a, b) => a.material.localeCompare(b.material),
+                render: (_, r) => {
+                  if (r.isParent) {
+                    return (
+                      <Space orientation="vertical" size={2}>
+                        <Typography.Text strong style={{ fontSize: 15 }}>
+                          {r.material}, {r.color}
+                        </Typography.Text>
+                        <Tag color="blue" style={{ width: "fit-content" }}>
+                          Вариантов толщины: {r.thicknesses.length} ({r.thicknesses.map((t) => `${t} мм`).join(", ")})
+                        </Tag>
+                      </Space>
+                    );
+                  }
+                  if (r.isChild) {
+                    return (
+                      <span style={{ paddingLeft: 8, color: "#1677ff", fontWeight: 500 }}>
+                        ↳ Толщина: {r.thickness} мм
+                      </span>
+                    );
+                  }
+                  return `${r.material}, ${r.color}, ${r.thickness} мм`;
+                },
+                sorter: (a, b) => `${a.material} ${a.color}`.localeCompare(`${b.material} ${b.color}`),
               },
               {
                 title: "Остаток, м²",
@@ -654,7 +882,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                 sorter: (a, b) => a.total_area_m2 - b.total_area_m2,
                 render: (v: number, r) => (
                   <Space orientation="vertical" size={0}>
-                    {v}
+                    <span style={{ fontWeight: r.isParent ? 600 : 400 }}>{v}</span>
                     {(r.illiquid_area_m2 ?? 0) > 0 && (
                       <Typography.Text type="warning" style={{ fontSize: 12 }}>
                         в т.ч. неликвид {r.illiquid_area_m2}
@@ -666,12 +894,13 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
               ...(canSeePrice
                 ? [
                     {
-                      // по ценам рулонов (08.10); часть без цены — отдельно
                       title: "Стоимость, ₽",
-                      sorter: (a: StockSummaryLine, b: StockSummaryLine) => (a.value_rub ?? 0) - (b.value_rub ?? 0),
-                      render: (_: unknown, r: StockSummaryLine) => (
+                      sorter: (a: GroupedStockLine, b: GroupedStockLine) => (a.value_rub ?? 0) - (b.value_rub ?? 0),
+                      render: (_: unknown, r: GroupedStockLine) => (
                         <Space orientation="vertical" size={0}>
-                          <span style={{ fontVariantNumeric: "tabular-nums" }}>{r.value_rub != null ? rub(r.value_rub) : "—"}</span>
+                          <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: r.isParent ? 600 : 400 }}>
+                            {r.value_rub != null ? rub(r.value_rub) : "—"}
+                          </span>
                           {(r.unpriced_area_m2 ?? 0) > 0 && (
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                               без цены {Math.round(r.unpriced_area_m2! * 10) / 10} м²
@@ -682,49 +911,41 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                     },
                   ]
                 : []),
-              { title: "Единиц", dataIndex: "unit_count", sorter: (a, b) => a.unit_count - b.unit_count },
+              {
+                title: "Единиц",
+                dataIndex: "unit_count",
+                sorter: (a, b) => a.unit_count - b.unit_count,
+                render: (v: number, r) => <span style={{ fontWeight: r.isParent ? 600 : 400 }}>{v}</span>,
+              },
               {
                 title: "Рулонов",
-                sorter: (a, b) =>
-                  (rollsVsStripsByGroup.get(`${a.material}|${a.color}|${a.thickness}`)?.roll_count ?? 0) -
-                  (rollsVsStripsByGroup.get(`${b.material}|${b.color}|${b.thickness}`)?.roll_count ?? 0),
-                render: (_, r) => {
-                  const rvs = rollsVsStripsByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
-                  return rvs ? `${rvs.roll_count} шт · ${rvs.roll_length_m} м` : "—";
-                },
+                sorter: (a, b) => a.roll_count - b.roll_count,
+                render: (_, r) => (r.roll_count > 0 ? `${r.roll_count} шт · ${r.roll_length_m} м` : "—"),
               },
               {
                 title: "Штрипсов",
-                render: (_, r) => {
-                  const rvs = rollsVsStripsByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
-                  return rvs ? `${rvs.strip_count} шт · ${rvs.strip_length_m} м` : "—";
-                },
+                render: (_, r) => (r.strip_count > 0 ? `${r.strip_count} шт · ${r.strip_length_m} м` : "—"),
               },
               ...(canViewPurchasing
                 ? [
                     {
                       title: "Резерв на задания, м²",
-                      render: (_: unknown, r: StockSummaryLine) => {
-                        const o = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
-                        return (
-                          <>
-                            {o?.reserved_area_m2 ?? 0}
-                            {(o?.panel_demand_m2 ?? 0) > 0 && (
-                              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                                {" "}
-                                (в т.ч. под двери {o?.panel_demand_m2})
-                              </Typography.Text>
-                            )}
-                          </>
-                        );
-                      },
+                      render: (_: unknown, r: GroupedStockLine) => (
+                        <>
+                          {r.reserved_area_m2 ?? 0}
+                          {(r.panel_demand_m2 ?? 0) > 0 && (
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {" "}
+                              (в т.ч. под двери {r.panel_demand_m2})
+                            </Typography.Text>
+                          )}
+                        </>
+                      ),
                     },
                     {
                       title: "Доступно, м²",
-                      render: (_: unknown, r: StockSummaryLine) => {
-                        const o = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
-                        const reserved = o?.reserved_area_m2 ?? 0;
-                        // неликвид (23.10) — не в «доступно»
+                      render: (_: unknown, r: GroupedStockLine) => {
+                        const reserved = r.reserved_area_m2 ?? 0;
                         const available = Math.round((r.total_area_m2 - (r.illiquid_area_m2 ?? 0) - reserved) * 10) / 10;
                         return (
                           <Tag color={available < 0 ? "red" : reserved > 0 && available < reserved * 0.2 ? "gold" : "green"}>
@@ -735,24 +956,29 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                     },
                     {
                       title: "В заявках",
-                      render: (_: unknown, r: StockSummaryLine) => {
-                        const v = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`)?.open_requested_area_m2 ?? 0;
+                      render: (_: unknown, r: GroupedStockLine) => {
+                        const v = r.open_requested_area_m2 ?? 0;
                         return v > 0 ? <Tag color="purple">{v} м²</Tag> : "—";
                       },
                     },
                     {
-                      // нормативы группы (08.10): мин. остаток, партия, кратность — м²
                       title: "Нормативы / заказать, м²",
-                      render: (_: unknown, r: StockSummaryLine) => {
-                        const o = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
-                        const label = normsLabel(o?.min_stock_m2, o?.min_batch_m2, o?.batch_multiple_m2);
+                      render: (_: unknown, r: GroupedStockLine) => {
+                        if (r.isParent) {
+                          return (r.to_order_m2 ?? 0) > 0 ? (
+                            <Tag color="orange">заказать {r.to_order_m2}</Tag>
+                          ) : (
+                            <Tag color="green">хватает</Tag>
+                          );
+                        }
+                        const label = normsLabel(r.min_stock_m2, r.min_batch_m2, r.batch_multiple_m2);
                         return (
                           <Space orientation="vertical" size={0}>
                             {label !== "—" && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{label}</Typography.Text>}
-                            {(o?.to_order_m2 ?? 0) > 0 ? (
+                            {(r.to_order_m2 ?? 0) > 0 ? (
                               <Space size={4} wrap>
-                                <Tag color="orange">заказать {o!.to_order_m2}</Tag>
-                                <ShortageTags total={o!.shortage_m2 ?? 0} tasks={o!.shortage_tasks_m2} min={o!.shortage_min_m2} />
+                                <Tag color="orange">заказать {r.to_order_m2}</Tag>
+                                <ShortageTags total={r.shortage_m2 ?? 0} tasks={r.shortage_tasks_m2} min={r.shortage_min_m2} />
                               </Space>
                             ) : label === "—" ? "—" : <Tag color="green">хватает</Tag>}
                           </Space>
@@ -761,19 +987,16 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                     },
                     {
                       title: "Обычно берут у",
-                      render: (_: unknown, r: StockSummaryLine) =>
-                        overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`)?.usual_supplier ?? "—",
+                      render: (_: unknown, r: GroupedStockLine) => r.usual_supplier ?? "—",
                     },
                     {
                       title: "Хватит на, дн.",
-                      render: (_: unknown, r: StockSummaryLine) => {
-                        const o = overviewByGroup.get(`${r.material}|${r.color}|${r.thickness}`);
-                        return o?.days_of_stock_remaining == null ? (
+                      render: (_: unknown, r: GroupedStockLine) =>
+                        r.days_of_stock_remaining == null ? (
                           "—"
                         ) : (
-                          <Tag color={o.reorder_suggested ? "orange" : undefined}>{o.days_of_stock_remaining}</Tag>
-                        );
-                      },
+                          <Tag color={r.reorder_suggested ? "orange" : undefined}>{r.days_of_stock_remaining}</Tag>
+                        ),
                     },
                   ]
                 : []),
@@ -782,16 +1005,17 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                     {
                       title: "Заказать, м",
                       width: 190,
-                      render: (_: unknown, r: StockSummaryLine) => {
-                        const k = filmKey(r);
+                      render: (_: unknown, r: GroupedStockLine) => {
+                        if (r.isParent || r.thickness == null) return null;
+                        const k = `${r.material}|${r.color}|${r.thickness}`;
                         const width = widthsByFilm.get(k)?.widths[0] ?? null;
-                        const toOrderM2 = overviewByGroup.get(k)?.to_order_m2 ?? 0;
+                        const toOrderM2 = r.to_order_m2 ?? 0;
                         return (
                           <OrderToCart
                             inCart={cart.filter((l) => filmKey(l) === k).reduce((sum, l) => sum + l.length_m, 0)}
                             suggested={toOrderM2 > 0 && width ? Math.ceil((toOrderM2 * 1000) / width) : null}
                             onAdd={(m) => {
-                              filmCart.add({ material: r.material, color: r.color, thickness: r.thickness, width_mm: width, length_m: m });
+                              filmCart.add({ material: r.material, color: r.color, thickness: r.thickness!, width_mm: width, length_m: m });
                               message.success(`В корзине: ${r.material}, ${r.color} — +${m} м`);
                             }}
                           />

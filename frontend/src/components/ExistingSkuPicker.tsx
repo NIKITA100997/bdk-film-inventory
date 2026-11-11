@@ -1,32 +1,34 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Select, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { listMaterialSkus } from "../api/dictionaries";
-import { skuLabel, type MaterialSku } from "../api/units";
+import { type MaterialSku } from "../api/units";
 
 interface Props {
   onSelect: (sku: MaterialSku) => void;
   placeholder?: string;
 }
 
-/** Раздел про подсказку существующих сочетаний плёнки — 4 отдельных поля
- * DictAutoComplete (материал/цвет/толщина/производитель) не знают друг о
- * друге, поэтому опечатка или чуть другая формулировка в одном из них
- * тихо заводит новую позицию номенклатуры вместо использования уже
- * существующей ("ПЭТ Светло-серый" и "ПЭТ Светло-серый (gray silk)" — по
- * факту одно и то же). Этот подсказчик — не поле формы (нет своего
- * состояния снаружи), а быстрый способ найти уже существующее сочетание
- * целиком и подставить все 4 поля сразу; тот же приём и источник данных
- * (listMaterialSkus/skuLabel), что уже даёт выбор позиции в
- * CreateTaskModal.tsx/Issue.tsx — просто здесь это отдельный переиспользуемый
- * компонент, а не инлайн-Select. Значение сбрасывается сразу после выбора
- * (как PartSelect) — дальше человек продолжает с уже подставленными полями,
- * которые остаются редактируемыми, ничего не блокируется. */
 export default function ExistingSkuPicker({ onSelect, placeholder }: Props) {
   const skusQuery = useQuery({ queryKey: ["material-skus"], queryFn: () => listMaterialSkus() });
   const [value, setValue] = useState<number>();
 
-  const options = (skusQuery.data ?? []).map((s) => ({ value: s.id, label: skuLabel(s) }));
+  const groupedOptions = useMemo(() => {
+    const groups = new Map<string, { label: string; options: { value: number; label: string }[] }>();
+    for (const s of skusQuery.data ?? []) {
+      if (!s.is_active) continue;
+      const groupTitle = `${s.material.name}, ${s.color.name}`;
+      let g = groups.get(groupTitle);
+      if (!g) {
+        g = { label: groupTitle, options: [] };
+        groups.set(groupTitle, g);
+      }
+      const th = `${s.thickness.value_mm} мм`;
+      const mfg = s.manufacturer.name ? ` · ${s.manufacturer.name}` : "";
+      g.options.push({ value: s.id, label: `${groupTitle} (${th}${mfg})` });
+    }
+    return Array.from(groups.values());
+  }, [skusQuery.data]);
 
   return (
     <div>
@@ -38,7 +40,7 @@ export default function ExistingSkuPicker({ onSelect, placeholder }: Props) {
         allowClear
         placeholder={placeholder ?? "Найти уже существующую позицию…"}
         loading={skusQuery.isLoading}
-        options={options}
+        options={groupedOptions}
         optionFilterProp="label"
         style={{ width: "100%" }}
         value={value}
