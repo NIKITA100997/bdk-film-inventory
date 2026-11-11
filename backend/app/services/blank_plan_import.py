@@ -337,7 +337,13 @@ def enrich_blank_plan_blocks(db: Session, blocks: list[BlankPlanBlock]) -> list[
                 color_key = re.sub(r"\s+", " ", line.color_raw.strip().lower())
                 color = color_by_normalized.get(color_key)
                 exact_candidates = skus_by_color_id.get(color.id) if color else None
-                sku = exact_candidates[0] if exact_candidates and len(exact_candidates) == 1 else None
+                if exact_candidates:
+                    distinct_thicknesses = {s.thickness_id for s in exact_candidates}
+                    if len(distinct_thicknesses) == 1:
+                        sku = exact_candidates[0]
+                    else:
+                        sku = None
+                        sku_candidates = [{"sku_id": s.id, "label": _sku_label(s)} for s in exact_candidates]
 
             if sku is None:
                 color_key = re.sub(r"\s+", " ", line.color_raw.strip().lower())

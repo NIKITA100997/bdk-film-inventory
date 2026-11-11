@@ -137,7 +137,14 @@ def match_sku_by_color_text(index: SkuMatchIndex, color_text: str) -> tuple[Mate
     color_key = re.sub(r"\s+", " ", color_text.strip().lower())
     color = index.color_by_normalized.get(color_key)
     exact_candidates = index.skus_by_color_id.get(color.id) if color else None
-    sku = exact_candidates[0] if exact_candidates and len(exact_candidates) == 1 else None
+    sku = None
+    if exact_candidates:
+        distinct_thicknesses = {s.thickness_id for s in exact_candidates}
+        if len(distinct_thicknesses) == 1:
+            sku = exact_candidates[0]
+        else:
+            # Разные толщины у одной плёнки — требуем явный выбор, автоподстановка только при единственной толщине
+            return None, [{"sku_id": x.id, "label": sku_label(x)} for x in exact_candidates[:_SKU_CANDIDATES_MAX]]
 
     sku_candidates: list[dict] = []
     if sku is None and color is None:

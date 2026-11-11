@@ -23,6 +23,31 @@ import NaryadResolveCell from "./NaryadResolveCell";
 import { addItemAlias } from "../../../api/items";
 import { apiErrorMessage } from "../../../utils/apiError";
 
+const REMEMBERED_THICKNESS_KEY = "bdk_film_thickness_prefs";
+
+export function getRememberedThickness(color?: string): number | undefined {
+  if (!color) return undefined;
+  try {
+    const raw = localStorage.getItem(REMEMBERED_THICKNESS_KEY);
+    if (!raw) return undefined;
+    const map = JSON.parse(raw);
+    const key = color.trim().toLowerCase();
+    return typeof map[key] === "number" ? map[key] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveRememberedThickness(color?: string, thickness?: number) {
+  if (!color || !thickness || thickness <= 0) return;
+  try {
+    const raw = localStorage.getItem(REMEMBERED_THICKNESS_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[color.trim().toLowerCase()] = thickness;
+    localStorage.setItem(REMEMBERED_THICKNESS_KEY, JSON.stringify(map));
+  } catch {}
+}
+
 type ManualRowFormValues = ProductionTaskLineManualCreate & { sku_id?: number };
 // Раздел про импорт плана заготовок — sku_candidates существует только
 // пока строка не сохранена в задание (подсказка для правки на
@@ -67,34 +92,90 @@ function ManualLineFields({
   onFinish: (v: ManualRowFormValues) => void;
   submitLabel: string;
 }) {
+  const material = Form.useWatch("material", form);
+  const color = Form.useWatch("color", form);
+  const thickness = Form.useWatch("thickness", form);
+
+  const matchingSkus = useMemo(() => {
+    if (!material || !color || !skus) return [];
+    return skus.filter(
+      (s) =>
+        s.is_active &&
+        s.material.name.toLowerCase() === material.toLowerCase() &&
+        s.color.name.toLowerCase() === color.toLowerCase(),
+    );
+  }, [material, color, skus]);
+
+  const distinctThicknesses = useMemo(() => {
+    const set = new Set<number>();
+    for (const s of matchingSkus) {
+      set.add(s.thickness.value_mm);
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  }, [matchingSkus]);
+
+  const onSelectSku = (skuId: number) => {
+    const sku = skus?.find((s) => s.id === skuId);
+    if (!sku) return;
+    const filmSkus = (skus ?? []).filter(
+      (s) =>
+        s.is_active &&
+        s.material.name.toLowerCase() === sku.material.name.toLowerCase() &&
+        s.color.name.toLowerCase() === sku.color.name.toLowerCase(),
+    );
+    const ths = Array.from(new Set(filmSkus.map((s) => s.thickness.value_mm))).sort((a, b) => a - b);
+    let chosenTh: number | undefined;
+    if (ths.length === 1) {
+      // 1 толщина на плёнке — строгая автоподстановка
+      chosenTh = ths[0];
+    } else if (ths.length > 1) {
+      // Несколько толщин — проверяем память, иначе требуем явного выбора
+      const remembered = getRememberedThickness(sku.color.name);
+      if (remembered !== undefined && ths.some((t) => Math.abs(t - remembered) < 0.001)) {
+        chosenTh = remembered;
+      } else {
+        chosenTh = undefined;
+      }
+    } else {
+      chosenTh = sku.thickness.value_mm;
+    }
+
+    form.setFieldsValue({
+      material: sku.material.name,
+      color: sku.color.name,
+      thickness: chosenTh,
+      sku_id: skuId,
+    });
+  };
+
   return (
     <Form form={form} layout="vertical" onFinish={onFinish}>
       <Form.Item label="Деталь из справочника (опционально)">
         <PartSelect
           area={area}
-          onSelect={(part) =>
+          onSelect={(part) => {
             form.setFieldsValue({
               part_name: part.name,
               width_mm: part.width_mm,
               length_m: part.length_m,
               strip_width_mm: part.strip_width_mm ?? undefined,
-            })
-          }
+            });
+            if (part.default_material_sku_id) {
+              onSelectSku(part.default_material_sku_id);
+            }
+          }}
         />
       </Form.Item>
       <Form.Item name="part_name" label="Название детали (опционально)">
         <Input placeholder="Стоевая" />
       </Form.Item>
-      <Form.Item name="sku_id" label="Материал (номенклатура)" rules={[{ required: true }]}>
+      <Form.Item name="sku_id" label="Материал и цвет (номенклатура)" rules={[{ required: true, message: "Выберите плёнку" }]}>
         <Select
           showSearch
-          placeholder="Выберите позицию материала"
+          placeholder="Выберите плёнку из номенклатуры..."
           options={skuOptions}
           optionFilterProp="label"
-          onChange={(skuId) => {
-            const sku = skus?.find((s) => s.id === skuId);
-            if (sku) form.setFieldsValue({ material: sku.material.name, color: sku.color.name, thickness: sku.thickness.value_mm });
-          }}
+          onChange={onSelectSku}
         />
       </Form.Item>
       <Form.Item name="material" hidden rules={[{ required: true }]}>
@@ -103,8 +184,42 @@ function ManualLineFields({
       <Form.Item name="color" hidden rules={[{ required: true }]}>
         <Input />
       </Form.Item>
-      <Form.Item name="thickness" hidden rules={[{ required: true }]}>
-        <InputNumber />
+      <Form.Item
+        name="thickness"
+        label="Толщина плёнки, мм"
+        rules={[{ required: true, message: "Обязательно укажите толщину плёнки" }]}
+        extra={
+          distinctThicknesses.length === 1 ? (
+            <Tag color="green" style={{ marginTop: 4 }}>
+              автоподстановка ({distinctThicknesses[0]} мм — единственная толщина для «{color}»)
+            </Tag>
+          ) : distinctThicknesses.length > 1 ? (
+            <div style={{ marginTop: 4 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: "block" }}>
+                У плёнки «{color}» несколько толщин. Выберите нужную:
+              </Typography.Text>
+              <Space wrap size={4} style={{ marginTop: 2 }}>
+                {distinctThicknesses.map((th) => (
+                  <Tag
+                    key={th}
+                    color={Math.abs((thickness ?? NaN) - th) < 0.001 ? "blue" : "default"}
+                    style={{ cursor: "pointer", fontWeight: Math.abs((thickness ?? NaN) - th) < 0.001 ? "bold" : "normal" }}
+                    onClick={() => form.setFieldValue("thickness", th)}
+                  >
+                    {th} мм
+                  </Tag>
+                ))}
+              </Space>
+            </div>
+          ) : null
+        }
+      >
+        <InputNumber
+          min={0.01}
+          step={0.01}
+          style={{ width: "100%" }}
+          placeholder={distinctThicknesses.length > 1 ? "Выберите из вариантов выше" : "0.18"}
+        />
       </Form.Item>
       <Form.Item name="width_mm" label="Ширина детали (заготовки), мм" rules={[{ required: true }]}>
         <InputNumber min={1} style={{ width: "100%" }} />
@@ -112,12 +227,6 @@ function ManualLineFields({
       <Form.Item name="length_m" label="Длина детали на списание, м" rules={[{ required: true }]}>
         <InputNumber min={0.01} step={0.1} style={{ width: "100%" }} />
       </Form.Item>
-      {/* Раздел обратной связи — ширина ДЕТАЛИ (дерево/МДФ, поле выше) и
-          ширина ПЛЁНКИ на укутку (штрипс) — разные числа: у "Стоевая
-          36х108х2035 ПАЗ-11" деталь 108мм, а плёнки на неё нужно 290мм
-          (профиль паза требует нахлёста). Раньше это поле было скрытым —
-          подставлялось верно, но никак не отображалось, из-за чего
-          выглядело, будто ничего не подобралось. */}
       <Form.Item
         name="strip_width_mm"
         label="Ширина плёнки на укутку (штрипс), мм"
@@ -202,7 +311,27 @@ export default function CreateTaskModal({
 
   const applySkuFields = (form: typeof manualRowForm, sku: MaterialSku | undefined) => {
     if (!sku) return;
-    form.setFieldsValue({ material: sku.material.name, color: sku.color.name, thickness: sku.thickness.value_mm });
+    const filmSkus = (skusQuery.data ?? []).filter(
+      (s) =>
+        s.is_active &&
+        s.material.name.toLowerCase() === sku.material.name.toLowerCase() &&
+        s.color.name.toLowerCase() === sku.color.name.toLowerCase(),
+    );
+    const ths = Array.from(new Set(filmSkus.map((s) => s.thickness.value_mm))).sort((a, b) => a - b);
+    let chosenTh: number | undefined;
+    if (ths.length === 1) {
+      chosenTh = ths[0];
+    } else if (ths.length > 1) {
+      const remembered = getRememberedThickness(sku.color.name);
+      if (remembered !== undefined && ths.some((t) => Math.abs(t - remembered) < 0.001)) {
+        chosenTh = remembered;
+      } else {
+        chosenTh = sku.thickness.value_mm;
+      }
+    } else {
+      chosenTh = sku.thickness.value_mm;
+    }
+    form.setFieldsValue({ material: sku.material.name, color: sku.color.name, thickness: chosenTh });
   };
 
   const resetAndClose = () => {
@@ -396,6 +525,9 @@ export default function CreateTaskModal({
 
   const addManualLine = (v: ManualRowFormValues) => {
     const { sku_id: _skuId, ...rest } = v;
+    if (v.color && v.thickness > 0) {
+      saveRememberedThickness(v.color, v.thickness);
+    }
     setManualLines((lines) => [...lines, rest]);
     setLastImportCount(0);
     const defaultSkuId = selectedSkuId;
@@ -459,6 +591,9 @@ export default function CreateTaskModal({
     }
     setPickedPart(null);
     const { sku_id: _skuId, ...rest } = v;
+    if (v.color && v.thickness > 0) {
+      saveRememberedThickness(v.color, v.thickness);
+    }
     setManualLines((lines) => lines.map((l, i) => (i === editingIndex ? rest : l)));
     setEditingIndex(null);
     setLastImportCount(0);
@@ -742,8 +877,8 @@ export default function CreateTaskModal({
                         <Form.Item name="color" hidden>
                           <Input />
                         </Form.Item>
-                        <Form.Item name="thickness" hidden>
-                          <InputNumber />
+                        <Form.Item name="thickness" noStyle rules={[{ required: true, message: "Толщина обязательна" }]}>
+                          <InputNumber min={0.01} step={0.01} size="small" style={{ width: "100%", marginTop: 4 }} placeholder="Толщина, мм" />
                         </Form.Item>
                       </Space>
                     ) : l.material && l.color ? (

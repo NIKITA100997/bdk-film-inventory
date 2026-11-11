@@ -1232,9 +1232,16 @@ def create_production_task_manual(
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Линия принадлежит другому участку, чем задание"
                 )
+        if line_payload.thickness <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Для строки «{line_payload.part_name or line_payload.color}» необходимо указать толщину плёнки",
+            )
         material, color, thickness = find_or_create_material_color_thickness(
             db, material=line_payload.material, color=line_payload.color, thickness=line_payload.thickness
         )
+        from app.services.film_aliases import save_alias
+        save_alias(db, line_payload.color, material.id, color.id, thickness.id, source="задание", user_id=user.id)
         sw = (
             line_payload.strip_width_mm
             if line_payload.strip_width_mm is not None
