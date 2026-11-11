@@ -1,6 +1,6 @@
 import { useState } from "react";
 import NextStep from "../../components/NextStep";
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Segmented, Select, Space, Steps, Tag, Typography, List, Row, Col, message } from "antd";
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Segmented, Select, Space, Steps, Switch, Tag, Typography, List, Row, Col, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import InitialStock from "./InitialStock";
@@ -93,11 +93,13 @@ export default function Receive() {
       receiveAndAutoPlace(
         {
           ...values,
+          manufacturer: values.manufacturer?.trim() || "Не указан",
           thickness: Number(values.thickness),
           upd_number: upd,
           pallet_number: pallet,
           occurred_at: toOccurredAtIso(occurredAt),
           warehouse_id: warehouseId ?? undefined,
+          marked_illiquid: !!values.marked_illiquid,
         },
         warehouseId,
       ),
@@ -246,11 +248,14 @@ export default function Receive() {
                 <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
                   <DictAutoComplete kind="colors" />
                 </Form.Item>
+                <Form.Item name="marked_illiquid" valuePropName="checked" label="Статус фонда">
+                  <Switch checkedChildren="Неликвид" unCheckedChildren="Основной" />
+                </Form.Item>
                 <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
                   <DictAutoComplete kind="thicknesses" />
                 </Form.Item>
-                <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
-                  <DictAutoComplete kind="manufacturers" />
+                <Form.Item name="manufacturer" label="Производитель (необязательно)" tooltip="Если неизвестен — «Не указан»">
+                  <DictAutoComplete kind="manufacturers" placeholder="Не указан" />
                 </Form.Item>
                 <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
                   <InputNumber size="large" min={1} style={{ width: "100%" }} autoFocus />

@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Col,
   DatePicker,
   Dropdown,
   Form,
@@ -13,6 +14,7 @@ import {
   List,
   Modal,
   Radio,
+  Row,
   Segmented,
   Select,
   Space,
@@ -82,9 +84,11 @@ type UnitLineValues = {
   material: string;
   color: string;
   thickness: number;
-  manufacturer: string;
+  manufacturer?: string;
   width_mm: number;
   length_m: number;
+  quantity?: number;
+  marked_illiquid?: boolean;
   upd_number?: string;
   pallet_number?: string;
   is_strip?: boolean;
@@ -183,6 +187,8 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
   const [createdUnits, setCreatedUnits] = useState<MaterialUnit[]>([]);
   const [positionForm] = Form.useForm<MaterialSkuCreate>();
   const [unitForm] = Form.useForm<UnitLineValues>();
+  const manualQty = Form.useWatch("quantity", unitForm);
+  const manualIlliquid = Form.useWatch("marked_illiquid", unitForm);
   const [writeOffForm] = Form.useForm<{ reason: string; note?: string; occurred_at?: Dayjs | null }>();
   const writeOffReasonsQuery = useQuery({
     queryKey: ["write-off-reasons", "warehouse"],
@@ -288,16 +294,22 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
     mutationFn: (v: UnitLineValues) =>
       receiveAndAutoPlace({
         ...v,
+        manufacturer: v.manufacturer?.trim() || "Не указан",
         upd_number: v.upd_number?.trim() || "Без документа",
         pallet_number: v.pallet_number?.trim() || "-",
-        quantity: 1,
+        quantity: Math.max(1, Math.min(200, Number(v.quantity) || 1)),
+        marked_illiquid: !!v.marked_illiquid,
         occurred_at: toOccurredAtIso(v.occurred_at),
       }),
     onSuccess: (units) => {
       qc.invalidateQueries({ queryKey: ["materials-explorer"] });
       setCreatedUnits(units);
       unitForm.resetFields();
-      message.success(`Единица ${rollNo(units[0].id)} зарегистрирована`);
+      if (units.length === 1) {
+        message.success(`Единица ${rollNo(units[0].id)} зарегистрирована`);
+      } else {
+        message.success(`Зарегистрировано единиц: ${units.length} (№ ${rollNo(units[0].id)} .. ${rollNo(units[units.length - 1].id)})`);
+      }
     },
     onError: () => message.error("Не удалось зарегистрировать единицу"),
   });
@@ -1001,7 +1013,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
       </Modal>
 
       <Modal
-        title="Единица плёнки вне сессии приёмки"
+        title="Постановка на учёт вне сессии приёмки"
         open={createUnitOpen}
         onCancel={() => {
           setCreateUnitOpen(false);
@@ -1009,23 +1021,55 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
         }}
         footer={null}
         destroyOnHidden
+        width={660}
       >
-        <Typography.Paragraph type="secondary">
-          Один физический рулон/штрипс без открытия сессии приёмки (2.3) — например, единичное поступление без
-          полноценной партии. УПД/паллета необязательны.
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+          Быстрая регистрация рулонов или штрипсов — остатки со склада, неликвид, рулоны без документов.
+          Можно зарегистрировать сразу партию из N одинаковых рулонов с печатью всех бирок.
         </Typography.Paragraph>
-        <Form form={unitForm} layout="vertical" initialValues={{ is_strip: false }} onFinish={(v) => createUnitMutation.mutate(v)}>
-          <Form.Item name="is_strip" label="Тип">
-            <Radio.Group
-              options={[
-                { label: "Рулон", value: false },
-                { label: "Штрипс", value: true },
-              ]}
-              optionType="button"
+        <Form
+          form={unitForm}
+          layout="vertical"
+          size="middle"
+          initialValues={{ is_strip: false, quantity: 1, marked_illiquid: false }}
+          onFinish={(v) => createUnitMutation.mutate(v)}
+        >
+          <Row gutter={12} align="middle" style={{ marginBottom: 12 }}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="is_strip" label="Форм-фактор" style={{ marginBottom: 0 }}>
+                <Radio.Group
+                  options={[
+                    { label: "Рулон", value: false },
+                    { label: "Штрипс", value: true },
+                  ]}
+                  optionType="button"
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="marked_illiquid" valuePropName="checked" label="Статус фонда" style={{ marginBottom: 0 }}>
+                <Switch
+                  checkedChildren="Неликвид"
+                  unCheckedChildren="Основной"
+                  style={{ backgroundColor: manualIlliquid ? "#fa8c16" : undefined }}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {manualIlliquid && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="Рулоны будут помечены как «Неликвид»"
+              description="Они будут отображаться с оранжевым бейджем и не пойдут в автоматическую выдачу под обычные заказы."
             />
-          </Form.Item>
-          <Form.Item style={{ marginBottom: 16 }}>
+          )}
+
+          <Form.Item style={{ marginBottom: 12 }}>
             <ExistingSkuPicker
+              placeholder="Найти существующую позицию (автозаполнение полей)…"
               onSelect={(sku) =>
                 unitForm.setFieldsValue({
                   material: sku.material.name,
@@ -1036,48 +1080,136 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
               }
             />
           </Form.Item>
-          <Form.Item name="material" label="Материал" rules={[{ required: true }]}>
-            <DictAutoComplete kind="materials" />
-          </Form.Item>
-          <Form.Item name="color" label="Цвет" rules={[{ required: true }]}>
-            <DictAutoComplete kind="colors" />
-          </Form.Item>
-          <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true }]}>
-            <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="manufacturer" label="Производитель" rules={[{ required: true }]}>
-            <DictAutoComplete kind="manufacturers" />
-          </Form.Item>
-          <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true }]}>
-            <InputNumber min={1} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="length_m" label="Длина, м" rules={[{ required: true }]}>
-            <InputNumber min={0.1} step={0.1} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="upd_number" label="Номер УПД (необязательно)">
-            <Input placeholder="Без документа" />
-          </Form.Item>
-          <Form.Item name="pallet_number" label="Номер паллеты (необязательно)">
-            <Input />
-          </Form.Item>
+
+          <Row gutter={12}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="material" label="Материал" rules={[{ required: true, message: "Укажите материал" }]}>
+                <DictAutoComplete kind="materials" placeholder="ПВХ, ПЭТ..." />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="color" label="Цвет" rules={[{ required: true, message: "Укажите цвет" }]}>
+                <DictAutoComplete kind="colors" placeholder="Дуб Золотой..." />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={12}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="thickness" label="Толщина, мм" rules={[{ required: true, message: "Укажите толщину" }]}>
+                <InputNumber min={0.01} step={0.01} style={{ width: "100%" }} placeholder="0.18" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="manufacturer"
+                label="Производитель (необязательно)"
+                tooltip="Если неизвестен или без документов — сохранится как «Не указан»"
+              >
+                <DictAutoComplete kind="manufacturers" placeholder="Не указан" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={12}>
+            <Col xs={24} sm={8}>
+              <Form.Item name="width_mm" label="Ширина, мм" rules={[{ required: true, message: "Укажите ширину" }]}>
+                <InputNumber min={1} style={{ width: "100%" }} placeholder="1400" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="length_m" label="Длина, м" rules={[{ required: true, message: "Укажите длину" }]}>
+                <InputNumber min={0.1} step={0.1} style={{ width: "100%" }} placeholder="280" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="quantity" label="Количество рулонов" rules={[{ required: true, message: "Минимум 1" }]}>
+                <InputNumber min={1} max={200} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={8} style={{ marginBottom: 12 }}>
+            {[1, 2, 5, 10, 11].map((num) => (
+              <Col key={num} span={4}>
+                <Button block size="small" onClick={() => unitForm.setFieldValue("quantity", num)}>
+                  {num} шт
+                </Button>
+              </Col>
+            ))}
+          </Row>
+
+          <Row gutter={12}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="upd_number" label="Номер УПД (необязательно)">
+                <Input placeholder="Без документа" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="pallet_number" label="Номер паллеты / упаковки (необязательно)">
+                <Input placeholder="—" />
+              </Form.Item>
+            </Col>
+          </Row>
+
           <OccurredAtField label="Дата приёмки (необязательно — по умолчанию сейчас)" />
-          <Button type="primary" htmlType="submit" block loading={createUnitMutation.isPending}>
-            Зарегистрировать
+
+          <Button
+            type="primary"
+            htmlType="submit"
+            size="large"
+            block
+            style={{ height: 44, fontSize: 16 }}
+            loading={createUnitMutation.isPending}
+          >
+            Зарегистрировать {manualQty && manualQty > 1 ? `(${manualQty} шт.)` : ""}
           </Button>
         </Form>
 
         {createdUnits.length > 0 && (
-          <List
-            style={{ marginTop: 16 }}
+          <Card
             size="small"
-            bordered
-            dataSource={createdUnits}
-            renderItem={(u) => (
-              <List.Item actions={[<Button key="print" size="small" onClick={() => printLabel(u.id)}>Печать бирки</Button>]}>
-                № {u.id} — {u.width_mm}×{u.length_m}, {u.location_code ?? "без места"}
-              </List.Item>
-            )}
-          />
+            style={{ marginTop: 16, background: "#f6ffed", borderColor: "#b7eb8f" }}
+          >
+            <Space direction="vertical" style={{ width: "100%" }} size={8}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography.Text strong style={{ color: "#389e0d" }}>
+                  Успешно создано: {createdUnits.length} шт.
+                </Typography.Text>
+                <Button
+                  type="primary"
+                  size="small"
+                  onClick={() => printLabelsBatch(createdUnits.map((u) => u.id))}
+                >
+                  Печать всех бирок ({createdUnits.length})
+                </Button>
+              </div>
+              <List
+                size="small"
+                bordered
+                dataSource={createdUnits}
+                pagination={createdUnits.length > 5 ? { pageSize: 5, size: "small" } : false}
+                renderItem={(u) => (
+                  <List.Item
+                    actions={[
+                      <Button key="print" size="small" onClick={() => printLabel(u.id)}>
+                        Печать
+                      </Button>,
+                    ]}
+                  >
+                    <span>
+                      <b>№ {rollNo(u.id)}</b> — {u.width_mm}×{u.length_m} м, {u.location_code ?? "без места"}
+                      {u.marked_illiquid && (
+                        <Tag color="orange" style={{ marginLeft: 6 }}>
+                          неликвид
+                        </Tag>
+                      )}
+                    </span>
+                  </List.Item>
+                )}
+              />
+            </Space>
+          </Card>
         )}
       </Modal>
 

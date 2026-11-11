@@ -62,7 +62,7 @@ export interface ReceiveRequest {
   material: string;
   color: string;
   thickness: number;
-  manufacturer: string;
+  manufacturer?: string;
   width_mm: number;
   length_m: number;
   quantity: number;
@@ -70,6 +70,7 @@ export interface ReceiveRequest {
   /** склад приёмки: без ячейки рулон встаёт на место по умолчанию склада (19.10) */
   warehouse_id?: number;
   is_strip?: boolean;
+  marked_illiquid?: boolean;
   occurred_at?: string;
   /** Цена по УПД (необязательно) — за м² в валюте; уходит в историю цен плёнки. */
   price?: number | null;

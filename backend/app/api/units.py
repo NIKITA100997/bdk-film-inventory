@@ -196,8 +196,9 @@ def receive(
     """Приёмка партии (6.2 ТЗ): создаёт N единиц-рулонов под одним УПД/
     паллетой. Позиция материала ищется в справочнике (2.1a) или создаётся на
     лету, если такой комбинации ещё нет (5.6)."""
+    mfg = (payload.manufacturer or "").strip() or "Не указан"
     sku = find_or_create_sku(
-        db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=payload.manufacturer
+        db, material=payload.material, color=payload.color, thickness=payload.thickness, manufacturer=mfg
     )
     _validate_zone_rule(db, payload.location_code, sku)
     from app.services.warehouses import default_cell
@@ -224,6 +225,7 @@ def receive(
             # приёмке не поставили (не полагаемся на то, что кладовщик не
             # ошибётся).
             is_strip=payload.is_strip or float(payload.width_mm) < MIN_ROLL_WIDTH_MM,
+            marked_illiquid=payload.marked_illiquid,
             status=UnitStatus.NA_KHRANENII if location else UnitStatus.PRINYAT,
             location_code=location,
         )
@@ -246,9 +248,10 @@ def receive(
             occurred_at=payload.occurred_at,
         )
         created.append(unit)
-    auto_close_on_receipt(
-        db, material_id=sku.material_id, color_id=sku.color_id, thickness_id=sku.thickness_id
-    )
+    if not payload.marked_illiquid:
+        auto_close_on_receipt(
+            db, material_id=sku.material_id, color_id=sku.color_id, thickness_id=sku.thickness_id
+        )
     db.commit()
     ids = [u.id for u in created]
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id.in_(ids)).all()

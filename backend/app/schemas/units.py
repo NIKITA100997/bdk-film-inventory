@@ -17,7 +17,7 @@ class ReceiveRequest(BaseModel):
     material: str
     color: str
     thickness: float
-    manufacturer: str
+    manufacturer: str = "Не указан"
     width_mm: float = Field(gt=0)
     length_m: float = Field(gt=0)
     quantity: int = Field(gt=0, le=200)
@@ -25,6 +25,7 @@ class ReceiveRequest(BaseModel):
     # склад приёмки (19.10): без ячейки рулон встаёт на место по умолчанию этого склада
     warehouse_id: int | None = None
     is_strip: bool = False
+    marked_illiquid: bool = False  # неликвид (23.10 / ручная постановка)
     occurred_at: OccurredAt = None
     # Цена по УПД (05.10) — необязательно: за м² (или за «м» рулона) в
     # валюте; попадает в историю цен позиции плёнки с номером УПД.
