@@ -90,6 +90,7 @@ export default function Blanks() {
   return (
     <Card title="Свободный остаток">
       <Tabs
+        destroyOnHidden
         items={[
           { key: "demand", label: "Потребность", children: <BlanksDemandTab /> },
           { key: "history", label: "История резки", children: <CuttingHistory /> },

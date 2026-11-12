@@ -339,7 +339,11 @@ function PlanForDay({ area, canReport }: { area: string; canReport: boolean }) {
                 <span>
                   {r.what}
                   {r.operation && <Typography.Text type="secondary"> · {r.operation}</Typography.Text>}
-                  {r.overdue && <Tag color="red" style={{ marginLeft: 6 }}>просрочено</Tag>}
+                  {r.overdue && (
+                    <span style={{ marginLeft: 6, fontSize: 11, background: "#fff1f0", color: "#cf1322", border: "1px solid #ffa39e", borderRadius: 3, padding: "0 4px" }}>
+                      просрочено
+                    </span>
+                  )}
                 </span>
               ),
             },
@@ -407,7 +411,11 @@ function AreaTasks({ tasks, canManage, canReport }: { tasks: ProductionTask[]; c
                   <a>
                     №{r.t.id} «{r.t.name ?? r.t.product_model_name ?? "Задание"}»
                   </a>
-                  {r.t.for_task_id && <Tag color="geekblue">п/ф под №{r.t.for_task_id}</Tag>}
+                  {r.t.for_task_id && (
+                    <span style={{ fontSize: 11, background: "#f0f5ff", color: "#1d39c4", border: "1px solid #adc6ff", borderRadius: 3, padding: "0 4px" }}>
+                      п/ф под №{r.t.for_task_id}
+                    </span>
+                  )}
                 </Space>
               ),
             },

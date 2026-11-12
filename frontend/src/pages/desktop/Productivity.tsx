@@ -159,6 +159,7 @@ export default function Productivity() {
           Выдача — рулоны и штрипсы, выданные складом участку.
         </Typography.Text>
         <Tabs
+          destroyOnHidden
           items={[
             {
               key: "areas",

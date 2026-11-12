@@ -59,6 +59,7 @@ export default function Demand() {
       <Typography.Title level={4}>Потребность</Typography.Title>
       <Tabs
         activeKey={active}
+        destroyOnHidden
         onChange={(k) => {
           const p = new URLSearchParams(params);
           p.set("tab", "demand");

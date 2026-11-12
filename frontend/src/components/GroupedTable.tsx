@@ -179,13 +179,15 @@ export default function GroupedTable<T extends object>({
           const own = groupRender?.(r.rows, r) ?? null;
           if (c.key !== label) return own;
           return (
-            <Space size={6} wrap style={{ paddingLeft: r.level * 4 }}>
-              <Typography.Text type="secondary">{r.dim.label}:</Typography.Text>
-              <b>{r.value || "—"}</b>
-              <Tag style={{ marginInlineEnd: 0 }}>строк {r.rows.length}</Tag>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingLeft: r.level * 4 }}>
+              <span style={{ color: "#8c8c8c", fontSize: 12 }}>{r.dim.label}:</span>
+              <span style={{ fontWeight: 600 }}>{r.value || "—"}</span>
+              <span style={{ display: "inline-block", background: "#f0f0f0", borderRadius: 4, padding: "0 6px", fontSize: 11, color: "#595959" }}>
+                строк {r.rows.length}
+              </span>
               {renderGroupHeaderExtra?.(r)}
               {own}
-            </Space>
+            </span>
           );
         }
         return render ? render(v, r, i) : (v as ReactNode);

@@ -420,6 +420,7 @@ export default function Economics({ embedded = false }: { embedded?: boolean }) 
         </Space>
       </Card>
       <Tabs
+        destroyOnHidden
         items={[
           {
             key: "daily",

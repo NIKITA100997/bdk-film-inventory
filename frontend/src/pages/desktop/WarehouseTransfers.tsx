@@ -239,6 +239,7 @@ export default function WarehouseTransfers() {
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
+        destroyOnHidden
         items={[
           { key: "hub", label: "Хаб (к отправке)", children: <HubTab /> },
           { key: "transit", label: "В пути", children: <InTransitTab /> },

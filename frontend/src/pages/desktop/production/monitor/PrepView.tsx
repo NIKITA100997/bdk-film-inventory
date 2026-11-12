@@ -277,21 +277,18 @@ export default function PrepView({
       key: "name",
       title: "Позиция",
       width: 220,
-      fixed: "left",
       sortValue: (l) => l.source,
       render: (_, l) => {
         const cs = [...(colorsOf.get(l.key) ?? [])];
         return (
-          <Space orientation="vertical" size={0}>
+          <div style={{ lineHeight: 1.2 }}>
             <b>{l.source}</b>
             {cs.length > 0 && (
-              <Tooltip title={cs.join("; ")}>
-                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                  декоров/цветов: {cs.length}
-                </Typography.Text>
-              </Tooltip>
+              <div title={cs.join("; ")} style={{ fontSize: 11, color: "#8c8c8c", cursor: "default" }}>
+                декоров/цветов: {cs.length}
+              </div>
             )}
-          </Space>
+          </div>
         );
       },
     },
@@ -303,10 +300,11 @@ export default function PrepView({
       sortValue: (l) => l.qty,
       render: (_, l) => {
         const isPanel = /панел|накладк|заготовк|мдф|скин/i.test(l.invoice) || /панел|накладк|заготовк|мдф|скин/i.test(l.source);
+        const tip = isPanel ? `План: ${r2(l.qty)} панелей (на ${r2(Math.floor(l.qty / 2))} дверей)` : `План: ${r2(l.qty)} каркасов`;
         return (
-          <Tooltip title={isPanel ? `План: ${r2(l.qty)} панелей (на ${r2(Math.floor(l.qty / 2))} дверей)` : `План: ${r2(l.qty)} каркасов`}>
-            <b>{r2(l.qty)}</b>
-          </Tooltip>
+          <b title={tip} style={{ cursor: "default" }}>
+            {r2(l.qty)}
+          </b>
         );
       },
       groupRender: (ls) => {
@@ -337,7 +335,7 @@ export default function PrepView({
       align: "center",
       render: (_, l) => {
         const filmRows = Object.values(l.ops).flat().filter((r) => r.film_status || r.film);
-        if (!filmRows.length) return <Typography.Text type="secondary">—</Typography.Text>;
+        if (!filmRows.length) return <span style={{ color: "#bfbfbf" }}>—</span>;
         return <FilmCell rs={filmRows} />;
       },
     },
@@ -359,23 +357,34 @@ export default function PrepView({
       render: (_, l) => {
         const { readyPcs, readySets, isPanel, formula, laminatedPcs } = getReadyToGlue(l, ops);
         const isFrame = /каркас/i.test(l.invoice) || /каркас/i.test(l.source);
-        if (readyPcs <= 0 && (!isPanel || !laminatedPcs)) return <Typography.Text type="secondary">0</Typography.Text>;
+        if (readyPcs <= 0 && (!isPanel || !laminatedPcs)) return <span style={{ color: "#bfbfbf" }}>0</span>;
         const isFull = readyPcs >= l.qty - 1e-6;
         return (
-          <Tooltip title={formula}>
-            <Tag color={isFull ? "green" : readyPcs > 0 ? "orange" : "default"} style={{ cursor: "help", marginInlineEnd: 0 }}>
-              {isFrame ? (
-                <span>К: <b>{r2(readyPcs)}</b>/{r2(l.qty)}</span>
-              ) : (
-                <span>
-                  П: <b>{r2(readyPcs)}</b>/{r2(l.qty)} ({readySets} дв.)
-                  {laminatedPcs > readyPcs && (
-                    <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 2 }}>[лам:{r2(laminatedPcs)}]</span>
-                  )}
-                </span>
-              )}
-            </Tag>
-          </Tooltip>
+          <div
+            title={formula}
+            style={{
+              display: "inline-block",
+              padding: "2px 6px",
+              borderRadius: 4,
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: "help",
+              color: isFull ? "#389e0d" : readyPcs > 0 ? "#d46b08" : "#595959",
+              background: isFull ? "#f6ffed" : readyPcs > 0 ? "#fff7e6" : "#f5f5f5",
+              border: `1px solid ${isFull ? "#b7eb8f" : readyPcs > 0 ? "#ffd591" : "#d9d9d9"}`,
+            }}
+          >
+            {isFrame ? (
+              <span>К: <b>{r2(readyPcs)}</b>/{r2(l.qty)}</span>
+            ) : (
+              <span>
+                П: <b>{r2(readyPcs)}</b>/{r2(l.qty)} ({readySets} дв.)
+                {laminatedPcs > readyPcs && (
+                  <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 2 }}>[лам:{r2(laminatedPcs)}]</span>
+                )}
+              </span>
+            )}
+          </div>
         );
       },
       groupRender: (ls) => {

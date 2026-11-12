@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Alert, Button, Card, Empty, Input, Segmented, Select, Space, Spin, Statistic, Tabs, Tag, Typography } from "antd";
+import { Alert, Button, Card, Empty, Input, Segmented, Select, Space, Spin, Statistic, Tabs, Typography } from "antd";
 import { PlusOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -11,12 +11,12 @@ import IssueFactPanel from "../../components/areaSupply/IssueFactPanel";
 import FilmReservesPanel from "../../components/FilmReservesPanel";
 import IssueRollModal from "./IssueRollModal";
 
-const STATUS: Record<FilmIssueStatus, { label: string; color: string }> = {
-  none: { label: "не выдано", color: "red" },
-  partial: { label: "выдано частично", color: "orange" },
-  covered: { label: "покрыто остатком участка", color: "cyan" },
-  issued: { label: "выдано", color: "green" },
-  site_stock: { label: "со склада Фабрики", color: "purple" },
+const STATUS: Record<FilmIssueStatus, { label: string; color: string; bg: string; border: string }> = {
+  none: { label: "не выдано", color: "#cf1322", bg: "#fff1f0", border: "#ffa39e" },
+  partial: { label: "выдано частично", color: "#d46b08", bg: "#fff7e6", border: "#ffd591" },
+  covered: { label: "покрыто остатком", color: "#0958d9", bg: "#e6f4ff", border: "#91caff" },
+  issued: { label: "выдано", color: "#389e0d", bg: "#f6ffed", border: "#b7eb8f" },
+  site_stock: { label: "со склада Фабрики", color: "#722ed1", bg: "#f9f0ff", border: "#d3adf7" },
 };
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const fmtD = (d: string | null) => (d ? dayjs(d).format("DD.MM") : "—");
@@ -242,7 +242,26 @@ export default function FilmIssueBoard() {
                         dataIndex: "status",
                         filters: (Object.keys(STATUS) as FilmIssueStatus[]).map((s) => ({ text: STATUS[s].label, value: s })),
                         onFilter: (v, r) => r.status === v,
-                        render: (s: FilmIssueStatus) => <Tag color={STATUS[s].color}>{STATUS[s].label}</Tag>,
+                        render: (s: FilmIssueStatus) => {
+                          const st = STATUS[s];
+                          if (!st) return s;
+                          return (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "1px 6px",
+                                borderRadius: 4,
+                                fontSize: 11,
+                                fontWeight: 500,
+                                color: st.color,
+                                background: st.bg,
+                                border: `1px solid ${st.border}`,
+                              }}
+                            >
+                              {st.label}
+                            </span>
+                          );
+                        },
                       },
                       {
                         title: "Действие",
@@ -260,7 +279,20 @@ export default function FilmIssueBoard() {
                               Выдать
                             </Button>
                           ) : (
-                            <Tag color="green">Обеспечено</Tag>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "1px 6px",
+                                borderRadius: 4,
+                                fontSize: 11,
+                                fontWeight: 500,
+                                color: "#389e0d",
+                                background: "#f6ffed",
+                                border: "1px solid #b7eb8f",
+                              }}
+                            >
+                              ✓ Обеспечено
+                            </span>
                           ),
                       },
                     ]}
@@ -381,7 +413,15 @@ function RollsOnAreas({ rolls }: { rolls: AreaRoll[] }) {
             ],
             onFilter: (v, r) => (v === "old" ? r.leftover && !!r.task_name : !r.task_name),
             render: (v: boolean, r) =>
-              !r.task_name ? <Tag>выдан без задания</Tag> : v ? <Tag color="gold">остаток прошлого задания</Tag> : null,
+              !r.task_name ? (
+                <span style={{ fontSize: 11, background: "#f5f5f5", color: "#595959", padding: "1px 6px", borderRadius: 3 }}>
+                  выдан без задания
+                </span>
+              ) : v ? (
+                <span style={{ fontSize: 11, background: "#fffbe6", color: "#d48806", border: "1px solid #ffe58f", padding: "1px 6px", borderRadius: 3 }}>
+                  остаток прошлого задания
+                </span>
+              ) : null,
           },
         ]}
       />
@@ -413,7 +453,12 @@ function Fabrika({ rows }: { rows: SiteStock[] }) {
             dataIndex: "to_transfer_m2",
             align: "right",
             sorter: (a, b) => a.to_transfer_m2 - b.to_transfer_m2,
-            render: (v: number) => (v > 0 ? <Typography.Text strong>{r1(v)}</Typography.Text> : <Tag color="green">хватает</Tag>),
+            render: (v: number) =>
+              v > 0 ? (
+                <b>{r1(v)}</b>
+              ) : (
+                <span style={{ color: "#389e0d", fontSize: 12 }}>✓ хватает</span>
+              ),
           },
           {
             title: "Действие",

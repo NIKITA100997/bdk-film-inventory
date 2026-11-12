@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Button, Empty, Progress, Space, Tag, Tooltip, Typography, theme } from "antd";
+import { Button, Empty, Progress, Space, Typography, theme } from "antd";
 import dayjs from "dayjs";
 import type { MonitorArea, MonitorOrder, MonitorRow } from "../../../../api/productionMonitor";
 import GroupedTable from "../../../../components/GroupedTable";
@@ -122,7 +122,11 @@ export default function AreasView({
                     )}
                     <div style={{ fontSize: 11, color: token.colorTextSecondary, marginTop: 2 }}>
                       осталось {r2(s.left)} шт · строк {s.open}
-                      {!s.quick && <Tag style={{ marginLeft: 6, fontSize: 10 }}>отчёт в задании</Tag>}
+                      {!s.quick && (
+                        <span style={{ marginLeft: 6, fontSize: 10, background: "#f0f0f0", color: "#595959", padding: "1px 5px", borderRadius: 3 }}>
+                          отчёт в задании
+                        </span>
+                      )}
                     </div>
                     <Progress percent={pct} size="small" showInfo={false} strokeColor={pct >= 100 ? token.colorSuccess : token.colorPrimary} />
                   </button>
@@ -158,19 +162,19 @@ export default function AreasView({
               <div style={{ whiteSpace: "normal" }}>
                 <div>{posOf(r)}</div>
                 {r.film_deficit_m != null && r.film_deficit_m > 0 && (
-                  <Tag color="error" style={{ fontSize: 11, marginTop: 2 }}>
+                  <span style={{ display: "inline-block", fontSize: 11, marginTop: 2, background: "#fff1f0", color: "#cf1322", border: "1px solid #ffa39e", borderRadius: 3, padding: "0 4px" }}>
                     дефицит плёнки -{r2(r.film_deficit_m)} м
-                  </Tag>
+                  </span>
                 )}
                 {r.part_id == null && r.source && (
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  <div style={{ fontSize: 11, color: "#8c8c8c" }}>
                     {r.source}
-                  </Typography.Text>
+                  </div>
                 )}
                 {r.source_missing && (
-                  <Typography.Text type="danger" style={{ display: "block", fontSize: 11 }}>
+                  <div style={{ fontSize: 11, color: "#ff4d4f" }}>
                     Не восстановлены счёт и серия — требуется сверка
-                  </Typography.Text>
+                  </div>
                 )}
               </div>
             ),
@@ -216,7 +220,18 @@ export default function AreasView({
             width: 80,
             align: "right",
             sortValue: leftOf,
-            render: (_, r) => (r.closed ? <Tag>закрыто</Tag> : leftOf(r) > 0 ? <b>{r2(leftOf(r))}</b> : <Tag color="green">готово</Tag>),
+            render: (_, r) =>
+              r.closed ? (
+                <span style={{ color: "#8c8c8c", fontSize: 11, background: "#f5f5f5", padding: "1px 6px", borderRadius: 3 }}>
+                  закрыто
+                </span>
+              ) : leftOf(r) > 0 ? (
+                <b>{r2(leftOf(r))}</b>
+              ) : (
+                <span style={{ color: "#389e0d", fontSize: 11, background: "#f6ffed", border: "1px solid #b7eb8f", padding: "1px 6px", borderRadius: 3 }}>
+                  готово
+                </span>
+              ),
             groupRender: (rs) => <b>{r2(rs.reduce((s, r) => s + leftOf(r), 0))}</b>,
           },
           {
@@ -234,11 +249,13 @@ export default function AreasView({
               r.quick && leftOf(r) >= 0 ? (
                 <QuickReport row={r} compact />
               ) : (
-                <Tooltip title={r.closed ? "Строка закрыта" : "Нужен рулон или дневной план — отчёт в задании"}>
-                  <Button size="small" onClick={() => onOpenTask(r.task_id)}>
-                    Задание №{r.task_id}
-                  </Button>
-                </Tooltip>
+                <Button
+                  size="small"
+                  title={r.closed ? "Строка закрыта" : "Нужен рулон или дневной план — отчёт в задании"}
+                  onClick={() => onOpenTask(r.task_id)}
+                >
+                  Задание №{r.task_id}
+                </Button>
               ),
           },
         ]}

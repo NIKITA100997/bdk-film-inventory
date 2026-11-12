@@ -419,7 +419,7 @@ h5 {
    главное, а что внутри. */
 .ant-card {
   border: 1px solid #e4e4df;
-  box-shadow: 0 1px 2px rgba(44, 46, 58, 0.05), 0 2px 8px -4px rgba(44, 46, 58, 0.08);
+  box-shadow: 0 1px 3px rgba(44, 46, 58, 0.05);
 }
 .ant-card .ant-card {
   background: #fafaf7;
@@ -461,4 +461,29 @@ h5 {
 /* Шапка таблицы — заметнее */
 .ant-table-thead > tr > th {
   font-weight: 650 !important;
+}
+
+/* ── Ускорение рендера и упрощение графики (12.11) ──────────────────────
+   Отключение анимаций/transitions в таблицах и строках избавляет браузер
+   от перерисовки layout при скролле и hover на сотнях строк. */
+.ant-table,
+.ant-table *,
+.ant-table-thead > tr > th,
+.ant-table-tbody > tr > td,
+.ant-table-tbody > tr {
+  transition: none !important;
+  animation: none !important;
+}
+
+.ant-table-body {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: auto;
+}
+
+/* Ускорение всплывающих окон и селекторов */
+.ant-modal,
+.ant-drawer,
+.ant-dropdown,
+.ant-select-dropdown {
+  transition-duration: 0.1s !important;
 }

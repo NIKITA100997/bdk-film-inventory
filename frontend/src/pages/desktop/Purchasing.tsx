@@ -265,6 +265,7 @@ export default function Purchasing() {
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
+        destroyOnHidden
         items={[
           // «Пора заказывать» — перенесено из «Отчётов» (30.09): сигнал для закупщика.
           { key: "mrp", label: "🎯 Дефицит MRP", children: <MrpNeedsTab /> },

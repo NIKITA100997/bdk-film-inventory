@@ -570,6 +570,7 @@ export function OrderView({
         <Tabs
           activeKey={orderTab}
           onChange={setOrderTab}
+          destroyOnHidden
           items={[
             {
               key: "flow",

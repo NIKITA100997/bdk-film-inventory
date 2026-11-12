@@ -492,6 +492,7 @@ export default function Defects() {
     <Card title="Брак и контроль качества">
       <Tabs
         defaultActiveKey="quality-meeting"
+        destroyOnHidden
         items={[
           { key: "quality-meeting", label: "📋 Планёрка по качеству (Парето 80/20)", children: <QualityMeetingTab /> },
           { key: "overview", label: "Обзор динамики", children: <DefectsOverviewTab /> },

@@ -884,6 +884,7 @@ export default function DictionaryAdmin() {
         откройте её кликом по строке на «Остатках».
       </Typography.Paragraph>
       <Tabs
+        destroyOnHidden
         items={[
           { key: "materials", label: "Материалы (тип)", children: <NameDictTab kind="materials" label="Материал" /> },
           { key: "colors", label: "Цвета", children: <NameDictTab kind="colors" label="Цвет" /> },

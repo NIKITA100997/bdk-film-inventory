@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Popover, Space, Tag, Tooltip, Typography } from "antd";
+import { Button, Popover, Space, Tooltip, Typography } from "antd";
 import { ApartmentOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { Link } from "react-router-dom";
@@ -219,17 +219,17 @@ const sumOp = (rs: MonitorRow[] = []) => ({
 
 export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined; ready?: number; onOpenTask: (id: number) => void }) {
   const [open, setOpen] = useState(false);
-  if (!rs?.length) return <Typography.Text type="secondary">—</Typography.Text>;
+  if (!rs?.length) return <span style={{ color: "#bfbfbf" }}>—</span>;
   const s = sumOp(rs);
   const full = s.done >= s.plan - 1e-9;
   const pct = s.plan > 0 ? Math.round((s.done / s.plan) * 100) : 100;
   const text = (
     <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 500, color: full ? "#389e0d" : s.done > 0 ? "#C97A2B" : undefined }}>
       {r2(s.done)}
-      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+      <span style={{ color: "#8c8c8c", fontSize: 11 }}>
         /{r2(s.plan)}
-      </Typography.Text>
-      {s.defect > 0 && <Typography.Text type="danger" style={{ fontSize: 11 }}> б{r2(s.defect)}</Typography.Text>}
+      </span>
+      {s.defect > 0 && <span style={{ color: "#ff4d4f", fontSize: 11 }}> б{r2(s.defect)}</span>}
       {(ready ?? 0) > 0 && (
         <span style={{ display: "block", fontSize: 10, fontWeight: 400, color: "#389e0d", lineHeight: 1 }}>ждёт {r2(ready!)}</span>
       )}
@@ -256,7 +256,7 @@ export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined
 
   if (!quick.length) {
     return (
-      <Tooltip title={tipContent}>
+      <Tooltip title={tipContent} mouseEnterDelay={0.3}>
         <Button type="text" size="small" style={{ padding: "0 4px" }} onClick={() => onOpenTask(rs[0].task_id)}>
           {text}
         </Button>
@@ -271,15 +271,17 @@ export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined
       onOpenChange={setOpen}
       title="Отчёт по операции"
       content={
-        <Space orientation="vertical">
-          <BatchQuickReport rows={quick} onDone={() => setOpen(false)} />
-          <Button size="small" type="link" style={{ padding: 0 }} onClick={() => onOpenTask(rs[0].task_id)}>
-            открыть задание №{rs[0].task_id}
-          </Button>
-        </Space>
+        open ? (
+          <Space orientation="vertical">
+            <BatchQuickReport rows={quick} onDone={() => setOpen(false)} />
+            <Button size="small" type="link" style={{ padding: 0 }} onClick={() => onOpenTask(rs[0].task_id)}>
+              открыть задание №{rs[0].task_id}
+            </Button>
+          </Space>
+        ) : null
       }
     >
-      <Tooltip title={tipContent}>
+      <Tooltip title={open ? "" : tipContent} mouseEnterDelay={0.3}>
         <Button type="text" size="small" style={{ padding: "0 4px" }} aria-label="Внести отчёт">
           {text}
         </Button>
@@ -317,14 +319,14 @@ export function OpGroupCell({ ls, op, onOpenTask }: { ls: LineRec[]; op: string;
   );
 
   return (
-    <Tooltip title={tip}>
+    <Tooltip title={open ? "" : tip} mouseEnterDelay={0.3}>
       {quick.length > 0 ? (
         <Popover
           trigger="click"
           open={open}
           onOpenChange={setOpen}
           title={`Группа: ${op}`}
-          content={<BatchQuickReport rows={quick} title={op} onDone={() => setOpen(false)} />}
+          content={open ? <BatchQuickReport rows={quick} title={op} onDone={() => setOpen(false)} /> : null}
         >
           <Button type="text" size="small" style={{ padding: "0 4px" }} title="Быстрый отчёт и состав позиций">
             {text}
@@ -400,9 +402,9 @@ export default function OrdersView({
       ellipsis: true,
       sortValue: (l) => l.source,
       render: (_, l) => (
-        <Tooltip title={l.source}>
-          <span>{l.source}</span>
-        </Tooltip>
+        <span title={l.source} style={{ cursor: "default" }}>
+          {l.source}
+        </span>
       ),
     },
     {
@@ -412,9 +414,9 @@ export default function OrdersView({
       align: "right",
       sortValue: (l) => l.qty,
       render: (_, l) => (
-        <Tooltip title={`Общий план заказа по этой позиции: ${r2(l.qty)} шт`}>
-          <b>{r2(l.qty)}</b>
-        </Tooltip>
+        <b title={`Общий план заказа по этой позиции: ${r2(l.qty)} шт`} style={{ cursor: "default" }}>
+          {r2(l.qty)}
+        </b>
       ),
       groupRender: (rs) => <b>{r2(rs.reduce((s, l) => s + l.qty, 0))}</b>,
     },
@@ -425,15 +427,20 @@ export default function OrdersView({
       align: "right",
       sortValue: (l) => l.left,
       render: (_, l) => (
-        <Tooltip
+        <span
           title={
             l.left > 0
               ? `Осталось изготовить по финальной операции: ${r2(l.left)} шт. из ${r2(l.qty)}`
               : "Все операции маршрута выполнены — позиция полностью готова!"
           }
+          style={{ cursor: "default" }}
         >
-          {l.left > 0 ? <b>{r2(l.left)}</b> : <Tag color="green">готово</Tag>}
-        </Tooltip>
+          {l.left > 0 ? (
+            <b>{r2(l.left)}</b>
+          ) : (
+            <span style={{ color: "#389e0d", fontWeight: 600, fontSize: 11 }}>✓ готово</span>
+          )}
+        </span>
       ),
       groupRender: (rs) => <b>{r2(rs.reduce((s, l) => s + l.left, 0))}</b>,
     },
@@ -443,42 +450,36 @@ export default function OrdersView({
       width: 140,
       align: "center",
       render: (_, l) => {
-        if (!l.pf.totalSets) return <Typography.Text type="secondary">—</Typography.Text>;
+        if (!l.pf.totalSets) return <span style={{ color: "#bfbfbf" }}>—</span>;
         const fDone = r2(l.pf.framesDone);
         const fPlan = r2(l.pf.framesPlan);
         const pDone = r2(l.pf.panelsDone);
         const pPlan = r2(l.pf.panelsPlan);
         const isFull = l.pf.readySets >= l.pf.totalSets;
+        const tip = `Готовность комплектов п/ф:\n• Каркасы: ${fDone} из ${fPlan} шт.\n• Панели: ${pDone} из ${pPlan} шт.\nПолных комплектов к склейке: ${l.pf.readySets} из ${l.pf.totalSets}`;
         return (
-          <Tooltip
-            title={
-              <div>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>Готовность комплектов полуфабрикатов к склейке:</div>
-                <div>• Каркасы (собраны): {fDone} из {fPlan} шт. ({fPlan > 0 ? Math.round((fDone / fPlan) * 100) : 100}%)</div>
-                <div>• Облицовочные панели (готовы): {pDone} из {pPlan} шт. (по 2 панели на дверь)</div>
-                {l.pf.panelsLaminated != null && l.pf.panelsLaminated > pDone && (
-                  <div>• Панелей на ламинации сдано: {r2(l.pf.panelsLaminated)} шт. (ожидают фрезеровки)</div>
-                )}
-                <div style={{ marginTop: 6, borderTop: "1px dashed rgba(255,255,255,0.4)", paddingTop: 4 }}>
-                  <b>Полных комплектов к склейке:</b><br />
-                  min(каркасы: {fDone}, панели / 2: {r2(Math.floor(pDone / 2))}) = <b>{l.pf.readySets} из {l.pf.totalSets} комплектов</b>
-                </div>
-              </div>
-            }
+          <div
+            title={tip}
+            style={{ fontVariantNumeric: "tabular-nums", fontSize: 11, lineHeight: 1.3, cursor: "default" }}
           >
-            <div style={{ fontVariantNumeric: "tabular-nums", fontSize: 11, lineHeight: 1.3 }}>
-              <div>К: <b>{fDone}</b>/{fPlan}</div>
-              <div>
-                П: <b>{pDone}</b>/{pPlan}
-                <Tag
-                  color={isFull ? "green" : l.pf.readySets > 0 ? "orange" : "default"}
-                  style={{ marginLeft: 4, marginInlineEnd: 0, padding: "0 3px", fontSize: 10, lineHeight: "14px" }}
-                >
-                  {l.pf.readySets} компл
-                </Tag>
-              </div>
+            <div>К: <b>{fDone}</b>/{fPlan}</div>
+            <div>
+              П: <b>{pDone}</b>/{pPlan}
+              <span
+                style={{
+                  marginLeft: 4,
+                  padding: "0 3px",
+                  fontSize: 10,
+                  fontWeight: 600,
+                  borderRadius: 3,
+                  color: isFull ? "#389e0d" : l.pf.readySets > 0 ? "#d46b08" : "#8c8c8c",
+                  background: isFull ? "#f6ffed" : l.pf.readySets > 0 ? "#fff7e6" : "#f5f5f5",
+                }}
+              >
+                {l.pf.readySets} компл
+              </span>
             </div>
-          </Tooltip>
+          </div>
         );
       },
       groupRender: (rs) => {
@@ -491,12 +492,19 @@ export default function OrdersView({
         return (
           <div style={{ fontVariantNumeric: "tabular-nums", fontSize: 11, lineHeight: 1.2 }}>
             <span>К: <b>{r2(fDone)}</b>/{r2(fPlan)}</span> · <span>П: <b>{r2(pDone)}</b>/{r2(pPlan)}</span>
-            <Tag
-              color={fDone >= fPlan && pDone >= pPlan ? "green" : totalSets > 0 ? "orange" : "default"}
-              style={{ marginLeft: 4, marginInlineEnd: 0, padding: "0 4px", fontSize: 10, lineHeight: "14px" }}
+            <span
+              style={{
+                marginLeft: 4,
+                padding: "0 4px",
+                fontSize: 10,
+                fontWeight: 600,
+                borderRadius: 3,
+                color: fDone >= fPlan && pDone >= pPlan ? "#389e0d" : totalSets > 0 ? "#d46b08" : "#8c8c8c",
+                background: fDone >= fPlan && pDone >= pPlan ? "#f6ffed" : totalSets > 0 ? "#fff7e6" : "#f5f5f5",
+              }}
             >
               {totalSets} компл
-            </Tag>
+            </span>
           </div>
         );
       },

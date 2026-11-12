@@ -945,6 +945,7 @@ export default function StorageMap() {
     <Card>
       <Typography.Title level={4}>Стеллажи</Typography.Title>
       <Tabs
+        destroyOnHidden
         items={[
           { key: "racks", label: "Стеллажи и полки", children: <RacksConsole /> },
           ...(canManage ? [{ key: "warehouses", label: "Склады", children: <WarehousesTab /> }] : []),
