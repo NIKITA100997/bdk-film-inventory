@@ -354,7 +354,7 @@ export default function CuttingForm({
       )}
 
       {canWidthCut ? (
-        <Card size="small" type="inner" title="Ширины из остатка">
+        <Card size="small" type="inner" title="Нарезка рулона на штрипсы">
           <Space orientation="vertical" style={{ width: "100%" }} size="small">
             {widthRows.map((r) => (
               <div key={r.id} style={{ border: "1px solid #EDEDE8", borderRadius: 8, padding: 8 }}>
@@ -435,7 +435,7 @@ export default function CuttingForm({
               </div>
             ))}
             <Button onClick={addWidthRow} block>
-              + Добавить ширину
+              + Добавить штрипс
             </Button>
             {widthRows.length > 0 && (
               <Alert

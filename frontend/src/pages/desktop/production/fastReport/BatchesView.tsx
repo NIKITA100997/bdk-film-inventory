@@ -264,15 +264,16 @@ function BatchCard({
         <Space wrap align="center">
           {availableRolls.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Text style={{ fontSize: 12 }}>Рулон на станке:</Text>
+              <Text style={{ fontSize: 12 }}>Штрипс на станке:</Text>
               <Select
                 size="middle"
-                style={{ minWidth: 200 }}
+                style={{ minWidth: 220 }}
+                placeholder="Выберите штрипс"
                 value={selectedRoll ?? undefined}
                 onChange={(val) => setSelectedRoll(val)}
                 options={availableRolls.map((roll) => ({
                   value: roll.id,
-                  label: `№${roll.id} (${roll.width_mm} мм, ост. ${Math.round(roll.left)} м)${roll.from ? ` · ${roll.from}` : ""}`,
+                  label: `Штрипс №${roll.id} (${roll.width_mm} мм, ост. ${Math.round(roll.left)} м)${roll.from ? ` · ${roll.from}` : ""}`,
                 }))}
               />
             </div>

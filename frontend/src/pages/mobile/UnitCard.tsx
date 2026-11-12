@@ -418,7 +418,14 @@ export default function UnitCard() {
             />
           )}
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
-            <Descriptions.Item label="Номер">{rollNo(unit.id)}</Descriptions.Item>
+            <Descriptions.Item label="Тип и номер">
+              <Space size={6}>
+                <Tag color={unit.parent_id || (unit.width_mm && unit.width_mm < 500) ? "orange" : "blue"}>
+                  {unit.parent_id || (unit.width_mm && unit.width_mm < 500) ? "Штрипс" : "Целый рулон"}
+                </Tag>
+                <b>{rollNo(unit.id)}</b>
+              </Space>
+            </Descriptions.Item>
             <Descriptions.Item label="Материал">
               <a
                 onClick={() =>
@@ -447,7 +454,7 @@ export default function UnitCard() {
             <Descriptions.Item label="УПД / паллета">
               {unit.upd_number} / {unit.pallet_number}
             </Descriptions.Item>
-            {unit.parent_id && <Descriptions.Item label="Из рулона">№ {unit.parent_id}</Descriptions.Item>}
+            {unit.parent_id && <Descriptions.Item label="Нарезан из рулона">№ {unit.parent_id}</Descriptions.Item>}
             {canSeePrice && (
               <Descriptions.Item label="Стоимость">
                 {unit.price_per_m2 != null ? (

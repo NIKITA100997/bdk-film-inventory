@@ -129,7 +129,7 @@ export default function IssueRollModal({
       title={
         isLineMode
           ? `⚡ Выдача плёнки под задание: ${targetLine?.taskName}`
-          : "➕ Свободная выдача рулона на участок (вручную)"
+          : "➕ Свободная выдача плёнки на участок (рулон / штрипс)"
       }
       destroyOnHidden
     >
@@ -222,7 +222,7 @@ export default function IssueRollModal({
                 }
               }}
             >
-              Выдать рулон
+              Выдать на участок
             </Button>
             {isLineMode && (
               <Button
@@ -237,12 +237,12 @@ export default function IssueRollModal({
           </Space>
         </div>
 
-        {/* Подходящие рулоны на складе */}
+        {/* Подходящие рулоны и штрипсы на складе */}
         {isLineMode && (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <Text strong style={{ fontSize: 13 }}>
-                Рулоны в наличии на складе (подходящие по ширине и декору):
+                Плёнка в наличии на складе (рулоны и нарезанные штрипсы):
               </Text>
               {availableQuery.isFetching && <Spin size="small" />}
             </div>
@@ -255,9 +255,17 @@ export default function IssueRollModal({
               pagination={{ pageSize: 5 }}
               columns={[
                 {
-                  title: "№ рулона",
+                  title: "Тип и №",
                   dataIndex: "id",
-                  render: (id: number) => <UnitLink id={id} />,
+                  render: (id: number, u) => {
+                    const isStrip = u.is_strip || !!u.parent_id || (u.width_mm != null && u.width_mm < 500);
+                    return (
+                      <Space size={4}>
+                        <Tag color={isStrip ? "orange" : "blue"}>{isStrip ? "Штрипс" : "Рулон"}</Tag>
+                        <UnitLink id={id} />
+                      </Space>
+                    );
+                  },
                 },
                 {
                   title: "Плёнка",
@@ -306,7 +314,7 @@ export default function IssueRollModal({
                 },
               ]}
               locale={{
-                emptyText: "На складе нет свободных рулонов этой ширины. Требуется нарезка нового рулона или свободная выдача.",
+                emptyText: "На складе нет свободных штрипсов этой ширины. Требуется нарезка целого рулона на штрипсы.",
               }}
             />
           </div>

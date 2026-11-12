@@ -112,7 +112,7 @@ export default function FilmIssueBoard() {
                             <Statistic title="ещё выдать, м²" value={r1(a.toIssue)} styles={{ content: { fontSize: 18 } }} />
                           </>
                         )}
-                        <Statistic title="на участке, м²" value={r1(a.onArea)} styles={{ content: { fontSize: 18 } }} />
+                        <Statistic title="штрипсов на участке, м²" value={r1(a.onArea)} styles={{ content: { fontSize: 18 } }} />
                       </Space>
                       {a.overdue > 0 && (
                         <Typography.Text type="danger" style={{ fontSize: 12 }}>
@@ -155,7 +155,7 @@ export default function FilmIssueBoard() {
                     icon={<PlusOutlined />}
                     onClick={() => setManualIssueOpen(true)}
                   >
-                    ➕ Свободная выдача рулона
+                    ➕ Свободная выдача (рулон / штрипс)
                   </Button>
                 </Space>
                 {shown.length === 0 ? (

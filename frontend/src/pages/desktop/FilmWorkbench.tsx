@@ -38,10 +38,10 @@ export default function FilmWorkbench() {
       ? [{ key: "plan", label: "⚡ Выдача под потребность", children: <FilmIssueBoard /> }]
       : []),
     ...(hasPerm(user, "units.issue", "units.return")
-      ? [{ key: "issue", label: "✂️ Нарезка и возвраты", children: <IssueHub /> }]
+      ? [{ key: "issue", label: "✂️ Нарезка рулонов в штрипсы и возвраты", children: <IssueHub /> }]
       : []),
     ...(hasPerm(user, "units.receive")
-      ? [{ key: "receive", label: "📥 Приёмка рулонов", children: <ReceiveHub /> }]
+      ? [{ key: "receive", label: "📥 Приёмка целых рулонов", children: <ReceiveHub /> }]
       : []),
     ...(hasPerm(user, "units.issue", "units.return", "production_tasks.manage", "reports.view")
       ? [{ key: "reconciliation", label: "🔗 Сверка штрипсов и рулонов (привязка к заданиям)", children: <FilmReconciliationPanel /> }]
