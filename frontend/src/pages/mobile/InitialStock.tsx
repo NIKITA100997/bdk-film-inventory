@@ -110,56 +110,87 @@ export default function InitialStock({ embedded = false }: { embedded?: boolean 
     <Wrap>
       {!embedded && <Typography.Title level={4}>Начальные остатки</Typography.Title>}
 
+      {/* Шапка: выбор стеллажа и даты — остаётся стабильно на месте и не скачет */}
+      <div style={{ marginBottom: 16 }}>
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 10 }}>
+          Для плёнки, которая уже стоит на складе без документа поставки (например, законсервированная на дальнем складе).
+        </Typography.Paragraph>
+        <Row gutter={[12, 12]}>
+          <Col xs={24} sm={14}>
+            <div>
+              <Typography.Text strong style={{ display: "block", marginBottom: 4 }}>
+                Стеллаж
+              </Typography.Text>
+              <Select
+                size="large"
+                style={{ width: "100%" }}
+                placeholder="Выберите стеллаж..."
+                value={rackId ?? undefined}
+                showSearch
+                optionFilterProp="label"
+                loading={racksQuery.isLoading}
+                options={activeRacks.map((r) => ({
+                  value: r.id,
+                  label: `${r.code} (${r.type === "roll" ? "рулонный" : "штрипсовый"}, ${r.shelf_count} полок)`,
+                }))}
+                onChange={(v) => {
+                  setRackId(v);
+                  lineForm.resetFields();
+                  setFinished(false);
+                }}
+              />
+            </div>
+          </Col>
+          <Col xs={24} sm={10}>
+            <div>
+              <Typography.Text strong style={{ display: "block", marginBottom: 4 }}>
+                Дата наличия (необязательно)
+              </Typography.Text>
+              <DatePicker
+                style={{ width: "100%" }}
+                size="large"
+                format="DD.MM.YYYY"
+                placeholder="Сейчас"
+                value={occurredAt}
+                onChange={setOccurredAt}
+                disabledDate={(d) => d.isAfter(dayjs(), "day")}
+              />
+            </div>
+          </Col>
+        </Row>
+      </div>
+
       {!rackId && (
-        <>
-          <Typography.Paragraph type="secondary">
-            Для плёнки, которая уже стоит на складе без документа поставки (например, законсервированная на дальнем
-            складе). Выберите стеллаж — дальше можно быстро внести всё, что на нём стоит, по полкам, и сразу
-            распечатать этикетки.
-          </Typography.Paragraph>
-          <Select
-            size="large"
-            style={{ width: "100%" }}
-            placeholder="Стеллаж"
-            showSearch
-            optionFilterProp="label"
-            loading={racksQuery.isLoading}
-            options={activeRacks.map((r) => ({
-              value: r.id,
-              label: `${r.code} (${r.type === "roll" ? "рулонный" : "штрипсовый"}, ${r.shelf_count} полок)`,
-            }))}
-            onChange={(v) => setRackId(v)}
-          />
-          <div style={{ marginTop: 12 }}>
-            <Typography.Text>Дата фактического наличия (необязательно — по умолчанию сейчас)</Typography.Text>
-            <DatePicker
-              style={{ width: "100%", marginTop: 4 }}
-              format="DD.MM.YYYY"
-              placeholder="Сейчас"
-              value={occurredAt}
-              onChange={setOccurredAt}
-              disabledDate={(d) => d.isAfter(dayjs(), "day")}
-            />
-          </div>
-        </>
+        <Alert
+          type="info"
+          showIcon
+          message="Выберите стеллаж выше"
+          description="После выбора стеллажа откроется форма с доступными полками для быстрого внесения рулонов."
+        />
       )}
 
       {rackId && !finished && (
         <>
-          <Typography.Paragraph type="secondary">
-            Стеллаж {selectedRack?.code}. Выберите полку и опишите, что на ней стоит — материал/цвет/толщина/
-            производитель остаются для следующей строки.{" "}
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+            Стеллаж <b>{selectedRack?.code}</b>.{" "}
             {selectedRack?.type === "strip"
-              ? "Полка тоже остаётся — на ней обычно несколько штрипсов подряд, меняйте только когда перешли на другую."
-              : "Полку выбирайте заново на каждой строке."}
+              ? "Штрипсовый: на одной полке хранится несколько штрипсов подряд, полка остаётся выбранной для следующей строки."
+              : "Рулонный: один рулон на полку, выбирайте свободную полку."}
           </Typography.Paragraph>
 
           <Form form={lineForm} layout="vertical" onFinish={(v) => addLineMutation.mutate(v)} initialValues={{ quantity: 1, marked_illiquid: false }}>
             <Form.Item name="shelf" label="Полка" rules={[{ required: true }]}>
               <Select
                 size="large"
-                placeholder={availableShelves.length === 0 ? "Нет свободных полок" : "Выберите полку"}
-                disabled={availableShelves.length === 0}
+                loading={occupancyQuery.isLoading}
+                placeholder={
+                  occupancyQuery.isLoading
+                    ? "Загрузка полок..."
+                    : availableShelves.length === 0
+                    ? "Нет свободных полок на этом стеллаже"
+                    : "Выберите полку"
+                }
+                disabled={occupancyQuery.isLoading || availableShelves.length === 0}
                 options={availableShelves.map((c) => ({
                   value: c.shelf,
                   label: c.capacity > 1 ? `Полка ${c.shelf} — ${c.units.length} из ${c.capacity}` : `Полка ${c.shelf} — свободно`,
