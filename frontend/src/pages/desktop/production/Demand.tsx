@@ -31,23 +31,24 @@ export default function Demand() {
     ...(has("production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view")
       ? [
           { key: "pf" as Tab, label: "⚡ Потребность и выпуск ПФ", children: <PfDemand /> },
-          // средний расход → мин. остаток (14.10)
-          { key: "consumption" as Tab, label: "Расход и мин. остаток п/ф", children: <PfConsumption /> },
-        ]
-      : []),
-    // дефицит по заказам с очередью (12.10, планирование, этап 2)
-    ...(has("production_tasks.manage", "production_tasks.view", "purchasing.manage", "orders.request")
-      ? [
-          { key: "orders" as Tab, label: "Дефицит по заказам (закупки)", children: <ShortagesTab /> },
-          // по неделям (22.10): нужно и прогноз остатка на эту, следующую неделю и дальше
-          { key: "weekly" as Tab, label: "По неделям", children: <NeedsWeekly /> },
         ]
       : []),
     ...(has("units.issue", "production_tasks.manage", "production_tasks.view")
       ? [{ key: "film" as Tab, label: "🎞 Плёнка к выдаче", children: <FilmDemandCombined /> }]
       : []),
     ...(has("production_tasks.manage", "production_tasks.view", "materials.manage", "purchasing.manage", "units.receive")
-      ? [{ key: "components" as Tab, label: "Материалы", children: <MaterialsDemand /> }]
+      ? [{ key: "components" as Tab, label: "📦 Сырьё и материалы", children: <MaterialsDemand /> }]
+      : []),
+    ...(has("production_tasks.manage", "production_tasks.view", "purchasing.manage", "orders.request")
+      ? [
+          { key: "orders" as Tab, label: "Дефицит по заказам (закупки)", children: <ShortagesTab /> },
+          { key: "weekly" as Tab, label: "По неделям", children: <NeedsWeekly /> },
+        ]
+      : []),
+    ...(has("production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view")
+      ? [
+          { key: "consumption" as Tab, label: "Расход и мин. остаток ПФ", children: <PfConsumption /> },
+        ]
       : []),
   ];
   const wanted = (params.get("sub") || (params.get("tab") !== "demand" ? params.get("tab") : null)) as Tab | null;

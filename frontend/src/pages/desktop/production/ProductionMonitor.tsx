@@ -273,9 +273,9 @@ export default function ProductionMonitor() {
                   set({ view: v as string });
                 }}
                 options={[
-                  { label: "Матрица по заказам", value: "orders" },
+                  { label: "Матрица заказов", value: "orders" },
                   { label: "Заказы в цехе", value: "prod_orders" },
-                  { label: "Задания цехов", value: "areas" },
+                  { label: "Задания по участкам", value: "areas" },
                   { label: "Подготовка к склейке", value: "prep" },
                 ]}
               />
