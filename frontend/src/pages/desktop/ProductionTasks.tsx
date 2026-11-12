@@ -6,14 +6,10 @@ import CreateTaskModal from "./production/CreateTaskModal";
 import OperationTaskModal from "./production/OperationTaskModal";
 import PfSupplyModal from "./production/PfSupplyModal";
 import DailyPlanTab from "./production/DailyPlanTab";
-import TasksBoard from "./production/TasksBoard";
-import DailySheet from "./production/DailySheet";
 import { useAuth } from "../../auth/AuthContext";
 import { lazyPage } from "../../utils/lazyPage";
 const ProductionMonitor = lazyPage(() => import("./production/ProductionMonitor"));
 const Demand = lazyPage(() => import("./production/Demand"));
-const ProductionOrders = lazyPage(() => import("./production/ProductionOrders"));
-const PickRouteSheet = lazyPage(() => import("./PickRouteSheet"));
 
 /** Производственный Хаб (APS & Shop Floor) — единое рабочее место управления цехом.
  * Объединяет:
@@ -60,38 +56,42 @@ export default function ProductionTasks() {
     );
   }, [wantNew, setParams]);
 
+  // Перенаправление со старых вкладок (orders, tasks, daily-sheet, pick-route) в 3 ключевые
+  useEffect(() => {
+    const curTab = params.get("tab");
+    if (curTab === "orders" || curTab === "tasks") {
+      const next = new URLSearchParams(params);
+      next.set("tab", "monitor");
+      navigate(`/production-tasks?${next.toString()}`, { replace: true });
+    } else if (curTab === "daily-sheet") {
+      const next = new URLSearchParams(params);
+      next.set("tab", "daily-plan");
+      navigate(`/production-tasks?${next.toString()}`, { replace: true });
+    } else if (curTab === "pick-route") {
+      const next = new URLSearchParams(params);
+      next.set("tab", "demand");
+      navigate(`/production-tasks?${next.toString()}`, { replace: true });
+    }
+  }, [params, navigate]);
+
   const [newOpen, setNewOpen] = useState(wantNew);
   const tab = params.get("tab");
 
   const tabItems = [
-    ...(canManage
+    ...(canMonitor
       ? [
           {
-            key: "orders",
-            label: "🏭 Заказы в цехе",
-            children: <ProductionOrders />,
+            key: "monitor",
+            label: "📊 Монитор производства",
+            children: <ProductionMonitor />,
           },
         ]
       : []),
     {
       key: "daily-plan",
-      label: user?.area ? "📍 Мой участок" : "🏭 Смена и участок",
+      label: user?.area ? "📍 Мой участок" : "🏭 Мой участок",
       children: <DailyPlanTab />,
     },
-    {
-      key: "tasks",
-      label: "📋 Задания",
-      children: <TasksBoard />,
-    },
-    ...(canMonitor
-      ? [
-          {
-            key: "monitor",
-            label: "📊 Монитор готовности",
-            children: <ProductionMonitor />,
-          },
-        ]
-      : []),
     ...(canDemand
       ? [
           {
@@ -101,14 +101,6 @@ export default function ProductionTasks() {
           },
         ]
       : []),
-    ...(hasPerm(user, "production_tasks.manage", "production_tasks.view")
-      ? [{ key: "pick-route", label: "📋 Маршрут комплектации", children: <PickRouteSheet /> }]
-      : []),
-    {
-      key: "daily-sheet",
-      label: "📝 Ежедневка",
-      children: <DailySheet />,
-    },
   ];
 
   const active =
@@ -116,9 +108,9 @@ export default function ProductionTasks() {
       ? tab
       : user?.area
         ? "daily-plan"
-        : canManage && !params.get("task")
-          ? "orders"
-          : "tasks";
+        : canMonitor
+          ? "monitor"
+          : "daily-plan";
 
   const onTabChange = (key: string) => {
     setParams(
@@ -197,7 +189,7 @@ export default function ProductionTasks() {
         onClose={() => setCreating(null)}
         onCreated={(t, needsPf) => {
           if (needsPf) setSupply({ id: t.id, name: t.name ?? "" });
-          navigate(`/production-tasks?tab=tasks&task=${t.id}`);
+          navigate(`/production-tasks?tab=monitor&task=${t.id}`);
         }}
       />
       <OperationTaskModal
