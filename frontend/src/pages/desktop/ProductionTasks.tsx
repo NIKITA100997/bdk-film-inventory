@@ -154,28 +154,35 @@ export default function ProductionTasks() {
           </Typography.Title>
         </Space>
 
-        {canManage && (
-          <Dropdown
-            trigger={["click"]}
-            open={newOpen}
-            onOpenChange={setNewOpen}
-            menu={{
-              items: [
-                {
-                  key: "film",
-                  label: "С плёнкой — окутка, ламинация: из наряда, плана заготовок или вручную…",
+        <Space size={8} wrap>
+          {hasPerm(user, "part_units.count", "production_tasks.manage", "inventory.manage") && (
+            <Button onClick={() => navigate("/inventory?place_type=area")}>
+              🔄 Пересчёт участка
+            </Button>
+          )}
+          {canManage && (
+            <Dropdown
+              trigger={["click"]}
+              open={newOpen}
+              onOpenChange={setNewOpen}
+              menu={{
+                items: [
+                  {
+                    key: "film",
+                    label: "С плёнкой — окутка, ламинация: из наряда, плана заготовок или вручную…",
+                  },
+                  { key: "ops", label: "Без плёнки — работы участка по техкартам…" },
+                ],
+                onClick: ({ key }) => {
+                  setNewOpen(false);
+                  setCreating(key as "film" | "ops");
                 },
-                { key: "ops", label: "Без плёнки — работы участка по техкартам…" },
-              ],
-              onClick: ({ key }) => {
-                setNewOpen(false);
-                setCreating(key as "film" | "ops");
-              },
-            }}
-          >
-            <Button type="primary">Новое задание участку ▾</Button>
-          </Dropdown>
-        )}
+              }}
+            >
+              <Button type="primary">Новое задание участку ▾</Button>
+            </Dropdown>
+          )}
+        </Space>
       </div>
 
       <Tabs

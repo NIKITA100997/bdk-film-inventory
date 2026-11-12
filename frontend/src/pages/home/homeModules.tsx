@@ -50,7 +50,8 @@ function InboxModule() {
 
 const QUICK: { label: string; path: string; perms: string[] }[] = [
   { label: "Перемещение между складами", path: "/warehouse-transfers", perms: ["warehouse_transfers.manage"] },
-  { label: "Инвентаризация", path: "/inventory", perms: ["inventory.manage", "part_units.count", "fg.ship"] },
+  { label: "Инвентаризация", path: "/inventory", perms: ["inventory.manage", "part_units.count", "fg.ship", "materials.manage", "production_tasks.manage"] },
+  { label: "📱 Экспресс-ревизия (планшет)", path: "/inventory/express", perms: ["inventory.manage", "part_units.count", "fg.ship", "materials.manage", "production_tasks.manage"] },
   { label: "Заявки участков", path: "/stock?tab=requests", perms: ["units.issue", "production_tasks.manage", "production_tasks.report"] },
   { label: "Новое задание участку", path: "/production-tasks?tab=tasks&new=1", perms: ["production_tasks.manage"] },
   { label: "Приём в производство", path: "/customer-orders?section=intake", perms: ["production_tasks.manage"] },

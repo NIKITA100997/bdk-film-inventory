@@ -1,5 +1,6 @@
-import { Card, Tabs } from "antd";
-import { Navigate, useSearchParams } from "react-router-dom";
+import { Button, Card, Space, Tabs } from "antd";
+import { ThunderboltOutlined } from "@ant-design/icons";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { hasPerm } from "../../auth/permissions";
 import { lazyPage } from "../../utils/lazyPage";
@@ -11,6 +12,7 @@ const ReceiveHub = lazyPage(() => import("../mobile/StockOpsHub").then((m) => ({
 
 export default function FilmWorkbench() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const legacyKind = params.get("kind");
   if (legacyKind === "pf" || legacyKind === "material") {
@@ -54,9 +56,33 @@ export default function FilmWorkbench() {
           ? "reconciliation"
           : items[0]?.key;
   const active = items.some((item) => item.key === requested) ? requested! : defaultTab;
+  const canInventory = !!user?.is_superuser || hasPerm(user, "inventory.manage");
 
   return (
-    <Card title="Плёнка" styles={{ body: { paddingTop: 8 } }}>
+    <Card
+      title="Плёнка"
+      styles={{ body: { paddingTop: 8 } }}
+      extra={
+        canInventory ? (
+          <Space size={8} wrap>
+            <Button
+              size="small"
+              onClick={() => navigate("/inventory?place_type=warehouse")}
+            >
+              🔄 Инвентаризация
+            </Button>
+            <Button
+              size="small"
+              icon={<ThunderboltOutlined />}
+              onClick={() => navigate("/inventory/express")}
+              style={{ borderColor: "#722ed1", color: "#722ed1" }}
+            >
+              📱 Экспресс-ревизия
+            </Button>
+          </Space>
+        ) : undefined
+      }
+    >
       <Tabs
         activeKey={active}
         destroyOnHidden

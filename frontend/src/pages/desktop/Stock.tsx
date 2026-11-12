@@ -38,7 +38,13 @@ export default function Stock() {
   const canPf = has("part_units.view", "part_units.manage", "part_storage.manage");
   const canFilmOps = !!user?.is_superuser || !!user?.permissions.some((p) => p.startsWith("units."));
   const canBlanks = has("units.issue");
-  const canInventory = has("inventory.manage", "part_units.count");
+  const canInventory = has(
+    "inventory.manage",
+    "part_units.count",
+    "materials.manage",
+    "fg.ship",
+    "production_tasks.manage"
+  );
   const canSupplyRequests = has("production_tasks.report", "production_tasks.manage", "units.issue");
 
   const kinds: { value: StockKind; label: string }[] = useMemo(
@@ -182,7 +188,19 @@ export default function Stock() {
               <>
                 <Button
                   size="small"
-                  onClick={() => navigate("/inventory")}
+                  onClick={() => {
+                    const placeType =
+                      kind === "film"
+                        ? "warehouse"
+                        : kind === "pf"
+                        ? "area"
+                        : kind === "materials"
+                        ? "materials"
+                        : kind === "fg"
+                        ? "fg"
+                        : undefined;
+                    navigate(placeType ? `/inventory?place_type=${placeType}` : "/inventory");
+                  }}
                 >
                   🔄 Инвентаризация
                 </Button>

@@ -130,6 +130,18 @@ export const navTree: NavBlock[] = [
         permissions: ["reports.view", "units.correct", "units.writeoff", "users.manage"],
       },
       {
+        key: "inventory",
+        path: "/inventory",
+        label: "📋 Инвентаризация",
+        permissions: [
+          "inventory.manage",
+          "part_units.count",
+          "materials.manage",
+          "fg.ship",
+          "production_tasks.manage",
+        ],
+      },
+      {
         key: "period-closing",
         path: "/period-closing",
         label: "Закрытие периода",

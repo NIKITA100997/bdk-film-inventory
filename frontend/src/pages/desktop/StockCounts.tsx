@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import NextStep from "../../components/NextStep";
 import {
   Alert,
@@ -100,7 +100,10 @@ export default function StockCounts() {
 }
 
 function CountList({ onOpen }: { onOpen: (id: number) => void }) {
-  const [newOpen, setNewOpen] = useState(false);
+  const [params] = useSearchParams();
+  const presetPlaceType = params.get("place_type") || undefined;
+  const wantNew = params.get("new") === "1" || !!presetPlaceType;
+  const [newOpen, setNewOpen] = useState(wantNew);
   const q = useQuery({ queryKey: ["part-counts"], queryFn: listPartCounts });
   return (
     <Card
@@ -158,7 +161,13 @@ function CountList({ onOpen }: { onOpen: (id: number) => void }) {
           { title: "Заметка", render: (_, s) => s.note ?? "" },
         ]}
       />
-      {newOpen && <NewCountModal onClose={() => setNewOpen(false)} onStarted={(id) => onOpen(id)} />}
+      {newOpen && (
+        <NewCountModal
+          presetPlaceType={presetPlaceType}
+          onClose={() => setNewOpen(false)}
+          onStarted={(id) => onOpen(id)}
+        />
+      )}
     </Card>
   );
 }
@@ -182,7 +191,15 @@ function groupTree(groups: ItemGroup[]): GroupNode[] {
 
 const placeKey = (p: CountPlace) => `${p.place_type}|${p.place_ref ?? ""}`;
 
-function NewCountModal({ onClose, onStarted }: { onClose: () => void; onStarted: (id: number) => void }) {
+function NewCountModal({
+  presetPlaceType,
+  onClose,
+  onStarted,
+}: {
+  presetPlaceType?: string;
+  onClose: () => void;
+  onStarted: (id: number) => void;
+}) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [form] = Form.useForm<{ place: string; group_ids: number[]; stages: string[]; note?: string }>();
@@ -198,6 +215,14 @@ function NewCountModal({ onClose, onStarted }: { onClose: () => void; onStarted:
     return [...m.entries()].map(([label, ps]) => ({ label, options: ps.map((p) => ({ value: placeKey(p), label: p.name })) }));
   }, [places]);
   const myArea = user?.area ? places.find((p) => p.place_type === "area" && p.place_ref === user.area) : undefined;
+  const presetPlace = presetPlaceType ? places.find((p) => p.place_type === presetPlaceType) : undefined;
+  const defaultPlace = (presetPlaceType === "area" && myArea) || !presetPlaceType ? (myArea ?? presetPlace) : (presetPlace ?? myArea);
+
+  useEffect(() => {
+    if (defaultPlace && !form.getFieldValue("place")) {
+      form.setFieldValue("place", placeKey(defaultPlace));
+    }
+  }, [defaultPlace, form]);
   const start = useMutation({
     mutationFn: (v: { place: string; group_ids?: number[]; stages?: string[]; note?: string }) => {
       const p = places.find((x) => placeKey(x) === v.place)!;
@@ -230,7 +255,7 @@ function NewCountModal({ onClose, onStarted }: { onClose: () => void; onStarted:
       <Form
         form={form}
         layout="vertical"
-        initialValues={{ place: myArea ? placeKey(myArea) : undefined, group_ids: [], stages: [] }}
+        initialValues={{ place: defaultPlace ? placeKey(defaultPlace) : undefined, group_ids: [], stages: [] }}
         onFinish={(v) => start.mutate(v)}
       >
         <Form.Item
