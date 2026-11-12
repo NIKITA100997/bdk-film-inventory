@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Alert, Button, Card, Empty, Input, Segmented, Select, Space, Spin, Statistic, Tabs, Tag, Typography } from "antd";
+import { PlusOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
@@ -8,6 +9,7 @@ import { getFilmIssueBoard, type AreaRoll, type FilmIssueLine, type FilmIssueSta
 import { UnitLink } from "../../components/EntityLink";
 import IssueFactPanel from "../../components/areaSupply/IssueFactPanel";
 import FilmReservesPanel from "../../components/FilmReservesPanel";
+import IssueRollModal from "./IssueRollModal";
 
 const STATUS: Record<FilmIssueStatus, { label: string; color: string }> = {
   none: { label: "не выдано", color: "red" },
@@ -34,6 +36,8 @@ export default function FilmIssueBoard() {
   const [only, setOnly] = useState<"need" | "all">("need");
   const [due, setDue] = useState<Due>("all");
   const [text, setText] = useState("");
+  const [issueTarget, setIssueTarget] = useState<Row | null>(null);
+  const [manualIssueOpen, setManualIssueOpen] = useState(false);
 
   const rows: Row[] = useMemo(
     () => (q.data?.areas ?? []).flatMap((a) => a.lines.map((l) => ({ ...l, area: a.area, area_name: a.area_name, site: a.site }))),
@@ -147,6 +151,12 @@ export default function FilmIssueBoard() {
                     options={(q.data?.areas ?? []).map((a) => ({ value: a.area, label: a.area_name }))}
                   />
                   <Input.Search allowClear placeholder="Задание, заказ, деталь, плёнка" style={{ width: 280 }} value={text} onChange={(e) => setText(e.target.value)} />
+                  <Button
+                    icon={<PlusOutlined />}
+                    onClick={() => setManualIssueOpen(true)}
+                  >
+                    ➕ Свободная выдача рулона
+                  </Button>
                 </Space>
                 {shown.length === 0 ? (
                   <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Нечего выдавать по выбранным условиям" />
@@ -234,6 +244,25 @@ export default function FilmIssueBoard() {
                         onFilter: (v, r) => r.status === v,
                         render: (s: FilmIssueStatus) => <Tag color={STATUS[s].color}>{STATUS[s].label}</Tag>,
                       },
+                      {
+                        title: "Действие",
+                        key: "action",
+                        align: "right",
+                        render: (_, r: Row) =>
+                          r.to_issue_m > 0 ? (
+                            <Button
+                              size="small"
+                              type="primary"
+                              ghost
+                              icon={<ThunderboltOutlined />}
+                              onClick={() => setIssueTarget(r)}
+                            >
+                              Выдать
+                            </Button>
+                          ) : (
+                            <Tag color="green">Обеспечено</Tag>
+                          ),
+                      },
                     ]}
                   />
                 )}
@@ -253,6 +282,32 @@ export default function FilmIssueBoard() {
           { key: "fact", label: "Факт резки и выдачи", children: <IssueFactPanel /> },
         ]}
       />
+
+      {issueTarget && (
+        <IssueRollModal
+          open={!!issueTarget}
+          onClose={() => setIssueTarget(null)}
+          targetLine={{
+            lineId: issueTarget.line_id,
+            taskId: issueTarget.task_id,
+            taskName: issueTarget.task_name,
+            area: issueTarget.area,
+            areaName: issueTarget.area_name,
+            film: issueTarget.film,
+            stripWidthMm: issueTarget.strip_width_mm ?? 0,
+            toIssueM: issueTarget.to_issue_m,
+          }}
+        />
+      )}
+
+      {manualIssueOpen && (
+        <IssueRollModal
+          open={manualIssueOpen}
+          onClose={() => setManualIssueOpen(false)}
+          defaultArea={area}
+          areas={(q.data?.areas ?? []).map((a) => ({ area: a.area, area_name: a.area_name }))}
+        />
+      )}
     </>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import ShortageTags from "../../../components/ShortageTags";
-import { Button, Card, Empty, Space, Switch, Tabs, Tag, Typography } from "antd";
+import { Button, Card, Empty, Segmented, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../../auth/AuthContext";
@@ -10,6 +10,7 @@ import PfDemand from "./PfDemand";
 import PfConsumption from "./PfConsumption";
 import { ShortagesTab } from "./NeedsViews";
 import NeedsWeekly from "./NeedsWeekly";
+import FilmIssueBoard from "../FilmIssueBoard";
 import { BlanksDemandTab } from "../Blanks";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import ItemPurchaseModal from "../../../components/ItemPurchaseModal";
@@ -43,7 +44,7 @@ export default function Demand() {
         ]
       : []),
     ...(has("units.issue", "production_tasks.manage", "production_tasks.view")
-      ? [{ key: "film" as Tab, label: "Плёнка", children: <BlanksDemandTab /> }]
+      ? [{ key: "film" as Tab, label: "🎞 Плёнка к выдаче", children: <FilmDemandCombined /> }]
       : []),
     ...(has("production_tasks.manage", "production_tasks.view", "materials.manage", "purchasing.manage", "units.receive")
       ? [{ key: "components" as Tab, label: "Материалы", children: <MaterialsDemand /> }]
@@ -154,6 +155,23 @@ export function MaterialsDemand() {
         qty={buy?.to_order}
         note={buy ? "По потребности в материалах" : undefined}
       />
+    </Space>
+  );
+}
+
+function FilmDemandCombined() {
+  const [sub, setSub] = useState<"issue" | "blanks">("issue");
+  return (
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
+      <Segmented
+        value={sub}
+        onChange={(v) => setSub(v as "issue" | "blanks")}
+        options={[
+          { value: "issue", label: "📋 Задания цеха и выдача" },
+          { value: "blanks", label: "📊 Сводный дефицит по ширинам" },
+        ]}
+      />
+      {sub === "issue" ? <FilmIssueBoard /> : <BlanksDemandTab />}
     </Space>
   );
 }
