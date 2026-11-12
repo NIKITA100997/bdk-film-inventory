@@ -44,7 +44,7 @@ export default function FilmWorkbench() {
       ? [{ key: "receive", label: "📥 Приёмка рулонов", children: <ReceiveHub /> }]
       : []),
     ...(hasPerm(user, "units.issue", "units.return", "production_tasks.manage", "reports.view")
-      ? [{ key: "reconciliation", label: "📊 Сверка с 1С", children: <FilmReconciliationPanel /> }]
+      ? [{ key: "reconciliation", label: "🔗 Сверка штрипсов и рулонов (привязка к заданиям)", children: <FilmReconciliationPanel /> }]
       : []),
   ];
   const requested = params.get("tab");

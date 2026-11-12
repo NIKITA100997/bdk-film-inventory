@@ -50,7 +50,7 @@ export default function Demand() {
       ? [{ key: "components" as Tab, label: "Материалы", children: <MaterialsDemand /> }]
       : []),
   ];
-  const wanted = params.get("tab") as Tab | null;
+  const wanted = (params.get("sub") || (params.get("tab") !== "demand" ? params.get("tab") : null)) as Tab | null;
   const defaultTab = isPfWorker && tabs.some((t) => t.key === "pf") ? "pf" : tabs[0]?.key;
   const active = tabs.some((t) => t.key === wanted) ? wanted! : defaultTab;
   return (
@@ -60,7 +60,8 @@ export default function Demand() {
         activeKey={active}
         onChange={(k) => {
           const p = new URLSearchParams(params);
-          p.set("tab", k);
+          p.set("tab", "demand");
+          p.set("sub", k);
           setParams(p, { replace: true });
         }}
         items={tabs}
