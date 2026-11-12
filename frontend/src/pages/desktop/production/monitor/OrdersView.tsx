@@ -292,7 +292,7 @@ export function OpGroupCell({ ls, op, onOpenTask }: { ls: LineRec[]; op: string;
   if (!rs.length) return null;
   const s = sumOp(rs);
   if (!s.plan) return null;
-  const quick = rs.filter((r) => r.quick && !r.closed && r.plan - r.good > 0);
+  const quick = rs.filter((r) => r.quick);
   const full = s.done >= s.plan - 1e-9;
   const pct = s.plan > 0 ? Math.round((s.done / s.plan) * 100) : 100;
   const text = (
@@ -309,7 +309,7 @@ export function OpGroupCell({ ls, op, onOpenTask }: { ls: LineRec[]; op: string;
       <div>• Осталось сделать: {r2(Math.max(0, s.plan - s.done))} шт</div>
       {s.defect > 0 && <div style={{ color: "#ff4d4f" }}>• Брак: {r2(s.defect)} шт</div>}
       <div style={{ marginTop: 4, fontSize: 11, color: "#8c8c8c" }}>
-        Клик: {quick.length > 0 ? "быстрый отчёт по группе" : "просмотр задания"}
+        Клик: {quick.length > 0 ? "быстрый отчёт и состав позиций" : "просмотр задания"}
       </div>
     </div>
   );
@@ -321,10 +321,10 @@ export function OpGroupCell({ ls, op, onOpenTask }: { ls: LineRec[]; op: string;
           trigger="click"
           open={open}
           onOpenChange={setOpen}
-          title={`Отчёт по группе: ${op}`}
+          title={`Группа: ${op}`}
           content={<BatchQuickReport rows={quick} title={op} onDone={() => setOpen(false)} />}
         >
-          <Button type="text" size="small" style={{ padding: "0 4px" }} title="Быстрый отчёт по группе строк">
+          <Button type="text" size="small" style={{ padding: "0 4px" }} title="Быстрый отчёт и состав позиций">
             {text}
           </Button>
         </Popover>

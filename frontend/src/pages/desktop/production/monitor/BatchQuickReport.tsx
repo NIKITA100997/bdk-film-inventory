@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, InputNumber, Select, Space, Tag, Typography, message } from "antd";
+import { Alert, Button, InputNumber, Segmented, Select, Space, Tag, Typography, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTaskLineReportsBatch } from "../../../../api/production";
 import type { MonitorRow } from "../../../../api/productionMonitor";
@@ -83,6 +83,14 @@ export default function BatchQuickReport({
   const [reason, setReason] = useState<string | undefined>();
   const [showGroups, setShowGroups] = useState(false);
   const [groupInputs, setGroupInputs] = useState<Record<string, { good: number | null; defect: number | null; reason?: string }>>({});
+  const [filterTab, setFilterTab] = useState<"all" | "open" | "done">("all");
+
+  const doneRows = useMemo(() => rows.filter((r) => r.closed || r.good >= r.plan), [rows]);
+  const displayedRows = useMemo(() => {
+    if (filterTab === "open") return openRows;
+    if (filterTab === "done") return doneRows;
+    return rows;
+  }, [rows, openRows, doneRows, filterTab]);
 
   const rq = useQuery({
     queryKey: ["write-off-reasons", "production"],
@@ -225,7 +233,7 @@ export default function BatchQuickReport({
   const validTotal = ((good ?? 0) > 0 || (defect ?? 0) > 0) && (!(defect ?? 0) || !!reason);
 
   return (
-    <Space orientation="vertical" size={8} style={{ minWidth: 320, maxWidth: 440 }}>
+    <Space orientation="vertical" size={8} style={{ minWidth: 320, maxWidth: 460 }}>
       <div>
         <Typography.Text strong style={{ fontSize: 13 }}>
           {title ?? rows[0]?.operation ?? "Операция"}
@@ -236,65 +244,154 @@ export default function BatchQuickReport({
         </div>
       </div>
 
-      {/* Быстрое внесение всей суммы */}
-      <div style={{ background: "#f5f5f5", padding: "8px 10px", borderRadius: 6 }}>
-        <Typography.Text type="secondary" style={{ fontSize: 11, display: "block", marginBottom: 4 }}>
-          Общий отчёт по всем строкам:
-        </Typography.Text>
-        <Space size={6} wrap>
-          <InputNumber
+      {/* Список конкретных позиций: что сдано и что осталось */}
+      <div style={{ border: "1px solid #e8e8e8", borderRadius: 6, padding: "8px 10px", background: "#ffffff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 6, flexWrap: "wrap" }}>
+          <Typography.Text strong style={{ fontSize: 12 }}>
+            Позиции в задании ({rows.length}):
+          </Typography.Text>
+          <Segmented
             size="small"
-            min={0}
-            placeholder={totalLeft > 0 ? `всего годных (ост. ${totalLeft})` : "годных"}
-            value={good}
-            onChange={setGood}
-            style={{ width: 170 }}
-            aria-label="Годных всего, шт"
-            onPressEnter={() => validTotal && saveTotal.mutate()}
+            value={filterTab}
+            onChange={(v) => setFilterTab(v as "all" | "open" | "done")}
+            options={[
+              { label: `Все (${rows.length})`, value: "all" },
+              { label: `В работе (${openRows.length})`, value: "open" },
+              { label: `Сдано (${doneRows.length})`, value: "done" },
+            ]}
           />
-          <InputNumber
-            size="small"
-            min={0}
-            placeholder="брак"
-            value={defect}
-            onChange={setDefect}
-            style={{ width: 80 }}
-            aria-label="Брак всего, шт"
-          />
-        </Space>
+        </div>
 
-        {(defect ?? 0) > 0 && (
-          <div style={{ marginTop: 6 }}>
-            <Select
-              size="small"
-              placeholder="причина брака"
-              style={{ width: "100%" }}
-              value={reason}
-              onChange={setReason}
-              options={reasons.map((r) => ({ value: r.code, label: r.name }))}
-              showSearch
-              optionFilterProp="label"
-            />
-          </div>
-        )}
-
-        <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <Button
-            size="small"
-            type="primary"
-            disabled={!validTotal}
-            loading={saveTotal.isPending}
-            onClick={() => saveTotal.mutate()}
-          >
-            Сохранить всё ({good ?? 0} шт)
-          </Button>
-          {totalLeft > 0 && (
-            <Button size="small" type="link" style={{ padding: 0 }} onClick={() => setGood(totalLeft)}>
-              сдать всё ({totalLeft} шт)
-            </Button>
+        <div style={{ maxHeight: 200, overflowY: "auto", display: "grid", gap: 4 }}>
+          {displayedRows.length === 0 ? (
+            <div style={{ fontSize: 11, color: "#8c8c8c", padding: "8px 0", textAlign: "center" }}>
+              {filterTab === "done" ? "Пока ничего не сдано" : "Все позиции полностью выполнены!"}
+            </div>
+          ) : (
+            displayedRows.map((r) => {
+              const isDone = r.closed || r.good >= r.plan;
+              const isPart = !isDone && r.good > 0;
+              const rem = r2(Math.max(0, r.plan - r.good));
+              const sub = [r.invoice_no ? `Счёт ${r.invoice_no}` : null, r.series, r.size, r.color].filter(Boolean).join(" · ");
+              return (
+                <div
+                  key={r.task_line_id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "4px 8px",
+                    background: isDone ? "#f6ffed" : isPart ? "#fffbe6" : "#fafafa",
+                    border: `1px solid ${isDone ? "#b7eb8f" : isPart ? "#ffe58f" : "#f0f0f0"}`,
+                    borderRadius: 4,
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 500,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        color: isDone ? "#237804" : undefined,
+                      }}
+                      title={r.position}
+                    >
+                      {r.position}
+                    </div>
+                    {sub && <div style={{ fontSize: 10, color: "#8c8c8c" }}>{sub}</div>}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                    <Tag
+                      color={isDone ? "green" : isPart ? "orange" : "default"}
+                      style={{ margin: 0, fontSize: 11, fontVariantNumeric: "tabular-nums" }}
+                    >
+                      {isDone ? `✓ Сдано ${r2(r.good)}/${r2(r.plan)}` : `${r2(r.good)}/${r2(r.plan)} (ост. ${rem})`}
+                    </Tag>
+                    {!isDone && (
+                      <Button
+                        size="small"
+                        type="link"
+                        style={{ padding: "0 2px", fontSize: 11 }}
+                        title={`Заполнить остаток ${rem} шт в поле отчёта`}
+                        onClick={() => setGood(rem)}
+                      >
+                        +{rem}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
+
+      {/* Быстрое внесение всей суммы */}
+      {totalLeft <= 0 ? (
+        <Alert type="success" showIcon message="Все позиции этой операции полностью выполнены!" style={{ fontSize: 12 }} />
+      ) : (
+        <div style={{ background: "#f5f5f5", padding: "8px 10px", borderRadius: 6 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 11, display: "block", marginBottom: 4 }}>
+            Общий отчёт по открытым строкам:
+          </Typography.Text>
+          <Space size={6} wrap>
+            <InputNumber
+              size="small"
+              min={0}
+              placeholder={totalLeft > 0 ? `всего годных (ост. ${totalLeft})` : "годных"}
+              value={good}
+              onChange={setGood}
+              style={{ width: 170 }}
+              aria-label="Годных всего, шт"
+              onPressEnter={() => validTotal && saveTotal.mutate()}
+            />
+            <InputNumber
+              size="small"
+              min={0}
+              placeholder="брак"
+              value={defect}
+              onChange={setDefect}
+              style={{ width: 80 }}
+              aria-label="Брак всего, шт"
+            />
+          </Space>
+
+          {(defect ?? 0) > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <Select
+                size="small"
+                placeholder="причина брака"
+                style={{ width: "100%" }}
+                value={reason}
+                onChange={setReason}
+                options={reasons.map((r) => ({ value: r.code, label: r.name }))}
+                showSearch
+                optionFilterProp="label"
+              />
+            </div>
+          )}
+
+          <div style={{ marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Button
+              size="small"
+              type="primary"
+              disabled={!validTotal}
+              loading={saveTotal.isPending}
+              onClick={() => saveTotal.mutate()}
+            >
+              Сохранить всё ({good ?? 0} шт)
+            </Button>
+            {totalLeft > 0 && (
+              <Button size="small" type="link" style={{ padding: 0 }} onClick={() => setGood(totalLeft)}>
+                сдать всё ({totalLeft} шт)
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Разделение по принципиально важным параметрам для участка */}
       <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 4 }}>

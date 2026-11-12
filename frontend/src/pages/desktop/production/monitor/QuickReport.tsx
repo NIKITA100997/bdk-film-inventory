@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, InputNumber, Select, Space, Typography, message } from "antd";
+import { Button, InputNumber, Select, Space, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTaskLineReportsBatch } from "../../../../api/production";
 import type { MonitorRow } from "../../../../api/productionMonitor";
@@ -81,11 +81,25 @@ export default function QuickReport({ row, compact = false, onDone }: { row: Mon
   );
   if (compact) return <Space size={4} wrap>{fields}</Space>;
   return (
-    <Space orientation="vertical" size={6} style={{ minWidth: 260 }}>
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        {row.operation ?? "Операция"}: сделано {r2(row.good)} из {r2(row.plan)}
-        {row.defect ? `, брак ${r2(row.defect)}` : ""}
-      </Typography.Text>
+    <Space orientation="vertical" size={6} style={{ minWidth: 280, maxWidth: 380 }}>
+      <div>
+        <div style={{ fontWeight: 600, fontSize: 13, wordBreak: "break-word" }}>{row.position}</div>
+        {(row.series || row.size || row.color || row.invoice_no) && (
+          <div style={{ fontSize: 11, color: "#8c8c8c", marginTop: 2 }}>
+            {[row.invoice_no ? `Счёт ${row.invoice_no}` : null, row.series, row.size, row.color].filter(Boolean).join(" · ")}
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: 12 }}>
+        <span style={{ color: "#595959" }}>{row.operation ?? "Операция"}:</span>{" "}
+        <b>{r2(row.good)}</b> из {r2(row.plan)} шт.
+        {left <= 0 ? (
+          <Tag color="green" style={{ marginLeft: 6 }}>✓ закрыто</Tag>
+        ) : (
+          <span style={{ color: "#cf1322", marginLeft: 6 }}>осталось {left} шт.</span>
+        )}
+        {row.defect > 0 && <span style={{ color: "#ff4d4f", marginLeft: 4 }}>брак {r2(row.defect)}</span>}
+      </div>
       <Space size={4} wrap>
         {fields}
       </Space>
