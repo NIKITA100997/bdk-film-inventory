@@ -36,9 +36,17 @@ def line_group(db: Session, line: ProductionTaskLine, area_code: str, chars: lis
     if not props:
         return None
     if line.material_id:
-        # строка с плёнкой — своя плёнка и свой рулон в отчёте; одинаковые
-        # (та же деталь и плёнка) уже слиты при запуске
-        return None
+        # Для строк с плёнкой (окутка царговых, щитовые двери):
+        # группируем по эффективной ширине штрипса и декору плёнки
+        from app.models.dictionaries import Material, Color
+        from app.services.cutting import calc_default_strip_width
+
+        sw = float(line.strip_width_mm) if line.strip_width_mm is not None else calc_default_strip_width(line.part_name, float(line.width_mm))
+        mat = db.get(Material, line.material_id)
+        col = db.get(Color, line.color_id) if line.color_id else None
+        film_str = f"{mat.name if mat else ''} {col.name if col else ''}".strip() or "Плёнка"
+        sw_str = f"{sw:.0f}" if sw.is_integer() else f"{sw:.1f}"
+        return f"sw:{sw_str}:{line.material_id}:{line.color_id or 0}", f"Штрипс {sw_str} мм · {film_str}"
     if line.part_id:
         label = line.part_name or ""
         if line.program:

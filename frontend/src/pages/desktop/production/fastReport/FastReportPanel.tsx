@@ -39,8 +39,9 @@ import {
 } from "./useFastReport";
 import type { ProductionTaskLine } from "../../../../api/production";
 import { rollNo } from "../../../../utils/lotNo";
+import BatchesView from "./BatchesView";
 
-type View = "tiles" | "table" | "legacy";
+type View = "batches" | "tiles" | "table" | "legacy";
 
 function loadView(key: string, fallback: View): View {
   try {
@@ -77,8 +78,10 @@ export default function FastReportPanel({
 }) {
   const narrow = orderId != null || taskId != null;
   const viewKey = `fast-report-view:${narrow ? "order" : "master"}`;
+  const preferredDefaultView: View =
+    defaultView === "tiles" && area.toLowerCase().includes("okutka") ? "batches" : defaultView;
   const [view, setViewState] = useState<View>(() =>
-    loadView(viewKey, defaultView),
+    loadView(viewKey, preferredDefaultView),
   );
   const setView = (v: View) => {
     setViewState(v);
@@ -91,10 +94,30 @@ export default function FastReportPanel({
   // «Мой набор» есть — открываемся на нём (отмеченное мастером на смену).
   const [scope, setScope] = useState<"pins" | "work" | "all">(() => (!narrow && loadPins(area).length ? "pins" : "work"));
   const [q, setQ] = useState("");
+  const [selectedStripWidth, setSelectedStripWidth] = useState<number | null>(null);
+  const [selectedFilm, setSelectedFilm] = useState<string | null>(null);
   const [open, setOpen] = useState<FastLine | null>(null);
   const [defectFor, setDefectFor] = useState<FastLine | null>(null);
   const [detailFor, setDetailFor] = useState<FastLine | null>(null);
   const r = useFastReport({ area, orderId, taskId });
+
+  const stripWidths = useMemo(() => {
+    const set = new Set<number>();
+    for (const fl of r.lines) {
+      const sw = Math.round(fl.line.strip_width_mm || fl.line.width_mm || 0);
+      if (sw > 0) set.add(sw);
+    }
+    return [...set].sort((a, b) => a - b);
+  }, [r.lines]);
+
+  const films = useMemo(() => {
+    const set = new Set<string>();
+    for (const fl of r.lines) {
+      const f = filmLabel(fl.line);
+      if (f && f !== "без плёнки") set.add(f);
+    }
+    return [...set].sort();
+  }, [r.lines]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -108,19 +131,34 @@ export default function FastReportPanel({
           (scope === "work" && fl.today) ||
           (scope !== "pins" && isFilled(r.entryOf(fl.line))),
       )
-      .filter(
-        (fl) =>
-          !needle ||
-          `${fl.line.part_name ?? ""} ${fl.task.name ?? ""} ${filmLabel(fl.line)}`
-            .toLowerCase()
-            .includes(needle),
-      )
+      .filter((fl) => {
+        if (selectedStripWidth !== null) {
+          const sw = Math.round(fl.line.strip_width_mm || fl.line.width_mm || 0);
+          if (sw !== selectedStripWidth) return false;
+        }
+        if (selectedFilm !== null) {
+          if (filmLabel(fl.line) !== selectedFilm) return false;
+        }
+        if (!needle) return true;
+        const searchPool = [
+          fl.line.part_name ?? "",
+          fl.task.name ?? "",
+          fl.task.id ? `№${fl.task.id}` : "",
+          fl.task.production_order_name ?? "",
+          filmLabel(fl.line),
+          fl.line.strip_width_mm ? `${fl.line.strip_width_mm}мм` : "",
+          fl.line.width_mm ? `${fl.line.width_mm}мм` : "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        return searchPool.includes(needle);
+      })
       .sort(
         (a, b) =>
           filmLabel(a.line).localeCompare(filmLabel(b.line), "ru") ||
           (a.line.part_name ?? "").localeCompare(b.line.part_name ?? "", "ru"),
       );
-  }, [r, scope, q, narrow]);
+  }, [r, scope, q, selectedStripWidth, selectedFilm, narrow]);
 
   const onSave = () => {
     const noLeft = r.filled.filter((fl) => (r.entryOf(fl.line).extra ?? []).some((x) => x.left == null));
@@ -157,6 +195,7 @@ export default function FastReportPanel({
   };
 
   const viewOptions = [
+    { value: "batches", label: "🎯 По наладке" },
     { value: "tiles", label: "Плитки" },
     { value: "table", label: "Таблица" },
     ...(allowLegacy ? [{ value: "legacy", label: "Как раньше" }] : []),
@@ -240,6 +279,56 @@ export default function FastReportPanel({
               }}
             />
           </Space>
+
+          {/* Быстрые фильтры наладки: ширина штрипса и декор */}
+          {(stripWidths.length > 1 || films.length > 1) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+              {stripWidths.length > 1 && (
+                <Space wrap size={[4, 4]} align="center">
+                  <Typography.Text type="secondary" style={{ fontSize: 13, marginRight: 2 }}>
+                    Штрипс:
+                  </Typography.Text>
+                  <Tag.CheckableTag
+                    checked={selectedStripWidth === null}
+                    onChange={() => setSelectedStripWidth(null)}
+                    style={{ fontSize: 13, padding: "2px 8px" }}
+                  >
+                    Все
+                  </Tag.CheckableTag>
+                  {stripWidths.map((sw) => {
+                    const count = r.lines
+                      .filter(
+                        (fl) =>
+                          Math.round(fl.line.strip_width_mm || fl.line.width_mm || 0) === sw &&
+                          Math.max(0, fl.line.remaining_pieces) > 0,
+                      )
+                      .reduce((s, fl) => s + Math.max(0, fl.line.remaining_pieces), 0);
+                    return (
+                      <Tag.CheckableTag
+                        key={sw}
+                        checked={selectedStripWidth === sw}
+                        onChange={(checked) => setSelectedStripWidth(checked ? sw : null)}
+                        style={{ fontSize: 13, padding: "2px 8px" }}
+                      >
+                        {sw} мм{count > 0 ? ` (${count})` : ""}
+                      </Tag.CheckableTag>
+                    );
+                  })}
+                </Space>
+              )}
+              {films.length > 1 && (
+                <Select
+                  allowClear
+                  placeholder="Фильтр по плёнке"
+                  style={{ minWidth: 200 }}
+                  value={selectedFilm ?? undefined}
+                  onChange={(val) => setSelectedFilm(val ?? null)}
+                  options={films.map((f) => ({ value: f, label: f }))}
+                />
+              )}
+            </div>
+          )}
+
           {r.loading ? null : shown.length === 0 ? (
             <Empty
               description={
@@ -250,6 +339,8 @@ export default function FastReportPanel({
                     : "Позиций нет"
               }
             />
+          ) : view === "batches" ? (
+            <BatchesView lines={shown} r={r} onOpenLine={setOpen} />
           ) : view === "tiles" ? (
             <Tiles lines={shown} r={r} onOpen={setOpen} pinnable={!narrow} />
           ) : (
@@ -1113,7 +1204,7 @@ function LineSheet({
   );
 }
 
-function DefectModal({
+export function DefectModal({
   r,
   fl,
   onClose,
