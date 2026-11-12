@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { Button, Popover, Space, Tag, Tooltip, Typography } from "antd";
+import { ApartmentOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { Link } from "react-router-dom";
 import type { MonitorArea, MonitorOrder, MonitorRow } from "../../../../api/productionMonitor";
 import GroupedTable, { type GroupColumn } from "../../../../components/GroupedTable";
 import BatchQuickReport from "./BatchQuickReport";
+import OrderFlowMap from "./OrderFlowMap";
 import { computeFlow, FlowStrip, opIncludes } from "./flow";
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -364,6 +366,16 @@ export default function OrdersView({
   const flow = useMemo(() => computeFlow(lines, ops), [lines, ops]);
   const [stage, setStage] = useState<string | null>(null);
   const stageOn = stage && ops.includes(stage) ? stage : null;
+  const [flowMapOrders, setFlowMapOrders] = useState<Set<number>>(new Set());
+
+  const toggleFlowMap = (orderId: number) => {
+    setFlowMapOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  };
 
   const data = useMemo(
     () =>
@@ -377,7 +389,7 @@ export default function OrdersView({
   );
 
   const columns: GroupColumn<LineRec>[] = [
-    { key: "invoice", title: "Счёт", width: 140, fixed: "left", sortValue: (l) => l.invoice, render: (_, l) => <span style={{ whiteSpace: "nowrap" }}>{l.invoice}</span> },
+    { key: "invoice", title: "Счёт", width: 140, sortValue: (l) => l.invoice, render: (_, l) => <span style={{ whiteSpace: "nowrap" }}>{l.invoice}</span> },
     { key: "series", title: "Серия", width: 80, sortValue: (l) => l.series, render: (_, l) => l.series },
     { key: "size", title: "Размер", width: 90, sortValue: (l) => l.size, render: (_, l) => l.size },
     { key: "color", title: "Цвет", width: 150, sortValue: (l) => l.color, render: (_, l) => l.color },
@@ -546,6 +558,45 @@ export default function OrdersView({
           y: "calc(100vh - 360px)",
         }}
         columns={columns}
+        renderGroupHeaderExtra={(g) => {
+          if (g.dim.key !== "order") return null;
+          const orderId = g.rows[0]?.order_id;
+          if (!orderId) return null;
+          const isOpen = flowMapOrders.has(orderId);
+          return (
+            <Button
+              size="small"
+              type={isOpen ? "primary" : "default"}
+              icon={<ApartmentOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFlowMap(orderId);
+              }}
+              style={{ marginLeft: 6, fontSize: 11 }}
+            >
+              {isOpen ? "Свернуть карту" : "Карта движения"}
+            </Button>
+          );
+        }}
+        renderGroupContent={(g) => {
+          if (g.dim.key !== "order") return null;
+          const orderId = g.rows[0]?.order_id;
+          if (!orderId || !flowMapOrders.has(orderId)) return null;
+          const o = g.rows[0];
+          return (
+            <OrderFlowMap
+              orderId={orderId}
+              orderName={o.order_name}
+              shipDate={o.ship}
+              launchDate={o.launch}
+              lines={g.rows}
+              allRows={rows}
+              ops={ops}
+              onOpenTask={onOpenTask}
+              onClose={() => toggleFlowMap(orderId)}
+            />
+          );
+        }}
         extra={
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             клик по клетке операции — отчёт; <Link to="/production-orders">заказы →</Link>

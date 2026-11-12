@@ -36,6 +36,14 @@ export type GroupColumn<T> = Omit<ColumnType<T>, "render" | "key"> & {
   groupRender?: (rows: T[], g: GroupNode<T>) => ReactNode;
 };
 
+export interface SyntheticRow {
+  __synthetic: true;
+  key: string;
+  content: ReactNode;
+}
+export const isSyntheticRow = (r: unknown): r is SyntheticRow =>
+  !!r && typeof r === "object" && "__synthetic" in (r as object);
+
 export const isGroupRow = <T,>(r: unknown): r is GroupNode<T> => !!r && typeof r === "object" && "__group" in (r as object);
 
 const collator = new Intl.Collator("ru", { numeric: true, sensitivity: "base" });
@@ -64,6 +72,8 @@ export default function GroupedTable<T extends object>({
   labelColumn,
   rowClassName,
   extra,
+  renderGroupHeaderExtra,
+  renderGroupContent,
   ...rest
 }: Omit<TableProps<T>, "columns" | "dataSource" | "rowKey" | "rowClassName"> & {
   storageKey: string;
@@ -77,6 +87,10 @@ export default function GroupedTable<T extends object>({
   rowClassName?: (r: T) => string;
   /** справа на панели группировки — свои кнопки таблицы */
   extra?: ReactNode;
+  /** дополнительный контент/кнопки в строке заголовка группы */
+  renderGroupHeaderExtra?: (g: GroupNode<T>) => ReactNode;
+  /** подстрока/контент, раскрывающийся под группой на всю ширину таблицы */
+  renderGroupContent?: (g: GroupNode<T>) => ReactNode;
   exportTitle?: string;
   exportNote?: string;
   cardBreakpoint?: "xs" | "sm" | "md" | "lg";
@@ -108,14 +122,26 @@ export default function GroupedTable<T extends object>({
       }
       const nodes: GroupNode<T>[] = [...by.entries()].map(([value, list]) => {
         const key = `${prefix}${dim.key}=${value}|`;
-        return { __group: true, key, dim, value, level, rows: list, children: build(list, level + 1, key) };
+        const children = build(list, level + 1, key);
+        const node: GroupNode<T> = { __group: true, key, dim, value, level, rows: list, children };
+        if (renderGroupContent) {
+          const extraContent = renderGroupContent(node);
+          if (extraContent) {
+            children.unshift({
+              __synthetic: true,
+              key: `syn:${key}`,
+              content: extraContent,
+            } as unknown as Row<T>);
+          }
+        }
+        return node;
       });
       // группы — по значению признака; при сортировке по столбцу — по его итогу
       return nodes.sort((a, b) => (sortCol ? dir * cmp(groupVal(a.rows), groupVal(b.rows)) || cmp(a.value, b.value) : cmp(a.value, b.value)));
     };
     return build(dataSource, 0, "g:");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataSource, active.join(","), sort?.key, sort?.order]);
+  }, [dataSource, active.join(","), sort?.key, sort?.order, renderGroupContent]);
 
   const groupKeys = useMemo(() => {
     const out: string[] = [];
@@ -131,13 +157,24 @@ export default function GroupedTable<T extends object>({
   const expandedKeys = expanded && expanded.sig === sig ? expanded.keys : groupKeys;
 
   const label = labelColumn ?? columns.find((c) => c.title)?.key;
-  const cols = columns.map((c): ColumnType<Row<T>> => {
+  const cols = columns.map((c, colIndex): ColumnType<Row<T>> => {
     const { sortValue, groupRender, render, ...col } = c;
     return {
       ...(col as ColumnType<Row<T>>),
       key: c.key,
       ...(sortValue ? { sorter: true, sortOrder: sort?.key === c.key ? sort.order : null, sortDirections: ["ascend", "descend"] as SortOrder[] } : {}),
+      onCell: (r: Row<T>) => {
+        if (isSyntheticRow(r)) {
+          return colIndex === 0
+            ? { colSpan: columns.length, style: { padding: "4px 8px", background: "transparent" } }
+            : { colSpan: 0, style: { display: "none" } };
+        }
+        return {};
+      },
       render: (v: unknown, r: Row<T>, i: number) => {
+        if (isSyntheticRow(r)) {
+          return colIndex === 0 ? r.content : null;
+        }
         if (isGroupRow<T>(r)) {
           const own = groupRender?.(r.rows, r) ?? null;
           if (c.key !== label) return own;
@@ -146,6 +183,7 @@ export default function GroupedTable<T extends object>({
               <Typography.Text type="secondary">{r.dim.label}:</Typography.Text>
               <b>{r.value || "—"}</b>
               <Tag style={{ marginInlineEnd: 0 }}>строк {r.rows.length}</Tag>
+              {renderGroupHeaderExtra?.(r)}
               {own}
             </Space>
           );
