@@ -463,27 +463,13 @@ h5 {
   font-weight: 650 !important;
 }
 
-/* ── Ускорение рендера и упрощение графики (12.11) ──────────────────────
-   Отключение анимаций/transitions в таблицах и строках избавляет браузер
-   от перерисовки layout при скролле и hover на сотнях строк. */
-.ant-table,
-.ant-table *,
-.ant-table-thead > tr > th,
-.ant-table-tbody > tr > td,
+/* ── Ускорение hover в строках таблиц (12.11) ──────────────────────
+   Отключение лишней задержки смены фона строк при скролле */
 .ant-table-tbody > tr {
-  transition: none !important;
-  animation: none !important;
+  transition: background-color 0s !important;
 }
 
 .ant-table-body {
   -webkit-overflow-scrolling: touch;
   scroll-behavior: auto;
-}
-
-/* Ускорение всплывающих окон и селекторов */
-.ant-modal,
-.ant-drawer,
-.ant-dropdown,
-.ant-select-dropdown {
-  transition-duration: 0.1s !important;
 }
