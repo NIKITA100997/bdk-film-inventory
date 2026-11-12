@@ -65,36 +65,76 @@ function partKey(position: string): { kind: string; size: string } {
   const m = position.match(SIZE);
   const size = m ? `${m[1]}х${m[2]}х${m[3]}` : position;
   if (/каркас/i.test(position)) return { kind: "Каркасы", size };
-  if (/панел|заготовка мдф/i.test(position)) return { kind: "Панели", size };
+  if (/панел|накладк|заготовк|мдф|скин/i.test(position)) return { kind: "Панели", size };
   return { kind: "Прочие п/ф", size: position };
 }
 
-function getReadyToGlue(l: LineRec, opsList: string[]): { readyPcs: number; readySets: number; isPanel: boolean; formula: string } {
-  const isPanel = /панел/i.test(l.invoice) || /панел/i.test(l.source);
+function getReadyToGlue(l: LineRec, opsList: string[]): {
+  readyPcs: number;
+  readySets: number;
+  isPanel: boolean;
+  formula: string;
+  laminatedPcs: number;
+} {
+  const isPanel = /панел|накладк|заготовк|мдф|скин/i.test(l.invoice) || /панел|накладк|заготовк|мдф|скин/i.test(l.source);
   const isFrame = /каркас/i.test(l.invoice) || /каркас/i.test(l.source);
 
-  let finalOp = "";
-  if (isPanel) {
-    if (l.ops["Фрезеровка ламинир."]?.length) finalOp = "Фрезеровка ламинир.";
-    else if (l.ops["Ламинация (Фабрика)"]?.length) finalOp = "Ламинация (Фабрика)";
-    else if (l.ops["Ламинация (прессы)"]?.length) finalOp = "Ламинация (прессы)";
-    else finalOp = opsList.filter((op) => l.ops[op]?.length).pop() || "";
-  } else if (isFrame) {
-    if (l.ops["Сборка каркаса"]?.length) finalOp = "Сборка каркаса";
-    else finalOp = opsList.filter((op) => l.ops[op]?.length).pop() || "";
-  } else {
-    finalOp = opsList.filter((op) => l.ops[op]?.length).pop() || "";
+  if (isFrame) {
+    const finalOp = l.ops["Сборка каркаса"]?.length ? "Сборка каркаса" : opsList.filter((op) => l.ops[op]?.length).pop() || "";
+    const rs = l.ops[finalOp] || [];
+    const readyPcs = rs.reduce((s, r) => s + (r.closed ? r.plan : Math.min(r.good, r.plan)), 0);
+    const readySets = readyPcs;
+    const formula = `Готово каркасов по этапу «${finalOp}»: ${r2(readyPcs)} шт. На 1 дверь идёт 1 каркас = ${readySets} комплектов дверей.`;
+    return { readyPcs, readySets, isPanel: false, formula, laminatedPcs: 0 };
   }
 
+  if (isPanel) {
+    // Для панелей детали могут иметь разный маршрут:
+    // Модели с рисунком идут на фрезеровку после ламинации, а глухие (напр. Щ-12) готовы к склейке сразу после ламинации!
+    const millingRows = l.ops["Фрезеровка ламинир."] || [];
+    const lamRows = [
+      ...(l.ops["Ламинация (Фабрика)"] || []),
+      ...(l.ops["Ламинация (прессы)"] || []),
+    ];
+
+    const laminatedPcs = lamRows.reduce((s, r) => s + (r.closed ? r.plan : Math.min(r.good, r.plan)), 0);
+
+    // Определяем модели, для которых в заказе заведена фрезеровка
+    const millingModels = new Set(
+      millingRows.map((r) => (r.position.match(/^([^\s,]+)/)?.[1] || r.position).toLowerCase())
+    );
+
+    let readyPcs = 0;
+    // 1. По деталям с фрезеровкой — готовность берется с фрезеровки
+    for (const r of millingRows) {
+      readyPcs += r.closed ? r.plan : Math.min(r.good, r.plan);
+    }
+    // 2. По деталям БЕЗ фрезеровки (глухие щитовые накладки, напр. Щ-12) — готовы сразу после ламинации
+    for (const r of lamRows) {
+      const model = (r.position.match(/^([^\s,]+)/)?.[1] || r.position).toLowerCase();
+      if (!millingModels.has(model)) {
+        readyPcs += r.closed ? r.plan : Math.min(r.good, r.plan);
+      }
+    }
+
+    // Если нет ни ламинации, ни фрезеровки — fallback на последнюю доступную операцию
+    if (!millingRows.length && !lamRows.length) {
+      const finalOp = opsList.filter((op) => l.ops[op]?.length).pop() || "";
+      const rs = l.ops[finalOp] || [];
+      readyPcs = rs.reduce((s, r) => s + (r.closed ? r.plan : Math.min(r.good, r.plan)), 0);
+    }
+
+    const readySets = Math.floor(readyPcs / 2);
+    const millingGood = millingRows.reduce((s, r) => s + (r.closed ? r.plan : Math.min(r.good, r.plan)), 0);
+    const formula = `Готово облицовочных панелей к склейке: ${r2(readyPcs)} шт. (на 1 дверь 2 панели = ${readySets} компл. дверей).\n• Сдано на ламинации: ${r2(laminatedPcs)} шт.\n• Сдано на фрезеровке: ${r2(millingGood)} шт.`;
+
+    return { readyPcs, readySets, isPanel: true, formula, laminatedPcs };
+  }
+
+  const finalOp = opsList.filter((op) => l.ops[op]?.length).pop() || "";
   const rs = l.ops[finalOp] || [];
   const readyPcs = rs.reduce((s, r) => s + (r.closed ? r.plan : Math.min(r.good, r.plan)), 0);
-  const readySets = isPanel ? Math.floor(readyPcs / 2) : readyPcs;
-
-  const formula = isPanel
-    ? `Готово облицовочных панелей по этапу «${finalOp}»: ${r2(readyPcs)} шт. На 1 дверь идёт 2 панели: ${r2(readyPcs)} / 2 = ${readySets} комплектов дверей.`
-    : `Готово каркасов по этапу «${finalOp}»: ${r2(readyPcs)} шт. На 1 дверь идёт 1 каркас = ${readySets} комплектов дверей.`;
-
-  return { readyPcs, readySets, isPanel, formula };
+  return { readyPcs, readySets: readyPcs, isPanel: false, formula: `${r2(readyPcs)} шт`, laminatedPcs: 0 };
 }
 
 /** «Подготовка к склейке» (23.10): каркасы и панели под щитовые двери по этапам. */
@@ -147,7 +187,7 @@ export default function PrepView({
         map.set(key, l);
       }
       (l.ops[st.label] ??= []).push({ ...r, op_seq: st.seq });
-      if (/панель/i.test(r.position)) {
+      if (/панел|накладк|заготовк|мдф|скин/i.test(r.position)) {
         const c = r.position.match(/\(([^)]*)\)/)?.[1] || r.film || r.color;
         if (c) (colors.get(key) ?? colors.set(key, new Set()).get(key)!).add(c);
       }
@@ -198,7 +238,9 @@ export default function PrepView({
     let framesPlan = 0;
     let panelsReady = 0;
     let panelsPlan = 0;
-    for (const l of lines) {
+    // Считаем готовность строго по активным позициям в работе, исключая 100% закрытые/готовые заказы
+    const activeLines = (hideDone ? data : lines).filter((l) => l.left > 0);
+    for (const l of activeLines) {
       const { readyPcs, isPanel } = getReadyToGlue(l, ops);
       if (isPanel) {
         panelsReady += readyPcs;
@@ -223,8 +265,9 @@ export default function PrepView({
       panelsPlan,
       doorSetsReady: doorSetsReady !== Infinity ? doorSetsReady : 0,
       doorSetsTotal: doorSetsTotal !== Infinity ? doorSetsTotal : 0,
+      hasDoneExcluded: lines.some((l) => l.left <= 0),
     };
-  }, [lines, ops]);
+  }, [lines, data, hideDone, ops]);
 
   if (!lines.length)
     return <Alert type="info" showIcon message="Нет открытых заданий на каркасы и панели под щитовые двери" />;
@@ -255,18 +298,36 @@ export default function PrepView({
     {
       key: "qty",
       title: "Кол-во",
-      width: 80,
+      width: 90,
       align: "right",
       sortValue: (l) => l.qty,
       render: (_, l) => {
-        const isPanel = /панел/i.test(l.invoice) || /панел/i.test(l.source);
+        const isPanel = /панел|накладк|заготовк|мдф|скин/i.test(l.invoice) || /панел|накладк|заготовк|мдф|скин/i.test(l.source);
         return (
           <Tooltip title={isPanel ? `План: ${r2(l.qty)} панелей (на ${r2(Math.floor(l.qty / 2))} дверей)` : `План: ${r2(l.qty)} каркасов`}>
             <b>{r2(l.qty)}</b>
           </Tooltip>
         );
       },
-      groupRender: (ls) => <b>{r2(ls.reduce((s, l) => s + l.qty, 0))}</b>,
+      groupRender: (ls) => {
+        let fQty = 0;
+        let pQty = 0;
+        let otherQty = 0;
+        for (const l of ls) {
+          if (/каркас/i.test(l.invoice) || /каркас/i.test(l.source)) fQty += l.qty;
+          else if (/панел|накладк|заготовк|мдф|скин/i.test(l.invoice) || /панел|накладк|заготовк|мдф|скин/i.test(l.source)) pQty += l.qty;
+          else otherQty += l.qty;
+        }
+        if (fQty > 0 && pQty === 0 && otherQty === 0) return <b>{r2(fQty)} шт.</b>;
+        if (pQty > 0 && fQty === 0 && otherQty === 0) return <b>{r2(pQty)} шт.</b>;
+        return (
+          <span style={{ fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
+            {fQty > 0 && <span>К: <b>{r2(fQty)}</b> </span>}
+            {pQty > 0 && <span>П: <b>{r2(pQty)}</b></span>}
+            {otherQty > 0 && <span> Пр: {r2(otherQty)}</span>}
+          </span>
+        );
+      },
     },
     // Колонка ПЛЁНКИ перенесена в подготовку к склейке
     {
@@ -293,22 +354,64 @@ export default function PrepView({
     {
       key: "toglue",
       title: <span style={{ whiteSpace: "normal", fontSize: 12 }}>Готово к склейке</span>,
-      width: 120,
+      width: 150,
       align: "right",
       render: (_, l) => {
-        const { readyPcs, readySets, isPanel, formula } = getReadyToGlue(l, ops);
-        if (readyPcs <= 0) return <Typography.Text type="secondary">0</Typography.Text>;
+        const { readyPcs, readySets, isPanel, formula, laminatedPcs } = getReadyToGlue(l, ops);
+        const isFrame = /каркас/i.test(l.invoice) || /каркас/i.test(l.source);
+        if (readyPcs <= 0 && (!isPanel || !laminatedPcs)) return <Typography.Text type="secondary">0</Typography.Text>;
+        const isFull = readyPcs >= l.qty - 1e-6;
         return (
           <Tooltip title={formula}>
-            <Tag color="green" style={{ cursor: "help" }}>
-              {r2(readyPcs)} шт {isPanel ? `(${readySets} дв.)` : `(${readySets} дв.)`}
+            <Tag color={isFull ? "green" : readyPcs > 0 ? "orange" : "default"} style={{ cursor: "help", marginInlineEnd: 0 }}>
+              {isFrame ? (
+                <span>К: <b>{r2(readyPcs)}</b>/{r2(l.qty)}</span>
+              ) : (
+                <span>
+                  П: <b>{r2(readyPcs)}</b>/{r2(l.qty)} ({readySets} дв.)
+                  {laminatedPcs > readyPcs && (
+                    <span style={{ fontSize: 10, opacity: 0.85, marginLeft: 2 }}>[лам:{r2(laminatedPcs)}]</span>
+                  )}
+                </span>
+              )}
             </Tag>
           </Tooltip>
         );
       },
       groupRender: (ls) => {
-        const total = ls.reduce((s, l) => s + getReadyToGlue(l, ops).readyPcs, 0);
-        return <b>{r2(total)} шт</b>;
+        let fReady = 0;
+        let fPlan = 0;
+        let pReady = 0;
+        let pPlan = 0;
+        for (const l of ls) {
+          const { readyPcs, isPanel } = getReadyToGlue(l, ops);
+          if (isPanel) {
+            pReady += readyPcs;
+            pPlan += l.qty;
+          } else {
+            fReady += readyPcs;
+            fPlan += l.qty;
+          }
+        }
+        const doorSets = Math.min(
+          fPlan > 0 ? fReady : Infinity,
+          pPlan > 0 ? Math.floor(pReady / 2) : Infinity,
+        );
+        const res = doorSets !== Infinity ? doorSets : 0;
+        if (fPlan > 0 && pPlan === 0) {
+          return <b>К: {r2(fReady)}/{r2(fPlan)}</b>;
+        }
+        if (pPlan > 0 && fPlan === 0) {
+          return <b>П: {r2(pReady)}/{r2(pPlan)} ({Math.floor(pReady / 2)} дв.)</b>;
+        }
+        return (
+          <div style={{ fontVariantNumeric: "tabular-nums", fontSize: 11, lineHeight: 1.2 }}>
+            <span>К: <b>{r2(fReady)}</b>/{r2(fPlan)}</span> · <span>П: <b>{r2(pReady)}</b>/{r2(pPlan)}</span>
+            <Tag color={res > 0 ? "green" : "default"} style={{ marginLeft: 4, marginInlineEnd: 0, padding: "0 4px", fontSize: 10, lineHeight: "14px" }}>
+              {res} компл
+            </Tag>
+          </div>
+        );
       },
     },
   ];
@@ -331,16 +434,21 @@ export default function PrepView({
         >
           <div>
             <Typography.Text strong style={{ fontSize: 13, color: "#237804" }}>
-              Готовность комплектов к склейке:
+              Готовность к склейке (в работе):
             </Typography.Text>
             <span style={{ fontSize: 13, marginLeft: 8 }}>
               <b>{orderSummary.doorSetsReady}</b> из <b>{orderSummary.doorSetsTotal} комплектов дверей</b>{" "}
               ({orderSummary.doorSetsTotal > 0 ? Math.round((orderSummary.doorSetsReady / orderSummary.doorSetsTotal) * 100) : 100}%)
             </span>
+            {orderSummary.hasDoneExcluded && (
+              <Tag color="default" style={{ marginLeft: 8, fontSize: 11 }}>
+                готовые заказы исключены
+              </Tag>
+            )}
           </div>
           <div style={{ fontSize: 12, color: "#595959", display: "flex", gap: 16 }}>
             <span>• Каркасы (собрано): <b>{r2(orderSummary.framesReady)}</b> из {r2(orderSummary.framesPlan)} шт</span>
-            <span>• Облицовочные панели (с ламинацией): <b>{r2(orderSummary.panelsReady)}</b> из {r2(orderSummary.panelsPlan)} шт (по 2 на дверь = {r2(Math.floor(orderSummary.panelsReady / 2))} компл.)</span>
+            <span>• Облицовочные панели: <b>{r2(orderSummary.panelsReady)}</b> из {r2(orderSummary.panelsPlan)} шт (по 2 на дверь = {r2(Math.floor(orderSummary.panelsReady / 2))} компл.)</span>
           </div>
         </div>
       )}
@@ -372,7 +480,7 @@ export default function PrepView({
         dataSource={data}
         pagination={false}
         tableLayout="fixed"
-        scroll={{ x: 220 + 80 + 104 + ops.length * 104 + 120 + 40, y: "calc(100vh - 360px)" }}
+        scroll={{ x: 220 + 90 + 104 + ops.length * 104 + 150 + 40, y: "calc(100vh - 360px)" }}
         columns={columns}
         extra={
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>

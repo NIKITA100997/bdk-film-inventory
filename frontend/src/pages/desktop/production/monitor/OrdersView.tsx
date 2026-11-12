@@ -17,6 +17,7 @@ export interface PfRec {
   framesDone: number;
   panelsPlan: number;
   panelsDone: number;
+  panelsLaminated?: number;
   readySets: number;
   totalSets: number;
 }
@@ -46,6 +47,24 @@ export function buildLines(rows: MonitorRow[], orders: MonitorOrder[], areas: Mo
   const opSeq = new Map<string, number>();
   const pfOf = new Map<string, PfRec>();
 
+  // Предварительно определяем, для каких позиций заказа в маршруте есть фрезеровка панелей
+  const doorHasMilling = new Set<string>();
+  for (const r of rows) {
+    if (r.part_id != null && r.order_id != null) {
+      const opLow = (r.operation || "").toLowerCase();
+      if (r.area === "frezerovka_laminirovannykh_paneley" || opLow.includes("фрезер")) {
+        const sOrders = r.source_orders?.length
+          ? r.source_orders
+          : r.order_line_id != null
+          ? [{ order_line_id: r.order_line_id }]
+          : [];
+        for (const s of sOrders) {
+          doorHasMilling.add(`${r.order_id}|${s.order_line_id}`);
+        }
+      }
+    }
+  }
+
   for (const r of rows) {
     if (r.order_id == null) continue;
 
@@ -70,26 +89,38 @@ export function buildLines(rows: MonitorRow[], orders: MonitorOrder[], areas: Mo
           framesDone: 0,
           panelsPlan: 0,
           panelsDone: 0,
+          panelsLaminated: 0,
           readySets: 0,
           totalSets: 0,
         };
 
         const isFrame = /каркас/i.test(r.position);
-        const isPanel = /панел|заготовк|мдф/i.test(r.position);
+        const isPanel = /панел|накладк|заготовк|мдф|скин/i.test(r.position);
         const opLow = (r.operation || "").toLowerCase();
 
         // Учитываем финальный передел детали:
         // Для каркаса: сборка каркаса (или если другой нет)
-        // Для панели: ламинация / фрезеровка ламинированных панелей
+        // Для панели: если в маршруте есть фрезеровка ламинированных панелей — то фрезеровка;
+        //             если нет (глухая панель, напр. Щ-12) — то ламинация!
         const isFinalFrame = isFrame && (opLow.includes("сборка") || !opLow.includes("распил"));
-        const isFinalPanel = isPanel && (opLow.includes("ламинац") || opLow.includes("ламинир") || opLow.includes("окутк"));
+        const needsMilling = doorHasMilling.has(key);
+        const isFinalPanel = isPanel && (
+          needsMilling
+            ? (r.area === "frezerovka_laminirovannykh_paneley" || opLow.includes("фрезер"))
+            : (opLow.includes("ламинац") || opLow.includes("окутк") || r.area === "fabrika" || r.area === "uchastok_membranno_vakuumnykh_pressov")
+        );
 
         if (isFrame && isFinalFrame) {
           p.framesPlan += source.qty;
           p.framesDone += done;
-        } else if (isPanel && isFinalPanel) {
-          p.panelsPlan += source.qty;
-          p.panelsDone += done;
+        } else if (isPanel) {
+          if (opLow.includes("ламинац") || opLow.includes("окутк") || r.area === "fabrika" || r.area === "uchastok_membranno_vakuumnykh_pressov") {
+            p.panelsLaminated = (p.panelsLaminated || 0) + done;
+          }
+          if (isFinalPanel) {
+            p.panelsPlan += source.qty;
+            p.panelsDone += done;
+          }
         } else if (!isFrame && !isPanel) {
           p.plan += source.qty;
           p.done += done;
@@ -396,30 +427,65 @@ export default function OrdersView({
     },
     {
       key: "pf",
-      title: "П/ф",
-      width: 96,
+      title: "П/ф к склейке",
+      width: 140,
       align: "center",
       render: (_, l) => {
         if (!l.pf.totalSets) return <Typography.Text type="secondary">—</Typography.Text>;
-        const pct = Math.round((l.pf.readySets / l.pf.totalSets) * 100);
+        const fDone = r2(l.pf.framesDone);
+        const fPlan = r2(l.pf.framesPlan);
+        const pDone = r2(l.pf.panelsDone);
+        const pPlan = r2(l.pf.panelsPlan);
+        const isFull = l.pf.readySets >= l.pf.totalSets;
         return (
           <Tooltip
             title={
               <div>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>Готовность комплектов полуфабрикатов к склейке:</div>
-                <div>• Каркасы (собраны): {r2(l.pf.framesDone)} из {r2(l.pf.framesPlan)} шт. ({l.pf.framesPlan > 0 ? Math.round((l.pf.framesDone / l.pf.framesPlan) * 100) : 100}%)</div>
-                <div>• Облицовочные панели (с ламинацией): {r2(l.pf.panelsDone)} из {r2(l.pf.panelsPlan)} шт. (по 2 панели на дверь)</div>
+                <div>• Каркасы (собраны): {fDone} из {fPlan} шт. ({fPlan > 0 ? Math.round((fDone / fPlan) * 100) : 100}%)</div>
+                <div>• Облицовочные панели (готовы): {pDone} из {pPlan} шт. (по 2 панели на дверь)</div>
+                {l.pf.panelsLaminated != null && l.pf.panelsLaminated > pDone && (
+                  <div>• Панелей на ламинации сдано: {r2(l.pf.panelsLaminated)} шт. (ожидают фрезеровки)</div>
+                )}
                 <div style={{ marginTop: 6, borderTop: "1px dashed rgba(255,255,255,0.4)", paddingTop: 4 }}>
-                  <b>Формула полных комплектов:</b><br />
-                  min(каркасы: {r2(l.pf.framesDone)}, панели / 2: {r2(Math.floor(l.pf.panelsDone / 2))}) = <b>{l.pf.readySets} из {l.pf.totalSets} комплектов</b> ({pct}%)
+                  <b>Полных комплектов к склейке:</b><br />
+                  min(каркасы: {fDone}, панели / 2: {r2(Math.floor(pDone / 2))}) = <b>{l.pf.readySets} из {l.pf.totalSets} комплектов</b>
                 </div>
               </div>
             }
           >
-            <Tag color={pct >= 100 ? "green" : pct > 0 ? "orange" : "default"} style={{ marginInlineEnd: 0, cursor: "help" }}>
-              {pct}% ({l.pf.readySets}/{l.pf.totalSets})
-            </Tag>
+            <div style={{ fontVariantNumeric: "tabular-nums", fontSize: 11, lineHeight: 1.3 }}>
+              <div>К: <b>{fDone}</b>/{fPlan}</div>
+              <div>
+                П: <b>{pDone}</b>/{pPlan}
+                <Tag
+                  color={isFull ? "green" : l.pf.readySets > 0 ? "orange" : "default"}
+                  style={{ marginLeft: 4, marginInlineEnd: 0, padding: "0 3px", fontSize: 10, lineHeight: "14px" }}
+                >
+                  {l.pf.readySets} компл
+                </Tag>
+              </div>
+            </div>
           </Tooltip>
+        );
+      },
+      groupRender: (rs) => {
+        const fDone = rs.reduce((s, l) => s + l.pf.framesDone, 0);
+        const fPlan = rs.reduce((s, l) => s + l.pf.framesPlan, 0);
+        const pDone = rs.reduce((s, l) => s + l.pf.panelsDone, 0);
+        const pPlan = rs.reduce((s, l) => s + l.pf.panelsPlan, 0);
+        const totalSets = rs.reduce((s, l) => s + l.pf.readySets, 0);
+        if (!fPlan && !pPlan) return null;
+        return (
+          <div style={{ fontVariantNumeric: "tabular-nums", fontSize: 11, lineHeight: 1.2 }}>
+            <span>К: <b>{r2(fDone)}</b>/{r2(fPlan)}</span> · <span>П: <b>{r2(pDone)}</b>/{r2(pPlan)}</span>
+            <Tag
+              color={fDone >= fPlan && pDone >= pPlan ? "green" : totalSets > 0 ? "orange" : "default"}
+              style={{ marginLeft: 4, marginInlineEnd: 0, padding: "0 4px", fontSize: 10, lineHeight: "14px" }}
+            >
+              {totalSets} компл
+            </Tag>
+          </div>
         );
       },
     },
@@ -476,7 +542,7 @@ export default function OrdersView({
         pagination={false}
         tableLayout="fixed"
         scroll={{
-          x: 140 + 80 + 90 + 150 + 240 + 76 + 96 + 96 + ops.length * 100 + 40,
+          x: 140 + 80 + 90 + 150 + 240 + 76 + 96 + 140 + ops.length * 100 + 40,
           y: "calc(100vh - 360px)",
         }}
         columns={columns}
