@@ -24,7 +24,7 @@ const productOf = (r: MonitorRow) => (r.direction && (PRODUCTS as readonly strin
 const productLabel = (p: string) => (p === "other" ? "Прочее" : DIRECTIONS[p] ?? p);
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
 type View = "orders" | "prod_orders" | "areas" | "prep";
-type StatusFilter = "all" | "in_work" | "deficit" | "ready";
+type StatusFilter = "all" | "in_work" | "urgent" | "deficit";
 
 export default function ProductionMonitor() {
   useTabTitle("Монитор производства");
@@ -107,6 +107,14 @@ export default function ProductionMonitor() {
       // 4. Быстрый фильтр по статусу строки
       if (statusFilter === "in_work") {
         if (r.closed || r.good >= r.plan) return false;
+      } else if (statusFilter === "urgent") {
+        if (r.closed || r.good >= r.plan) return false;
+        if (!r.order_id) return false;
+        const order = orderMap.get(r.order_id);
+        if (!order?.ship_date) return false;
+        const ship = dayjs(order.ship_date);
+        const daysLeft = ship.diff(dayjs(), "day");
+        if (daysLeft > 2) return false;
       } else if (statusFilter === "deficit") {
         const hasDeficit = (r.film_deficit_m ?? 0) > 0 || r.film_status === "partial" || r.film_status === "none";
         if (!hasDeficit) return false;
@@ -336,6 +344,7 @@ export default function ProductionMonitor() {
               >
                 <Radio.Button value="all">Все</Radio.Button>
                 <Radio.Button value="in_work">В работе</Radio.Button>
+                <Radio.Button value="urgent">🔥 Горящие (≤2 дн)</Radio.Button>
                 <Radio.Button value="deficit">Дефицит плёнки</Radio.Button>
               </Radio.Group>
 
