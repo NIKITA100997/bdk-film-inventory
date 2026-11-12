@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Card, DatePicker, Form, InputNumber, Select, Space, Typography, List, Row, Col, message } from "antd";
+import { Alert, Button, Card, DatePicker, Form, InputNumber, Select, Space, Switch, Typography, List, Row, Col, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import Statistic from "../../components/Statistic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,6 +19,7 @@ type LineValues = {
   width_mm: number;
   length_m: number;
   quantity: number;
+  marked_illiquid?: boolean;
 };
 
 // Плейсхолдеры вместо УПД/паллеты — эта плёнка физически уже стоит на
@@ -59,6 +60,7 @@ export default function InitialStock({ embedded = false }: { embedded?: boolean 
   const selectedShelfNumber = Form.useWatch("shelf", lineForm);
   const selectedShelf = (occupancyQuery.data ?? []).find((c) => c.shelf === selectedShelfNumber);
   const remainingCapacity = selectedShelf ? selectedShelf.capacity - selectedShelf.units.length : 1;
+  const isIlliquid = Form.useWatch("marked_illiquid", lineForm);
 
   const addLineMutation = useMutation({
     mutationFn: (values: LineValues) => {
@@ -75,6 +77,7 @@ export default function InitialStock({ embedded = false }: { embedded?: boolean 
         quantity: values.quantity,
         location_code: shelfCell.location_code,
         occurred_at: toOccurredAtIso(occurredAt),
+        marked_illiquid: !!values.marked_illiquid,
       };
       return receiveUnits(payload);
     },
@@ -151,7 +154,7 @@ export default function InitialStock({ embedded = false }: { embedded?: boolean 
               : "Полку выбирайте заново на каждой строке."}
           </Typography.Paragraph>
 
-          <Form form={lineForm} layout="vertical" onFinish={(v) => addLineMutation.mutate(v)} initialValues={{ quantity: 1 }}>
+          <Form form={lineForm} layout="vertical" onFinish={(v) => addLineMutation.mutate(v)} initialValues={{ quantity: 1, marked_illiquid: false }}>
             <Form.Item name="shelf" label="Полка" rules={[{ required: true }]}>
               <Select
                 size="large"
@@ -163,6 +166,18 @@ export default function InitialStock({ embedded = false }: { embedded?: boolean 
                 }))}
               />
             </Form.Item>
+            <Form.Item name="marked_illiquid" valuePropName="checked" label="Статус фонда" style={{ marginBottom: 12 }}>
+              <Switch checkedChildren="Неликвид" unCheckedChildren="Основной" />
+            </Form.Item>
+            {isIlliquid && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="Плёнка будет помечена как «Неликвид»"
+                description="Она будет видна со статусом «неликвид» и не пойдёт в автоматическую выдачу под обычные заказы."
+              />
+            )}
             <Form.Item style={{ marginBottom: 16 }}>
               <ExistingSkuPicker
                 onSelect={(sku) =>
@@ -238,7 +253,27 @@ export default function InitialStock({ embedded = false }: { embedded?: boolean 
                       </Button>,
                     ]}
                   >
-                    № {u.id} — {skuLabel(u.material_sku)}, {u.width_mm}×{u.length_m} — {u.location_code}
+                    <div>
+                      <span>
+                        № {u.id} — {skuLabel(u.material_sku)}, {u.width_mm}×{u.length_m} — {u.location_code}
+                      </span>
+                      {u.marked_illiquid && (
+                        <span
+                          style={{
+                            marginLeft: 6,
+                            fontSize: 11,
+                            background: "#fff7e6",
+                            color: "#d46b08",
+                            border: "1px solid #ffd591",
+                            borderRadius: 3,
+                            padding: "1px 5px",
+                            fontWeight: 500,
+                          }}
+                        >
+                          неликвид
+                        </span>
+                      )}
+                    </div>
                   </List.Item>
                 )}
               />

@@ -149,7 +149,17 @@ export default function Receive() {
         </Typography.Title>
         <Segmented
           value={noDoc ? "nodoc" : "doc"}
-          onChange={(v) => setParams(v === "nodoc" ? { mode: "nodoc" } : {}, { replace: true })}
+          onChange={(v) =>
+            setParams(
+              (prev) => {
+                const next = new URLSearchParams(prev);
+                if (v === "nodoc") next.set("mode", "nodoc");
+                else next.delete("mode");
+                return next;
+              },
+              { replace: true }
+            )
+          }
           options={[
             { value: "doc", label: "По документу (УПД)" },
             { value: "nodoc", label: "Без документа (уже на складе)" },
