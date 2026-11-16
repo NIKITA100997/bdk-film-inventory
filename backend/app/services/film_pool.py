@@ -44,10 +44,14 @@ def get_area_matching_strips(
     target_width_mm: float,
 ) -> list[MaterialUnit]:
     """Найти все активные штрипсы на участке, подходящие по плёнке и ширине (FIFO).
-    Поддерживает точную ширину и группы эквивалентных ширин (аналогов)."""
+    Поддерживает точную ширину и группы эквивалентных ширин (аналогов).
+    Для участков с ручной резкой (film_cut_on_site) или без фиксированной ширины штрипса
+    выдаётся рулон целиком (1250-1420 мм) — списание идёт из доступных рулонов участка по FIFO."""
+    from app.services.areas import cuts_film_on_site
     from app.services.width_analogs import equivalent_widths
 
-    equiv_widths = set(equivalent_widths(db, target_width_mm))
+    is_cut_on_site = cuts_film_on_site(db, area) or target_width_mm <= 0
+    equiv_widths = set(equivalent_widths(db, target_width_mm)) if not is_cut_on_site else set()
 
     def _build_query(filter_thickness: bool):
         q = (
@@ -62,10 +66,11 @@ def get_area_matching_strips(
         )
         if filter_thickness and thickness_id is not None:
             q = q.filter(MaterialSku.thickness_id == thickness_id)
-        if equiv_widths:
-            q = q.filter(MaterialUnit.width_mm.in_(equiv_widths))
-        else:
-            q = q.filter(func.abs(MaterialUnit.width_mm - target_width_mm) < 0.5)
+        if not is_cut_on_site:
+            if equiv_widths:
+                q = q.filter(MaterialUnit.width_mm.in_(equiv_widths))
+            else:
+                q = q.filter(func.abs(MaterialUnit.width_mm - target_width_mm) < 0.5)
         return q.order_by(MaterialUnit.created_at.asc(), MaterialUnit.id.asc()).all()
 
     candidates = _build_query(filter_thickness=True)

@@ -98,7 +98,11 @@ export default function StripPoolAdjustModal({
               <span>·</span>
               <Typography.Text>{color ?? "—"}</Typography.Text>
               <span>·</span>
-              <UiBadge color="blue">{stripWidthMm} мм</UiBadge>
+              {stripWidthMm > 0 ? (
+                <UiBadge color="blue">{stripWidthMm} мм</UiBadge>
+              ) : (
+                <UiBadge color="purple">ручная резка / рулон</UiBadge>
+              )}
             </Space>
           }
           description={

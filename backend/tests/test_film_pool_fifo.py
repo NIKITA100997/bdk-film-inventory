@@ -722,3 +722,47 @@ def test_film_issue_mobile_queue_serialization(setup_pogonazh_data):
     assert len(found_line.assignments) >= 1
     assert found_line.assignments[0].id == assign.id
 
+
+def test_fifo_consumption_for_cut_on_site_area(setup_pogonazh_data):
+    """Участок с ручной резкой (film_cut_on_site): рулон полной ширины (например, 1400мм)
+    списывается по FIFO для деталей любой ширины без требования точного штрипса."""
+    d = setup_pogonazh_data
+    db = d["db"]
+    sku = d["sku"]
+    user = d["user"]
+    line = d["line"]
+
+    # Создаём участок с флагом film_cut_on_site
+    from app.models.areas import Area
+    press_area = Area(code="press_manual", name="Пресс / Ручная резка", is_active=True, film_cut_on_site=True)
+    db.merge(press_area)
+    db.flush()
+
+    # Рулон полной ширины 1400 мм на этом участке
+    wide_roll = MaterialUnit(
+        material_sku_id=sku.id,
+        upd_number="UPD-PRESS-1",
+        pallet_number="PALLET-PRESS-1",
+        length_m=50.0,
+        width_mm=1400.0,
+        status=UnitStatus.VYDAN_UCHASTKU,
+        area="press_manual",
+    )
+    db.add(wide_roll)
+    db.flush()
+
+    # Списываем 10 деталей длиной 2м (потребность 20м)
+    allocs = consume_film_strips_fifo(
+        db,
+        line=line,
+        area="press_manual",
+        good_pieces=10,
+        defect_pieces=0,
+        user_id=user.id,
+    )
+    assert len(allocs) == 1
+    assert allocs[0].material_unit_id == wide_roll.id
+    assert allocs[0].meters == 20.0
+    assert allocs[0].is_deficit is False
+
+
