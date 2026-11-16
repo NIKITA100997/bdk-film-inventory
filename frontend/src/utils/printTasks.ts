@@ -60,14 +60,42 @@ function orderHead(s: TaskPrintSheet): { title: string; html: string } {
 
 /** Ведомость панелей (фрезеровка / распил / шлифовка МДФ). */
 function panelPage(s: TaskPrintSheet, now: string): string {
-  const groups = new Map<string, { mdf: string; sand: string; program: string; series: string; blank: string; qty: number; done: number; name: string; sources: Map<number, PrintSource>; sourceMissing: boolean }>();
+  const groups = new Map<
+    string,
+    {
+      mdf: string;
+      sand: string;
+      program: string;
+      instruction: string;
+      series: string;
+      blank: string;
+      qty: number;
+      done: number;
+      name: string;
+      sources: Map<number, PrintSource>;
+      sourceMissing: boolean;
+    }
+  >();
   for (const r of s.rows) {
     const p = r.panel ?? { mdf: "", sand: "", series: r.series ?? "", blank: r.size ?? "" };
     const blank = p.blank || r.size || "";
     const series = p.series || r.series || "";
     const mdf = p.mdf || (r.name.includes("Kastamonu") ? "Kastamonu" : r.name.includes("Беларусь") ? "Беларусь" : "МДФ");
-    const k = [mdf, p.sand, r.program ?? "", series, blank, r.panel ? "" : r.name].join("|");
-    const g = groups.get(k) ?? { ...p, mdf, series, blank, program: r.program ?? "", qty: 0, done: 0, name: r.panel ? "" : r.name, sources: new Map(), sourceMissing: false };
+    const k = [mdf, p.sand, r.program ?? "", r.instruction ?? "", series, blank, r.panel ? "" : r.name].join("|");
+    const g =
+      groups.get(k) ?? {
+        ...p,
+        mdf,
+        series,
+        blank,
+        program: r.program ?? "",
+        instruction: r.instruction ?? "",
+        qty: 0,
+        done: 0,
+        name: r.panel ? "" : r.name,
+        sources: new Map(),
+        sourceMissing: false,
+      };
     g.qty += r.qty;
     g.done += r.done;
     g.sourceMissing ||= Boolean(r.source_missing);
@@ -84,7 +112,7 @@ function panelPage(s: TaskPrintSheet, now: string): string {
     .map(
       (g, i) => `<tr>
 <td class="n">${i + 1}</td><td><b>${esc(g.mdf || "МДФ")}</b></td><td>${esc(g.sand || "—")}</td>
-<td>${g.program ? `<b>${esc(g.program)}</b>` : g.name ? esc(g.name) : '<span class="warn">уточнить программу</span>'}</td>
+<td>${g.program ? `<span class="cnc-badge"><b>${esc(g.program)}</b></span>` : g.name ? esc(g.name) : '<span class="warn">уточнить программу</span>'}${g.instruction ? `<div class="sub-warn">⚑ ${esc(g.instruction)}</div>` : ""}</td>
 <td><b>${esc(g.series || "—")}</b></td><td class="nw"><b>${esc(g.blank || "—")}</b></td>
 <td>${sourceDetails([...g.sources.values()]) || (g.sourceMissing ? '<span class="warn">источник не восстановлен — сверить</span>' : "")}</td>
 <td class="q"><b>${Math.round(g.qty * 100) / 100}</b></td><td class="q">${g.done ? Math.round(g.done * 100) / 100 : ""}</td>
@@ -92,7 +120,7 @@ function panelPage(s: TaskPrintSheet, now: string): string {
 </tr>`,
     )
     .join("");
-  const head = ["№", "МДФ", "Шлифовка / Цвет", "Программа / Наименование", "Серия", "Размер заготовки", "Счета / серии / кол-во", "Кол-во, шт", "Сделано", "Годно", "Брак", "Подпись"];
+  const head = ["№", "МДФ", "Шлифовка / Цвет", "Программа ЧПУ / Примечание", "Серия", "Размер заготовки", "Счета / серии / кол-во", "Кол-во, шт", "Сделано", "Годно", "Брак", "Подпись"];
   const oh = orderHead(s);
   return `<section class="page">
 <div class="top-header">
@@ -221,8 +249,8 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
   const pages = sheets
     .map((s) => {
       const areaLow = (s.area_name || "").toLowerCase();
-      const isPanelArea = /фрезер.*панел|шлиф.*панел|распил.*мдф|склейк.*мдф|панел|мдф/i.test(areaLow);
-      if (isPanelArea && s.rows.some((r) => r.panel)) return panelPage(s, now);
+      const isPanelArea = /фрезер|шлиф.*панел|распил.*мдф|склейк.*мдф|панел|мдф/i.test(areaLow);
+      if (isPanelArea && (s.rows.some((r) => r.panel) || s.rows.some((r) => r.program))) return panelPage(s, now);
 
       const isSkleykaArea = /склейк.*щит|skleyka_shchitov/i.test(areaLow);
       if (isSkleykaArea && s.rows.some((r) => r.skleyka)) return skleykaPage(s, now);
@@ -238,7 +266,8 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
       const hasFilm = s.rows.some((r) => r.film);
       const hasProg = s.rows.some((r) => r.program || r.instruction);
       const hasInv = s.rows.some((r) => r.invoice_no);
-      const hasEdge = /периметр|кромк/i.test(areaLow) && s.rows.some((r) => r.edge || r.edge_type);
+      const isEdgeArea = /периметр|кромк/i.test(areaLow);
+      const hasEdge = isEdgeArea || s.rows.some((r) => r.edge || r.edge_type);
 
       const head = [
         "№",
@@ -322,6 +351,8 @@ ${componentsTable(s)}
   td.nw { white-space: nowrap; }
   td.w { width: 34px; }
   .warn { color: #d46b08; font-weight: bold; }
+  .sub-warn { font-size: 10px; color: #d46b08; font-weight: 600; margin-top: 2px; }
+  .cnc-badge { font-family: monospace; font-size: 11px; background: #f0f5ff; border: 1px solid #adc6ff; padding: 1px 5px; border-radius: 3px; display: inline-block; color: #1d39c4; }
   .sub { font-size: 10px; color: #666; font-weight: normal; }
   .order { font-weight: bold; font-size: 13px; }
   .note { font-size: 11px; color: #444; margin-bottom: 4px; }

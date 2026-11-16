@@ -589,6 +589,9 @@ class JobCardLineOut(BaseModel):
     material_label: str | None = None
     program: str | None = None
     instruction: str | None = None
+    edge_type: str | None = None
+    edge_color: str | None = None
+    edge_sides: int | None = None
     quantity_pieces: float
     produced_good_pieces: float = 0.0
     defect_pieces: float = 0.0

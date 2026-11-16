@@ -4,10 +4,11 @@ import { ThunderboltOutlined } from "@ant-design/icons";
 import { useState } from "react";
 import NextStep, { scrollToId } from "../../../components/NextStep";
 import { apiClient } from "../../../api/client";
-import { Card, Collapse, Space, Typography, DatePicker, Tag, Button, Empty, Select, Progress, Table, Segmented } from "antd";
+import { Card, Collapse, Space, Typography, DatePicker, Button, Empty, Select, Progress, Table, Segmented } from "antd";
 import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
+import UiBadge from "../../../components/UiBadge";
 import { lineFilmLabel, listActiveProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../../api/production";
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
@@ -198,10 +199,10 @@ export default function DailyPlanTab() {
                   <Space size={4} wrap>
                     <span>{r.line.strip_width_mm || r.line.width_mm} мм</span>
                     {r.line.area_strip_stock_m != null && r.line.area_strip_stock_m > 0 && (
-                      <Tag color="green" title="Доступно в пуле штрипсов участка">в пуле {r.line.area_strip_stock_m} м</Tag>
+                      <UiBadge color="green" title="Доступно в пуле штрипсов участка">в пуле {r.line.area_strip_stock_m} м</UiBadge>
                     )}
                     {r.line.film_deficit_m && r.line.film_deficit_m > 0 ? (
-                      <Tag color="error" title="Овердрафт: списано в дефицит">дефицит -{r.line.film_deficit_m} м</Tag>
+                      <UiBadge color="error" title="Овердрафт: списано в дефицит">дефицит -{r.line.film_deficit_m} м</UiBadge>
                     ) : null}
                     {r.line.material_id && r.line.color_id && <Button
                       size="middle"
@@ -215,14 +216,14 @@ export default function DailyPlanTab() {
                   </Space>
                 ),
               },
-              { title: "План на день", render: (_, r) => <Tag color="blue">{r.assignment.quantity_pieces} шт</Tag> },
+              { title: "План на день", render: (_, r) => <UiBadge color="blue">{r.assignment.quantity_pieces} шт</UiBadge> },
               { title: "Сотрудники линии", render: (_, r) => r.assignment.employee_names },
               {
                 title: "Хорошие/Брак за день",
                 render: (_, r) => (
                   <Space size={4}>
-                    <Tag color="green">{r.assignment.produced_good_pieces} шт</Tag>
-                    {r.assignment.defect_pieces > 0 && <Tag color="red">брак {r.assignment.defect_pieces} шт</Tag>}
+                    <UiBadge color="green">{r.assignment.produced_good_pieces} шт</UiBadge>
+                    {r.assignment.defect_pieces > 0 && <UiBadge color="error">брак {r.assignment.defect_pieces} шт</UiBadge>}
                   </Space>
                 ),
               },

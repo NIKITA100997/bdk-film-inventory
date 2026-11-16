@@ -715,6 +715,9 @@ export interface JobCardLine {
   material_label: string | null;
   program: string | null;
   instruction: string | null;
+  edge_type?: string | null;
+  edge_color?: string | null;
+  edge_sides?: number | null;
   quantity_pieces: number;
   produced_good_pieces: number;
   defect_pieces: number;

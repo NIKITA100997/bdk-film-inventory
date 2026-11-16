@@ -22,6 +22,7 @@ from app.schemas.production import (
     JobCardRelatedTaskOut,
     ProductionTaskOut,
 )
+from app.services.door_cols import door_cols
 
 
 def build_job_card(
@@ -81,6 +82,9 @@ def build_job_card(
             mat_parts.append(f"штрипс {int(l.strip_width_mm)}мм")
         mat_label = " · ".join(mat_parts) if mat_parts else "—"
 
+        # Извлечение параметров кромки (ABS/ПЭТ/алюминий, цвет, стороны)
+        edge_data = door_cols(l.item_chars, None, l.part_name)
+
         lines_out.append(
             JobCardLineOut(
                 id=l.id,
@@ -96,6 +100,9 @@ def build_job_card(
                 material_label=mat_label,
                 program=l.program,
                 instruction=l.instruction,
+                edge_type=edge_data.get("edge_type") or None,
+                edge_color=edge_data.get("edge_color") or None,
+                edge_sides=edge_data.get("edge_sides") or None,
                 quantity_pieces=l.quantity_pieces,
                 produced_good_pieces=l.produced_good_pieces,
                 defect_pieces=l.defect_pieces,

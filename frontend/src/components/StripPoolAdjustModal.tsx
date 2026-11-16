@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Modal, Form, InputNumber, Input, Typography, Space, Tag, Alert, message, Button } from "antd";
+import { Modal, Form, InputNumber, Input, Typography, Space, Alert, message, Button } from "antd";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { adjustStripPool } from "../api/production";
 import { apiErrorMessage } from "../utils/apiError";
+import UiBadge from "./UiBadge";
 
 interface Props {
   open: boolean;
@@ -97,7 +98,7 @@ export default function StripPoolAdjustModal({
               <span>·</span>
               <Typography.Text>{color ?? "—"}</Typography.Text>
               <span>·</span>
-              <Tag color="blue">{stripWidthMm} мм</Tag>
+              <UiBadge color="blue">{stripWidthMm} мм</UiBadge>
             </Space>
           }
           description={
@@ -105,7 +106,7 @@ export default function StripPoolAdjustModal({
               <span>Текущий расчётный остаток в пуле: <b>{prevM} м</b></span>
               {deficitM != null && deficitM > 0 && (
                 <div style={{ marginTop: 4 }}>
-                  <Tag color="error">Накоплен овердрафт: -{deficitM} м</Tag>
+                  <UiBadge color="error">Накоплен овердрафт: -{deficitM} м</UiBadge>
                 </div>
               )}
             </div>
@@ -140,17 +141,17 @@ export default function StripPoolAdjustModal({
 
           <div style={{ marginBottom: 16 }}>
             {delta > 0 ? (
-              <Tag color="success" style={{ fontSize: 13, padding: "4px 8px" }}>
+              <UiBadge color="green" style={{ fontSize: 13, padding: "4px 8px" }}>
                 + {delta} м (будет оприходовано как излишек пула)
-              </Tag>
+              </UiBadge>
             ) : delta < 0 ? (
-              <Tag color="warning" style={{ fontSize: 13, padding: "4px 8px" }}>
+              <UiBadge color="warning" style={{ fontSize: 13, padding: "4px 8px" }}>
                 {delta} м (будет списано по FIFO как недостача)
-              </Tag>
+              </UiBadge>
             ) : (
-              <Tag color="default" style={{ fontSize: 13, padding: "4px 8px" }}>
+              <UiBadge color="default" style={{ fontSize: 13, padding: "4px 8px" }}>
                 Остаток совпадает (0 м изменений)
-              </Tag>
+              </UiBadge>
             )}
           </div>
 

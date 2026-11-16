@@ -12,6 +12,12 @@ const esc = (v: unknown) =>
 export function printJobCard(card: JobCardData, qrDataUrl?: string) {
   const now = fmtDateTime(new Date());
 
+  const areaText = `${card.area_name || ""} ${card.area_code || ""}`.toLowerCase();
+  const isMilling = /фрезер|мдф|панел|чпу|cnc/i.test(areaText);
+  const isEdgebanding = /кромк|периметр|edge/i.test(areaText);
+  const isCarcass = /каркас|сборк.*щит|склейк|skleyka|kle[yj]/i.test(areaText);
+  const isWrapping = /окутк|погонаж|царг|фабрик|wrap/i.test(areaText);
+
   const materialsRows = card.materials
     .map(
       (m, i) => `<tr>
@@ -26,22 +32,150 @@ export function printJobCard(card: JobCardData, qrDataUrl?: string) {
     )
     .join("");
 
-  const linesRows = card.lines
-    .map(
-      (l, i) => `<tr>
-    <td class="n">${i + 1}</td>
-    <td><b>${esc(l.part_name || "Деталь")}</b>${l.operation_name ? `<div class="sub">${esc(l.operation_name)}</div>` : ""}</td>
-    <td class="nw"><b>${esc(l.dimensions)}</b></td>
-    <td class="q">${l.strip_width_mm ? `${Math.round(l.strip_width_mm)}` : "—"}</td>
-    <td>${l.program ? `<code>${esc(l.program)}</code>` : "—"}${l.instruction ? `<div class="warn">⚑ ${esc(l.instruction)}</div>` : ""}</td>
-    <td class="q big">${Math.round(l.quantity_pieces)}</td>
-    <td class="q">${l.produced_good_pieces ? Math.round(l.produced_good_pieces) : "0"}</td>
-    <td class="w"></td>
-    <td class="w"></td>
-    <td class="w wide"></td>
-  </tr>`,
-    )
-    .join("");
+  let theadHtml = "";
+  let linesRows = "";
+
+  if (isMilling) {
+    // 1. Участок фрезеровки / ЧПУ / раскроя МДФ
+    theadHtml = `<tr>
+      <th>№</th>
+      <th>Наименование детали / Профиль</th>
+      <th>Размеры (Длина x Ширина x Толщина)</th>
+      <th>Программа ЧПУ</th>
+      <th>Указания / Фреза</th>
+      <th>План, шт</th>
+      <th>Сдано, шт</th>
+      <th style="background:#fff3e0">Сделано, шт</th>
+      <th style="background:#ffebee">Брак, шт</th>
+      <th>Подпись оператора</th>
+    </tr>`;
+
+    linesRows = card.lines
+      .map(
+        (l, i) => `<tr>
+      <td class="n">${i + 1}</td>
+      <td><b>${esc(l.part_name || "Деталь")}</b>${l.operation_name ? `<div class="sub">${esc(l.operation_name)}</div>` : ""}</td>
+      <td class="nw"><b>${esc(l.dimensions)}</b></td>
+      <td>${l.program ? `<span class="cnc-badge"><b>${esc(l.program)}</b></span>` : '<span class="warn">уточнить ЧПУ</span>'}</td>
+      <td>${l.instruction ? `<div class="warn">⚑ ${esc(l.instruction)}</div>` : "—"}</td>
+      <td class="q big">${Math.round(l.quantity_pieces)}</td>
+      <td class="q">${l.produced_good_pieces ? Math.round(l.produced_good_pieces) : "0"}</td>
+      <td class="w"></td>
+      <td class="w"></td>
+      <td class="w wide"></td>
+    </tr>`,
+      )
+      .join("");
+  } else if (isEdgebanding) {
+    // 2. Участок кромкооблицовки / периметра
+    theadHtml = `<tr>
+      <th>№</th>
+      <th>Наименование детали / Полотно</th>
+      <th>Размеры (Длина x Ширина x Толщина)</th>
+      <th>Тип кромки (толщина)</th>
+      <th>Цвет кромки</th>
+      <th>Сторон</th>
+      <th>План, шт</th>
+      <th>Сдано, шт</th>
+      <th style="background:#fff3e0">Сделано, шт</th>
+      <th style="background:#ffebee">Брак, шт</th>
+      <th>Подпись оператора</th>
+    </tr>`;
+
+    linesRows = card.lines
+      .map(
+        (l, i) => `<tr>
+      <td class="n">${i + 1}</td>
+      <td><b>${esc(l.part_name || "Полотно")}</b>${l.operation_name ? `<div class="sub">${esc(l.operation_name)}</div>` : ""}</td>
+      <td class="nw"><b>${esc(l.dimensions)}</b></td>
+      <td class="nw"><b>${esc(l.edge_type || "ABS")}</b></td>
+      <td>${esc(l.edge_color || "—")}</td>
+      <td class="q"><b>${l.edge_sides ? `${l.edge_sides}х` : (l.edge_type ? "—" : "—")}</b></td>
+      <td class="q big">${Math.round(l.quantity_pieces)}</td>
+      <td class="q">${l.produced_good_pieces ? Math.round(l.produced_good_pieces) : "0"}</td>
+      <td class="w"></td>
+      <td class="w"></td>
+      <td class="w wide"></td>
+    </tr>`,
+      )
+      .join("");
+  } else if (isCarcass) {
+    // 3. Участок сборки каркасов / склейки щитов
+    theadHtml = `<tr>
+      <th>№</th>
+      <th>Наименование изделия / Деталь</th>
+      <th>Размеры (Длина x Ширина x Толщина)</th>
+      <th>Спецификация / Примечание</th>
+      <th>Программа / Схема</th>
+      <th>План, шт</th>
+      <th>Сдано, шт</th>
+      <th style="background:#fff3e0">Сделано, шт</th>
+      <th style="background:#ffebee">Брак, шт</th>
+      <th>Подпись сборщика</th>
+    </tr>`;
+
+    linesRows = card.lines
+      .map(
+        (l, i) => `<tr>
+      <td class="n">${i + 1}</td>
+      <td><b>${esc(l.part_name || "Каркас")}</b>${l.operation_name ? `<div class="sub">${esc(l.operation_name)}</div>` : ""}</td>
+      <td class="nw"><b>${esc(l.dimensions)}</b></td>
+      <td>${l.instruction ? `<div class="warn">⚑ ${esc(l.instruction)}</div>` : esc(l.material_label || "—")}</td>
+      <td>${l.program ? `<code>${esc(l.program)}</code>` : "—"}</td>
+      <td class="q big">${Math.round(l.quantity_pieces)}</td>
+      <td class="q">${l.produced_good_pieces ? Math.round(l.produced_good_pieces) : "0"}</td>
+      <td class="w"></td>
+      <td class="w"></td>
+      <td class="w wide"></td>
+    </tr>`,
+      )
+      .join("");
+  } else {
+    // 4. Окутка царговых / погонаж (или общий случай)
+    theadHtml = `<tr>
+      <th>№</th>
+      <th>Наименование детали / Передел</th>
+      <th>Размеры (Длина x Ширина x Толщина)</th>
+      <th>Штрипс</th>
+      <th>Программа ЧПУ / Схема</th>
+      <th>План, шт</th>
+      <th>Сдано, шт</th>
+      <th style="background:#fff3e0">Сделано, шт</th>
+      <th style="background:#ffebee">Брак, шт</th>
+      <th>Подпись оператора</th>
+    </tr>`;
+
+    linesRows = card.lines
+      .map(
+        (l, i) => `<tr>
+      <td class="n">${i + 1}</td>
+      <td><b>${esc(l.part_name || "Деталь")}</b>${l.operation_name ? `<div class="sub">${esc(l.operation_name)}</div>` : ""}</td>
+      <td class="nw"><b>${esc(l.dimensions)}</b></td>
+      <td class="q">${l.strip_width_mm ? `${Math.round(l.strip_width_mm)} мм` : "—"}</td>
+      <td>${l.program ? `<code>${esc(l.program)}</code>` : "—"}${l.instruction ? `<div class="warn">⚑ ${esc(l.instruction)}</div>` : ""}</td>
+      <td class="q big">${Math.round(l.quantity_pieces)}</td>
+      <td class="q">${l.produced_good_pieces ? Math.round(l.produced_good_pieces) : "0"}</td>
+      <td class="w"></td>
+      <td class="w"></td>
+      <td class="w wide"></td>
+    </tr>`,
+      )
+      .join("");
+  }
+
+  const materialsTitle = isWrapping
+    ? "1. Сырьё и плёнка под наряд"
+    : isMilling
+      ? "1. Материалы и заготовки МДФ"
+      : "1. Сырьё и комплектующие под наряд";
+
+  const qualityMemo = isMilling
+    ? "* Регламент ЧПУ: перед запуском всей партии проверьте нулевую точку, траекторию и толщину первого спила штангенциркулем. Проверьте отсутствие сколов по кромке заготовки. Сформировано: " + esc(now) + "."
+    : isEdgebanding
+      ? "* Регламент кромкооблицовки: проверьте температуру расплава клея и прочность адгезии на пробном метре. Обрезка свесов и радиусная цикля должны быть ровными без ступеней и задиров. Сформировано: " + esc(now) + "."
+      : isCarcass
+        ? "* Регламент сборки: проверьте диагонали каркаса (разность не более 1.5 мм). Заполнение сотами/пенопластом должно быть плотным, без зазоров по периметру бруска. Сформировано: " + esc(now) + "."
+        : "* Регламент качества: перед запуском всей серии проверьте клеевой шов и адгезию на пусковом метре. Размеры заготовки контролируйте поверенным инструментом. При обнаружении дефектов сырья зафиксируйте брак через QR-код наряда. Сформировано: " + esc(now) + ".";
 
   const html = `<!doctype html>
 <html lang="ru">
@@ -76,6 +210,7 @@ export function printJobCard(card: JobCardData, qrDataUrl?: string) {
     td.w.wide { width: 90px; }
     .sub { font-size: 9.5px; color: #666; }
     .warn { font-size: 10px; color: #b35b00; font-weight: 600; }
+    .cnc-badge { font-family: monospace; font-size: 11.5px; background: #f0f5ff; border: 1px solid #adc6ff; padding: 2px 6px; border-radius: 3px; display: inline-block; color: #1d39c4; }
 
     .footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 14px; padding-top: 10px; border-top: 1px solid #aaa; font-size: 11px; }
     .sign-col { flex: 1; }
@@ -121,7 +256,7 @@ export function printJobCard(card: JobCardData, qrDataUrl?: string) {
 
   ${
     card.materials.length > 0
-      ? `<h2>1. Сырьё и плёнка под наряд</h2>
+      ? `<h2>${materialsTitle}</h2>
   <table>
     <thead>
       <tr>
@@ -141,20 +276,7 @@ export function printJobCard(card: JobCardData, qrDataUrl?: string) {
 
   <h2>2. Спецификация деталей сменного задания</h2>
   <table>
-    <thead>
-      <tr>
-        <th>№</th>
-        <th>Наименование детали / Передел</th>
-        <th>Размеры (Длина x Ширина x Толщина)</th>
-        <th>Штрипс</th>
-        <th>Программа ЧПУ / Схема</th>
-        <th>План, шт</th>
-        <th>Сдано, шт</th>
-        <th style="background:#fff3e0">Сделано, шт</th>
-        <th style="background:#ffebee">Брак, шт</th>
-        <th>Подпись оператора</th>
-      </tr>
-    </thead>
+    <thead>${theadHtml}</thead>
     <tbody>${linesRows}</tbody>
   </table>
 
@@ -173,9 +295,7 @@ export function printJobCard(card: JobCardData, qrDataUrl?: string) {
     </div>
   </div>
 
-  <div class="memo">
-    * Регламент качества: перед запуском всей серии проверьте клеевой шов и адгезию на пусковом метре. Размеры заготовки контролируйте поверенным инструментом. При обнаружении дефектов сырья зафиксируйте брак через QR-код наряда. Сформировано: ${esc(now)}.
-  </div>
+  <div class="memo">${qualityMemo}</div>
 </body>
 </html>`;
 
