@@ -121,7 +121,7 @@ export function resolveGroupBy(areaObj?: Area | null, profile?: MasterProfile): 
     case "edgebanding":
       return "edge";
     case "assembly":
-      return "series";
+      return "dimensions";
     case "packaging":
       return "order";
     default:
@@ -177,7 +177,13 @@ export function getLineGroup(
           label: `Серия: ${doorInfo.series}`,
         };
       }
-      return { key: "series:other", label: "Остальные серии" };
+      if (doorInfo.dimensions_str) {
+        return {
+          key: `dim:${doorInfo.dimensions_str}`,
+          label: `Размер: ${doorInfo.dimensions_str}`,
+        };
+      }
+      return { key: "series:other", label: line.part_name || "Остальные серии" };
 
     case "thickness": {
       const thVal = line.thickness != null ? String(line.thickness) : null;
@@ -193,14 +199,18 @@ export function getLineGroup(
       return { key: "th:std", label: "Стандартная толщина" };
     }
 
-    case "dimensions":
-      if (doorInfo.dimensions_str) {
+    case "dimensions": {
+      const dim =
+        doorInfo.dimensions_str ||
+        (line.part_name?.match(/(\d+(?:[.,]\d+)?\s*[хxXХ*×]\s*\d+(?:\s*[хxXХ*×]\s*\d+)?)/)?.[1]?.replace(/\s+/g, "") ?? "");
+      if (dim) {
         return {
-          key: `dim:${doorInfo.dimensions_str}`,
-          label: `Размер: ${doorInfo.dimensions_str}`,
+          key: `dim:${dim}`,
+          label: `Размер: ${dim}`,
         };
       }
-      return { key: "dim:other", label: "Различные размеры" };
+      return { key: "dim:other", label: line.part_name || "Различные размеры" };
+    }
 
     case "order": {
       const ordName = task.production_order_name ?? task.name ?? `Задание №${task.id}`;

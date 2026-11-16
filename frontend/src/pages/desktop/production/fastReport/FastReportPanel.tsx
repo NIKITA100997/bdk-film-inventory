@@ -92,8 +92,16 @@ export default function FastReportPanel({
       /* не запоминаем */
     }
   };
-  // «Мой набор» есть — открываемся на нём (отмеченное мастером на смену).
-  const [scope, setScope] = useState<"pins" | "work" | "all">(() => (!narrow && loadPins(area).length ? "pins" : "work"));
+  const r = useFastReport({ area, orderId, taskId });
+  const isWrapping = r.profile === "wrapping" || r.requiresRoll;
+
+  // «Мой набор» есть — открываемся на нём. Для участков без рулонов (сборка, фрезеровка, кромка)
+  // по умолчанию открываем «Все позиции» ("all"), чтобы строки не скрывались.
+  const [scope, setScope] = useState<"pins" | "work" | "all">(() => {
+    if (narrow) return "work";
+    if (loadPins(area).length) return "pins";
+    return isWrapping ? "work" : "all";
+  });
   const [q, setQ] = useState("");
   const [selectedStripWidth, setSelectedStripWidth] = useState<number | null>(null);
   const [selectedFilm, setSelectedFilm] = useState<string | null>(null);
@@ -103,16 +111,17 @@ export default function FastReportPanel({
   const [open, setOpen] = useState<FastLine | null>(null);
   const [defectFor, setDefectFor] = useState<FastLine | null>(null);
   const [detailFor, setDetailFor] = useState<FastLine | null>(null);
-  const r = useFastReport({ area, orderId, taskId });
 
   const stripWidths = useMemo(() => {
     const set = new Set<number>();
     for (const fl of r.lines) {
-      const sw = Math.round(fl.line.strip_width_mm || fl.line.width_mm || 0);
+      const sw = isWrapping
+        ? Math.round(fl.line.strip_width_mm || 0)
+        : Math.round(fl.line.width_mm || 0);
       if (sw > 0) set.add(sw);
     }
     return [...set].sort((a, b) => a - b);
-  }, [r.lines]);
+  }, [r.lines, isWrapping]);
 
   const films = useMemo(() => {
     const set = new Set<string>();
@@ -166,7 +175,9 @@ export default function FastReportPanel({
       )
       .filter((fl) => {
         if (selectedStripWidth !== null) {
-          const sw = Math.round(fl.line.strip_width_mm || fl.line.width_mm || 0);
+          const sw = isWrapping
+            ? Math.round(fl.line.strip_width_mm || 0)
+            : Math.round(fl.line.width_mm || 0);
           if (sw !== selectedStripWidth) return false;
         }
         if (selectedFilm !== null) {
@@ -425,11 +436,11 @@ export default function FastReportPanel({
                 </Space>
               )}
 
-              {/* Ширина штрипса для участков окутки */}
+              {/* Ширина штрипса для участков окутки или ширина деталей */}
               {stripWidths.length > 1 && (
                 <Space wrap size={[4, 4]} align="center">
                   <Typography.Text type="secondary" style={{ fontSize: 13, marginRight: 2 }}>
-                    Штрипс:
+                    {isWrapping ? "Штрипс:" : "Ширина:"}
                   </Typography.Text>
                   <Tag.CheckableTag
                     checked={selectedStripWidth === null}
@@ -440,11 +451,12 @@ export default function FastReportPanel({
                   </Tag.CheckableTag>
                   {stripWidths.map((sw) => {
                     const count = r.lines
-                      .filter(
-                        (fl) =>
-                          Math.round(fl.line.strip_width_mm || fl.line.width_mm || 0) === sw &&
-                          Math.max(0, fl.line.remaining_pieces) > 0,
-                      )
+                      .filter((fl) => {
+                        const val = isWrapping
+                          ? Math.round(fl.line.strip_width_mm || 0)
+                          : Math.round(fl.line.width_mm || 0);
+                        return val === sw && Math.max(0, fl.line.remaining_pieces) > 0;
+                      })
                       .reduce((s, fl) => s + Math.max(0, fl.line.remaining_pieces), 0);
                     return (
                       <Tag.CheckableTag
@@ -780,8 +792,8 @@ type Group = { key: string; label: string; lines: FastLine[] };
 function groupLines(lines: FastLine[]): Group[] {
   const m = new Map<string, Group>();
   for (const fl of lines) {
-    const key = fl.line.group_key ?? `line:${fl.line.id}`;
-    const g = m.get(key) ?? { key, label: fl.line.group_label ?? fl.line.part_name ?? "", lines: [] };
+    const key = fl.line.group_key ?? fl.groupKey ?? `line:${fl.line.id}`;
+    const g = m.get(key) ?? { key, label: fl.line.group_label ?? fl.groupLabel ?? fl.line.part_name ?? "", lines: [] };
     g.lines.push(fl);
     m.set(key, g);
   }
@@ -1022,9 +1034,9 @@ function LinesTableView({
                   ) : r.profile === "assembly" ? (
                     <Space direction="vertical" size={2}>
                       {fl.doorInfo.series && <UiBadge color="blue">{fl.doorInfo.series}</UiBadge>}
-                      {fl.doorInfo.dimensions_str && (
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>📐 {fl.doorInfo.dimensions_str}</div>
-                      )}
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>
+                        📐 {fl.doorInfo.dimensions_str || fl.line.part_name?.match(/(\d+(?:[.,]\d+)?\s*[хxXХ*×]\s*\d+(?:\s*[хxXХ*×]\s*\d+)?)/)?.[1]?.replace(/\s+/g, "") || `${fl.line.width_mm} мм`}
+                      </div>
                     </Space>
                   ) : r.profile === "wrapping" || r.requiresRoll ? (
                     <div>

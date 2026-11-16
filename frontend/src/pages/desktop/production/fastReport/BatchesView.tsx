@@ -50,13 +50,18 @@ export default function BatchesView({
 }) {
   const [defectTarget, setDefectTarget] = useState<FastLine | null>(null);
 
-  // Группировка строк по связке [Ширина штрипса] + [Декор плёнки]
+  // Группировка строк по связке [Ширина штрипса] + [Декор плёнки] (для окутки)
+  // или по [Размерам] (для сборки / остальных участков)
+  const isWrapping = r.profile === "wrapping" || r.requiresRoll;
   const batches = useMemo(() => {
     const map = new Map<string, SetupBatch>();
     for (const fl of lines) {
-      const sw = Math.round(fl.line.strip_width_mm || fl.line.width_mm || 0);
+      const sw = isWrapping
+        ? Math.round(fl.line.strip_width_mm || 0)
+        : Math.round(fl.line.width_mm || 0);
       const film = filmLabel(fl.line);
-      const key = `${sw}|${film}`;
+      const dim = fl.doorInfo.dimensions_str || `${sw} мм`;
+      const key = isWrapping ? `${sw}|${film}` : dim;
       let b = map.get(key);
       if (!b) {
         b = {
@@ -203,11 +208,15 @@ function BatchCard({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
         <Space wrap align="center">
           <Tag color="blue" style={{ fontSize: 14, padding: "3px 10px", fontWeight: 700 }}>
-            📏 Штрипс {batch.stripWidth} мм
+            {r.profile === "wrapping" || r.requiresRoll
+              ? `📏 Штрипс ${batch.stripWidth} мм`
+              : `📐 ${batch.lines[0]?.doorInfo.dimensions_str || `${batch.stripWidth} мм`}`}
           </Tag>
-          <Tag color="geekblue" style={{ fontSize: 14, padding: "3px 10px" }}>
-            🎬 {batch.film}
-          </Tag>
+          {(r.profile === "wrapping" || r.requiresRoll) && batch.film !== "без плёнки" && (
+            <Tag color="geekblue" style={{ fontSize: 14, padding: "3px 10px" }}>
+              🎬 {batch.film}
+            </Tag>
+          )}
           <Text type="secondary" style={{ fontSize: 13 }}>
             📋 Заданий: {batch.tasks.length} (строк: {batch.lines.length})
           </Text>

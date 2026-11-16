@@ -268,6 +268,20 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
                 if source_series:
                     cols_data["series"] = ", ".join(source_series)
 
+            # Полуфабрикаты (каркасы, заготовки): размеры и толщина берутся из самого п/ф,
+            # чтобы свойства готовой двери (толщина панели 6 мм, декор плёнки, кромка) не искажали деталь
+            is_pf_component = bool(ln.part_id or (ln.part_name and ("каркас" in ln.part_name.lower() or "брусок" in ln.part_name.lower() or "стойка" in ln.part_name.lower())))
+            if is_pf_component:
+                m_part_size = re.search(r"(\d+(?:[.,]\d+)?\s*[хx]\s*\d+(?:\s*[хx]\s*\d+)?)", ln.part_name or "")
+                if m_part_size:
+                    cols_data["size"] = m_part_size.group(1).replace(" ", "")
+                if not ln.material_id and not ln.color_id:
+                    cols_data["color"] = ""
+                cols_data["edge"] = ""
+                cols_data["edge_type"] = ""
+                cols_data["edge_color"] = ""
+                cols_data["edge_sides"] = None
+
             # Если размер не определился door_cols, подтягиваем из параметров строки или названия
             if not cols_data.get("size"):
                 size_from_name = ""

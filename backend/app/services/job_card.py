@@ -72,13 +72,30 @@ def build_job_card(
             dims_str += f" x {th_mm:g}"
         dims_str += " мм"
 
+        if (len_mm == 0 or w_mm == 0 or not th_mm) and l.part_name:
+            import re
+            m = re.search(r"(\d+(?:[.,]\d+)?)\s*[хx]\s*(\d+(?:[.,]\d+)?)(?:\s*[хx]\s*(\d+(?:[.,]\d+)?))?", l.part_name)
+            if m:
+                p1 = m.group(1).replace(",", ".")
+                p2 = m.group(2).replace(",", ".")
+                p3 = m.group(3).replace(",", ".") if m.group(3) else None
+                if p3:
+                    dims_str = f"{p3} x {p2} x {p1} мм"
+                    len_mm = float(p3)
+                    w_mm = float(p2)
+                    th_mm = float(p1)
+                elif p2:
+                    dims_str = f"{p2} x {p1} мм"
+                    len_mm = float(p2)
+                    w_mm = float(p1)
+
         # Метка материала/декора
         mat_parts: list[str] = []
         if l.color:
             mat_parts.append(l.color)
         if l.material:
             mat_parts.append(l.material)
-        if l.strip_width_mm:
+        if l.strip_width_mm and (l.material or "окутк" in (task_out.area or "").lower() or "wrap" in (task_out.area or "").lower()):
             mat_parts.append(f"штрипс {int(l.strip_width_mm)}мм")
         mat_label = " · ".join(mat_parts) if mat_parts else "—"
 

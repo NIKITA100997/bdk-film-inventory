@@ -261,22 +261,39 @@ def _read_cached_map(db: Session, name: str, ids: list[int], loader, default):
     return {value: cache[value] for value in ids}
 
 
-def _line_effective_strip_width(line: ProductionTaskLine) -> float:
-    return (
-        float(line.strip_width_mm)
-        if line.strip_width_mm is not None
-        else calc_default_strip_width(line.part_name, float(line.width_mm))
-    )
+def _line_effective_strip_width(line: ProductionTaskLine) -> float | None:
+    if line.strip_width_mm is not None:
+        return float(line.strip_width_mm)
+    if not line.material_id:
+        return None
+    return calc_default_strip_width(line.part_name, float(line.width_mm))
 
 
 def _line_item_chars(db: Session, line: ProductionTaskLine) -> list[dict]:
-    if line.part_id or not line.order_line_id:
+    if line.part_id:
+        from app.models.dictionaries import Part
+        from app.services.type_rules import item_chars_cached
+
+        part = db.get(Part, line.part_id)
+        if part and getattr(part, "item_id", None):
+            return item_chars_cached(db, part.item_id)
+        return []
+    if not line.order_line_id:
+        if line.part_name:
+            from app.services.line_groups import fallback_door_chars
+
+            return fallback_door_chars(line.part_name, line.width_mm, line.length_m)
         return []
     from app.models.production_orders import ProductionOrderLine
     from app.services.type_rules import item_chars_cached
 
     ol = db.get(ProductionOrderLine, line.order_line_id)
-    return item_chars_cached(db, ol.item_id) if ol is not None else []
+    chars = item_chars_cached(db, ol.item_id) if ol is not None else []
+    if not chars and line.part_name:
+        from app.services.line_groups import fallback_door_chars
+
+        return fallback_door_chars(line.part_name, line.width_mm, line.length_m)
+    return chars
 
 
 def _task_line_out(

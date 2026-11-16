@@ -444,7 +444,7 @@ def new_product(db: Session, name_text: str) -> Item:
     """Изделие без серии, которого нет в номенклатуре (19.10): заводится с
     названием из счёта без скобок с цветом; погонаж — по словам названия.
     Без типа и маршрута — в заказе идёт без этапов («в работе» → «Готово»)."""
-    from app.models.items import ItemKind
+    from app.models.items import ItemKind, ItemType
     from app.services.naryad_import import base_name
 
     kind = db.query(ItemKind).filter(ItemKind.code == "izdelie").one()
@@ -456,7 +456,18 @@ def new_product(db: Session, name_text: str) -> Item:
     sib = None
     if trim:
         sib = db.query(Item).filter(Item.kind_id == kind.id, Item.direction == "trim", Item.is_model.is_(False), Item.group_id.isnot(None)).first()
-    item = Item(kind_id=kind.id, name=name, is_active=True, direction="trim" if trim else None, group_id=sib.group_id if sib else None)
+
+    # Автоопределение типа для щитовых дверей при импорте
+    type_id = None
+    if re.search(r"\b(?:[А-ЯA-Z]-\d+|дверь\s+щитовая)\b", name, re.I):
+        st = db.query(ItemType).filter(ItemType.direction == "shield", ItemType.is_active.is_(True)).first()
+        if st is not None:
+            type_id = st.id
+
+    item = Item(
+        kind_id=kind.id, name=name, is_active=True, direction="trim" if trim else None,
+        group_id=sib.group_id if sib else None, type_id=type_id,
+    )
     db.add(item)
     db.flush()
     return item
