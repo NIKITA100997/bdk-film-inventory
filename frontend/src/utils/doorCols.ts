@@ -15,6 +15,9 @@ export interface DoorColsInfo extends DoorEdgeInfo {
   size: string | null;
   color: string | null;
   dimensions_str: string;
+  width: number | null;
+  height: number | null;
+  thickness: number | null;
 }
 
 export function parseEdgeInfo(chars?: ItemChar[] | null, text?: string | null): DoorEdgeInfo {
@@ -108,28 +111,61 @@ export function extractDoorCols(
 
   const rawText = partName || "";
   const edge = parseEdgeInfo(chars, rawText);
+  const isDoor = /дверь|полотно|\b[А-ЯA-Z]-\d+\b/i.test(rawText);
 
-  // Размеры: приоритет явным колонкам length_m / width_mm / thickness
-  let dimsStr = "";
-  if (lengthM != null && widthMm != null && lengthM > 0 && widthMm > 0) {
-    const len = Math.round(lengthM * 1000);
-    const w = Math.round(widthMm);
-    const th = thicknessMm ? `${Math.round(thicknessMm * 10) / 10}` : null;
-    dimsStr = th ? `${len} × ${w} × ${th} мм` : `${len} × ${w} мм`;
-  } else if (by["ширина"] && by["высота"]) {
-    const w = by["ширина"].replace(/\s*мм$/, "");
-    const h = by["высота"].replace(/\s*мм$/, "");
-    const t = by["толщина"] ? by["толщина"].replace(/\s*мм$/, "") : null;
-    dimsStr = t ? `${h} × ${w} × ${t} мм` : `${h} × ${w} мм`;
-  } else {
-    const m = rawText.match(/(\d+(?:[.,]\d+)?\s*[хxXХ*×]\s*\d+(?:\s*[хxXХ*×]\s*\d+)?)/);
-    dimsStr = m ? m[1].replace(/\s+/g, "") : "";
+  let w: number | null = null;
+  let h: number | null = null;
+  let th: number | null = thicknessMm != null && thicknessMm > 0 ? Math.round(thicknessMm * 10) / 10 : null;
+
+  // 1. Из явных параметров строки
+  if (widthMm != null && widthMm > 0) w = Math.round(widthMm);
+  if (lengthM != null && lengthM > 0) h = Math.round(lengthM * 1000);
+
+  // 2. Из характеристик (chars)
+  if (w == null && by["ширина"]) {
+    const num = parseInt(by["ширина"].replace(/\D+/g, ""), 10);
+    if (!isNaN(num) && num > 0) w = num;
+  }
+  if (h == null && by["высота"]) {
+    const num = parseInt(by["высота"].replace(/\D+/g, ""), 10);
+    if (!isNaN(num) && num > 0) h = num;
+  }
+  // Для дверных полотен толщину каркаса (22.5 мм и т.п.) не подмешиваем
+  if (th == null && by["толщина"] && !isDoor) {
+    const num = parseFloat(by["толщина"].replace(/[^\d.,]+/g, "").replace(",", "."));
+    if (!isNaN(num) && num > 0) th = Math.round(num * 10) / 10;
   }
 
-  const series =
-    by["серия"] ||
-    (rawText.match(/([А-ЯA-Z]-\d+)/)?.[1] ?? null);
+  // 3. Из названия строки (partName)
+  // 3D: например "22.5х810х2010" или "25.5х50х2010"
+  const m3d = rawText.match(/(\d+(?:[.,]\d+)?)\s*[хxXХ*×]\s*(\d+(?:[.,]\d+)?)\s*[хxXХ*×]\s*(\d+(?:[.,]\d+)?)/);
+  if (m3d) {
+    const d1 = parseFloat(m3d[1].replace(",", "."));
+    const d2 = parseFloat(m3d[2].replace(",", "."));
+    const d3 = parseFloat(m3d[3].replace(",", "."));
+    const sorted = [d1, d2, d3].sort((a, b) => a - b);
+    if (th == null && !isDoor) th = Math.round(sorted[0] * 10) / 10;
+    if (w == null) w = Math.round(sorted[1]);
+    if (h == null) h = Math.round(sorted[2]);
+  } else {
+    // 2D: например "600х2000" или "300х1850"
+    const m2d = rawText.match(/(\d{3,4})\s*[хxXХ*×]\s*(\d{3,4})/);
+    if (m2d) {
+      const d1 = parseInt(m2d[1], 10);
+      const d2 = parseInt(m2d[2], 10);
+      if (w == null) w = Math.min(d1, d2);
+      if (h == null) h = Math.max(d1, d2);
+    }
+  }
 
+  let dimsStr = "";
+  if (h != null && w != null) {
+    dimsStr = th != null ? `${h} × ${w} × ${th} мм` : `${h} × ${w} мм`;
+  } else if (m3d) {
+    dimsStr = m3d[0].replace(/\s+/g, "");
+  }
+
+  const series = by["серия"] || (rawText.match(/([А-ЯA-Z]-\d+)/)?.[1] ?? null);
   const color = by["цвет"] || null;
 
   return {
@@ -138,5 +174,8 @@ export function extractDoorCols(
     size: dimsStr || null,
     color,
     dimensions_str: dimsStr,
+    width: w,
+    height: h,
+    thickness: th,
   };
 }

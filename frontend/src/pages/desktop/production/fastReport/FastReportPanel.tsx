@@ -117,7 +117,7 @@ export default function FastReportPanel({
     for (const fl of r.lines) {
       const sw = isWrapping
         ? Math.round(fl.line.strip_width_mm || 0)
-        : Math.round(fl.line.width_mm || 0);
+        : Math.round(fl.line.width_mm || fl.doorInfo.width || 0);
       if (sw > 0) set.add(sw);
     }
     return [...set].sort((a, b) => a - b);
@@ -152,11 +152,11 @@ export default function FastReportPanel({
   const thicknesses = useMemo(() => {
     const set = new Set<string>();
     for (const fl of r.lines) {
-      const thVal = fl.line.thickness != null ? String(fl.line.thickness) : null;
-      const thMatch =
-        thVal ||
-        fl.doorInfo.dimensions_str.match(/×\s*(\d+(?:[.,]\d+)?)\s*мм/)?.[1];
-      if (thMatch) set.add(thMatch);
+      const thVal =
+        fl.doorInfo.thickness != null
+          ? String(fl.doorInfo.thickness)
+          : (fl.line.thickness != null ? String(fl.line.thickness) : null);
+      if (thVal) set.add(thVal);
     }
     return [...set].sort((a, b) => parseFloat(a) - parseFloat(b));
   }, [r.lines]);
@@ -177,7 +177,7 @@ export default function FastReportPanel({
         if (selectedStripWidth !== null) {
           const sw = isWrapping
             ? Math.round(fl.line.strip_width_mm || 0)
-            : Math.round(fl.line.width_mm || 0);
+            : Math.round(fl.line.width_mm || fl.doorInfo.width || 0);
           if (sw !== selectedStripWidth) return false;
         }
         if (selectedFilm !== null) {
@@ -190,11 +190,11 @@ export default function FastReportPanel({
           if (fl.doorInfo.edge_label !== selectedEdge && fl.doorInfo.edge_type !== selectedEdge) return false;
         }
         if (selectedThickness !== null) {
-          const thVal = fl.line.thickness != null ? String(fl.line.thickness) : null;
-          const thMatch =
-            thVal ||
-            fl.doorInfo.dimensions_str.match(/×\s*(\d+(?:[.,]\d+)?)\s*мм/)?.[1];
-          if (thMatch !== selectedThickness) return false;
+          const thVal =
+            fl.doorInfo.thickness != null
+              ? String(fl.doorInfo.thickness)
+              : (fl.line.thickness != null ? String(fl.line.thickness) : null);
+          if (thVal !== selectedThickness) return false;
         }
         if (!needle) return true;
         const searchPool = [

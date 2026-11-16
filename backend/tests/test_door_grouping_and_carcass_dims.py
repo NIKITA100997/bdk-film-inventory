@@ -138,3 +138,50 @@ def test_carcass_dims_and_no_strip_width(db):
     assert row["size"] == "22.5х810х2010"
     assert row["color"] == ""
     assert row["edge"] == ""
+
+
+def test_door_line_not_contaminated_by_carcass_item(db):
+    user = db.query(User).first()
+    user_id = user.id if user else 1
+
+    from app.models.items import Item, ItemKind
+    kind = db.query(ItemKind).first()
+    carcass_item = Item(name="Каркас 22.5х910х2010", is_active=True, kind_id=kind.id if kind else 1)
+    db.add(carcass_item)
+    db.flush()
+
+    order = ProductionOrder(name="Заказ тест", created_by=user_id)
+    db.add(order)
+    db.flush()
+
+    ol = ProductionOrderLine(order_id=order.id, item_id=carcass_item.id, quantity=1, sort_order=1)
+    db.add(ol)
+    db.flush()
+
+    task = ProductionTask(name="Кромка тест", area="kromka_shchitovykh_dverey", is_active=True, created_by=user_id)
+    db.add(task)
+    db.flush()
+
+    door_line = ProductionTaskLine(
+        task_id=task.id,
+        order_line_id=ol.id,
+        part_name="Дверь щитовая В-15 800х2000 ПВХ Бетон темный с молдингом под замок, кромка черная ABS 2мм",
+        quantity_pieces=1,
+        width_mm=0.0,
+        length_m=0.0,
+    )
+    db.add(door_line)
+    db.flush()
+
+    task_out = _task_out(db, task)
+    assert len(task_out.lines) == 1
+    tl_out = task_out.lines[0]
+
+    # Door should NOT have carcass thickness
+    assert tl_out.thickness is None
+    # Door width should be resolved from part_name/fallback chars, not carcass 910
+    assert tl_out.width_mm == 800.0
+    assert tl_out.length_m == 2.0
+    # No bogus thickness in item chars
+    th_chars = [c for c in tl_out.item_chars if c.get("code") == "толщина"]
+    assert len(th_chars) == 0

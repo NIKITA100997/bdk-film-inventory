@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
@@ -288,7 +289,16 @@ def _line_item_chars(db: Session, line: ProductionTaskLine) -> list[dict]:
     from app.services.type_rules import item_chars_cached
 
     ol = db.get(ProductionOrderLine, line.order_line_id)
-    chars = item_chars_cached(db, ol.item_id) if ol is not None else []
+    chars = []
+    if ol is not None and ol.item_id:
+        from app.models.items import Item
+
+        it = db.get(Item, ol.item_id)
+        is_door_line = any(w in (line.part_name or "").lower() for w in ["дверь", "полотно"])
+        is_part_item = it and any(w in it.name.lower() for w in ["каркас", "стойка", "вставка", "панель", "брусок"])
+        # Если строка — дверное полотно, а в позиции заказа привязана деталь каркаса/стойки — не подмешивать её свойства
+        if not (is_door_line and is_part_item):
+            chars = item_chars_cached(db, ol.item_id)
     if not chars and line.part_name:
         from app.services.line_groups import fallback_door_chars
 
@@ -326,6 +336,31 @@ def _task_line_out(
     from app.services.line_groups import line_group
 
     group = line_group(db, line, line.task.area, chars) if line.task is not None else None
+
+    # Эффективные размеры ширины/длины, если в БД сохранены 0.00
+    eff_w = float(line.width_mm)
+    eff_l = float(line.length_m)
+    if eff_w <= 0 or eff_l <= 0:
+        for c in chars:
+            code = c.get("code")
+            val_str = str(c.get("value", ""))
+            if code == "ширина" and eff_w <= 0:
+                m_w = re.search(r"(\d+(?:[.,]\d+)?)", val_str)
+                if m_w:
+                    eff_w = float(m_w.group(1).replace(",", "."))
+            elif code == "высота" and eff_l <= 0:
+                m_l = re.search(r"(\d+(?:[.,]\d+)?)", val_str)
+                if m_l:
+                    eff_l = float(m_l.group(1).replace(",", ".")) / 1000.0
+
+    eff_th = float(db.get(Thickness, line.thickness_id).value_mm) if line.thickness_id else None
+    if eff_th is None and not any(w in (line.part_name or "").lower() for w in ["дверь", "полотно"]):
+        for c in chars:
+            if c.get("code") == "толщина":
+                m_t = re.search(r"(\d+(?:[.,]\d+)?)", str(c.get("value", "")))
+                if m_t:
+                    eff_th = float(m_t.group(1).replace(",", "."))
+
     return ProductionTaskLineOut(
         group_key=group[0] if group else None,
         group_label=group[1] if group else None,
@@ -334,13 +369,13 @@ def _task_line_out(
         line_name=prod_line.name if prod_line else "—",
         material=db.get(Material, line.material_id).name if line.material_id else None,
         color=db.get(Color, line.color_id).name if line.color_id else None,
-        thickness=float(db.get(Thickness, line.thickness_id).value_mm) if line.thickness_id else None,
+        thickness=eff_th,
         material_id=line.material_id,
         color_id=line.color_id,
         thickness_id=line.thickness_id,
         quantity_pieces=float(line.quantity_pieces),
-        width_mm=float(line.width_mm),
-        length_m=float(line.length_m),
+        width_mm=eff_w,
+        length_m=eff_l,
         strip_width_mm=sw,
         part_name=line.part_name,
         item_chars=chars,

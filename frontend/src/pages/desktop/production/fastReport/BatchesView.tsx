@@ -58,7 +58,7 @@ export default function BatchesView({
     for (const fl of lines) {
       const sw = isWrapping
         ? Math.round(fl.line.strip_width_mm || 0)
-        : Math.round(fl.line.width_mm || 0);
+        : Math.round(fl.line.width_mm || fl.doorInfo.width || 0);
       const film = filmLabel(fl.line);
       const dim = fl.doorInfo.dimensions_str || `${sw} мм`;
       const key = isWrapping ? `${sw}|${film}` : dim;
