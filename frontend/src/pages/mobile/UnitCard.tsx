@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { UiBadge } from "../../components/UiBadge";
 import {
   Button,
   Card,
@@ -8,7 +9,6 @@ import {
   Typography,
   Descriptions,
   Alert,
-  Tag,
   List,
   Space,
   Modal,
@@ -420,9 +420,9 @@ export default function UnitCard() {
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
             <Descriptions.Item label="Тип и номер">
               <Space size={6}>
-                <Tag color={unit.parent_id || (unit.width_mm && unit.width_mm < 500) ? "orange" : "blue"}>
+                <UiBadge color={unit.parent_id || (unit.width_mm && unit.width_mm < 500) ? "orange" : "blue"}>
                   {unit.parent_id || (unit.width_mm && unit.width_mm < 500) ? "Штрипс" : "Целый рулон"}
-                </Tag>
+                </UiBadge>
                 <b>{rollNo(unit.id)}</b>
               </Space>
             </Descriptions.Item>
@@ -445,8 +445,8 @@ export default function UnitCard() {
               {unit.width_mm} мм × {unit.length_m} м
             </Descriptions.Item>
             <Descriptions.Item label="Статус">
-              <Tag color="blue">{statusLabels[unit.status] ?? unit.status}</Tag>
-              {unit.marked_illiquid && <Tag color="orange">неликвид</Tag>}
+              <UiBadge color="blue">{statusLabels[unit.status] ?? unit.status}</UiBadge>
+              {unit.marked_illiquid && <UiBadge color="orange" style={{ marginLeft: 6 }}>неликвид</UiBadge>}
             </Descriptions.Item>
             <Descriptions.Item label="Где сейчас">
               {unit.location_code ?? (unit.area ? areaLabel(unit.area) : "—")}
@@ -476,7 +476,7 @@ export default function UnitCard() {
                 <Space size={4} wrap>
                   <span>{reconciliationQuery.data.task_label}</span>
                   {reconciliationQuery.data.task_line_id != null &&
-                    findLine(reconciliationQuery.data.task_line_id)?.line.is_closed && <Tag>Закрыто</Tag>}
+                    findLine(reconciliationQuery.data.task_line_id)?.line.is_closed && <UiBadge>Закрыто</UiBadge>}
                 </Space>
               ) : unit.legacy_task_note ? (
                 <Space wrap>
@@ -738,8 +738,8 @@ export default function UnitCard() {
               <List.Item>
                 <Space orientation="vertical" size={0}>
                   <span>
-                    <Tag>{ev.event_type.replace(/_/g, " ")}</Tag>
-                    {fmtDateTime(ev.timestamp)} — {userName(ev.user_id)}
+                    <UiBadge>{ev.event_type.replace(/_/g, " ")}</UiBadge>
+                    {" "}{fmtDateTime(ev.timestamp)} — {userName(ev.user_id)}
                   </span>
                   {canSeePrice && !!ev.amount_rub && (
                     <Typography.Text type="secondary">

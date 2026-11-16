@@ -473,3 +473,29 @@ h5 {
   -webkit-overflow-scrolling: touch;
   scroll-behavior: auto;
 }
+
+/* ── Легковесные плашки (UiBadge) без накладных расходов CSS-in-JS ────────── */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+.ui-badge-success { color: #277c0c; background: #f6ffed; border-color: #b7eb8f; }
+.ui-badge-error { color: #cf1322; background: #fff1f0; border-color: #ffa39e; }
+.ui-badge-warning { color: #d46b08; background: #fff7e6; border-color: #ffd591; }
+.ui-badge-processing { color: #0958d9; background: #e6f4ff; border-color: #91caff; }
+.ui-badge-cyan { color: #08979c; background: #e6fffb; border-color: #87e8de; }
+.ui-badge-geekblue { color: #1d39c4; background: #f0f5ff; border-color: #adc6ff; }
+.ui-badge-purple { color: #531dab; background: #f9f0ff; border-color: #d3adf7; }
+.ui-badge-default { color: #595959; background: #f5f5f5; border-color: #d9d9d9; }
+.ui-badge-sm { font-size: 11px; padding: 0 4px; border-radius: 3px; }
+

@@ -1,4 +1,4 @@
-import { Tag, Tooltip } from "antd";
+import { UiBadge } from "./UiBadge";
 
 /** Сверх задания при ламинации (07.10): у строки с плёнкой годных больше
  * задания на 3 шт (у стоевых — на 5) — подсветка на всех деталях. */
@@ -23,10 +23,12 @@ export default function OverProductionTag({
   const excess = overExcess(line, produced);
   if (!excess) return null;
   return (
-    <Tooltip title={`Задание — ${line.quantity_pieces} шт; допустимо сверху ${overAllowance(line.part_name)} шт`}>
-      <Tag color="red" style={{ marginInlineEnd: 0 }}>
-        {planned ? "будет " : ""}сверх задания +{Math.round(excess * 100) / 100}
-      </Tag>
-    </Tooltip>
+    <UiBadge
+      color="red"
+      title={`Задание — ${line.quantity_pieces} шт; допустимо сверху ${overAllowance(line.part_name)} шт`}
+    >
+      {planned ? "будет " : ""}сверх задания +{Math.round(excess * 100) / 100}
+    </UiBadge>
   );
 }
+

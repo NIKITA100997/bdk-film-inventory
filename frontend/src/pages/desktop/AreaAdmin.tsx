@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { InputNumber, Card, Tag, Button, Modal, Form, Input, Select, Space, Typography, Checkbox, message } from "antd";
+import { InputNumber, Card, Button, Modal, Form, Input, Select, Space, Typography, Checkbox, message } from "antd";
+import { UiBadge } from "../../components/UiBadge";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listAreas, createArea, updateArea, type Area } from "../../api/areas";
 import { listSites, createSite, updateSite, type Site } from "../../api/sites";
@@ -209,12 +210,12 @@ export default function AreaAdmin() {
             { title: "Домашний склад", render: (_, s) => warehouseLabel(s.warehouse_id) },
             {
               title: "Готовая продукция",
-              render: (_, s) => (s.is_fg_main ? <Tag color="blue">основной склад</Tag> : <Typography.Text type="secondary">перевалка</Typography.Text>),
+              render: (_, s) => (s.is_fg_main ? <UiBadge color="blue">основной склад</UiBadge> : <Typography.Text type="secondary">перевалка</Typography.Text>),
             },
             {
               title: "Статус",
               dataIndex: "is_active",
-              render: (v: boolean) => (v ? <Tag color="green">Активна</Tag> : <Tag>В архиве</Tag>),
+              render: (v: boolean) => (v ? <UiBadge color="green">Активна</UiBadge> : <UiBadge>В архиве</UiBadge>),
             },
             {
               title: "",
@@ -267,7 +268,7 @@ export default function AreaAdmin() {
             {
               title: "Планирование",
               dataIndex: "requires_daily_plan",
-              render: (v: boolean) => (v ? <Tag color="blue">По дням</Tag> : <Tag>Просто на участок</Tag>),
+              render: (v: boolean) => (v ? <UiBadge color="blue">По дням</UiBadge> : <UiBadge>Просто на участок</UiBadge>),
             },
             {
               title: "Срок операции",
@@ -289,24 +290,24 @@ export default function AreaAdmin() {
               dataIndex: "requires_roll_on_report",
               render: (v: boolean, a: Area) => (
                 <Space size={4} wrap>
-                  {v ? <Tag color="orange">Обязателен</Tag> : <Typography.Text type="secondary">—</Typography.Text>}
-                  {a.film_cut_on_site && <Tag color="blue">режут на участке</Tag>}
-                  {!!a.film_allowance_mm && <Tag>припуск +{a.film_allowance_mm} мм</Tag>}
-                  {a.close_without_reports && <Tag color="default">без отчётов — закрытие целиком</Tag>}
-                  {a.film_no_return && <Tag color="default">остатки плёнки не возвращают</Tag>}
-                  {a.film_issue_point && <Tag color="gold">режут и выдают плёнку</Tag>}
-                  {(a.group_props ?? []).length > 0 && <Tag color="purple">объединяет по: {(a.group_props ?? []).join(", ")}</Tag>}
-                  {a.pay_mode === "piece" && <Tag color="green">сдельно{a.piece_rate ? ` ${a.piece_rate} ₽/шт` : ""}</Tag>}
+                  {v ? <UiBadge color="orange">Обязателен</UiBadge> : <Typography.Text type="secondary">—</Typography.Text>}
+                  {a.film_cut_on_site && <UiBadge color="blue">режут на участке</UiBadge>}
+                  {!!a.film_allowance_mm && <UiBadge>припуск +{a.film_allowance_mm} мм</UiBadge>}
+                  {a.close_without_reports && <UiBadge color="default">без отчётов — закрытие целиком</UiBadge>}
+                  {a.film_no_return && <UiBadge color="default">остатки плёнки не возвращают</UiBadge>}
+                  {a.film_issue_point && <UiBadge color="gold">режут и выдают плёнку</UiBadge>}
+                  {(a.group_props ?? []).length > 0 && <UiBadge color="purple">объединяет по: {(a.group_props ?? []).join(", ")}</UiBadge>}
+                  {a.pay_mode === "piece" && <UiBadge color="green">сдельно{a.piece_rate ? ` ${a.piece_rate} ₽/шт` : ""}</UiBadge>}
                   {a.pay_mode === "shift" && (
-                    <Tag color="green">
+                    <UiBadge color="green">
                       за смену{a.shift_rate ? ` ${a.shift_rate} ₽ × ${a.shift_headcount ?? "?"} чел.` : ""}
-                    </Tag>
+                    </UiBadge>
                   )}
                   {a.big_batch_area && (
-                    <Tag color="purple">
+                    <UiBadge color="purple">
                       от {a.big_batch_min_pieces} шт →{" "}
                       {(areasQuery.data ?? []).find((x) => x.code === a.big_batch_area)?.name ?? a.big_batch_area}
-                    </Tag>
+                    </UiBadge>
                   )}
                 </Space>
               ),
@@ -314,7 +315,7 @@ export default function AreaAdmin() {
             {
               title: "Статус",
               dataIndex: "is_active",
-              render: (v: boolean) => (v ? <Tag color="green">Активен</Tag> : <Tag>В архиве</Tag>),
+              render: (v: boolean) => (v ? <UiBadge color="green">Активен</UiBadge> : <UiBadge>В архиве</UiBadge>),
             },
             {
               title: "",

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { UiBadge } from "../../../components/UiBadge";
 import {
   Button,
   Card,
@@ -10,7 +11,6 @@ import {
   Select,
   Space,
   Table,
-  Tag,
   Typography,
 } from "antd";
 import {
@@ -259,7 +259,7 @@ export default function QualityMeetingTab() {
           <Space>
             <ThunderboltOutlined style={{ color: "#fa8c16" }} />
             <span style={{ fontWeight: 600 }}>Парето-анализ причин брака (Правило 80/20)</span>
-            <Tag color="orange">Ранжирование по вкладу в потери</Tag>
+            <UiBadge color="orange">Ранжирование по вкладу в потери</UiBadge>
           </Space>
         }
       >
@@ -281,11 +281,11 @@ export default function QualityMeetingTab() {
                   title: "Зона Парето",
                   render: (_, r) =>
                     r.is_zone_a ? (
-                      <Tag color="error" style={{ fontWeight: 700 }}>
+                      <UiBadge color="error" style={{ fontWeight: 700 }}>
                         🔥 Зона А (80%)
-                      </Tag>
+                      </UiBadge>
                     ) : (
-                      <Tag color="default">Зона B/C</Tag>
+                      <UiBadge color="default">Зона B/C</UiBadge>
                     ),
                   width: 140,
                 },
@@ -395,14 +395,14 @@ export default function QualityMeetingTab() {
                     dataIndex: "defect_rate_percent",
                     render: (v) => {
                       const color = v >= 5.0 ? "red" : v >= 3.0 ? "orange" : "green";
-                      return <Tag color={color}>{v}%</Tag>;
+                      return <UiBadge color={color}>{v}%</UiBadge>;
                     },
                     align: "right",
                   },
                   {
                     title: "Главная причина",
                     dataIndex: "top_reason",
-                    render: (v) => v ? <Tag color="volcano" style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>{v}</Tag> : "—",
+                    render: (v) => v ? <UiBadge color="error" style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>{v}</UiBadge> : "—",
                   },
                 ]}
               />
@@ -445,14 +445,14 @@ export default function QualityMeetingTab() {
                     dataIndex: "defect_rate_percent",
                     render: (v) => {
                       const color = v >= 5.0 ? "red" : v >= 3.0 ? "orange" : "green";
-                      return <Tag color={color}>{v}%</Tag>;
+                      return <UiBadge color={color}>{v}%</UiBadge>;
                     },
                     align: "right",
                   },
                   {
                     title: "Типовой дефект",
                     dataIndex: "top_reason",
-                    render: (v) => v ? <Tag color="orange" style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>{v}</Tag> : "—",
+                    render: (v) => v ? <UiBadge color="orange" style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>{v}</UiBadge> : "—",
                   },
                 ]}
               />

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import ShortageTags from "../../../components/ShortageTags";
+import { UiBadge } from "../../../components/UiBadge";
 import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
 import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
 import dayjs, { type Dayjs } from "dayjs";
@@ -484,22 +485,22 @@ export default function PfDemand() {
                       </Link>
                       {t.dueDate ? (
                         isOverdue ? (
-                          <Tag color="error" style={{ fontWeight: 600 }}>🚨 Отстаёт ({dayjs(t.dueDate).format("DD.MM.YYYY")})</Tag>
+                          <UiBadge color="error" style={{ fontWeight: 600 }}>🚨 Отстаёт ({dayjs(t.dueDate).format("DD.MM.YYYY")})</UiBadge>
                         ) : isToday ? (
-                          <Tag color="warning" style={{ fontWeight: 600 }}>📅 Срок сегодня</Tag>
+                          <UiBadge color="warning" style={{ fontWeight: 600 }}>📅 Срок сегодня</UiBadge>
                         ) : (
-                          <Tag color="processing">📆 Срок {dayjs(t.dueDate).format("DD.MM.YYYY")}</Tag>
+                          <UiBadge color="processing">📆 Срок {dayjs(t.dueDate).format("DD.MM.YYYY")}</UiBadge>
                         )
                       ) : (
-                        <Tag>Срок не указан</Tag>
+                        <UiBadge>Срок не указан</UiBadge>
                       )}
-                      {t.area && <Tag color="cyan">{areaName(t.area)}</Tag>}
+                      {t.area && <UiBadge color="cyan">{areaName(t.area)}</UiBadge>}
                       {t.totalShortage > 0 ? (
-                        <Tag color="red" style={{ fontWeight: 600 }}>
+                        <UiBadge color="red" style={{ fontWeight: 600 }}>
                           Не хватает: {fmt(t.totalShortage)} шт
-                        </Tag>
+                        </UiBadge>
                       ) : (
-                        <Tag color="green">П/ф обеспечены ({fmt(t.totalReserved)} рез. / {fmt(t.totalInWork)} в раб.)</Tag>
+                        <UiBadge color="green">П/ф обеспечены ({fmt(t.totalReserved)} рез. / {fmt(t.totalInWork)} в раб.)</UiBadge>
                       )}
                     </Space>
                   }
@@ -535,7 +536,7 @@ export default function PfDemand() {
                                 )}
                               </div>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
-                                <div><Typography.Text type="secondary">Нехватка на участке</Typography.Text><div>{areaDeficit > 0 ? <Tag color="red">−{fmt(areaDeficit)} шт</Tag> : <Tag color="green">Обеспечен</Tag>}</div></div>
+                                <div><Typography.Text type="secondary">Нехватка на участке</Typography.Text><div>{areaDeficit > 0 ? <UiBadge color="red">−{fmt(areaDeficit)} шт</UiBadge> : <UiBadge color="green">Обеспечен</UiBadge>}</div></div>
                                 <div><Typography.Text type="secondary">На складе ПФ</Typography.Text><div><Typography.Text strong style={{ color: hasStock ? "#389e0d" : undefined }}>{fmt(s.storageStock)} шт</Typography.Text></div></div>
                                 <div><Typography.Text type="secondary">На участке</Typography.Text><div>{fmt(s.areaStock)} шт</div></div>
                                 <div><Typography.Text type="secondary">Остаток задания</Typography.Text><div><Typography.Text strong>{fmt(s.remaining)} шт</Typography.Text></div></div>
@@ -625,9 +626,9 @@ export default function PfDemand() {
                         render: (_, s) => {
                           const areaDeficit = Math.max(0, s.remaining - s.areaStock);
                           return areaDeficit > 0 ? (
-                            <Tag color="red" style={{ fontWeight: 700 }}>−{fmt(areaDeficit)} шт</Tag>
+                            <UiBadge color="red" style={{ fontWeight: 700 }}>−{fmt(areaDeficit)} шт</UiBadge>
                           ) : (
-                            <Tag color="green">участок обеспечен</Tag>
+                            <UiBadge color="green">участок обеспечен</UiBadge>
                           );
                         },
                         align: "right",
@@ -652,7 +653,7 @@ export default function PfDemand() {
                       },
                       {
                         title: "В работе",
-                        render: (_, s) => (s.inWork > 0 ? <Tag color="geekblue">{fmt(s.inWork)} шт</Tag> : "—"),
+                        render: (_, s) => (s.inWork > 0 ? <UiBadge color="geekblue">{fmt(s.inWork)} шт</UiBadge> : "—"),
                         align: "right",
                       },
                       {
@@ -724,14 +725,14 @@ export default function PfDemand() {
                 const areaDeficit = Math.max(0, r.task_demand - areaStock);
                 const defaultTargetArea = r.target_areas?.[0] ?? "";
                 const status = storage > 0 && needOnArea > 0
-                  ? <Tag color="cyan">Передать на участок · {fmt(Math.min(storage, needOnArea))} шт</Tag>
+                  ? <UiBadge color="cyan">Передать на участок · {fmt(Math.min(storage, needOnArea))} шт</UiBadge>
                   : r.shortage > 0
-                    ? <Tag color="error">К выпуску · {fmt(r.shortage)} шт</Tag>
+                    ? <UiBadge color="error">К выпуску · {fmt(r.shortage)} шт</UiBadge>
                     : r.task_demand > 0 && needOnArea === 0
-                      ? <Tag color="success">На участке достаточно</Tag>
+                      ? <UiBadge color="success">На участке достаточно</UiBadge>
                       : r.in_work > 0
-                        ? <Tag color="geekblue">В работе · {fmt(r.in_work)} шт</Tag>
-                        : <Tag>В норме</Tag>;
+                        ? <UiBadge color="geekblue">В работе · {fmt(r.in_work)} шт</UiBadge>
+                        : <UiBadge>В норме</UiBadge>;
                 return (
                   <Card
                     key={r.part_id}
@@ -753,12 +754,12 @@ export default function PfDemand() {
                       {r.target_areas && r.target_areas.length > 0 && (
                         <Space wrap size={4}>
                           <Typography.Text type="secondary">Куда требуется:</Typography.Text>
-                          {r.target_areas.map((a) => <Tag key={a} color="blue">{areaName(a)}</Tag>)}
+                          {r.target_areas.map((a) => <UiBadge key={a} color="blue">{areaName(a)}</UiBadge>)}
                         </Space>
                       )}
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
                         <div><Typography.Text type="secondary">Потребность цеха</Typography.Text><div><Typography.Text strong>{fmt(r.task_demand)} шт</Typography.Text></div></div>
-                        <div><Typography.Text type="secondary">Дефицит на участке</Typography.Text><div>{areaDeficit > 0 ? <Tag color="red">−{fmt(areaDeficit)} шт</Tag> : <Tag color="green">Нет</Tag>}</div></div>
+                        <div><Typography.Text type="secondary">Дефицит на участке</Typography.Text><div>{areaDeficit > 0 ? <UiBadge color="red">−{fmt(areaDeficit)} шт</UiBadge> : <UiBadge color="green">Нет</UiBadge>}</div></div>
                         <div><Typography.Text type="secondary">Остаток на складе ПФ</Typography.Text><div><Typography.Text strong style={{ color: storage > 0 ? "#389e0d" : undefined }}>{fmt(storage)} шт</Typography.Text></div></div>
                         <div><Typography.Text type="secondary">На участках</Typography.Text><div>{fmt(areaStock)} шт</div></div>
                       </div>
@@ -887,24 +888,24 @@ export default function PfDemand() {
                               <td style={{ padding: "4px 12px 4px 0" }}>
                                 {s.due_date ? (
                                   isOverdue ? (
-                                    <Tag color="error">🚨 {dayjs(s.due_date).format("DD.MM.YYYY")}</Tag>
+                                    <UiBadge color="error">🚨 {dayjs(s.due_date).format("DD.MM.YYYY")}</UiBadge>
                                   ) : isToday ? (
-                                    <Tag color="warning">📅 Сегодня</Tag>
+                                    <UiBadge color="warning">📅 Сегодня</UiBadge>
                                   ) : (
-                                    <Tag color="processing">📆 {dayjs(s.due_date).format("DD.MM.YYYY")}</Tag>
+                                    <UiBadge color="processing">📆 {dayjs(s.due_date).format("DD.MM.YYYY")}</UiBadge>
                                   )
                                 ) : (
                                   <span style={{ color: "#8c8c8c" }}>—</span>
                                 )}
                               </td>
                               <td style={{ padding: "4px 12px 4px 0" }}>
-                                {areaName(s.area) ? <Tag color="blue">{areaName(s.area)}</Tag> : "—"}
+                                {areaName(s.area) ? <UiBadge color="blue">{areaName(s.area)}</UiBadge> : "—"}
                               </td>
                               <td style={{ padding: "4px 12px 4px 0" }}>
                                 {needToMove > 0 ? (
-                                  <Tag color="red" style={{ fontWeight: 700 }}>−{fmt(needToMove)} шт</Tag>
+                                  <UiBadge color="red" style={{ fontWeight: 700 }}>−{fmt(needToMove)} шт</UiBadge>
                                 ) : (
-                                  <Tag color="green">обеспечено</Tag>
+                                  <UiBadge color="green">обеспечено</UiBadge>
                                 )}
                               </td>
                               <td style={{ padding: "4px 12px 4px 0", color: (s.area_stock ?? 0) > 0 ? "#1890ff" : "#8c8c8c", fontWeight: (s.area_stock ?? 0) > 0 ? 600 : 400 }}>
@@ -991,9 +992,9 @@ export default function PfDemand() {
                         <Space wrap size={4}>
                           <Typography.Text type="secondary" style={{ fontSize: 11 }}>Куда:</Typography.Text>
                           {r.target_areas.map((a) => (
-                            <Tag key={a} color="blue" style={{ fontSize: 11, padding: "0 5px", margin: 0 }}>
+                            <UiBadge key={a} color="blue" size="sm" style={{ margin: 0 }}>
                               {areaName(a)}
-                            </Tag>
+                            </UiBadge>
                           ))}
                         </Space>
                       )}
@@ -1019,13 +1020,13 @@ export default function PfDemand() {
                     const areaDeficit = Math.max(0, r.task_demand - (r.area_stock ?? 0));
                     if (areaDeficit > 0) {
                       return (
-                        <Tag color="red" style={{ fontWeight: 700, fontSize: 13, padding: "2px 8px" }}>
+                        <UiBadge color="red" style={{ fontWeight: 700, fontSize: 13, padding: "2px 8px" }}>
                           −{fmt(areaDeficit)} шт
-                        </Tag>
+                        </UiBadge>
                       );
                     }
                     if (r.task_demand > 0) {
-                      return <Tag color="green" style={{ fontWeight: 600 }}>✅ обеспечен</Tag>;
+                      return <UiBadge color="green" style={{ fontWeight: 600 }}>✅ обеспечен</UiBadge>;
                     }
                     return <span style={{ color: "#8c8c8c" }}>—</span>;
                   },
@@ -1062,7 +1063,7 @@ export default function PfDemand() {
                 },
                 {
                   title: "В работе",
-                  render: (_, r) => (r.in_work > 0 ? <Tag color="geekblue">{fmt(r.in_work)} шт</Tag> : "—"),
+                  render: (_, r) => (r.in_work > 0 ? <UiBadge color="geekblue">{fmt(r.in_work)} шт</UiBadge> : "—"),
                   align: "right",
                 },
                 {
@@ -1077,25 +1078,25 @@ export default function PfDemand() {
                     const needOnArea = Math.max(0, r.task_demand - (r.area_stock ?? 0));
                     if (storage > 0 && needOnArea > 0) {
                       return (
-                        <Tag color="cyan" style={{ fontWeight: 600 }}>
+                        <UiBadge color="cyan" style={{ fontWeight: 600 }}>
                           🚚 Передать ({fmt(Math.min(storage, needOnArea))} шт)
-                        </Tag>
+                        </UiBadge>
                       );
                     }
                     if (r.shortage > 0) {
                       return (
-                        <Tag color="error" style={{ fontWeight: 600 }}>
+                        <UiBadge color="error" style={{ fontWeight: 600 }}>
                           🚨 К выпуску ({fmt(r.shortage)} шт)
-                        </Tag>
+                        </UiBadge>
                       );
                     }
                     if (r.task_demand > 0 && needOnArea === 0) {
-                      return <Tag color="success">✅ На участке ({fmt(r.area_stock ?? 0)} шт)</Tag>;
+                      return <UiBadge color="success">✅ На участке ({fmt(r.area_stock ?? 0)} шт)</UiBadge>;
                     }
                     if (r.in_work > 0) {
-                      return <Tag color="geekblue">⚙️ В работе ({fmt(r.in_work)} шт)</Tag>;
+                      return <UiBadge color="geekblue">⚙️ В работе ({fmt(r.in_work)} шт)</UiBadge>;
                     }
-                    return <Tag color="default">В норме</Tag>;
+                    return <UiBadge color="default">В норме</UiBadge>;
                   },
                 },
                 {
@@ -1182,7 +1183,7 @@ export default function PfDemand() {
                               {areaName(r.first_stage_area)} · <Typography.Text type="secondary">{r.first_stage_name}</Typography.Text>
                             </span>
                           ) : (
-                            <Tag color="orange">не указан</Tag>
+                            <UiBadge color="orange">не указан</UiBadge>
                           ),
                       },
                     ]

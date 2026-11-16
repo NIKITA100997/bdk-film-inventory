@@ -2,7 +2,8 @@ import StripPoolAdjustModal from "../../../components/StripPoolAdjustModal";
 import { useState } from "react";
 import OverProductionTag, { overExcess } from "../../../components/OverProductionTag";
 import { ItemChars } from "../../../components/ItemChars";
-import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Tabs, Tag, Typography, message, Tooltip, Popconfirm, InputNumber, Input, Form, Select, Table } from "antd";
+import { UiBadge } from "../../../components/UiBadge";
+import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Tabs, Typography, message, Popconfirm, InputNumber, Input, Form, Select, Table } from "antd";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -275,7 +276,7 @@ function TaskCardBody({
             key: "pf",
             label: (
               <Space size={4}>
-                П/ф<Tag color={pfAllReady ? "green" : "orange"} style={{ marginInlineEnd: 0 }}>{pfAllReady ? "готов" : "не готов"}</Tag>
+                П/ф<UiBadge color={pfAllReady ? "green" : "orange"} style={{ marginInlineEnd: 0 }}>{pfAllReady ? "готов" : "не готов"}</UiBadge>
               </Space>
             ),
             children: <PfTab tasks={pfTasks} onGo={onGo} areaName={(c) => areasQuery.data?.find((a) => a.code === c)?.name ?? c} />,
@@ -314,11 +315,11 @@ function TaskCardBody({
               №{t.id} «{t.name ?? t.product_model_name ?? "Задание"}»
             </Typography.Title>
             <Space wrap size={[8, 4]}>
-              <Tag color={t.is_active ? "blue" : "default"}>{t.is_active ? "в работе" : "в архиве"}</Tag>
+              <UiBadge color={t.is_active ? "blue" : "default"}>{t.is_active ? "в работе" : "в архиве"}</UiBadge>
               <span>
                 сделано {done} из {plan}
               </span>
-              {overLines > 0 && <Tag color="red">сверх задания: {overLines} {overLines === 1 ? "строка" : "строк"}</Tag>}
+              {overLines > 0 && <UiBadge color="red">сверх задания: {overLines} {overLines === 1 ? "строка" : "строк"}</UiBadge>}
               <Progress percent={plan ? Math.round((done / plan) * 100) : 0} size="small" style={{ width: 120, margin: 0 }} />
               {card?.order && (
                 <a
@@ -700,8 +701,8 @@ function TaskShiftReportModal({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <div>
             <Typography.Text strong style={{ fontSize: 14 }}>
-              Всего к сдаче: <Tag color="green" style={{ fontSize: 13 }}>{totalGood} годных</Tag>
-              {totalDefect > 0 && <Tag color="red" style={{ fontSize: 13 }}>{totalDefect} брак</Tag>}
+              Всего к сдаче: <UiBadge color="green" style={{ fontSize: 13 }}>{totalGood} годных</UiBadge>
+              {totalDefect > 0 && <UiBadge color="red" style={{ fontSize: 13, marginLeft: 4 }}>{totalDefect} брак</UiBadge>}
             </Typography.Text>
           </div>
           <Space size={10}>
@@ -761,9 +762,9 @@ function TaskShiftReportModal({
               return (
                 <Space direction="vertical" size={0}>
                   <span>{l.produced_good_pieces} из {l.quantity_pieces} шт</span>
-                  <Tag color={left > 0 ? "orange" : "green"} style={{ margin: 0, fontSize: 11 }}>
+                  <UiBadge color={left > 0 ? "orange" : "green"} size="sm" style={{ margin: 0 }}>
                     {left > 0 ? `Остаток: ${left} шт` : "Сдано"}
-                  </Tag>
+                  </UiBadge>
                 </Space>
               );
             },
@@ -949,9 +950,9 @@ function LinesTab({
           </Button>
         )}
         {(fabrika || !requiresRoll) && (
-          <Tag color="blue" style={{ padding: "4px 8px", fontSize: 12 }}>
+          <UiBadge color="blue" style={{ padding: "4px 8px", fontSize: 12 }}>
             ⚡ Упрощённый режим: сдача в штуках, списание плёнки по нормативу (FIFO)
-          </Tag>
+          </UiBadge>
         )}
       </div>
       <ResponsiveTable<ProductionTaskLine>
@@ -967,12 +968,12 @@ function LinesTab({
               <Space direction="vertical" size={0}>
                 <ItemChars chars={l.item_chars} name={l.part_name} />
                 {l.operation_name && <Typography.Text type="secondary">{l.operation_name}</Typography.Text>}
-                {l.program && <Tag color="geekblue">программа {l.program}</Tag>}
+                {l.program && <UiBadge color="geekblue">программа {l.program}</UiBadge>}
                 {l.instruction && <Typography.Text type="warning">⚑ {l.instruction}</Typography.Text>}
                 {(l.manual_changes ?? []).length > 0 && (
-                  <Tooltip title={(l.manual_changes ?? []).join(" · ")}>
-                    <Tag color="orange">изменено вручную</Tag>
-                  </Tooltip>
+                  <span title={(l.manual_changes ?? []).join(" · ")}>
+                    <UiBadge color="orange">изменено вручную</UiBadge>
+                  </span>
                 )}
               </Space>
             ),
@@ -984,9 +985,9 @@ function LinesTab({
                 <Space size={4} wrap>
                   {lineFilmLabel(l)}
                   {l.use_illiquid && (
-                    <Tooltip title="Под строку берутся только рулоны с пометкой «неликвид»">
-                      <Tag color="orange">из неликвида</Tag>
-                    </Tooltip>
+                    <span title="Под строку берутся только рулоны с пометкой «неликвид»">
+                      <UiBadge color="orange">из неликвида</UiBadge>
+                    </span>
                   )}
                 </Space>
               ) : (
@@ -1001,16 +1002,16 @@ function LinesTab({
                 return (
                   <Space size={4} wrap>
                     {l.area_strip_stock_m != null && l.area_strip_stock_m > 0 ? (
-                      <Tag color="green" title="Доступно в пуле штрипсов участка (списание FIFO)">
+                      <UiBadge color="green" title="Доступно в пуле штрипсов участка (списание FIFO)">
                         В пуле {l.area_strip_stock_m} м ({l.area_strip_count ?? 1} шт.) · FIFO
-                      </Tag>
+                      </UiBadge>
                     ) : (
-                      <Tag color="warning" title="Штрипсов нужной ширины на участке нет">Пул пуст (0 м)</Tag>
+                      <UiBadge color="warning" title="Штрипсов нужной ширины на участке нет">Пул пуст (0 м)</UiBadge>
                     )}
                     {l.film_deficit_m != null && l.film_deficit_m > 0 && (
-                      <Tag color="error" title="Овердрафт: списано сверх фактического остатка штрипсов в цехе">
+                      <UiBadge color="error" title="Овердрафт: списано сверх фактического остатка штрипсов в цехе">
                         Дефицит: -{l.film_deficit_m} м
-                      </Tag>
+                      </UiBadge>
                     )}
                     <Button
                       size="small"
@@ -1025,11 +1026,11 @@ function LinesTab({
                 );
               }
               const rolls = rollChoices(l);
-              if (!rolls.length) return <Tag color="warning">не выдан</Tag>;
+              if (!rolls.length) return <UiBadge color="warning">не выдан</UiBadge>;
               return rolls.map((u) => (
-                <Tag key={u.id} color={u.from ? "cyan" : "blue"} title={u.from ? `Общий рулон участка, выдан под «${u.from}»` : undefined}>
+                <UiBadge key={u.id} color={u.from ? "cyan" : "blue"} title={u.from ? `Общий рулон участка, выдан под «${u.from}»` : undefined}>
                   №{u.id} · {Math.round(u.left * 10) / 10} м{u.from ? " · общий" : ""}
-                </Tag>
+                </UiBadge>
               ));
             },
           },
@@ -1042,7 +1043,7 @@ function LinesTab({
                   {l.produced_good_pieces} из {l.quantity_pieces}
                 </span>
                 <OverProductionTag line={l} produced={l.produced_good_pieces} />
-                {l.production_closed && <Tag>закрыта</Tag>}
+                {l.production_closed && <UiBadge>закрыта</UiBadge>}
               </Space>
             ),
           },
@@ -1051,7 +1052,7 @@ function LinesTab({
             title: "Сдача",
             render: (_, l) => {
               if (!canReport || !t.is_active || l.production_closed) {
-                return l.production_closed ? <Tag>закрыта</Tag> : "—";
+                return l.production_closed ? <UiBadge>закрыта</UiBadge> : "—";
               }
               const left = Math.max(0, l.quantity_pieces - l.produced_good_pieces);
               return (
@@ -1087,7 +1088,7 @@ function LinesTab({
                     </>
                   ) : (
                     <Space size={4}>
-                      <Tag color="success" style={{ fontSize: 12, padding: "2px 8px" }}>✓ Сдано</Tag>
+                      <UiBadge color="success" style={{ fontSize: 12, padding: "2px 8px" }}>✓ Сдано</UiBadge>
                       <Button
                         size="middle"
                         type="default"
@@ -1178,16 +1179,16 @@ function PfTab({ tasks, onGo, areaName }: { tasks: ProductionTask[]; onGo: (id: 
             <a onClick={() => onGo(p.id)}>
               №{p.id} «{p.name}» · {areaName(p.area)} →
             </a>
-            <Tag color={pfReady(p) ? "green" : "orange"}>{pfReady(p) ? "готов" : "в работе"}</Tag>
+            <UiBadge color={pfReady(p) ? "green" : "orange"}>{pfReady(p) ? "готов" : "в работе"}</UiBadge>
           </Space>
           {pfParts(p).map(({ part, lines, ready }) => (
             <Space key={part} style={{ justifyContent: "space-between", width: "100%" }} wrap>
               <span>{part}</span>
               <Space size={4} wrap>
                 {lines.map((l) => (
-                  <Tag key={l.id} color={l.production_closed || l.remaining_pieces <= 0 ? "green" : ready ? "green" : "gold"}>
+                  <UiBadge key={l.id} color={l.production_closed || l.remaining_pieces <= 0 ? "green" : ready ? "green" : "gold"}>
                     {l.operation_name ?? "этап"} {l.produced_good_pieces}/{l.quantity_pieces}
-                  </Tag>
+                  </UiBadge>
                 ))}
               </Space>
             </Space>
@@ -1235,8 +1236,8 @@ function PlanTab({ t }: { t: ProductionTask }) {
           render: (_, s) => (
             <Space size={4}>
               {s.date ? dayjs(s.date).format("DD.MM") : "—"}
-              {s.date === today && <Tag color="blue">сегодня</Tag>}
-              {s.overdue && <Tag color="red">просрочено</Tag>}
+              {s.date === today && <UiBadge color="blue">сегодня</UiBadge>}
+              {s.overdue && <UiBadge color="red">просрочено</UiBadge>}
             </Space>
           ),
         },
@@ -1266,14 +1267,14 @@ function HistoryTab({ reports, loading }: { reports: TaskCardReport[]; loading: 
           title: "Отчёт",
           render: (_, r) => (
             <Space size={4} wrap>
-              {r.good_pieces > 0 && <Tag color="green">{r.good_pieces} годных</Tag>}
+              {r.good_pieces > 0 && <UiBadge color="green">{r.good_pieces} годных</UiBadge>}
               {r.defect_pieces > 0 && (
-                <Tag color="red">
+                <UiBadge color="red">
                   брак {r.defect_pieces}
                   {r.defect_reason_name ? ` · ${r.defect_reason_name}` : ""}
-                </Tag>
+                </UiBadge>
               )}
-              {r.material_unit_id && <Tag color="blue">рулон №{r.material_unit_id}</Tag>}
+              {r.material_unit_id && <UiBadge color="blue">рулон №{r.material_unit_id}</UiBadge>}
               {r.note && <Typography.Text type="secondary">{r.note}</Typography.Text>}
             </Space>
           ),

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { UiBadge } from "../../../components/UiBadge";
 import {
   Form,
   Modal,
-  Tag,
   message,
 } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -935,17 +935,17 @@ export function useIssue() {
   };
 
   const renderStatusPill = (status: RowStatus | undefined, issuedNote: string | null) => {
-    if (issuedNote) return <Tag color="green">{issuedNote}</Tag>;
+    if (issuedNote) return <UiBadge color="green">{issuedNote}</UiBadge>;
     if (!status) return null;
     switch (status.kind) {
       case "stock":
-        return <Tag color="green">✅ {rollNo(status.match.unit_id)}{status.match.shared ? " · общий" : ""}</Tag>;
+        return <UiBadge color="green">✅ {rollNo(status.match.unit_id)}{status.match.shared ? " · общий" : ""}</UiBadge>;
       case "cut_planned":
-        return <Tag color="gold">✂️ резка</Tag>;
+        return <UiBadge color="gold">✂️ резка</UiBadge>;
       case "no_donor":
-        return <Tag color="red">✖ нет</Tag>;
+        return <UiBadge color="red">✖ нет</UiBadge>;
       case "decided":
-        return <Tag color="processing">🕒 решено</Tag>;
+        return <UiBadge color="processing">🕒 решено</UiBadge>;
       default:
         return null;
     }

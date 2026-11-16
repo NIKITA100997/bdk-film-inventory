@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import OverProductionTag from "../../../../components/OverProductionTag";
 import { ItemChars } from "../../../../components/ItemChars";
+import { UiBadge } from "../../../../components/UiBadge";
 import {
   Alert,
   Badge,
@@ -444,12 +445,12 @@ function EntryBadge({ r, line }: { r: R; line: ProductionTaskLine }) {
   const defect = e.pusk + e.defects.reduce((s, d) => s + d.qty, 0);
   return (
     <Space size={4} wrap>
-      <Tag color="green" style={{ marginInlineEnd: 0, fontWeight: 700 }}>
+      <UiBadge color="green" style={{ marginInlineEnd: 0, fontWeight: 700 }}>
         {+e.good || 0}
         {defect ? ` · брак ${defect}` : ""}
         {e.meters != null ? ` · ${e.meters} м` : ""}
         {e.close ? " · закрыть" : ""}
-      </Tag>
+      </UiBadge>
       <OverProductionTag line={line} produced={line.produced_good_pieces + (+e.good || 0)} planned={+e.good > 0} />
     </Space>
   );
@@ -790,12 +791,12 @@ function LinesTableView({
                 <td style={cell}>
                   <div style={{ fontSize: 13 }}>{filmLabel(fl.line)}</div>
                   {roll ? (
-                    <Tag color={roll.from ? "cyan" : "blue"}>
+                    <UiBadge color={roll.from ? "cyan" : "blue"}>
                       {rollNo(roll.id)} · {fmt(roll.left)} м
                       {roll.from ? " · общий" : ""}
-                    </Tag>
+                    </UiBadge>
                   ) : r.needsRoll(fl) ? (
-                    <Tag color="warning">нет рулона</Tag>
+                    <UiBadge color="warning">нет рулона</UiBadge>
                   ) : null}
                 </td>
                 <td style={cell}>
@@ -1002,14 +1003,14 @@ function LineSheet({
                 Штрипс {fl.line.strip_width_mm || fl.line.width_mm} мм:
               </Typography.Text>
               {fl.line.area_strip_stock_m != null && fl.line.area_strip_stock_m > 0 ? (
-                <Tag color="success">
+                <UiBadge color="success">
                   В цехе {fl.line.area_strip_stock_m} м ({fl.line.area_strip_count ?? 1} шт.) · FIFO
-                </Tag>
+                </UiBadge>
               ) : (
-                <Tag color="warning">Нет штрипса в цехе</Tag>
+                <UiBadge color="warning">Нет штрипса в цехе</UiBadge>
               )}
               {fl.line.film_deficit_m != null && fl.line.film_deficit_m > 0 && (
-                <Tag color="error">Дефицит: -{fl.line.film_deficit_m} м</Tag>
+                <UiBadge color="error">Дефицит: -{fl.line.film_deficit_m} м</UiBadge>
               )}
             </div>
           )}
@@ -1235,10 +1236,10 @@ export function DefectModal({
         <Space orientation="vertical" style={{ width: "100%", marginBottom: 12 }}>
           {current.map((d, i) => (
             <Space key={i}>
-              <Tag>
+              <UiBadge>
                 {r.reasons.find((x) => x.code === d.reason)?.name ?? d.reason}:{" "}
                 {d.qty} шт
-              </Tag>
+              </UiBadge>
               <Button
                 size="small"
                 type="link"

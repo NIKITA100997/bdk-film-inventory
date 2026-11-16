@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { UiBadge } from "../../components/UiBadge";
 import {
   Alert,
   Badge,
@@ -20,7 +21,6 @@ import {
   Spin,
   Statistic,
   Switch,
-  Tag,
   Typography,
   message,
 } from "antd";
@@ -324,9 +324,9 @@ function ExpressSessionBoard({
           <Col xs={24} sm={10}>
             <Space orientation="vertical" size={2} style={{ width: "100%" }}>
               <Space wrap align="center">
-                <Tag color="blue" style={{ fontSize: 13, padding: "2px 8px" }}>
+                <UiBadge color="blue" style={{ fontSize: 13, padding: "2px 8px" }}>
                   {detail.place_name}
-                </Tag>
+                </UiBadge>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   Инвентаризация №{detail.id} от {dayjs(detail.started_at).format("DD.MM HH:mm")}
                 </Typography.Text>
@@ -475,10 +475,10 @@ function ExpressSessionBoard({
               <Typography.Text strong style={{ fontSize: 15 }}>
                 📍 Ячейка {selectedCell}:
               </Typography.Text>
-              <Tag color={cellStats.open === 0 ? "green" : "blue"}>
+              <UiBadge color={cellStats.open === 0 ? "green" : "blue"}>
                 Проверено: {cellStats.counted} из {cellStats.total}
-              </Tag>
-              {cellStats.diffs > 0 && <Tag color="red">Расхождений: {cellStats.diffs}</Tag>}
+              </UiBadge>
+              {cellStats.diffs > 0 && <UiBadge color="red">Расхождений: {cellStats.diffs}</UiBadge>}
             </Space>
 
             {cellStats.open > 0 && (
@@ -633,14 +633,14 @@ function ExpressUnitCard({
             {line.kind === "plenka" ? rollNo(line.material_unit_id) : line.part_unit_id ? pfNo(line.part_unit_id) : line.name}
           </Typography.Text>
           {line.detail && (
-            <Tag color="cyan" style={{ fontSize: 12 }}>
+            <UiBadge color="cyan" style={{ fontSize: 12 }}>
               {line.detail}
-            </Tag>
+            </UiBadge>
           )}
           {line.location_code && (
-            <Tag color="geekblue" style={{ fontSize: 12 }}>
+            <UiBadge color="geekblue" style={{ fontSize: 12 }}>
               📍 {line.location_code}
-            </Tag>
+            </UiBadge>
           )}
         </Space>
 
@@ -648,13 +648,13 @@ function ExpressUnitCard({
         {!isCounted ? (
           <Badge status="default" text="Ожидает" />
         ) : isMatch ? (
-          <Tag color="green" icon={<CheckCircleOutlined />} style={{ fontSize: 13, padding: "2px 8px" }}>
-            Сошлось ({fmt(line.counted_qty)} {line.unit})
-          </Tag>
+          <UiBadge color="green" style={{ fontSize: 13, padding: "2px 8px" }}>
+            <CheckCircleOutlined /> Сошлось ({fmt(line.counted_qty)} {line.unit})
+          </UiBadge>
         ) : (
-          <Tag color="red" icon={<CloseCircleOutlined />} style={{ fontSize: 13, padding: "2px 8px" }}>
-            {line.diff! < 0 ? `Недостача ${fmt(-line.diff!)}` : `Излишек +${fmt(line.diff!)}`} {line.unit}
-          </Tag>
+          <UiBadge color="red" style={{ fontSize: 13, padding: "2px 8px" }}>
+            <CloseCircleOutlined /> {line.diff! < 0 ? `Недостача ${fmt(-line.diff!)}` : `Излишек +${fmt(line.diff!)}`} {line.unit}
+          </UiBadge>
         )}
       </div>
 
@@ -974,7 +974,7 @@ function SummaryModal({
                       <Typography.Text strong>
                         {l.kind === "plenka" ? rollNo(l.material_unit_id) : l.name}
                       </Typography.Text>
-                      {l.location_code && <Tag style={{ marginLeft: 6 }}>📍 {l.location_code}</Tag>}
+                      {l.location_code && <UiBadge style={{ marginLeft: 6 }}>📍 {l.location_code}</UiBadge>}
                       <div style={{ fontSize: 12, color: "#666" }}>{l.name}</div>
                     </Col>
                     <Col span={10} style={{ textAlign: "right" }}>
@@ -982,9 +982,9 @@ function SummaryModal({
                         Учёт: {fmt(l.expected_qty)} → Факт: {fmt(l.counted_qty)}
                       </Typography.Text>
                       <div>
-                        <Tag color={l.diff! < 0 ? "red" : "orange"} style={{ fontWeight: 600 }}>
+                        <UiBadge color={l.diff! < 0 ? "red" : "orange"} style={{ fontWeight: 600 }}>
                           {l.diff! < 0 ? `Недостача ${fmt(-l.diff!)}` : `Излишек +${fmt(l.diff!)}`} {l.unit}
-                        </Tag>
+                        </UiBadge>
                       </div>
                     </Col>
                   </Row>

@@ -1,4 +1,5 @@
 import NextStep from "../../components/NextStep";
+import { UiBadge } from "../../components/UiBadge";
 import {
   Alert,
   Button,
@@ -15,7 +16,6 @@ import {
   Segmented,
   Select,
   Space,
-  Tag,
   Tooltip,
   Typography,
 } from "antd";
@@ -334,33 +334,33 @@ export default function Issue() {
             fixed: "left",
             render: (_, row) =>
               row.kind === "manual" ? (
-                <Tooltip title="Выдано вручную — без привязки к заданию">
-                  <Tag style={{ margin: 0 }}>✋</Tag>
-                </Tooltip>
+                <span title="Выдано вручную — без привязки к заданию">
+                  <UiBadge style={{ margin: 0 }}>✋</UiBadge>
+                </span>
               ) : row.variant === "today" ? (
                 row.overdue ? (
-                  <Tooltip title={`Просрочено — было распределено на ${dayjs(row.assignment!.date).format("DD.MM")}`}>
-                    <Tag color="error" style={{ margin: 0 }}>
+                  <span title={`Просрочено — было распределено на ${dayjs(row.assignment!.date).format("DD.MM")}`}>
+                    <UiBadge color="error" style={{ margin: 0 }}>
                       ⚠️
-                    </Tag>
-                  </Tooltip>
+                    </UiBadge>
+                  </span>
                 ) : (
-                  <Tooltip title="Распределено на сегодня">
-                    <Tag color="orange" style={{ margin: 0 }}>
+                  <span title="Распределено на сегодня">
+                    <UiBadge color="orange" style={{ margin: 0 }}>
                       📅
-                    </Tag>
-                  </Tooltip>
+                    </UiBadge>
+                  </span>
                 )
               ) : areaRequiresDailyPlan(row.task.area) ? (
-                <Tooltip title="Ещё не распределено по дням">
-                  <Tag style={{ margin: 0 }}>➖</Tag>
-                </Tooltip>
+                <span title="Ещё не распределено по дням">
+                  <UiBadge style={{ margin: 0 }}>➖</UiBadge>
+                </span>
               ) : (
-                <Tooltip title="Без деления по дням — весь участок">
-                  <Tag color="blue" style={{ margin: 0 }}>
+                <span title="Без деления по дням — весь участок">
+                  <UiBadge color="blue" style={{ margin: 0 }}>
                     🏭
-                  </Tag>
-                </Tooltip>
+                  </UiBadge>
+                </span>
               ),
           },
           {
@@ -370,7 +370,7 @@ export default function Issue() {
             fixed: "left",
             render: (_, row) =>
               row.kind === "manual" ? (
-                <Tag color="green">✅ вручную</Tag>
+                <UiBadge color="green">✅ вручную</UiBadge>
               ) : (
                 renderStatusPill(
                   decidedLineIds.has(row.line.id) ? { kind: "decided" } : lineInfoMap.get(row.line.id)?.status,

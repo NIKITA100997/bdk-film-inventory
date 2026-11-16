@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import ShortageTags from "../../components/ShortageTags";
+import { UiBadge } from "../../components/UiBadge";
 import {
   Alert,
   Button,
@@ -20,7 +21,6 @@ import {
   Space,
   Switch,
   Table,
-  Tag,
   Typography,
   message,
 } from "antd";
@@ -826,7 +826,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
         >
           {supplierFilter && (
             <Space style={{ marginBottom: 12 }}>
-              <Tag color="purple">Только «{supplierFilter}»</Tag>
+              <UiBadge color="purple">Только «{supplierFilter}»</UiBadge>
               <Button size="small" onClick={() => setSupplierFilter(null)}>
                 Сбросить фильтр
               </Button>
@@ -859,9 +859,9 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                         <Typography.Text strong style={{ fontSize: 15 }}>
                           {r.material}, {r.color}
                         </Typography.Text>
-                        <Tag color="blue" style={{ width: "fit-content" }}>
+                        <UiBadge color="blue" style={{ width: "fit-content" }}>
                           Вариантов толщины: {r.thicknesses.length} ({r.thicknesses.map((t) => `${t} мм`).join(", ")})
-                        </Tag>
+                        </UiBadge>
                       </Space>
                     );
                   }
@@ -948,9 +948,9 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                         const reserved = r.reserved_area_m2 ?? 0;
                         const available = Math.round((r.total_area_m2 - (r.illiquid_area_m2 ?? 0) - reserved) * 10) / 10;
                         return (
-                          <Tag color={available < 0 ? "red" : reserved > 0 && available < reserved * 0.2 ? "gold" : "green"}>
+                          <UiBadge color={available < 0 ? "red" : reserved > 0 && available < reserved * 0.2 ? "gold" : "green"}>
                             {available}
-                          </Tag>
+                          </UiBadge>
                         );
                       },
                     },
@@ -958,7 +958,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                       title: "В заявках",
                       render: (_: unknown, r: GroupedStockLine) => {
                         const v = r.open_requested_area_m2 ?? 0;
-                        return v > 0 ? <Tag color="purple">{v} м²</Tag> : "—";
+                        return v > 0 ? <UiBadge color="purple">{v} м²</UiBadge> : "—";
                       },
                     },
                     {
@@ -966,9 +966,9 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                       render: (_: unknown, r: GroupedStockLine) => {
                         if (r.isParent) {
                           return (r.to_order_m2 ?? 0) > 0 ? (
-                            <Tag color="orange">заказать {r.to_order_m2}</Tag>
+                            <UiBadge color="orange">заказать {r.to_order_m2}</UiBadge>
                           ) : (
-                            <Tag color="green">хватает</Tag>
+                            <UiBadge color="green">хватает</UiBadge>
                           );
                         }
                         const label = normsLabel(r.min_stock_m2, r.min_batch_m2, r.batch_multiple_m2);
@@ -977,10 +977,10 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                             {label !== "—" && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{label}</Typography.Text>}
                             {(r.to_order_m2 ?? 0) > 0 ? (
                               <Space size={4} wrap>
-                                <Tag color="orange">заказать {r.to_order_m2}</Tag>
+                                <UiBadge color="orange">заказать {r.to_order_m2}</UiBadge>
                                 <ShortageTags total={r.shortage_m2 ?? 0} tasks={r.shortage_tasks_m2} min={r.shortage_min_m2} />
                               </Space>
-                            ) : label === "—" ? "—" : <Tag color="green">хватает</Tag>}
+                            ) : label === "—" ? "—" : <UiBadge color="green">хватает</UiBadge>}
                           </Space>
                         );
                       },
@@ -995,7 +995,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                         r.days_of_stock_remaining == null ? (
                           "—"
                         ) : (
-                          <Tag color={r.reorder_suggested ? "orange" : undefined}>{r.days_of_stock_remaining}</Tag>
+                          <UiBadge color={r.reorder_suggested ? "orange" : undefined}>{r.days_of_stock_remaining}</UiBadge>
                         ),
                     },
                   ]
@@ -1136,7 +1136,7 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                 render: (v: number, u) => (
                   <Space size={4}>
                     {rollNo(v)}
-                    {u.marked_illiquid && <Tag color="orange" style={{ margin: 0 }}>неликвид</Tag>}
+                    {u.marked_illiquid && <UiBadge color="orange" style={{ margin: 0 }}>неликвид</UiBadge>}
                   </Space>
                 ),
               },
@@ -1424,9 +1424,9 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
                     <span>
                       <b>№ {rollNo(u.id)}</b> — {u.width_mm}×{u.length_m} м, {u.location_code ?? "без места"}
                       {u.marked_illiquid && (
-                        <Tag color="orange" style={{ marginLeft: 6 }}>
+                        <UiBadge color="orange" style={{ marginLeft: 6 }}>
                           неликвид
-                        </Tag>
+                        </UiBadge>
                       )}
                     </span>
                   </List.Item>
@@ -1744,7 +1744,7 @@ function OrderToCart({ inCart, suggested, onAdd }: { inCart: number; suggested: 
           В корзину
         </Button>
       </Space.Compact>
-      {inCart > 0 && <Tag color="blue" style={{ margin: 0 }}>в корзине {Math.round(inCart * 100) / 100} м</Tag>}
+      {inCart > 0 && <UiBadge color="blue" style={{ margin: 0 }}>в корзине {Math.round(inCart * 100) / 100} м</UiBadge>}
     </Space>
   );
 }

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import dayjs from "dayjs";
-import { Card, Checkbox, Input, Progress, Segmented, Space, Table, Tag, Typography } from "antd";
+import { UiBadge } from "../../components/UiBadge";
+import { Card, Checkbox, Input, Progress, Segmented, Space, Table, Typography } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import {
   getInvoicesReadiness,
@@ -124,12 +125,12 @@ export default function OrderReadiness() {
             title: "Готово по плану",
             render: (_, o) =>
               !o.planned ? (
-                <Tag>без плана</Tag>
+                <UiBadge>без плана</UiBadge>
               ) : (
                 <Space size={4} wrap>
                   {o.plan_finish && <span>{dayjs(o.plan_finish).format("DD.MM.YYYY")}</span>}
-                  {o.plan_late ? <Tag color="red">не успевает к отгрузке</Tag> : <Tag color="green">успевает</Tag>}
-                  {o.plan_overdue > 0 && <Tag color="orange">отставание {fmt(o.plan_overdue)} шт</Tag>}
+                  {o.plan_late ? <UiBadge color="red">не успевает к отгрузке</UiBadge> : <UiBadge color="green">успевает</UiBadge>}
+                  {o.plan_overdue > 0 && <UiBadge color="orange">отставание {fmt(o.plan_overdue)} шт</UiBadge>}
                 </Space>
               ),
           },
@@ -144,7 +145,7 @@ export default function OrderReadiness() {
               </Space>
             ),
           },
-          { title: "Статус", render: (_, o) => (o.status === "closed" ? <Tag>закрыт</Tag> : <Tag color="blue">в производстве</Tag>) },
+          { title: "Статус", render: (_, o) => (o.status === "closed" ? <UiBadge>закрыт</UiBadge> : <UiBadge color="blue">в производстве</UiBadge>) },
         ]}
       />
       )}
@@ -215,7 +216,7 @@ function InvoiceTable({ q, withClosed, onlyRisk }: { q: string; withClosed: bool
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 {o.orders.join(", ")}
               </Typography.Text>
-              {o.state && o.state !== "в работе" && <Tag color={o.state.startsWith("заявка") ? "gold" : "cyan"}>{o.state}</Tag>}
+              {o.state && o.state !== "в работе" && <UiBadge color={o.state.startsWith("заявка") ? "gold" : "cyan"}>{o.state}</UiBadge>}
             </Space>
           ),
         },
@@ -246,12 +247,12 @@ function InvoiceTable({ q, withClosed, onlyRisk }: { q: string; withClosed: bool
           title: "Готово по плану",
           render: (_, o) =>
             !o.planned ? (
-              <Tag>без плана</Tag>
+              <UiBadge>без плана</UiBadge>
             ) : (
               <Space size={4} wrap>
                 {o.plan_finish && <span>{dayjs(o.plan_finish).format("DD.MM.YYYY")}</span>}
-                {o.plan_late ? <Tag color="red">не успевает к отгрузке</Tag> : <Tag color="green">успевает</Tag>}
-                {o.plan_overdue > 0 && <Tag color="orange">отставание {fmt(o.plan_overdue)} шт</Tag>}
+                {o.plan_late ? <UiBadge color="red">не успевает к отгрузке</UiBadge> : <UiBadge color="green">успевает</UiBadge>}
+                {o.plan_overdue > 0 && <UiBadge color="orange">отставание {fmt(o.plan_overdue)} шт</UiBadge>}
               </Space>
             ),
         },
@@ -266,7 +267,7 @@ function InvoiceTable({ q, withClosed, onlyRisk }: { q: string; withClosed: bool
             </Space>
           ),
         },
-        { title: "Статус", render: (_, o) => (o.closed ? <Tag>закрыт</Tag> : <Tag color="blue">в производстве</Tag>) },
+        { title: "Статус", render: (_, o) => (o.closed ? <UiBadge>закрыт</UiBadge> : <UiBadge color="blue">в производстве</UiBadge>) },
       ]}
     />
   );
@@ -277,20 +278,20 @@ function StageCell({ stage }: { stage: ReadinessStage | undefined }) {
   if (!stage) return <Typography.Text type="secondary">—</Typography.Text>;
   const d = stage.plan_date ? dayjs(stage.plan_date).format("DD.MM") : null;
   const part = `${fmt(stage.done)}/${fmt(stage.plan)}`;
-  if (stage.status === "done") return <Tag color="green">✓ готово</Tag>;
+  if (stage.status === "done") return <UiBadge color="green">✓ готово</UiBadge>;
   if (stage.status === "overdue")
     return (
-      <Tag color="red">
+      <UiBadge color="red">
         просрочено{d ? ` · ${d}` : ""} · {part}
-      </Tag>
+      </UiBadge>
     );
   if (stage.status === "progress")
     return (
-      <Tag color="blue">
+      <UiBadge color="blue">
         {part}
         {d ? ` · до ${d}` : ""}
-      </Tag>
+      </UiBadge>
     );
-  if (stage.status === "planned") return <Tag>{d ?? "в плане"}</Tag>;
+  if (stage.status === "planned") return <UiBadge>{d ?? "в плане"}</UiBadge>;
   return <Typography.Text type="secondary">без плана</Typography.Text>;
 }

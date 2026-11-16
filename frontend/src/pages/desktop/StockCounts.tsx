@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import NextStep from "../../components/NextStep";
+import { UiBadge } from "../../components/UiBadge";
 import {
   Alert,
   Button,
@@ -16,7 +17,6 @@ import {
   Space,
   Spin,
   Table,
-  Tag,
   TreeSelect,
   Typography,
   message,
@@ -66,17 +66,17 @@ const reasonCategory = (k: CountKind) => (k === "plenka" ? "warehouse" : "parts"
 
 const DiffTag = ({ diff, unit }: { diff: number | null; unit?: string }) =>
   diff == null ? (
-    <Tag>не считали</Tag>
+    <UiBadge>не считали</UiBadge>
   ) : diff === 0 ? (
-    <Tag color="green">сошлось</Tag>
+    <UiBadge color="green">сошлось</UiBadge>
   ) : diff < 0 ? (
-    <Tag color="red">
+    <UiBadge color="red">
       недостача {fmt(-diff)} {unit}
-    </Tag>
+    </UiBadge>
   ) : (
-    <Tag color="orange">
+    <UiBadge color="orange">
       излишек {fmt(diff)} {unit}
-    </Tag>
+    </UiBadge>
   );
 
 /** Инвентаризация — одна на все виды, по месту (27.10): выбираете место
@@ -136,9 +136,9 @@ function CountList({ onOpen }: { onOpen: (id: number) => void }) {
             render: (_, s) => (
               <Space size={4} wrap>
                 {s.kinds.map((k) => (
-                  <Tag key={k} color={KIND_COLOR[k]}>
+                  <UiBadge key={k} color={KIND_COLOR[k]}>
                     {COUNT_KIND_LABEL[k]}
-                  </Tag>
+                  </UiBadge>
                 ))}
               </Space>
             ),
@@ -148,13 +148,13 @@ function CountList({ onOpen }: { onOpen: (id: number) => void }) {
             title: "Статус",
             render: (_, s) =>
               s.status === "in_progress" ? (
-                <Tag color="blue">
+                <UiBadge color="blue">
                   идёт · посчитано {s.lines_counted} из {s.lines_total}
-                </Tag>
+                </UiBadge>
               ) : s.lines_open > 0 ? (
-                <Tag color="orange">закрыта · без решения {s.lines_open}</Tag>
+                <UiBadge color="orange">закрыта · без решения {s.lines_open}</UiBadge>
               ) : (
-                <Tag color="green">закрыта</Tag>
+                <UiBadge color="green">закрыта</UiBadge>
               ),
           },
           { title: "Расхождений", dataIndex: "lines_diff", align: "right" },
@@ -267,9 +267,9 @@ function NewCountModal({
               <span>
                 Считаем:{" "}
                 {place.kinds.map((k) => (
-                  <Tag key={k} color={KIND_COLOR[k]}>
+                  <UiBadge key={k} color={KIND_COLOR[k]}>
                     {COUNT_KIND_LABEL[k]}
-                  </Tag>
+                  </UiBadge>
                 ))}
               </span>
             ) : undefined
@@ -422,7 +422,7 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
   };
 
   return (
-    <Card title={`Инвентаризация №${d.id} · ${d.place_name}`} extra={<Tag color="blue">идёт</Tag>}>
+    <Card title={`Инвентаризация №${d.id} · ${d.place_name}`} extra={<UiBadge color="blue">идёт</UiBadge>}>
       <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {left > 0 ? (
           <NextStep
@@ -481,7 +481,7 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
               size="small"
               title={
                 <Space size={8}>
-                  <Tag color={KIND_COLOR[k]}>{COUNT_KIND_LABEL[k]}</Tag>
+                  <UiBadge color={KIND_COLOR[k]}>{COUNT_KIND_LABEL[k]}</UiBadge>
                   <span>{SECTION_TITLE[k]}</span>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     строк {rows.length}
@@ -520,7 +520,7 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
                             render: (_: unknown, l: PartCountLine) => (
                               <Space size={4} orientation="vertical">
                                 <b>{rollNo(l.material_unit_id)}</b>
-                                {l.elsewhere && <Tag color="orange">по учёту: {l.elsewhere}</Tag>}
+                                {l.elsewhere && <UiBadge color="orange">по учёту: {l.elsewhere}</UiBadge>}
                               </Space>
                             ),
                           },
@@ -620,7 +620,7 @@ function PfGroups({
           <div key={g.key}>
             <Space wrap size={6} style={{ marginBottom: 4 }}>
               <b>{g.part}</b>
-              {g.stage && <Tag>{g.stage}</Tag>}
+              {g.stage && <UiBadge>{g.stage}</UiBadge>}
               {g.group && (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {g.group}
@@ -637,7 +637,7 @@ function PfGroups({
               dataSource={g.lines}
               scroll={{ x: "max-content" }}
               columns={[
-                { title: "Партия", render: (_, l) => (l.part_unit_id ? pfNo(l.part_unit_id) : <Tag color="orange">найдено сверх листа</Tag>) },
+                { title: "Партия", render: (_, l) => (l.part_unit_id ? pfNo(l.part_unit_id) : <UiBadge color="orange">найдено сверх листа</UiBadge>) },
                 { title: "Изготовлена", render: (_, l) => (l.manufactured_at ? dayjs(l.manufactured_at).format("DD.MM.YYYY") : "—") },
                 { title: "По учёту, шт", align: "right", render: (_, l) => fmt(l.expected_qty) },
                 { title: "Факт, шт", render: (_, l) => qtyInput(l) },
@@ -782,7 +782,7 @@ function CountResult({ d }: { d: PartCountDetail }) {
   return (
     <Card
       title={`Инвентаризация №${d.id} · ${d.place_name}`}
-      extra={d.lines_open > 0 ? <Tag color="orange">без решения: {d.lines_open}</Tag> : <Tag color="green">все решения приняты</Tag>}
+      extra={d.lines_open > 0 ? <UiBadge color="orange">без решения: {d.lines_open}</UiBadge> : <UiBadge color="green">все решения приняты</UiBadge>}
     >
       <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
         {d.lines_open > 0 ? (
@@ -828,12 +828,12 @@ function CountResult({ d }: { d: PartCountDetail }) {
           pagination={{ pageSize: 50 }}
           scroll={{ x: "max-content" }}
           columns={[
-            { title: "Вид", render: (_, l) => <Tag color={KIND_COLOR[l.kind]}>{COUNT_KIND_LABEL[l.kind]}</Tag> },
+            { title: "Вид", render: (_, l) => <UiBadge color={KIND_COLOR[l.kind]}>{COUNT_KIND_LABEL[l.kind]}</UiBadge> },
             {
               title: "Позиция",
               render: (_, l) => (
                 <>
-                  {l.name} {l.stage_name && <Tag>{l.stage_name}</Tag>}
+                  {l.name} {l.stage_name && <UiBadge>{l.stage_name}</UiBadge>}
                   {l.kind === "plenka" && l.detail && (
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       {l.detail}
@@ -845,7 +845,7 @@ function CountResult({ d }: { d: PartCountDetail }) {
             {
               title: "Партия / рулон",
               render: (_, l) =>
-                lotLabel(l) ?? (l.kind === "pf" ? <Tag color="orange">сверх листа</Tag> : <Typography.Text type="secondary">—</Typography.Text>),
+                lotLabel(l) ?? (l.kind === "pf" ? <UiBadge color="orange">сверх листа</UiBadge> : <Typography.Text type="secondary">—</Typography.Text>),
             },
             { title: "По учёту", align: "right", render: (_, l) => `${fmt(l.expected_qty)} ${l.unit}` },
             { title: "Факт", align: "right", render: (_, l) => (l.counted_qty == null ? "—" : `${fmt(l.counted_qty)} ${l.unit}`) },
@@ -854,7 +854,7 @@ function CountResult({ d }: { d: PartCountDetail }) {
               render: (_, l) => (
                 <Space size={4} wrap>
                   <DiffTag diff={l.diff} unit={l.unit} />
-                  {l.elsewhere && <Tag color="orange">по учёту: {l.elsewhere}</Tag>}
+                  {l.elsewhere && <UiBadge color="orange">по учёту: {l.elsewhere}</UiBadge>}
                 </Space>
               ),
             },

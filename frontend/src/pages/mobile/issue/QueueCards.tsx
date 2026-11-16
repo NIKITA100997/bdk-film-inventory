@@ -1,9 +1,9 @@
 import { type ReactNode } from "react";
+import { UiBadge } from "../../../components/UiBadge";
 import {
   Button,
   Card,
   Space,
-  Tag,
   Typography,
 } from "antd";
 import {
@@ -31,7 +31,7 @@ export default function QueueCards({ s }: { s: IssueState }) {
     let action: ReactNode = null;
     if (issuedNote) {
       const { stillOut } = lineActuals(row.line);
-      state = <Tag color="green">{issuedNote}{stillOut > 0 ? ` · к сдаче ${stillOut} м` : ""}</Tag>;
+      state = <UiBadge color="green">{issuedNote}{stillOut > 0 ? ` · к сдаче ${stillOut} м` : ""}</UiBadge>;
       action = (
         <Space size={4} wrap>
           {row.line.issued_units.length > 0 && (
@@ -46,17 +46,17 @@ export default function QueueCards({ s }: { s: IssueState }) {
         </Space>
       );
     } else if (decided) {
-      state = <Tag color="processing">🕒 в решениях</Tag>;
+      state = <UiBadge color="processing">🕒 в решениях</UiBadge>;
     } else if (info?.status.kind === "stock") {
       state = (
-        <Tag color="green" title={info.status.match.shared ? "Один штрипс на несколько деталей — выдаётся один раз" : undefined}>
+        <UiBadge color="green" title={info.status.match.shared ? "Один штрипс на несколько деталей — выдаётся один раз" : undefined}>
           ✅ штрипс {rollNo(info.status.match.unit_id)}
           {info.status.match.shared ? " · общий" : ""}
           {(() => {
             const home = homeWarehouseFor(row.task.area);
             return home && home.name !== "Основной склад" ? ` · есть на «${home.name}»` : "";
           })()}
-        </Tag>
+        </UiBadge>
       );
       if (canIssue && info.status.match) {
         const matchUnitId = info.status.match.unit_id;
@@ -82,7 +82,7 @@ export default function QueueCards({ s }: { s: IssueState }) {
         );
       }
     } else if (info?.status.kind === "cut_planned") {
-      state = <Tag color="gold">✂ резать из {rollNo(info.donorUnitId)}</Tag>;
+      state = <UiBadge color="gold">✂ резать из {rollNo(info.donorUnitId)}</UiBadge>;
       if (canIssue && info.acceptCut)
         action = (
           <Button type="primary" size="large" onClick={() => void info.acceptCut!()}>
@@ -92,9 +92,9 @@ export default function QueueCards({ s }: { s: IssueState }) {
     } else if (info?.status.kind === "no_donor") {
       const home = homeWarehouseFor(row.task.area);
       state = (
-        <Tag color="red">
+        <UiBadge color="red">
           {home && home.name !== "Основной склад" ? `✖ на складе «${home.name}» нет — переместить` : "✖ нет донора"}
-        </Tag>
+        </UiBadge>
       );
       if (canIssue && groupRows && sku)
         action = (
@@ -119,7 +119,7 @@ export default function QueueCards({ s }: { s: IssueState }) {
           </div>
         </div>
         <Space size={6} wrap style={{ justifyContent: "flex-end" }}>
-          <Tag color={when.color} style={{ marginInlineEnd: 0 }}>{when.text}</Tag>
+          <UiBadge color={when.color} style={{ marginInlineEnd: 0 }}>{when.text}</UiBadge>
           {state}
           {action}
           <Button type="text" onClick={() => openDetail(row)} aria-label="Подробнее">

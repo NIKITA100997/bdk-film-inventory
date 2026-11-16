@@ -2,6 +2,7 @@ import StripPoolAdjustModal from "../../../components/StripPoolAdjustModal";
 import { useMemo, useRef, useState } from "react";
 import { useOpKeys } from "../../../utils/opKey";
 import OverProductionTag, { overExcess } from "../../../components/OverProductionTag";
+import { UiBadge } from "../../../components/UiBadge";
 import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form, Checkbox, Radio } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
@@ -530,20 +531,20 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                         <OverProductionTag line={r.line} produced={r.line.produced_good_pieces + r.goodPieces} planned />
                       )}
                       {r.line.film_deficit_m != null && r.line.film_deficit_m > 0 && (
-                        <Tag color="error" style={{ fontSize: 11, alignSelf: "flex-start", marginTop: 2 }}>
+                        <UiBadge color="error" style={{ fontSize: 11, alignSelf: "flex-start", marginTop: 2 }}>
                           дефицит пула: -{r.line.film_deficit_m} м
-                        </Tag>
+                        </UiBadge>
                       )}
                       {available != null && (
                         <Space size={4}>
-                          <Tag
+                          <UiBadge
                             color={available <= 0 ? "red" : available < r.goodPieces + totalDefect(r) ? "orange" : "default"}
                             style={{ margin: 0, fontSize: 11 }}
                           >
                             {available > 0
                               ? `доступно партий п/ф: ${Math.round(available * 100) / 100} шт`
                               : "нет партий п/ф на участке — отчёт их не спишет"}
-                          </Tag>
+                          </UiBadge>
                           <a
                             style={{ fontSize: 11 }}
                             onClick={() => {
@@ -641,12 +642,12 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                           <Space size={4} wrap>
                             <span>{r.line.strip_width_mm || r.line.width_mm} мм</span>
                             {stock != null && stock > 0 ? (
-                              <Tag color="green" title="Доступно в пуле штрипсов участка (FIFO)">В пуле: {stock} м</Tag>
+                              <UiBadge color="green" title="Доступно в пуле штрипсов участка (FIFO)">В пуле: {stock} м</UiBadge>
                             ) : (
-                              <Tag color="default" title="В пуле нет остатка этой ширины/цвета">Пул пуст</Tag>
+                              <UiBadge color="default" title="В пуле нет остатка этой ширины/цвета">Пул пуст</UiBadge>
                             )}
                             {deficit != null && deficit > 0 && (
-                              <Tag color="error" title="Овердрафт: списано в дефицит">Дефицит: -{deficit} м</Tag>
+                              <UiBadge color="error" title="Овердрафт: списано в дефицит">Дефицит: -{deficit} м</UiBadge>
                             )}
                             <Button
                               size="small"
@@ -789,8 +790,8 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
                   <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <span>
                       {reasonName(d.reason)}: <strong>{d.qty} шт</strong>
-                      {d.disposition === "pererabotka" && <Tag color="blue" style={{ marginLeft: 4 }}>♻️ в переработку</Tag>}
-                      {d.disposition === "snyat" && <Tag color="magenta" style={{ marginLeft: 4 }}>🔁 снять плёнку</Tag>}
+                      {d.disposition === "pererabotka" && <UiBadge color="blue" style={{ marginLeft: 4 }}>♻️ в переработку</UiBadge>}
+                      {d.disposition === "snyat" && <UiBadge color="purple" style={{ marginLeft: 4 }}>🔁 снять плёнку</UiBadge>}
                       {d.note && <Typography.Text type="secondary"> — {d.note}</Typography.Text>}
                     </span>
                     <Button size="small" danger onClick={() => removeDefectEntry(defectRow.key, i)}>

@@ -1,4 +1,5 @@
-import { Space, Tag } from "antd";
+import { Space } from "antd";
+import { UiBadge } from "./UiBadge";
 
 const fmt = (v: number) => v.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
 
@@ -17,24 +18,25 @@ export default function ShortageTags({
   unit?: string;
   okText?: string;
 }) {
-  if (!(total > 0.001)) return <Tag color="green">{okText}</Tag>;
+  if (!(total > 0.001)) return <UiBadge color="green">{okText}</UiBadge>;
   const u = unit ? ` ${unit}` : "";
   // старый ответ сервера без разбивки — одним числом
-  if (tasks == null && min == null) return <Tag color="red">{fmt(total) + u}</Tag>;
+  if (tasks == null && min == null) return <UiBadge color="red">{fmt(total) + u}</UiBadge>;
   return (
     <Space size={4} wrap>
       {(tasks ?? 0) > 0.001 && (
-        <Tag color="red" title="не хватает под открытые задания — срочно">
+        <UiBadge color="red" title="не хватает под открытые задания — срочно">
           под задания {fmt(tasks!)}
           {u}
-        </Tag>
+        </UiBadge>
       )}
       {(min ?? 0) > 0.001 && (
-        <Tag color="blue" title="пополнить до минимального остатка — не срочно">
+        <UiBadge color="blue" title="пополнить до минимального остатка — не срочно">
           до мин. остатка {fmt(min!)}
           {u}
-        </Tag>
+        </UiBadge>
       )}
     </Space>
   );
 }
+

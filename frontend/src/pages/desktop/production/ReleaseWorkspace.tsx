@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dayjs from "dayjs";
+import { UiBadge } from "../../../components/UiBadge";
 import {
   Alert,
   Button,
@@ -10,7 +11,6 @@ import {
   InputNumber,
   Space,
   Spin,
-  Tag,
   Tooltip,
   Typography,
   message,
@@ -326,7 +326,7 @@ export default function ReleaseWorkspace({
                   <Space orientation="vertical" size={0} style={{ paddingLeft: n.depth * 18 }}>
                     <span>
                       {n.part_name}{" "}
-                      {n.mode && <Tag color={n.mode === "stock" ? "green" : "orange"}>{n.mode === "stock" ? "на склад" : "под заказ"}</Tag>}
+                      {n.mode && <UiBadge color={n.mode === "stock" ? "green" : "orange"}>{n.mode === "stock" ? "на склад" : "под заказ"}</UiBadge>}
                     </span>
                     {n.depth === 0 && (
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -446,8 +446,8 @@ export default function ReleaseWorkspace({
                           По размеру партии
                         </Button>
                       )}
-                      {factoryCode && <Tag>{areaName(factoryCode)}: {panelsBy(factoryCode)} шт</Tag>}
-                      {pressCode && <Tag>{areaName(pressCode)}: {panelsBy(pressCode)} шт</Tag>}
+                      {factoryCode && <UiBadge>{areaName(factoryCode)}: {panelsBy(factoryCode)} шт</UiBadge>}
+                      {pressCode && <UiBadge>{areaName(pressCode)}: {panelsBy(pressCode)} шт</UiBadge>}
                     </Space>
                   }
                 />
@@ -485,9 +485,9 @@ export default function ReleaseWorkspace({
                       sortValue: (n) => (st(n).lam ? (areaName(st(n).lam ?? null) ?? "") : ""),
                       render: (_, n) =>
                         n.lam_forced ? (
-                          <Tooltip title="Панель фрезеруют после ламинации (ПЭТ, молдинг М5х3/М3х3) — фрезеровка на Фабрике, ламинация там же">
-                            <Tag color="blue">{areaName(n.lam_forced)} · фрезеровка после</Tag>
-                          </Tooltip>
+                          <span title="Панель фрезеруют после ламинации (ПЭТ, молдинг М5х3/М3х3) — фрезеровка на Фабрике, ламинация там же">
+                            <UiBadge color="blue">{areaName(n.lam_forced)} · фрезеровка после</UiBadge>
+                          </span>
                         ) : (
                           <LaminationAreaSelect
                             row={{ lamination_area: n.lamination_area, factory_area: n.factory_area, factory_min_pieces: n.factory_min_pieces } as PfDemandRow}
@@ -689,7 +689,7 @@ export default function ReleaseWorkspace({
               render: (_, r) => (
                 <Space size={4}>
                   <span>{r.stock_m}</span>
-                  {r.stock_m < r.need_m ? <Tag color="red">не хватает</Tag> : <Tag color="green">хватает</Tag>}
+                  {r.stock_m < r.need_m ? <UiBadge color="red">не хватает</UiBadge> : <UiBadge color="green">хватает</UiBadge>}
                 </Space>
               ),
             },
@@ -803,7 +803,7 @@ export default function ReleaseWorkspace({
             {lay ? (
               <Typography.Text>
                 участков <b>{lay.sheets.length}</b> · готово к <b>{d(lay.finish)}</b>{" "}
-                {lay.late ? <Tag color="red">не успевает</Tag> : <Tag color="green">успевает</Tag>}
+                {lay.late ? <UiBadge color="red">не успевает</UiBadge> : <UiBadge color="green">успевает</UiBadge>}
               </Typography.Text>
             ) : (
               <Spin size="small" />
@@ -813,8 +813,8 @@ export default function ReleaseWorkspace({
                 <Spin size="small" /> пересчёт…
               </Typography.Text>
             )}
-            {warnings.length > 0 ? <Tag color="orange">замечаний: {warnings.length}</Tag> : <Tag color="green">замечаний нет</Tag>}
-            {overrideList.length > 0 && <Tag color="orange">правок строк: {overrideList.length}</Tag>}
+            {warnings.length > 0 ? <UiBadge color="orange">замечаний: {warnings.length}</UiBadge> : <UiBadge color="green">замечаний нет</UiBadge>}
+            {overrideList.length > 0 && <UiBadge color="orange">правок строк: {overrideList.length}</UiBadge>}
           </Space>
           <Space wrap>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -1000,9 +1000,9 @@ function LinesSection({ order, canManage, onEditLines }: { order: ProductionOrde
                   {l.operations.map((o) => o.name).join(" → ")}
                 </Typography.Text>
               ) : l.without_route ? (
-                <Tag title="Без этапов: в работе с запуска, готово — отметкой на вкладке «Ход»">без этапов</Tag>
+                <UiBadge title="Без этапов: в работе с запуска, готово — отметкой на вкладке «Ход»">без этапов</UiBadge>
               ) : (
-                <Tag color="red">нет маршрута</Tag>
+                <UiBadge color="red">нет маршрута</UiBadge>
               ),
           },
         ]}

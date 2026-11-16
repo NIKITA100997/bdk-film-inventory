@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import NextStep, { scrollToId, type NextStepProps } from "../../../components/NextStep";
 import dayjs, { type Dayjs } from "dayjs";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { UiBadge } from "../../../components/UiBadge";
 import {
   Alert,
   Button,
@@ -77,7 +78,7 @@ const LIST_FILTERS: [ListFilter, string, (o: ProductionOrder) => boolean][] = [
 function ShipCell({ order: o }: { order: ProductionOrder }) {
   const window = o.ship_from || o.ship_to ? `${o.ship_from ? dayjs(o.ship_from).format("DD.MM") : "…"}–${o.ship_to ? dayjs(o.ship_to).format("DD.MM") : "…"}` : null;
   const req =
-    o.request_status === "submitted" ? <Tag color="gold">заявка ждёт</Tag> : o.request_status === "returned" ? <Tag color="red">возвращена</Tag> : null;
+    o.request_status === "submitted" ? <UiBadge color="gold">заявка ждёт</UiBadge> : o.request_status === "returned" ? <UiBadge color="red">возвращена</UiBadge> : null;
   return (
     <Space orientation="vertical" size={0}>
       <span>
@@ -246,8 +247,8 @@ function OrdersList() {
             render: (_, o) => (
               <Space orientation="vertical" size={0}>
                 <span>
-                  №{o.id} «{o.name}» {o.kind === "stock" && <Tag color="green">на склад</Tag>}
-                  {(o.priority ?? 0) > 0 && <Tag color={PRIORITY_COLOR[o.priority ?? 0]}>{PRIORITY_LABEL[o.priority ?? 0]}</Tag>}
+                  №{o.id} «{o.name}» {o.kind === "stock" && <UiBadge color="green">на склад</UiBadge>}
+                  {(o.priority ?? 0) > 0 && <UiBadge color={PRIORITY_COLOR[o.priority ?? 0]}>{PRIORITY_LABEL[o.priority ?? 0]}</UiBadge>}
                   {o.customer && <Typography.Text type="secondary"> · {o.customer}</Typography.Text>}
                 </span>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -278,7 +279,7 @@ function OrdersList() {
                 <Typography.Text type="secondary">{o.kind === "stock" ? "на склад" : "без заказа клиента"}</Typography.Text>
               ),
           },
-          { title: "Статус", render: (_, o) => <Tag color={STATUS_COLOR[o.status]}>{ORDER_STATUS_LABEL[o.status]}</Tag> },
+          { title: "Статус", render: (_, o) => <UiBadge color={STATUS_COLOR[o.status]}>{ORDER_STATUS_LABEL[o.status]}</UiBadge> },
           {
             title: "Отгрузка / готово к",
             render: (_, o) => <ShipCell order={o} />,
@@ -417,7 +418,7 @@ export function OrderView({
             <span>
               Заказ №{order.id} «{order.name}»
             </span>
-            <Tag color={STATUS_COLOR[order.status]}>{ORDER_STATUS_LABEL[order.status]}</Tag>
+            <UiBadge color={STATUS_COLOR[order.status]}>{ORDER_STATUS_LABEL[order.status]}</UiBadge>
           </Space>
         )
       }
@@ -635,16 +636,16 @@ function OrderReport({ order }: { order: ProductionOrder }) {
 /** Срок по плану: успевает к отгрузке / не успевает / просрочено / без плана. */
 function PlanTag({ order }: { order: ProductionOrder }) {
   if (order.status === "draft") return <Typography.Text type="secondary">—</Typography.Text>;
-  if (!order.planned) return <Tag>без плана</Tag>;
+  if (!order.planned) return <UiBadge>без плана</UiBadge>;
   const finish = order.plan_finish ? dayjs(order.plan_finish).format("DD.MM") : "";
   return (
     <Space size={4} wrap>
       {order.plan_late ? (
-        <Tag color="red">не успевает: готово {finish}</Tag>
+        <UiBadge color="red">не успевает: готово {finish}</UiBadge>
       ) : (
-        <Tag color="green">успевает: готово {finish}</Tag>
+        <UiBadge color="green">успевает: готово {finish}</UiBadge>
       )}
-      {(order.plan_overdue ?? 0) > 0 && <Tag color="orange">просрочено {order.plan_overdue} шт</Tag>}
+      {(order.plan_overdue ?? 0) > 0 && <UiBadge color="orange">просрочено {order.plan_overdue} шт</UiBadge>}
     </Space>
   );
 }
