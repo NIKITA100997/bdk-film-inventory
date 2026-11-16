@@ -83,7 +83,7 @@ def line_group(db: Session, line: ProductionTaskLine, area_code: str, chars: lis
         # Для строк с плёнкой (окутка царговых, щитовые двери):
         # группируем по эффективной ширине штрипса и декору плёнки
         from app.models.dictionaries import Material, Color
-        from app.services.cutting import calc_default_strip_width
+        from app.services.production import calc_default_strip_width
 
         sw = float(line.strip_width_mm) if line.strip_width_mm is not None else calc_default_strip_width(line.part_name, float(line.width_mm))
         mat = db.get(Material, line.material_id)

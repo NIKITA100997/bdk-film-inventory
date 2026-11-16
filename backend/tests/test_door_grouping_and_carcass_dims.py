@@ -67,6 +67,36 @@ def test_line_group_uniform_formatting(db):
     assert "В-5" in label
     assert "Белый" in label
 
+    # Test with material_id (film line)
+    from app.models.dictionaries import Material, Color
+    mat = db.query(Material).first()
+    if not mat:
+        mat = Material(name="ПВХ", is_active=True)
+        db.add(mat)
+        db.flush()
+    col = db.query(Color).first()
+    if not col:
+        col = Color(name="Дуб", is_active=True)
+        db.add(col)
+        db.flush()
+
+    line_film = ProductionTaskLine(
+        task_id=task.id,
+        part_name="Стоевая 100",
+        quantity_pieces=10,
+        width_mm=100,
+        length_m=2.0,
+        material_id=mat.id,
+        color_id=col.id,
+        strip_width_mm=114,
+    )
+    db.add(line_film)
+    db.flush()
+    grp_film = line_group(db, line_film, "wrapping")
+    assert grp_film is not None
+    f_key, f_label = grp_film
+    assert "Штрипс 114 мм" in f_label
+
 
 def test_carcass_dims_and_no_strip_width(db):
     user = db.query(User).first()
