@@ -1,6 +1,7 @@
 import StripPoolAdjustModal from "../../../components/StripPoolAdjustModal";
 import { useMemo, useRef, useState } from "react";
 import { useOpKeys } from "../../../utils/opKey";
+import { useDoubleSubmitGuard } from "../../../utils/useDoubleSubmitGuard";
 import OverProductionTag, { overExcess } from "../../../components/OverProductionTag";
 import { UiBadge } from "../../../components/UiBadge";
 import { Card, Space, Typography, Select, InputNumber, Input, Button, message, Empty, Popconfirm, Modal, List, Tag, Form, Checkbox, Radio } from "antd";
@@ -392,7 +393,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
     onError: () => message.error("Не удалось сохранить отчёт"),
   });
 
-  const handleSave = () => {
+  const { isSubmitting, guardedAction: handleGuardedSave } = useDoubleSubmitGuard(async () => {
     if (rows.length === 0) {
       message.warning("Добавьте хотя бы одну позицию");
       return;
@@ -413,8 +414,8 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
         return;
       }
     }
-    saveMutation.mutate();
-  };
+    return saveMutation.mutateAsync();
+  });
 
   const defectRow = rows.find((r) => r.key === defectRowKey) ?? null;
 
@@ -769,7 +770,7 @@ export default function MasterQuickReportPanel({ area }: { area: string }) {
             </Card>
           )}
 
-          <Button type="primary" block loading={saveMutation.isPending} onClick={handleSave}>
+          <Button type="primary" block loading={saveMutation.isPending || isSubmitting} onClick={handleGuardedSave}>
             Сохранить отчёт ({rows.length} {rows.length === 1 ? "позиция" : "позиций"})
           </Button>
         </>

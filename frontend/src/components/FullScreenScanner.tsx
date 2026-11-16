@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { CloseOutlined } from "@ant-design/icons";
+import { triggerScanFeedback } from "../utils/feedback";
 
 interface FullScreenScannerProps {
   open: boolean;
@@ -13,29 +14,6 @@ interface FullScreenScannerProps {
 }
 
 const QR_REGION_ID = "html5qr-fullscreen-region";
-
-/** Короткий бип через Web Audio API — та же реализация, что в
- * QrScanModal.tsx (без файла-ассета, генерируется на лету). AudioContext
- * может быть заблокирован браузером до первого жеста пользователя — не
- * критично, звук просто не сыграет в этом случае. */
-function playBeep() {
-  try {
-    const AudioCtx =
-      window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new AudioCtx();
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-    oscillator.frequency.value = 880;
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    oscillator.start();
-    oscillator.stop(ctx.currentTime + 0.15);
-    oscillator.onended = () => ctx.close();
-  } catch {
-    // недоступно/заблокировано — не критично, сканирование продолжает работать
-  }
-}
 
 /** Скан QR на весь экран (раздел про телефонную версию) — та же логика
  * сканирования, что в QrScanModal.tsx (Html5Qrcode.start/stop, бип,
@@ -69,8 +47,7 @@ export default function FullScreenScanner({ open, onClose, onScan, onManualEntry
     };
 
     const handleDecoded = (decodedText: string) => {
-      playBeep();
-      navigator.vibrate?.(200);
+      triggerScanFeedback(true);
       onScan(decodedText);
       stop();
       onClose();

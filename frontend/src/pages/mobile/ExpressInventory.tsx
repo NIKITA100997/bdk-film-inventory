@@ -59,6 +59,8 @@ import {
 } from "../../api/partCounts";
 import { apiErrorMessage } from "../../utils/apiError";
 import { pfNo, rollNo } from "../../utils/lotNo";
+import { useBarcodeScanner } from "../../utils/useBarcodeScanner";
+import { triggerScanFeedback } from "../../utils/feedback";
 
 const fmt = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 1000) / 1000}`.replace(".", ","));
 
@@ -237,6 +239,18 @@ function ExpressSessionBoard({
     return { total, counted, matched, diffs, percent };
   }, [detail]);
 
+  // Аппаратный сканер ТСД — при сканировании штрихкода в активной сессии
+  useBarcodeScanner({
+    onScan: (barcode) => {
+      if (!detail.closed_at && barcode.trim()) {
+        scanMutation.mutate(barcode.trim());
+        return true;
+      }
+      return false;
+    },
+    enabled: !detail.closed_at,
+  });
+
   // Мутация быстрого сканирования
   const scanMutation = useMutation({
     mutationFn: (barcode: string) =>
@@ -250,18 +264,26 @@ function ExpressSessionBoard({
       if (res.action === "cell_selected" && res.cell_code) {
         setSelectedCell(res.cell_code);
         message.info(`📍 Выбрана ячейка ${res.cell_code}`);
+        triggerScanFeedback(true);
       } else if (res.action === "unit_mismatch" || res.action === "part_unit_mismatch") {
         message.warning(res.message, 5);
+        triggerScanFeedback(false);
       } else if (res.action === "unit_added" || res.action === "part_unit_added") {
         message.success(`➕ ${res.message}`, 4);
+        triggerScanFeedback(true);
       } else if (res.action === "not_found") {
         message.error(res.message, 4);
+        triggerScanFeedback(false);
       } else {
         message.success(res.message);
+        triggerScanFeedback(true);
       }
       setScanInput("");
     },
-    onError: (err) => message.error(apiErrorMessage(err, "Ошибка при сканировании")),
+    onError: (err) => {
+      message.error(apiErrorMessage(err, "Ошибка при сканировании"));
+      triggerScanFeedback(false);
+    },
   });
 
   // Мутация подтверждения одного рулона (1 тап)

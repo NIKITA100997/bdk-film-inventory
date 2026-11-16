@@ -3,6 +3,8 @@ import { Modal, Form, InputNumber, Input, Typography, Space, Alert, message, But
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { adjustStripPool } from "../api/production";
 import { apiErrorMessage } from "../utils/apiError";
+import { enqueueOfflineAction, isNetworkError } from "../services/offlineQueue";
+import { useDoubleSubmitGuard } from "../utils/useDoubleSubmitGuard";
 import UiBadge from "./UiBadge";
 
 interface Props {
@@ -72,8 +74,29 @@ export default function StripPoolAdjustModal({
       onClose();
     },
     onError: (err) => {
+      if (isNetworkError(err)) {
+        enqueueOfflineAction({
+          endpoint: "/production/strip-pool/adjust",
+          payload: {
+            area,
+            material_id: materialId,
+            color_id: colorId,
+            thickness_id: thicknessId ?? null,
+            target_width_mm: stripWidthMm,
+            actual_meters: actualM,
+            note: note.trim() || undefined,
+          },
+          title: `Сверка пула ${area}: ${actualM} м (${material} ${color})`,
+        });
+        onClose();
+        return;
+      }
       message.error(apiErrorMessage(err, "Не удалось обновить остаток пула"));
     },
+  });
+
+  const { isSubmitting, guardedAction: handleOk } = useDoubleSubmitGuard(async () => {
+    return mutation.mutateAsync();
   });
 
   return (
@@ -81,9 +104,9 @@ export default function StripPoolAdjustModal({
       title={`Экспресс-сверка пула штрипсов · ${area}`}
       open={open}
       onCancel={onClose}
-      onOk={() => mutation.mutate()}
+      onOk={handleOk}
       okButtonProps={{ disabled: actualM == null || actualM < 0 || !materialId || !colorId }}
-      confirmLoading={mutation.isPending}
+      confirmLoading={mutation.isPending || isSubmitting}
       okText="Применить остаток"
       cancelText="Отмена"
       destroyOnClose

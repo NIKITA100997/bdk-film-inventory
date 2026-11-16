@@ -1,6 +1,7 @@
 import type { ItemChar } from "../components/ItemChars";
 import { opHeaders } from "../utils/opKey";
 import { apiClient } from "./client";
+import { enqueueOfflineAction, isNetworkError } from "../services/offlineQueue";
 import type { AreaValue } from "./units";
 import type { DeleteResult } from "./deletionRequests";
 
@@ -534,10 +535,31 @@ export const createTaskLineReportsBatch = async (
   payloads: ProductionTaskLineReportCreate[],
   /** ключ операции — повтор после обрыва сети не задвоит отчёт (utils/opKey) */
   opKey?: string,
-): Promise<ProductionTaskLineReport[]> =>
-  (
-    await apiClient.post<ProductionTaskLineReport[]>(`/production-tasks/${taskId}/lines/${lineId}/reports/batch`, payloads, opHeaders(opKey))
-  ).data;
+): Promise<ProductionTaskLineReport[]> => {
+  try {
+    return (
+      await apiClient.post<ProductionTaskLineReport[]>(
+        `/production-tasks/${taskId}/lines/${lineId}/reports/batch`,
+        payloads,
+        opHeaders(opKey),
+      )
+    ).data;
+  } catch (err: any) {
+    if (isNetworkError(err)) {
+      const totalGood = payloads.reduce((acc, p) => acc + (p.good_pieces || 0), 0);
+      const totalDefect = payloads.reduce((acc, p) => acc + (p.defect_pieces || 0), 0);
+      enqueueOfflineAction({
+        endpoint: `/production-tasks/${taskId}/lines/${lineId}/reports/batch`,
+        method: "POST",
+        payload: payloads,
+        title: `Отчёт №${taskId}: годно ${totalGood} шт, брак ${totalDefect} шт`,
+        opKey,
+      });
+      return [];
+    }
+    throw err;
+  }
+};
 
 export interface ProductionTaskLineAssignment {
   id: number;
@@ -782,7 +804,28 @@ export interface StripPoolAdjustResult {
 }
 
 export async function adjustStripPool(payload: StripPoolAdjustRequest): Promise<StripPoolAdjustResult> {
-  const { data } = await apiClient.post<StripPoolAdjustResult>("/production-tasks/strip-pool/adjust", payload);
-  return data;
+  try {
+    const { data } = await apiClient.post<StripPoolAdjustResult>("/production-tasks/strip-pool/adjust", payload);
+    return data;
+  } catch (err: any) {
+    if (isNetworkError(err)) {
+      enqueueOfflineAction({
+        endpoint: "/production-tasks/strip-pool/adjust",
+        method: "POST",
+        payload,
+        title: `Сверка пула ${payload.area}: ${payload.actual_meters} м (штрипс ${payload.target_width_mm} мм)`,
+      });
+      return {
+        ok: true,
+        area: payload.area,
+        target_width_mm: payload.target_width_mm,
+        previous_meters: payload.actual_meters,
+        actual_meters: payload.actual_meters,
+        delta_meters: 0,
+        active_units_count: 1,
+      };
+    }
+    throw err;
+  }
 }
 

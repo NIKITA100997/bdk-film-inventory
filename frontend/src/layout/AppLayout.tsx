@@ -9,6 +9,7 @@ import { navTree, isNavItemVisible, isMasterUser, masterNav, type NavItem } from
 import { fontHeading } from "../theme";
 import { runUnitOrMaterialSearch } from "../utils/unitSearch";
 import { isVerticalPrint, setVerticalPrint } from "../utils/printLabel";
+import { useGlobalBarcodeScanner } from "../utils/useBarcodeScanner";
 import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
 import { useInbox } from "../components/InboxList";
@@ -95,6 +96,13 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   // Глобальный поиск в шапке (9.7 раздел бэклога доработок) — виден на
   // любом экране, не только на "Остатках".
   const runHeaderSearch = () => runUnitOrMaterialSearch(headerQuery, navigate);
+
+  // Глобальный перехват аппаратного сканера ТСД / штрихкодов в любой части приложения
+  useGlobalBarcodeScanner({
+    onFallbackScan: (barcode) => {
+      runUnitOrMaterialSearch(barcode, navigate);
+    },
+  });
 
   const isVisible = (item: NavItem) => isNavItemVisible(item, user);
 

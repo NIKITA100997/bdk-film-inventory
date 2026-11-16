@@ -1,34 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal, Alert, Button } from "antd";
 import { Html5Qrcode } from "html5-qrcode";
+import { triggerScanFeedback } from "../utils/feedback";
 
 interface QrScanModalProps {
   open: boolean;
   onClose: () => void;
   onScan: (decodedText: string) => void;
   title?: string;
-}
-
-/** Короткий бип через Web Audio API — без файла-ассета, генерируется на
- * лету. AudioContext может быть заблокирован браузером до первого жеста
- * пользователя — это не критично, звук просто не сыграет в этом случае. */
-function playBeep() {
-  try {
-    const AudioCtx =
-      window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new AudioCtx();
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-    oscillator.frequency.value = 880;
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    oscillator.start();
-    oscillator.stop(ctx.currentTime + 0.15);
-    oscillator.onended = () => ctx.close();
-  } catch {
-    // недоступно/заблокировано — не критично, сканирование продолжает работать
-  }
 }
 
 export default function QrScanModal({
@@ -60,8 +39,7 @@ export default function QrScanModal({
     const config = { fps: 10, qrbox: { width: 250, height: 250 } };
 
     const handleDecoded = (decodedText: string) => {
-      playBeep();
-      navigator.vibrate?.(200);
+      triggerScanFeedback(true);
       onScan(decodedText);
       if (scannerRef.current && scannerRef.current.isScanning) {
         scannerRef.current.stop().catch(() => {});
