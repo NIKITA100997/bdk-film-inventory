@@ -82,3 +82,16 @@ class Area(Base):
     piece_rate: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
     shift_rate: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     shift_headcount: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    # Универсальные настройки рабочего экрана мастера (планшет у станка):
+    # Профиль: "auto", "wrapping", "milling", "edgebanding", "assembly", "packaging", "universal"
+    master_profile: Mapped[str | None] = mapped_column(String(32), default="auto", server_default="auto")
+    # Признак первичной группировки плиток: "auto", "film", "program", "edge", "series", "thickness", "order", "none"
+    group_by_attribute: Mapped[str | None] = mapped_column(String(32), default="auto", server_default="auto")
+    # Отображение габаритов заготовки (Д x Ш x Т мм)
+    show_dimensions: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # Отображение кода программы ЧПУ и тех. указаний
+    show_cnc_program: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Отображение параметров кромкооблицовки (тип, толщина, цвет, стороны)
+    show_edge_specs: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Наличие пусковых деталей для отладки станка
+    has_pusk_pieces: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

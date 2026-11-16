@@ -41,6 +41,12 @@ class AreaOut(BaseModel):
     piece_rate: float | None = None
     shift_rate: float | None = None
     shift_headcount: float | None = None
+    master_profile: str | None = "auto"
+    group_by_attribute: str | None = "auto"
+    show_dimensions: bool = True
+    show_cnc_program: bool = False
+    show_edge_specs: bool = False
+    has_pusk_pieces: bool = False
 
 
 class AreaCreate(BaseModel):
@@ -48,6 +54,12 @@ class AreaCreate(BaseModel):
     site_id: int | None = None
     requires_daily_plan: bool = True
     requires_roll_on_report: bool = False
+    master_profile: str | None = "auto"
+    group_by_attribute: str | None = "auto"
+    show_dimensions: bool = True
+    show_cnc_program: bool = False
+    show_edge_specs: bool = False
+    has_pusk_pieces: bool = False
 
 
 class AreaUpdate(BaseModel):
@@ -76,3 +88,9 @@ class AreaUpdate(BaseModel):
     piece_rate: float | None = None
     shift_rate: float | None = None
     shift_headcount: float | None = None
+    master_profile: str | None = None
+    group_by_attribute: str | None = None
+    show_dimensions: bool | None = None
+    show_cnc_program: bool | None = None
+    show_edge_specs: bool | None = None
+    has_pusk_pieces: bool | None = None

@@ -2,13 +2,34 @@ import { useMemo, useState } from "react";
 import { InputNumber, Card, Button, Modal, Form, Input, Select, Space, Typography, Checkbox, message } from "antd";
 import { UiBadge } from "../../components/UiBadge";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listAreas, createArea, updateArea, type Area } from "../../api/areas";
+import { listAreas, createArea, updateArea, type Area, type MasterProfile, type GroupByAttribute } from "../../api/areas";
 import { listSites, createSite, updateSite, type Site } from "../../api/sites";
 import { listWarehouses } from "../../api/storage";
 import { listItemTypes } from "../../api/itemTypes";
 import { listProductionLines } from "../../api/production";
 import ResponsiveTable from "../../components/ResponsiveTable";
 import { apiErrorMessage } from "../../utils/apiError";
+
+const MASTER_PROFILE_OPTIONS: { value: MasterProfile; label: string; desc: string }[] = [
+  { value: "auto", label: "Автоопределение (по названию)", desc: "Автоматически подбирает профиль по названию участка" },
+  { value: "wrapping", label: "Окутка / ламинация (плёнка, рулоны, пусковые)", desc: "Контроль рулонов, метраж плёнки, припуск, пусковые детали" },
+  { value: "milling", label: "Фрезеровка / ЧПУ (программы, размеры, фрезы)", desc: "Программы ЧПУ, толщины, чертежи, наряды без рулонов" },
+  { value: "edgebanding", label: "Кромкооблицовка (кромка, толщина, стороны)", desc: "Тип кромки, цвет, присадка сторон (2x/4x)" },
+  { value: "assembly", label: "Сборка полотен / каркасов (габариты, серии)", desc: "Серии, модели, габариты, комплектующие" },
+  { value: "packaging", label: "Упаковка / ОТК (комплектация, ярлыки)", desc: "Проверка комплектности, маркировка, паллетирование" },
+  { value: "universal", label: "Универсальный цеховой (без рулонов)", desc: "Чистый список без плёночных контролей" },
+];
+
+const GROUP_BY_OPTIONS: { value: GroupByAttribute; label: string }[] = [
+  { value: "auto", label: "Автоматически по профилю участка" },
+  { value: "film", label: "По декору / цвету плёнки" },
+  { value: "program", label: "По программе ЧПУ" },
+  { value: "edge", label: "По типу и цвету кромки" },
+  { value: "series", label: "По серии / модели изделия" },
+  { value: "thickness", label: "По толщине заготовки" },
+  { value: "order", label: "По заказам покупателей" },
+  { value: "none", label: "Без группировки (сплошной список)" },
+];
 
 /** Участки (раздел про адаптацию под планшет — "администрирование
  * участков, какие есть и т.п.") — раньше жёсткий enum, теперь создаваемая
@@ -25,7 +46,18 @@ import { apiErrorMessage } from "../../utils/apiError";
 export default function AreaAdmin() {
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
-  const [createForm] = Form.useForm<{ name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean }>();
+  const [createForm] = Form.useForm<{
+    name: string;
+    site_id?: number;
+    requires_daily_plan?: boolean;
+    requires_roll_on_report?: boolean;
+    master_profile?: MasterProfile;
+    group_by_attribute?: GroupByAttribute;
+    show_dimensions?: boolean;
+    show_cnc_program?: boolean;
+    show_edge_specs?: boolean;
+    has_pusk_pieces?: boolean;
+  }>();
   const [editing, setEditing] = useState<Area | null>(null);
   const [editForm] = Form.useForm<{
     name: string;
@@ -47,6 +79,12 @@ export default function AreaAdmin() {
     piece_rate?: number | null;
     shift_rate?: number | null;
     shift_headcount?: number | null;
+    master_profile?: MasterProfile;
+    group_by_attribute?: GroupByAttribute;
+    show_dimensions?: boolean;
+    show_cnc_program?: boolean;
+    show_edge_specs?: boolean;
+    has_pusk_pieces?: boolean;
   }>();
   // признаки для объединения строк — свойства типов позиций + «позиция» (08.10)
   const typesQuery = useQuery({ queryKey: ["item-types"], queryFn: () => listItemTypes() });
@@ -81,8 +119,26 @@ export default function AreaAdmin() {
   const warehouseLabel = (warehouseId: number) => (warehousesQuery.data ?? []).find((w) => w.id === warehouseId)?.name ?? "—";
 
   const createMutation = useMutation({
-    mutationFn: (v: { name: string; site_id?: number; requires_daily_plan?: boolean; requires_roll_on_report?: boolean }) =>
-      createArea(v.name, v.site_id, v.requires_daily_plan, v.requires_roll_on_report),
+    mutationFn: (v: {
+      name: string;
+      site_id?: number;
+      requires_daily_plan?: boolean;
+      requires_roll_on_report?: boolean;
+      master_profile?: MasterProfile;
+      group_by_attribute?: GroupByAttribute;
+      show_dimensions?: boolean;
+      show_cnc_program?: boolean;
+      show_edge_specs?: boolean;
+      has_pusk_pieces?: boolean;
+    }) =>
+      createArea(v.name, v.site_id, v.requires_daily_plan, v.requires_roll_on_report, {
+        master_profile: v.master_profile ?? "auto",
+        group_by_attribute: v.group_by_attribute ?? "auto",
+        show_dimensions: v.show_dimensions ?? true,
+        show_cnc_program: v.show_cnc_program ?? false,
+        show_edge_specs: v.show_edge_specs ?? false,
+        has_pusk_pieces: v.has_pusk_pieces ?? false,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["areas"] });
       setCreateOpen(false);
@@ -121,6 +177,12 @@ export default function AreaAdmin() {
       piece_rate?: number | null;
       shift_rate?: number | null;
       shift_headcount?: number | null;
+      master_profile?: MasterProfile;
+      group_by_attribute?: GroupByAttribute;
+      show_dimensions?: boolean;
+      show_cnc_program?: boolean;
+      show_edge_specs?: boolean;
+      has_pusk_pieces?: boolean;
     }) =>
       updateArea(editing!.code, {
         // пусто — снять настройку (0 / "" на сервере — «не задано»)
@@ -145,6 +207,12 @@ export default function AreaAdmin() {
         requires_daily_plan: v.requires_daily_plan,
         requires_roll_on_report: v.requires_roll_on_report,
         film_cut_on_site: v.film_cut_on_site,
+        master_profile: v.master_profile,
+        group_by_attribute: v.group_by_attribute,
+        show_dimensions: v.show_dimensions,
+        show_cnc_program: v.show_cnc_program,
+        show_edge_specs: v.show_edge_specs,
+        has_pusk_pieces: v.has_pusk_pieces,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["areas"] });
@@ -313,6 +381,41 @@ export default function AreaAdmin() {
               ),
             },
             {
+              title: "Экран мастера",
+              render: (_, a: Area) => {
+                const profileColors: Record<string, string> = {
+                  auto: "default",
+                  wrapping: "blue",
+                  milling: "cyan",
+                  edgebanding: "orange",
+                  assembly: "green",
+                  packaging: "purple",
+                  universal: "geekblue",
+                };
+                const profileLabels: Record<string, string> = {
+                  auto: "Авто",
+                  wrapping: "Окутка/плёнка",
+                  milling: "Фрезеровка/ЧПУ",
+                  edgebanding: "Кромка",
+                  assembly: "Сборка полотен",
+                  packaging: "Упаковка/ОТК",
+                  universal: "Универсальный",
+                };
+                const prof = a.master_profile || "auto";
+                return (
+                  <Space size={4} wrap>
+                    <UiBadge color={profileColors[prof] || "default"}>
+                      {profileLabels[prof] || prof}
+                    </UiBadge>
+                    {a.show_cnc_program && <UiBadge color="cyan">ЧПУ</UiBadge>}
+                    {a.show_edge_specs && <UiBadge color="orange">Кромка</UiBadge>}
+                    {a.has_pusk_pieces && <UiBadge color="magenta">Пусковые</UiBadge>}
+                    {a.show_dimensions && <UiBadge color="default">Размеры</UiBadge>}
+                  </Space>
+                );
+              },
+            },
+            {
               title: "Статус",
               dataIndex: "is_active",
               render: (v: boolean) => (v ? <UiBadge color="green">Активен</UiBadge> : <UiBadge>В архиве</UiBadge>),
@@ -345,6 +448,12 @@ export default function AreaAdmin() {
                         piece_rate: a.piece_rate,
                         shift_rate: a.shift_rate,
                         shift_headcount: a.shift_headcount,
+                        master_profile: a.master_profile ?? "auto",
+                        group_by_attribute: a.group_by_attribute ?? "auto",
+                        show_dimensions: a.show_dimensions ?? true,
+                        show_cnc_program: a.show_cnc_program ?? false,
+                        show_edge_specs: a.show_edge_specs ?? false,
+                        has_pusk_pieces: a.has_pusk_pieces ?? false,
                       });
                     }}
                   >
@@ -360,11 +469,19 @@ export default function AreaAdmin() {
         />
       </Card>
 
-      <Modal title="Новый участок" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden>
+      <Modal title="Новый участок" open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} destroyOnHidden width={580}>
         <Form
           form={createForm}
           layout="vertical"
-          initialValues={{ requires_daily_plan: true }}
+          initialValues={{
+            requires_daily_plan: true,
+            master_profile: "auto",
+            group_by_attribute: "auto",
+            show_dimensions: true,
+            show_cnc_program: false,
+            show_edge_specs: false,
+            has_pusk_pieces: false,
+          }}
           onFinish={(v) => createMutation.mutate(v)}
         >
           <Form.Item name="name" label="Название" rules={[{ required: true }]}>
@@ -391,6 +508,38 @@ export default function AreaAdmin() {
             Отчёт по строке с плёнкой — только с указанием рулона, а рулон нельзя вернуть без отчёта (как на окутке
             царговых). Строк без плёнки не касается.
           </Typography.Paragraph>
+
+          <Card size="small" title="🖥️ Экран мастера (планшет у станка)" style={{ marginBottom: 16 }}>
+            <Form.Item
+              name="master_profile"
+              label="Профиль экрана участка"
+              extra="Определяет состав колонок и внешний вид экрана (рулоны, ЧПУ, кромка, сборка, упаковка)."
+            >
+              <Select options={MASTER_PROFILE_OPTIONS} />
+            </Form.Item>
+            <Form.Item
+              name="group_by_attribute"
+              label="Основная группировка на экране"
+              extra="По какому признаку собирать плитки деталей на экране мастера."
+            >
+              <Select options={GROUP_BY_OPTIONS} />
+            </Form.Item>
+            <Space direction="vertical" style={{ width: "100%" }}>
+              <Form.Item name="show_dimensions" valuePropName="checked" noStyle>
+                <Checkbox>Показывать габариты деталей (Д × Ш × Т мм) на плитках и в строках</Checkbox>
+              </Form.Item>
+              <Form.Item name="show_cnc_program" valuePropName="checked" noStyle>
+                <Checkbox>Выделять программы ЧПУ и указания по обработке</Checkbox>
+              </Form.Item>
+              <Form.Item name="show_edge_specs" valuePropName="checked" noStyle>
+                <Checkbox>Выделять параметры кромкооблицовки (тип, цвет, 2x/4x стороны)</Checkbox>
+              </Form.Item>
+              <Form.Item name="has_pusk_pieces" valuePropName="checked" noStyle>
+                <Checkbox>Учитывать пусковые детали на наладку станка</Checkbox>
+              </Form.Item>
+            </Space>
+          </Card>
+
           <Button type="primary" htmlType="submit" block loading={createMutation.isPending}>
             Создать
           </Button>
@@ -535,6 +684,37 @@ export default function AreaAdmin() {
             Пока для планировщика: загрузка дня против мощности, перегруз подсвечивается. Сроки заказов мощность пока не
             учитывают.
           </Typography.Paragraph>
+          <Card size="small" title="🖥️ Экран мастера (планшет у станка)" style={{ marginBottom: 16 }}>
+            <Form.Item
+              name="master_profile"
+              label="Профиль экрана участка"
+              extra="Определяет состав колонок и внешний вид экрана (рулоны, ЧПУ, кромка, сборка, упаковка)."
+            >
+              <Select options={MASTER_PROFILE_OPTIONS} />
+            </Form.Item>
+            <Form.Item
+              name="group_by_attribute"
+              label="Основная группировка на экране"
+              extra="По какому признаку собирать плитки деталей на экране мастера."
+            >
+              <Select options={GROUP_BY_OPTIONS} />
+            </Form.Item>
+            <Space direction="vertical" style={{ width: "100%" }}>
+              <Form.Item name="show_dimensions" valuePropName="checked" noStyle>
+                <Checkbox>Показывать габариты деталей (Д × Ш × Т мм) на плитках и в строках</Checkbox>
+              </Form.Item>
+              <Form.Item name="show_cnc_program" valuePropName="checked" noStyle>
+                <Checkbox>Выделять программы ЧПУ и указания по обработке</Checkbox>
+              </Form.Item>
+              <Form.Item name="show_edge_specs" valuePropName="checked" noStyle>
+                <Checkbox>Выделять параметры кромкооблицовки (тип, цвет, 2x/4x стороны)</Checkbox>
+              </Form.Item>
+              <Form.Item name="has_pusk_pieces" valuePropName="checked" noStyle>
+                <Checkbox>Учитывать пусковые детали на наладку станка</Checkbox>
+              </Form.Item>
+            </Space>
+          </Card>
+
           <Button type="primary" htmlType="submit" block loading={editMutation.isPending}>
             Сохранить
           </Button>

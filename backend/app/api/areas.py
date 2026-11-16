@@ -44,6 +44,12 @@ def create_area(payload: AreaCreate, db: Session = Depends(get_db), user=Depends
         site_id=payload.site_id,
         requires_daily_plan=payload.requires_daily_plan,
         requires_roll_on_report=payload.requires_roll_on_report,
+        master_profile=payload.master_profile,
+        group_by_attribute=payload.group_by_attribute,
+        show_dimensions=payload.show_dimensions,
+        show_cnc_program=payload.show_cnc_program,
+        show_edge_specs=payload.show_edge_specs,
+        has_pusk_pieces=payload.has_pusk_pieces,
     )
     db.add(area)
     db.commit()
@@ -115,6 +121,10 @@ def update_area(code: str, payload: AreaUpdate, db: Session = Depends(get_db), u
             if v < 0:
                 raise HTTPException(status_code=422, detail="Ставки и численность — не меньше нуля")
             setattr(area, f, v or None)
+    for f in ("master_profile", "group_by_attribute", "show_dimensions", "show_cnc_program", "show_edge_specs", "has_pusk_pieces"):
+        v = getattr(payload, f)
+        if v is not None:
+            setattr(area, f, v)
     db.commit()
     db.refresh(area)
     return area

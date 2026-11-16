@@ -38,7 +38,39 @@ export interface Area {
   piece_rate: number | null;
   shift_rate: number | null;
   shift_headcount: number | null;
+  /** Профиль экрана мастера: auto, wrapping, milling, edgebanding, assembly, packaging, universal */
+  master_profile?: MasterProfile | null;
+  /** Признак группировки плиток: auto, film, program, edge, series, thickness, order, none */
+  group_by_attribute?: GroupByAttribute | null;
+  /** Отображение габаритов заготовки (Д x Ш x Т мм) */
+  show_dimensions?: boolean;
+  /** Отображение программы ЧПУ и тех. указаний */
+  show_cnc_program?: boolean;
+  /** Отображение параметров кромкооблицовки */
+  show_edge_specs?: boolean;
+  /** Наличие наладочных пусковых деталей на станке */
+  has_pusk_pieces?: boolean;
 }
+
+export type MasterProfile =
+  | "auto"
+  | "wrapping"
+  | "milling"
+  | "edgebanding"
+  | "assembly"
+  | "packaging"
+  | "universal";
+
+export type GroupByAttribute =
+  | "auto"
+  | "film"
+  | "program"
+  | "edge"
+  | "series"
+  | "thickness"
+  | "dimensions"
+  | "order"
+  | "none";
 
 /** Нужен ли рулон в отчёте на этом участке (настройка участка, не код). */
 export function areaRequiresRoll(areas: Area[] | undefined, code: string | null | undefined): boolean {
@@ -55,12 +87,21 @@ export async function createArea(
   siteId?: number | null,
   requiresDailyPlan?: boolean,
   requiresRollOnReport?: boolean,
+  extra?: {
+    master_profile?: MasterProfile;
+    group_by_attribute?: GroupByAttribute;
+    show_dimensions?: boolean;
+    show_cnc_program?: boolean;
+    show_edge_specs?: boolean;
+    has_pusk_pieces?: boolean;
+  },
 ): Promise<Area> {
   const { data } = await apiClient.post<Area>("/areas", {
     name,
     site_id: siteId ?? undefined,
     requires_daily_plan: requiresDailyPlan ?? true,
     requires_roll_on_report: requiresRollOnReport ?? false,
+    ...extra,
   });
   return data;
 }
@@ -88,6 +129,12 @@ export async function updateArea(
     piece_rate?: number;
     shift_rate?: number;
     shift_headcount?: number;
+    master_profile?: MasterProfile | null;
+    group_by_attribute?: GroupByAttribute | null;
+    show_dimensions?: boolean;
+    show_cnc_program?: boolean;
+    show_edge_specs?: boolean;
+    has_pusk_pieces?: boolean;
   },
 ): Promise<Area> {
   const { data } = await apiClient.patch<Area>(`/areas/${code}`, payload);

@@ -97,6 +97,9 @@ export default function FastReportPanel({
   const [q, setQ] = useState("");
   const [selectedStripWidth, setSelectedStripWidth] = useState<number | null>(null);
   const [selectedFilm, setSelectedFilm] = useState<string | null>(null);
+  const [selectedProgram, setSelectedProgram] = useState<string | null>(null);
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+  const [selectedThickness, setSelectedThickness] = useState<string | null>(null);
   const [open, setOpen] = useState<FastLine | null>(null);
   const [defectFor, setDefectFor] = useState<FastLine | null>(null);
   const [detailFor, setDetailFor] = useState<FastLine | null>(null);
@@ -120,6 +123,35 @@ export default function FastReportPanel({
     return [...set].sort();
   }, [r.lines]);
 
+  const programs = useMemo(() => {
+    const set = new Set<string>();
+    for (const fl of r.lines) {
+      if (fl.line.program) set.add(fl.line.program);
+    }
+    return [...set].sort();
+  }, [r.lines]);
+
+  const edges = useMemo(() => {
+    const set = new Set<string>();
+    for (const fl of r.lines) {
+      const ed = fl.doorInfo.edge_label || fl.doorInfo.edge_type;
+      if (ed) set.add(ed);
+    }
+    return [...set].sort();
+  }, [r.lines]);
+
+  const thicknesses = useMemo(() => {
+    const set = new Set<string>();
+    for (const fl of r.lines) {
+      const thVal = fl.line.thickness != null ? String(fl.line.thickness) : null;
+      const thMatch =
+        thVal ||
+        fl.doorInfo.dimensions_str.match(/×\s*(\d+(?:[.,]\d+)?)\s*мм/)?.[1];
+      if (thMatch) set.add(thMatch);
+    }
+    return [...set].sort((a, b) => parseFloat(a) - parseFloat(b));
+  }, [r.lines]);
+
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return r.lines
@@ -140,6 +172,19 @@ export default function FastReportPanel({
         if (selectedFilm !== null) {
           if (filmLabel(fl.line) !== selectedFilm) return false;
         }
+        if (selectedProgram !== null) {
+          if (fl.line.program !== selectedProgram) return false;
+        }
+        if (selectedEdge !== null) {
+          if (fl.doorInfo.edge_label !== selectedEdge && fl.doorInfo.edge_type !== selectedEdge) return false;
+        }
+        if (selectedThickness !== null) {
+          const thVal = fl.line.thickness != null ? String(fl.line.thickness) : null;
+          const thMatch =
+            thVal ||
+            fl.doorInfo.dimensions_str.match(/×\s*(\d+(?:[.,]\d+)?)\s*мм/)?.[1];
+          if (thMatch !== selectedThickness) return false;
+        }
         if (!needle) return true;
         const searchPool = [
           fl.line.part_name ?? "",
@@ -147,6 +192,10 @@ export default function FastReportPanel({
           fl.task.id ? `№${fl.task.id}` : "",
           fl.task.production_order_name ?? "",
           filmLabel(fl.line),
+          fl.doorInfo.dimensions_str ?? "",
+          fl.doorInfo.series ?? "",
+          fl.line.program ? `программа ${fl.line.program}` : "",
+          fl.doorInfo.edge_label ? `кромка ${fl.doorInfo.edge_label}` : "",
           fl.line.strip_width_mm ? `${fl.line.strip_width_mm}мм` : "",
           fl.line.width_mm ? `${fl.line.width_mm}мм` : "",
         ]
@@ -156,10 +205,10 @@ export default function FastReportPanel({
       })
       .sort(
         (a, b) =>
-          filmLabel(a.line).localeCompare(filmLabel(b.line), "ru") ||
+          a.groupLabel.localeCompare(b.groupLabel, "ru") ||
           (a.line.part_name ?? "").localeCompare(b.line.part_name ?? "", "ru"),
       );
-  }, [r, scope, q, selectedStripWidth, selectedFilm, narrow]);
+  }, [r, scope, q, selectedStripWidth, selectedFilm, selectedProgram, selectedEdge, selectedThickness, narrow]);
 
   const onSave = () => {
     const noLeft = r.filled.filter((fl) => (r.entryOf(fl.line).extra ?? []).some((x) => x.left == null));
@@ -281,9 +330,102 @@ export default function FastReportPanel({
             />
           </Space>
 
-          {/* Быстрые фильтры наладки: ширина штрипса и декор */}
-          {(stripWidths.length > 1 || films.length > 1) && (
+          {/* Быстрые фильтры наладки: ЧПУ / кромка / штрипс / декор / толщина */}
+          {(programs.length > 1 || edges.length > 1 || stripWidths.length > 1 || films.length > 1 || thicknesses.length > 1) && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+              {/* Программы ЧПУ */}
+              {(r.showCnc || programs.length > 1) && programs.length > 0 && (
+                <Space wrap size={[4, 4]} align="center">
+                  <Typography.Text type="secondary" style={{ fontSize: 13, marginRight: 2 }}>
+                    ЧПУ:
+                  </Typography.Text>
+                  <Tag.CheckableTag
+                    checked={selectedProgram === null}
+                    onChange={() => setSelectedProgram(null)}
+                    style={{ fontSize: 13, padding: "2px 8px" }}
+                  >
+                    Все
+                  </Tag.CheckableTag>
+                  {programs.map((prog) => {
+                    const count = r.lines
+                      .filter((fl) => fl.line.program === prog && Math.max(0, fl.line.remaining_pieces) > 0)
+                      .reduce((s, fl) => s + Math.max(0, fl.line.remaining_pieces), 0);
+                    return (
+                      <Tag.CheckableTag
+                        key={prog}
+                        checked={selectedProgram === prog}
+                        onChange={(checked) => setSelectedProgram(checked ? prog : null)}
+                        style={{ fontSize: 13, padding: "2px 8px" }}
+                      >
+                        {prog}{count > 0 ? ` (${count})` : ""}
+                      </Tag.CheckableTag>
+                    );
+                  })}
+                </Space>
+              )}
+
+              {/* Кромка */}
+              {(r.showEdge || edges.length > 1) && edges.length > 0 && (
+                <Space wrap size={[4, 4]} align="center">
+                  <Typography.Text type="secondary" style={{ fontSize: 13, marginRight: 2 }}>
+                    Кромка:
+                  </Typography.Text>
+                  <Tag.CheckableTag
+                    checked={selectedEdge === null}
+                    onChange={() => setSelectedEdge(null)}
+                    style={{ fontSize: 13, padding: "2px 8px" }}
+                  >
+                    Все
+                  </Tag.CheckableTag>
+                  {edges.map((ed) => {
+                    const count = r.lines
+                      .filter(
+                        (fl) =>
+                          (fl.doorInfo.edge_label === ed || fl.doorInfo.edge_type === ed) &&
+                          Math.max(0, fl.line.remaining_pieces) > 0,
+                      )
+                      .reduce((s, fl) => s + Math.max(0, fl.line.remaining_pieces), 0);
+                    return (
+                      <Tag.CheckableTag
+                        key={ed}
+                        checked={selectedEdge === ed}
+                        onChange={(checked) => setSelectedEdge(checked ? ed : null)}
+                        style={{ fontSize: 13, padding: "2px 8px" }}
+                      >
+                        {ed}{count > 0 ? ` (${count})` : ""}
+                      </Tag.CheckableTag>
+                    );
+                  })}
+                </Space>
+              )}
+
+              {/* Толщина заготовок */}
+              {thicknesses.length > 1 && (
+                <Space wrap size={[4, 4]} align="center">
+                  <Typography.Text type="secondary" style={{ fontSize: 13, marginRight: 2 }}>
+                    Толщина:
+                  </Typography.Text>
+                  <Tag.CheckableTag
+                    checked={selectedThickness === null}
+                    onChange={() => setSelectedThickness(null)}
+                    style={{ fontSize: 13, padding: "2px 8px" }}
+                  >
+                    Все
+                  </Tag.CheckableTag>
+                  {thicknesses.map((th) => (
+                    <Tag.CheckableTag
+                      key={th}
+                      checked={selectedThickness === th}
+                      onChange={(checked) => setSelectedThickness(checked ? th : null)}
+                      style={{ fontSize: 13, padding: "2px 8px" }}
+                    >
+                      {th} мм
+                    </Tag.CheckableTag>
+                  ))}
+                </Space>
+              )}
+
+              {/* Ширина штрипса для участков окутки */}
               {stripWidths.length > 1 && (
                 <Space wrap size={[4, 4]} align="center">
                   <Typography.Text type="secondary" style={{ fontSize: 13, marginRight: 2 }}>
@@ -317,6 +459,8 @@ export default function FastReportPanel({
                   })}
                 </Space>
               )}
+
+              {/* Декор плёнки */}
               {films.length > 1 && (
                 <Select
                   allowClear
@@ -494,25 +638,36 @@ function Tiles({
   pinnable: boolean;
 }) {
   const groups = useMemo(() => {
-    const m = new Map<string, FastLine[]>();
-    for (const fl of lines)
-      m.set(filmLabel(fl.line), [...(m.get(filmLabel(fl.line)) ?? []), fl]);
+    const m = new Map<string, { label: string; lines: FastLine[] }>();
+    for (const fl of lines) {
+      const cur = m.get(fl.groupKey) ?? { label: fl.groupLabel, lines: [] };
+      cur.lines.push(fl);
+      m.set(fl.groupKey, cur);
+    }
     return [...m.entries()];
   }, [lines]);
+
   return (
     <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-      {groups.map(([film, fls]) => (
-        <div key={film}>
-          <Typography.Text strong>{film}</Typography.Text>
+      {groups.map(([gKey, gData]) => (
+        <div key={gKey}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <Typography.Text strong style={{ fontSize: 15 }}>
+              {gData.label}
+            </Typography.Text>
+            <span style={{ fontSize: 12, color: "#6B6B68" }}>
+              ({gData.lines.length} {gData.lines.length === 1 ? "строка" : "строк"})
+            </span>
+          </div>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
-              gap: 8,
+              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+              gap: 10,
               marginTop: 6,
             }}
           >
-            {fls.map((fl) => {
+            {gData.lines.map((fl) => {
               const warn = r.needsRoll(fl)
                 ? " · ⚠ нет рулона"
                 : (fl.line.film_warnings ?? []).length > 0
@@ -534,7 +689,7 @@ function Tiles({
                     borderRadius: 12,
                     background: "var(--ant-color-bg-container, #fff)",
                     padding: "12px 14px",
-                    minHeight: 90,
+                    minHeight: 100,
                     display: "grid",
                     gap: 6,
                     font: "inherit",
@@ -546,18 +701,54 @@ function Tiles({
                     style={{ justifyContent: "space-between", width: "100%" }}
                     align="start"
                   >
-                    <Space orientation="vertical" size={0}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.3 }}>
+                        {fl.line.part_name || "Деталь"}
+                      </div>
                       <ItemChars chars={fl.line.item_chars} name={fl.line.part_name} showName={false} />
-                      {fl.line.program && <Typography.Text style={{ fontSize: 12 }}>программа {fl.line.program}</Typography.Text>}
-                      {fl.line.instruction && <Typography.Text type="warning" style={{ fontSize: 12 }}>⚑ {fl.line.instruction}</Typography.Text>}
-                    </Space>
+                    </div>
                     <Space size={4} align="center">
                       <EntryBadge r={r} line={fl.line} />
                       {pinnable && <PinStar r={r} lineId={fl.line.id} />}
                     </Space>
                   </Space>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                    <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+
+                  {/* Технические параметры детали: Габариты, ЧПУ, Кромка, Серия */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                    {r.showDimensions && fl.doorInfo.dimensions_str && (
+                      <Tag color="default" style={{ fontWeight: 700, fontSize: 12, margin: 0 }}>
+                        📐 {fl.doorInfo.dimensions_str}
+                      </Tag>
+                    )}
+                    {r.showCnc && fl.line.program && (
+                      <Tag color="cyan" style={{ fontWeight: 700, fontSize: 12, margin: 0 }}>
+                        ЧПУ: {fl.line.program}
+                      </Tag>
+                    )}
+                    {r.showEdge && fl.doorInfo.edge_label && (
+                      <Tag color="orange" style={{ fontWeight: 600, fontSize: 12, margin: 0 }}>
+                        Кромка: {fl.doorInfo.edge_label}
+                      </Tag>
+                    )}
+                    {fl.doorInfo.series && (
+                      <Tag color="blue" style={{ fontSize: 12, margin: 0 }}>
+                        {fl.doorInfo.series}
+                      </Tag>
+                    )}
+                    {r.profile === "wrapping" && fl.line.material && (
+                      <span style={{ fontSize: 12, color: "#595959" }}>
+                        {filmLabel(fl.line)}
+                      </span>
+                    )}
+                  </div>
+                  {fl.line.instruction && (
+                    <Typography.Text type="warning" style={{ fontSize: 12, lineHeight: 1.2 }}>
+                      ⚑ {fl.line.instruction}
+                    </Typography.Text>
+                  )}
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 2 }}>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       {fl.task.production_order_name ?? fl.task.name}
                       {fl.today ? " · 📅 на сегодня" : ""}
                       {warn}
@@ -735,6 +926,18 @@ function LinesTableView({
     borderBottom: "1px solid #DEDEDA",
     verticalAlign: "middle",
   };
+
+  const col2Title =
+    r.profile === "milling" || r.showCnc
+      ? "ЧПУ / Размеры"
+      : r.profile === "edgebanding" || r.showEdge
+        ? "Кромка / Стороны"
+        : r.profile === "assembly"
+          ? "Серия / Размеры"
+          : r.profile === "wrapping" || r.requiresRoll
+            ? "Плёнка / рулон"
+            : "Параметры / Размеры";
+
   return (
     <div style={{ overflowX: "auto" }}>
       <table
@@ -749,7 +952,7 @@ function LinesTableView({
           <tr>
             {[
               "Позиция",
-              "Плёнка / рулон",
+              col2Title,
               "Годные",
               r.hasPusk ? "Пусковые" : null,
               "Брак",
@@ -781,7 +984,13 @@ function LinesTableView({
               <tr key={fl.line.id}>
                 <td style={cell}>
                   {pinnable && <PinStar r={r} lineId={fl.line.id} />}
+                  <span style={{ fontWeight: 600 }}>{fl.line.part_name || "Деталь"}</span>
                   <ItemChars chars={fl.line.item_chars} name={fl.line.part_name} showName={false} />
+                  {r.showDimensions && fl.doorInfo.dimensions_str && (
+                    <div style={{ fontSize: 12, color: "#1677ff", fontWeight: 500 }}>
+                      📐 {fl.doorInfo.dimensions_str}
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: "#6B6B68" }}>
                     {fl.task.production_order_name ?? fl.task.name} · осталось{" "}
                     {fmt(fl.line.remaining_pieces)}
@@ -789,15 +998,54 @@ function LinesTableView({
                   <OverProductionTag line={fl.line} produced={fl.line.produced_good_pieces} />
                 </td>
                 <td style={cell}>
-                  <div style={{ fontSize: 13 }}>{filmLabel(fl.line)}</div>
-                  {roll ? (
-                    <UiBadge color={roll.from ? "cyan" : "blue"}>
-                      {rollNo(roll.id)} · {fmt(roll.left)} м
-                      {roll.from ? " · общий" : ""}
-                    </UiBadge>
-                  ) : r.needsRoll(fl) ? (
-                    <UiBadge color="warning">нет рулона</UiBadge>
-                  ) : null}
+                  {r.profile === "milling" || r.showCnc ? (
+                    <Space direction="vertical" size={2}>
+                      {fl.line.program && <UiBadge color="cyan">ЧПУ: {fl.line.program}</UiBadge>}
+                      {fl.doorInfo.dimensions_str && (
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>📐 {fl.doorInfo.dimensions_str}</div>
+                      )}
+                      {fl.line.instruction && (
+                        <div style={{ fontSize: 12, color: "#d48806" }}>⚑ {fl.line.instruction}</div>
+                      )}
+                    </Space>
+                  ) : r.profile === "edgebanding" || r.showEdge ? (
+                    <Space direction="vertical" size={2}>
+                      {fl.doorInfo.edge_label ? (
+                        <UiBadge color="orange">Кромка: {fl.doorInfo.edge_label}</UiBadge>
+                      ) : (
+                        <Typography.Text type="secondary">—</Typography.Text>
+                      )}
+                      {fl.doorInfo.dimensions_str && (
+                        <div style={{ fontSize: 12, color: "#6B6B68" }}>📐 {fl.doorInfo.dimensions_str}</div>
+                      )}
+                    </Space>
+                  ) : r.profile === "assembly" ? (
+                    <Space direction="vertical" size={2}>
+                      {fl.doorInfo.series && <UiBadge color="blue">{fl.doorInfo.series}</UiBadge>}
+                      {fl.doorInfo.dimensions_str && (
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>📐 {fl.doorInfo.dimensions_str}</div>
+                      )}
+                    </Space>
+                  ) : r.profile === "wrapping" || r.requiresRoll ? (
+                    <div>
+                      <div style={{ fontSize: 13 }}>{filmLabel(fl.line)}</div>
+                      {roll ? (
+                        <UiBadge color={roll.from ? "cyan" : "blue"}>
+                          {rollNo(roll.id)} · {fmt(roll.left)} м
+                          {roll.from ? " · общий" : ""}
+                        </UiBadge>
+                      ) : r.needsRoll(fl) ? (
+                        <UiBadge color="warning">нет рулона</UiBadge>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <Space direction="vertical" size={2}>
+                      {fl.doorInfo.dimensions_str && (
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>📐 {fl.doorInfo.dimensions_str}</div>
+                      )}
+                      {fl.line.material && <div style={{ fontSize: 12 }}>{filmLabel(fl.line)}</div>}
+                    </Space>
+                  )}
                 </td>
                 <td style={cell}>
                   <Button
@@ -810,40 +1058,36 @@ function LinesTableView({
                 </td>
                 {r.hasPusk && (
                   <td style={cell}>
-                    {fl.line.material === null ? (
-                      "—"
-                    ) : (
-                      <Space size={4}>
-                        <Button
-                          size="large"
-                          onClick={() =>
-                            r.setEntry(fl.line, {
-                              pusk: Math.max(0, e.pusk - 1),
-                            })
-                          }
-                        >
-                          −
-                        </Button>
-                        <Typography.Text
-                          strong
-                          style={{
-                            minWidth: 20,
-                            display: "inline-block",
-                            textAlign: "center",
-                          }}
-                        >
-                          {e.pusk}
-                        </Typography.Text>
-                        <Button
-                          size="large"
-                          onClick={() =>
-                            r.setEntry(fl.line, { pusk: e.pusk + 1 })
-                          }
-                        >
-                          +
-                        </Button>
-                      </Space>
-                    )}
+                    <Space size={4}>
+                      <Button
+                        size="large"
+                        onClick={() =>
+                          r.setEntry(fl.line, {
+                            pusk: Math.max(0, e.pusk - 1),
+                          })
+                        }
+                      >
+                        −
+                      </Button>
+                      <Typography.Text
+                        strong
+                        style={{
+                          minWidth: 20,
+                          display: "inline-block",
+                          textAlign: "center",
+                        }}
+                      >
+                        {e.pusk}
+                      </Typography.Text>
+                      <Button
+                        size="large"
+                        onClick={() =>
+                          r.setEntry(fl.line, { pusk: e.pusk + 1 })
+                        }
+                      >
+                        +
+                      </Button>
+                    </Space>
                   </td>
                 )}
                 <td style={cell}>
@@ -980,6 +1224,24 @@ function LineSheet({
     >
       <div className="fr-sheet">
         <Space orientation="vertical" size={10} style={{ width: "100%" }}>
+          <Card size="small" styles={{ body: { padding: "8px 12px" } }} style={{ background: "#fafafa" }}>
+            <Space wrap size={[12, 6]} align="center">
+              {fl.doorInfo.dimensions_str && (
+                <Typography.Text strong style={{ fontSize: 15 }}>
+                  📐 {fl.doorInfo.dimensions_str}
+                </Typography.Text>
+              )}
+              {fl.doorInfo.series && <Tag color="blue">{fl.doorInfo.series}</Tag>}
+              {fl.line.program && <Tag color="cyan">ЧПУ: {fl.line.program}</Tag>}
+              {fl.doorInfo.edge_label && <Tag color="orange">Кромка: {fl.doorInfo.edge_label}</Tag>}
+              {fl.line.material && <Tag color="purple">{filmLabel(fl.line)}</Tag>}
+            </Space>
+            {fl.line.instruction && (
+              <div style={{ marginTop: 4, color: "#d48806", fontSize: 12 }}>
+                ⚑ {fl.line.instruction}
+              </div>
+            )}
+          </Card>
           <Typography.Text type="secondary">
             {onOpenTask ? (
               <a onClick={() => onOpenTask(fl.task.id)}>
@@ -991,7 +1253,8 @@ function LineSheet({
             · план{" "}
             {fmt(fl.line.quantity_pieces)}, сделано{" "}
             {fmt(fl.line.produced_good_pieces)}, осталось{" "}
-            {fmt(fl.line.remaining_pieces)} · {filmLabel(fl.line)}
+            {fmt(fl.line.remaining_pieces)}
+            {fl.line.material ? ` · ${filmLabel(fl.line)}` : ""}
           </Typography.Text>
           <OverProductionTag line={fl.line} produced={fl.line.produced_good_pieces + (+e.good || 0)} planned={+e.good > 0} />
           {(fl.line.film_warnings ?? []).map((w) => (
@@ -1098,9 +1361,9 @@ function LineSheet({
               })}
             </Space>
           )}
-          {r.hasPusk && fl.line.material !== null && (
+          {r.hasPusk && (
             <Space wrap>
-              <Typography.Text>Пусковые:</Typography.Text>
+              <Typography.Text>Пусковые / наладка:</Typography.Text>
               {[1, 2, 3].map((n) => (
                 <Button
                   key={n}

@@ -12,9 +12,10 @@ import {
   type ProductionTaskLineReportCreate,
 } from "../../../../api/production";
 import { listPlanSlots } from "../../../../api/planning";
-import { areaRequiresRoll, listAreas } from "../../../../api/areas";
+import { areaRequiresRoll, listAreas, type Area, type MasterProfile, type GroupByAttribute } from "../../../../api/areas";
 import { listWriteOffReasons } from "../../../../api/writeOffReasons";
 import { sendReportWithConfirm } from "../../../../utils/reportConfirm";
+import { extractDoorCols, type DoorColsInfo } from "../../../../utils/doorCols";
 
 /** Быстрый отчёт мастера (плитки у станка / таблица в заказе) — общая
  * логика двух видов: какие строки показывать, черновик набранного (живёт на
@@ -40,12 +41,180 @@ export type Entry = {
   extra?: ExtraRoll[];
   meters?: number | null;
 };
-export type FastLine = { task: ProductionTask; line: ProductionTaskLine; onMachine: boolean; today: boolean };
+export type FastLine = {
+  task: ProductionTask;
+  line: ProductionTaskLine;
+  onMachine: boolean;
+  today: boolean;
+  doorInfo: DoorColsInfo;
+  groupKey: string;
+  groupLabel: string;
+};
 
 const EMPTY: Entry = { good: "", pusk: 0, defects: [], rollId: null };
 
 export const filmLabel = (l: ProductionTaskLine) =>
   l.material ? `${l.material} ${l.color ?? ""} ${l.thickness ?? ""}`.replace(/\s+/g, " ").trim() : "без плёнки";
+
+export function resolveAreaProfile(areaObj?: Area | null, areaCode?: string): MasterProfile {
+  if (areaObj?.master_profile && areaObj.master_profile !== "auto") {
+    return areaObj.master_profile;
+  }
+  const code = (areaCode || areaObj?.code || "").toLowerCase();
+  const name = (areaObj?.name || "").toLowerCase();
+  const s = `${code} ${name}`;
+  if (
+    s.includes("okutka") ||
+    s.includes("окутк") ||
+    s.includes("ламинац") ||
+    s.includes("шпон") ||
+    s.includes("пресс") ||
+    s.includes("пленк") ||
+    s.includes("плёнк")
+  ) {
+    return "wrapping";
+  }
+  if (
+    s.includes("frez") ||
+    s.includes("фрез") ||
+    s.includes("чпу") ||
+    s.includes("raskroy") ||
+    s.includes("раскрой") ||
+    s.includes("порезк")
+  ) {
+    return "milling";
+  }
+  if (s.includes("kromk") || s.includes("кромк") || s.includes("облицов")) {
+    return "edgebanding";
+  }
+  if (
+    s.includes("sbork") ||
+    s.includes("сборк") ||
+    s.includes("каркас") ||
+    s.includes("полотен") ||
+    s.includes("склейк") ||
+    s.includes("щит")
+  ) {
+    return "assembly";
+  }
+  if (
+    s.includes("upakov") ||
+    s.includes("упаков") ||
+    s.includes("отк") ||
+    s.includes("паллет") ||
+    s.includes("комплект")
+  ) {
+    return "packaging";
+  }
+  return "universal";
+}
+
+export function resolveGroupBy(areaObj?: Area | null, profile?: MasterProfile): GroupByAttribute {
+  if (areaObj?.group_by_attribute && areaObj.group_by_attribute !== "auto") {
+    return areaObj.group_by_attribute;
+  }
+  switch (profile) {
+    case "wrapping":
+      return "film";
+    case "milling":
+      return "program";
+    case "edgebanding":
+      return "edge";
+    case "assembly":
+      return "series";
+    case "packaging":
+      return "order";
+    default:
+      return "none";
+  }
+}
+
+export function getLineGroup(
+  line: ProductionTaskLine,
+  task: ProductionTask,
+  doorInfo: DoorColsInfo,
+  groupBy: GroupByAttribute,
+): { key: string; label: string } {
+  if (line.group_key && line.group_label) {
+    return { key: line.group_key, label: line.group_label };
+  }
+  switch (groupBy) {
+    case "film":
+      if (line.material) {
+        return {
+          key: `film:${line.material}_${line.color ?? ""}_${line.thickness ?? ""}`.trim(),
+          label: filmLabel(line),
+        };
+      }
+      return { key: "film:none", label: "Без плёнки" };
+
+    case "program":
+      if (line.program) {
+        return {
+          key: `prog:${line.program}`,
+          label: `Программа ЧПУ: ${line.program}`,
+        };
+      }
+      return { key: "prog:manual", label: "Без программы (ручная обработка)" };
+
+    case "edge":
+      if (doorInfo.edge_label) {
+        return {
+          key: `edge:${doorInfo.edge_label}`,
+          label: `Кромка: ${doorInfo.edge_label}`,
+        };
+      }
+      if (doorInfo.edge_type) {
+        const lbl = `Кромка: ${doorInfo.edge_type} ${doorInfo.edge_color ?? ""}`.trim();
+        return { key: `edge:${lbl}`, label: lbl };
+      }
+      return { key: "edge:none", label: "Без кромки" };
+
+    case "series":
+      if (doorInfo.series) {
+        return {
+          key: `series:${doorInfo.series}`,
+          label: `Серия: ${doorInfo.series}`,
+        };
+      }
+      return { key: "series:other", label: "Остальные серии" };
+
+    case "thickness": {
+      const thVal = line.thickness != null ? String(line.thickness) : null;
+      const thMatch =
+        thVal ||
+        doorInfo.dimensions_str.match(/×\s*(\d+(?:[.,]\d+)?)\s*мм/)?.[1];
+      if (thMatch) {
+        return {
+          key: `th:${thMatch}`,
+          label: `Толщина: ${thMatch} мм`,
+        };
+      }
+      return { key: "th:std", label: "Стандартная толщина" };
+    }
+
+    case "dimensions":
+      if (doorInfo.dimensions_str) {
+        return {
+          key: `dim:${doorInfo.dimensions_str}`,
+          label: `Размер: ${doorInfo.dimensions_str}`,
+        };
+      }
+      return { key: "dim:other", label: "Различные размеры" };
+
+    case "order": {
+      const ordName = task.production_order_name ?? task.name ?? `Задание №${task.id}`;
+      return {
+        key: `ord:${task.production_order_id ?? task.id}`,
+        label: `Заказ: ${ordName}`,
+      };
+    }
+
+    case "none":
+    default:
+      return { key: "all", label: "Все позиции" };
+  }
+}
 
 export type RollChoice = { id: number; width_mm: number; left: number; from: string | null };
 
@@ -134,11 +303,21 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
       ),
     [reasonsQuery.data, partsReasonsQuery.data],
   );
-  const hasPusk = reasons.some((r) => r.code === PUSK_REASON);
+
+  const areaObj = areasQuery.data?.find((a) => a.code === area);
+  const profile = resolveAreaProfile(areaObj, area);
+  const groupBy = resolveGroupBy(areaObj, profile);
+
+  const showDimensions = areaObj?.show_dimensions ?? true;
+  const showCnc = areaObj?.show_cnc_program ?? (profile === "milling");
+  const showEdge = areaObj?.show_edge_specs ?? (profile === "edgebanding");
+  const hasPusk =
+    areaObj?.has_pusk_pieces ??
+    (profile === "wrapping" && reasons.some((r) => r.code === PUSK_REASON));
   const requiresRoll = areaRequiresRoll(areasQuery.data, area);
   // Плёнку режут на участке (прессы): мастер вводит штуки и сколько метров
   // ушло — средний расход на панель программа считает сама (06.10).
-  const filmByMeters = !!areasQuery.data?.find((a) => a.code === area)?.film_cut_on_site;
+  const filmByMeters = !!areaObj?.film_cut_on_site;
 
   const todayLines = useMemo(() => new Set((slotsQuery.data ?? []).map((s) => s.task_line_id)), [slotsQuery.data]);
   const lines: FastLine[] = useMemo(() => {
@@ -151,11 +330,27 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
         if (line.production_closed) continue;
         // Без плёнки (п/ф: распил, склейка, фрезеровка) рулонов нет — такая строка всегда «в работе».
         const onMachine = line.material === null || rollChoices(line).length > 0;
-        out.push({ task, line, onMachine, today: todayLines.has(line.id) });
+        const doorInfo = extractDoorCols(
+          line.item_chars,
+          line.part_name,
+          line.length_m,
+          line.width_mm,
+          line.thickness != null ? Number(line.thickness) : null,
+        );
+        const { key: groupKey, label: groupLabel } = getLineGroup(line, task, doorInfo, groupBy);
+        out.push({
+          task,
+          line,
+          onMachine,
+          today: todayLines.has(line.id),
+          doorInfo,
+          groupKey,
+          groupLabel,
+        });
       }
     }
     return out;
-  }, [tasksQuery.data, area, orderId, taskId, todayLines]);
+  }, [tasksQuery.data, area, orderId, taskId, todayLines, groupBy]);
 
   const entryOf = (l: ProductionTaskLine): Entry => {
     const e = entries[l.id];
@@ -270,6 +465,12 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
   });
 
   return {
+    areaObj,
+    profile,
+    groupBy,
+    showDimensions,
+    showCnc,
+    showEdge,
     areaLines,
     myLine: lineForReport,
     setMyLine,
