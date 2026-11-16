@@ -276,8 +276,30 @@ def _line_item_chars(db: Session, line: ProductionTaskLine) -> list[dict]:
         from app.services.type_rules import item_chars_cached
 
         part = db.get(Part, line.part_id)
-        if part and getattr(part, "item_id", None):
+        mismatch = False
+        if part:
+            p_lower = (part.name or "").lower()
+            l_lower = (line.part_name or "").lower()
+            if ("каркас" in l_lower and "каркас" not in p_lower) or \
+               ("панель" in l_lower and "панель" not in p_lower):
+                mismatch = True
+
+        if part and not mismatch and getattr(part, "item_id", None):
             return item_chars_cached(db, part.item_id)
+
+        # При несовпадении или отсутствии детали ищем правильную по названию строки
+        from app.models.items import match_part_id
+
+        real_pid = match_part_id(db, line.part_name, line.width_mm, line.length_m)
+        if real_pid:
+            real_part = db.get(Part, real_pid)
+            if real_part and getattr(real_part, "item_id", None):
+                return item_chars_cached(db, real_part.item_id)
+
+        if line.part_name:
+            from app.services.line_groups import fallback_door_chars
+
+            return fallback_door_chars(line.part_name, line.width_mm, line.length_m)
         return []
     if not line.order_line_id:
         if line.part_name:
@@ -354,7 +376,19 @@ def _task_line_out(
                     eff_l = float(m_l.group(1).replace(",", ".")) / 1000.0
 
     eff_th = float(db.get(Thickness, line.thickness_id).value_mm) if line.thickness_id else None
-    if eff_th is None and not any(w in (line.part_name or "").lower() for w in ["дверь", "полотно"]):
+    raw_pname = line.part_name or ""
+    is_door_or_leaf = any(w in raw_pname.lower() for w in ["дверь", "полотно"])
+    m3d = re.search(r"(\d+(?:[.,]\d+)?)\s*[хxXХ*×]\s*(\d+(?:[.,]\d+)?)\s*[хxXХ*×]\s*(\d+(?:[.,]\d+)?)", raw_pname)
+    if m3d and not is_door_or_leaf:
+        # Явный 3D размер в названии детали: например "Каркас 22.5х710х2010" -> толщина 22.5 мм
+        nums = [float(m3d.group(1).replace(",", ".")), float(m3d.group(2).replace(",", ".")), float(m3d.group(3).replace(",", "."))]
+        nums.sort()
+        eff_th = nums[0]
+        if eff_w <= 0:
+            eff_w = nums[1]
+        if eff_l <= 0:
+            eff_l = nums[2] / 1000.0
+    elif eff_th is None and not is_door_or_leaf:
         for c in chars:
             if c.get("code") == "толщина":
                 m_t = re.search(r"(\d+(?:[.,]\d+)?)", str(c.get("value", "")))

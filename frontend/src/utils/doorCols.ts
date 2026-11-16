@@ -144,7 +144,8 @@ export function extractDoorCols(
     const d2 = parseFloat(m3d[2].replace(",", "."));
     const d3 = parseFloat(m3d[3].replace(",", "."));
     const sorted = [d1, d2, d3].sort((a, b) => a - b);
-    if (th == null && !isDoor) th = Math.round(sorted[0] * 10) / 10;
+    // Для не-дверей (каркасы, щиты, детали) явный 3D размер в названии авторитетен (не позволяет чужой панели подставить 6 мм)
+    if (!isDoor) th = Math.round(sorted[0] * 10) / 10;
     if (w == null) w = Math.round(sorted[1]);
     if (h == null) h = Math.round(sorted[2]);
   } else {
