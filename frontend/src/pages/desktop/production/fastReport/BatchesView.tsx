@@ -37,6 +37,7 @@ export interface SetupBatch {
   totalRemaining: number;
   tasks: Array<{ id: number; name: string }>;
   orders: string[];
+  invoices: string[];
 }
 
 export default function BatchesView({
@@ -74,6 +75,7 @@ export default function BatchesView({
           totalRemaining: 0,
           tasks: [],
           orders: [],
+          invoices: [],
         };
         map.set(key, b);
       }
@@ -85,9 +87,18 @@ export default function BatchesView({
       if (!b.tasks.some((t) => t.id === fl.task.id)) {
         b.tasks.push({ id: fl.task.id, name: fl.task.name || `Задание №${fl.task.id}` });
       }
-      const inv = fl.task.production_order_name;
-      if (inv && !b.orders.includes(inv)) {
-        b.orders.push(inv);
+      const ordName = fl.task.production_order_name;
+      if (ordName && !b.orders.includes(ordName)) {
+        b.orders.push(ordName);
+      }
+      const invs = [fl.line.invoice_no, ...(fl.line.source_invoices ?? [])].filter(Boolean);
+      for (const item of invs) {
+        for (const piece of item!.split(",")) {
+          const trimmed = piece.trim();
+          if (trimmed && !b.invoices.includes(trimmed)) {
+            b.invoices.push(trimmed);
+          }
+        }
       }
     }
 
@@ -220,10 +231,22 @@ function BatchCard({
           <Text type="secondary" style={{ fontSize: 13 }}>
             📋 Заданий: {batch.tasks.length} (строк: {batch.lines.length})
           </Text>
+          {batch.invoices.length > 0 && (
+            <Space wrap size={[2, 2]}>
+              {batch.invoices.slice(0, 4).map((inv) => (
+                <Tag key={inv} color="blue" style={{ fontWeight: 700, fontSize: 12, margin: 0 }}>
+                  Счёт {inv}
+                </Tag>
+              ))}
+              {batch.invoices.length > 4 && (
+                <Tag style={{ fontSize: 11, margin: 0 }}>+{batch.invoices.length - 4}</Tag>
+              )}
+            </Space>
+          )}
           {batch.orders.length > 0 && (
             <Text type="secondary" style={{ fontSize: 12 }}>
-              · Счета: {batch.orders.slice(0, 3).join(", ")}
-              {batch.orders.length > 3 ? ` и ещё ${batch.orders.length - 3}` : ""}
+              · {batch.orders.slice(0, 2).join(", ")}
+              {batch.orders.length > 2 ? ` (+${batch.orders.length - 2})` : ""}
             </Text>
           )}
         </Space>
@@ -378,7 +401,12 @@ function BatchCard({
                         fontSize: 13,
                       }}
                     >
-                      <Space>
+                      <Space wrap>
+                        {fl.line.invoice_no && (
+                          <Tag color="blue" style={{ fontWeight: 700, fontSize: 12, margin: 0 }}>
+                            Счёт {fl.line.invoice_no}
+                          </Tag>
+                        )}
                         <Text strong>{fl.line.part_name || "Деталь"}</Text>
                         <Text type="secondary">
                           Задание №{fl.task.id}

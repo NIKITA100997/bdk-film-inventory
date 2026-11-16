@@ -132,6 +132,9 @@ export interface ProductionTaskLine {
   /** Группа строки на участке (08.10): одинаковые признаки, которые задал участок. */
   group_key?: string | null;
   group_label?: string | null;
+  /** Номер счёта заказа (1084-ЛД, 1090 и т.д.) */
+  invoice_no?: string | null;
+  source_invoices?: string[];
   /** Деталь п/ф строки; null — изделие (дверь и т.п.). */
   part_id?: number | null;
   /** Ручная правка при запуске: программа станка, указание мастеру, что поменяли. */

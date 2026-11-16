@@ -395,9 +395,32 @@ def _task_line_out(
                 if m_t:
                     eff_th = float(m_t.group(1).replace(",", "."))
 
+    # Счета заказа (прямой счёт позиции заказа или агрегированные счета полуфабрикатов)
+    inv_no = None
+    src_invs: list[str] = []
+    from app.models.production_orders import ProductionOrderLine
+    if line.order_line_id:
+        ol = db.get(ProductionOrderLine, line.order_line_id)
+        if ol and ol.invoice_no and ol.invoice_no.strip():
+            inv = ol.invoice_no.strip()
+            inv_no = inv
+            src_invs.append(inv)
+    if hasattr(line, "sources") and line.sources:
+        for src in line.sources:
+            if src.order_line_id:
+                src_ol = db.get(ProductionOrderLine, src.order_line_id)
+                if src_ol and src_ol.invoice_no and src_ol.invoice_no.strip():
+                    inv = src_ol.invoice_no.strip()
+                    if inv not in src_invs:
+                        src_invs.append(inv)
+        if src_invs:
+            inv_no = ", ".join(src_invs)
+
     return ProductionTaskLineOut(
         group_key=group[0] if group else None,
         group_label=group[1] if group else None,
+        invoice_no=inv_no,
+        source_invoices=src_invs,
         id=line.id,
         line_id=line.line_id,
         line_name=prod_line.name if prod_line else "—",
@@ -910,7 +933,12 @@ def _keep_refs(db: Session, lines: list[ProductionTaskLine]) -> None:
     load(ProductionLine, {l.line_id for l in lines})
     parts = load(Part, {l.part_id for l in lines})
     load(Item, {p.item_id for p in parts})
-    load(ProductionOrderLine, {l.order_line_id for l in lines})
+    ol_ids = {l.order_line_id for l in lines if l.order_line_id}
+    for l in lines:
+        for s in getattr(l, "sources", []):
+            if s.order_line_id:
+                ol_ids.add(s.order_line_id)
+    load(ProductionOrderLine, ol_ids)
 
 
 def _keep_task_refs(db: Session, tasks: list[ProductionTask]) -> None:

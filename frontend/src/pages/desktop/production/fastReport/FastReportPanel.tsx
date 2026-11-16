@@ -103,6 +103,9 @@ export default function FastReportPanel({
     return isWrapping ? "work" : "all";
   });
   const [q, setQ] = useState("");
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "in_work" | "done">("all");
   const [selectedStripWidth, setSelectedStripWidth] = useState<number | null>(null);
   const [selectedFilm, setSelectedFilm] = useState<string | null>(null);
   const [selectedProgram, setSelectedProgram] = useState<string | null>(null);
@@ -111,6 +114,37 @@ export default function FastReportPanel({
   const [open, setOpen] = useState<FastLine | null>(null);
   const [defectFor, setDefectFor] = useState<FastLine | null>(null);
   const [detailFor, setDetailFor] = useState<FastLine | null>(null);
+
+  const orderOptions = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const fl of r.lines) {
+      if (fl.task.production_order_id) {
+        map.set(
+          fl.task.production_order_id,
+          fl.task.production_order_name || `Заказ №${fl.task.production_order_id}`,
+        );
+      }
+    }
+    return [...map.entries()].map(([id, name]) => ({ value: id, label: name }));
+  }, [r.lines]);
+
+  const invoiceOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const fl of r.lines) {
+      if (fl.line.invoice_no) {
+        for (const item of fl.line.invoice_no.split(",")) {
+          const trimmed = item.trim();
+          if (trimmed) set.add(trimmed);
+        }
+      }
+      for (const item of fl.line.source_invoices ?? []) {
+        if (item.trim()) set.add(item.trim());
+      }
+    }
+    return [...set]
+      .sort((a, b) => a.localeCompare(b, "ru", { numeric: true }))
+      .map((inv) => ({ value: inv, label: `Счёт ${inv}` }));
+  }, [r.lines]);
 
   const stripWidths = useMemo(() => {
     const set = new Set<number>();
@@ -164,16 +198,28 @@ export default function FastReportPanel({
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return r.lines
-      .filter(
-        (fl) =>
-          narrow ||
-          scope === "all" ||
-          (scope === "pins" ? r.pins.has(fl.line.id) : false) ||
-          (scope === "work" && fl.onMachine) ||
-          (scope === "work" && fl.today) ||
-          (scope !== "pins" && isFilled(r.entryOf(fl.line))),
-      )
       .filter((fl) => {
+        if (narrow) return true;
+        if (scope === "pins") return r.pins.has(fl.line.id);
+        if (scope === "work") return fl.onMachine || fl.today || isFilled(r.entryOf(fl.line));
+        return true;
+      })
+      .filter((fl) => {
+        if (selectedOrderId !== null && fl.task.production_order_id !== selectedOrderId) {
+          return false;
+        }
+        if (selectedInvoice !== null) {
+          const inv = (fl.line.invoice_no || "").toLowerCase();
+          const needleInv = selectedInvoice.toLowerCase();
+          const matchInv = inv.includes(needleInv) || (fl.line.source_invoices ?? []).some((si) => si.toLowerCase().includes(needleInv));
+          if (!matchInv) return false;
+        }
+        if (statusFilter === "in_work" && fl.line.remaining_pieces <= 0 && !isFilled(r.entryOf(fl.line))) {
+          return false;
+        }
+        if (statusFilter === "done" && fl.line.remaining_pieces > 0) {
+          return false;
+        }
         if (selectedStripWidth !== null) {
           const sw = isWrapping
             ? Math.round(fl.line.strip_width_mm || 0)
@@ -198,13 +244,16 @@ export default function FastReportPanel({
         }
         if (!needle) return true;
         const searchPool = [
+          fl.line.invoice_no ?? "",
+          ...(fl.line.source_invoices ?? []),
+          fl.task.production_order_name ?? "",
           fl.line.part_name ?? "",
           fl.task.name ?? "",
           fl.task.id ? `№${fl.task.id}` : "",
-          fl.task.production_order_name ?? "",
           filmLabel(fl.line),
           fl.doorInfo.dimensions_str ?? "",
           fl.doorInfo.series ?? "",
+          fl.doorInfo.color ?? "",
           fl.line.program ? `программа ${fl.line.program}` : "",
           fl.doorInfo.edge_label ? `кромка ${fl.doorInfo.edge_label}` : "",
           fl.line.strip_width_mm ? `${fl.line.strip_width_mm}мм` : "",
@@ -217,9 +266,10 @@ export default function FastReportPanel({
       .sort(
         (a, b) =>
           a.groupLabel.localeCompare(b.groupLabel, "ru") ||
+          (a.line.invoice_no || "").localeCompare(b.line.invoice_no || "", "ru", { numeric: true }) ||
           (a.line.part_name ?? "").localeCompare(b.line.part_name ?? "", "ru"),
       );
-  }, [r, scope, q, selectedStripWidth, selectedFilm, selectedProgram, selectedEdge, selectedThickness, narrow]);
+  }, [r, scope, q, selectedOrderId, selectedInvoice, statusFilter, selectedStripWidth, selectedFilm, selectedProgram, selectedEdge, selectedThickness, narrow, isWrapping]);
 
   const onSave = () => {
     const noLeft = r.filled.filter((fl) => (r.entryOf(fl.line).extra ?? []).some((x) => x.left == null));
@@ -278,7 +328,7 @@ export default function FastReportPanel({
         <MasterQuickReportPanel area={area} />
       ) : (
         <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-          <Space wrap>
+          <Space wrap size={[8, 8]} align="center" style={{ width: "100%" }}>
             {!narrow && (
               <Segmented
                 value={scope}
@@ -299,7 +349,7 @@ export default function FastReportPanel({
               // своя линия — для «Ежедневки» по линиям; запоминается на планшете
               <Select
                 placeholder="Моя линия"
-                style={{ minWidth: 180 }}
+                style={{ minWidth: 160 }}
                 value={r.myLine ?? undefined}
                 onChange={(v) => r.setMyLine(v ?? null)}
                 allowClear
@@ -309,10 +359,47 @@ export default function FastReportPanel({
             )}
             <Input.Search
               allowClear
-              placeholder="Деталь, заказ или плёнка"
-              style={{ width: 260 }}
+              placeholder="Поиск по счёту, заказу, модели, цвету..."
+              style={{ minWidth: 260, flex: 1, maxWidth: 360 }}
               value={q}
               onChange={(e) => setQ(e.target.value)}
+            />
+            {orderOptions.length > 1 && (
+              <Select
+                allowClear
+                showSearch
+                placeholder="Все заказы"
+                style={{ minWidth: 180, maxWidth: 260 }}
+                value={selectedOrderId ?? undefined}
+                onChange={(val) => setSelectedOrderId(val ?? null)}
+                options={orderOptions}
+                filterOption={(input, option) =>
+                  (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+                }
+              />
+            )}
+            {invoiceOptions.length > 1 && (
+              <Select
+                allowClear
+                showSearch
+                placeholder="Все счета"
+                style={{ minWidth: 150, maxWidth: 200 }}
+                value={selectedInvoice ?? undefined}
+                onChange={(val) => setSelectedInvoice(val ?? null)}
+                options={invoiceOptions}
+                filterOption={(input, option) =>
+                  (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+                }
+              />
+            )}
+            <Segmented
+              value={statusFilter}
+              onChange={(v) => setStatusFilter(v as "all" | "in_work" | "done")}
+              options={[
+                { value: "all", label: "Все" },
+                { value: "in_work", label: "В работе" },
+                { value: "done", label: "Готовые" },
+              ]}
             />
             <QrScanButton
               size="middle"
@@ -725,8 +812,13 @@ function Tiles({
                     </Space>
                   </Space>
 
-                  {/* Технические параметры детали: Габариты, ЧПУ, Кромка, Серия */}
+                  {/* Технические параметры детали: Габариты, ЧПУ, Кромка, Серия, Счёт */}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                    {fl.line.invoice_no && (
+                      <Tag color="blue" style={{ fontWeight: 700, fontSize: 12, margin: 0 }}>
+                        Счёт {fl.line.invoice_no}
+                      </Tag>
+                    )}
                     {r.showDimensions && fl.doorInfo.dimensions_str && (
                       <Tag color="default" style={{ fontWeight: 700, fontSize: 12, margin: 0 }}>
                         📐 {fl.doorInfo.dimensions_str}
@@ -818,7 +910,7 @@ function GroupTableView({ lines, r, onDefect }: { lines: FastLine[]; r: R; onDef
   const groups = groupLines(lines);
   const [open, setOpen] = useState<Group | null>(null);
   const [value, setValue] = useState("");
-  const cell: React.CSSProperties = { padding: "6px 8px", borderBottom: "1px solid #DEDEDA", verticalAlign: "middle" };
+  const cell: React.CSSProperties = { padding: "8px 10px", borderBottom: "1px solid #DEDEDA", verticalAlign: "middle" };
   const entered = (g: Group) => g.lines.reduce((s, fl) => s + (+r.entryOf(fl.line).good || 0), 0);
   const save = () => {
     if (!open) return;
@@ -828,11 +920,21 @@ function GroupTableView({ lines, r, onDefect }: { lines: FastLine[]; r: R; onDef
   };
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640, fontSize: 14 }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 760, fontSize: 14 }}>
         <thead>
           <tr>
-            {["Группа", "Строк", "Осталось", "Годные", "Брак"].map((h) => (
-              <th key={h} style={{ ...cell, textAlign: "left", fontSize: 12, color: "#6B6B68", textTransform: "uppercase" }}>
+            {["Группа / Параметры", "Счета", "Заказы", "Строк", "План", "Осталось", "Годные", "Брак"].map((h) => (
+              <th
+                key={h}
+                style={{
+                  ...cell,
+                  textAlign: h === "План" || h === "Осталось" ? "right" : h === "Годные" ? "center" : "left",
+                  fontSize: 12,
+                  color: "#6B6B68",
+                  textTransform: "uppercase",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 {h}
               </th>
             ))}
@@ -841,20 +943,58 @@ function GroupTableView({ lines, r, onDefect }: { lines: FastLine[]; r: R; onDef
         <tbody>
           {groups.map((g) => {
             const defect = g.lines.reduce((s, fl) => s + r.entryOf(fl.line).defects.reduce((x, d) => x + d.qty, 0), 0);
+            const totalPlan = g.lines.reduce((s, fl) => s + fl.line.quantity_pieces, 0);
             const remaining = g.lines.reduce((s, fl) => s + Math.max(0, fl.line.remaining_pieces), 0);
-            const orders = [...new Set(g.lines.map((fl) => fl.task.production_order_name ?? fl.task.name))];
+            const orders = [...new Set(g.lines.map((fl) => fl.task.production_order_name ?? fl.task.name).filter(Boolean))];
+            const invoices = [
+              ...new Set(
+                g.lines
+                  .flatMap((fl) => [fl.line.invoice_no, ...(fl.line.source_invoices ?? [])])
+                  .filter(Boolean)
+                  .flatMap((s) => s!.split(",").map((x) => x.trim()))
+                  .filter(Boolean),
+              ),
+            ];
+
             return (
               <tr key={g.key}>
                 <td style={cell}>
-                  <b>{g.label}</b>
-                  <div style={{ fontSize: 12, color: "#6B6B68" }}>{orders.join(" · ")}</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{g.label}</div>
                 </td>
-                <td style={cell}>{g.lines.length}</td>
-                <td style={cell}>{fmt(remaining)}</td>
                 <td style={cell}>
+                  {invoices.length > 0 ? (
+                    <Space wrap size={[2, 2]}>
+                      {invoices.map((inv) => (
+                        <Tag key={inv} color="blue" style={{ fontWeight: 700, fontSize: 12, margin: 0 }}>
+                          {inv}
+                        </Tag>
+                      ))}
+                    </Space>
+                  ) : (
+                    <Typography.Text type="secondary">—</Typography.Text>
+                  )}
+                </td>
+                <td style={{ ...cell, minWidth: 120, maxWidth: 200 }}>
+                  <div style={{ fontSize: 12, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={orders.join(" · ")}>
+                    {orders.join(" · ") || "—"}
+                  </div>
+                </td>
+                <td style={{ ...cell, width: 60, textAlign: "center" }}>{g.lines.length}</td>
+                <td style={{ ...cell, width: 70, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(totalPlan)}</td>
+                <td style={{ ...cell, width: 85, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                  <b style={{ color: remaining > 0 ? "#1677ff" : "#52c41a" }}>{fmt(remaining)}</b>
+                </td>
+                <td style={{ ...cell, width: 90, textAlign: "center" }}>
                   <Button
                     size="large"
-                    style={{ minWidth: 80, fontWeight: 700 }}
+                    style={{
+                      minWidth: 70,
+                      height: 40,
+                      fontWeight: 700,
+                      borderColor: entered(g) > 0 ? "#52c41a" : undefined,
+                      color: entered(g) > 0 ? "#389e0d" : undefined,
+                      background: entered(g) > 0 ? "#f6ffed" : undefined,
+                    }}
                     onClick={() => {
                       setValue(entered(g) ? String(entered(g)) : "");
                       setOpen(g);
@@ -863,7 +1003,7 @@ function GroupTableView({ lines, r, onDefect }: { lines: FastLine[]; r: R; onDef
                     {entered(g)}
                   </Button>
                 </td>
-                <td style={cell}>
+                <td style={{ ...cell, width: 80, textAlign: "center" }}>
                   <Badge count={defect} size="small">
                     <Button onClick={() => onDefect(g.lines[0])}>Брак…</Button>
                   </Badge>
@@ -934,21 +1074,19 @@ function LinesTableView({
   pinnable: boolean;
 }) {
   const cell: React.CSSProperties = {
-    padding: "6px 8px",
+    padding: "8px 10px",
     borderBottom: "1px solid #DEDEDA",
     verticalAlign: "middle",
   };
 
-  const col2Title =
+  const colFeatureTitle =
     r.profile === "milling" || r.showCnc
-      ? "ЧПУ / Размеры"
+      ? "ЧПУ / Программа"
       : r.profile === "edgebanding" || r.showEdge
-        ? "Кромка / Стороны"
-        : r.profile === "assembly"
-          ? "Серия / Размеры"
-          : r.profile === "wrapping" || r.requiresRoll
-            ? "Плёнка / рулон"
-            : "Параметры / Размеры";
+        ? "Кромка"
+        : r.profile === "wrapping" || r.requiresRoll
+          ? "Рулон / Штрипс"
+          : "Особенности";
 
   return (
     <div style={{ overflowX: "auto" }}>
@@ -956,30 +1094,38 @@ function LinesTableView({
         style={{
           borderCollapse: "collapse",
           width: "100%",
-          minWidth: 760,
+          minWidth: 960,
           fontSize: 14,
         }}
       >
         <thead>
           <tr>
             {[
-              "Позиция",
-              col2Title,
+              pinnable ? "★" : null,
+              "Счёт",
+              "Заказ",
+              "Серия",
+              "Размер",
+              "Цвет / Декор",
+              colFeatureTitle,
+              "План",
+              "Осталось",
               "Годные",
               r.hasPusk ? "Пусковые" : null,
               "Брак",
               "",
             ]
               .filter(Boolean)
-              .map((h) => (
+              .map((h, idx) => (
                 <th
-                  key={h as string}
+                  key={idx}
                   style={{
                     ...cell,
-                    textAlign: "left",
+                    textAlign: h === "План" || h === "Осталось" ? "right" : h === "Годные" || h === "★" ? "center" : "left",
                     fontSize: 12,
                     color: "#6B6B68",
                     textTransform: "uppercase",
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {h}
@@ -992,33 +1138,72 @@ function LinesTableView({
             const e = r.entryOf(fl.line);
             const defect = e.defects.reduce((s, d) => s + d.qty, 0);
             const roll = rollChoices(fl.line).find((u) => u.id === e.rollId);
+            const isLineDone = fl.line.remaining_pieces <= 0;
+            const dimStr =
+              fl.doorInfo.dimensions_str ||
+              (fl.line.length_m > 0
+                ? `${Math.round(fl.line.length_m * 1000)} × ${Math.round(fl.line.width_mm)} мм`
+                : `${Math.round(fl.line.width_mm)} мм`);
+            const orderName = fl.task.production_order_name ?? fl.task.name ?? `Задание №${fl.task.id}`;
+
             return (
-              <tr key={fl.line.id}>
-                <td style={cell}>
-                  {pinnable && <PinStar r={r} lineId={fl.line.id} />}
-                  <span style={{ fontWeight: 600 }}>{fl.line.part_name || "Деталь"}</span>
-                  <ItemChars chars={fl.line.item_chars} name={fl.line.part_name} showName={false} />
-                  {r.showDimensions && fl.doorInfo.dimensions_str && (
-                    <div style={{ fontSize: 12, color: "#1677ff", fontWeight: 500 }}>
-                      📐 {fl.doorInfo.dimensions_str}
-                    </div>
+              <tr key={fl.line.id} style={{ background: isFilled(e) ? "rgba(82, 196, 26, 0.05)" : undefined }}>
+                {pinnable && (
+                  <td style={{ ...cell, width: 36, textAlign: "center" }}>
+                    <PinStar r={r} lineId={fl.line.id} />
+                  </td>
+                )}
+                {/* Счёт */}
+                <td style={{ ...cell, width: 110 }}>
+                  {fl.line.invoice_no ? (
+                    <Tag color="blue" style={{ fontWeight: 700, fontSize: 13, margin: 0 }}>
+                      {fl.line.invoice_no}
+                    </Tag>
+                  ) : (
+                    <Typography.Text type="secondary">—</Typography.Text>
                   )}
-                  <div style={{ fontSize: 12, color: "#6B6B68" }}>
-                    {fl.task.production_order_name ?? fl.task.name} · осталось{" "}
-                    {fmt(fl.line.remaining_pieces)}
-                  </div>
-                  <OverProductionTag line={fl.line} produced={fl.line.produced_good_pieces} />
                 </td>
-                <td style={cell}>
+                {/* Заказ */}
+                <td style={{ ...cell, minWidth: 120, maxWidth: 180 }}>
+                  <div
+                    title={orderName}
+                    style={{ fontSize: 13, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
+                    {orderName}
+                  </div>
+                  {fl.today && <span style={{ color: "#fa8c16", fontSize: 11, display: "block" }}>📅 на сегодня</span>}
+                </td>
+                {/* Серия / Модель */}
+                <td style={{ ...cell, width: 90 }}>
+                  {fl.doorInfo.series ? (
+                    <Tag color="geekblue" style={{ fontWeight: 600, fontSize: 12, margin: 0 }}>
+                      {fl.doorInfo.series}
+                    </Tag>
+                  ) : (
+                    <span style={{ fontWeight: 500, fontSize: 13 }}>{fl.line.part_name?.split(" ")[0] || "—"}</span>
+                  )}
+                </td>
+                {/* Размер */}
+                <td style={{ ...cell, width: 130, whiteSpace: "nowrap" }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
+                    📐 {dimStr}
+                  </div>
+                </td>
+                {/* Цвет / Декор */}
+                <td style={{ ...cell, minWidth: 120, maxWidth: 180 }}>
+                  <div
+                    title={fl.doorInfo.color || (fl.line.material ? filmLabel(fl.line) : "")}
+                    style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
+                    {fl.doorInfo.color || (fl.line.material ? filmLabel(fl.line) : <Typography.Text type="secondary">—</Typography.Text>)}
+                  </div>
+                </td>
+                {/* Особенности (Кромка / ЧПУ / Рулон) */}
+                <td style={{ ...cell, minWidth: 140 }}>
                   {r.profile === "milling" || r.showCnc ? (
                     <Space direction="vertical" size={2}>
-                      {fl.line.program && <UiBadge color="cyan">ЧПУ: {fl.line.program}</UiBadge>}
-                      {fl.doorInfo.dimensions_str && (
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>📐 {fl.doorInfo.dimensions_str}</div>
-                      )}
-                      {fl.line.instruction && (
-                        <div style={{ fontSize: 12, color: "#d48806" }}>⚑ {fl.line.instruction}</div>
-                      )}
+                      {fl.line.program ? <UiBadge color="cyan">ЧПУ: {fl.line.program}</UiBadge> : <Typography.Text type="secondary">—</Typography.Text>}
+                      {fl.line.instruction && <div style={{ fontSize: 12, color: "#d48806" }}>⚑ {fl.line.instruction}</div>}
                     </Space>
                   ) : r.profile === "edgebanding" || r.showEdge ? (
                     <Space direction="vertical" size={2}>
@@ -1027,49 +1212,62 @@ function LinesTableView({
                       ) : (
                         <Typography.Text type="secondary">—</Typography.Text>
                       )}
-                      {fl.doorInfo.dimensions_str && (
-                        <div style={{ fontSize: 12, color: "#6B6B68" }}>📐 {fl.doorInfo.dimensions_str}</div>
-                      )}
                     </Space>
                   ) : r.profile === "assembly" ? (
                     <Space direction="vertical" size={2}>
-                      {fl.doorInfo.series && <UiBadge color="blue">{fl.doorInfo.series}</UiBadge>}
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>
-                        📐 {fl.doorInfo.dimensions_str || fl.line.part_name?.match(/(\d+(?:[.,]\d+)?\s*[хxXХ*×]\s*\d+(?:\s*[хxXХ*×]\s*\d+)?)/)?.[1]?.replace(/\s+/g, "") || `${fl.line.width_mm} мм`}
-                      </div>
+                      {fl.line.part_name && !fl.doorInfo.series && <div style={{ fontSize: 12 }}>{fl.line.part_name}</div>}
+                      {fl.line.instruction && <div style={{ fontSize: 12, color: "#d48806" }}>⚑ {fl.line.instruction}</div>}
                     </Space>
                   ) : r.profile === "wrapping" || r.requiresRoll ? (
                     <div>
-                      <div style={{ fontSize: 13 }}>{filmLabel(fl.line)}</div>
                       {roll ? (
                         <UiBadge color={roll.from ? "cyan" : "blue"}>
-                          {rollNo(roll.id)} · {fmt(roll.left)} м
-                          {roll.from ? " · общий" : ""}
+                          {rollNo(roll.id)} · {fmt(roll.left)} м{roll.from ? " · общий" : ""}
                         </UiBadge>
                       ) : r.needsRoll(fl) ? (
                         <UiBadge color="warning">нет рулона</UiBadge>
-                      ) : null}
+                      ) : (
+                        <Typography.Text type="secondary">—</Typography.Text>
+                      )}
+                      {fl.line.strip_width_mm && (
+                        <div style={{ fontSize: 11, color: "#8c8c8c" }}>штрипс {Math.round(fl.line.strip_width_mm)} мм</div>
+                      )}
                     </div>
                   ) : (
-                    <Space direction="vertical" size={2}>
-                      {fl.doorInfo.dimensions_str && (
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>📐 {fl.doorInfo.dimensions_str}</div>
-                      )}
-                      {fl.line.material && <div style={{ fontSize: 12 }}>{filmLabel(fl.line)}</div>}
-                    </Space>
+                    fl.line.instruction ? <div style={{ fontSize: 12, color: "#d48806" }}>⚑ {fl.line.instruction}</div> : <Typography.Text type="secondary">—</Typography.Text>
                   )}
                 </td>
-                <td style={cell}>
+                {/* План */}
+                <td style={{ ...cell, width: 70, textAlign: "right", fontVariantNumeric: "tabular-nums", fontSize: 13, color: "#555" }}>
+                  {fmt(fl.line.quantity_pieces)}
+                </td>
+                {/* Осталось */}
+                <td style={{ ...cell, width: 85, textAlign: "right", fontVariantNumeric: "tabular-nums", fontSize: 14 }}>
+                  <b style={{ color: isLineDone ? "#52c41a" : "#1677ff" }}>
+                    {fmt(fl.line.remaining_pieces)}
+                  </b>
+                </td>
+                {/* Годные */}
+                <td style={{ ...cell, width: 85, textAlign: "center" }}>
                   <Button
                     size="large"
-                    style={{ minWidth: 80, fontWeight: 700 }}
+                    style={{
+                      minWidth: 70,
+                      height: 40,
+                      fontWeight: 700,
+                      fontSize: 15,
+                      borderColor: +e.good > 0 ? "#52c41a" : undefined,
+                      color: +e.good > 0 ? "#389e0d" : undefined,
+                      background: +e.good > 0 ? "#f6ffed" : undefined,
+                    }}
                     onClick={() => onOpen(fl)}
                   >
                     {+e.good || 0}
                   </Button>
                 </td>
+                {/* Пусковые */}
                 {r.hasPusk && (
-                  <td style={cell}>
+                  <td style={{ ...cell, width: 100, textAlign: "center" }}>
                     <Space size={4}>
                       <Button
                         size="large"
@@ -1102,13 +1300,15 @@ function LinesTableView({
                     </Space>
                   </td>
                 )}
-                <td style={cell}>
+                {/* Брак */}
+                <td style={{ ...cell, width: 80, textAlign: "center" }}>
                   <Badge count={defect} size="small">
-                    <Button onClick={() => onDefect(fl)}>Брак…</Button>
+                    <Button size="middle" onClick={() => onDefect(fl)}>Брак…</Button>
                   </Badge>
                 </td>
-                <td style={cell}>
-                  <Button type="link" onClick={() => onDetail(fl)}>
+                {/* Подробно */}
+                <td style={{ ...cell, width: 85, textAlign: "center" }}>
+                  <Button type="link" size="small" onClick={() => onDetail(fl)}>
                     Подробно…
                   </Button>
                 </td>
@@ -1238,6 +1438,11 @@ function LineSheet({
         <Space orientation="vertical" size={10} style={{ width: "100%" }}>
           <Card size="small" styles={{ body: { padding: "8px 12px" } }} style={{ background: "#fafafa" }}>
             <Space wrap size={[12, 6]} align="center">
+              {fl.line.invoice_no && (
+                <Tag color="blue" style={{ fontWeight: 700, fontSize: 13 }}>
+                  Счёт {fl.line.invoice_no}
+                </Tag>
+              )}
               {fl.doorInfo.dimensions_str && (
                 <Typography.Text strong style={{ fontSize: 15 }}>
                   📐 {fl.doorInfo.dimensions_str}

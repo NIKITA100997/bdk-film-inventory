@@ -400,6 +400,9 @@ class ProductionTaskLineOut(BaseModel):
     # не группирует.
     group_key: str | None = None
     group_label: str | None = None
+    # Счёт / номер счёта заказа (1084-ЛД, 1090 и т.д.)
+    invoice_no: str | None = None
+    source_invoices: list[str] = []
     # Деталь п/ф строки (None у изделия — двери и т.п.): отличает задание на
     # п/ф от задания на изделия, у которых тоже есть операции техкарты.
     part_id: int | None = None
