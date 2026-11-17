@@ -234,11 +234,11 @@ def _check_editable(co: CustomerOrder, user: User) -> None:
 
 @router.get("", response_model=list[OrderOut])
 def list_orders(include_closed: bool = Query(default=False), db: Session = Depends(get_db), user: User = Depends(view)) -> list[OrderOut]:
-    q = db.query(CustomerOrder)
+    orders = db.query(CustomerOrder).order_by(CustomerOrder.id.desc()).all()
+    out = [_out(db, co, full=False) for co in orders]
     if not include_closed:
-        q = q.filter(~CustomerOrder.stage.in_(("shipped", "cancelled")))
-    orders = q.order_by(CustomerOrder.id.desc()).all()
-    return [_out(db, co, full=False) for co in orders]
+        out = [o for o in out if o.stage not in ("shipped", "cancelled")]
+    return out
 
 
 class CalendarAreaOut(BaseModel):
