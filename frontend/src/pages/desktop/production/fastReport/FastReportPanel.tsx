@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
+import dayjs from "dayjs";
 import OverProductionTag from "../../../../components/OverProductionTag";
 import { ItemChars } from "../../../../components/ItemChars";
 import { UiBadge } from "../../../../components/UiBadge";
+import GroupedTable, { type GroupColumn, type GroupDim } from "../../../../components/GroupedTable";
 import {
   Alert,
   Badge,
@@ -103,9 +105,10 @@ export default function FastReportPanel({
     return isWrapping ? "work" : "all";
   });
   const [q, setQ] = useState("");
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
-  const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | "in_work" | "done">("all");
+  const [selectedOrderIds, setSelectedOrderIds] = useState<number[]>([]);
+  const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
+  const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<"all" | "in_work" | "urgent" | "done">("all");
   const [selectedStripWidth, setSelectedStripWidth] = useState<number | null>(null);
   const [selectedFilm, setSelectedFilm] = useState<string | null>(null);
   const [selectedProgram, setSelectedProgram] = useState<string | null>(null);
@@ -144,6 +147,14 @@ export default function FastReportPanel({
     return [...set]
       .sort((a, b) => a.localeCompare(b, "ru", { numeric: true }))
       .map((inv) => ({ value: inv, label: `Счёт ${inv}` }));
+  }, [r.lines]);
+
+  const seriesOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const fl of r.lines) {
+      if (fl.doorInfo.series) set.add(fl.doorInfo.series);
+    }
+    return [...set].sort().map((s) => ({ value: s, label: s }));
   }, [r.lines]);
 
   const stripWidths = useMemo(() => {
@@ -186,11 +197,11 @@ export default function FastReportPanel({
   const thicknesses = useMemo(() => {
     const set = new Set<string>();
     for (const fl of r.lines) {
-      const thVal =
-        fl.doorInfo.thickness != null
-          ? String(fl.doorInfo.thickness)
-          : (fl.line.thickness != null ? String(fl.line.thickness) : null);
-      if (thVal) set.add(thVal);
+      // Исключаем ошибочные значения > 50 мм (это ширина двери, а не толщина заготовки)
+      const th = fl.doorInfo.thickness != null ? fl.doorInfo.thickness : fl.line.thickness;
+      if (th != null && th > 0 && th <= 50) {
+        set.add(String(th));
+      }
     }
     return [...set].sort((a, b) => parseFloat(a) - parseFloat(b));
   }, [r.lines]);
@@ -205,17 +216,32 @@ export default function FastReportPanel({
         return true;
       })
       .filter((fl) => {
-        if (selectedOrderId !== null && fl.task.production_order_id !== selectedOrderId) {
-          return false;
+        if (selectedOrderIds.length > 0) {
+          if (!fl.task.production_order_id || !selectedOrderIds.includes(fl.task.production_order_id)) {
+            return false;
+          }
         }
-        if (selectedInvoice !== null) {
-          const inv = (fl.line.invoice_no || "").toLowerCase();
-          const needleInv = selectedInvoice.toLowerCase();
-          const matchInv = inv.includes(needleInv) || (fl.line.source_invoices ?? []).some((si) => si.toLowerCase().includes(needleInv));
-          if (!matchInv) return false;
+        if (selectedInvoices.length > 0) {
+          const flInvs = [
+            ...(fl.line.invoice_no ? fl.line.invoice_no.split(",") : []),
+            ...(fl.line.source_invoices ?? []),
+          ].map((s) => s.trim().toLowerCase());
+          const match = selectedInvoices.some((inv) => flInvs.includes(inv.toLowerCase()));
+          if (!match) return false;
+        }
+        if (selectedSeries.length > 0) {
+          const ser = fl.doorInfo.series;
+          if (!ser || !selectedSeries.includes(ser)) return false;
         }
         if (statusFilter === "in_work" && fl.line.remaining_pieces <= 0 && !isFilled(r.entryOf(fl.line))) {
           return false;
+        }
+        if (statusFilter === "urgent") {
+          if (fl.line.remaining_pieces <= 0) return false;
+          const shipDate = fl.task.production_order_ship_date;
+          if (!shipDate) return false;
+          const daysLeft = dayjs(shipDate).diff(dayjs().startOf("day"), "day");
+          if (daysLeft > 2) return false;
         }
         if (statusFilter === "done" && fl.line.remaining_pieces > 0) {
           return false;
@@ -236,10 +262,8 @@ export default function FastReportPanel({
           if (fl.doorInfo.edge_label !== selectedEdge && fl.doorInfo.edge_type !== selectedEdge) return false;
         }
         if (selectedThickness !== null) {
-          const thVal =
-            fl.doorInfo.thickness != null
-              ? String(fl.doorInfo.thickness)
-              : (fl.line.thickness != null ? String(fl.line.thickness) : null);
+          const th = fl.doorInfo.thickness != null ? fl.doorInfo.thickness : fl.line.thickness;
+          const thVal = th != null ? String(th) : null;
           if (thVal !== selectedThickness) return false;
         }
         if (!needle) return true;
@@ -269,7 +293,7 @@ export default function FastReportPanel({
           (a.line.invoice_no || "").localeCompare(b.line.invoice_no || "", "ru", { numeric: true }) ||
           (a.line.part_name ?? "").localeCompare(b.line.part_name ?? "", "ru"),
       );
-  }, [r, scope, q, selectedOrderId, selectedInvoice, statusFilter, selectedStripWidth, selectedFilm, selectedProgram, selectedEdge, selectedThickness, narrow, isWrapping]);
+  }, [r, scope, q, selectedOrderIds, selectedInvoices, selectedSeries, statusFilter, selectedStripWidth, selectedFilm, selectedProgram, selectedEdge, selectedThickness, narrow, isWrapping]);
 
   const onSave = () => {
     const noLeft = r.filled.filter((fl) => (r.entryOf(fl.line).extra ?? []).some((x) => x.left == null));
@@ -360,18 +384,20 @@ export default function FastReportPanel({
             <Input.Search
               allowClear
               placeholder="Поиск по счёту, заказу, модели, цвету..."
-              style={{ minWidth: 260, flex: 1, maxWidth: 360 }}
+              style={{ minWidth: 240, flex: 1, maxWidth: 340 }}
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
             {orderOptions.length > 1 && (
               <Select
+                mode="multiple"
                 allowClear
                 showSearch
-                placeholder="Все заказы"
-                style={{ minWidth: 180, maxWidth: 260 }}
-                value={selectedOrderId ?? undefined}
-                onChange={(val) => setSelectedOrderId(val ?? null)}
+                placeholder="Заказы"
+                maxTagCount="responsive"
+                style={{ minWidth: 150, maxWidth: 240 }}
+                value={selectedOrderIds}
+                onChange={setSelectedOrderIds}
                 options={orderOptions}
                 filterOption={(input, option) =>
                   (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
@@ -380,13 +406,31 @@ export default function FastReportPanel({
             )}
             {invoiceOptions.length > 1 && (
               <Select
+                mode="multiple"
                 allowClear
                 showSearch
-                placeholder="Все счета"
-                style={{ minWidth: 150, maxWidth: 200 }}
-                value={selectedInvoice ?? undefined}
-                onChange={(val) => setSelectedInvoice(val ?? null)}
+                placeholder="Счета"
+                maxTagCount="responsive"
+                style={{ minWidth: 140, maxWidth: 220 }}
+                value={selectedInvoices}
+                onChange={setSelectedInvoices}
                 options={invoiceOptions}
+                filterOption={(input, option) =>
+                  (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+                }
+              />
+            )}
+            {seriesOptions.length > 1 && (
+              <Select
+                mode="multiple"
+                allowClear
+                showSearch
+                placeholder="Серии"
+                maxTagCount="responsive"
+                style={{ minWidth: 130, maxWidth: 200 }}
+                value={selectedSeries}
+                onChange={setSelectedSeries}
+                options={seriesOptions}
                 filterOption={(input, option) =>
                   (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
                 }
@@ -394,10 +438,11 @@ export default function FastReportPanel({
             )}
             <Segmented
               value={statusFilter}
-              onChange={(v) => setStatusFilter(v as "all" | "in_work" | "done")}
+              onChange={(v) => setStatusFilter(v as "all" | "in_work" | "urgent" | "done")}
               options={[
                 { value: "all", label: "Все" },
                 { value: "in_work", label: "В работе" },
+                { value: "urgent", label: "🔥 Срочные (≤2 дн)" },
                 { value: "done", label: "Готовые" },
               ]}
             />
@@ -591,6 +636,7 @@ export default function FastReportPanel({
             <TableView
               lines={shown}
               r={r}
+              area={area}
               onOpen={setOpen}
               onDefect={setDefectFor}
               onDetail={setDetailFor}
@@ -877,28 +923,12 @@ function Tiles({
   );
 }
 
-/** Строки одной группы участка (08.10): одинаковые признаки, которые задал
- * участок (серия, размер, цвет, кромка…). Сначала старшие задания и строки. */
-type Group = { key: string; label: string; lines: FastLine[] };
-
-function groupLines(lines: FastLine[]): Group[] {
-  const m = new Map<string, Group>();
-  for (const fl of lines) {
-    const key = fl.line.group_key ?? fl.groupKey ?? `line:${fl.line.id}`;
-    const g = m.get(key) ?? { key, label: fl.line.group_label ?? fl.groupLabel ?? fl.line.part_name ?? "", lines: [] };
-    g.lines.push(fl);
-    m.set(key, g);
-  }
-  for (const g of m.values()) g.lines.sort((a, b) => a.task.id - b.task.id || a.line.id - b.line.id);
-  return [...m.values()];
-}
-
-/** Число по группе — по её строкам: каждой до её остатка, излишек — последней. */
-function distribute(g: Group, total: number): Map<number, number> {
+/** Число по строкам — каждой до её остатка, излишек — последней. */
+function distributeLines(lines: FastLine[], total: number): Map<number, number> {
   const out = new Map<number, number>();
   let left = total;
-  g.lines.forEach((fl, i) => {
-    const last = i === g.lines.length - 1;
+  lines.forEach((fl, i) => {
+    const last = i === lines.length - 1;
     const take = last ? left : Math.min(left, Math.max(0, fl.line.remaining_pieces));
     out.set(fl.line.id, take);
     left -= take;
@@ -906,161 +936,60 @@ function distribute(g: Group, total: number): Map<number, number> {
   return out;
 }
 
-function GroupTableView({ lines, r, onDefect }: { lines: FastLine[]; r: R; onDefect: (fl: FastLine) => void }) {
-  const groups = groupLines(lines);
-  const [open, setOpen] = useState<Group | null>(null);
-  const [value, setValue] = useState("");
-  const cell: React.CSSProperties = { padding: "8px 10px", borderBottom: "1px solid #DEDEDA", verticalAlign: "middle" };
-  const entered = (g: Group) => g.lines.reduce((s, fl) => s + (+r.entryOf(fl.line).good || 0), 0);
-  const save = () => {
-    if (!open) return;
-    const parts = distribute(open, +value || 0);
-    for (const fl of open.lines) r.setEntry(fl.line, { good: parts.get(fl.line.id) ? String(parts.get(fl.line.id)) : "" });
-    setOpen(null);
+function GroupReportModal({
+  title,
+  rows,
+  r,
+  initialValue,
+  onClose,
+}: {
+  title: string;
+  rows: FastLine[];
+  r: R;
+  initialValue: string;
+  onClose: () => void;
+}) {
+  const [val, setVal] = useState(initialValue);
+  const totalRemaining = rows.reduce((s, fl) => s + Math.max(0, fl.line.remaining_pieces), 0);
+  const onSave = () => {
+    const count = +val || 0;
+    const parts = distributeLines(rows, count);
+    for (const fl of rows) {
+      const take = parts.get(fl.line.id) || 0;
+      r.setEntry(fl.line, { good: take > 0 ? String(take) : "" });
+    }
+    message.success(`Введено ${count} шт на группу: ${title}`);
+    onClose();
   };
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 760, fontSize: 14 }}>
-        <thead>
-          <tr>
-            {["Группа / Параметры", "Счета", "Заказы", "Строк", "План", "Осталось", "Годные", "Брак"].map((h) => (
-              <th
-                key={h}
-                style={{
-                  ...cell,
-                  textAlign: h === "План" || h === "Осталось" ? "right" : h === "Годные" ? "center" : "left",
-                  fontSize: 12,
-                  color: "#6B6B68",
-                  textTransform: "uppercase",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map((g) => {
-            const defect = g.lines.reduce((s, fl) => s + r.entryOf(fl.line).defects.reduce((x, d) => x + d.qty, 0), 0);
-            const totalPlan = g.lines.reduce((s, fl) => s + fl.line.quantity_pieces, 0);
-            const remaining = g.lines.reduce((s, fl) => s + Math.max(0, fl.line.remaining_pieces), 0);
-            const orders = [...new Set(g.lines.map((fl) => fl.task.production_order_name ?? fl.task.name).filter(Boolean))];
-            const invoices = [
-              ...new Set(
-                g.lines
-                  .flatMap((fl) => [fl.line.invoice_no, ...(fl.line.source_invoices ?? [])])
-                  .filter(Boolean)
-                  .flatMap((s) => s!.split(",").map((x) => x.trim()))
-                  .filter(Boolean),
-              ),
-            ];
-
-            return (
-              <tr key={g.key}>
-                <td style={cell}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{g.label}</div>
-                </td>
-                <td style={cell}>
-                  {invoices.length > 0 ? (
-                    <Space wrap size={[2, 2]}>
-                      {invoices.map((inv) => (
-                        <Tag key={inv} color="blue" style={{ fontWeight: 700, fontSize: 12, margin: 0 }}>
-                          {inv}
-                        </Tag>
-                      ))}
-                    </Space>
-                  ) : (
-                    <Typography.Text type="secondary">—</Typography.Text>
-                  )}
-                </td>
-                <td style={{ ...cell, minWidth: 120, maxWidth: 200 }}>
-                  <div style={{ fontSize: 12, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={orders.join(" · ")}>
-                    {orders.join(" · ") || "—"}
-                  </div>
-                </td>
-                <td style={{ ...cell, width: 60, textAlign: "center" }}>{g.lines.length}</td>
-                <td style={{ ...cell, width: 70, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(totalPlan)}</td>
-                <td style={{ ...cell, width: 85, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                  <b style={{ color: remaining > 0 ? "#1677ff" : "#52c41a" }}>{fmt(remaining)}</b>
-                </td>
-                <td style={{ ...cell, width: 90, textAlign: "center" }}>
-                  <Button
-                    size="large"
-                    style={{
-                      minWidth: 70,
-                      height: 40,
-                      fontWeight: 700,
-                      borderColor: entered(g) > 0 ? "#52c41a" : undefined,
-                      color: entered(g) > 0 ? "#389e0d" : undefined,
-                      background: entered(g) > 0 ? "#f6ffed" : undefined,
-                    }}
-                    onClick={() => {
-                      setValue(entered(g) ? String(entered(g)) : "");
-                      setOpen(g);
-                    }}
-                  >
-                    {entered(g)}
-                  </Button>
-                </td>
-                <td style={{ ...cell, width: 80, textAlign: "center" }}>
-                  <Badge count={defect} size="small">
-                    <Button onClick={() => onDefect(g.lines[0])}>Брак…</Button>
-                  </Badge>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <Modal
-        open={!!open}
-        title={open ? `${open.label} — годные` : ""}
-        okText="Готово"
-        cancelText="Отмена"
-        onOk={save}
-        onCancel={() => setOpen(null)}
-        width={360}
-        destroyOnHidden
-      >
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12.5 }}>
-          Разложится по {open?.lines.length} строкам группы: каждой до её остатка, сначала старшие задания; излишек — последней.
+    <Modal
+      open
+      title={`Ввод на группу · ${title}`}
+      onCancel={onClose}
+      okText={`Применить (${+val || 0} шт)`}
+      cancelText="Отмена"
+      onOk={onSave}
+      okButtonProps={{ style: { background: "#1D9E75", borderColor: "#1D9E75" } }}
+      width={380}
+      destroyOnHidden
+    >
+      <div style={{ marginBottom: 12 }}>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 4 }}>
+          Строк в группе: <b>{rows.length}</b> · Суммарный остаток: <b>{totalRemaining} шт</b>
         </Typography.Paragraph>
-        <NumPad value={value} onChange={setValue} />
-      </Modal>
-    </div>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
+          Количество разложится по строкам до их остатка (сначала старшие задания); излишек — последней.
+        </Typography.Paragraph>
+      </div>
+      <NumPad value={val} onChange={setVal} remaining={totalRemaining} />
+    </Modal>
   );
 }
 
-function TableView(props: {
-  lines: FastLine[];
-  r: R;
-  onOpen: (fl: FastLine) => void;
-  onDefect: (fl: FastLine) => void;
-  onDetail: (fl: FastLine) => void;
-  pinnable: boolean;
-}) {
-  const hasGroups = props.lines.some((fl) => fl.line.group_key);
-  const [grouped, setGrouped] = useState(true);
-  if (!hasGroups) return <LinesTableView {...props} />;
-  return (
-    <Space orientation="vertical" style={{ width: "100%" }}>
-      <Segmented
-        value={grouped ? "groups" : "lines"}
-        onChange={(v) => setGrouped(v === "groups")}
-        options={[
-          { value: "groups", label: "По группам участка" },
-          { value: "lines", label: "По строкам заказов" },
-        ]}
-      />
-      {grouped ? <GroupTableView lines={props.lines} r={props.r} onDefect={props.onDefect} /> : <LinesTableView {...props} />}
-    </Space>
-  );
-}
-
-function LinesTableView({
+function TableView({
   lines,
   r,
+  area,
   onOpen,
   onDefect,
   onDetail,
@@ -1068,255 +997,504 @@ function LinesTableView({
 }: {
   lines: FastLine[];
   r: R;
+  area?: string;
   onOpen: (fl: FastLine) => void;
   onDefect: (fl: FastLine) => void;
   onDetail: (fl: FastLine) => void;
   pinnable: boolean;
 }) {
-  const cell: React.CSSProperties = {
-    padding: "8px 10px",
-    borderBottom: "1px solid #DEDEDA",
-    verticalAlign: "middle",
-  };
+  const isWrapping = r.profile === "wrapping" || r.requiresRoll;
+  const hasGroups = lines.some((fl) => fl.line.group_key);
+  const [groupReport, setGroupReport] = useState<{
+    title: string;
+    rows: FastLine[];
+    initialValue: string;
+  } | null>(null);
 
   const colFeatureTitle =
     r.profile === "milling" || r.showCnc
-      ? "ЧПУ / Программа"
+      ? "ЧПУ"
       : r.profile === "edgebanding" || r.showEdge
         ? "Кромка"
-        : r.profile === "wrapping" || r.requiresRoll
-          ? "Рулон / Штрипс"
+        : isWrapping
+          ? "Штрипс"
           : "Особенности";
 
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table
-        style={{
-          borderCollapse: "collapse",
-          width: "100%",
-          minWidth: 960,
-          fontSize: 14,
-        }}
-      >
-        <thead>
-          <tr>
-            {[
-              pinnable ? "★" : null,
-              "Счёт",
-              "Заказ",
-              "Серия",
-              "Размер",
-              "Цвет / Декор",
-              colFeatureTitle,
-              "План",
-              "Осталось",
-              "Годные",
-              r.hasPusk ? "Пусковые" : null,
-              "Брак",
-              "",
-            ]
-              .filter(Boolean)
-              .map((h, idx) => (
-                <th
-                  key={idx}
-                  style={{
-                    ...cell,
-                    textAlign: h === "План" || h === "Осталось" ? "right" : h === "Годные" || h === "★" ? "center" : "left",
-                    fontSize: 12,
-                    color: "#6B6B68",
-                    textTransform: "uppercase",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((fl) => {
-            const e = r.entryOf(fl.line);
-            const defect = e.defects.reduce((s, d) => s + d.qty, 0);
-            const roll = rollChoices(fl.line).find((u) => u.id === e.rollId);
-            const isLineDone = fl.line.remaining_pieces <= 0;
-            const dimStr =
-              fl.doorInfo.dimensions_str ||
-              (fl.line.length_m > 0
-                ? `${Math.round(fl.line.length_m * 1000)} × ${Math.round(fl.line.width_mm)} мм`
-                : `${Math.round(fl.line.width_mm)} мм`);
-            const orderName = fl.task.production_order_name ?? fl.task.name ?? `Задание №${fl.task.id}`;
+  const dims = useMemo<GroupDim<FastLine>[]>(() => {
+    return [
+      {
+        key: "order",
+        label: "Заказ",
+        value: (fl) =>
+          fl.task.production_order_name ||
+          (fl.task.production_order_id ? `Заказ №${fl.task.production_order_id}` : "Без заказа"),
+      },
+      {
+        key: "invoice",
+        label: "Счёт",
+        value: (fl) => {
+          const invs = [
+            ...(fl.line.invoice_no ? fl.line.invoice_no.split(",") : []),
+            ...(fl.line.source_invoices ?? []),
+          ]
+            .map((s) => s.trim())
+            .filter(Boolean);
+          return invs.length ? [...new Set(invs)].join(", ") : "Без счёта";
+        },
+      },
+      {
+        key: "series",
+        label: "Серия",
+        value: (fl) => fl.doorInfo.series || "Без серии",
+      },
+      {
+        key: "size",
+        label: "Размер",
+        value: (fl) =>
+          fl.doorInfo.dimensions_str ||
+          (fl.line.width_mm ? `${fl.line.width_mm} мм` : "Без размера"),
+      },
+      {
+        key: "color",
+        label: "Цвет / Декор",
+        value: (fl) =>
+          fl.doorInfo.color ||
+          (fl.line.material ? filmLabel(fl.line) : "Без декора"),
+      },
+      {
+        key: "edge",
+        label: "Кромка",
+        value: (fl) =>
+          fl.doorInfo.edge_label || fl.doorInfo.edge_type || "Без кромки",
+      },
+      {
+        key: "program",
+        label: "ЧПУ",
+        value: (fl) => fl.line.program || "Без программы",
+      },
+      {
+        key: "strip",
+        label: isWrapping ? "Штрипс" : "Ширина",
+        value: (fl) =>
+          `${Math.round(fl.line.strip_width_mm || fl.line.width_mm || fl.doorInfo.width || 0)} мм`,
+      },
+      ...(hasGroups
+        ? [
+            {
+              key: "area_group",
+              label: "Группа участка",
+              value: (fl: FastLine) => fl.groupLabel || "Без группы",
+            },
+          ]
+        : []),
+    ];
+  }, [isWrapping, hasGroups]);
 
+  const defaultDims = useMemo(() => {
+    return hasGroups ? ["area_group"] : ["order", "invoice"];
+  }, [hasGroups]);
+
+  const columns: GroupColumn<FastLine>[] = useMemo(() => {
+    return [
+      ...(pinnable
+        ? [
+            {
+              key: "pin",
+              title: "★",
+              width: 44,
+              align: "center" as const,
+              render: (_: unknown, fl: FastLine) => (
+                <span
+                  style={{
+                    cursor: "pointer",
+                    fontSize: 18,
+                    color: r.pins.has(fl.line.id) ? "#faad14" : "#ccc",
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    r.togglePin(fl.line.id);
+                  }}
+                  title={
+                    r.pins.has(fl.line.id)
+                      ? "Убрать из моего набора"
+                      : "В мой набор на смену"
+                  }
+                >
+                  ★
+                </span>
+              ),
+            },
+          ]
+        : []),
+      {
+        key: "invoice",
+        title: "Счёт",
+        width: 120,
+        sortValue: (fl) =>
+          fl.line.invoice_no || (fl.line.source_invoices ?? []).join(", "),
+        render: (_: unknown, fl: FastLine) => {
+          const invs = [
+            ...(fl.line.invoice_no ? fl.line.invoice_no.split(",") : []),
+            ...(fl.line.source_invoices ?? []),
+          ]
+            .map((s) => s.trim())
+            .filter(Boolean);
+          const unique = [...new Set(invs)];
+          if (!unique.length)
+            return <Typography.Text type="secondary">—</Typography.Text>;
+          return (
+            <Space wrap size={[2, 2]}>
+              {unique.map((inv) => (
+                <Tag
+                  key={inv}
+                  color="blue"
+                  style={{ margin: 0, fontSize: 11.5, fontWeight: 600 }}
+                >
+                  {inv}
+                </Tag>
+              ))}
+            </Space>
+          );
+        },
+        groupRender: (rows) => {
+          const allInvs = new Set<string>();
+          for (const fl of rows) {
+            if (fl.line.invoice_no) {
+              for (const s of fl.line.invoice_no.split(","))
+                if (s.trim()) allInvs.add(s.trim());
+            }
+            for (const s of fl.line.source_invoices ?? [])
+              if (s.trim()) allInvs.add(s.trim());
+          }
+          const arr = [...allInvs];
+          if (!arr.length) return null;
+          if (arr.length <= 2) {
             return (
-              <tr key={fl.line.id} style={{ background: isFilled(e) ? "rgba(82, 196, 26, 0.05)" : undefined }}>
-                {pinnable && (
-                  <td style={{ ...cell, width: 36, textAlign: "center" }}>
-                    <PinStar r={r} lineId={fl.line.id} />
-                  </td>
-                )}
-                {/* Счёт */}
-                <td style={{ ...cell, width: 110 }}>
-                  {fl.line.invoice_no ? (
-                    <Tag color="blue" style={{ fontWeight: 700, fontSize: 13, margin: 0 }}>
-                      {fl.line.invoice_no}
-                    </Tag>
-                  ) : (
-                    <Typography.Text type="secondary">—</Typography.Text>
-                  )}
-                </td>
-                {/* Заказ */}
-                <td style={{ ...cell, minWidth: 120, maxWidth: 180 }}>
-                  <div
-                    title={orderName}
-                    style={{ fontSize: 13, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              <Space wrap size={[2, 2]}>
+                {arr.map((inv) => (
+                  <Tag
+                    key={inv}
+                    color="blue"
+                    style={{ margin: 0, fontSize: 11 }}
                   >
-                    {orderName}
-                  </div>
-                  {fl.today && <span style={{ color: "#fa8c16", fontSize: 11, display: "block" }}>📅 на сегодня</span>}
-                </td>
-                {/* Серия / Модель */}
-                <td style={{ ...cell, width: 90 }}>
-                  {fl.doorInfo.series ? (
-                    <Tag color="geekblue" style={{ fontWeight: 600, fontSize: 12, margin: 0 }}>
-                      {fl.doorInfo.series}
-                    </Tag>
-                  ) : (
-                    <span style={{ fontWeight: 500, fontSize: 13 }}>{fl.line.part_name?.split(" ")[0] || "—"}</span>
-                  )}
-                </td>
-                {/* Размер */}
-                <td style={{ ...cell, width: 130, whiteSpace: "nowrap" }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
-                    📐 {dimStr}
-                  </div>
-                </td>
-                {/* Цвет / Декор */}
-                <td style={{ ...cell, minWidth: 120, maxWidth: 180 }}>
-                  <div
-                    title={fl.doorInfo.color || (fl.line.material ? filmLabel(fl.line) : "")}
-                    style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                  >
-                    {fl.doorInfo.color || (fl.line.material ? filmLabel(fl.line) : <Typography.Text type="secondary">—</Typography.Text>)}
-                  </div>
-                </td>
-                {/* Особенности (Кромка / ЧПУ / Рулон) */}
-                <td style={{ ...cell, minWidth: 140 }}>
-                  {r.profile === "milling" || r.showCnc ? (
-                    <Space direction="vertical" size={2}>
-                      {fl.line.program ? <UiBadge color="cyan">ЧПУ: {fl.line.program}</UiBadge> : <Typography.Text type="secondary">—</Typography.Text>}
-                      {fl.line.instruction && <div style={{ fontSize: 12, color: "#d48806" }}>⚑ {fl.line.instruction}</div>}
-                    </Space>
-                  ) : r.profile === "edgebanding" || r.showEdge ? (
-                    <Space direction="vertical" size={2}>
-                      {fl.doorInfo.edge_label ? (
-                        <UiBadge color="orange">Кромка: {fl.doorInfo.edge_label}</UiBadge>
-                      ) : (
-                        <Typography.Text type="secondary">—</Typography.Text>
-                      )}
-                    </Space>
-                  ) : r.profile === "assembly" ? (
-                    <Space direction="vertical" size={2}>
-                      {fl.line.part_name && !fl.doorInfo.series && <div style={{ fontSize: 12 }}>{fl.line.part_name}</div>}
-                      {fl.line.instruction && <div style={{ fontSize: 12, color: "#d48806" }}>⚑ {fl.line.instruction}</div>}
-                    </Space>
-                  ) : r.profile === "wrapping" || r.requiresRoll ? (
-                    <div>
-                      {roll ? (
-                        <UiBadge color={roll.from ? "cyan" : "blue"}>
-                          {rollNo(roll.id)} · {fmt(roll.left)} м{roll.from ? " · общий" : ""}
-                        </UiBadge>
-                      ) : r.needsRoll(fl) ? (
-                        <UiBadge color="warning">нет рулона</UiBadge>
-                      ) : (
-                        <Typography.Text type="secondary">—</Typography.Text>
-                      )}
-                      {fl.line.strip_width_mm && (
-                        <div style={{ fontSize: 11, color: "#8c8c8c" }}>штрипс {Math.round(fl.line.strip_width_mm)} мм</div>
-                      )}
-                    </div>
-                  ) : (
-                    fl.line.instruction ? <div style={{ fontSize: 12, color: "#d48806" }}>⚑ {fl.line.instruction}</div> : <Typography.Text type="secondary">—</Typography.Text>
-                  )}
-                </td>
-                {/* План */}
-                <td style={{ ...cell, width: 70, textAlign: "right", fontVariantNumeric: "tabular-nums", fontSize: 13, color: "#555" }}>
-                  {fmt(fl.line.quantity_pieces)}
-                </td>
-                {/* Осталось */}
-                <td style={{ ...cell, width: 85, textAlign: "right", fontVariantNumeric: "tabular-nums", fontSize: 14 }}>
-                  <b style={{ color: isLineDone ? "#52c41a" : "#1677ff" }}>
-                    {fmt(fl.line.remaining_pieces)}
-                  </b>
-                </td>
-                {/* Годные */}
-                <td style={{ ...cell, width: 85, textAlign: "center" }}>
-                  <Button
-                    size="large"
-                    style={{
-                      minWidth: 70,
-                      height: 40,
-                      fontWeight: 700,
-                      fontSize: 15,
-                      borderColor: +e.good > 0 ? "#52c41a" : undefined,
-                      color: +e.good > 0 ? "#389e0d" : undefined,
-                      background: +e.good > 0 ? "#f6ffed" : undefined,
-                    }}
-                    onClick={() => onOpen(fl)}
-                  >
-                    {+e.good || 0}
-                  </Button>
-                </td>
-                {/* Пусковые */}
-                {r.hasPusk && (
-                  <td style={{ ...cell, width: 100, textAlign: "center" }}>
-                    <Space size={4}>
-                      <Button
-                        size="large"
-                        onClick={() =>
-                          r.setEntry(fl.line, {
-                            pusk: Math.max(0, e.pusk - 1),
-                          })
-                        }
-                      >
-                        −
-                      </Button>
-                      <Typography.Text
-                        strong
-                        style={{
-                          minWidth: 20,
-                          display: "inline-block",
-                          textAlign: "center",
-                        }}
-                      >
-                        {e.pusk}
-                      </Typography.Text>
-                      <Button
-                        size="large"
-                        onClick={() =>
-                          r.setEntry(fl.line, { pusk: e.pusk + 1 })
-                        }
-                      >
-                        +
-                      </Button>
-                    </Space>
-                  </td>
-                )}
-                {/* Брак */}
-                <td style={{ ...cell, width: 80, textAlign: "center" }}>
-                  <Badge count={defect} size="small">
-                    <Button size="middle" onClick={() => onDefect(fl)}>Брак…</Button>
-                  </Badge>
-                </td>
-                {/* Подробно */}
-                <td style={{ ...cell, width: 85, textAlign: "center" }}>
-                  <Button type="link" size="small" onClick={() => onDetail(fl)}>
-                    Подробно…
-                  </Button>
-                </td>
-              </tr>
+                    {inv}
+                  </Tag>
+                ))}
+              </Space>
             );
-          })}
-        </tbody>
-      </table>
+          }
+          return (
+            <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
+              {arr.length} счетов
+            </Tag>
+          );
+        },
+      },
+      {
+        key: "order",
+        title: "Заказ",
+        width: 140,
+        ellipsis: true,
+        sortValue: (fl) =>
+          fl.task.production_order_name ||
+          fl.task.production_order_id ||
+          0,
+        render: (_: unknown, fl: FastLine) => (
+          <span
+            title={
+              fl.task.production_order_name ||
+              `Заказ №${fl.task.production_order_id || "—"}`
+            }
+          >
+            {fl.task.production_order_name ||
+              (fl.task.production_order_id
+                ? `№${fl.task.production_order_id}`
+                : "—")}
+          </span>
+        ),
+      },
+      {
+        key: "series",
+        title: "Серия",
+        width: 85,
+        sortValue: (fl) => fl.doorInfo.series || "",
+        render: (_: unknown, fl: FastLine) =>
+          fl.doorInfo.series ? (
+            <Tag color="cyan" style={{ margin: 0, fontWeight: 600 }}>
+              {fl.doorInfo.series}
+            </Tag>
+          ) : (
+            <Typography.Text type="secondary">—</Typography.Text>
+          ),
+      },
+      {
+        key: "size",
+        title: "Размер",
+        width: 110,
+        sortValue: (fl) =>
+          fl.doorInfo.dimensions_str || `${fl.line.width_mm || 0}`,
+        render: (_: unknown, fl: FastLine) => (
+          <span style={{ whiteSpace: "nowrap", fontWeight: 500 }}>
+            {fl.doorInfo.dimensions_str ||
+              (fl.line.width_mm ? `${fl.line.width_mm} мм` : "—")}
+          </span>
+        ),
+      },
+      {
+        key: "color",
+        title: "Цвет / Декор",
+        width: 140,
+        ellipsis: true,
+        sortValue: (fl) => fl.doorInfo.color || filmLabel(fl.line),
+        render: (_: unknown, fl: FastLine) => {
+          const c =
+            fl.doorInfo.color ||
+            (fl.line.material ? filmLabel(fl.line) : "");
+          return c ? (
+            <span title={c}>{c}</span>
+          ) : (
+            <Typography.Text type="secondary">—</Typography.Text>
+          );
+        },
+      },
+      {
+        key: "feature",
+        title: colFeatureTitle,
+        width: 130,
+        ellipsis: true,
+        render: (_: unknown, fl: FastLine) => (
+          <Space wrap size={[2, 2]}>
+            {fl.doorInfo.edge_label && (
+              <UiBadge color="orange" style={{ fontSize: 11 }}>
+                {fl.doorInfo.edge_label}
+              </UiBadge>
+            )}
+            {fl.line.program && (
+              <UiBadge color="purple" style={{ fontSize: 11 }}>
+                ЧПУ: {fl.line.program}
+              </UiBadge>
+            )}
+            {fl.line.part_name && !fl.doorInfo.series && (
+              <span style={{ fontSize: 11.5 }} title={fl.line.part_name}>
+                {fl.line.part_name}
+              </span>
+            )}
+          </Space>
+        ),
+      },
+      {
+        key: "plan",
+        title: "План",
+        width: 70,
+        align: "right" as const,
+        sortValue: (fl) => fl.line.quantity_pieces,
+        render: (_: unknown, fl: FastLine) => (
+          <b>{Math.round(fl.line.quantity_pieces)}</b>
+        ),
+        groupRender: (rows) => (
+          <b>
+            {Math.round(
+              rows.reduce((s, fl) => s + fl.line.quantity_pieces, 0),
+            )}
+          </b>
+        ),
+      },
+      {
+        key: "remaining",
+        title: "Осталось",
+        width: 85,
+        align: "right" as const,
+        sortValue: (fl) => fl.line.remaining_pieces,
+        render: (_: unknown, fl: FastLine) => {
+          const rem = fl.line.remaining_pieces;
+          if (rem <= 0) {
+            return (
+              <span
+                style={{ color: "#389e0d", fontWeight: 600, fontSize: 12 }}
+              >
+                ✓ готово
+              </span>
+            );
+          }
+          return <b>{Math.round(rem)}</b>;
+        },
+        groupRender: (rows) => {
+          const rem = rows.reduce(
+            (s, fl) => s + Math.max(0, fl.line.remaining_pieces),
+            0,
+          );
+          if (rem <= 0) {
+            return (
+              <span
+                style={{ color: "#389e0d", fontWeight: 600, fontSize: 12 }}
+              >
+                ✓ готово
+              </span>
+            );
+          }
+          return <b>{Math.round(rem)}</b>;
+        },
+      },
+      {
+        key: "good",
+        title: "Годные",
+        width: 95,
+        align: "center" as const,
+        render: (_: unknown, fl: FastLine) => {
+          const e = r.entryOf(fl.line);
+          const val = +e.good || 0;
+          return (
+            <Button
+              size="middle"
+              type={val > 0 ? "primary" : "default"}
+              style={
+                val > 0
+                  ? {
+                      background: "#1D9E75",
+                      borderColor: "#1D9E75",
+                      minWidth: 60,
+                      fontWeight: 600,
+                    }
+                  : { minWidth: 60 }
+              }
+              onClick={() => onOpen(fl)}
+            >
+              {val > 0 ? val : "0"}
+            </Button>
+          );
+        },
+        groupRender: (rows, g) => {
+          const enteredTotal = rows.reduce(
+            (s, fl) => s + (+r.entryOf(fl.line).good || 0),
+            0,
+          );
+          return (
+            <Button
+              size="small"
+              type={enteredTotal > 0 ? "primary" : "default"}
+              style={
+                enteredTotal > 0
+                  ? {
+                      background: "#1D9E75",
+                      borderColor: "#1D9E75",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }
+                  : { fontSize: 12 }
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                setGroupReport({
+                  title: `${g.dim.label}: ${g.value}`,
+                  rows,
+                  initialValue: enteredTotal > 0 ? String(enteredTotal) : "",
+                });
+              }}
+            >
+              {enteredTotal > 0 ? `${enteredTotal} шт` : "Ввести…"}
+            </Button>
+          );
+        },
+      },
+      ...(r.hasPusk
+        ? [
+            {
+              key: "pusk",
+              title: "Пусковые",
+              width: 85,
+              align: "center" as const,
+              render: (_: unknown, fl: FastLine) => {
+                const e = r.entryOf(fl.line);
+                return (
+                  <InputNumber
+                    min={0}
+                    precision={0}
+                    style={{ width: 64 }}
+                    value={e.pusk || 0}
+                    onChange={(v) => r.setEntry(fl.line, { pusk: v ?? 0 })}
+                  />
+                );
+              },
+            },
+          ]
+        : []),
+      {
+        key: "defect",
+        title: "Брак",
+        width: 80,
+        align: "center" as const,
+        render: (_: unknown, fl: FastLine) => {
+          const defectCount = r
+            .entryOf(fl.line)
+            .defects.reduce((s, d) => s + d.qty, 0);
+          return (
+            <Badge count={defectCount} size="small">
+              <Button size="middle" onClick={() => onDefect(fl)}>
+                Брак…
+              </Button>
+            </Badge>
+          );
+        },
+        groupRender: (rows) => {
+          const defectTotal = rows.reduce(
+            (s, fl) =>
+              s +
+              r.entryOf(fl.line).defects.reduce((dSum, d) => dSum + d.qty, 0),
+            0,
+          );
+          return (
+            <Badge count={defectTotal} size="small">
+              <Button
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDefect(rows[0]);
+                }}
+              >
+                Брак…
+              </Button>
+            </Badge>
+          );
+        },
+      },
+      {
+        key: "detail",
+        title: "",
+        width: 85,
+        align: "center" as const,
+        render: (_: unknown, fl: FastLine) => (
+          <Button type="link" size="small" onClick={() => onDetail(fl)}>
+            Подробно…
+          </Button>
+        ),
+      },
+    ];
+  }, [pinnable, r, onOpen, onDefect, onDetail, colFeatureTitle]);
+
+  return (
+    <div>
+      <GroupedTable<FastLine>
+        storageKey={`fast-report.table.${area ?? r.areaObj?.name ?? "all"}`}
+        dims={dims}
+        defaultDims={defaultDims}
+        columns={columns}
+        dataSource={lines}
+        rowKey={(fl) => String(fl.line.id)}
+        labelColumn="order"
+        size="middle"
+        pagination={false}
+        tableLayout="fixed"
+        scroll={{ x: 1050 }}
+      />
+      {groupReport && (
+        <GroupReportModal
+          title={groupReport.title}
+          rows={groupReport.rows}
+          r={r}
+          initialValue={groupReport.initialValue}
+          onClose={() => setGroupReport(null)}
+        />
+      )}
     </div>
   );
 }

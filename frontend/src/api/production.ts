@@ -190,6 +190,7 @@ export interface ProductionTask {
   /** Заказ на производство, в который входит задание. */
   production_order_id?: number | null;
   production_order_name?: string | null;
+  production_order_ship_date?: string | null;
   created_by: number;
   created_at: string;
   is_active: boolean;

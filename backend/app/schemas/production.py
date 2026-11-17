@@ -484,6 +484,7 @@ class ProductionTaskOut(BaseModel):
     # Заказ на производство, в который входит задание.
     production_order_id: int | None = None
     production_order_name: str | None = None
+    production_order_ship_date: date | None = None
     # Раздел про план/факт по расходу плёнки — сумма planned_length_m/
     # issued_length_m по всем строкам задания, чтобы видеть прогресс по
     # заданию в целом, не только по каждой строке отдельно.

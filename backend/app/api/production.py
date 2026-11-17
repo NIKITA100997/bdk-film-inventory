@@ -1043,6 +1043,7 @@ def _task_out(db: Session, task: ProductionTask, pool_cache: dict | None = None)
         for_task_id=task.for_task_id,
         production_order_id=task.production_order_id,
         production_order_name=order.name if order else None,
+        production_order_ship_date=order.ship_date if order else None,
         created_by=task.created_by,
         created_at=task.created_at,
         is_active=task.is_active,
