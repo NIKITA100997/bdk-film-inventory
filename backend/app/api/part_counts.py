@@ -64,6 +64,7 @@ class SessionCreate(BaseModel):
     area: str | None = None  # прежний вызов — участок
     scope: ScopeIn = ScopeIn()
     note: str | None = Field(default=None, max_length=255)
+    kinds: list[str] = []
 
 
 class LineOut(BaseModel):
@@ -82,6 +83,7 @@ class LineOut(BaseModel):
     stage_name: str | None
     manufactured_at: str | None
     location_code: str | None
+    dimensions: str | None = None
     elsewhere: str | None  # плёнка, найденная тут, а по учёту — в другом месте
     expected_qty: float
     counted_qty: float | None
@@ -148,10 +150,17 @@ def _place_name(db: Session, s: PartCountSession) -> str:
 def _summary(db: Session, s: PartCountSession, lines: list[PartCountLine], user: User) -> dict:
     diffs = [ln for ln in lines if pf.diff_of(float(ln.expected_qty), None if ln.counted_qty is None else float(ln.counted_qty))]
     name = _place_name(db, s)
+    # Только те виды, которые РЕАЛЬНО есть в строках, либо если строк пока 0 — из охвата scope.kinds, иначе из доступных
+    lines_kinds = sorted({ln.kind for ln in lines})
+    if lines_kinds:
+        kinds = lines_kinds
+    elif s.scope and isinstance(s.scope, dict) and s.scope.get("kinds"):
+        kinds = sorted(s.scope["kinds"])
+    else:
+        kinds = sorted(_kinds(user, s.place_type))
     return dict(
         id=s.id, place_type=s.place_type, place_ref=s.place_ref, place_name=name, area=s.area, area_name=name,
-        # что в месте считается этим пользователем + что уже есть в листе
-        kinds=sorted({ln.kind for ln in lines} | set(_kinds(user, s.place_type))), scope=s.scope, status=s.status, note=s.note,
+        kinds=kinds, scope=s.scope, status=s.status, note=s.note,
         started_by=s.started_by, started_at=s.started_at, closed_at=s.closed_at, lines_total=len(lines),
         lines_counted=sum(1 for ln in lines if ln.counted_qty is not None), lines_diff=len(diffs),
         lines_open=sum(1 for ln in diffs if ln.decision is None),
@@ -199,13 +208,22 @@ def _lines_out(db: Session, s: PartCountSession, lines: list[PartCountLine]) -> 
             stage_id=ln.stage_id, expected_qty=exp, counted_qty=cnt, diff=pf.diff_of(exp, cnt), decision=ln.decision,
             allowed=pf.allowed_decisions(exp, cnt) if ln.decision is None else [], reason=ln.reason, note=ln.note,
             result_part_unit_id=ln.result_part_unit_id, manufactured_at=None, location_code=None, elsewhere=None,
-            stage_name=None, lot=None, detail=None, group_name=None, item_id=ln.item_id,
+            stage_name=None, lot=None, detail=None, group_name=None, item_id=ln.item_id, dimensions=None,
         )
         if ln.kind == KIND_PF:
             part = parts.get(ln.part_id)
             item = items.get(part.item_id) if part and part.item_id else None
             unit = punits.get(ln.part_unit_id) if ln.part_unit_id else None
             st = stages.get(ln.stage_id)
+            dims = None
+            if part:
+                p_dims = []
+                if part.length_m:
+                    p_dims.append(f"{round(float(part.length_m) * 1000):g}")
+                if part.width_mm:
+                    p_dims.append(f"{float(part.width_mm):g}")
+                if p_dims:
+                    dims = " × ".join(p_dims) + " мм"
             base.update(
                 name=part.name if part else f"#{ln.part_id}", unit="шт", item_id=item.id if item else None,
                 group_name=groups.get(item.group_id) if item and item.group_id else None,
@@ -213,6 +231,7 @@ def _lines_out(db: Session, s: PartCountSession, lines: list[PartCountLine]) -> 
                 lot=f"П-{ln.part_unit_id}" if ln.part_unit_id else None,
                 manufactured_at=unit.manufactured_at.isoformat() if unit and unit.manufactured_at else None,
                 location_code=unit.location_code if unit else None,
+                dimensions=dims,
             )
         elif ln.kind == KIND_FILM:
             u = munits.get(ln.material_unit_id)
@@ -225,6 +244,7 @@ def _lines_out(db: Session, s: PartCountSession, lines: list[PartCountLine]) -> 
                 name=sku_item_name(sku.material.name, sku.color.name, sku.thickness.value_mm, sku.manufacturer.name) if sku else "плёнка",
                 unit="м", item_id=sku.item_id if sku else None, lot=f"№{ln.material_unit_id}",
                 detail=f"{'штрипс' if u.is_strip else 'рулон'} {float(u.width_mm):g} мм" if u else None,
+                dimensions=f"{float(u.width_mm):g} мм" if u else None,
                 location_code=u.location_code if u else None, elsewhere=where,
                 manufactured_at=u.created_at.date().isoformat() if u and u.created_at else None,
             )
@@ -236,7 +256,10 @@ def _lines_out(db: Session, s: PartCountSession, lines: list[PartCountLine]) -> 
                 detail=sites.get(ln.site_id) if ln.kind == KIND_FG else None,
             )
         out.append(LineOut(**base))
-    order = {KIND_FILM: 0, KIND_PF: 1, KIND_MATERIAL: 2, KIND_FG: 3}
+    if s.place_type == PLACE_AREA:
+        order = {KIND_PF: 0, KIND_FILM: 1, KIND_MATERIAL: 2, KIND_FG: 3}
+    else:
+        order = {KIND_FILM: 0, KIND_PF: 1, KIND_MATERIAL: 2, KIND_FG: 3}
     # плёнка — по ячейке (идут вдоль стеллажей), прочее — по группе и названию
     out.sort(key=lambda x: (order.get(x.kind, 9), x.location_code or "яяя" if x.kind == KIND_FILM else "", x.group_name or "", x.name,
                             x.stage_name or "", x.manufactured_at or "", x.id))
@@ -294,9 +317,12 @@ def start_session(payload: SessionCreate, db: Session = Depends(get_db), user: U
     ref = payload.place_ref if place_type != PLACE_AREA else (payload.place_ref or payload.area)
     if place_type not in PLACE_LABEL:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Неизвестное место")
-    kinds = _kinds(user, place_type)
-    if not kinds:
+    available_kinds = _kinds(user, place_type)
+    if not available_kinds:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет прав на инвентаризацию этого места")
+    target_kinds = [k for k in payload.kinds if k in available_kinds] if payload.kinds else available_kinds
+    if not target_kinds:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Не выбраны виды продукции для пересчёта")
     if place_type == PLACE_AREA and (not ref or db.get(Area, ref) is None):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Участок не найден")
     if place_type == PLACE_WAREHOUSE and (not (ref or "").isdigit() or db.get(Warehouse, int(ref)) is None):
@@ -322,15 +348,17 @@ def start_session(payload: SessionCreate, db: Session = Depends(get_db), user: U
         raise HTTPException(
             status.HTTP_409_CONFLICT, f"По этому месту уже идёт инвентаризация №{busy.id} — продолжите её или отмените"
         )
-    scope = payload.scope.model_dump() if (payload.scope.group_ids or payload.scope.stages) else None
+    scope = payload.scope.model_dump() if (payload.scope.group_ids or payload.scope.stages) else {}
+    if payload.kinds:
+        scope["kinds"] = target_kinds
     s = PartCountSession(
         place_type=place_type, place_ref=place_ref,
-        area=ref if place_type == PLACE_AREA else None, scope=scope if place_type == PLACE_AREA else None,
+        area=ref if place_type == PLACE_AREA else None, scope=scope or None,
         status=COUNT_IN_PROGRESS, note=payload.note, started_by=user.id,
     )
     db.add(s)
     db.flush()
-    svc.build_lines(db, s, kinds)
+    svc.build_lines(db, s, target_kinds)
     db.commit()
     return _detail(db, s, user)
 
@@ -341,6 +369,12 @@ def get_session(session_id: int, db: Session = Depends(get_db), user: User = Dep
 
 
 class CountIn(BaseModel):
+    counted_qty: float | None = Field(default=None, ge=0)
+
+
+class PartGroupCountIn(BaseModel):
+    part_id: int
+    stage_id: int | None = None
     counted_qty: float | None = Field(default=None, ge=0)
 
 
@@ -363,6 +397,94 @@ def set_count(
     if s.status != COUNT_IN_PROGRESS:
         raise HTTPException(status.HTTP_409_CONFLICT, "Пересчёт уже закрыт")
     _set_count(db, s, _line(db, s, line_id), payload.counted_qty, user)
+    db.commit()
+    return _detail(db, s, user)
+
+
+@router.put("/{session_id}/parts/count", response_model=SessionDetail)
+def set_part_group_count(
+    session_id: int, payload: PartGroupCountIn, db: Session = Depends(get_db), user: User = Depends(count_any)
+) -> SessionDetail:
+    """Ввод фактического остатка по детали (П/Ф). Объединяет все партии этой детали,
+    актуализирует учётный остаток и распределяет факт по партиям."""
+    s = _session(db, session_id, user)
+    if s.status != COUNT_IN_PROGRESS:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Пересчёт уже закрыт")
+    now = datetime.now(timezone.utc)
+    q = (
+        db.query(PartCountLine)
+        .filter(PartCountLine.session_id == s.id, PartCountLine.kind == KIND_PF, PartCountLine.part_id == payload.part_id)
+    )
+    if payload.stage_id is not None:
+        q = q.filter(PartCountLine.stage_id == payload.stage_id)
+    lines = q.all()
+    if not lines:
+        if payload.counted_qty is not None and payload.counted_qty > 0:
+            stage_id = payload.stage_id
+            if stage_id is None and s.area:
+                stage = pf.stage_at_area(db, payload.part_id, s.area)
+                if stage:
+                    stage_id = stage.id
+            extra_line = PartCountLine(
+                session_id=s.id, kind=KIND_PF, part_id=payload.part_id, stage_id=stage_id,
+                expected_qty=0, counted_qty=payload.counted_qty, counted_by=user.id, counted_at=now
+            )
+            db.add(extra_line)
+            db.commit()
+            return _detail(db, s, user)
+        else:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Строки детали не найдены")
+
+    # Актуализируем учёт
+    for ln in lines:
+        if ln.part_unit_id is not None:
+            ln.expected_qty = svc.current_expected(db, s, ln)
+
+    total_expected = sum(float(ln.expected_qty) for ln in lines)
+
+    if payload.counted_qty is None:
+        for ln in lines:
+            ln.counted_qty = None
+            ln.counted_by = None
+            ln.counted_at = None
+    else:
+        target = float(payload.counted_qty)
+        if target == total_expected:
+            for ln in lines:
+                ln.counted_qty = float(ln.expected_qty)
+                ln.counted_by = user.id
+                ln.counted_at = now
+        elif target < total_expected:
+            from app.models.part_units import PartUnit
+            pu_ids = {ln.part_unit_id for ln in lines if ln.part_unit_id}
+            punits = {u.id: u for u in db.query(PartUnit).filter(PartUnit.id.in_(pu_ids))} if pu_ids else {}
+            sorted_lines = sorted(
+                lines,
+                key=lambda l: (
+                    punits[l.part_unit_id].manufactured_at
+                    if l.part_unit_id and l.part_unit_id in punits and punits[l.part_unit_id].manufactured_at
+                    else datetime.max.replace(tzinfo=timezone.utc),
+                    l.id,
+                ),
+            )
+            rem = target
+            for ln in sorted_lines:
+                exp = float(ln.expected_qty)
+                take = min(exp, rem)
+                ln.counted_qty = take
+                ln.counted_by = user.id
+                ln.counted_at = now
+                rem = max(0.0, rem - take)
+        else:
+            for ln in lines[:-1]:
+                ln.counted_qty = float(ln.expected_qty)
+                ln.counted_by = user.id
+                ln.counted_at = now
+            last_ln = lines[-1]
+            last_ln.counted_qty = float(last_ln.expected_qty) + (target - total_expected)
+            last_ln.counted_by = user.id
+            last_ln.counted_at = now
+
     db.commit()
     return _detail(db, s, user)
 

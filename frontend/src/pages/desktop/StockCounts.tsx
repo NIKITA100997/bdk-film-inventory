@@ -12,11 +12,15 @@ import {
   InputNumber,
   Modal,
   Popconfirm,
+  Popover,
   Progress,
+  Radio,
+  Segmented,
   Select,
   Space,
   Spin,
   Table,
+  Tag,
   TreeSelect,
   Typography,
   message,
@@ -40,6 +44,7 @@ import {
   resolvePartCountLine,
   resolvePartCountLines,
   setPartCountLine,
+  setPartGroupCount,
   startPartCount,
   type CountDecision,
   type CountKind,
@@ -56,7 +61,7 @@ const KIND_COLOR: Record<CountKind, string> = { plenka: "blue", pf: "orange", ma
 const KIND_ORDER: CountKind[] = ["plenka", "pf", "material", "fg"];
 const SECTION_TITLE: Record<CountKind, string> = {
   plenka: "Плёнка — рулоны и штрипсы",
-  pf: "П/ф — по партиям",
+  pf: "Полуфабрикаты (П/ф) — по деталям",
   material: "Материалы",
   fg: "Готовые изделия",
 };
@@ -202,13 +207,14 @@ function NewCountModal({
 }) {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const [form] = Form.useForm<{ place: string; group_ids: number[]; stages: string[]; note?: string }>();
+  const [form] = Form.useForm<{ place: string; kind_mode?: string; group_ids: number[]; stages: string[]; note?: string }>();
   const placesQuery = useQuery({ queryKey: ["count-places"], queryFn: listCountPlaces });
   const groupsQuery = useQuery({ queryKey: ["item-groups"], queryFn: listItemGroups });
   const tree = useMemo(() => groupTree(groupsQuery.data ?? []), [groupsQuery.data]);
   const places = placesQuery.data ?? [];
   const placeVal = Form.useWatch("place", form);
   const place = places.find((p) => placeKey(p) === placeVal);
+  const kindMode = Form.useWatch("kind_mode", form) ?? "all";
   const grouped = useMemo(() => {
     const m = new Map<string, CountPlace[]>();
     for (const p of places) m.set(p.group, [...(m.get(p.group) ?? []), p]);
@@ -224,11 +230,13 @@ function NewCountModal({
     }
   }, [defaultPlace, form]);
   const start = useMutation({
-    mutationFn: (v: { place: string; group_ids?: number[]; stages?: string[]; note?: string }) => {
+    mutationFn: (v: { place: string; kind_mode?: string; group_ids?: number[]; stages?: string[]; note?: string }) => {
       const p = places.find((x) => placeKey(x) === v.place)!;
+      const kinds = v.kind_mode && v.kind_mode !== "all" ? [v.kind_mode as CountKind] : undefined;
       return startPartCount({
         place_type: p.place_type,
         place_ref: p.place_ref,
+        kinds,
         scope: { group_ids: v.group_ids ?? [], stages: v.stages ?? [] },
         note: v.note || null,
       });
@@ -255,7 +263,7 @@ function NewCountModal({
       <Form
         form={form}
         layout="vertical"
-        initialValues={{ place: defaultPlace ? placeKey(defaultPlace) : undefined, group_ids: [], stages: [] }}
+        initialValues={{ place: defaultPlace ? placeKey(defaultPlace) : undefined, kind_mode: "all", group_ids: [], stages: [] }}
         onFinish={(v) => start.mutate(v)}
       >
         <Form.Item
@@ -277,7 +285,19 @@ function NewCountModal({
         >
           <Select showSearch optionFilterProp="label" placeholder="Где считаем" loading={placesQuery.isLoading} options={grouped} />
         </Form.Item>
-        {place?.place_type === "area" && place.kinds.includes("pf") && (
+        {place && place.kinds.length > 1 && (
+          <Form.Item name="kind_mode" label="Что считаем" initialValue="all">
+            <Radio.Group buttonStyle="solid">
+              <Radio.Button value="all">Всё ({place.kinds.map((k) => COUNT_KIND_LABEL[k]).join(", ")})</Radio.Button>
+              {place.kinds.map((k) => (
+                <Radio.Button key={k} value={k}>
+                  Только {COUNT_KIND_LABEL[k]}
+                </Radio.Button>
+              ))}
+            </Radio.Group>
+          </Form.Item>
+        )}
+        {place?.place_type === "area" && place.kinds.includes("pf") && kindMode !== "plenka" && (
           <>
             <Form.Item name="group_ids" label="Какие п/ф" extra="Пусто — все п/ф участка. Группа включает свои подгруппы.">
               <TreeSelect
@@ -319,7 +339,9 @@ function CountView({ id, onBack }: { id: number; onBack: () => void }) {
 
 function matches(l: PartCountLine, f: string) {
   if (!f) return true;
-  return [l.name, l.group_name, l.detail, lotLabel(l), l.location_code].some((x) => (x ?? "").toLowerCase().includes(f));
+  return [l.name, l.group_name, l.detail, l.dimensions, l.stage_name, lotLabel(l), l.location_code].some((x) =>
+    (x ?? "").toLowerCase().includes(f)
+  );
 }
 
 function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
@@ -328,6 +350,7 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
   const [onlyOpen, setOnlyOpen] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
   const [scan, setScan] = useState("");
+  const [selectedKind, setSelectedKind] = useState<"all" | CountKind>("all");
   const put = (data: PartCountDetail) => {
     qc.setQueryData(["part-count", d.id], data);
     qc.invalidateQueries({ queryKey: ["part-counts"] });
@@ -336,6 +359,12 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
     mutationFn: ({ lineId, v }: { lineId: number; v: number | null }) => setPartCountLine(d.id, lineId, v),
     onSuccess: put,
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить факт")),
+  });
+  const setGroupCount = useMutation({
+    mutationFn: ({ partId, stageId, v }: { partId: number; stageId?: number | null; v: number | null }) =>
+      setPartGroupCount(d.id, { part_id: partId, stage_id: stageId, counted_qty: v }),
+    onSuccess: put,
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось сохранить факт по детали")),
   });
   const allMatch = useMutation({
     mutationFn: async (lines: PartCountLine[]) => {
@@ -375,7 +404,9 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
   const left = d.lines_total - d.lines_counted;
   const f = filter.trim().toLowerCase();
   const visible = d.lines.filter((l) => matches(l, f) && (!onlyOpen || l.counted_qty == null));
-  const kinds = KIND_ORDER.filter((k) => d.kinds.includes(k) || visible.some((l) => l.kind === k));
+  const activeKindsOrder: CountKind[] = d.place_type === "area" ? ["pf", "plenka", "material", "fg"] : ["plenka", "pf", "material", "fg"];
+  const kinds = activeKindsOrder.filter((k) => d.kinds.includes(k) || visible.some((l) => l.kind === k));
+  const displayedKinds = kinds.filter((k) => selectedKind === "all" || selectedKind === k);
 
   const onScan = () => {
     const raw = scan.trim();
@@ -429,8 +460,12 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
             tone="action"
             title={`Посчитайте: осталось ${left} из ${d.lines_total}`}
             text={
-              d.kinds.includes("plenka") || d.kinds.includes("pf")
-                ? "Сканируйте бирки (или вводите номер) — «Есть»; количество — в строке. Найденное не по листу — «Найдено сверх листа». Сошлось целым разделом — «Остальное сходится»."
+              d.kinds.includes("plenka") && d.kinds.includes("pf")
+                ? "Плёнка пересчитывается по биркам рулонов (сканером или по номеру); полуфабрикаты (П/ф) — визуально по деталям с единым вводом фактического количества на деталь."
+                : d.kinds.includes("plenka")
+                ? "Сканируйте бирки (или вводите номер) — «Есть»; количество — в строке. Найденное не по листу — «Найдено сверх листа»."
+                : d.kinds.includes("pf")
+                ? "Полуфабрикаты без этикеток: считайте фактическое количество штук на стеллаже по наименованию детали. «Есть» подтверждает учётное количество; кнопка «Остальное сходится» — для всего раздела."
                 : "Введите, сколько есть на самом деле, в каждой строке. Сошлось — «Остальное сходится»."
             }
           />
@@ -445,19 +480,38 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
           />
         )}
         <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
-          <Space wrap>
-            {(d.kinds.includes("plenka") || d.kinds.includes("pf")) && (
+          <Space wrap size={10}>
+            {kinds.length > 1 && (
+              <Segmented
+                value={selectedKind}
+                onChange={(val) => setSelectedKind(val as "all" | CountKind)}
+                options={[
+                  { label: `Все виды (${visible.length})`, value: "all" },
+                  ...kinds.map((k) => ({
+                    label: `${COUNT_KIND_LABEL[k]} (${visible.filter((l) => l.kind === k).length})`,
+                    value: k,
+                  })),
+                ]}
+              />
+            )}
+            {displayedKinds.includes("plenka") && (
               <Input.Search
-                placeholder="Бирка: ПЛ-1015, ПФ-193 или число"
+                placeholder="Бирка рулона: ПЛ-1015 или число"
                 enterButton="Есть"
-                style={{ width: 320 }}
+                style={{ width: 280 }}
                 value={scan}
                 loading={found.isPending}
                 onChange={(e) => setScan(e.target.value)}
                 onSearch={onScan}
               />
             )}
-            <Input.Search allowClear placeholder="Поиск в листе" style={{ width: 240 }} value={filter} onChange={(e) => setFilter(e.target.value)} />
+            <Input.Search
+              allowClear
+              placeholder="Поиск в листе (деталь, размеры...)"
+              style={{ width: 240 }}
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
             <Checkbox checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)}>
               только не посчитанные
             </Checkbox>
@@ -471,7 +525,7 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
         </Space>
 
         {d.lines.length === 0 && <Empty description="По учёту здесь ничего нет — внесите найденное сверх листа" />}
-        {kinds.map((k) => {
+        {displayedKinds.map((k) => {
           const rows = visible.filter((l) => l.kind === k);
           if (!rows.length && !d.lines.some((l) => l.kind === k)) return null;
           const open = rows.filter((l) => l.counted_qty == null && l.expected_qty > 0);
@@ -484,14 +538,14 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
                   <UiBadge color={KIND_COLOR[k]}>{COUNT_KIND_LABEL[k]}</UiBadge>
                   <span>{SECTION_TITLE[k]}</span>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    строк {rows.length}
+                    {k === "pf" ? `позиций ${new Set(rows.map((r) => `${r.part_id}|${r.stage_id}`)).size} (партий ${rows.length})` : `строк ${rows.length}`}
                   </Typography.Text>
                 </Space>
               }
               extra={
                 open.length > 0 && (
                   <Popconfirm
-                    title={`Отметить ${open.length} не посчитанных как «сходится»?`}
+                    title={`Отметить ${k === "pf" ? "все не посчитанные детали" : `${open.length} не посчитанных строк`} как «сходится»?`}
                     okText="Да"
                     cancelText="Нет"
                     onConfirm={() => allMatch.mutate(open)}
@@ -504,7 +558,11 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
               }
             >
               {k === "pf" ? (
-                <PfGroups rows={rows} qtyInput={qtyInput} extraCol={extraCol} />
+                <PfGroups
+                  rows={rows}
+                  onSetGroupCount={(partId, stageId, v) => setGroupCount.mutate({ partId, stageId, v })}
+                  onRemoveExtra={(lineId) => removeExtra.mutate(lineId)}
+                />
               ) : (
                 <Table<PartCountLine>
                   size="small"
@@ -591,64 +649,194 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
   );
 }
 
-/** П/ф — партии, сгруппированные по детали и этапу. */
+interface PfGroupRow {
+  key: string;
+  part_id: number;
+  stage_id: number | null;
+  name: string;
+  dimensions?: string | null;
+  group_name?: string | null;
+  stage_name?: string | null;
+  location_code?: string | null;
+  expected_qty: number;
+  counted_qty: number | null;
+  diff: number | null;
+  lines: PartCountLine[];
+  isExtra: boolean;
+}
+
+/** П/ф — единый пересчёт по деталям (партии объединяются в одну строку на стеллаже). */
 function PfGroups({
   rows,
-  qtyInput,
-  extraCol,
+  onSetGroupCount,
+  onRemoveExtra,
 }: {
   rows: PartCountLine[];
-  qtyInput: (l: PartCountLine) => React.ReactNode;
-  extraCol: { title: string; render: (_: unknown, l: PartCountLine) => React.ReactNode };
+  onSetGroupCount: (partId: number, stageId: number | null, v: number | null) => void;
+  onRemoveExtra: (lineId: number) => void;
 }) {
   const groups = useMemo(() => {
-    const map = new Map<string, { key: string; part: string; group: string | null; stage: string | null; lines: PartCountLine[] }>();
+    const map = new Map<string, PfGroupRow>();
     for (const ln of rows) {
-      const key = `${ln.part_id}|${ln.stage_id}`;
-      const g = map.get(key) ?? { key, part: ln.name, group: ln.group_name, stage: ln.stage_name, lines: [] };
+      if (ln.part_id == null) continue;
+      const key = `${ln.part_id}|${ln.stage_id ?? 0}`;
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          key,
+          part_id: ln.part_id,
+          stage_id: ln.stage_id,
+          name: ln.name,
+          dimensions: ln.dimensions,
+          group_name: ln.group_name,
+          stage_name: ln.stage_name,
+          location_code: ln.location_code,
+          expected_qty: 0,
+          counted_qty: 0,
+          diff: null,
+          lines: [],
+          isExtra: true,
+        };
+        map.set(key, g);
+      }
       g.lines.push(ln);
-      map.set(key, g);
+      g.expected_qty += ln.expected_qty;
+      if (ln.location_code && !g.location_code) g.location_code = ln.location_code;
+      if (ln.dimensions && !g.dimensions) g.dimensions = ln.dimensions;
+      if (ln.expected_qty > 0 || ln.part_unit_id) g.isExtra = false;
     }
-    return [...map.values()];
+    for (const g of map.values()) {
+      const hasUncounted = g.lines.some((l) => l.counted_qty == null);
+      if (hasUncounted) {
+        g.counted_qty = null;
+        g.diff = null;
+      } else {
+        g.counted_qty = g.lines.reduce((s, l) => s + (l.counted_qty ?? 0), 0);
+        g.diff = Math.round((g.counted_qty - g.expected_qty) * 1000) / 1000;
+      }
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"));
   }, [rows]);
+
   return (
-    <Space orientation="vertical" size="small" style={{ width: "100%" }}>
-      {groups.map((g) => {
-        const exp = g.lines.reduce((s, l) => s + l.expected_qty, 0);
-        const counted = g.lines.every((l) => l.counted_qty != null) ? g.lines.reduce((s, l) => s + (l.counted_qty ?? 0), 0) : null;
-        return (
-          <div key={g.key}>
-            <Space wrap size={6} style={{ marginBottom: 4 }}>
-              <b>{g.part}</b>
-              {g.stage && <UiBadge>{g.stage}</UiBadge>}
-              {g.group && (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {g.group}
-                </Typography.Text>
-              )}
-              <Typography.Text type="secondary">
-                · по учёту {fmt(exp)} · факт {fmt(counted)} шт
-              </Typography.Text>
+    <Table<PfGroupRow>
+      size="small"
+      rowKey="key"
+      dataSource={groups}
+      pagination={groups.length > 50 ? { pageSize: 50 } : false}
+      scroll={{ x: "max-content" }}
+      columns={[
+        {
+          title: "Деталь / Наименование",
+          dataIndex: "name",
+          render: (_, g) => (
+            <Space direction="vertical" size={2}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{g.name}</div>
+              <Space wrap size={4}>
+                {g.dimensions && <UiBadge color="blue">{g.dimensions}</UiBadge>}
+                {g.stage_name && <UiBadge color="purple">{g.stage_name}</UiBadge>}
+                {g.group_name && <span style={{ color: "#888", fontSize: 12 }}>{g.group_name}</span>}
+              </Space>
             </Space>
-            <Table<PartCountLine>
-              size="small"
-              rowKey="id"
-              pagination={false}
-              dataSource={g.lines}
-              scroll={{ x: "max-content" }}
-              columns={[
-                { title: "Партия", render: (_, l) => (l.part_unit_id ? pfNo(l.part_unit_id) : <UiBadge color="orange">найдено сверх листа</UiBadge>) },
-                { title: "Изготовлена", render: (_, l) => (l.manufactured_at ? dayjs(l.manufactured_at).format("DD.MM.YYYY") : "—") },
-                { title: "По учёту, шт", align: "right", render: (_, l) => fmt(l.expected_qty) },
-                { title: "Факт, шт", render: (_, l) => qtyInput(l) },
-                { title: "", render: (_, l) => <DiffTag diff={l.diff} /> },
-                extraCol,
-              ]}
-            />
-          </div>
-        );
-      })}
-    </Space>
+          ),
+        },
+        {
+          title: "Ячейка",
+          render: (_, g) => (g.location_code ? <span>📍 {g.location_code}</span> : <span style={{ color: "#bbb" }}>—</span>),
+        },
+        {
+          title: "Партии в учёте",
+          render: (_, g) => (
+            <Popover
+              content={
+                <div style={{ maxHeight: 220, overflowY: "auto", minWidth: 260 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Партии по учёту ({g.lines.length}):</div>
+                  {g.lines.map((l) => (
+                    <div
+                      key={l.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        fontSize: 12,
+                        padding: "3px 0",
+                        borderBottom: "1px dashed #eee",
+                      }}
+                    >
+                      <span>
+                        {l.part_unit_id ? pfNo(l.part_unit_id) : "сверх листа"}{" "}
+                        <span style={{ color: "#888" }}>
+                          ({l.manufactured_at ? dayjs(l.manufactured_at).format("DD.MM.YY") : "—"})
+                        </span>
+                      </span>
+                      <b>{fmt(l.expected_qty)} шт</b>
+                    </div>
+                  ))}
+                </div>
+              }
+              trigger="hover"
+            >
+              <Tag style={{ cursor: "pointer", background: "#f5f5f5" }}>
+                📦 {g.lines.length} {g.lines.length === 1 ? "партия" : g.lines.length < 5 ? "партии" : "партий"}
+              </Tag>
+            </Popover>
+          ),
+        },
+        {
+          title: "По учёту",
+          align: "right",
+          render: (_, g) => <span style={{ fontWeight: 700, fontSize: 14 }}>{fmt(g.expected_qty)} шт</span>,
+        },
+        {
+          title: "Фактический остаток",
+          render: (_, g) => (
+            <Space size={6}>
+              <InputNumber
+                min={0}
+                precision={0}
+                inputMode="numeric"
+                style={{ width: 105 }}
+                defaultValue={g.counted_qty ?? undefined}
+                placeholder={fmt(g.expected_qty)}
+                key={`${g.key}-${g.counted_qty}`}
+                onBlur={(e) => {
+                  const raw = e.target.value.trim();
+                  const v = raw === "" ? null : Number(raw.replace(",", "."));
+                  if (v !== g.counted_qty && (v == null || !Number.isNaN(v))) {
+                    onSetGroupCount(g.part_id, g.stage_id, v);
+                  }
+                }}
+                onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
+              />
+              {g.counted_qty == null && (
+                <Button
+                  size="small"
+                  type="link"
+                  style={{ color: "#52c41a", padding: "0 4px" }}
+                  onClick={() => onSetGroupCount(g.part_id, g.stage_id, g.expected_qty)}
+                  title="Подтвердить учётное количество"
+                >
+                  Есть
+                </Button>
+              )}
+            </Space>
+          ),
+        },
+        {
+          title: "Разница",
+          render: (_, g) => <DiffTag diff={g.diff} unit="шт" />,
+        },
+        {
+          title: "",
+          render: (_, g) =>
+            g.isExtra ? (
+              <Button size="small" type="link" danger onClick={() => g.lines.forEach((l) => onRemoveExtra(l.id))}>
+                убрать
+              </Button>
+            ) : null,
+        },
+      ]}
+    />
   );
 }
 
@@ -759,8 +947,15 @@ function CountResult({ d }: { d: PartCountDetail }) {
   const qc = useQueryClient();
   const [writeOff, setWriteOff] = useState<PartCountLine[] | null>(null);
   const [showAll, setShowAll] = useState(false);
-  const rows = showAll ? d.lines : d.lines.filter((l) => l.diff);
-  const pending = d.lines.filter((l) => l.allowed.length > 0);
+  const [kindFilter, setKindFilter] = useState<"all" | CountKind>("all");
+  const activeKindsOrder: CountKind[] = d.place_type === "area" ? ["pf", "plenka", "material", "fg"] : ["plenka", "pf", "material", "fg"];
+  const availableKinds = activeKindsOrder.filter((k) => d.kinds.includes(k) || d.lines.some((l) => l.kind === k));
+  const rows = useMemo(() => {
+    let ls = showAll ? d.lines : d.lines.filter((l) => l.diff);
+    if (kindFilter !== "all") ls = ls.filter((l) => l.kind === kindFilter);
+    return ls;
+  }, [d.lines, showAll, kindFilter]);
+  const pending = rows.filter((l) => l.allowed.length > 0);
   const shortages = pending.filter((l) => l.allowed.includes("write_off"));
   const surpluses = pending.filter((l) => l.allowed.includes("accept"));
   const done = (data: PartCountDetail) => {
@@ -818,9 +1013,24 @@ function CountResult({ d }: { d: PartCountDetail }) {
             </Popconfirm>
           </Space>
         )}
-        <Checkbox checked={showAll} onChange={(e) => setShowAll(e.target.checked)}>
-          показать все строки
-        </Checkbox>
+        <Space wrap size={16} align="center">
+          {availableKinds.length > 1 && (
+            <Segmented
+              value={kindFilter}
+              onChange={(v) => setKindFilter(v as "all" | CountKind)}
+              options={[
+                { label: `Все виды`, value: "all" },
+                ...availableKinds.map((k) => ({
+                  label: COUNT_KIND_LABEL[k],
+                  value: k,
+                })),
+              ]}
+            />
+          )}
+          <Checkbox checked={showAll} onChange={(e) => setShowAll(e.target.checked)}>
+            показать все строки (включая сошедшиеся)
+          </Checkbox>
+        </Space>
         <Table<PartCountLine>
           size="small"
           rowKey="id"
@@ -832,14 +1042,23 @@ function CountResult({ d }: { d: PartCountDetail }) {
             {
               title: "Позиция",
               render: (_, l) => (
-                <>
-                  {l.name} {l.stage_name && <UiBadge>{l.stage_name}</UiBadge>}
-                  {l.kind === "plenka" && l.detail && (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {l.detail}
-                    </Typography.Text>
-                  )}
-                </>
+                <Space direction="vertical" size={2}>
+                  <div><b>{l.name}</b></div>
+                  <Space size={4} wrap>
+                    {l.dimensions && <UiBadge color="blue">{l.dimensions}</UiBadge>}
+                    {l.stage_name && <UiBadge color="purple">{l.stage_name}</UiBadge>}
+                    {l.kind === "plenka" && l.detail && (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {l.detail}
+                      </Typography.Text>
+                    )}
+                    {l.group_name && (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {l.group_name}
+                      </Typography.Text>
+                    )}
+                  </Space>
+                </Space>
               ),
             },
             {

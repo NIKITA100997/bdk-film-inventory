@@ -16,11 +16,13 @@ import {
   Progress,
   Radio,
   Row,
+  Segmented,
   Select,
   Space,
   Spin,
   Statistic,
   Switch,
+  Tag,
   Typography,
   message,
 } from "antd";
@@ -44,6 +46,7 @@ import dayjs from "dayjs";
 import { useAuth } from "../../auth/AuthContext";
 import QrScanModal from "../../components/QrScanModal";
 import {
+  COUNT_KIND_LABEL,
   closePartCount,
   confirmCellPartCount,
   getPartCount,
@@ -53,6 +56,7 @@ import {
   scanPartCountCode,
   setPartCountLine,
   startPartCount,
+  type CountKind,
   type CountPlace,
   type PartCountDetail,
   type PartCountLine,
@@ -184,16 +188,29 @@ function ExpressSessionBoard({
 }) {
   const [selectedCell, setSelectedCell] = useState<string>("ALL");
   const [filterMode, setFilterMode] = useState<"all" | "open" | "matched" | "diff">("all");
+  const [kindFilter, setKindFilter] = useState<"all" | CountKind>("all");
   const [scanInput, setScanInput] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
   const [continuousScan, setContinuousScan] = useState(true);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [editLine, setEditLine] = useState<PartCountLine | null>(null);
 
+  const availableKinds = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of detail.lines) set.add(l.kind);
+    const order: CountKind[] = detail.place_type === "area" ? ["pf", "plenka", "material", "fg"] : ["plenka", "pf", "material", "fg"];
+    return order.filter((k) => set.has(k) || detail.kinds.includes(k));
+  }, [detail.lines, detail.kinds, detail.place_type]);
+
+  const kindFilteredLines = useMemo(() => {
+    if (kindFilter === "all") return detail.lines;
+    return detail.lines.filter((l) => l.kind === kindFilter);
+  }, [detail.lines, kindFilter]);
+
   // Группировка строк по ячейкам
   const cellGroups = useMemo(() => {
     const map = new Map<string, PartCountLine[]>();
-    for (const ln of detail.lines) {
+    for (const ln of kindFilteredLines) {
       const cell = (ln.location_code || "БЕЗ ЯЧЕЙКИ").toUpperCase();
       const list = map.get(cell) ?? [];
       list.push(ln);
@@ -202,13 +219,13 @@ function ExpressSessionBoard({
     // Сортировка по коду ячейки
     const sorted = [...map.entries()].sort(([a], [b]) => a.localeCompare(b, "ru", { numeric: true }));
     return sorted;
-  }, [detail.lines]);
+  }, [kindFilteredLines]);
 
   // Строки выбранной ячейки
   const cellLines = useMemo(() => {
-    if (selectedCell === "ALL") return detail.lines;
+    if (selectedCell === "ALL") return kindFilteredLines;
     return cellGroups.find(([c]) => c === selectedCell)?.[1] ?? [];
-  }, [detail.lines, selectedCell, cellGroups]);
+  }, [kindFilteredLines, selectedCell, cellGroups]);
 
   // Фильтрация по статусу
   const visibleLines = useMemo(() => {
@@ -524,19 +541,37 @@ function ExpressSessionBoard({
         )}
       </Card>
 
-      {/* Фильтр статуса карточек */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <Radio.Group
-          value={filterMode}
-          onChange={(e) => setFilterMode(e.target.value)}
-          buttonStyle="solid"
-          size="middle"
-        >
-          <Radio.Button value="all">Все ({cellLines.length})</Radio.Button>
-          <Radio.Button value="open">Осталось проверить ({cellStats.open})</Radio.Button>
-          <Radio.Button value="matched">Сошлось ({cellStats.matched})</Radio.Button>
-          <Radio.Button value="diff">Расхождения ({cellStats.diffs})</Radio.Button>
-        </Radio.Group>
+      {/* Фильтр вида продукции и статуса карточек */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+        <Space wrap size={8}>
+          {availableKinds.length > 1 && (
+            <Segmented
+              value={kindFilter}
+              onChange={(v) => {
+                setKindFilter(v as "all" | CountKind);
+                setSelectedCell("ALL");
+              }}
+              options={[
+                { label: `Все виды (${detail.lines.length})`, value: "all" },
+                ...availableKinds.map((k) => ({
+                  label: `${COUNT_KIND_LABEL[k]} (${detail.lines.filter((l) => l.kind === k).length})`,
+                  value: k,
+                })),
+              ]}
+            />
+          )}
+          <Radio.Group
+            value={filterMode}
+            onChange={(e) => setFilterMode(e.target.value)}
+            buttonStyle="solid"
+            size="middle"
+          >
+            <Radio.Button value="all">Все ({cellLines.length})</Radio.Button>
+            <Radio.Button value="open">Осталось ({cellStats.open})</Radio.Button>
+            <Radio.Button value="matched">Сошлось ({cellStats.matched})</Radio.Button>
+            <Radio.Button value="diff">Расхождения ({cellStats.diffs})</Radio.Button>
+          </Radio.Group>
+        </Space>
         <Typography.Text type="secondary" style={{ fontSize: 13 }}>
           Показано: {visibleLines.length} позиций
         </Typography.Text>
@@ -652,9 +687,19 @@ function ExpressUnitCard({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
         <Space size={6} wrap>
           <Typography.Text strong style={{ fontSize: 16 }}>
-            {line.kind === "plenka" ? rollNo(line.material_unit_id) : line.part_unit_id ? pfNo(line.part_unit_id) : line.name}
+            {line.kind === "plenka" ? rollNo(line.material_unit_id) : line.name}
           </Typography.Text>
-          {line.detail && (
+          {line.dimensions && (
+            <UiBadge color="blue" style={{ fontSize: 12 }}>
+              {line.dimensions}
+            </UiBadge>
+          )}
+          {line.stage_name && (
+            <UiBadge color="purple" style={{ fontSize: 12 }}>
+              {line.stage_name}
+            </UiBadge>
+          )}
+          {line.kind === "plenka" && line.detail && (
             <UiBadge color="cyan" style={{ fontSize: 12 }}>
               {line.detail}
             </UiBadge>
@@ -681,15 +726,34 @@ function ExpressUnitCard({
       </div>
 
       {/* Наименование и параметры */}
-      <Typography.Paragraph
-        ellipsis={{ rows: 2 }}
-        style={{ marginBottom: 10, fontSize: 14, color: "#333", minHeight: 38 }}
-      >
-        {line.name}
-        {line.stage_name && (
-          <Typography.Text type="secondary"> · {line.stage_name}</Typography.Text>
-        )}
-      </Typography.Paragraph>
+      {line.kind === "plenka" ? (
+        <Typography.Paragraph
+          ellipsis={{ rows: 2 }}
+          style={{ marginBottom: 10, fontSize: 14, color: "#333", minHeight: 38 }}
+        >
+          {line.name}
+        </Typography.Paragraph>
+      ) : (
+        <div style={{ marginBottom: 10, minHeight: 28 }}>
+          <Space size={6} wrap>
+            {(line.part_unit_id || line.lot) && (
+              <Tag color="orange" style={{ fontSize: 12 }}>
+                {line.part_unit_id ? pfNo(line.part_unit_id) : line.lot}
+              </Tag>
+            )}
+            {line.manufactured_at && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                изг. {dayjs(line.manufactured_at).format("DD.MM.YYYY")}
+              </Typography.Text>
+            )}
+            {line.group_name && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                · {line.group_name}
+              </Typography.Text>
+            )}
+          </Space>
+        </div>
+      )}
 
       {/* Числится по учёту vs Факт */}
       <Row gutter={8} style={{ marginBottom: 12, background: "rgba(0,0,0,0.02)", padding: "8px 10px", borderRadius: 8 }}>

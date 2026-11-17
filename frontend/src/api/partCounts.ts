@@ -32,6 +32,7 @@ export interface PartCountLine {
   stage_name: string | null;
   manufactured_at: string | null;
   location_code: string | null;
+  dimensions?: string | null;
   /** плёнка, найденная здесь, а по учёту — в другом месте */
   elsewhere: string | null;
   expected_qty: number;
@@ -90,6 +91,7 @@ export const startPartCount = async (payload: {
   place_type: PlaceType;
   place_ref: string | null;
   scope: { group_ids: number[]; stages: string[] };
+  kinds?: CountKind[];
   note?: string | null;
 }): Promise<PartCountDetail> => (await apiClient.post<PartCountDetail>("/part-counts", payload)).data;
 
@@ -97,6 +99,12 @@ export const getPartCount = async (id: number): Promise<PartCountDetail> => (awa
 
 export const setPartCountLine = async (id: number, lineId: number, counted: number | null): Promise<PartCountDetail> =>
   (await apiClient.put<PartCountDetail>(`/part-counts/${id}/lines/${lineId}`, { counted_qty: counted })).data;
+
+export const setPartGroupCount = async (
+  sessionId: number,
+  payload: { part_id: number; stage_id?: number | null; counted_qty: number | null },
+): Promise<PartCountDetail> =>
+  (await apiClient.put<PartCountDetail>(`/part-counts/${sessionId}/parts/count`, payload)).data;
 
 /** Найдено сверх листа: п/ф — деталь, материал/изделие — позиция, плёнка — рулон по номеру бирки. */
 export const addPartCountExtra = async (
