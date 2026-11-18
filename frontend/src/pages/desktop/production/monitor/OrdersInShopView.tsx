@@ -16,15 +16,12 @@ const leftOf = (r: MonitorRow) => (r.closed ? 0 : Math.max(0, r.plan - r.good));
 const doneOf = (r: MonitorRow) => (r.closed ? r.plan : Math.min(r.good, r.plan));
 const posOf = (r: MonitorRow) => (r.part_id == null && (r.series || r.size) ? [r.series, r.size, r.color].filter(Boolean).join(" · ") : r.position);
 
-export interface OrderStageItem {
+export interface OrderMilestone {
   key: string;
   label: string;
-  plan: number;
-  done: number;
-  left: number;
-  percent: number;
+  badge: string;
   status: "done" | "in_work" | "pending" | "deficit";
-  deficitM?: number;
+  tooltip: string;
 }
 
 export interface OrderInShopSummary {
@@ -43,7 +40,7 @@ export interface OrderInShopSummary {
   progressPercent: number;
   hasDeficit: boolean;
   filmDeficitM: number;
-  stages: OrderStageItem[];
+  milestones: OrderMilestone[];
   bottleneck: string;
   bottleneckType: "deficit" | "warning" | "in_work" | "ready";
   rows: MonitorRow[];
@@ -56,6 +53,210 @@ export interface OrdersInShopViewProps {
   hideDone: boolean;
   onOpenTask: (taskId: number) => void;
   onPrintTasks?: (spec: { tasks: PrintableTask[]; title: string }) => void;
+}
+
+interface TaskStageCategory {
+  seq: number;
+  label: string;
+  tagColor: string;
+}
+
+/** Определение технологического этапа задания для строгой сортировки по маршруту цеха */
+function getTaskCategory(r: MonitorRow): TaskStageCategory {
+  const isPf = r.part_id != null;
+  const pos = (r.position || "").toLowerCase();
+  const op = (r.operation || "").toLowerCase();
+  const area = (r.area || "").toLowerCase();
+
+  // 1. Полуфабрикаты: Каркасы
+  if (isPf && (pos.includes("каркас") || op.includes("каркас") || area.includes("karkas"))) {
+    const isSawing = op.includes("распил") || op.includes("заготов");
+    return { seq: isSawing ? 10 : 15, label: "Каркас", tagColor: "orange" };
+  }
+  // 2. Полуфабрикаты: Панели / скины / МДФ
+  if (isPf) {
+    let sub = 25;
+    if (op.includes("распил") || op.includes("раскрой")) sub = 21;
+    else if (op.includes("фрезер")) sub = 22;
+    else if (op.includes("шлиф")) sub = 23;
+    else if (op.includes("прес") || op.includes("мвп") || op.includes("окут")) sub = 24;
+    return { seq: sub, label: "Панель", tagColor: "volcano" };
+  }
+  // 3. Сборка полотна: Склейка / опрессовка
+  if (op.includes("склей") || op.includes("опресс") || op.includes("щит") || area.includes("skleik") || area.includes("press")) {
+    return { seq: 30, label: "Склейка", tagColor: "blue" };
+  }
+  // 4. Механическая обработка: Форматка и кромка
+  if (op.includes("формат") || op.includes("кромк") || area.includes("kromk")) {
+    const isFormat = op.includes("формат");
+    return { seq: isFormat ? 40 : 45, label: "Кромка", tagColor: "cyan" };
+  }
+  // 5. Фурнитура: Врезка замков, петель
+  if (op.includes("петл") || op.includes("замок") || op.includes("фурнитур") || op.includes("врезк")) {
+    return { seq: 50, label: "Фурнитура", tagColor: "purple" };
+  }
+  // 6. Упаковка полотен и изделий
+  if (op.includes("упаков") || area.includes("upakov") || area.includes("pack")) {
+    return { seq: 60, label: "Упаковка", tagColor: "green" };
+  }
+  // 7. Погонажные изделия
+  if (pos.includes("короб") || pos.includes("налич") || pos.includes("добор") || r.direction === "trim") {
+    return { seq: 70, label: "Погонаж", tagColor: "gold" };
+  }
+  return { seq: 80, label: "Полотно", tagColor: "default" };
+}
+
+/** Детальная внутренняя таблица заданий заказа, отсортированная по технологическому маршруту */
+function ExpandedOrderTasks({
+  order,
+  areaNameMap,
+  onOpenTask,
+}: {
+  order: OrderInShopSummary;
+  areaNameMap: Map<string, string>;
+  onOpenTask: (taskId: number) => void;
+}) {
+  const { token } = theme.useToken();
+
+  // Строгая сортировка заданий: сначала каркасы, затем панели, склейка, кромка, фурнитура, упаковка
+  const sortedRows = useMemo(() => {
+    return [...order.rows].sort((a, b) => {
+      const ca = getTaskCategory(a);
+      const cb = getTaskCategory(b);
+      if (ca.seq !== cb.seq) return ca.seq - cb.seq;
+      if ((a.op_seq ?? 0) !== (b.op_seq ?? 0)) return (a.op_seq ?? 0) - (b.op_seq ?? 0);
+      return a.task_line_id - b.task_line_id;
+    });
+  }, [order.rows]);
+
+  return (
+    <div style={{ margin: "4px 0 10px 0", padding: "8px 12px", background: "#fafafa", borderRadius: 6, border: "1px solid #f0f0f0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <Typography.Text strong style={{ fontSize: 13 }}>
+          📋 Задания цеха по заказу №{order.orderId} «{order.orderName}» (по порядку техпроцесса):
+        </Typography.Text>
+        <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
+          Строк заданий: {sortedRows.length}
+        </span>
+      </div>
+      <Table<MonitorRow>
+        size="small"
+        rowKey="task_line_id"
+        dataSource={sortedRows}
+        pagination={false}
+        scroll={{ x: 1040 }}
+        columns={[
+          {
+            title: "Этап",
+            width: 95,
+            render: (_, r) => {
+              const cat = getTaskCategory(r);
+              return <Tag color={cat.tagColor} style={{ fontSize: 11, margin: 0 }}>{cat.label}</Tag>;
+            },
+          },
+          {
+            title: "Участок",
+            width: 140,
+            render: (_, r) => (
+              <Tooltip title={areaNameMap.get(r.area) ?? r.area}>
+                <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: 135 }}>
+                  {areaNameMap.get(r.area) ?? r.area}
+                </span>
+              </Tooltip>
+            ),
+          },
+          {
+            title: "Операция",
+            width: 120,
+            render: (_, r) => (
+              <Tooltip title={r.operation || r.area}>
+                <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: 115 }}>
+                  {r.operation || r.area}
+                </span>
+              </Tooltip>
+            ),
+          },
+          {
+            title: "Позиция / Деталь",
+            width: 190,
+            render: (_, r) => (
+              <div style={{ maxWidth: 185 }}>
+                <Tooltip title={posOf(r)}>
+                  <div style={{ fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {posOf(r)}
+                  </div>
+                </Tooltip>
+                {r.film_deficit_m != null && r.film_deficit_m > 0 && (
+                  <Tag color="error" style={{ fontSize: 10, padding: "0 4px", lineHeight: "16px", marginTop: 2 }}>
+                    дефицит -{r2(r.film_deficit_m)} м
+                  </Tag>
+                )}
+              </div>
+            ),
+          },
+          {
+            title: "План",
+            width: 55,
+            align: "right",
+            render: (_, r) => <span style={{ fontSize: 12 }}>{r2(r.plan)}</span>,
+          },
+          {
+            title: "Сделано",
+            width: 65,
+            align: "right",
+            render: (_, r) => (
+              <span style={{ fontSize: 12 }}>
+                {r2(r.good)}
+                {r.defect > 0 && <Typography.Text type="danger" style={{ fontSize: 10 }}> б{r2(r.defect)}</Typography.Text>}
+              </span>
+            ),
+          },
+          {
+            title: "Осталось",
+            width: 65,
+            align: "right",
+            render: (_, r) =>
+              r.closed ? (
+                <span style={{ color: "#8c8c8c", fontSize: 11 }}>закр</span>
+              ) : leftOf(r) > 0 ? (
+                <b style={{ color: token.colorWarning, fontSize: 12 }}>{r2(leftOf(r))}</b>
+              ) : (
+                <span style={{ color: token.colorSuccess, fontSize: 11 }}>готов</span>
+              ),
+          },
+          {
+            title: "Срок",
+            width: 60,
+            render: (_, r) => (r.date_from ? <span style={{ fontSize: 11 }}>{dm(r.date_from)}</span> : "—"),
+          },
+          {
+            title: "Плёнка",
+            width: 80,
+            render: (_, r) => {
+              if (!r.film && !r.film_status) return "—";
+              if (r.film_status === "issued" || r.film_status === "covered" || r.film_status === "site_stock") {
+                return <Tag color="green" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>выдана</Tag>;
+              }
+              if (r.film_status === "partial") return <Tag color="orange" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>частично</Tag>;
+              return <Tag color="red" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>не выдана</Tag>;
+            },
+          },
+          {
+            title: "Отчёт в цехе",
+            width: 220,
+            render: (_, r) =>
+              r.quick && leftOf(r) >= 0 ? (
+                <QuickReport row={r} compact />
+              ) : (
+                <Button size="small" onClick={() => onOpenTask(r.task_id)}>
+                  Задание №{r.task_id}
+                </Button>
+              ),
+          },
+        ]}
+      />
+    </div>
+  );
 }
 
 export default function OrdersInShopView({
@@ -110,7 +311,6 @@ export default function OrdersInShopView({
         totalLeft = oLines.reduce((s, l) => s + l.left, 0);
         totalDone = Math.max(0, totalPlan - totalLeft);
       } else {
-        // Если заказ без линий дверей (погонаж, наряд) — считаем по строкам заданий
         totalPlan = orderRows.reduce((s, r) => s + r.plan, 0);
         totalDone = orderRows.reduce((s, r) => s + doneOf(r), 0);
         totalLeft = orderRows.reduce((s, r) => s + leftOf(r), 0);
@@ -147,10 +347,10 @@ export default function OrdersInShopView({
       const filmDeficitM = orderRows.reduce((s, r) => s + (r.film_deficit_m ?? 0), 0);
       const hasDeficit = filmDeficitM > 0 || orderRows.some((r) => r.film_status === "none" || r.film_status === "partial");
 
-      // Расчёт этапов заказа (Stage Pipeline)
-      const stages: OrderStageItem[] = [];
+      // Расчёт компактных вех заказа (Key Milestones) вместо шумной длинной цепочки
+      const milestones: OrderMilestone[] = [];
 
-      // 1. Каркасы (если есть ПФ каркасов)
+      // 1. Каркасы (П/Ф)
       const frameRows = orderRows.filter(
         (r) => r.part_id != null && (/каркас/i.test(r.position) || r.area === "uchastok_sborki_karkasov" || (r.operation || "").toLowerCase().includes("каркас")),
       );
@@ -158,35 +358,31 @@ export default function OrdersInShopView({
         const plan = frameRows.reduce((s, r) => s + r.plan, 0);
         const done = frameRows.reduce((s, r) => s + doneOf(r), 0);
         const left = Math.max(0, plan - done);
-        const pct = plan > 0 ? Math.round((done / plan) * 100) : 100;
-        stages.push({
+        const isDone = left <= 0;
+        milestones.push({
           key: "frames",
           label: "Каркасы",
-          plan,
-          done,
-          left,
-          percent: pct,
-          status: left <= 0 ? "done" : done > 0 ? "in_work" : "pending",
+          badge: isDone ? `🪵 Каркасы: ${r2(done)} ✔` : `🪵 Каркасы: ${r2(done)}/${r2(plan)}`,
+          status: isDone ? "done" : done > 0 ? "in_work" : "pending",
+          tooltip: `Каркасы: план ${r2(plan)}, сдано ${r2(done)}, осталось ${r2(left)} шт`,
         });
       }
 
-      // 2. Панели (если есть ПФ панелей / скинов)
+      // 2. Панели / скины / МДФ (П/Ф)
       const panelRows = orderRows.filter(
-        (r) => r.part_id != null && !/каркас/i.test(r.position),
+        (r) => r.part_id != null && !/каркас/i.test(r.position) && r.area !== "uchastok_sborki_karkasov" && !(r.operation || "").toLowerCase().includes("каркас"),
       );
       if (panelRows.length > 0) {
         const plan = panelRows.reduce((s, r) => s + r.plan, 0);
         const done = panelRows.reduce((s, r) => s + doneOf(r), 0);
         const left = Math.max(0, plan - done);
-        const pct = plan > 0 ? Math.round((done / plan) * 100) : 100;
-        stages.push({
+        const isDone = left <= 0;
+        milestones.push({
           key: "panels",
           label: "Панели",
-          plan,
-          done,
-          left,
-          percent: pct,
-          status: left <= 0 ? "done" : done > 0 ? "in_work" : "pending",
+          badge: isDone ? `🪵 Панели: ${r2(done)} ✔` : `🪵 Панели: ${r2(done)}/${r2(plan)}`,
+          status: isDone ? "done" : done > 0 ? "in_work" : "pending",
+          tooltip: `Панели (скины/МДФ): план ${r2(plan)}, сдано ${r2(done)}, осталось ${r2(left)} шт`,
         });
       }
 
@@ -194,55 +390,86 @@ export default function OrdersInShopView({
       const filmRows = orderRows.filter((r) => r.film || r.film_status != null || (r.film_need_m ?? 0) > 0);
       if (filmRows.length > 0) {
         if (filmDeficitM > 0) {
-          stages.push({
+          milestones.push({
             key: "film",
             label: "Плёнка",
-            plan: 0,
-            done: 0,
-            left: 0,
-            percent: 0,
+            badge: `🔴 Дефицит -${r2(filmDeficitM)}м`,
             status: "deficit",
-            deficitM: filmDeficitM,
+            tooltip: `Дефицит плёнки: ${r2(filmDeficitM)} м`,
           });
         } else {
           const allOk = filmRows.every((r) => r.film_status === "issued" || r.film_status === "covered" || r.film_status === "site_stock");
-          stages.push({
+          milestones.push({
             key: "film",
             label: "Плёнка",
-            plan: 0,
-            done: 0,
-            left: 0,
-            percent: allOk ? 100 : 50,
+            badge: allOk ? "🎞️ Плёнка ✔" : "🎞️ Плёнка: выдача",
             status: allOk ? "done" : "in_work",
+            tooltip: allOk ? "Плёнка выдана на участок или имеется на остатке" : "Плёнка ещё выдаётся со склада",
           });
         }
       }
 
-      // 4. Операции сборки/склейки/кромки/упаковки
-      // Группируем по ключевым операциям
-      const mainOpRows = orderRows.filter((r) => r.part_id == null);
-      const opsMap = new Map<string, MonitorRow[]>();
-      for (const r of mainOpRows) {
-        const opName = r.operation ?? areaNameMap.get(r.area) ?? r.area;
-        const list = opsMap.get(opName) ?? [];
-        list.push(r);
-        opsMap.set(opName, list);
-      }
+      // 4. Полотно / Сборка / Готовая продукция
+      const doorRows = orderRows.filter((r) => r.part_id == null);
+      if (doorRows.length > 0) {
+        const packRows = doorRows.filter((r) => (r.operation || "").toLowerCase().includes("упаков") || r.area.toLowerCase().includes("upakov") || r.area.toLowerCase().includes("pack"));
+        const edgeRows = doorRows.filter((r) => (r.operation || "").toLowerCase().includes("кромк") || (r.operation || "").toLowerCase().includes("формат") || (r.operation || "").toLowerCase().includes("петл") || (r.operation || "").toLowerCase().includes("замок"));
+        const glueRows = doorRows.filter((r) => (r.operation || "").toLowerCase().includes("склей") || (r.operation || "").toLowerCase().includes("опресс") || r.area.toLowerCase().includes("skleik") || r.area.toLowerCase().includes("press"));
 
-      for (const [opName, opRowsList] of opsMap.entries()) {
-        const plan = opRowsList.reduce((s, r) => s + r.plan, 0);
-        const done = opRowsList.reduce((s, r) => s + doneOf(r), 0);
-        const left = Math.max(0, plan - done);
-        const pct = plan > 0 ? Math.round((done / plan) * 100) : 100;
-        stages.push({
-          key: `op-${opName}`,
-          label: opName,
-          plan,
-          done,
-          left,
-          percent: pct,
-          status: left <= 0 ? "done" : done > 0 ? "in_work" : "pending",
-        });
+        const packPlan = packRows.reduce((s, r) => s + r.plan, 0);
+        const packDone = packRows.reduce((s, r) => s + doneOf(r), 0);
+
+        const edgePlan = edgeRows.reduce((s, r) => s + r.plan, 0);
+        const edgeDone = edgeRows.reduce((s, r) => s + doneOf(r), 0);
+
+        const gluePlan = glueRows.reduce((s, r) => s + r.plan, 0);
+        const glueDone = glueRows.reduce((s, r) => s + doneOf(r), 0);
+
+        if (packRows.length > 0 && packPlan > 0 && packDone >= packPlan) {
+          milestones.push({
+            key: "assembly",
+            label: "Сборка",
+            badge: `📦 Упаковано: ${r2(packDone)} ✔`,
+            status: "done",
+            tooltip: `Упаковано 100% (${r2(packDone)}/${r2(packPlan)} шт)`,
+          });
+        } else if (packRows.length > 0 && packDone > 0) {
+          milestones.push({
+            key: "assembly",
+            label: "Сборка",
+            badge: `📦 Упаковка: ${r2(packDone)}/${r2(packPlan)}`,
+            status: "in_work",
+            tooltip: `Упаковка в процессе: сдано ${r2(packDone)} из ${r2(packPlan)} шт`,
+          });
+        } else if (edgeRows.length > 0 && edgeDone > 0) {
+          milestones.push({
+            key: "assembly",
+            label: "Сборка",
+            badge: `⚙️ Мехобработка: ${r2(edgeDone)}/${r2(edgePlan)}`,
+            status: "in_work",
+            tooltip: `Кромка/врезка: ${r2(edgeDone)} из ${r2(edgePlan)} шт`,
+          });
+        } else if (glueRows.length > 0) {
+          const isGlueDone = gluePlan > 0 && glueDone >= gluePlan;
+          milestones.push({
+            key: "assembly",
+            label: "Сборка",
+            badge: isGlueDone ? `🚪 Склейка: ${r2(glueDone)} ✔` : `🚪 Склейка: ${r2(glueDone)}/${r2(gluePlan)}`,
+            status: isGlueDone ? "done" : glueDone > 0 ? "in_work" : "pending",
+            tooltip: `Склейка полотен: сдано ${r2(glueDone)} из ${r2(gluePlan)} шт`,
+          });
+        } else {
+          const dPlan = doorRows.reduce((s, r) => s + r.plan, 0);
+          const dDone = doorRows.reduce((s, r) => s + doneOf(r), 0);
+          const isDone = dPlan > 0 && dDone >= dPlan;
+          milestones.push({
+            key: "assembly",
+            label: "Сборка",
+            badge: isDone ? `🚪 Готово: ${r2(dDone)} ✔` : `🚪 Сборка: ${r2(dDone)}/${r2(dPlan)}`,
+            status: isDone ? "done" : dDone > 0 ? "in_work" : "pending",
+            tooltip: `Готовая продукция: сдано ${r2(dDone)} из ${r2(dPlan)} шт`,
+          });
+        }
       }
 
       // Определение узкого места (bottleneck)
@@ -253,10 +480,10 @@ export default function OrdersInShopView({
         bottleneck = `Дефицит плёнки -${r2(filmDeficitM)} м`;
         bottleneckType = "deficit";
       } else {
-        const incompleteStage = stages.find((s) => s.status !== "done" && s.key !== "film");
-        if (incompleteStage) {
-          bottleneck = `${incompleteStage.label}: ${r2(incompleteStage.done)} из ${r2(incompleteStage.plan)} шт`;
-          bottleneckType = incompleteStage.done > 0 ? "in_work" : "warning";
+        const incompleteMilestone = milestones.find((m) => m.status !== "done" && m.key !== "film");
+        if (incompleteMilestone) {
+          bottleneck = incompleteMilestone.label;
+          bottleneckType = incompleteMilestone.status === "in_work" ? "in_work" : "warning";
         } else if (totalLeft <= 0 && totalPlan > 0) {
           bottleneck = "Готов к отгрузке";
           bottleneckType = "ready";
@@ -281,7 +508,7 @@ export default function OrdersInShopView({
         progressPercent,
         hasDeficit,
         filmDeficitM,
-        stages,
+        milestones,
         bottleneck,
         bottleneckType,
         rows: orderRows,
@@ -295,7 +522,7 @@ export default function OrdersInShopView({
       if (b.daysLeft != null) return 1;
       return b.orderId - a.orderId;
     });
-  }, [rows, lines, orders, areas, hideDone, orderMap, areaNameMap]);
+  }, [rows, lines, orders, hideDone, orderMap]);
 
   // Сводные метрики
   const metrics = useMemo(() => {
@@ -391,130 +618,35 @@ export default function OrdersInShopView({
         rowKey="orderId"
         dataSource={ordersList}
         pagination={{ pageSize: 20 }}
-        scroll={{ x: "max-content" }}
+        scroll={{ x: 930 }}
         expandable={{
           expandedRowRender: (record) => (
-            <div style={{ margin: "4px 0 12px 0", background: "#fafafa", padding: "10px 12px", borderRadius: 8, border: `1px solid ${token.colorBorderSecondary}` }}>
-              <Typography.Text strong style={{ display: "block", marginBottom: 8, fontSize: 13 }}>
-                📋 Задания и позиции заказа №{record.orderId} «{record.orderName}» ({record.rows.length} строк заданий)
-              </Typography.Text>
-              <Table<MonitorRow>
-                size="small"
-                rowKey="task_line_id"
-                dataSource={record.rows}
-                pagination={false}
-                columns={[
-                  {
-                    title: "Участок",
-                    width: 170,
-                    render: (_, r) => <UiBadge color="blue">{areaNameMap.get(r.area) ?? r.area}</UiBadge>,
-                  },
-                  {
-                    title: "Операция",
-                    width: 150,
-                    dataIndex: "operation",
-                    render: (op, r) => op || r.area,
-                  },
-                  {
-                    title: "Позиция / Деталь",
-                    render: (_, r) => (
-                      <div>
-                        <b>{posOf(r)}</b>
-                        {r.part_id != null && (
-                          <UiBadge color="orange" style={{ marginLeft: 6 }}>
-                            П/Ф
-                          </UiBadge>
-                        )}
-                        {r.film_deficit_m != null && r.film_deficit_m > 0 && (
-                          <Tag color="error" style={{ marginLeft: 6 }}>
-                            дефицит -{r2(r.film_deficit_m)} м
-                          </Tag>
-                        )}
-                      </div>
-                    ),
-                  },
-                  {
-                    title: "План",
-                    width: 70,
-                    align: "right",
-                    render: (_, r) => r2(r.plan),
-                  },
-                  {
-                    title: "Сделано",
-                    width: 90,
-                    align: "right",
-                    render: (_, r) => (
-                      <span>
-                        {r2(r.good)}
-                        {r.defect > 0 && <Typography.Text type="danger" style={{ fontSize: 11 }}> б{r2(r.defect)}</Typography.Text>}
-                      </span>
-                    ),
-                  },
-                  {
-                    title: "Осталось",
-                    width: 80,
-                    align: "right",
-                    render: (_, r) =>
-                      r.closed ? (
-                        <span style={{ color: "#8c8c8c", fontSize: 11 }}>закрыто</span>
-                      ) : leftOf(r) > 0 ? (
-                        <b style={{ color: token.colorWarning }}>{r2(leftOf(r))}</b>
-                      ) : (
-                        <span style={{ color: token.colorSuccess, fontSize: 11 }}>готово</span>
-                      ),
-                  },
-                  {
-                    title: "Срок",
-                    width: 80,
-                    render: (_, r) => (r.date_from ? dm(r.date_from) : "—"),
-                  },
-                  {
-                    title: "Плёнка",
-                    width: 110,
-                    render: (_, r) => {
-                      if (!r.film && !r.film_status) return "—";
-                      if (r.film_status === "issued" || r.film_status === "covered" || r.film_status === "site_stock") {
-                        return <Tag color="green">выдана</Tag>;
-                      }
-                      if (r.film_status === "partial") return <Tag color="orange">частично</Tag>;
-                      return <Tag color="red">не выдана</Tag>;
-                    },
-                  },
-                  {
-                    title: "Отчёт в цехе",
-                    width: 280,
-                    render: (_, r) =>
-                      r.quick && leftOf(r) >= 0 ? (
-                        <QuickReport row={r} compact />
-                      ) : (
-                        <Button size="small" onClick={() => onOpenTask(r.task_id)}>
-                          Задание №{r.task_id}
-                        </Button>
-                      ),
-                  },
-                ]}
-              />
-            </div>
+            <ExpandedOrderTasks
+              order={record}
+              areaNameMap={areaNameMap}
+              onOpenTask={onOpenTask}
+            />
           ),
         }}
         columns={[
           {
             title: "Заказ и счета",
-            width: 240,
+            width: 200,
             render: (_, o) => (
-              <Space direction="vertical" size={2}>
+              <div style={{ maxWidth: 195 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <Link
                     to={`/production-orders/${o.orderId}`}
-                    style={{ fontWeight: 600, fontSize: 14 }}
+                    style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                     onClick={(e) => e.stopPropagation()}
+                    title={`Заказ №${o.orderId} «${o.orderName}»`}
                   >
                     №{o.orderId} «{o.orderName}»
                   </Link>
-                  {o.kind === "stock" && <UiBadge color="green">на склад</UiBadge>}
+                  {o.kind === "stock" && <UiBadge color="green">склад</UiBadge>}
                 </div>
                 {o.invoices.length > 0 && (
-                  <div style={{ fontSize: 12 }}>
+                  <div style={{ fontSize: 11, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`Счета: ${o.invoices.join(", ")}`}>
                     Счета:{" "}
                     {o.invoices.map((inv) => (
                       <UiBadge key={inv} color="purple" style={{ marginInlineEnd: 4 }}>
@@ -524,115 +656,103 @@ export default function OrdersInShopView({
                   </div>
                 )}
                 {o.seriesList.length > 0 && (
-                  <div style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                  <div style={{ fontSize: 11, color: token.colorTextSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`Серии: ${o.seriesList.join(", ")}`}>
                     Серии: {o.seriesList.join(", ")}
                   </div>
                 )}
-              </Space>
+              </div>
             ),
           },
           {
             title: "Срок отгрузки",
-            width: 140,
+            width: 100,
             render: (_, o) => {
               if (!o.shipDate) {
-                return <Typography.Text type="secondary">без срока</Typography.Text>;
+                return <Typography.Text type="secondary" style={{ fontSize: 12 }}>без срока</Typography.Text>;
               }
               const d = o.daysLeft ?? 0;
               return (
-                <Space direction="vertical" size={2}>
-                  <b>{dm(o.shipDate)}</b>
-                  {d < 0 ? (
-                    <Tag color="error" icon={<WarningOutlined />}>
-                      просрочен на {Math.abs(d)} дн.
-                    </Tag>
-                  ) : d === 0 ? (
-                    <Tag color="error" icon={<ClockCircleOutlined />}>
-                      сегодня!
-                    </Tag>
-                  ) : d === 1 ? (
-                    <Tag color="warning" icon={<ClockCircleOutlined />}>
-                      завтра!
-                    </Tag>
-                  ) : d <= 2 ? (
-                    <Tag color="warning">горит: {d} дн.</Tag>
-                  ) : (
-                    <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
-                      осталось {d} дн.
-                    </span>
-                  )}
-                </Space>
+                <div>
+                  <b style={{ fontSize: 12 }}>{dm(o.shipDate)}</b>
+                  <div style={{ marginTop: 2 }}>
+                    {d < 0 ? (
+                      <Tag color="error" icon={<WarningOutlined />} style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>
+                        -{Math.abs(d)} дн.
+                      </Tag>
+                    ) : d === 0 ? (
+                      <Tag color="error" icon={<ClockCircleOutlined />} style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>
+                        сегодня!
+                      </Tag>
+                    ) : d === 1 ? (
+                      <Tag color="warning" icon={<ClockCircleOutlined />} style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>
+                        завтра!
+                      </Tag>
+                    ) : d <= 2 ? (
+                      <Tag color="warning" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>горит {d} дн.</Tag>
+                    ) : (
+                      <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
+                        ост. {d} дн.
+                      </span>
+                    )}
+                  </div>
+                </div>
               );
             },
           },
           {
-            title: "Текущий статус / Узкое место",
-            width: 220,
+            title: "Узкое место",
+            width: 170,
             render: (_, o) => {
               if (o.bottleneckType === "deficit") {
                 return (
-                  <Tag color="error" icon={<ExclamationCircleOutlined />} style={{ whiteSpace: "normal" }}>
+                  <Tag color="error" icon={<ExclamationCircleOutlined />} style={{ whiteSpace: "normal", fontSize: 11, margin: 0 }}>
                     {o.bottleneck}
                   </Tag>
                 );
               }
               if (o.bottleneckType === "warning") {
                 return (
-                  <Tag color="warning" icon={<ClockCircleOutlined />} style={{ whiteSpace: "normal" }}>
+                  <Tag color="warning" icon={<ClockCircleOutlined />} style={{ whiteSpace: "normal", fontSize: 11, margin: 0 }}>
                     {o.bottleneck}
                   </Tag>
                 );
               }
               if (o.bottleneckType === "in_work") {
                 return (
-                  <Tag color="processing" icon={<ApartmentOutlined />} style={{ whiteSpace: "normal" }}>
+                  <Tag color="processing" icon={<ApartmentOutlined />} style={{ whiteSpace: "normal", fontSize: 11, margin: 0 }}>
                     {o.bottleneck}
                   </Tag>
                 );
               }
               return (
-                <Tag color="success" icon={<CheckCircleOutlined />}>
+                <Tag color="success" icon={<CheckCircleOutlined />} style={{ fontSize: 11, margin: 0 }}>
                   {o.bottleneck}
                 </Tag>
               );
             },
           },
           {
-            title: "Маршрутная цепочка (Этапы цеха)",
+            title: "Вехи заказа",
+            width: 260,
             render: (_, o) => (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                {o.stages.map((st) => {
-                  const isDone = st.status === "done";
-                  const isDeficit = st.status === "deficit";
-                  const isInWork = st.status === "in_work";
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 3, maxWidth: 260 }}>
+                {o.milestones.map((m) => {
+                  const isDone = m.status === "done";
+                  const isDeficit = m.status === "deficit";
+                  const isInWork = m.status === "in_work";
 
-                  let color = "default";
+                  let color = "#595959";
                   let bg = "#fafafa";
                   let border = "#d9d9d9";
-                  let text = `${st.label}: ${r2(st.done)}/${r2(st.plan)}`;
 
-                  if (st.key === "film") {
-                    if (isDeficit) {
-                      color = "#cf1322";
-                      bg = "#fff1f0";
-                      border = "#ffa39e";
-                      text = `Плёнка: дефицит -${r2(st.deficitM ?? 0)}м`;
-                    } else if (isDone) {
-                      color = "#389e0d";
-                      bg = "#f6ffed";
-                      border = "#b7eb8f";
-                      text = "Плёнка: выдана ✔";
-                    } else {
-                      color = "#d46b08";
-                      bg = "#fff7e6";
-                      border = "#ffd591";
-                      text = "Плёнка: частично";
-                    }
+                  if (isDeficit) {
+                    color = "#cf1322";
+                    bg = "#fff1f0";
+                    border = "#ffa39e";
                   } else if (isDone) {
                     color = "#389e0d";
                     bg = "#f6ffed";
                     border = "#b7eb8f";
-                    text = `${st.label}: 100% ✔`;
                   } else if (isInWork) {
                     color = "#0958d9";
                     bg = "#e6f4ff";
@@ -640,24 +760,25 @@ export default function OrdersInShopView({
                   }
 
                   return (
-                    <span
-                      key={st.key}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "2px 7px",
-                        borderRadius: 4,
-                        fontSize: 11,
-                        lineHeight: "16px",
-                        background: bg,
-                        border: `1px solid ${border}`,
-                        color: color,
-                        fontWeight: isInWork ? 600 : 400,
-                      }}
-                      title={`${st.label}: план ${r2(st.plan)}, сдано ${r2(st.done)}, осталось ${r2(st.left)}`}
-                    >
-                      {text}
-                    </span>
+                    <Tooltip key={m.key} title={m.tooltip}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          fontSize: 11,
+                          lineHeight: "16px",
+                          background: bg,
+                          border: `1px solid ${border}`,
+                          color: color,
+                          fontWeight: isInWork ? 600 : 400,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {m.badge}
+                      </span>
+                    </Tooltip>
                   );
                 })}
               </div>
@@ -665,27 +786,27 @@ export default function OrdersInShopView({
           },
           {
             title: "Готовность",
-            width: 170,
+            width: 120,
             render: (_, o) => (
-              <Space direction="vertical" size={2} style={{ width: "100%" }}>
+              <Space direction="vertical" size={1} style={{ width: "100%" }}>
                 <Progress
                   percent={o.progressPercent}
                   size="small"
                   status={o.hasDeficit ? "exception" : o.progressPercent >= 100 ? "success" : "active"}
                 />
                 <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
-                  <b>{r2(o.totalDone)}</b> из {r2(o.totalPlan)} шт ({o.progressPercent}%)
+                  <b>{r2(o.totalDone)}</b>/{r2(o.totalPlan)} ({o.progressPercent}%)
                 </span>
               </Space>
             ),
           },
           {
             title: "",
-            width: 140,
+            width: 80,
             align: "right",
             render: (_, o) => (
-              <Space size={4}>
-                <Tooltip title="Распечатать наряды по этому заказу">
+              <Space size={2}>
+                <Tooltip title="Печать нарядов заказа">
                   <Button
                     size="small"
                     icon={<PrinterOutlined />}
@@ -698,12 +819,14 @@ export default function OrdersInShopView({
                 <Button
                   size="small"
                   type="link"
+                  style={{ padding: "0 4px" }}
                   onClick={(e) => {
                     e.stopPropagation();
                     navigate(`/production-orders/${o.orderId}`);
                   }}
+                  title="Открыть заказ"
                 >
-                  Заказ →
+                  →
                 </Button>
               </Space>
             ),

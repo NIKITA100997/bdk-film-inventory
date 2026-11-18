@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Checkbox, DatePicker, Input, Radio, Segmented, Select, Space, Tooltip } from "antd";
 import { DownloadOutlined, FullscreenExitOutlined, FullscreenOutlined, PrinterOutlined, ReloadOutlined } from "@ant-design/icons";
 import PrintTasksModal, { type PrintableTask } from "./PrintTasksModal";
@@ -36,6 +36,15 @@ export default function ProductionMonitor() {
   const rawView = (params.get("view") as string) ?? savedView;
   const view: View = rawView === "prod_orders" ? "areas" : (rawView as View) || "orders";
   const area = params.get("area") ?? savedArea;
+
+  useEffect(() => {
+    if (params.get("view") === "prod_orders") {
+      set({ view: "areas" });
+    }
+    if ((savedView as string) === "prod_orders") {
+      setSavedView("areas");
+    }
+  }, [params, savedView, setSavedView]);
 
   const [q, setQ] = useState("");
   const [orderIds, setOrderIds] = useState<number[]>([]);
@@ -402,7 +411,6 @@ export default function ProductionMonitor() {
             }}
             hideDone={!showDone}
             onOpenTask={setTaskId}
-            initialMode={rawView === "prod_orders" ? "orders" : undefined}
           />
         )}
 

@@ -37,7 +37,6 @@ export default function AreasView({
   onArea,
   hideDone,
   onOpenTask,
-  initialMode,
 }: {
   rows: MonitorRow[];
   orders: MonitorOrder[];
@@ -46,7 +45,6 @@ export default function AreasView({
   onArea: (code: string) => void;
   hideDone: boolean;
   onOpenTask: (id: number) => void;
-  initialMode?: "areas" | "orders";
 }) {
   const { token } = theme.useToken();
   const { user } = useAuth();
@@ -55,8 +53,7 @@ export default function AreasView({
   const canManage = hasPerm(user, "production_tasks.manage");
 
   // Режим просмотра: по участкам или по заказам
-  const [savedMode, setSavedMode] = usePersistentState<"areas" | "orders">("monitor.areas.mode", initialMode ?? "areas");
-  const mode = initialMode ?? savedMode;
+  const [mode, setMode] = usePersistentState<"areas" | "orders">("monitor.areas.mode", "areas");
 
   // Модальные окна управления
   const [newOrderOpen, setNewOrderOpen] = useState(false);
@@ -117,8 +114,23 @@ export default function AreasView({
     return m;
   }, [rows, orders, areas]);
 
-  const used = areas.filter((a) => stats.has(a.code));
-  const sites = [...new Set(used.map((a) => a.site ?? "Без площадки"))];
+  const used = useMemo(() => {
+    const presentAreas = areas.filter((a) => stats.has(a.code));
+    for (const code of stats.keys()) {
+      if (!presentAreas.some((a) => a.code === code)) {
+        presentAreas.push({
+          code,
+          name: code,
+          site: "Цех",
+          sort: 99,
+          per_day: null,
+        });
+      }
+    }
+    return presentAreas.sort((a, b) => (a.sort ?? 99) - (b.sort ?? 99));
+  }, [areas, stats]);
+
+  const sites = useMemo(() => [...new Set(used.map((a) => a.site ?? "Без площадки"))], [used]);
   const cur = area && stats.has(area) ? area : used[0]?.code;
   const data = useMemo(
     () => rows.filter((r) => r.area === cur && (!hideDone || leftOf(r) > 0)),
@@ -132,7 +144,7 @@ export default function AreasView({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
           <Segmented
             value={mode}
-            onChange={(m) => setSavedMode(m as "areas" | "orders")}
+            onChange={(m) => setMode(m as "areas" | "orders")}
             options={[
               {
                 label: (
@@ -276,30 +288,36 @@ export default function AreasView({
             rowKey={(r) => String(r.task_line_id)}
             dataSource={data}
             pagination={false}
-            scroll={{ x: "max-content", y: "calc(100vh - 420px)" }}
+            scroll={{ x: 970, y: "calc(100vh - 420px)" }}
             exportTitle={`Монитор: ${used.find((a) => a.code === cur)?.name ?? cur}`}
             columns={[
               {
                 key: "pos",
                 title: "Позиция",
-                width: 300,
+                width: 210,
                 sortValue: posOf,
                 render: (_, r) => (
-                  <div style={{ whiteSpace: "normal" }}>
-                    <div>{posOf(r)}</div>
+                  <div style={{ maxWidth: 210 }}>
+                    <Tooltip title={posOf(r)}>
+                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {posOf(r)}
+                      </div>
+                    </Tooltip>
                     {r.film_deficit_m != null && r.film_deficit_m > 0 && (
                       <span style={{ display: "inline-block", fontSize: 11, marginTop: 2, background: "#fff1f0", color: "#cf1322", border: "1px solid #ffa39e", borderRadius: 3, padding: "0 4px" }}>
-                        дефицит плёнки -{r2(r.film_deficit_m)} м
+                        дефицит -{r2(r.film_deficit_m)} м
                       </span>
                     )}
                     {r.part_id == null && r.source && (
-                      <div style={{ fontSize: 11, color: "#8c8c8c" }}>
-                        {r.source}
-                      </div>
+                      <Tooltip title={r.source}>
+                        <div style={{ fontSize: 11, color: "#8c8c8c", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.source}
+                        </div>
+                      </Tooltip>
                     )}
                     {r.source_missing && (
                       <div style={{ fontSize: 11, color: "#ff4d4f" }}>
-                        Не восстановлены счёт и серия — требуется сверка
+                        Требуется сверка
                       </div>
                     )}
                   </div>
@@ -308,26 +326,28 @@ export default function AreasView({
               {
                 key: "invoice",
                 title: "Счёт / серия",
-                width: 180,
+                width: 130,
                 sortValue: (r) => r.invoice_no ?? "",
                 render: (_, r) =>
                   r.source_orders?.length ? (
-                    <div style={{ whiteSpace: "normal" }}>
+                    <div style={{ fontSize: 12 }}>
                       {r.source_orders!.map((s) => (
-                        <div key={s.order_line_id}>
-                          {s.invoice_no ?? "—"} / {s.series || "—"} · {r2(s.quantity_pieces)} шт.
+                        <div key={s.order_line_id} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${s.invoice_no ?? "—"} / ${s.series || "—"} (${r2(s.quantity_pieces)} шт)`}>
+                          {s.invoice_no ?? "—"} / {s.series || "—"} ({r2(s.quantity_pieces)})
                         </div>
                       ))}
                     </div>
                   ) : (
-                    r.invoice_no ?? ""
+                    <div style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {r.invoice_no ?? "—"}
+                    </div>
                   ),
               },
-              { key: "op", title: "Операция", width: 130, sortValue: (r) => r.operation ?? "", render: (_, r) => r.operation ?? "" },
+              { key: "op", title: "Операция", width: 110, sortValue: (r) => r.operation ?? "", render: (_, r) => <span style={{ fontSize: 12 }}>{r.operation ?? ""}</span> },
               {
                 key: "plan",
                 title: "План",
-                width: 70,
+                width: 60,
                 align: "right",
                 sortValue: (r) => r.plan,
                 render: (_, r) => r2(r.plan),
@@ -336,7 +356,7 @@ export default function AreasView({
               {
                 key: "done",
                 title: "Сделано",
-                width: 80,
+                width: 70,
                 align: "right",
                 sortValue: (r) => doneOf(r),
                 render: (_, r) => (
@@ -350,19 +370,19 @@ export default function AreasView({
               {
                 key: "left",
                 title: "Осталось",
-                width: 80,
+                width: 70,
                 align: "right",
                 sortValue: leftOf,
                 render: (_, r) =>
                   r.closed ? (
-                    <span style={{ color: "#8c8c8c", fontSize: 11, background: "#f5f5f5", padding: "1px 6px", borderRadius: 3 }}>
-                      закрыто
+                    <span style={{ color: "#8c8c8c", fontSize: 11, background: "#f5f5f5", padding: "1px 5px", borderRadius: 3 }}>
+                      закр
                     </span>
                   ) : leftOf(r) > 0 ? (
                     <b>{r2(leftOf(r))}</b>
                   ) : (
-                    <span style={{ color: "#389e0d", fontSize: 11, background: "#f6ffed", border: "1px solid #b7eb8f", padding: "1px 6px", borderRadius: 3 }}>
-                      готово
+                    <span style={{ color: "#389e0d", fontSize: 11, background: "#f6ffed", border: "1px solid #b7eb8f", padding: "1px 5px", borderRadius: 3 }}>
+                      готов
                     </span>
                   ),
                 groupRender: (rs) => <b>{r2(rs.reduce((s, r) => s + leftOf(r), 0))}</b>,
@@ -370,21 +390,21 @@ export default function AreasView({
               {
                 key: "date",
                 title: "Срок",
-                width: 90,
+                width: 70,
                 sortValue: (r) => r.date_from ?? "",
-                render: (_, r) => (r.date_from ? (r.date_to && r.date_to !== r.date_from ? `${dm(r.date_from)}–${dm(r.date_to)}` : dm(r.date_from)) : ""),
+                render: (_, r) => (r.date_from ? <span style={{ fontSize: 12 }}>{r.date_to && r.date_to !== r.date_from ? `${dm(r.date_from)}–${dm(r.date_to)}` : dm(r.date_from)}</span> : ""),
               },
               {
                 key: "report",
                 title: "Отчёт",
-                width: 420,
+                width: 250,
                 render: (_, r) =>
                   r.quick && leftOf(r) >= 0 ? (
                     <QuickReport row={r} compact />
                   ) : (
                     <Button
                       size="small"
-                      title={r.closed ? "Строка закрыта" : "Нужен рулон или дневной план — отчёт в задании"}
+                      title={r.closed ? "Строка закрыта" : "Отчёт в задании"}
                       onClick={() => onOpenTask(r.task_id)}
                     >
                       Задание №{r.task_id}
