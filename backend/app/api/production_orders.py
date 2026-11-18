@@ -8,13 +8,13 @@ from datetime import date, datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.security import get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.areas import Area
 from app.models.dictionaries import PartStage
-from app.models.items import Item, ItemComponent, ItemKind
+from app.models.items import Item, ItemComponent, ItemKind, ItemProperty, ItemPropertyOption, ItemPropertyValue, ItemType
 from app.services import line_options
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.models.production_orders import (
@@ -282,9 +282,78 @@ def _customer_orders_of(db: Session, order: ProductionOrder) -> list[dict]:
 
 def _order_out(db: Session, order: ProductionOrder, comp_cache: dict | None = None) -> OrderOut:
     """comp_cache — состав изделий, общий на запрос (список заказов)."""
-    names = live_item_names(db, {ln.item_id for ln in order.lines})
+    item_ids = {ln.item_id for ln in order.lines}
+    names = live_item_names(db, item_ids)
     kinds = {k.id: k for k in db.query(ItemKind)}
     area_names = {a.code: a.name for a in db.query(Area)}
+
+    # Пакетная загрузка всех позиций со стадиями и типами без N+1
+    items = {
+        item.id: item
+        for item in (
+            db.query(Item)
+            .options(
+                selectinload(Item.stages),
+                joinedload(Item.type).selectinload(ItemType.properties).selectinload(ItemProperty.options),
+            )
+            .filter(Item.id.in_(item_ids))
+            .all()
+        )
+    } if item_ids else {}
+
+    # Пакетная загрузка значений свойств для моментального построения характеристик
+    all_options = {opt.id: opt for opt in db.query(ItemPropertyOption).all()} if item_ids else {}
+    raw_vals = (
+        db.query(ItemPropertyValue)
+        .filter(ItemPropertyValue.item_id.in_(item_ids))
+        .all()
+        if item_ids
+        else []
+    )
+    vals_by_item: dict[int, dict[int, object]] = defaultdict(dict)
+    for v in raw_vals:
+        item = items.get(v.item_id)
+        if not item or not item.type:
+            continue
+        props = {p.id: p for p in item.type.properties}
+        p = props.get(v.property_id)
+        if not p:
+            continue
+        val = {
+            "number": float(v.value_number) if v.value_number is not None else None,
+            "text": v.value_text,
+            "bool": v.value_bool,
+            "list": v.option_id,
+        }[p.value_type]
+        vals_by_item[v.item_id][p.id] = val
+
+    item_chars_map: dict[int, list[dict]] = {}
+    for item_id, item in items.items():
+        if not item or not item.type:
+            item_chars_map[item_id] = []
+            continue
+        vals = vals_by_item.get(item_id, {})
+        out = []
+        for p in sorted(item.type.properties, key=lambda p: (p.sort_order or 0, p.id)):
+            v = vals.get(p.id)
+            if v in (None, "", False):
+                continue
+            if p.value_type == "list":
+                opt = all_options.get(v)
+                text = (opt.label or opt.value) if opt else None
+            elif p.value_type == "bool":
+                text = "да"
+            elif p.value_type == "number":
+                text = f"{float(v):g}" + (f" {p.unit}" if p.unit else "")
+            else:
+                text = str(v)
+            if text:
+                out.append({"code": p.code, "name": p.name, "value": text})
+        item_chars_map[item_id] = out
+
+    # Кэшируем в db.info для любых других вызовов в этой же сессии
+    db.info.setdefault("item_chars", {}).update(item_chars_map)
+
     task_lines = (
         db.query(ProductionTaskLine)
         .filter(ProductionTaskLine.order_line_id.in_([ln.id for ln in order.lines]))
@@ -317,9 +386,9 @@ def _order_out(db: Session, order: ProductionOrder, comp_cache: dict | None = No
     fg = totals_by_order_line(db, [ln.id for ln in order.lines])
     out_lines = []
     comp_cache = {} if comp_cache is None else comp_cache
-    nodes = _prefetch_nodes(db, {ln.item_id for ln in order.lines}, comp_cache)
+    nodes = _prefetch_nodes(db, item_ids, comp_cache)
     for ln in order.lines:
-        item = db.get(Item, ln.item_id)
+        item = items.get(ln.item_id) or db.get(Item, ln.item_id)
         simple = without_route(item)
         stages = sorted(item.stages, key=lambda s: s.sequence_order)
         stage_names = {s.id: s.name for s in stages}
@@ -336,7 +405,7 @@ def _order_out(db: Session, order: ProductionOrder, comp_cache: dict | None = No
         out_lines.append(
             OrderLineOut(
                 id=ln.id, item_id=item.id, item_name=names.get(item.id, item.name), kind_name=kinds[item.kind_id].name,
-                item_chars=item_chars_cached(db, item.id),
+                item_chars=item_chars_map.get(item.id) if item.id in item_chars_map else item_chars_cached(db, item.id),
                 quantity=float(ln.quantity), note=ln.note, invoice_no=ln.invoice_no,
                 done=fg.get(ln.id, {}).get("received", 0.0) if simple else (ops[-1].good if ops else 0.0),
                 without_route=simple, operations=ops,
@@ -345,7 +414,7 @@ def _order_out(db: Session, order: ProductionOrder, comp_cache: dict | None = No
                         item_id=comp_id, name=name, per_unit=per, total=round(per * float(ln.quantity), 2), unit=unit,
                         operation_name=stage_names.get(stage_id) if stage_id else None,
                     )
-                    for comp_id, per, name, unit, stage_id, _op in nodes[item.id]
+                    for comp_id, per, name, unit, stage_id, _op in nodes.get(item.id, [])
                 ],
                 composition=_composition(db, item.id, float(ln.quantity), kinds, comp_cache),
                 options=ln.options or [], option_fields=line_options.option_fields(db, item),

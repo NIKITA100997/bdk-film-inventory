@@ -16,7 +16,7 @@ import OrdersView, { buildLines } from "./monitor/OrdersView";
 import AreasView from "./monitor/AreasView";
 import PrepView from "./monitor/PrepView";
 import TaskCardDrawer from "./TaskCardDrawer";
-import OrderCardDrawer from "./OrderCardDrawer";
+import OrderCardModal from "./OrderCardModal";
 
 // Вид продукции: у дверей, погонажа и панелей свои этапы
 const PRODUCTS = ["shield", "tsarg", "trim", "panel", "other"] as const;
@@ -428,8 +428,8 @@ export default function ProductionMonitor() {
           canReport={hasPerm(user, "production_tasks.manage", "production_tasks.report")}
         />
 
-        {/* Полная карточка заказа в виде боковой панели */}
-        <OrderCardDrawer
+        {/* Полная карточка заказа в виде удобного модального окна */}
+        <OrderCardModal
           orderId={orderCardId}
           onClose={() => {
             setOrderCardId(null);
