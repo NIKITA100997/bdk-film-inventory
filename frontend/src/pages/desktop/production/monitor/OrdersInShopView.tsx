@@ -1,7 +1,7 @@
-import { useMemo } from "react";
-import { Button, Card, Empty, Progress, Space, Table, Tag, Tooltip, Typography, theme } from "antd";
-import { ApartmentOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, PrinterOutlined, WarningOutlined } from "@ant-design/icons";
-import { Link, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Button, Card, Empty, Progress, Space, Table, Tabs, Tag, Tooltip, Typography, theme } from "antd";
+import { ApartmentOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, ExportOutlined, PrinterOutlined, WarningOutlined } from "@ant-design/icons";
+import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import type { MonitorArea, MonitorOrder, MonitorRow } from "../../../../api/productionMonitor";
 import ResponsiveTable from "../../../../components/ResponsiveTable";
@@ -52,6 +52,7 @@ export interface OrdersInShopViewProps {
   areas: MonitorArea[];
   hideDone: boolean;
   onOpenTask: (taskId: number) => void;
+  onOpenOrder?: (orderId: number) => void;
   onPrintTasks?: (spec: { tasks: PrintableTask[]; title: string }) => void;
 }
 
@@ -106,17 +107,24 @@ function getTaskCategory(r: MonitorRow): TaskStageCategory {
   return { seq: 80, label: "Полотно", tagColor: "default" };
 }
 
-/** Детальная внутренняя таблица заданий заказа, отсортированная по технологическому маршруту */
+/** Детальная внутренняя панель заказа: технологические задания цеха и спецификация позиций */
 function ExpandedOrderTasks({
   order,
+  lines,
   areaNameMap,
   onOpenTask,
+  onOpenOrder,
+  onPrintTasks,
 }: {
   order: OrderInShopSummary;
+  lines: LineRec[];
   areaNameMap: Map<string, string>;
   onOpenTask: (taskId: number) => void;
+  onOpenOrder?: (orderId: number) => void;
+  onPrintTasks?: (spec: { tasks: PrintableTask[]; title: string }) => void;
 }) {
   const { token } = theme.useToken();
+  const [activeTab, setActiveTab] = useState("tasks");
 
   // Строгая сортировка заданий: сначала каркасы, затем панели, склейка, кромка, фурнитура, упаковка
   const sortedRows = useMemo(() => {
@@ -129,130 +137,266 @@ function ExpandedOrderTasks({
     });
   }, [order.rows]);
 
+  const handlePrint = () => {
+    if (!onPrintTasks) return;
+    const tasksMap = new Map<number, PrintableTask>();
+    for (const r of order.rows) {
+      if (r.task_id && !r.closed) {
+        tasksMap.set(r.task_id, {
+          id: r.task_id,
+          area: r.area,
+          area_name: areaNameMap.get(r.area) ?? r.area,
+        });
+      }
+    }
+    onPrintTasks({
+      tasks: Array.from(tasksMap.values()),
+      title: `Наряды заказа №${order.orderId} «${order.orderName}»`,
+    });
+  };
+
   return (
-    <div style={{ margin: "4px 0 10px 0", padding: "8px 12px", background: "#fafafa", borderRadius: 6, border: "1px solid #f0f0f0" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <Typography.Text strong style={{ fontSize: 13 }}>
-          📋 Задания цеха по заказу №{order.orderId} «{order.orderName}» (по порядку техпроцесса):
-        </Typography.Text>
-        <span style={{ fontSize: 11, color: token.colorTextSecondary }}>
-          Строк заданий: {sortedRows.length}
-        </span>
+    <div style={{ margin: "4px 0 10px 0", padding: "10px 14px", background: "#fafafa", borderRadius: 8, border: "1px solid #f0f0f0" }}>
+      {/* Верхняя панель управления заказом прямо из таблицы */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <Space wrap size={8} style={{ alignItems: "center" }}>
+          <Typography.Text strong style={{ fontSize: 13 }}>
+            Заказ №{order.orderId} «{order.orderName}»
+          </Typography.Text>
+          {order.kind === "stock" && <UiBadge color="green">на склад</UiBadge>}
+          {order.shipDate && (
+            <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+              Срок отгрузки: <b>{dm(order.shipDate)}</b>
+            </span>
+          )}
+          {onOpenOrder && (
+            <Button
+              size="small"
+              type="primary"
+              ghost
+              icon={<ExportOutlined />}
+              onClick={() => onOpenOrder(order.orderId)}
+              title="Открыть карточку заказа со всеми вкладками (Ход, Отчёт, Материалы, План, История)"
+            >
+              Полная карточка заказа ↗
+            </Button>
+          )}
+        </Space>
+
+        <Space wrap size={6}>
+          <Button size="small" icon={<PrinterOutlined />} onClick={handlePrint}>
+            Печать нарядов
+          </Button>
+        </Space>
       </div>
-      <Table<MonitorRow>
+
+      {/* Вкладки: задания цеха и спецификация позиций */}
+      <Tabs
         size="small"
-        rowKey="task_line_id"
-        dataSource={sortedRows}
-        pagination={false}
-        scroll={{ x: 1040 }}
-        columns={[
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
           {
-            title: "Этап",
-            width: 95,
-            render: (_, r) => {
-              const cat = getTaskCategory(r);
-              return <Tag color={cat.tagColor} style={{ fontSize: 11, margin: 0 }}>{cat.label}</Tag>;
-            },
-          },
-          {
-            title: "Участок",
-            width: 140,
-            render: (_, r) => (
-              <Tooltip title={areaNameMap.get(r.area) ?? r.area}>
-                <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: 135 }}>
-                  {areaNameMap.get(r.area) ?? r.area}
-                </span>
-              </Tooltip>
+            key: "tasks",
+            label: `📋 Задания цеха (${sortedRows.length})`,
+            children: (
+              <Table<MonitorRow>
+                size="small"
+                rowKey="task_line_id"
+                dataSource={sortedRows}
+                pagination={false}
+                scroll={{ x: 1040 }}
+                columns={[
+                  {
+                    title: "Этап",
+                    width: 95,
+                    render: (_, r) => {
+                      const cat = getTaskCategory(r);
+                      return <Tag color={cat.tagColor} style={{ fontSize: 11, margin: 0 }}>{cat.label}</Tag>;
+                    },
+                  },
+                  {
+                    title: "Участок",
+                    width: 140,
+                    render: (_, r) => (
+                      <Tooltip title={areaNameMap.get(r.area) ?? r.area}>
+                        <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: 135 }}>
+                          {areaNameMap.get(r.area) ?? r.area}
+                        </span>
+                      </Tooltip>
+                    ),
+                  },
+                  {
+                    title: "Операция",
+                    width: 120,
+                    render: (_, r) => (
+                      <Tooltip title={r.operation || r.area}>
+                        <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: 115 }}>
+                          {r.operation || r.area}
+                        </span>
+                      </Tooltip>
+                    ),
+                  },
+                  {
+                    title: "Позиция / Деталь",
+                    width: 190,
+                    render: (_, r) => (
+                      <div style={{ maxWidth: 185 }}>
+                        <Tooltip title={posOf(r)}>
+                          <div style={{ fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {posOf(r)}
+                          </div>
+                        </Tooltip>
+                        {r.film_deficit_m != null && r.film_deficit_m > 0 && (
+                          <Tag color="error" style={{ fontSize: 10, padding: "0 4px", lineHeight: "16px", marginTop: 2 }}>
+                            дефицит -{r2(r.film_deficit_m)} м
+                          </Tag>
+                        )}
+                      </div>
+                    ),
+                  },
+                  {
+                    title: "План",
+                    width: 55,
+                    align: "right",
+                    render: (_, r) => <span style={{ fontSize: 12 }}>{r2(r.plan)}</span>,
+                  },
+                  {
+                    title: "Сделано",
+                    width: 65,
+                    align: "right",
+                    render: (_, r) => (
+                      <span style={{ fontSize: 12 }}>
+                        {r2(r.good)}
+                        {r.defect > 0 && <Typography.Text type="danger" style={{ fontSize: 10 }}> б{r2(r.defect)}</Typography.Text>}
+                      </span>
+                    ),
+                  },
+                  {
+                    title: "Осталось",
+                    width: 65,
+                    align: "right",
+                    render: (_, r) =>
+                      r.closed ? (
+                        <span style={{ color: "#8c8c8c", fontSize: 11 }}>закр</span>
+                      ) : leftOf(r) > 0 ? (
+                        <b style={{ color: token.colorWarning, fontSize: 12 }}>{r2(leftOf(r))}</b>
+                      ) : (
+                        <span style={{ color: token.colorSuccess, fontSize: 11 }}>готов</span>
+                      ),
+                  },
+                  {
+                    title: "Срок",
+                    width: 60,
+                    render: (_, r) => (r.date_from ? <span style={{ fontSize: 11 }}>{dm(r.date_from)}</span> : "—"),
+                  },
+                  {
+                    title: "Плёнка",
+                    width: 80,
+                    render: (_, r) => {
+                      if (!r.film && !r.film_status) return "—";
+                      if (r.film_status === "issued" || r.film_status === "covered" || r.film_status === "site_stock") {
+                        return <Tag color="green" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>выдана</Tag>;
+                      }
+                      if (r.film_status === "partial") return <Tag color="orange" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>частично</Tag>;
+                      return <Tag color="red" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>не выдана</Tag>;
+                    },
+                  },
+                  {
+                    title: "Отчёт в цехе",
+                    width: 220,
+                    render: (_, r) =>
+                      r.quick && leftOf(r) >= 0 ? (
+                        <QuickReport row={r} compact />
+                      ) : (
+                        <Button size="small" onClick={() => onOpenTask(r.task_id)}>
+                          Задание №{r.task_id}
+                        </Button>
+                      ),
+                  },
+                ]}
+              />
             ),
           },
-          {
-            title: "Операция",
-            width: 120,
-            render: (_, r) => (
-              <Tooltip title={r.operation || r.area}>
-                <span style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: 115 }}>
-                  {r.operation || r.area}
-                </span>
-              </Tooltip>
-            ),
-          },
-          {
-            title: "Позиция / Деталь",
-            width: 190,
-            render: (_, r) => (
-              <div style={{ maxWidth: 185 }}>
-                <Tooltip title={posOf(r)}>
-                  <div style={{ fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {posOf(r)}
-                  </div>
-                </Tooltip>
-                {r.film_deficit_m != null && r.film_deficit_m > 0 && (
-                  <Tag color="error" style={{ fontSize: 10, padding: "0 4px", lineHeight: "16px", marginTop: 2 }}>
-                    дефицит -{r2(r.film_deficit_m)} м
-                  </Tag>
-                )}
-              </div>
-            ),
-          },
-          {
-            title: "План",
-            width: 55,
-            align: "right",
-            render: (_, r) => <span style={{ fontSize: 12 }}>{r2(r.plan)}</span>,
-          },
-          {
-            title: "Сделано",
-            width: 65,
-            align: "right",
-            render: (_, r) => (
-              <span style={{ fontSize: 12 }}>
-                {r2(r.good)}
-                {r.defect > 0 && <Typography.Text type="danger" style={{ fontSize: 10 }}> б{r2(r.defect)}</Typography.Text>}
-              </span>
-            ),
-          },
-          {
-            title: "Осталось",
-            width: 65,
-            align: "right",
-            render: (_, r) =>
-              r.closed ? (
-                <span style={{ color: "#8c8c8c", fontSize: 11 }}>закр</span>
-              ) : leftOf(r) > 0 ? (
-                <b style={{ color: token.colorWarning, fontSize: 12 }}>{r2(leftOf(r))}</b>
-              ) : (
-                <span style={{ color: token.colorSuccess, fontSize: 11 }}>готов</span>
-              ),
-          },
-          {
-            title: "Срок",
-            width: 60,
-            render: (_, r) => (r.date_from ? <span style={{ fontSize: 11 }}>{dm(r.date_from)}</span> : "—"),
-          },
-          {
-            title: "Плёнка",
-            width: 80,
-            render: (_, r) => {
-              if (!r.film && !r.film_status) return "—";
-              if (r.film_status === "issued" || r.film_status === "covered" || r.film_status === "site_stock") {
-                return <Tag color="green" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>выдана</Tag>;
-              }
-              if (r.film_status === "partial") return <Tag color="orange" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>частично</Tag>;
-              return <Tag color="red" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>не выдана</Tag>;
-            },
-          },
-          {
-            title: "Отчёт в цехе",
-            width: 220,
-            render: (_, r) =>
-              r.quick && leftOf(r) >= 0 ? (
-                <QuickReport row={r} compact />
-              ) : (
-                <Button size="small" onClick={() => onOpenTask(r.task_id)}>
-                  Задание №{r.task_id}
-                </Button>
-              ),
-          },
+          ...(lines.length > 0
+            ? [
+                {
+                  key: "lines",
+                  label: `🚪 Позиции заказа (${lines.length})`,
+                  children: (
+                    <Table<LineRec>
+                      size="small"
+                      rowKey="key"
+                      dataSource={lines}
+                      pagination={false}
+                      scroll={{ x: 860 }}
+                      columns={[
+                        {
+                          title: "Счёт",
+                          width: 110,
+                          render: (_, l) =>
+                            l.invoice ? <UiBadge color="purple">{l.invoice}</UiBadge> : <span style={{ color: "#8c8c8c" }}>—</span>,
+                        },
+                        {
+                          title: "Серия / Модель",
+                          width: 140,
+                          render: (_, l) => <b>{l.series || "—"}</b>,
+                        },
+                        {
+                          title: "Размер",
+                          width: 110,
+                          render: (_, l) => l.size || "—",
+                        },
+                        {
+                          title: "Цвет / Декор",
+                          width: 150,
+                          render: (_, l) => (
+                            <Tooltip title={l.color}>
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: 145 }}>
+                                {l.color || "—"}
+                              </span>
+                            </Tooltip>
+                          ),
+                        },
+                        {
+                          title: "План",
+                          width: 65,
+                          align: "right",
+                          render: (_, l) => r2(l.qty),
+                        },
+                        {
+                          title: "Сдано",
+                          width: 70,
+                          align: "right",
+                          render: (_, l) => r2(Math.max(0, l.qty - l.left)),
+                        },
+                        {
+                          title: "Осталось",
+                          width: 75,
+                          align: "right",
+                          render: (_, l) =>
+                            l.left <= 0 ? (
+                              <Tag color="success" style={{ margin: 0 }}>готово</Tag>
+                            ) : (
+                              <b>{r2(l.left)}</b>
+                            ),
+                        },
+                        {
+                          title: "Комплекты П/Ф",
+                          width: 110,
+                          render: (_, l) =>
+                            l.pf ? (
+                              <span style={{ fontSize: 12 }}>
+                                {r2(l.pf.readySets)} из {r2(l.pf.totalSets || l.qty)}
+                              </span>
+                            ) : "—",
+                        },
+                      ]}
+                    />
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
     </div>
@@ -265,6 +409,7 @@ export default function OrdersInShopView({
   areas,
   hideDone,
   onOpenTask,
+  onOpenOrder,
   onPrintTasks,
 }: OrdersInShopViewProps) {
   const { token } = theme.useToken();
@@ -275,6 +420,17 @@ export default function OrdersInShopView({
   // Сбор позиций заказа и операций
   const { lines } = useMemo(() => buildLines(rows, orders, areas), [rows, orders, areas]);
 
+  // Линии заказов по order_id (для сводок и вложенных позиций)
+  const linesByOrder = useMemo(() => {
+    const m = new Map<number, LineRec[]>();
+    for (const l of lines.values()) {
+      const list = m.get(l.order_id) ?? [];
+      list.push(l);
+      m.set(l.order_id, list);
+    }
+    return m;
+  }, [lines]);
+
   const ordersList: OrderInShopSummary[] = useMemo(() => {
     // Группируем строки монитора по order_id
     const rowsByOrder = new Map<number, MonitorRow[]>();
@@ -284,14 +440,6 @@ export default function OrdersInShopView({
         list.push(r);
         rowsByOrder.set(r.order_id, list);
       }
-    }
-
-    // Линии заказов по order_id
-    const linesByOrder = new Map<number, LineRec[]>();
-    for (const l of lines.values()) {
-      const list = linesByOrder.get(l.order_id) ?? [];
-      list.push(l);
-      linesByOrder.set(l.order_id, list);
     }
 
     const today = dayjs().startOf("day");
@@ -623,8 +771,11 @@ export default function OrdersInShopView({
           expandedRowRender: (record) => (
             <ExpandedOrderTasks
               order={record}
+              lines={linesByOrder.get(record.orderId) ?? []}
               areaNameMap={areaNameMap}
               onOpenTask={onOpenTask}
+              onOpenOrder={onOpenOrder}
+              onPrintTasks={onPrintTasks}
             />
           ),
         }}
@@ -635,14 +786,17 @@ export default function OrdersInShopView({
             render: (_, o) => (
               <div style={{ maxWidth: 195 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Link
-                    to={`/production-orders/${o.orderId}`}
-                    style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                    onClick={(e) => e.stopPropagation()}
-                    title={`Заказ №${o.orderId} «${o.orderName}»`}
+                  <a
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onOpenOrder) onOpenOrder(o.orderId);
+                      else navigate(`/production-orders/${o.orderId}`);
+                    }}
+                    style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
+                    title={`Заказ №${o.orderId} «${o.orderName}» — открыть карточку`}
                   >
                     №{o.orderId} «{o.orderName}»
-                  </Link>
+                  </a>
                   {o.kind === "stock" && <UiBadge color="green">склад</UiBadge>}
                 </div>
                 {o.invoices.length > 0 && (
@@ -802,7 +956,7 @@ export default function OrdersInShopView({
           },
           {
             title: "",
-            width: 80,
+            width: 85,
             align: "right",
             render: (_, o) => (
               <Space size={2}>
@@ -816,18 +970,21 @@ export default function OrdersInShopView({
                     }}
                   />
                 </Tooltip>
-                <Button
-                  size="small"
-                  type="link"
-                  style={{ padding: "0 4px" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(`/production-orders/${o.orderId}`);
-                  }}
-                  title="Открыть заказ"
-                >
-                  →
-                </Button>
+                <Tooltip title="Открыть полную карточку заказа">
+                  <Button
+                    size="small"
+                    type="primary"
+                    ghost
+                    style={{ padding: "0 6px", fontSize: 11 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onOpenOrder) onOpenOrder(o.orderId);
+                      else navigate(`/production-orders/${o.orderId}`);
+                    }}
+                  >
+                    Заказ ↗
+                  </Button>
+                </Tooltip>
               </Space>
             ),
           },

@@ -16,6 +16,7 @@ import OrdersView, { buildLines } from "./monitor/OrdersView";
 import AreasView from "./monitor/AreasView";
 import PrepView from "./monitor/PrepView";
 import TaskCardDrawer from "./TaskCardDrawer";
+import OrderCardDrawer from "./OrderCardDrawer";
 
 // Вид продукции: у дверей, погонажа и панелей свои этапы
 const PRODUCTS = ["shield", "tsarg", "trim", "panel", "other"] as const;
@@ -53,6 +54,7 @@ export default function ProductionMonitor() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [taskId, setTaskId] = useState<number | null>(null);
+  const [orderCardId, setOrderCardId] = useState<number | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
 
   const query = useQuery({
@@ -411,6 +413,7 @@ export default function ProductionMonitor() {
             }}
             hideDone={!showDone}
             onOpenTask={setTaskId}
+            onOpenOrder={setOrderCardId}
           />
         )}
 
@@ -423,6 +426,16 @@ export default function ProductionMonitor() {
           }}
           canManage={hasPerm(user, "production_tasks.manage")}
           canReport={hasPerm(user, "production_tasks.manage", "production_tasks.report")}
+        />
+
+        {/* Полная карточка заказа в виде боковой панели */}
+        <OrderCardDrawer
+          orderId={orderCardId}
+          onClose={() => {
+            setOrderCardId(null);
+            query.refetch();
+          }}
+          canManage={hasPerm(user, "production_tasks.manage")}
         />
 
         {printOpen && (

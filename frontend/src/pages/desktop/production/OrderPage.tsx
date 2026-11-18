@@ -25,16 +25,24 @@ export default function OrderPage() {
   const [supplyTarget, setSupplyTarget] = useState<{ id: number; name: string } | null>(null);
   useTabTitle(q.data ? `Заказ №${q.data.id} «${q.data.name}»` : null);
 
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate("/production-tasks?tab=monitor&view=areas");
+    }
+  };
+
   if (q.isLoading) return <Spin style={{ display: "block", margin: 48 }} />;
   if (!q.data)
     return (
-      <Result status="404" title="Заказ не найден" extra={<Button onClick={() => navigate("/production-orders")}>К заказам</Button>} />
+      <Result status="404" title="Заказ не найден" extra={<Button onClick={handleBack}>В монитор производства</Button>} />
     );
   const order = q.data;
   return (
     <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-      <Button type="link" style={{ padding: 0 }} onClick={() => navigate("/production-orders")}>
-        ← Заказы на производство
+      <Button type="link" style={{ padding: 0 }} onClick={handleBack}>
+        ← Назад в монитор производства
       </Button>
       {(order.customer_orders?.length ?? 0) > 0 && (
         <Typography.Text>
@@ -50,7 +58,7 @@ export default function OrderPage() {
       )}
       <OrderView
         order={order}
-        onClose={() => navigate("/production-orders")}
+        onClose={handleBack}
         onEdit={(o) => setEditing(o)}
         canManage={canManage}
         onAddTask={(kind, oid) => setTaskCreate({ kind, orderId: oid })}

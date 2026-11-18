@@ -257,7 +257,7 @@ const appPageRoutes = (
       element={<RequirePermission permissions={["production_tasks.manage", "production_tasks.view", "production_tasks.report", "sales_calculator.view", "orders.request"]}><OrderPage /></RequirePermission>}
     />
     {/* заказы на производство — вкладкой раздела «Заказы» (28.10); ?order=ID сохраняется */}
-    <Route path="/production-orders" element={<RedirectToSection to="/customer-orders" section="production" />} />
+    <Route path="/production-orders" element={<Navigate to="/production-tasks?tab=monitor&view=areas" replace />} />
 
     <Route
       path="/demand"

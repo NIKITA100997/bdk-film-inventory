@@ -37,6 +37,7 @@ export default function AreasView({
   onArea,
   hideDone,
   onOpenTask,
+  onOpenOrder,
 }: {
   rows: MonitorRow[];
   orders: MonitorOrder[];
@@ -45,6 +46,7 @@ export default function AreasView({
   onArea: (code: string) => void;
   hideDone: boolean;
   onOpenTask: (id: number) => void;
+  onOpenOrder?: (id: number) => void;
 }) {
   const { token } = theme.useToken();
   const { user } = useAuth();
@@ -202,6 +204,7 @@ export default function AreasView({
           areas={areas}
           hideDone={hideDone}
           onOpenTask={onOpenTask}
+          onOpenOrder={onOpenOrder}
           onPrintTasks={setPrintOrderTasks}
         />
       ) : !used.length ? (
@@ -425,7 +428,8 @@ export default function AreasView({
             setNewOrderOpen(false);
             qc.invalidateQueries({ queryKey: ["production-monitor"] });
             qc.invalidateQueries({ queryKey: ["production-orders-drafts-count"] });
-            navigate(`/production-orders/${o.id}`);
+            if (onOpenOrder) onOpenOrder(o.id);
+            else navigate(`/production-orders/${o.id}`);
           }}
         />
       )}
@@ -433,11 +437,12 @@ export default function AreasView({
       {importOpen && (
         <ScheduleImportModal
           onClose={() => setImportOpen(false)}
-          onCreated={(orderId) => {
+          onCreated={(order) => {
             setImportOpen(false);
             qc.invalidateQueries({ queryKey: ["production-monitor"] });
             qc.invalidateQueries({ queryKey: ["production-orders-drafts-count"] });
-            navigate(`/production-orders/${orderId}`);
+            if (onOpenOrder) onOpenOrder(order.id);
+            else navigate(`/production-orders/${order.id}`);
           }}
         />
       )}
