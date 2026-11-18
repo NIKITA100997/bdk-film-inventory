@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { Button, Card, Checkbox, DatePicker, Input, Radio, Segmented, Select, Space, Tooltip } from "antd";
 import { DownloadOutlined, FullscreenExitOutlined, FullscreenOutlined, PrinterOutlined, ReloadOutlined } from "@ant-design/icons";
 import PrintTasksModal, { type PrintableTask } from "./PrintTasksModal";
-import ProductionOrders from "./ProductionOrders";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import dayjs from "dayjs";
@@ -23,7 +22,7 @@ const PRODUCTS = ["shield", "tsarg", "trim", "panel", "other"] as const;
 const productOf = (r: MonitorRow) => (r.direction && (PRODUCTS as readonly string[]).includes(r.direction) ? r.direction : "other");
 const productLabel = (p: string) => (p === "other" ? "Прочее" : DIRECTIONS[p] ?? p);
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
-type View = "orders" | "prod_orders" | "areas" | "prep";
+type View = "orders" | "areas" | "prep";
 type StatusFilter = "all" | "in_work" | "urgent" | "deficit";
 
 export default function ProductionMonitor() {
@@ -34,7 +33,8 @@ export default function ProductionMonitor() {
   const [savedView, setSavedView] = usePersistentState<View>("monitor.view", "orders");
   const [savedProduct, setSavedProduct] = usePersistentState<string>("monitor.product", "shield");
   const [savedArea, setSavedArea] = usePersistentState<string | undefined>("monitor.area", undefined);
-  const view = (params.get("view") as View) ?? savedView;
+  const rawView = (params.get("view") as string) ?? savedView;
+  const view: View = rawView === "prod_orders" ? "areas" : (rawView as View) || "orders";
   const area = params.get("area") ?? savedArea;
 
   const [q, setQ] = useState("");
@@ -274,8 +274,7 @@ export default function ProductionMonitor() {
                 }}
                 options={[
                   { label: "Матрица заказов", value: "orders" },
-                  { label: "Заказы в цехе", value: "prod_orders" },
-                  { label: "Задания по участкам", value: "areas" },
+                  { label: "Участки и заказы", value: "areas" },
                   { label: "Подготовка к склейке", value: "prep" },
                 ]}
               />
@@ -391,8 +390,6 @@ export default function ProductionMonitor() {
           <PrepView rows={rows} orders={data.orders} areas={data.areas} hideDone={!showDone} onOpenTask={setTaskId} />
         ) : view === "orders" ? (
           <OrdersView rows={rows} orders={data.orders} areas={data.areas} hideDone={!showDone} onOpenTask={setTaskId} />
-        ) : view === "prod_orders" ? (
-          <ProductionOrders />
         ) : (
           <AreasView
             rows={rows}
@@ -405,6 +402,7 @@ export default function ProductionMonitor() {
             }}
             hideDone={!showDone}
             onOpenTask={setTaskId}
+            initialMode={rawView === "prod_orders" ? "orders" : undefined}
           />
         )}
 
