@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import NextStep from "../../components/NextStep";
 import { UiBadge } from "../../components/UiBadge";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import {
   Alert,
   Button,
@@ -19,7 +20,6 @@ import {
   Select,
   Space,
   Spin,
-  Table,
   Tag,
   TreeSelect,
   Typography,
@@ -51,6 +51,7 @@ import {
   type CountPlace,
   type PartCountDetail,
   type PartCountLine,
+  type PartCountSession,
 } from "../../api/partCounts";
 import { STAGES } from "../../utils/itemAttrs";
 import { apiErrorMessage } from "../../utils/apiError";
@@ -124,7 +125,8 @@ function CountList({ onOpen }: { onOpen: (id: number) => void }) {
         числится: рулоны и штрипсы, партии п/ф, материалы, изделия. Вводите факт (рулон можно отметить по номеру бирки), потом
         закройте пересчёт и решите по расхождениям: списать недостачу, оприходовать излишек или оставить как есть.
       </Typography.Paragraph>
-      <Table
+      <ResponsiveTable<PartCountSession>
+        tableKey="stock-counts-sessions"
         size="small"
         rowKey="id"
         loading={q.isLoading}
@@ -140,7 +142,7 @@ function CountList({ onOpen }: { onOpen: (id: number) => void }) {
             title: "Что считали",
             render: (_, s) => (
               <Space size={4} wrap>
-                {s.kinds.map((k) => (
+                {s.kinds.map((k: CountKind) => (
                   <UiBadge key={k} color={KIND_COLOR[k]}>
                     {COUNT_KIND_LABEL[k]}
                   </UiBadge>
@@ -564,11 +566,12 @@ function CountSheet({ d, onBack }: { d: PartCountDetail; onBack: () => void }) {
                   onRemoveExtra={(lineId) => removeExtra.mutate(lineId)}
                 />
               ) : (
-                <Table<PartCountLine>
+                <ResponsiveTable<PartCountLine>
+                  tableKey={`stock-counts-lines-${k}`}
                   size="small"
                   rowKey="id"
                   dataSource={rows}
-                  pagination={rows.length > 50 ? { pageSize: 50 } : false}
+                  pagination={{ pageSize: 50 }}
                   scroll={{ x: "max-content" }}
                   columns={[
                     ...(k === "plenka"
@@ -719,11 +722,12 @@ function PfGroups({
   }, [rows]);
 
   return (
-    <Table<PfGroupRow>
+    <ResponsiveTable<PfGroupRow>
+      tableKey="stock-counts-pf-groups"
       size="small"
       rowKey="key"
       dataSource={groups}
-      pagination={groups.length > 50 ? { pageSize: 50 } : false}
+      pagination={{ pageSize: 50 }}
       scroll={{ x: "max-content" }}
       columns={[
         {
@@ -1031,7 +1035,8 @@ function CountResult({ d }: { d: PartCountDetail }) {
             показать все строки (включая сошедшиеся)
           </Checkbox>
         </Space>
-        <Table<PartCountLine>
+        <ResponsiveTable<PartCountLine>
+          tableKey="stock-counts-discrepancies"
           size="small"
           rowKey="id"
           dataSource={rows}

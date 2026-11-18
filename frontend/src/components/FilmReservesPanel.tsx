@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Input, Modal, Space, Table, Typography, message } from "antd";
+import ResponsiveTable from "./ResponsiveTable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import { getFilmReserveSummary, listFilmReservations, releaseFilmReservation, type FilmReservation } from "../api/filmReserve";
@@ -97,7 +98,8 @@ export default function FilmReservesPanel() {
         {spec ? "Показан резерв выбранной плёнки — нажмите строку ещё раз, чтобы показать весь." : "Нажмите плёнку, чтобы показать только её резерв."} В резерве — метры
         рулона с обрезью, поэтому больше, чем площадь штрипсов под заказ.
       </Typography.Text>
-      <Table<FilmReservation>
+      <ResponsiveTable<FilmReservation>
+        tableKey="film-reserves-panel"
         size="small"
         rowKey="id"
         loading={list.isLoading}

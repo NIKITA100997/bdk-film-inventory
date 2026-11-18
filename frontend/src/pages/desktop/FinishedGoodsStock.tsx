@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Button, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Button, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, message } from "antd";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -53,7 +54,8 @@ export function FgStockTab() {
           {canShip && <Button onClick={() => setReceiveOpen(true)}>Оприходовать упакованное раньше</Button>}
         </Space>
       </Space>
-      <Table<FgStockRow>
+      <ResponsiveTable<FgStockRow>
+        tableKey="finished-goods-stock"
         size="small"
         rowKey={(r) => `${r.item_id}-${r.site_id}-${r.order_line_id}`}
         loading={stockQuery.isLoading}

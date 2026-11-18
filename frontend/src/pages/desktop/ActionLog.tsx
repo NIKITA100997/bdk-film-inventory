@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Button, Card, DatePicker, Input, InputNumber, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from "antd";
+import { Button, Card, DatePicker, Input, InputNumber, Segmented, Select, Space, Tabs, Tag, Tooltip, Typography } from "antd";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { useQuery } from "@tanstack/react-query";
 import dayjs, { type Dayjs } from "dayjs";
 import { UndoOutlined, EditOutlined, FileExcelOutlined, ReloadOutlined } from "@ant-design/icons";
@@ -187,7 +188,8 @@ function MaterialLogTab({ canOperate }: { canOperate: boolean }) {
         </Space>
       </Space>
 
-      <Table<ActionLogMaterialLine>
+      <ResponsiveTable<ActionLogMaterialLine>
+        tableKey="action-log-materials"
         rowKey="event_id"
         size="small"
         loading={query.isLoading}
@@ -482,7 +484,8 @@ function PartUnitLogTab({ canOperate }: { canOperate: boolean }) {
         </Space>
       </Space>
 
-      <Table<ActionLogPartUnitLine>
+      <ResponsiveTable<ActionLogPartUnitLine>
+        tableKey="action-log-parts"
         rowKey="id"
         size="small"
         loading={query.isLoading}

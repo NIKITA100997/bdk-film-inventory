@@ -2,6 +2,7 @@ import { useAuth } from "../../../auth/AuthContext";
 import LineOptions from "../../../components/LineOptions";
 import { useRef, useState } from "react";
 import { Alert, Button, DatePicker, Input, Modal, Select, Space, Table, Tag, Typography, Upload, message } from "antd";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 import dayjs, { type Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listItemTypes } from "../../../api/itemTypes";
@@ -412,7 +413,8 @@ export default function ScheduleImportModal({
                 {e}
               </Typography.Text>
             ))}
-            <Table<ScheduleImportRow>
+            <ResponsiveTable<ScheduleImportRow>
+              tableKey="schedule-import-preview"
               size="small"
               rowKey={(_, i) => String(i)}
               pagination={{ pageSize: 50 }}

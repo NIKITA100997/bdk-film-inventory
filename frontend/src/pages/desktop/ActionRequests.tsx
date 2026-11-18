@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Button, Card, Input, Modal, Popconfirm, Space, Table, Tabs, Tag, Typography, message } from "antd";
+import { Button, Card, Input, Modal, Popconfirm, Space, Tabs, Tag, Typography, message } from "antd";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -85,7 +86,8 @@ function RequestsTable({ scope, canApprove }: { scope: "pending" | "all" | "mine
   const showActions = canApprove && scope !== "mine";
   return (
     <>
-      <Table<ActionRequest>
+      <ResponsiveTable<ActionRequest>
+        tableKey="action-requests"
         size="small"
         rowKey="id"
         loading={q.isLoading}

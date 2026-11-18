@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Button, Input, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
+import { Button, Input, Popconfirm, Select, Space, Switch, Tag, Typography, message } from "antd";
+import ResponsiveTable from "../../components/ResponsiveTable";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addMillingProgram,
@@ -56,7 +57,8 @@ export default function MillingProgramsTab() {
           Добавить
         </Button>
       </Space>
-      <Table<MillingProgram>
+      <ResponsiveTable<MillingProgram>
+        tableKey="milling-programs"
         size="small"
         rowKey="id"
         loading={q.isLoading}
@@ -141,7 +143,8 @@ function Bindings({ programs }: { programs: MillingProgram[] }) {
           Привязать
         </Button>
       </Space>
-      <Table<MillingBinding>
+      <ResponsiveTable<MillingBinding>
+        tableKey="milling-bindings"
         size="small"
         rowKey="item_id"
         loading={bq.isLoading}

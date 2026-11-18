@@ -20,7 +20,6 @@ import {
   Select,
   Space,
   Switch,
-  Table,
   Typography,
   message,
 } from "antd";
@@ -832,7 +831,8 @@ export default function MaterialsExplorer({ mode }: { mode?: "positions" | "unit
               </Button>
             </Space>
           )}
-          <Table<GroupedStockLine>
+          <ResponsiveTable<GroupedStockLine>
+            tableKey="materials-explorer-grouped"
             rowKey="key"
             loading={positionsQuery.isLoading}
             dataSource={groupedPositions}

@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Table,
   Card,
   Tag,
   Button,
@@ -12,6 +11,7 @@ import {
   Alert,
   message,
 } from "antd";
+import ResponsiveTable from "../../../components/ResponsiveTable";
 import {
   ShoppingCartOutlined,
   ReloadOutlined,
@@ -276,7 +276,8 @@ export const MrpNeedsTab: React.FC = () => {
         />
       )}
 
-      <Table
+      <ResponsiveTable<MrpItemNeed>
+        tableKey="mrp-needs"
         rowKey={getRowKey}
         loading={isLoading}
         dataSource={needs}

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Table, Card, Space, Empty, Pagination, Button } from "antd";
 import { FileExcelOutlined, PrinterOutlined } from "@ant-design/icons";
-import type { TableProps } from "antd";
+import type { TableProps, TablePaginationConfig } from "antd";
 import { Grid } from "antd";
 import { useColumnSettings, ColumnSettingsButton, type ColumnOption } from "./ColumnSettings";
+import { usePersistentState } from "../hooks/usePersistentState";
 import { exportToExcel } from "../utils/excel";
 import { printReport } from "../utils/printReport";
 import { exportValue, nodeText } from "../utils/nodeText";
@@ -111,28 +112,106 @@ export default function ResponsiveTable<T extends object>({
   const BREAKPOINT_PX = { xs: 0, sm: 576, md: 768, lg: 992, xl: 1200, xxl: 1600 } as const;
   const wide = containerWidth != null ? containerWidth >= BREAKPOINT_PX[cardBreakpoint] : (screens[cardBreakpoint] ?? true);
 
-  // Раздел про пагинацию в карточном режиме — эти хуки должны вызываться
-  // безусловно на каждом рендере (Rules of Hooks), поэтому объявлены здесь,
-  // до раннего return на широком экране, а не только внутри узкой ветки —
-  // иначе смена wide между рендерами меняет число вызванных хуков и роняет
-  // React ("Rendered more hooks than during the previous render").
-  const paginationProp = rest.pagination;
+  // Отделяем pagination и onChange, чтобы централизованно управлять размером страницы
+  // и текущей страницей как в обычном Table на широких экранах, так и в карточках.
+  const { pagination: rawPagination, onChange: rawTableOnChange, ...tableRest } = rest;
+  const paginationProp = rawPagination;
   const paginationEnabled = paginationProp !== false;
   const paginationConfig = typeof paginationProp === "object" && paginationProp ? paginationProp : {};
   const isControlledPage = paginationConfig.current !== undefined;
+  const isControlledPageSize = paginationConfig.pageSize !== undefined && paginationConfig.onChange !== undefined;
+
+  // Если задан tableKey — запоминаем выбранный размер страницы в localStorage для этого экрана
+  const [persistedPageSize, setPersistedPageSize] = usePersistentState<number | null>(
+    tableKey ? `table.pagesize.${tableKey}` : "",
+    null,
+  );
   const [localPage, setLocalPage] = useState(1);
-  // Раздел про переключатель размера страницы (20/40/60/100) в карточном
-  // режиме — раньше менялась только страница (localPage), а сам размер
-  // всегда читался напрямую из paginationConfig.pageSize (статичный проп,
-  // одно и то же число на каждый рендер), поэтому выбор другого размера
-  // визуально менял значение в выпадающем списке (это внутреннее состояние
-  // antd Pagination), но не число показанных карточек. localPageSize здесь
-  // не сбрасывается при смене dataSource (в отличие от localPage) —
-  // выбранный размер страницы должен пережить обновление данных.
-  const [localPageSize, setLocalPageSize] = useState<number | null>(null);
+  const [localPageSize, setLocalPageSize] = useState<number | null>(() => {
+    if (tableKey && persistedPageSize != null && persistedPageSize > 0) {
+      return persistedPageSize;
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (tableKey && persistedPageSize != null && persistedPageSize > 0) {
+      setLocalPageSize(persistedPageSize);
+    }
+  }, [tableKey, persistedPageSize]);
+
   useEffect(() => {
     setLocalPage(1);
   }, [dataSource]);
+
+  const updatePageSize = useCallback((newSize: number) => {
+    setLocalPageSize(newSize);
+    if (tableKey) {
+      setPersistedPageSize(newSize);
+    }
+  }, [tableKey, setPersistedPageSize]);
+
+  const effectivePageSize = isControlledPageSize
+    ? paginationConfig.pageSize!
+    : (localPageSize ?? paginationConfig.pageSize ?? paginationConfig.defaultPageSize ?? 20);
+
+  const totalItems = paginationConfig.total !== undefined ? paginationConfig.total : flatTree(dataSource ?? []).length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / effectivePageSize));
+  const currentPage = Math.min(isControlledPage ? paginationConfig.current! : localPage, totalPages);
+
+  const defaultPageSizeOptions = ["10", "20", "30", "50", "100", "200"];
+  const rawPageSizeOptions = paginationConfig.pageSizeOptions ?? defaultPageSizeOptions;
+  const optionsSet = new Set(rawPageSizeOptions.map(String));
+  if (effectivePageSize && !optionsSet.has(String(effectivePageSize))) {
+    optionsSet.add(String(effectivePageSize));
+  }
+  const pageSizeOptions = Array.from(optionsSet).sort((a, b) => Number(a) - Number(b));
+
+  const mergedPagination: TablePaginationConfig | false = paginationEnabled
+    ? {
+        showSizeChanger: true,
+        pageSizeOptions,
+        locale: { items_per_page: "/ стр." },
+        ...paginationConfig,
+        current: currentPage,
+        pageSize: effectivePageSize,
+        onChange: (page: number, size: number) => {
+          if (!isControlledPage) {
+            setLocalPage(page);
+          }
+          if (size && size !== effectivePageSize) {
+            updatePageSize(size);
+            if (!isControlledPage) {
+              setLocalPage(1);
+            }
+          }
+          paginationConfig.onChange?.(page, size);
+        },
+        onShowSizeChange: (_curr: number, size: number) => {
+          if (size && size !== effectivePageSize) {
+            updatePageSize(size);
+            if (!isControlledPage) {
+              setLocalPage(1);
+            }
+          }
+          paginationConfig.onShowSizeChange?.(1, size);
+        },
+      }
+    : false;
+
+  const handleTableChange: TableProps<T>["onChange"] = (pag, filters, sorter, extra) => {
+    if (pag && pag.pageSize && pag.pageSize !== effectivePageSize) {
+      updatePageSize(pag.pageSize);
+      if (!isControlledPage) {
+        setLocalPage(1);
+      }
+    } else if (pag && pag.current && pag.current !== localPage) {
+      if (!isControlledPage) {
+        setLocalPage(pag.current);
+      }
+    }
+    rawTableOnChange?.(pag, filters, sorter, extra);
+  };
 
   const onRow = rest.onRow as TableProps<T>["onRow"];
 
@@ -229,7 +308,9 @@ export default function ResponsiveTable<T extends object>({
           rowKey={rowKey}
           locale={locale}
           loading={loading}
-          {...rest}
+          {...tableRest}
+          pagination={mergedPagination}
+          onChange={handleTableChange}
         />
       </div>
     );
@@ -251,18 +332,22 @@ export default function ResponsiveTable<T extends object>({
     return cardCollapsedSet.has(columnKey(c, sourceIndex)) && visibleLabelable.indexOf(c) !== titleIndex;
   });
   const cardExtraFields = [...cardCollapsedLabelable, ...hiddenLabelable];
-  const pageSize = isControlledPage ? (paginationConfig.pageSize ?? 10) : (localPageSize ?? paginationConfig.pageSize ?? 10);
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-  const currentPage = Math.min(isControlledPage ? paginationConfig.current! : localPage, totalPages);
-  const pagedRows = paginationEnabled ? rows.slice((currentPage - 1) * pageSize, currentPage * pageSize) : rows;
+  const pageSize = effectivePageSize;
+  const cardTotalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const cardCurrentPage = Math.min(isControlledPage ? paginationConfig.current! : localPage, cardTotalPages);
+  const pagedRows = paginationEnabled ? rows.slice((cardCurrentPage - 1) * pageSize, cardCurrentPage * pageSize) : rows;
 
   const handlePageChange = (page: number, size: number) => {
-    if (isControlledPage) {
-      paginationConfig.onChange?.(page, size);
-    } else {
+    if (!isControlledPage) {
       setLocalPage(page);
-      setLocalPageSize(size);
     }
+    if (size && size !== effectivePageSize) {
+      updatePageSize(size);
+      if (!isControlledPage) {
+        setLocalPage(1);
+      }
+    }
+    paginationConfig.onChange?.(page, size);
   };
 
   const getKey = (record: T, index: number): string => {
@@ -285,7 +370,7 @@ export default function ResponsiveTable<T extends object>({
       {settingsBar}
       <Space orientation="vertical" size={8} style={{ width: "100%" }}>
         {pagedRows.map((record, localIndex) => {
-          const index = paginationEnabled ? (currentPage - 1) * pageSize + localIndex : localIndex;
+          const index = paginationEnabled ? (cardCurrentPage - 1) * pageSize + localIndex : localIndex;
           return (
             <PlanCard
               key={getKey(record, index)}
@@ -303,15 +388,16 @@ export default function ResponsiveTable<T extends object>({
           );
         })}
       </Space>
-      {paginationEnabled && rows.length > pageSize && (
+      {paginationEnabled && rows.length > 0 && (!paginationConfig.hideOnSinglePage || rows.length > pageSize) && (
         <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
           <Pagination
             size="small"
-            current={currentPage}
+            current={cardCurrentPage}
             pageSize={pageSize}
             total={rows.length}
-            showSizeChanger={paginationConfig.showSizeChanger}
-            pageSizeOptions={paginationConfig.pageSizeOptions}
+            showSizeChanger={paginationConfig.showSizeChanger ?? true}
+            pageSizeOptions={pageSizeOptions}
+            locale={{ items_per_page: "/ стр." }}
             onChange={handlePageChange}
           />
         </div>
