@@ -3,6 +3,7 @@
 плоский список строк заданий; сводки «по участкам», «заказы × участки» и
 лист участка собирает экран (одни и те же строки, разные срезы)."""
 
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
