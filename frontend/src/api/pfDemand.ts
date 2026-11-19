@@ -44,6 +44,7 @@ export interface PfDemandRow {
   free: number;
   storage_stock?: number;
   area_stock?: number;
+  stock_by_area?: Record<string, number>;
   target_areas?: string[];
   /** Ламинация панели: участок по маршруту (прессы), альтернатива — окутка на Фабрике. */
   lamination_area?: string | null;

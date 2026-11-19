@@ -66,6 +66,7 @@ class PfDemandOut(BaseModel):
     free: float
     storage_stock: float = 0.0
     area_stock: float = 0.0
+    stock_by_area: dict[str, float] = Field(default_factory=dict)
     target_areas: list[str] = Field(default_factory=list)
     # Ламинация панели: участок по маршруту (прессы) и альтернатива — окутка
     # на Фабрике для крупной партии (от factory_min_pieces).

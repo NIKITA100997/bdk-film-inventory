@@ -61,7 +61,11 @@ const matchHorizon = (d: string | null | undefined, h: Horizon): boolean => {
 interface TransferTarget {
   part_id: number;
   part_name: string;
+  available_stock: number;
   storage_stock: number;
+  area_stock: number;
+  total_stock: number;
+  stock_by_area?: Record<string, number>;
   target_area: string;
   needed: number;
 }
@@ -129,7 +133,7 @@ export default function PfDemand() {
     const minStockCount = all.filter((r) => (r.min_stock ?? 0) > 0).length;
     const areaShortageCount = all.filter((r) => r.task_demand > (r.area_stock ?? 0)).length;
     const readyTransferCount = all.filter(
-      (r) => (r.storage_stock ?? 0) > 0 && (r.task_demand > (r.area_stock ?? 0) || (r.shortage_tasks ?? 0) > 0),
+      (r) => (r.stock ?? 0) > 0 && (r.task_demand > (r.area_stock ?? 0) || (r.shortage_tasks ?? 0) > 0),
     ).length;
     const shortageCount = all.filter((r) => r.shortage > 0).length;
     const inWorkCount = all.filter((r) => r.in_work > 0).length;
@@ -146,7 +150,7 @@ export default function PfDemand() {
             return (
               r.task_demand > 0 ||
               r.shortage > 0 ||
-              (r.storage_stock ?? 0) > 0 ||
+              (r.stock ?? 0) > 0 ||
               r.in_work > 0 ||
               (r.min_stock ?? 0) > 0
             );
@@ -155,9 +159,9 @@ export default function PfDemand() {
           .filter((r) => {
             if (filterStatus === "all") return true;
             if (filterStatus === "ready_transfer") {
-              const storage = r.storage_stock ?? 0;
+              const avail = r.stock ?? 0;
               const needOnArea = r.task_demand - (r.area_stock ?? 0);
-              return storage > 0 && (needOnArea > 0 || (r.shortage_tasks ?? 0) > 0);
+              return avail > 0 && (needOnArea > 0 || (r.shortage_tasks ?? 0) > 0);
             }
             if (filterStatus === "area_need") return r.task_demand > (r.area_stock ?? 0);
             if (filterStatus === "shortage") return r.shortage > 0;
@@ -211,6 +215,7 @@ export default function PfDemand() {
     stock: number;
     storageStock: number;
     areaStock: number;
+    stockByArea?: Record<string, number>;
     free: number;
     suggested: number;
     firstStageArea: string | null;
@@ -266,6 +271,7 @@ export default function PfDemand() {
           stock: r.stock,
           storageStock: r.storage_stock ?? 0,
           areaStock: src.area_stock ?? 0,
+          stockByArea: r.stock_by_area ?? {},
           free: r.free,
           suggested: r.suggested,
           firstStageArea: r.first_stage_area,
@@ -532,7 +538,10 @@ export default function PfDemand() {
                       {t.sources.map((s) => {
                         const needToMove = Math.max(0, s.remaining - s.areaStock);
                         const areaDeficit = needToMove;
-                        const hasStock = s.storageStock > 0;
+                        const totalStock = s.stock ?? 0;
+                        const onTarget = s.areaStock;
+                        const availableToMove = Math.max(0, totalStock - onTarget);
+                        const hasStock = availableToMove > 0;
                         return (
                           <Card key={s.partId} size="small" styles={{ body: { padding: 12 } }}>
                             <Space orientation="vertical" size={8} style={{ width: "100%" }}>
@@ -544,8 +553,8 @@ export default function PfDemand() {
                               </div>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
                                 <div><Typography.Text type="secondary">Нехватка на участке</Typography.Text><div>{areaDeficit > 0 ? <UiBadge color="red">−{fmt(areaDeficit)} шт</UiBadge> : <UiBadge color="green">Обеспечен</UiBadge>}</div></div>
-                                <div><Typography.Text type="secondary">На складе ПФ</Typography.Text><div><Typography.Text strong style={{ color: hasStock ? "#389e0d" : undefined }}>{fmt(s.storageStock)} шт</Typography.Text></div></div>
-                                <div><Typography.Text type="secondary">На участке</Typography.Text><div>{fmt(s.areaStock)} шт</div></div>
+                                <div><Typography.Text type="secondary">В наличии (склад + цех)</Typography.Text><div><Typography.Text strong style={{ color: totalStock > 0 ? "#389e0d" : undefined }}>{fmt(totalStock)} шт</Typography.Text></div></div>
+                                <div><Typography.Text type="secondary">На участке задания</Typography.Text><div>{fmt(s.areaStock)} шт</div></div>
                                 <div><Typography.Text type="secondary">Остаток задания</Typography.Text><div><Typography.Text strong>{fmt(s.remaining)} шт</Typography.Text></div></div>
                               </div>
                               <details>
@@ -562,19 +571,24 @@ export default function PfDemand() {
                                   type={hasStock && needToMove > 0 ? "primary" : "default"}
                                   style={{ minHeight: 44, ...(hasStock && needToMove > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : {}) }}
                                   disabled={!canOperate || !hasStock}
+                                  title={hasStock ? `Переместить на участок (доступно ${fmt(availableToMove)} шт)` : "Нет доступных деталей"}
                                   onClick={() => setTransferTarget({
                                     part_id: s.partId,
                                     part_name: s.partName,
+                                    available_stock: availableToMove,
                                     storage_stock: s.storageStock,
+                                    area_stock: totalStock - s.storageStock,
+                                    total_stock: totalStock,
+                                    stock_by_area: s.stockByArea ?? {},
                                     target_area: t.area || "",
-                                    needed: needToMove > 0 ? Math.min(s.storageStock, needToMove) : s.storageStock,
+                                    needed: needToMove > 0 ? Math.min(availableToMove, needToMove) : availableToMove,
                                   })}
                                 >
                                   Переместить
                                 </Button>
                                 <Button
                                   size="middle"
-                                  type={!hasStock || needToMove > s.storageStock ? "primary" : "default"}
+                                  type={!hasStock || needToMove > availableToMove ? "primary" : "default"}
                                   style={{ minHeight: 44 }}
                                   disabled={!canOperate}
                                   onClick={() => setProduceTarget({
@@ -650,10 +664,10 @@ export default function PfDemand() {
                         align: "right",
                       },
                       {
-                        title: "Есть на складе ПФ",
+                        title: "В наличии (склад + цех)",
                         render: (_, s) => (
-                          <span style={{ color: s.storageStock > 0 ? "#52c41a" : "#8c8c8c", fontWeight: s.storageStock > 0 ? 700 : 400 }}>
-                            {fmt(s.storageStock)} шт
+                          <span style={{ color: s.stock > 0 ? "#52c41a" : "#8c8c8c", fontWeight: s.stock > 0 ? 700 : 400 }}>
+                            {fmt(s.stock)} шт
                           </span>
                         ),
                         align: "right",
@@ -666,8 +680,11 @@ export default function PfDemand() {
                       {
                         title: "Действия мастера",
                         render: (_, s) => {
-                          const needToMove = Math.max(0, s.remaining - s.areaStock);
-                          const hasStock = s.storageStock > 0;
+                          const onTarget = s.areaStock ?? 0;
+                          const totalStock = s.stock ?? 0;
+                          const availableToMove = Math.max(0, totalStock - onTarget);
+                          const needToMove = Math.max(0, s.remaining - onTarget);
+                          const hasStock = availableToMove > 0;
                           return (
                             <Space size={6} wrap>
                               <Button
@@ -675,14 +692,18 @@ export default function PfDemand() {
                                 type={hasStock && needToMove > 0 ? "primary" : "default"}
                                 style={hasStock && needToMove > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : undefined}
                                 disabled={!canOperate || !hasStock}
-                                title={hasStock ? "Переместить на участок" : "Нет на складе ПФ"}
+                                title={hasStock ? `Переместить на участок (доступно ${fmt(availableToMove)} шт)` : "Нет доступных деталей"}
                                 onClick={() =>
                                   setTransferTarget({
                                     part_id: s.partId,
                                     part_name: s.partName,
+                                    available_stock: availableToMove,
                                     storage_stock: s.storageStock,
+                                    area_stock: totalStock - s.storageStock,
+                                    total_stock: totalStock,
+                                    stock_by_area: s.stockByArea ?? {},
                                     target_area: t.area || "",
-                                    needed: needToMove > 0 ? Math.min(s.storageStock, needToMove) : s.storageStock,
+                                    needed: needToMove > 0 ? Math.min(availableToMove, needToMove) : availableToMove,
                                   })
                                 }
                               >
@@ -690,7 +711,7 @@ export default function PfDemand() {
                               </Button>
                               <Button
                                 size="small"
-                                type={!hasStock || needToMove > s.storageStock ? "primary" : "default"}
+                                type={!hasStock || needToMove > availableToMove ? "primary" : "default"}
                                 disabled={!canOperate}
                                 onClick={() =>
                                   setProduceTarget({
@@ -728,11 +749,15 @@ export default function PfDemand() {
               {sectionRows.map((r) => {
                 const storage = r.storage_stock ?? 0;
                 const areaStock = r.area_stock ?? 0;
+                const totalStock = r.stock ?? 0;
                 const needOnArea = Math.max(0, r.task_demand - areaStock);
                 const areaDeficit = Math.max(0, r.task_demand - areaStock);
                 const defaultTargetArea = r.target_areas?.[0] ?? "";
-                const status = storage > 0 && needOnArea > 0
-                  ? <UiBadge color="cyan">Передать на участок · {fmt(Math.min(storage, needOnArea))} шт</UiBadge>
+                const onTarget = defaultTargetArea && r.stock_by_area ? (r.stock_by_area[defaultTargetArea] ?? 0) : 0;
+                const availableToMove = defaultTargetArea ? Math.max(0, totalStock - onTarget) : totalStock;
+                const hasStock = availableToMove > 0;
+                const status = totalStock > 0 && needOnArea > 0
+                  ? <UiBadge color="cyan">Передать на участок · {fmt(Math.min(availableToMove, needOnArea))} шт</UiBadge>
                   : r.shortage > 0
                     ? <UiBadge color="error">К выпуску · {fmt(r.shortage)} шт</UiBadge>
                     : r.task_demand > 0 && needOnArea === 0
@@ -802,25 +827,39 @@ export default function PfDemand() {
                           <div>{areaDeficit > 0 ? <UiBadge color="red">−{fmt(areaDeficit)} шт</UiBadge> : <UiBadge color="green">Нет</UiBadge>}</div>
                         </div>
                         <div>
-                          <Typography.Text type="secondary">Остаток на складе ПФ</Typography.Text>
-                          <div><Typography.Text strong style={{ color: storage > 0 ? "#389e0d" : undefined }}>{fmt(storage)} шт</Typography.Text></div>
-                        </div>
-                        <div>
-                          <Typography.Text type="secondary">На участках</Typography.Text>
-                          <div>{fmt(areaStock)} шт</div>
+                          <Typography.Text type="secondary">В наличии (склад + цех)</Typography.Text>
+                          <div>
+                            <Typography.Text strong style={{ color: totalStock > 0 ? "#389e0d" : undefined, fontSize: 15 }}>
+                              {fmt(totalStock)} шт
+                            </Typography.Text>
+                            <div style={{ fontSize: 11, color: "#8c8c8c" }}>
+                              склад: {fmt(storage)} · цех: {fmt(areaStock)}
+                            </div>
+                          </div>
                         </div>
                       </div>
                       <Space wrap size={[8, 8]}>
                         <Button
                           size="middle"
-                          type={storage > 0 && needOnArea > 0 ? "primary" : "default"}
-                          style={{ minHeight: 44, ...(storage > 0 && needOnArea > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : {}) }}
-                          disabled={!canOperate || storage <= 0}
-                          onClick={() => setTransferTarget({ part_id: r.part_id, part_name: r.part_name, storage_stock: storage, target_area: defaultTargetArea, needed: needOnArea > 0 ? Math.min(storage, needOnArea) : storage })}
+                          type={hasStock && needOnArea > 0 ? "primary" : "default"}
+                          style={{ minHeight: 44, ...(hasStock && needOnArea > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : {}) }}
+                          disabled={!canOperate || !hasStock}
+                          title={hasStock ? `Переместить на участок (доступно ${fmt(availableToMove)} шт)` : "Нет доступных деталей"}
+                          onClick={() => setTransferTarget({
+                            part_id: r.part_id,
+                            part_name: r.part_name,
+                            available_stock: availableToMove,
+                            storage_stock: storage,
+                            area_stock: areaStock,
+                            total_stock: totalStock,
+                            stock_by_area: r.stock_by_area ?? {},
+                            target_area: defaultTargetArea,
+                            needed: needOnArea > 0 ? Math.min(availableToMove, needOnArea) : availableToMove,
+                          })}
                         >Переместить</Button>
                         <Button
                           size="middle"
-                          type={!storage || needOnArea > storage ? "primary" : "default"}
+                          type={!hasStock || needOnArea > availableToMove ? "primary" : "default"}
                           style={{ minHeight: 44 }}
                           disabled={!canOperate}
                           onClick={() => setProduceTarget({ part_id: r.part_id, part_name: r.part_name, suggested_qty: r.shortage > 0 ? r.shortage : (needOnArea > 0 ? needOnArea : (r.suggested > 0 ? r.suggested : (r.min_batch || 100))), target_area: defaultTargetArea || null, stage_id: r.first_stage_id })}
@@ -862,7 +901,9 @@ export default function PfDemand() {
                             const sourceArea = s.area_stock ?? 0;
                             const sourceNeed = Math.max(0, s.remaining - sourceArea);
                             const due = s.due_date ? dayjs(s.due_date).format("DD.MM.YYYY") : "срок не указан";
-                            const sourceStorage = r.storage_stock ?? 0;
+                            const onThisArea = s.area && r.stock_by_area ? (r.stock_by_area[s.area] ?? 0) : sourceArea;
+                            const availableForThisTask = Math.max(0, (r.stock ?? 0) - onThisArea);
+                            const hasThisStock = availableForThisTask > 0;
                             return (
                               <Card key={s.task_id} size="small" styles={{ body: { padding: 10 } }}>
                                 <Space orientation="vertical" size={6} style={{ width: "100%" }}>
@@ -874,7 +915,25 @@ export default function PfDemand() {
                                     <Typography.Text>Дефицит: {fmt(sourceNeed)} шт</Typography.Text>
                                   </Space>
                                   <Space wrap>
-                                    <Button size="middle" style={{ minHeight: 44 }} disabled={!canOperate || sourceStorage <= 0} onClick={() => setTransferTarget({ part_id: r.part_id, part_name: r.part_name, storage_stock: sourceStorage, target_area: s.area || "", needed: sourceNeed > 0 ? Math.min(sourceStorage, sourceNeed) : sourceStorage })}>Переместить на {areaName(s.area) ?? "участок"}</Button>
+                                    <Button
+                                      size="middle"
+                                      style={{ minHeight: 44 }}
+                                      disabled={!canOperate || !hasThisStock}
+                                      title={hasThisStock ? `Переместить на ${areaName(s.area) ?? "участок"} (доступно ${fmt(availableForThisTask)} шт)` : "Нет доступных деталей"}
+                                      onClick={() => setTransferTarget({
+                                        part_id: r.part_id,
+                                        part_name: r.part_name,
+                                        available_stock: availableForThisTask,
+                                        storage_stock: r.storage_stock ?? 0,
+                                        area_stock: r.area_stock ?? 0,
+                                        total_stock: r.stock ?? 0,
+                                        stock_by_area: r.stock_by_area ?? {},
+                                        target_area: s.area || "",
+                                        needed: sourceNeed > 0 ? Math.min(availableForThisTask, sourceNeed) : availableForThisTask,
+                                      })}
+                                    >
+                                      Переместить на {areaName(s.area) ?? "участок"}
+                                    </Button>
                                     <Button size="middle" style={{ minHeight: 44 }} disabled={!canOperate} onClick={() => setProduceTarget({ part_id: r.part_id, part_name: r.part_name, suggested_qty: s.shortage > 0 ? s.shortage : (sourceNeed > 0 ? sourceNeed : s.remaining), target_area: s.area || null, stage_id: null })}>Выпустить под задание</Button>
                                   </Space>
                                 </Space>
@@ -914,7 +973,7 @@ export default function PfDemand() {
                     <table style={{ borderCollapse: "collapse", minWidth: 920, width: "100%" }}>
                       <thead>
                         <tr>
-                          {["Задание цеха", "Срок", "Куда требуется", "Не хватает на участке", "На участке", "Склад ПФ (у меня)", "План", "Сделано", "Остаток", "В работе", "Действия мастера"].map((h) => (
+                          {["Задание цеха", "Срок", "Куда требуется", "Не хватает на участке", "На участке", "В наличии (склад + цех)", "План", "Сделано", "Остаток", "В работе", "Действия мастера"].map((h) => (
                             <th key={h} style={{ textAlign: "left", padding: "4px 12px 4px 0", fontWeight: 500 }}>
                               {h}
                             </th>
@@ -925,7 +984,9 @@ export default function PfDemand() {
                         {r.sources.map((s) => {
                           const isOverdue = s.due_date && dayjs(s.due_date).isBefore(dayjs(), "day");
                           const isToday = s.due_date && dayjs(s.due_date).isSame(dayjs(), "day");
-                          const storage = r.storage_stock ?? 0;
+                          const onThisArea = s.area && r.stock_by_area ? (r.stock_by_area[s.area] ?? 0) : (s.area_stock ?? 0);
+                          const availableForThisTask = Math.max(0, (r.stock ?? 0) - onThisArea);
+                          const hasThisStock = availableForThisTask > 0;
                           const needToMove = Math.max(0, s.remaining - (s.area_stock ?? 0));
                           return (
                             <tr key={s.task_id} style={{ borderBottom: "1px solid #f0f0f0" }}>
@@ -958,8 +1019,8 @@ export default function PfDemand() {
                               <td style={{ padding: "4px 12px 4px 0", color: (s.area_stock ?? 0) > 0 ? "#1890ff" : "#8c8c8c", fontWeight: (s.area_stock ?? 0) > 0 ? 600 : 400 }}>
                                 {fmt(s.area_stock ?? 0)}
                               </td>
-                              <td style={{ padding: "4px 12px 4px 0", color: storage > 0 ? "#389e0d" : "#8c8c8c", fontWeight: storage > 0 ? 700 : 400 }}>
-                                {fmt(storage)} шт
+                              <td style={{ padding: "4px 12px 4px 0", color: (r.stock ?? 0) > 0 ? "#389e0d" : "#8c8c8c", fontWeight: (r.stock ?? 0) > 0 ? 700 : 400 }}>
+                                {fmt(r.stock ?? 0)} шт
                               </td>
                               <td style={{ padding: "4px 12px 4px 0" }}>{fmt(s.open_plan)}</td>
                               <td style={{ padding: "4px 12px 4px 0" }}>{fmt(s.done)}</td>
@@ -971,16 +1032,21 @@ export default function PfDemand() {
                                 <Space size={6} wrap>
                                   <Button
                                     size="small"
-                                    type={storage > 0 && needToMove > 0 ? "primary" : "default"}
-                                    style={storage > 0 && needToMove > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : undefined}
-                                    disabled={!canOperate || storage <= 0}
+                                    type={hasThisStock && needToMove > 0 ? "primary" : "default"}
+                                    style={hasThisStock && needToMove > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : undefined}
+                                    disabled={!canOperate || !hasThisStock}
+                                    title={hasThisStock ? `Переместить на ${areaName(s.area) ?? "участок"} (доступно ${fmt(availableForThisTask)} шт)` : "Нет доступных деталей"}
                                     onClick={() =>
                                       setTransferTarget({
                                         part_id: r.part_id,
                                         part_name: r.part_name,
-                                        storage_stock: storage,
+                                        available_stock: availableForThisTask,
+                                        storage_stock: r.storage_stock ?? 0,
+                                        area_stock: r.area_stock ?? 0,
+                                        total_stock: r.stock ?? 0,
+                                        stock_by_area: r.stock_by_area ?? {},
                                         target_area: s.area || "",
-                                        needed: needToMove > 0 ? Math.min(storage, needToMove) : storage,
+                                        needed: needToMove > 0 ? Math.min(availableForThisTask, needToMove) : availableForThisTask,
                                       })
                                     }
                                   >
@@ -988,7 +1054,7 @@ export default function PfDemand() {
                                   </Button>
                                   <Button
                                     size="small"
-                                    type={storage <= 0 || needToMove > storage ? "primary" : "default"}
+                                    type={!hasThisStock || needToMove > availableForThisTask ? "primary" : "default"}
                                     disabled={!canOperate}
                                     onClick={() =>
                                       setProduceTarget({
@@ -1125,26 +1191,36 @@ export default function PfDemand() {
                   align: "right",
                 },
                 {
-                  title: "Есть на складе ПФ (у меня)",
-                  key: "storage_stock",
+                  title: "В наличии (склад + цех)",
+                  key: "stock",
+                  width: 175,
                   render: (_, r) => {
+                    const total = r.stock ?? 0;
                     const storage = r.storage_stock ?? 0;
-                    return (
-                      <div style={{ color: storage > 0 ? "#389e0d" : "#8c8c8c", fontWeight: storage > 0 ? 700 : 400, fontSize: storage > 0 ? 14 : undefined }}>
-                        {storage > 0 ? `${fmt(storage)} шт` : "0"}
-                      </div>
-                    );
-                  },
-                  align: "right",
-                },
-                {
-                  title: "На участке цеха",
-                  render: (_, r) => {
                     const areaSt = r.area_stock ?? 0;
+                    const areasList = Object.entries(r.stock_by_area ?? {}).filter(([_, q]) => q > 0);
                     return (
-                      <span style={{ color: areaSt > 0 ? "#1890ff" : "#8c8c8c", fontWeight: areaSt > 0 ? 600 : 400 }}>
-                        {fmt(areaSt)}
-                      </span>
+                      <div>
+                        <div
+                          style={{
+                            color: total > 0 ? "#389e0d" : "#8c8c8c",
+                            fontWeight: total > 0 ? 700 : 400,
+                            fontSize: total > 0 ? 14 : undefined,
+                          }}
+                        >
+                          {total > 0 ? `${fmt(total)} шт` : "0"}
+                        </div>
+                        {total > 0 && (
+                          <div style={{ fontSize: 11, color: "#8c8c8c", lineHeight: "13px", marginTop: 2 }}>
+                            <div>склад: {fmt(storage)} · цех: {fmt(areaSt)}</div>
+                            {areasList.length > 0 && (
+                              <div style={{ fontSize: 10, color: "#1677ff", marginTop: 2 }}>
+                                {areasList.map(([a, q]) => `${areaName(a) ?? a}: ${fmt(q)}`).join(", ")}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     );
                   },
                   align: "right",
@@ -1162,12 +1238,15 @@ export default function PfDemand() {
                 {
                   title: "Статус",
                   render: (_, r) => {
-                    const storage = r.storage_stock ?? 0;
+                    const totalStock = r.stock ?? 0;
+                    const defaultTargetArea = r.target_areas?.[0] ?? "";
+                    const onTarget = defaultTargetArea && r.stock_by_area ? (r.stock_by_area[defaultTargetArea] ?? 0) : 0;
+                    const availableToMove = defaultTargetArea ? Math.max(0, totalStock - onTarget) : totalStock;
                     const needOnArea = Math.max(0, r.task_demand - (r.area_stock ?? 0));
-                    if (storage > 0 && needOnArea > 0) {
+                    if (availableToMove > 0 && needOnArea > 0) {
                       return (
                         <UiBadge color="cyan" style={{ fontWeight: 600 }}>
-                          🚚 Передать ({fmt(Math.min(storage, needOnArea))} шт)
+                          🚚 Передать ({fmt(Math.min(availableToMove, needOnArea))} шт)
                         </UiBadge>
                       );
                     }
@@ -1193,10 +1272,12 @@ export default function PfDemand() {
                   fixed: "right",
                   width: 180,
                   render: (_, r) => {
-                    const storage = r.storage_stock ?? 0;
+                    const totalStock = r.stock ?? 0;
                     const defaultTargetArea = r.target_areas?.[0] ?? "";
+                    const onTarget = defaultTargetArea && r.stock_by_area ? (r.stock_by_area[defaultTargetArea] ?? 0) : 0;
+                    const availableToMove = defaultTargetArea ? Math.max(0, totalStock - onTarget) : totalStock;
                     const needOnArea = Math.max(0, r.task_demand - (r.area_stock ?? 0));
-                    const hasStock = storage > 0;
+                    const hasStock = availableToMove > 0;
                     return (
                       <Space size={6} wrap>
                         <Button
@@ -1204,14 +1285,18 @@ export default function PfDemand() {
                           type={hasStock && needOnArea > 0 ? "primary" : "default"}
                           style={hasStock && needOnArea > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : undefined}
                           disabled={!canOperate || !hasStock}
-                          title={hasStock ? "Переместить на участок" : "Нет на складе ПФ"}
+                          title={hasStock ? `Переместить на участок (доступно ${fmt(availableToMove)} шт)` : "Нет доступных деталей"}
                           onClick={() =>
                             setTransferTarget({
                               part_id: r.part_id,
                               part_name: r.part_name,
-                              storage_stock: storage,
+                              available_stock: availableToMove,
+                              storage_stock: r.storage_stock ?? 0,
+                              area_stock: r.area_stock ?? 0,
+                              total_stock: totalStock,
+                              stock_by_area: r.stock_by_area ?? {},
                               target_area: defaultTargetArea,
-                              needed: needOnArea > 0 ? Math.min(storage, needOnArea) : storage,
+                              needed: needOnArea > 0 ? Math.min(availableToMove, needOnArea) : availableToMove,
                             })
                           }
                         >
@@ -1219,7 +1304,7 @@ export default function PfDemand() {
                         </Button>
                         <Button
                           size="small"
-                          type={!hasStock || needOnArea > storage ? "primary" : "default"}
+                          type={!hasStock || needOnArea > availableToMove ? "primary" : "default"}
                           disabled={!canOperate}
                           onClick={() =>
                             setProduceTarget({
@@ -1321,6 +1406,17 @@ function TransferModal({
 }) {
   const qc = useQueryClient();
   const [form] = Form.useForm<{ target_area: string; quantity_pieces: number; note?: string }>();
+  const currentTargetArea = Form.useWatch("target_area", form) ?? target.target_area;
+
+  // Динамически считаем доступный остаток для выбранного целевого участка:
+  // склад + все участки кроме целевого
+  const availableToMove = useMemo(() => {
+    if (!currentTargetArea) return target.total_stock;
+    const onTarget = target.stock_by_area?.[currentTargetArea] ?? 0;
+    return Math.max(0, target.total_stock - onTarget);
+  }, [currentTargetArea, target]);
+
+  const defaultQty = target.needed > 0 ? Math.min(availableToMove, target.needed) : availableToMove;
 
   const mutation = useMutation({
     mutationFn: (vals: { target_area: string; quantity_pieces: number; note?: string }) =>
@@ -1340,10 +1436,7 @@ function TransferModal({
     onError: (e) => message.error(apiErrorMessage(e, "Ошибка перемещения")),
   });
 
-  const defaultQty = Math.min(
-    target.storage_stock,
-    target.needed > 0 ? target.needed : target.storage_stock,
-  );
+  const areasWithStock = Object.entries(target.stock_by_area ?? {}).filter(([_, q]) => q > 0);
 
   return (
     <Modal
@@ -1358,29 +1451,37 @@ function TransferModal({
       footer={null}
       destroyOnHidden
     >
-      <div style={{ marginBottom: 16, padding: "8px 12px", background: "#f6ffed", border: "1px solid #b7eb8f", borderRadius: 6 }}>
+      <div style={{ marginBottom: 16, padding: "10px 14px", background: "#f6ffed", border: "1px solid #b7eb8f", borderRadius: 6 }}>
         <Typography.Text>
-          Доступно на складе ПФ: <b style={{ color: "#389e0d" }}>{fmt(target.storage_stock)} шт</b>
+          Доступно для перемещения: <b style={{ color: "#389e0d", fontSize: 15 }}>{fmt(availableToMove)} шт</b>
           {target.needed > 0 && (
             <> · Потребность участка: <b>{fmt(target.needed)} шт</b></>
           )}
         </Typography.Text>
+        <div style={{ fontSize: 12, color: "#595959", marginTop: 4 }}>
+          Склад ПФ: <b>{fmt(target.storage_stock)} шт</b> · Всего на участках: <b>{fmt(target.area_stock)} шт</b>
+          {areasWithStock.length > 0 && (
+            <div style={{ marginTop: 2 }}>
+              По участкам: {areasWithStock.map(([a, q]) => `${areaName(a) ?? a}: ${fmt(q)} шт`).join(", ")}
+            </div>
+          )}
+        </div>
       </div>
       <div style={{ marginBottom: 12 }}>
         <Space wrap size={6}>
-          {target.needed > 0 && target.needed < target.storage_stock && (
+          {target.needed > 0 && target.needed < availableToMove && (
             <Button
               size="small"
-              onClick={() => form.setFieldsValue({ quantity_pieces: Math.min(target.storage_stock, target.needed) })}
+              onClick={() => form.setFieldsValue({ quantity_pieces: Math.min(availableToMove, target.needed) })}
             >
-              Под потребность ({fmt(Math.min(target.storage_stock, target.needed))} шт)
+              Под потребность ({fmt(Math.min(availableToMove, target.needed))} шт)
             </Button>
           )}
           <Button
             size="small"
-            onClick={() => form.setFieldsValue({ quantity_pieces: target.storage_stock })}
+            onClick={() => form.setFieldsValue({ quantity_pieces: availableToMove })}
           >
-            Весь остаток ({fmt(target.storage_stock)} шт)
+            Весь остаток ({fmt(availableToMove)} шт)
           </Button>
         </Space>
       </div>
@@ -1408,15 +1509,22 @@ function TransferModal({
           label="Количество, шт"
           rules={[
             { required: true, message: "Укажите количество" },
-            { type: "number", min: 1, max: target.storage_stock, message: `От 1 до ${target.storage_stock} шт` },
+            { type: "number", min: 1, max: availableToMove, message: `От 1 до ${availableToMove} шт` },
           ]}
         >
-          <InputNumber min={1} max={target.storage_stock} style={{ width: "100%" }} />
+          <InputNumber min={1} max={availableToMove} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item name="note" label="Примечание (опционально)">
           <Input.TextArea rows={2} placeholder="Например: выдача под текущую смену" />
         </Form.Item>
-        <Button type="primary" htmlType="submit" block loading={mutation.isPending} style={{ height: 40, marginTop: 8 }}>
+        <Button
+          type="primary"
+          htmlType="submit"
+          block
+          loading={mutation.isPending}
+          disabled={availableToMove <= 0}
+          style={{ height: 40, marginTop: 8 }}
+        >
           Переместить на участок
         </Button>
       </Form>

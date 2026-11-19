@@ -73,6 +73,8 @@ def test_compute_pf_demand_stock_breakdown():
         for r in rows:
             assert hasattr(r, "storage_stock")
             assert hasattr(r, "area_stock")
+            assert hasattr(r, "stock_by_area")
+            assert isinstance(r.stock_by_area, dict)
             assert hasattr(r, "target_areas")
             assert isinstance(r.target_areas, list)
             assert r.storage_stock >= 0

@@ -75,6 +75,7 @@ class PfDemandRow:
     shortage_min: float = 0.0
     storage_stock: float = 0.0
     area_stock: float = 0.0
+    stock_by_area: dict[str, float] = field(default_factory=dict)
     target_areas: list[str] = field(default_factory=list)
 
 
@@ -359,6 +360,7 @@ def _row(st: _State, p: Part, *, sources, task_demand, stock, in_work, min_stock
         reserved=round(reserved, 2), free=round(max(0.0, total - reserved), 2), item_id=p.item_id,
         storage_stock=round(st.storage_stock.get(p.id, 0.0), 2),
         area_stock=round(st.area_stock.get(p.id, 0.0), 2),
+        stock_by_area={area: round(qty, 2) for (pid, area), qty in st.area_part_stock.items() if pid == p.id},
         target_areas=list(dict.fromkeys(s.area for s in sources if s.area)),
     )
 

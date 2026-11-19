@@ -985,14 +985,19 @@ def transfer_part_units_to_area(
     reported = reported_good_pieces_by_unit(db, [u.id for u in candidate_units])
     free = {u.id: round(float(u.quantity_pieces) - reported.get(u.id, 0.0), 2) for u in candidate_units}
     total_avail = round(sum(max(0.0, v) for v in free.values()), 2)
+    part = db.get(Part, part_id)
     if quantity_pieces > total_avail + 1e-9:
-        part = db.get(Part, part_id)
         part_name = part.name if part else f"ПФ №{part_id}"
         raise ValueError(
             f"«{part_name}»: доступно для перемещения только {total_avail:g} шт, "
             f"попытка передать на участок {quantity_pieces:g} шт. "
             f"Сначала оприходуйте (выпустите) недостающие детали."
         )
+    matching_stage = (
+        next((s for s in sorted(part.stages, key=lambda x: x.sequence_order) if s.area == target_area), None)
+        if part and part.stages
+        else None
+    )
     left, out = float(quantity_pieces), []
     for u in candidate_units:
         if left <= 1e-9:
@@ -1005,6 +1010,8 @@ def transfer_part_units_to_area(
         target.status = PartUnitStatus.VYDAN_UCHASTKU
         target.area = target_area
         target.location_code = None
+        if matching_stage:
+            target.stage_id = matching_stage.id
         if note:
             target.note = f"{target.note or ''} {note}".strip()
         record_part_event(
