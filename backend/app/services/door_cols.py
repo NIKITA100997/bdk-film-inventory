@@ -95,21 +95,41 @@ def door_cols(chars: list[dict], source: str | None = None, fallback_name: str |
     elif w and h:
         size_str = f"{w}х{h}"
     else:
-        m_s = re.search(r"(\d+(?:[.,]\d+)?\s*[хx]\s*\d+(?:\s*[хx]\s*\d+)?)", src)
-        size_str = m_s.group(1).replace(" ", "") if m_s else ""
+        # Приоритет дверных габаритов (напр. 800х2000 или 24х810х2010), исключая мелкие молдинги вроде 5х3
+        m_s = re.search(r"\b(?:(\d{1,2}(?:[.,]\d+)?)\s*[хx]\s*)?(\d{3,4}\s*[хx]\s*\d{3,4})\b", src)
+        if not m_s:
+            m_s = re.search(r"(\d+(?:[.,]\d+)?\s*[хx]\s*\d+(?:\s*[хx]\s*\d+)?)", src)
+        size_str = m_s.group(0 if m_s and m_s.lastindex is None else 0).replace(" ", "") if m_s else ""
 
     col = str(by.get("цвет") or "")
     if not col:
-        m_c = re.search(r"\((?:ПЭТ|ПВХ|Полипропилен)\s+([^,)]+)", src)
-        if not m_c:
-            m_c = re.search(r"(?:ПЭТ|ПВХ|Полипропилен)\s+([А-Яа-яA-Za-z0-9\s\-]+?)(?:,|\s+с\s+|\s+под\s+|$)", src)
-        if m_c:
-            col = m_c.group(1).strip()
+        # 1. Шаблон 1С: ' - <ЦВЕТ>'
+        m_dash = re.search(r"-\s+([А-Яа-яЁёA-Za-z0-9\s\-]+?)(?:\s*\(|\s+кромка|\s+Молдинг|\s+стекло|\s+под\s+замок|\s+с\s+молдинг|$)", src)
+        if m_dash:
+            col = m_dash.group(1).strip()
+        # 2. Шаблон по типу плёнки: (ПЭТ|ПВХ|Полипропилен) ...
+        if not col:
+            m_c = re.search(r"\((?:ПЭТ|ПВХ|Полипропилен)\s+([^,)]+)", src)
+            if not m_c:
+                m_c = re.search(r"(?:ПЭТ|ПВХ|Полипропилен)\s+([А-Яа-яЁёA-Za-z0-9\s\-]+?)(?:,|\s+с\s+|\s+под\s+|$)", src)
+            if m_c:
+                col = m_c.group(1).strip()
+        if not col and fallback_name:
+            m_fn = re.search(r"(?:ПЭТ|ПВХ|Полипропилен)\s+([А-Яа-яЁёA-Za-z0-9\s\-]+?)(?:,|\s+с\s+|\s+под\s+|$)", fallback_name)
+            if m_fn:
+                col = m_fn.group(1).strip()
+
+    # Дедупликация повторов в наименовании декора (напр. 'Белый матовый EVO Белый матовый EVO')
+    if col:
+        parts = col.split()
+        half = len(parts) // 2
+        if half > 0 and parts[:half] == parts[half:half*2]:
+            col = " ".join(parts[:half])
 
     combined_text = " ".join(filter(None, [source, fallback_name]))
     ep = edge_parts(by, combined_text)
     return {
-        "series": str(by.get("серия") or "") or (re.search(r"([А-ЯA-Z]-\d+)", src).group(1) if re.search(r"([А-ЯA-Z]-\d+)", src) else ""),
+        "series": str(by.get("серия") or "") or (re.search(r"\b([А-ЯA-Z]-\d+(?:\.\d+)?)\b", src).group(1) if re.search(r"\b([А-ЯA-Z]-\d+(?:\.\d+)?)\b", src) else ""),
         "size": size_str,
         "color": col,
         "source": src,

@@ -292,6 +292,22 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
             )
         )
 
+        row_size = dc.get("size", "")
+        if not row_size:
+            m_sz = re.search(r"(\d+(?:[.,]\d+)?\s*[хx]\s*\d+(?:\s*[хx]\s*\d+)?)", position)
+            if m_sz:
+                row_size = m_sz.group(1).replace(" ", "")
+            elif getattr(ln, "width_mm", None) and getattr(ln, "length_m", None) and float(ln.length_m) > 0:
+                row_size = f"{int(ln.width_mm)}х{int(float(ln.length_m) * 1000)}"
+
+        row_color = dc.get("color", "")
+        if not row_color:
+            row_color = cols.get(ln.color_id, "") or ""
+            if not row_color:
+                m_c = re.search(r"\((?:ПЭТ|ПВХ|Полипропилен)?\s*([А-Яа-яЁёA-Za-z0-9\s\-]+?)(?:,|\))", position)
+                if m_c:
+                    row_color = m_c.group(1).strip()
+
         rows.append(
             MonitorRow(
                 task_line_id=ln.id, task_id=t.id, area=t.area, order_id=t.production_order_id,
@@ -303,7 +319,7 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
                 group=grp[1] if grp else None,
                 order_line_id=ol.id if ol else None, line_qty=float(ol.quantity) if ol else None,
                 series=dc.get("series", "") or ", ".join(sorted({src["series"] for src in source_orders if src["series"]})),
-                size=dc.get("size", ""), color=dc.get("color", ""), source=dc.get("source", ""),
+                size=row_size, color=row_color, source=dc.get("source", "") or position,
                 source_orders=source_orders,
                 source_missing=bool(ln.part_id and t.production_order_id and not source_orders),
                 operation=op_name,
