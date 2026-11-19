@@ -10,7 +10,7 @@ import { UiBadge } from "../../../../components/UiBadge";
 import QuickReport from "./QuickReport";
 import { buildLines } from "./OrdersView";
 import { computeFlow, opIncludes } from "./flow";
-import OrdersInShopView from "./OrdersInShopView";
+import OrdersInShopView, { formatSourceModels } from "./OrdersInShopView";
 import { OrderModal } from "../ProductionOrders";
 import ScheduleImportModal from "../ScheduleImportModal";
 import PrintTasksModal, { type PrintableTask } from "../PrintTasksModal";
@@ -38,6 +38,7 @@ export default function AreasView({
   hideDone,
   onOpenTask,
   onOpenOrder,
+  filterBar,
 }: {
   rows: MonitorRow[];
   orders: MonitorOrder[];
@@ -47,6 +48,7 @@ export default function AreasView({
   hideDone: boolean;
   onOpenTask: (id: number) => void;
   onOpenOrder?: (id: number) => void;
+  filterBar?: React.ReactNode;
 }) {
   const { token } = theme.useToken();
   const { user } = useAuth();
@@ -78,6 +80,7 @@ export default function AreasView({
   const stats = useMemo(() => {
     const m = new Map<string, { plan: number; done: number; left: number; open: number; quick: boolean }>();
     for (const r of rows) {
+      if (hideDone && leftOf(r) <= 0) continue;
       const s = m.get(r.area) ?? { plan: 0, done: 0, left: 0, open: 0, quick: false };
       s.plan += r.plan;
       s.done += doneOf(r);
@@ -87,16 +90,17 @@ export default function AreasView({
       m.set(r.area, s);
     }
     return m;
-  }, [rows]);
+  }, [rows, hideDone]);
 
   // Число уникальных заказов в текущих строках
   const uniqueOrderIds = useMemo(() => {
     const set = new Set<number>();
     for (const r of rows) {
+      if (hideDone && leftOf(r) <= 0) continue;
       if (r.order_id != null) set.add(r.order_id);
     }
     return Array.from(set);
-  }, [rows]);
+  }, [rows, hideDone]);
 
   // поток: по участку двери — готово к передаче / в работе
   const flowByArea = useMemo(() => {
@@ -206,6 +210,7 @@ export default function AreasView({
           onOpenTask={onOpenTask}
           onOpenOrder={onOpenOrder}
           onPrintTasks={setPrintOrderTasks}
+          filterBar={filterBar}
         />
       ) : !used.length ? (
         <Empty description="Открытых заданий нет" />
@@ -276,6 +281,8 @@ export default function AreasView({
               </div>
             </div>
           ))}
+          {/* Фильтры и поиск прямо над таблицей участка */}
+          {filterBar}
           <GroupedTable<MonitorRow>
             key={cur}
             storageKey="monitor.area"
@@ -315,6 +322,24 @@ export default function AreasView({
                       <Tooltip title={r.source}>
                         <div style={{ fontSize: 11, color: "#8c8c8c", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {r.source}
+                        </div>
+                      </Tooltip>
+                    )}
+                    {r.source_orders && r.source_orders.length > 0 && r.part_id != null && (
+                      <Tooltip
+                        title={
+                          <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                            <div style={{ fontWeight: 600, marginBottom: 4 }}>Состав по моделям и счетам:</div>
+                            {r.source_orders.map((s) => (
+                              <div key={s.order_line_id}>
+                                • {s.invoice_no ? `Счёт ${s.invoice_no}: ` : ""}{s.series || s.item_name || "Модель"} — <b>{r2(s.quantity_pieces)} шт</b>
+                              </div>
+                            ))}
+                          </div>
+                        }
+                      >
+                        <div style={{ fontSize: 11, color: token.colorPrimary, marginTop: 2, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <b>Модели:</b> {formatSourceModels(r.source_orders)}
                         </div>
                       </Tooltip>
                     )}

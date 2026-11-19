@@ -144,12 +144,14 @@ export default function PrepView({
   areas,
   hideDone,
   onOpenTask,
+  filterBar,
 }: {
   rows: MonitorRow[];
   orders: MonitorOrder[];
   areas: MonitorArea[];
   hideDone: boolean;
   onOpenTask: (id: number) => void;
+  filterBar?: React.ReactNode;
 }) {
   const { lines, ops, colorsOf } = useMemo(() => {
     const areaName = new Map(areas.map((a) => [a.code, a.name]));
@@ -475,6 +477,7 @@ export default function PrepView({
         </Typography.Text>
       )}
 
+      {filterBar}
       <GroupedTable<LineRec>
         storageKey="monitor.prep"
         dims={[

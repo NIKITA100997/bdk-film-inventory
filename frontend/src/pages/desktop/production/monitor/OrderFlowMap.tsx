@@ -96,13 +96,17 @@ export default function OrderFlowMap({
     const millDone = millRows.reduce((s, r) => s + (r.closed ? r.plan : Math.min(r.good, r.plan)), 0);
 
     // 3. Комплекты П/Ф под щитовые двери
+    // Готовность панелей считаем строго по финальному этапу: если есть фрезеровка — по ней, иначе по ламинации
+    const finalPanelsPlan = millRows.length > 0 ? millRows.reduce((s, r) => s + r.plan, 0) : lamRows.length > 0 ? lamRows.reduce((s, r) => s + r.plan, 0) : pPlan;
+    const finalPanelsDone = millRows.length > 0 ? millDone : lamRows.length > 0 ? lamDone : pDone;
+
     const setsPlan = Math.min(
       fPlan > 0 ? fPlan : Infinity,
-      pPlan > 0 ? Math.floor(pPlan / 2) : Infinity,
+      finalPanelsPlan > 0 ? Math.floor(finalPanelsPlan / 2) : Infinity,
     );
     const setsReady = Math.min(
       fPlan > 0 ? fDone : Infinity,
-      pPlan > 0 ? Math.floor(pDone / 2) : Infinity,
+      finalPanelsPlan > 0 ? Math.floor(finalPanelsDone / 2) : Infinity,
     );
 
     // 4. Дверные операции маршрута (Склейка -> Форматка -> Кромка -> ...)

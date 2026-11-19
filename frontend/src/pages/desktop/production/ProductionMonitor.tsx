@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Checkbox, DatePicker, Input, Radio, Segmented, Select, Space, Tooltip } from "antd";
+import { Button, Card, Segmented, Space, Tooltip } from "antd";
 import { DownloadOutlined, FullscreenExitOutlined, FullscreenOutlined, PrinterOutlined, ReloadOutlined } from "@ant-design/icons";
 import PrintTasksModal, { type PrintableTask } from "./PrintTasksModal";
 import { useQuery } from "@tanstack/react-query";
@@ -15,6 +15,7 @@ import { hasPerm } from "../../../auth/permissions";
 import OrdersView, { buildLines } from "./monitor/OrdersView";
 import AreasView from "./monitor/AreasView";
 import PrepView from "./monitor/PrepView";
+import MonitorFilterBar, { type StatusFilter } from "./monitor/MonitorFilterBar";
 import TaskCardDrawer from "./TaskCardDrawer";
 import OrderCardModal from "./OrderCardModal";
 
@@ -24,7 +25,6 @@ const productOf = (r: MonitorRow) => (r.direction && (PRODUCTS as readonly strin
 const productLabel = (p: string) => (p === "other" ? "Прочее" : DIRECTIONS[p] ?? p);
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е");
 type View = "orders" | "areas" | "prep";
-type StatusFilter = "all" | "in_work" | "urgent" | "deficit";
 
 export default function ProductionMonitor() {
   useTabTitle("Монитор производства");
@@ -273,7 +273,7 @@ export default function ProductionMonitor() {
   return (
     <div style={containerStyle}>
       <Space orientation="vertical" size="small" style={{ width: "100%" }}>
-        {/* Панель фильтров и управления */}
+        {/* Компактная панель режимов и глобальных действий */}
         <Card size="small" bodyStyle={{ padding: "8px 12px" }}>
           <Space wrap size={[10, 8]} style={{ width: "100%", justifyContent: "space-between" }}>
             <Space wrap size={[10, 8]}>
@@ -303,64 +303,6 @@ export default function ProductionMonitor() {
                   ]}
                 />
               )}
-
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="Фильтр по заказам"
-                style={{ minWidth: 190, maxWidth: 300 }}
-                value={orderIds}
-                onChange={setOrderIds}
-                optionFilterProp="label"
-                maxTagCount="responsive"
-                options={orderOptions}
-              />
-
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="Изделие / Серия"
-                style={{ minWidth: 190, maxWidth: 300 }}
-                value={selectedSeries}
-                onChange={setSelectedSeries}
-                optionFilterProp="label"
-                maxTagCount="responsive"
-                options={itemOrSeriesOptions}
-              />
-
-              <DatePicker.RangePicker
-                placeholder={["Отгрузка с", "по"]}
-                format="DD.MM"
-                value={dateRange}
-                onChange={(dates) => setDateRange(dates as [dayjs.Dayjs | null, dayjs.Dayjs | null] | null)}
-                style={{ width: 190 }}
-                allowClear
-              />
-
-              <Input.Search
-                allowClear
-                placeholder="Счёт, клиент, серия, цвет..."
-                style={{ width: 220 }}
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-
-              <Radio.Group
-                size="small"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                optionType="button"
-                buttonStyle="solid"
-              >
-                <Radio.Button value="all">Все</Radio.Button>
-                <Radio.Button value="in_work">В работе</Radio.Button>
-                <Radio.Button value="urgent">🔥 Горящие (≤2 дн)</Radio.Button>
-                <Radio.Button value="deficit">Дефицит плёнки</Radio.Button>
-              </Radio.Group>
-
-              <Checkbox checked={showDone} onChange={(e) => setShowDone(e.target.checked)}>
-                показывать готовые
-              </Checkbox>
             </Space>
 
             <Space size={6} wrap>
@@ -396,26 +338,72 @@ export default function ProductionMonitor() {
           </Space>
         </Card>
 
-        {/* Тело монитора */}
-        {!data ? null : view === "prep" ? (
-          <PrepView rows={rows} orders={data.orders} areas={data.areas} hideDone={!showDone} onOpenTask={setTaskId} />
-        ) : view === "orders" ? (
-          <OrdersView rows={rows} orders={data.orders} areas={data.areas} hideDone={!showDone} onOpenTask={setTaskId} />
-        ) : (
-          <AreasView
-            rows={rows}
-            orders={data.orders}
-            areas={data.areas}
-            area={area ?? undefined}
-            onArea={(code) => {
-              setSavedArea(code);
-              set({ area: code });
-            }}
-            hideDone={!showDone}
-            onOpenTask={setTaskId}
-            onOpenOrder={setOrderCardId}
-          />
-        )}
+        {/* Фильтры и поиск — отображаются прямо над таблицами монитора */}
+        {(() => {
+          const filterBarNode = (
+            <MonitorFilterBar
+              q={q}
+              onSearchChange={setQ}
+              statusFilter={statusFilter as StatusFilter}
+              onStatusFilterChange={setStatusFilter}
+              showDone={showDone}
+              onShowDoneChange={setShowDone}
+              orderIds={orderIds}
+              onOrderIdsChange={setOrderIds}
+              orderOptions={orderOptions}
+              selectedSeries={selectedSeries}
+              onSelectedSeriesChange={setSelectedSeries}
+              itemOrSeriesOptions={itemOrSeriesOptions}
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
+            />
+          );
+
+          if (!data) return null;
+
+          if (view === "prep") {
+            return (
+              <PrepView
+                rows={rows}
+                orders={data.orders}
+                areas={data.areas}
+                hideDone={!showDone}
+                onOpenTask={setTaskId}
+                filterBar={filterBarNode}
+              />
+            );
+          }
+
+          if (view === "orders") {
+            return (
+              <OrdersView
+                rows={rows}
+                orders={data.orders}
+                areas={data.areas}
+                hideDone={!showDone}
+                onOpenTask={setTaskId}
+                filterBar={filterBarNode}
+              />
+            );
+          }
+
+          return (
+            <AreasView
+              rows={rows}
+              orders={data.orders}
+              areas={data.areas}
+              area={area ?? undefined}
+              onArea={(code) => {
+                setSavedArea(code);
+                set({ area: code });
+              }}
+              hideDone={!showDone}
+              onOpenTask={setTaskId}
+              onOpenOrder={setOrderCardId}
+              filterBar={filterBarNode}
+            />
+          );
+        })()}
 
         {/* Просторная карточка задания для начальника производства */}
         <TaskCardDrawer

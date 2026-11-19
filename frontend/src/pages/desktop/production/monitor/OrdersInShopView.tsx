@@ -54,6 +54,7 @@ export interface OrdersInShopViewProps {
   onOpenTask: (taskId: number) => void;
   onOpenOrder?: (orderId: number) => void;
   onPrintTasks?: (spec: { tasks: PrintableTask[]; title: string }) => void;
+  filterBar?: React.ReactNode;
 }
 
 interface TaskStageCategory {
@@ -78,9 +79,10 @@ function getTaskCategory(r: MonitorRow): TaskStageCategory {
   if (isPf) {
     let sub = 25;
     if (op.includes("распил") || op.includes("раскрой")) sub = 21;
-    else if (op.includes("фрезер")) sub = 22;
-    else if (op.includes("шлиф")) sub = 23;
-    else if (op.includes("прес") || op.includes("мвп") || op.includes("окут")) sub = 24;
+    else if (op.includes("шлиф")) sub = 22;
+    else if (area === "frezerovka_laminirovannykh_paneley" || (op.includes("фрезер") && op.includes("ламин"))) sub = 25; // фрезеровка ламинированных панелей ПОСЛЕ фабрики
+    else if (op.includes("фрезер")) sub = 23; // фрезеровка до пленки (МВ-прессы)
+    else if (op.includes("прес") || op.includes("мвп") || op.includes("окут") || area === "fabrika" || op.includes("ламинац")) sub = 24; // ламинация / фабрика
     return { seq: sub, label: "Панель", tagColor: "volcano" };
   }
   // 3. Сборка полотна: Склейка / опрессовка
@@ -105,6 +107,21 @@ function getTaskCategory(r: MonitorRow): TaskStageCategory {
     return { seq: 70, label: "Погонаж", tagColor: "gold" };
   }
   return { seq: 80, label: "Полотно", tagColor: "default" };
+}
+
+export function formatSourceModels(sources?: MonitorRow["source_orders"]) {
+  if (!sources || sources.length === 0) return null;
+  const modelQty = new Map<string, number>();
+  for (const s of sources) {
+    let name = s.series;
+    if (!name && s.item_name) {
+      const match = s.item_name.match(/Дверь\s+щитовая\s+([А-Яа-яA-Za-z0-9\-]+)/i);
+      name = match ? match[1] : s.item_name;
+    }
+    name = name || "Модель";
+    modelQty.set(name, (modelQty.get(name) ?? 0) + s.quantity_pieces);
+  }
+  return Array.from(modelQty.entries()).map(([m, qty]) => `${m} (${r2(qty)})`).join(", ");
 }
 
 /** Детальная внутренняя панель заказа: технологические задания цеха и спецификация позиций */
@@ -239,21 +256,42 @@ function ExpandedOrderTasks({
                   },
                   {
                     title: "Позиция / Деталь",
-                    width: 190,
-                    render: (_, r) => (
-                      <div style={{ maxWidth: 185 }}>
-                        <Tooltip title={posOf(r)}>
-                          <div style={{ fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {posOf(r)}
-                          </div>
-                        </Tooltip>
-                        {r.film_deficit_m != null && r.film_deficit_m > 0 && (
-                          <Tag color="error" style={{ fontSize: 10, padding: "0 4px", lineHeight: "16px", marginTop: 2 }}>
-                            дефицит -{r2(r.film_deficit_m)} м
-                          </Tag>
-                        )}
-                      </div>
-                    ),
+                    width: 220,
+                    render: (_, r) => {
+                      const modelsText = formatSourceModels(r.source_orders);
+                      return (
+                        <div style={{ maxWidth: 215 }}>
+                          <Tooltip title={posOf(r)}>
+                            <div style={{ fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {posOf(r)}
+                            </div>
+                          </Tooltip>
+                          {modelsText && r.part_id != null && (
+                            <Tooltip
+                              title={
+                                <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Состав по моделям и счетам:</div>
+                                  {r.source_orders?.map((s) => (
+                                    <div key={s.order_line_id}>
+                                      • {s.invoice_no ? `Счёт ${s.invoice_no}: ` : ""}{s.series || s.item_name || "Модель"} — <b>{r2(s.quantity_pieces)} шт</b>
+                                    </div>
+                                  ))}
+                                </div>
+                              }
+                            >
+                              <div style={{ fontSize: 11, color: token.colorPrimary, marginTop: 2, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                <b>Модели:</b> {modelsText}
+                              </div>
+                            </Tooltip>
+                          )}
+                          {r.film_deficit_m != null && r.film_deficit_m > 0 && (
+                            <Tag color="error" style={{ fontSize: 10, padding: "0 4px", lineHeight: "16px", marginTop: 2 }}>
+                              дефицит -{r2(r.film_deficit_m)} м
+                            </Tag>
+                          )}
+                        </div>
+                      );
+                    },
                   },
                   {
                     title: "План",
@@ -411,6 +449,7 @@ export default function OrdersInShopView({
   onOpenTask,
   onOpenOrder,
   onPrintTasks,
+  filterBar,
 }: OrdersInShopViewProps) {
   const { token } = theme.useToken();
   const navigate = useNavigate();
@@ -431,7 +470,7 @@ export default function OrdersInShopView({
     return m;
   }, [lines]);
 
-  const ordersList: OrderInShopSummary[] = useMemo(() => {
+  const { allOrders, displayedOrders } = useMemo(() => {
     // Группируем строки монитора по order_id
     const rowsByOrder = new Map<number, MonitorRow[]>();
     for (const r of rows) {
@@ -462,10 +501,6 @@ export default function OrdersInShopView({
         totalPlan = orderRows.reduce((s, r) => s + r.plan, 0);
         totalDone = orderRows.reduce((s, r) => s + doneOf(r), 0);
         totalLeft = orderRows.reduce((s, r) => s + leftOf(r), 0);
-      }
-
-      if (hideDone && totalLeft <= 0) {
-        continue;
       }
 
       // Сроки
@@ -521,16 +556,36 @@ export default function OrdersInShopView({
         (r) => r.part_id != null && !/каркас/i.test(r.position) && r.area !== "uchastok_sborki_karkasov" && !(r.operation || "").toLowerCase().includes("каркас"),
       );
       if (panelRows.length > 0) {
-        const plan = panelRows.reduce((s, r) => s + r.plan, 0);
-        const done = panelRows.reduce((s, r) => s + doneOf(r), 0);
+        // Разделяем переделы: ламинация vs фрезеровка ламинированных панелей
+        const millRows = panelRows.filter((r) => r.area === "frezerovka_laminirovannykh_paneley" || (r.operation || "").toLowerCase().includes("фрезер"));
+        const lamRows = panelRows.filter((r) => r.area === "fabrika" || r.area === "uchastok_membranno_vakuumnykh_pressov" || /ламинац|окутк/i.test(r.operation || ""));
+
+        // Финальным этапом является фрезеровка (если в заказе есть задания фрезеровки ламин. панелей), иначе ламинация
+        const finalRows = millRows.length > 0 ? millRows : lamRows.length > 0 ? lamRows : panelRows;
+        const plan = finalRows.reduce((s, r) => s + r.plan, 0);
+        const done = finalRows.reduce((s, r) => s + doneOf(r), 0);
         const left = Math.max(0, plan - done);
         const isDone = left <= 0;
+
+        let badgeText = `🪵 Панели: ${r2(done)}/${r2(plan)}`;
+        if (isDone) {
+          badgeText = `🪵 Панели: ${r2(done)} ✔`;
+        } else if (millRows.length > 0 && lamRows.length > 0) {
+          const lamDone = lamRows.reduce((s, r) => s + doneOf(r), 0);
+          const lamPlan = lamRows.reduce((s, r) => s + r.plan, 0);
+          const millDone = millRows.reduce((s, r) => s + doneOf(r), 0);
+          const millPlan = millRows.reduce((s, r) => s + r.plan, 0);
+          badgeText = `🪵 Панели: Лам ${r2(lamDone)}/${r2(lamPlan)}${lamDone >= lamPlan ? " ✔" : ""} · Фрез ${r2(millDone)}/${r2(millPlan)}`;
+        }
+
         milestones.push({
           key: "panels",
           label: "Панели",
-          badge: isDone ? `🪵 Панели: ${r2(done)} ✔` : `🪵 Панели: ${r2(done)}/${r2(plan)}`,
+          badge: badgeText,
           status: isDone ? "done" : done > 0 ? "in_work" : "pending",
-          tooltip: `Панели (скины/МДФ): план ${r2(plan)}, сдано ${r2(done)}, осталось ${r2(left)} шт`,
+          tooltip: millRows.length > 0
+            ? `Панели: ламинация сдана ${r2(lamRows.reduce((s, r) => s + doneOf(r), 0))} шт, фрезеровка ${r2(done)} из ${r2(plan)} шт (осталось ${r2(left)} шт)`
+            : `Панели (скины/МДФ): план ${r2(plan)}, сдано ${r2(done)}, осталось ${r2(left)} шт`,
         });
       }
 
@@ -664,24 +719,42 @@ export default function OrdersInShopView({
     }
 
     // Сортировка: сначала те, у которых отгрузка ближе (просроченные -> срочные -> остальные)
-    return result.sort((a, b) => {
+    const sorted = result.sort((a, b) => {
       if (a.daysLeft != null && b.daysLeft != null) return a.daysLeft - b.daysLeft;
       if (a.daysLeft != null) return -1;
       if (b.daysLeft != null) return 1;
       return b.orderId - a.orderId;
     });
+
+    const displayed = hideDone ? sorted.filter((o) => o.totalLeft > 0) : sorted;
+    return { allOrders: sorted, displayedOrders: displayed };
   }, [rows, lines, orders, hideDone, orderMap]);
 
-  // Сводные метрики
+  // Сводные метрики цеха строго по актуальным данным на экране
   const metrics = useMemo(() => {
-    const totalOrders = ordersList.length;
-    const urgentOrders = ordersList.filter((o) => o.daysLeft != null && o.daysLeft <= 2 && o.totalLeft > 0).length;
-    const deficitOrders = ordersList.filter((o) => o.hasDeficit).length;
-    const readyOrders = ordersList.filter((o) => o.totalLeft <= 0 && o.totalPlan > 0).length;
-    const totalPiecesPlan = ordersList.reduce((s, o) => s + o.totalPlan, 0);
-    const totalPiecesDone = ordersList.reduce((s, o) => s + o.totalDone, 0);
-    return { totalOrders, urgentOrders, deficitOrders, readyOrders, totalPiecesPlan, totalPiecesDone };
-  }, [ordersList]);
+    // В работе — строго те, где остался физический остаток производства
+    const inWorkOrders = allOrders.filter((o) => o.totalLeft > 0);
+    // Готовы — заказы, где всё сдано и остаток равен 0
+    const readyOrders = allOrders.filter((o) => o.totalLeft <= 0 && o.totalPlan > 0);
+
+    const urgentOrders = inWorkOrders.filter((o) => o.daysLeft != null && o.daysLeft <= 2);
+    const deficitOrders = inWorkOrders.filter((o) => o.hasDeficit);
+
+    const inWorkPlan = inWorkOrders.reduce((s, o) => s + o.totalPlan, 0);
+    const inWorkDone = inWorkOrders.reduce((s, o) => s + o.totalDone, 0);
+    const inWorkLeft = inWorkOrders.reduce((s, o) => s + o.totalLeft, 0);
+
+    return {
+      inWorkCount: inWorkOrders.length,
+      urgentCount: urgentOrders.length,
+      deficitCount: deficitOrders.length,
+      readyCount: readyOrders.length,
+      inWorkPlan,
+      inWorkDone,
+      inWorkLeft,
+      displayedCount: displayedOrders.length,
+    };
+  }, [allOrders, displayedOrders]);
 
   // Открытие модалки печати нарядов по конкретному заказу
   const handlePrintOrder = (order: OrderInShopSummary) => {
@@ -702,23 +775,19 @@ export default function OrdersInShopView({
     });
   };
 
-  if (!ordersList.length) {
-    return <Empty description="Активных заказов в цехе нет или всё отфильтровано" style={{ padding: "40px 0" }} />;
-  }
-
   return (
     <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-      {/* Метрики цеха */}
+      {/* 1. Метрики цеха */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
         <Card size="small" bodyStyle={{ padding: "10px 14px" }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             Заказов в работе
           </Typography.Text>
           <div style={{ fontSize: 20, fontWeight: 700, color: token.colorPrimary }}>
-            {metrics.totalOrders}
+            {metrics.inWorkCount}
           </div>
           <div style={{ fontSize: 11, color: token.colorTextSecondary }}>
-            Готово: {metrics.totalPiecesDone} из {metrics.totalPiecesPlan} шт
+            Осталось {r2(metrics.inWorkLeft)} из {r2(metrics.inWorkPlan)} шт
           </div>
         </Card>
 
@@ -726,11 +795,11 @@ export default function OrdersInShopView({
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             Срочные (≤ 2 дней)
           </Typography.Text>
-          <div style={{ fontSize: 20, fontWeight: 700, color: metrics.urgentOrders > 0 ? token.colorError : token.colorText }}>
-            {metrics.urgentOrders}
+          <div style={{ fontSize: 20, fontWeight: 700, color: metrics.urgentCount > 0 ? token.colorError : token.colorText }}>
+            {metrics.urgentCount}
           </div>
           <div style={{ fontSize: 11, color: token.colorTextSecondary }}>
-            {metrics.urgentOrders > 0 ? "Требуют первоочередного внимания" : "Все в графике"}
+            {metrics.urgentCount > 0 ? "Требуют первоочередного внимания" : "Все в графике"}
           </div>
         </Card>
 
@@ -738,11 +807,11 @@ export default function OrdersInShopView({
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             Дефицит плёнки
           </Typography.Text>
-          <div style={{ fontSize: 20, fontWeight: 700, color: metrics.deficitOrders > 0 ? token.colorError : token.colorSuccess }}>
-            {metrics.deficitOrders}
+          <div style={{ fontSize: 20, fontWeight: 700, color: metrics.deficitCount > 0 ? token.colorError : token.colorSuccess }}>
+            {metrics.deficitCount}
           </div>
           <div style={{ fontSize: 11, color: token.colorTextSecondary }}>
-            {metrics.deficitOrders > 0 ? "Нужно дорезать или выдать со склада" : "Плёнка обеспечена"}
+            {metrics.deficitCount > 0 ? "Нужно дорезать или выдать со склада" : "Плёнка обеспечена"}
           </div>
         </Card>
 
@@ -751,20 +820,28 @@ export default function OrdersInShopView({
             Готовы к отгрузке
           </Typography.Text>
           <div style={{ fontSize: 20, fontWeight: 700, color: token.colorSuccess }}>
-            {metrics.readyOrders}
+            {metrics.readyCount}
           </div>
           <div style={{ fontSize: 11, color: token.colorTextSecondary }}>
-            Прошли все технологические этапы
+            {hideDone
+              ? (metrics.readyCount > 0 ? `${metrics.readyCount} скр. (вкл. «показывать готовые»)` : "Все заказы в работе")
+              : "Отображаются в таблице ниже"}
           </div>
         </Card>
       </div>
 
-      {/* Таблица заказов в цехе */}
-      <ResponsiveTable<OrderInShopSummary>
-        tableKey="monitor-orders-shop"
-        size="small"
-        rowKey="orderId"
-        dataSource={ordersList}
+      {/* 2. Фильтры и поиск — непосредственно над таблицей */}
+      {filterBar}
+
+      {/* 3. Таблица заказов в цехе */}
+      {!displayedOrders.length ? (
+        <Empty description="Активных заказов в цехе нет или всё отфильтровано" style={{ padding: "30px 0" }} />
+      ) : (
+        <ResponsiveTable<OrderInShopSummary>
+          tableKey="monitor-orders-shop"
+          size="small"
+          rowKey="orderId"
+          dataSource={displayedOrders}
         pagination={{ pageSize: 20 }}
         scroll={{ x: 930 }}
         expandable={{
@@ -990,6 +1067,7 @@ export default function OrdersInShopView({
           },
         ]}
       />
+      )}
     </Space>
   );
 }

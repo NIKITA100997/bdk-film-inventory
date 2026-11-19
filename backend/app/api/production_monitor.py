@@ -49,6 +49,7 @@ class MonitorSource(BaseModel):
     invoice_no: str | None
     series: str
     quantity_pieces: float
+    item_name: str | None = None
 
 
 class MonitorRow(BaseModel):
@@ -207,7 +208,8 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
             source_orders.append({
                 "order_line_id": source_ol.id,
                 "invoice_no": source_ol.invoice_no,
-                "series": source_cols.get("series", ""),
+                "series": source_cols.get("series", "") or (source_item.name if source_item else ""),
+                "item_name": source_item.name if source_item else None,
                 "quantity_pieces": round(source_qty, 2),
             })
         part = parts.get(ln.part_id) if ln.part_id else None

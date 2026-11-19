@@ -357,12 +357,14 @@ export default function OrdersView({
   areas,
   hideDone,
   onOpenTask,
+  filterBar,
 }: {
   rows: MonitorRow[];
   orders: MonitorOrder[];
   areas: MonitorArea[];
   hideDone: boolean;
   onOpenTask: (id: number) => void;
+  filterBar?: React.ReactNode;
 }) {
   const { lines, ops } = useMemo(() => buildLines(rows, orders, areas), [rows, orders, areas]);
   const flow = useMemo(() => computeFlow(lines, ops), [lines, ops]);
@@ -545,6 +547,7 @@ export default function OrdersView({
           </Button>
         </Typography.Text>
       )}
+      {filterBar}
       <GroupedTable<LineRec>
         storageKey="monitor.orders"
         dims={[
