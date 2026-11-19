@@ -28,7 +28,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
 import { useAuth } from "../../../auth/AuthContext";
 import { listAreas } from "../../../api/areas";
-import { listParts } from "../../../api/dictionaries";
+import { listParts, updatePart } from "../../../api/dictionaries";
 import { setNormatives } from "../../../api/items";
 import {
   createPfTasks,
@@ -91,6 +91,7 @@ export default function PfDemand() {
 
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [showAllCatalog, setShowAllCatalog] = useState(false);
+  const [onlyTasks, setOnlyTasks] = useState(false);
   const [onlyMine, setOnlyMine] = useState(false);
   const [horizon, setHorizon] = useState<Horizon>("all");
   const [viewMode, setViewMode] = useState<"parts" | "tasks">("parts");
@@ -124,13 +125,15 @@ export default function PfDemand() {
   // Сводные счетчики для панели фильтров
   const stats = useMemo(() => {
     const all = demandQuery.data ?? [];
+    const tasksCount = all.filter((r) => r.task_demand > 0).length;
+    const minStockCount = all.filter((r) => (r.min_stock ?? 0) > 0).length;
     const areaShortageCount = all.filter((r) => r.task_demand > (r.area_stock ?? 0)).length;
     const readyTransferCount = all.filter(
       (r) => (r.storage_stock ?? 0) > 0 && (r.task_demand > (r.area_stock ?? 0) || (r.shortage_tasks ?? 0) > 0),
     ).length;
     const shortageCount = all.filter((r) => r.shortage > 0).length;
     const inWorkCount = all.filter((r) => r.in_work > 0).length;
-    return { total: all.length, areaShortageCount, readyTransferCount, shortageCount, inWorkCount };
+    return { total: all.length, tasksCount, minStockCount, areaShortageCount, readyTransferCount, shortageCount, inWorkCount };
   }, [demandQuery.data]);
 
   const rows = useMemo(
@@ -148,6 +151,7 @@ export default function PfDemand() {
               (r.min_stock ?? 0) > 0
             );
           })
+          .filter((r) => !onlyTasks || r.task_demand > 0)
           .filter((r) => {
             if (filterStatus === "all") return true;
             if (filterStatus === "ready_transfer") {
@@ -424,6 +428,9 @@ export default function PfDemand() {
           )}
           <Checkbox checked={showAllCatalog} onChange={(e) => setShowAllCatalog(e.target.checked)}>
             Весь справочник
+          </Checkbox>
+          <Checkbox checked={onlyTasks} onChange={(e) => setOnlyTasks(e.target.checked)}>
+            Только по заданиям ({stats.tasksCount})
           </Checkbox>
           {user?.area && (
             <Checkbox checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)}>
@@ -758,10 +765,50 @@ export default function PfDemand() {
                         </Space>
                       )}
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
-                        <div><Typography.Text type="secondary">Потребность цеха</Typography.Text><div><Typography.Text strong>{fmt(r.task_demand)} шт</Typography.Text></div></div>
-                        <div><Typography.Text type="secondary">Дефицит на участке</Typography.Text><div>{areaDeficit > 0 ? <UiBadge color="red">−{fmt(areaDeficit)} шт</UiBadge> : <UiBadge color="green">Нет</UiBadge>}</div></div>
-                        <div><Typography.Text type="secondary">Остаток на складе ПФ</Typography.Text><div><Typography.Text strong style={{ color: storage > 0 ? "#389e0d" : undefined }}>{fmt(storage)} шт</Typography.Text></div></div>
-                        <div><Typography.Text type="secondary">На участках</Typography.Text><div>{fmt(areaStock)} шт</div></div>
+                        <div>
+                          <Typography.Text type="secondary">Мин. остаток</Typography.Text>
+                          <div>
+                            {r.min_stock != null ? (
+                              <b>{fmt(r.min_stock)} шт</b>
+                            ) : (
+                              <span style={{ color: "#8c8c8c" }}>—</span>
+                            )}
+                            {canManage && (
+                              <Button
+                                size="small"
+                                type="link"
+                                onClick={() => setEditTarget(r)}
+                                style={{ padding: "0 0 0 6px", fontSize: 12 }}
+                              >
+                                ред.
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <Typography.Text type="secondary">По заданиям (цех)</Typography.Text>
+                          <div><Typography.Text strong>{fmt(r.task_demand)} шт</Typography.Text></div>
+                        </div>
+                        <div>
+                          <Typography.Text type="secondary">С учетом мин. остатка</Typography.Text>
+                          <div>
+                            <Typography.Text strong style={{ color: (r.min_stock ?? 0) > 0 ? "#1677ff" : undefined }}>
+                              {fmt(r.need)} шт
+                            </Typography.Text>
+                          </div>
+                        </div>
+                        <div>
+                          <Typography.Text type="secondary">Дефицит на участке</Typography.Text>
+                          <div>{areaDeficit > 0 ? <UiBadge color="red">−{fmt(areaDeficit)} шт</UiBadge> : <UiBadge color="green">Нет</UiBadge>}</div>
+                        </div>
+                        <div>
+                          <Typography.Text type="secondary">Остаток на складе ПФ</Typography.Text>
+                          <div><Typography.Text strong style={{ color: storage > 0 ? "#389e0d" : undefined }}>{fmt(storage)} шт</Typography.Text></div>
+                        </div>
+                        <div>
+                          <Typography.Text type="secondary">На участках</Typography.Text>
+                          <div>{fmt(areaStock)} шт</div>
+                        </div>
                       </div>
                       <Space wrap size={[8, 8]}>
                         <Button
@@ -846,7 +893,7 @@ export default function PfDemand() {
               key={key}
               tableKey="pf-demand"
               lockedColumns={["Деталь", "Действия мастера"]}
-              defaultHiddenColumns={["Нормативы"]}
+              defaultHiddenColumns={[]}
               stickyColumns={1}
               sticky={true}
               size="small"
@@ -854,7 +901,7 @@ export default function PfDemand() {
               loading={demandQuery.isLoading}
               dataSource={sectionRows}
               pagination={{ pageSize: 50, hideOnSinglePage: true }}
-              scroll={{ x: 1350, y: "calc(100vh - 290px)" }}
+              scroll={{ x: 1550, y: "calc(100vh - 290px)" }}
               locale={{ emptyText: "Нет подходящих деталей" }}
               expandable={{
                 rowExpandable: (r) => r.sources.length > 0,
@@ -1002,20 +1049,65 @@ export default function PfDemand() {
                   ),
                 },
                 {
-                  title: "Нормативы",
+                  title: "Мин. остаток",
+                  key: "min_stock",
+                  width: 140,
                   render: (_, r) => (
                     <Space size={4}>
-                      <span>{normsLabel(r.min_stock, r.min_batch, r.batch_multiple)}</span>
-                      {canManage && r.item_id != null && (
-                        <Button size="small" type="link" onClick={() => setEditTarget(r)}>
-                          изменить
+                      <div>
+                        {r.min_stock != null ? (
+                          <span style={{ fontWeight: 600 }}>{fmt(r.min_stock)} шт</span>
+                        ) : (
+                          <span style={{ color: "#8c8c8c" }}>—</span>
+                        )}
+                        {r.min_batch != null && (
+                          <div style={{ fontSize: 11, color: "#8c8c8c" }}>
+                            парт. от {fmt(r.min_batch)}
+                          </div>
+                        )}
+                      </div>
+                      {canManage && (
+                        <Button
+                          size="small"
+                          type="link"
+                          onClick={() => setEditTarget(r)}
+                          style={{ padding: "0 2px", fontSize: 12 }}
+                        >
+                          ред.
                         </Button>
                       )}
                     </Space>
                   ),
+                  align: "right",
+                },
+                {
+                  title: "По заданиям",
+                  key: "task_demand",
+                  width: 120,
+                  render: (_, r) => (
+                    <span style={{ fontWeight: r.task_demand > 0 ? 600 : 400 }}>
+                      {fmt(r.task_demand)} шт
+                    </span>
+                  ),
+                  align: "right",
+                },
+                {
+                  title: "С учетом мин. остатка",
+                  key: "need",
+                  width: 150,
+                  render: (_, r) => {
+                    const hasMin = (r.min_stock ?? 0) > 0;
+                    return (
+                      <span style={{ fontWeight: 700, color: hasMin ? "#1677ff" : undefined }}>
+                        {fmt(r.need)} шт
+                      </span>
+                    );
+                  },
+                  align: "right",
                 },
                 {
                   title: "Не хватает на участке",
+                  key: "area_shortage",
                   render: (_, r) => {
                     const areaDeficit = Math.max(0, r.task_demand - (r.area_stock ?? 0));
                     if (areaDeficit > 0) {
@@ -1034,6 +1126,7 @@ export default function PfDemand() {
                 },
                 {
                   title: "Есть на складе ПФ (у меня)",
+                  key: "storage_stock",
                   render: (_, r) => {
                     const storage = r.storage_stock ?? 0;
                     return (
@@ -1042,11 +1135,6 @@ export default function PfDemand() {
                       </div>
                     );
                   },
-                  align: "right",
-                },
-                {
-                  title: "Потребность цеха",
-                  render: (_, r) => <b>{fmt(r.task_demand)}</b>,
                   align: "right",
                 },
                 {
@@ -1449,12 +1537,26 @@ function MinValuesModal({ row, onClose }: { row: PfDemandRow; onClose: () => voi
   const qc = useQueryClient();
   const [form] = Form.useForm<NormForm>();
   const mutation = useMutation({
-    mutationFn: (v: NormForm) =>
-      setNormatives(row.item_id!, { min_stock: v.min_stock ?? null, min_batch: v.min_batch ?? null, batch_multiple: v.batch_multiple ?? null }),
+    mutationFn: async (v: NormForm) => {
+      if (row.item_id != null) {
+        await setNormatives(row.item_id, {
+          min_stock: v.min_stock ?? null,
+          min_batch: v.min_batch ?? null,
+          batch_multiple: v.batch_multiple ?? null,
+        });
+      } else {
+        await updatePart(row.part_id, {
+          min_stock_pieces: v.min_stock ?? null,
+          min_batch_pieces: v.min_batch ?? null,
+        });
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pf-demand"] });
       qc.invalidateQueries({ queryKey: ["parts"] });
-      qc.invalidateQueries({ queryKey: ["item-normatives", row.item_id] });
+      if (row.item_id != null) {
+        qc.invalidateQueries({ queryKey: ["item-normatives", row.item_id] });
+      }
       message.success("Сохранено");
       onClose();
     },

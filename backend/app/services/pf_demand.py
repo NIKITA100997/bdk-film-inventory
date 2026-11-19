@@ -90,8 +90,11 @@ def compute_suggestion(
 
 
 def part_norms(p: Part) -> "normatives.Norms":
-    """Нормативы детали — у её позиции номенклатуры (с 08.10)."""
-    return normatives.norms_of(p.item)
+    """Нормативы детали — у её позиции номенклатуры (с 08.10) с fallback на Part."""
+    norms = normatives.norms_of(p.item)
+    min_stock = norms.min_stock if norms.min_stock is not None else (float(p.min_stock_pieces) if getattr(p, "min_stock_pieces", None) is not None else None)
+    min_batch = norms.min_batch if norms.min_batch is not None else (float(p.min_batch_pieces) if getattr(p, "min_batch_pieces", None) is not None else None)
+    return normatives.Norms(min_stock=min_stock, min_batch=min_batch, batch_multiple=norms.batch_multiple)
 
 
 def task_part_remaining(lines: list[tuple[float, float, bool]]) -> float:
