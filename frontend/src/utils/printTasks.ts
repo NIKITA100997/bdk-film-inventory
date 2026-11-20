@@ -144,7 +144,7 @@ function panelPage(s: TaskPrintSheet, now: string): string {
     )
     .join("");
   const oh = orderHead(s);
-  return `<section class="page">
+  return `<section class="page panel-page">
 <div class="top-header">
   <div class="info-side">
     ${oh.html}
@@ -350,6 +350,10 @@ ${componentsTable(s)}
   body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; color: #222; margin: 0; }
   .page { page-break-after: always; padding: 4mm 2mm; }
   .page:last-child { page-break-after: auto; }
+  .panel-page table { margin-top: 4px; }
+  .panel-page th, .panel-page td { padding: 2px 4px; }
+  .panel-page .top-header { margin-bottom: 2px; }
+  .panel-page .sign { margin-top: 6px; }
   .top-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 4px; }
   .info-side { flex: 1; min-width: 0; }
   .qr-side { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; border: 1px solid #ccc; padding: 3px 5px; border-radius: 4px; background: #fff; flex-shrink: 0; }
