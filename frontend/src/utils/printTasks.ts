@@ -82,6 +82,7 @@ function orderHead(s: TaskPrintSheet): { title: string; html: string } {
 
 /** Ведомость панелей (фрезеровка / распил / шлифовка МДФ). */
 function panelPage(s: TaskPrintSheet, now: string): string {
+  const isCncArea = /фрезер|чпу/i.test(s.area_name || "");
   const groups = new Map<
     string,
     {
@@ -130,12 +131,12 @@ function panelPage(s: TaskPrintSheet, now: string): string {
   const list = [...groups.values()].sort((a, b) =>
     [a.mdf, a.program, a.series, a.blank].join("|").localeCompare([b.mdf, b.program, b.series, b.blank].join("|"), "ru"),
   );
-  const head = ["№", "МДФ", "Шлифовка / Цвет", "Программа ЧПУ / Примечание", "Серия", "Размер заготовки", "Кол-во, шт", "Сделано", "Годно", "Брак", "Подпись"];
+  const head = ["№", "МДФ", "Шлифовка / Цвет", isCncArea ? "Программа ЧПУ / Примечание" : "Примечание", "Серия", "Размер заготовки", "Кол-во, шт", "Сделано", "Годно", "Брак", "Подпись"];
   const rows = list
     .map(
       (g, i) => `<tr>
 <td class="n">${i + 1}</td><td><b>${esc(g.mdf || "МДФ")}</b></td><td>${esc(g.sand || "—")}</td>
-<td>${g.program ? `<span class="cnc-badge"><b>${esc(g.program)}</b></span>` : g.name ? esc(g.name) : '<span class="warn">уточнить программу</span>'}${g.instruction ? `<div class="sub-warn">⚑ ${esc(g.instruction)}</div>` : ""}</td>
+<td>${g.program ? `<span class="cnc-badge"><b>${esc(g.program)}</b></span>` : isCncArea ? '<span class="warn">уточнить программу</span>' : esc(g.name)}${g.instruction ? `<div class="sub-warn">⚑ ${esc(g.instruction)}</div>` : ""}</td>
 <td><b>${esc(g.series || "—")}</b></td><td class="nw"><b>${esc(g.blank || "—")}</b></td>
 <td class="q"><b>${Math.round(g.qty * 100) / 100}</b></td><td class="q">${g.done ? Math.round(g.done * 100) / 100 : ""}</td>
 <td class="w"></td><td class="w"></td><td class="w"></td>
