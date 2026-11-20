@@ -190,9 +190,12 @@ def _stock_by_part_details(
         if left <= 0:
             continue
         total_stock[u.part_id] += left
-        if u.status == PartUnitStatus.NA_KHRANENII:
+        # A unit on storage with an area is in that area's home warehouse.
+        # Treat it as local stock for demand coverage; only units without an
+        # area belong to the central/unassigned warehouse balance.
+        if u.status == PartUnitStatus.NA_KHRANENII and not u.area:
             storage_stock[u.part_id] += left
-        elif u.status == PartUnitStatus.VYDAN_UCHASTKU:
+        else:
             area_stock[u.part_id] += left
             if u.area:
                 area_part_stock[(u.part_id, u.area)] += left

@@ -1,6 +1,7 @@
 """Исходные позиции заказа, вошедшие в строки заданий участков."""
 
 from collections import defaultdict
+from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 import re
 
 from sqlalchemy.orm import Session
@@ -10,6 +11,35 @@ from app.models.items import Item, ItemComponent
 from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineSource
 from app.models.production_orders import ProductionOrderLine
 from app.services.door_cols import door_cols
+
+
+def allocate_source_quantities(total_qty: float, weights: dict[int, float]) -> dict[int, float]:
+    """Distribute a line quantity across sources to hundredths without losing the total."""
+    positive_weights = {source_id: Decimal(str(qty)) for source_id, qty in weights.items() if qty > 0}
+    weight_total = sum(positive_weights.values(), Decimal("0"))
+    if not weight_total:
+        return {}
+
+    target_cents = int(
+        (Decimal(str(total_qty)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+    raw_cents = {
+        source_id: Decimal(target_cents) * qty / weight_total
+        for source_id, qty in positive_weights.items()
+    }
+    allocated_cents = {
+        source_id: int(value.to_integral_value(rounding=ROUND_FLOOR))
+        for source_id, value in raw_cents.items()
+    }
+    cents_left = target_cents - sum(allocated_cents.values())
+    remainder_order = sorted(
+        raw_cents,
+        key=lambda source_id: (-(raw_cents[source_id] - allocated_cents[source_id]), source_id),
+    )
+    for source_id in remainder_order[:cents_left]:
+        allocated_cents[source_id] += 1
+
+    return {source_id: cents / 100 for source_id, cents in allocated_cents.items()}
 
 
 def infer_missing_sources(
@@ -112,12 +142,7 @@ def infer_missing_sources(
         if not matching_ols:
             continue
 
-        total_match = sum(matching_ols.values())
-        line_qty = float(l.quantity_pieces)
-        scale = line_qty / total_match if total_match > 0 else 1.0
-
-        for ol_id, qty in matching_ols.items():
-            result[l.id][ol_id] = round(qty * scale, 2)
+        result[l.id].update(allocate_source_quantities(float(l.quantity_pieces), matching_ols))
 
 
 def source_allocations(
@@ -143,4 +168,9 @@ def source_allocations(
             result[line.id][line.order_line_id] = float(line.quantity_pieces)
 
     infer_missing_sources(db, lines, result)
+    # Source quantities represent a split of the task line. Normalize old or independently
+    # rounded records on read so their displayed sum always matches the actual line quantity.
+    for line in lines:
+        if line.id and result.get(line.id):
+            result[line.id] = allocate_source_quantities(float(line.quantity_pieces), result[line.id])
     return dict(result)

@@ -21,7 +21,7 @@ from app.models.dictionaries import Part
 from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineSource
 from app.models.production_orders import ProductionOrder, ProductionOrderLine
 from app.services.release_overrides import line_key
-from app.services.task_line_sources import source_allocations
+from app.services.task_line_sources import allocate_source_quantities, source_allocations
 
 
 def _merge_key(ln: ProductionTaskLine) -> tuple:
@@ -66,9 +66,10 @@ def merge_pf_lines(db: Session, order: ProductionOrder, skipped: set[str] | None
 
             if source_totals:
                 keep.sources.clear()
-                for order_line_id, qty in sorted(source_totals.items()):
+                balanced_totals = allocate_source_quantities(float(keep.quantity_pieces), source_totals)
+                for order_line_id, qty in sorted(balanced_totals.items()):
                     keep.sources.append(
-                        ProductionTaskLineSource(order_line_id=order_line_id, quantity_pieces=round(qty, 2))
+                        ProductionTaskLineSource(order_line_id=order_line_id, quantity_pieces=qty)
                     )
                 keep.order_line_id = next(iter(source_totals)) if len(source_totals) == 1 else None
             elif len({x.order_line_id for x in lines}) > 1:

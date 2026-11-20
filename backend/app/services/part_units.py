@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.dictionaries import Part, PartStage
@@ -966,6 +966,9 @@ def transfer_part_units_to_area(
         .filter(
             PartUnit.part_id == part_id,
             PartUnit.status == PartUnitStatus.NA_KHRANENII,
+            # A warehouse assigned to the destination area is part of its
+            # local balance; do not offer that stock to be transferred again.
+            or_(PartUnit.area.is_(None), PartUnit.area != target_area),
         )
         .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
         .all()

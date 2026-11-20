@@ -6,8 +6,30 @@ const esc = (v: unknown) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g,
 const dm = (s: string | null) => (s ? `${s.slice(8, 10)}.${s.slice(5, 7)}` : "");
 const period = (a: string | null, b: string | null) => (a && b && a !== b ? `${dm(a)}—${dm(b)}` : dm(a));
 type PrintSource = NonNullable<TaskPrintSheet["rows"][number]["source_orders"]>[number];
-const sourceDetails = (sources: PrintSource[] | undefined) =>
-  (sources ?? []).map((src) => `${esc(src.invoice_no || "Без счёта")} / ${esc(src.series || "Без серии")} — ${esc(src.qty)} шт.`).join("<br>");
+function sourceDetailsRow(sources: PrintSource[] | undefined, colSpan: number, sourceMissing = false, includeSingle = false): string {
+  const totals = new Map<string, { invoice: string; series: string; qty: number }>();
+  for (const source of sources ?? []) {
+    const invoice = source.invoice_no || "Без счёта";
+    const series = source.series || "Без серии";
+    const key = `${invoice}\u0000${series}`;
+    const current = totals.get(key);
+    totals.set(key, { invoice, series, qty: (current?.qty ?? 0) + source.qty });
+  }
+
+  const entries = [...totals.values()];
+  if (!entries.length || (entries.length < 2 && !includeSingle)) {
+    if (!sourceMissing) return "";
+    return `<tr class="source-details-row"><td colspan="${colSpan}"><span class="warn">Источник счёта и серии не восстановлен — требуется сверка</span></td></tr>`;
+  }
+
+  const details = entries
+    .map((entry) => {
+      const qty = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(entry.qty);
+      return `<span class="source-entry">${esc(entry.invoice)} / ${esc(entry.series)} — ${qty} шт.</span>`;
+    })
+    .join("");
+  return `<tr class="source-details-row"><td colspan="${colSpan}"><div class="source-details"><b class="source-details-title">Распределение по счетам и сериям</b><div class="source-grid">${details}</div></div></td></tr>`;
+}
 
 /** Очистка наименования изделия от дублирования серии, размера, цвета и кромки. */
 function cleanItemName(name: string): string {
@@ -108,19 +130,18 @@ function panelPage(s: TaskPrintSheet, now: string): string {
   const list = [...groups.values()].sort((a, b) =>
     [a.mdf, a.program, a.series, a.blank].join("|").localeCompare([b.mdf, b.program, b.series, b.blank].join("|"), "ru"),
   );
+  const head = ["№", "МДФ", "Шлифовка / Цвет", "Программа ЧПУ / Примечание", "Серия", "Размер заготовки", "Кол-во, шт", "Сделано", "Годно", "Брак", "Подпись"];
   const rows = list
     .map(
       (g, i) => `<tr>
 <td class="n">${i + 1}</td><td><b>${esc(g.mdf || "МДФ")}</b></td><td>${esc(g.sand || "—")}</td>
 <td>${g.program ? `<span class="cnc-badge"><b>${esc(g.program)}</b></span>` : g.name ? esc(g.name) : '<span class="warn">уточнить программу</span>'}${g.instruction ? `<div class="sub-warn">⚑ ${esc(g.instruction)}</div>` : ""}</td>
 <td><b>${esc(g.series || "—")}</b></td><td class="nw"><b>${esc(g.blank || "—")}</b></td>
-<td>${sourceDetails([...g.sources.values()]) || (g.sourceMissing ? '<span class="warn">источник не восстановлен — сверить</span>' : "")}</td>
 <td class="q"><b>${Math.round(g.qty * 100) / 100}</b></td><td class="q">${g.done ? Math.round(g.done * 100) / 100 : ""}</td>
 <td class="w"></td><td class="w"></td><td class="w"></td>
-</tr>`,
+</tr>${sourceDetailsRow([...g.sources.values()], head.length, g.sourceMissing, true)}`,
     )
     .join("");
-  const head = ["№", "МДФ", "Шлифовка / Цвет", "Программа ЧПУ / Примечание", "Серия", "Размер заготовки", "Счета / серии / кол-во", "Кол-во, шт", "Сделано", "Годно", "Брак", "Подпись"];
   const oh = orderHead(s);
   return `<section class="page">
 <div class="top-header">
@@ -139,31 +160,10 @@ function panelPage(s: TaskPrintSheet, now: string): string {
 
 /** Ведомость склейки щитов (подбор каркаса, панелей и наполнителя). */
 function skleykaPage(s: TaskPrintSheet, now: string): string {
-  const hasMultipleSources = s.rows.some((r) => (r.source_orders?.length ?? 0) > 1);
-  const rows = s.rows
-    .map(
-      (r, i) => `<tr>
-<td class="n">${i + 1}</td>
-${r.invoice_no ? `<td class="nw">${esc(r.invoice_no)}</td>` : r.source_missing ? '<td><span class="warn">источник не восстановлен — сверить</span></td>' : "<td></td>"}
-<td><b>${esc(r.series || "—")}</b></td>
-${hasMultipleSources ? `<td>${(r.source_orders?.length ?? 0) > 1 ? sourceDetails(r.source_orders) : r.source_missing ? '<span class="warn">источник не восстановлен — сверить</span>' : ""}</td>` : ""}
-<td class="nw"><b>${esc(r.size || "—")}</b></td>
-<td>${esc(r.color || "—")}</td>
-<td class="q"><b>${Math.round(r.qty * 100) / 100}</b></td>
-<td><b>${esc(r.skleyka?.frame || "—")}</b></td>
-<td>${esc(r.skleyka?.panels || "—")}</td>
-<td>${esc(r.skleyka?.foam || "—")}</td>
-<td class="q">${r.done ? Math.round(r.done * 100) / 100 : ""}</td>
-<td class="w"></td><td class="w"></td><td class="w"></td>
-</tr>`,
-    )
-    .join("");
-
   const head = [
     "№",
     "Счёт",
     "Серия",
-    ...(hasMultipleSources ? ["Состав заказа"] : []),
     "Размер",
     "Цвет / Отделка",
     "Кол-во, шт",
@@ -175,6 +175,23 @@ ${hasMultipleSources ? `<td>${(r.source_orders?.length ?? 0) > 1 ? sourceDetails
     "Брак",
     "Подпись",
   ];
+  const rows = s.rows
+    .map(
+      (r, i) => `<tr>
+<td class="n">${i + 1}</td>
+${r.invoice_no ? `<td class="nw">${esc(r.invoice_no)}</td>` : r.source_missing ? '<td><span class="warn">источник не восстановлен — сверить</span></td>' : "<td></td>"}
+<td><b>${esc(r.series || "—")}</b></td>
+<td class="nw"><b>${esc(r.size || "—")}</b></td>
+<td>${esc(r.color || "—")}</td>
+<td class="q"><b>${Math.round(r.qty * 100) / 100}</b></td>
+<td><b>${esc(r.skleyka?.frame || "—")}</b></td>
+<td>${esc(r.skleyka?.panels || "—")}</td>
+<td>${esc(r.skleyka?.foam || "—")}</td>
+<td class="q">${r.done ? Math.round(r.done * 100) / 100 : ""}</td>
+<td class="w"></td><td class="w"></td><td class="w"></td>
+</tr>${sourceDetailsRow(r.source_orders, head.length)}`,
+    )
+    .join("");
   const oh = orderHead(s);
   return `<section class="page">
 <div class="top-header">
@@ -261,7 +278,6 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
 
       const hasSize = s.rows.some((r) => r.size);
       const hasSeries = s.rows.some((r) => r.series);
-      const hasMultipleSources = s.rows.some((r) => (r.source_orders?.length ?? 0) > 1);
       const hasColor = s.rows.some((r) => r.color);
       const hasFilm = s.rows.some((r) => r.film);
       const hasProg = s.rows.some((r) => r.program || r.instruction);
@@ -273,7 +289,6 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
         "№",
         ...(hasInv ? ["Счёт"] : []),
         ...(hasSeries ? ["Серия"] : []),
-        ...(hasMultipleSources ? ["Состав заказа"] : []),
         "Деталь / Наименование",
         ...(hasSize ? ["Размер"] : []),
         ...(hasColor ? ["Цвет"] : []),
@@ -297,7 +312,6 @@ export function printTaskSheets(sheets: TaskPrintSheet[], title = "Задани�
 <td class="n">${i + 1}</td>
 ${hasInv ? `<td class="nw">${esc(r.invoice_no ?? "")}</td>` : ""}
 ${hasSeries ? `<td class="nw"><b>${esc(r.series ?? "")}</b></td>` : ""}
-${hasMultipleSources ? `<td>${(r.source_orders?.length ?? 0) > 1 ? sourceDetails(r.source_orders) : r.source_missing ? '<span class="warn">источник не восстановлен — сверить</span>' : ""}</td>` : ""}
 <td><b>${esc(displayName)}</b>${showSourceSub ? `<div class="sub">${esc(r.source)}</div>` : ""}${r.source_missing ? '<div class="warn">Источник счёта и серии не восстановлен — требуется сверка</div>' : ""}</td>
 ${hasSize ? `<td class="nw"><b>${esc(r.size ?? "")}</b></td>` : ""}
 ${hasColor ? `<td>${esc(r.color ?? "")}</td>` : ""}
@@ -308,7 +322,7 @@ ${hasProg ? `<td>${r.program ? `<b>${esc(r.program)}</b>` : ""}${r.instruction ?
 <td class="nw">${esc(period(r.date_from, r.date_to))}</td>
 <td class="q">${r.done ? Math.round(r.done * 100) / 100 : ""}</td>
 <td class="w"></td><td class="w"></td><td class="w"></td>
-</tr>`;
+</tr>${sourceDetailsRow(r.source_orders, head.length)}`;
           },
         )
         .join("");
@@ -354,6 +368,11 @@ ${componentsTable(s)}
   .sub-warn { font-size: 10px; color: #d46b08; font-weight: 600; margin-top: 2px; }
   .cnc-badge { font-family: monospace; font-size: 11px; background: #f0f5ff; border: 1px solid #adc6ff; padding: 1px 5px; border-radius: 3px; display: inline-block; color: #1d39c4; }
   .sub { font-size: 10px; color: #666; font-weight: normal; }
+  .source-details-row td { background: #f7f8fa; padding: 3px 6px; }
+  .source-details { display: grid; grid-template-columns: 1fr; gap: 2px; }
+  .source-details-title { font-size: 9px; color: #555; }
+  .source-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 10px; font-size: 9px; line-height: 1.25; }
+  .source-entry { overflow-wrap: anywhere; }
   .order { font-weight: bold; font-size: 13px; }
   .note { font-size: 11px; color: #444; margin-bottom: 4px; }
   .sign { margin-top: 14px; font-size: 11px; }
