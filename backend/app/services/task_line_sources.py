@@ -13,6 +13,21 @@ from app.models.production_orders import ProductionOrderLine
 from app.services.door_cols import door_cols
 
 
+def has_missing_order_source(
+    *,
+    part_id: int | None,
+    production_order_id: int | None,
+    source_orders: list | dict,
+    orders_with_lines: set[int],
+) -> bool:
+    """Only flag a missing mapping when the linked production order has source lines.
+
+    Internal stock and PF orders intentionally have no ProductionOrderLine rows,
+    so they do not have customer invoices or series to restore.
+    """
+    return bool(part_id and production_order_id in orders_with_lines and not source_orders)
+
+
 def allocate_source_quantities(total_qty: float, weights: dict[int, float]) -> dict[int, float]:
     """Distribute a line quantity across sources to hundredths without losing the total."""
     positive_weights = {source_id: Decimal(str(qty)) for source_id, qty in weights.items() if qty > 0}

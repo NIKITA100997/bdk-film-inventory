@@ -16,7 +16,7 @@ from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, 
 from app.models.production_orders import ProductionOrder, ProductionOrderLine
 from app.models.items import Item
 from app.models.sites import Site
-from app.services.task_line_sources import source_allocations
+from app.services.task_line_sources import has_missing_order_source, source_allocations
 from app.services.door_cols import door_cols
 from app.services.type_rules import item_chars_cached
 
@@ -175,6 +175,11 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
     lines = [ln for t in tasks for ln in t.lines]
     ids = [ln.id for ln in lines]
     allocations = source_allocations(db, lines)
+    task_order_ids = {t.production_order_id for t in tasks if t.production_order_id}
+    orders_with_lines = {
+        order_id for (order_id,) in db.query(ProductionOrderLine.order_id)
+        .filter(ProductionOrderLine.order_id.in_(task_order_ids or {-1})).distinct().all()
+    }
     source_order_line_ids = {ol_id for rows in allocations.values() for ol_id in rows}
     source_order_lines = {
         ol.id: ol for ol in db.query(ProductionOrderLine).filter(ProductionOrderLine.id.in_(source_order_line_ids or {-1}))
@@ -338,7 +343,12 @@ def print_sheets(db: Session, tasks: list[ProductionTask]) -> list[dict]:
                     "foam": foam_spec,
                 }
 
-            source_missing = bool(ln.part_id and t.production_order_id and not source_orders)
+            source_missing = has_missing_order_source(
+                part_id=ln.part_id,
+                production_order_id=t.production_order_id,
+                source_orders=source_orders,
+                orders_with_lines=orders_with_lines,
+            )
             sheet["rows"].append({
                 "task_id": t.id,
                 "name": ln.part_name or "",

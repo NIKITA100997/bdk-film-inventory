@@ -22,7 +22,7 @@ from app.models.production_orders import ORDER_RELEASED, ProductionOrder, Produc
 from app.models.sites import Site
 from app.services.door_cols import door_cols
 from app.services.item_attrs import effective_direction
-from app.services.task_line_sources import source_allocations
+from app.services.task_line_sources import has_missing_order_source, source_allocations
 
 router = APIRouter(prefix="/production-monitor", tags=["production-monitor"])
 view = require_permission("production_tasks.manage", "production_tasks.view", "production_tasks.report", "reports.view")
@@ -165,6 +165,11 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
         for ol in db.query(ProductionOrderLine).filter(
             ProductionOrderLine.id.in_({ln.order_line_id for ln, _ in lines if ln.order_line_id} | source_order_line_ids or {-1})
         )
+    }
+    task_order_ids = {task.production_order_id for _, task in lines if task.production_order_id}
+    orders_with_lines = {
+        order_id for (order_id,) in db.query(ProductionOrderLine.order_id)
+        .filter(ProductionOrderLine.order_id.in_(task_order_ids or {-1})).distinct().all()
     }
     parts = {p.id: p for p in db.query(Part).filter(Part.id.in_({ln.part_id for ln, _ in lines if ln.part_id}))}
     item_ids = {ol.item_id for ol in order_lines.values() if ol.item_id} | {p.item_id for p in parts.values() if p.item_id}
@@ -322,7 +327,12 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
                 series=dc.get("series", "") or ", ".join(sorted({src["series"] for src in source_orders if src["series"]})),
                 size=row_size, color=row_color, source=dc.get("source", "") or position,
                 source_orders=source_orders,
-                source_missing=bool(ln.part_id and t.production_order_id and not source_orders),
+                source_missing=has_missing_order_source(
+                    part_id=ln.part_id,
+                    production_order_id=t.production_order_id,
+                    source_orders=source_orders,
+                    orders_with_lines=orders_with_lines,
+                ),
                 operation=op_name,
                 op_seq=op_sequence,
                 part_id=ln.part_id, task_name=t.name,
