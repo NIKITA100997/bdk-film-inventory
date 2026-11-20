@@ -322,7 +322,7 @@ ${hasProg ? `<td>${r.program ? `<b>${esc(r.program)}</b>` : ""}${r.instruction ?
 <td class="nw">${esc(period(r.date_from, r.date_to))}</td>
 <td class="q">${r.done ? Math.round(r.done * 100) / 100 : ""}</td>
 <td class="w"></td><td class="w"></td><td class="w"></td>
-</tr>${sourceDetailsRow(r.source_orders, head.length)}`;
+</tr>${sourceDetailsRow(r.source_orders, head.length, r.source_missing, Boolean(r.source_orders?.length))}`;
           },
         )
         .join("");
