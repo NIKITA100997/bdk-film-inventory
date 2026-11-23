@@ -20,8 +20,8 @@ PET_LABEL = {"2d": "ПЭТ 2Д", "3d": "ПЭТ 3Д"}
 
 
 def pet_of_material(name: str | None) -> str | None:
-    """«ПЭТ 3Д» → "3d", «ПЭТ 2Д» → "2d", не ПЭТ — None."""
-    low = (name or "").lower().replace(" ", "")
+    """«ПЭТ 3Д»/«ПЭТ 3D»/«PET 3D» → "3d", «ПЭТ 2Д»/«ПЭТ 2D»/«PET 2D» → "2d", не ПЭТ — None."""
+    low = (name or "").lower().replace(" ", "").replace("d", "д").replace("pet", "пэт")
     if "пэт" not in low:
         return None
     if "3д" in low:
@@ -48,12 +48,12 @@ def normalize_film(name: str | None) -> str:
 
 
 def film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
-    if line.material_id is None or line.part_id is None:
+    if line.material_id is None and line.color_id is None:
         return []
-    # в читающих списках — одно вычисление на сочетание деталь+плёнка+участок
+    # в читающих списках — одно вычисление на сочетание деталь+строка+плёнка+участок
     store = db.info.get("read_cache")
     if store is not None:
-        key = (line.part_id, line.material_id, line.color_id, line.task.area if line.task else None)
+        key = (line.part_id, line.order_line_id, line.material_id, line.color_id, line.task.area if line.task else None)
         cache = store.setdefault("film_warnings", {})
         if key not in cache:
             cache[key] = _film_warnings(db, line)
@@ -63,9 +63,14 @@ def film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
 
 def _film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
     out: list[str] = []
-    part = db.get(Part, line.part_id)
+    part = db.get(Part, line.part_id) if line.part_id else None
     item = db.get(Item, part.item_id) if part and part.item_id else None
-    material = db.get(Material, line.material_id)
+    if item is None and line.order_line_id:
+        from app.models.production_orders import ProductionOrderLine
+        ol = db.get(ProductionOrderLine, line.order_line_id)
+        if ol and ol.item_id:
+            item = db.get(Item, ol.item_id)
+    material = db.get(Material, line.material_id) if line.material_id else None
     line_pet = pet_of_material(material.name if material else None)
     if item is not None and line_pet is not None:
         part_pet = item.pet_type or "2d"
@@ -73,8 +78,13 @@ def _film_warnings(db: Session, line: ProductionTaskLine) -> list[str]:
             out.append(f"Деталь клеится {PET_LABEL[part_pet]}, а в строке {PET_LABEL[line_pet]}")
     decor = db.get(Color, line.color_id) if line.color_id else None
     decor_is_lamis = is_lamis_film(material, decor)
-    if part is not None and not decor_is_lamis:
-        held = _lamis_held(db, part.id, line.task.area)
+    part_id = part.id if part else None
+    if part_id is None and item:
+        part_row = db.query(Part).filter(Part.item_id == item.id).first()
+        if part_row:
+            part_id = part_row.id
+    if part_id and not decor_is_lamis:
+        held = _lamis_held(db, part_id, line.task.area if line.task else None)
         if held > 0:
             out.append(f"На участке {held:g} шт после снятия плёнки — их можно клеить только «Ламис» — не ПЭТ и не полипропилен")
     return out
