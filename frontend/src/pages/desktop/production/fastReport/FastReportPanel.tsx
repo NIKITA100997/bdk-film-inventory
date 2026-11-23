@@ -679,14 +679,17 @@ export default function FastReportPanel({
               position: "sticky",
               bottom: 0,
               zIndex: 5,
-              background: "inherit",
-              padding: "10px 0",
+              background: "#fff",
+              padding: "12px 16px",
               display: "flex",
-              gap: 8,
+              gap: 12,
+              alignItems: "center",
               flexWrap: "wrap",
+              borderRadius: 8,
               boxShadow: r.filled.length
-                ? "0 -8px 16px -12px rgba(0,0,0,.35)"
+                ? "0 -4px 16px rgba(0,0,0,0.12)"
                 : undefined,
+              border: r.filled.length ? "1px solid #d9d9d9" : undefined,
             }}
           >
             <Button
@@ -695,13 +698,14 @@ export default function FastReportPanel({
               disabled={!r.filled.length}
               loading={r.save.isPending}
               onClick={onSave}
-              style={{ minWidth: 240 }}
+              style={{ minWidth: 260, minHeight: 48, fontSize: 16, fontWeight: 700 }}
             >
               Сохранить отчёт{r.filled.length ? ` (${r.filled.length})` : ""}
             </Button>
             {r.filled.length > 0 && (
               <Button
                 size="large"
+                style={{ minHeight: 48, fontSize: 14 }}
                 onClick={() =>
                   r.filled.forEach((fl) => r.clearEntry(fl.line.id))
                 }

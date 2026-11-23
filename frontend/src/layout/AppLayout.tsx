@@ -30,12 +30,22 @@ function HeaderNotificationsButton({ onOpen }: { onOpen: (tab: "approvals" | "in
   const urgent = (inboxQuery.data ?? []).some((i) => i.level === "urgent");
   const totalCount = toApprove + inboxCount;
 
+  const btnStyle: React.CSSProperties = {
+    minWidth: 40,
+    height: 40,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+  };
+
   if (totalCount === 0) {
     return (
       <Tooltip title="Центр согласований и задач">
         <Button
           type="text"
-          icon={<BellOutlined style={{ color: "#fff" }} />}
+          style={btnStyle}
+          icon={<BellOutlined style={{ color: "#fff", fontSize: 18 }} />}
           onClick={() => onOpen(toApprove > 0 ? "approvals" : "inbox")}
           aria-label="Уведомления и согласования"
         />
@@ -50,7 +60,8 @@ function HeaderNotificationsButton({ onOpen }: { onOpen: (tab: "approvals" | "in
       <Badge count={totalCount} color={badgeColor} size="small" offset={[-4, 4]}>
         <Button
           type="text"
-          icon={toApprove > 0 ? <ThunderboltFilled style={{ color: "#FFD666" }} /> : <BellOutlined style={{ color: "#fff" }} />}
+          style={btnStyle}
+          icon={toApprove > 0 ? <ThunderboltFilled style={{ color: "#FFD666", fontSize: 18 }} /> : <BellOutlined style={{ color: "#fff", fontSize: 18 }} />}
           onClick={() => onOpen(toApprove > 0 ? "approvals" : "inbox")}
           aria-label="Уведомления и согласования"
         />
@@ -90,6 +101,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   // на уже сделанной под него верхней навигации.
   const screens = Grid.useBreakpoint();
   const isPhone = !screens.sm;
+  const isTablet = !screens.xl;
 
   if (!user) return null;
 
@@ -264,7 +276,17 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
       >
         Перейти к содержимому
       </a>
-      <Header style={{ display: "flex", alignItems: "center", padding: "0 8px", gap: 4, flexShrink: 0 }}>
+      <Header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          padding: "0 8px",
+          gap: 6,
+          flexShrink: 0,
+          height: isTablet ? 46 : 56,
+          lineHeight: isTablet ? "46px" : "56px",
+        }}
+      >
         {searchOpen ? (
           // Раскрытый поиск занимает всю шапку — так на любой ширине
           // (даже самой тесной портретной) под сам ввод остаётся вся
@@ -272,7 +294,8 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
           <>
             <Button
               type="text"
-              icon={<ArrowLeftOutlined style={{ color: "#fff" }} />}
+              style={{ minWidth: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+              icon={<ArrowLeftOutlined style={{ color: "#fff", fontSize: 18 }} />}
               onClick={closeSearch}
               aria-label="Закрыть поиск"
             />
@@ -295,7 +318,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
                 runHeaderSearch();
                 closeSearch();
               }}
-              style={{ flex: "1 1 auto", minWidth: 0 }}
+              style={{ flex: "1 1 auto", minWidth: 0, height: isTablet ? 36 : 40 }}
             />
           </>
         ) : (
@@ -310,6 +333,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 minWidth: 0,
+                fontSize: isTablet ? 17 : 20,
               }}
             >
               {isPhone ? "БДК" : "Учёт плёнки БДК"}
@@ -317,7 +341,8 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
             <div style={{ flex: "1 1 auto" }} />
             <Button
               type="text"
-              icon={<SearchOutlined style={{ color: "#fff" }} />}
+              style={{ minWidth: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+              icon={<SearchOutlined style={{ color: "#fff", fontSize: 18 }} />}
               onClick={() => setSearchOpen(true)}
               aria-label="Поиск"
             />
@@ -325,12 +350,17 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               onScan={(code) => runUnitOrMaterialSearch(code, navigate, "scan")}
               tooltip="Сканировать QR камерой"
               type="primary"
+              style={{ minWidth: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
             />
             <HeaderNotificationsButton onOpen={(tab) => { setApprovalsTab(tab); setApprovalsOpen(true); }} />
             <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
               {/* кнопка, а не картинка — доступна с клавиатуры и скринридеру (14.10) */}
-              <Button type="text" aria-label="Профиль и выход" style={{ padding: 0, height: "auto", flexShrink: 0 }}>
-                <Avatar icon={<UserOutlined />} style={{ cursor: "pointer", backgroundColor: "rgba(255,255,255,0.2)" }} />
+              <Button
+                type="text"
+                aria-label="Профиль и выход"
+                style={{ minWidth: 40, height: 40, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+              >
+                <Avatar icon={<UserOutlined />} size={isTablet ? 30 : 34} style={{ cursor: "pointer", backgroundColor: "rgba(255,255,255,0.2)" }} />
               </Button>
             </Dropdown>
           </>
@@ -346,7 +376,12 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
       {!isPhone && (
         <Menu
           mode="horizontal"
-          style={{ flexShrink: 0 }}
+          style={{
+            flexShrink: 0,
+            height: isTablet ? 38 : 46,
+            lineHeight: isTablet ? "38px" : "46px",
+            fontSize: isTablet ? 13 : 14,
+          }}
           selectedKeys={[navPaths.has(location.pathname + location.search) ? location.pathname + location.search : location.pathname]}
           items={items}
           onClick={(e) => navigate(e.key)}

@@ -412,10 +412,10 @@ function BatchCard({
         <Space wrap align="center">
           {isWrapping && availableRolls.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Text style={{ fontSize: 12 }}>Штрипс на станке:</Text>
+              <Text style={{ fontSize: 13, fontWeight: 500 }}>Штрипс:</Text>
               <Select
                 size="middle"
-                style={{ minWidth: 220 }}
+                style={{ minWidth: 230, minHeight: 40 }}
                 placeholder="Выберите штрипс"
                 value={selectedRoll ?? undefined}
                 onChange={(val) => setSelectedRoll(val)}
@@ -427,12 +427,12 @@ function BatchCard({
             </div>
           )}
 
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <InputNumber
-              size="middle"
+              size="large"
               min={0}
               placeholder="Годных, шт"
-              style={{ width: 130 }}
+              style={{ width: 140, height: 42, fontSize: 16 }}
               value={goodInput}
               onChange={(val) => setGoodInput(val)}
               onKeyDown={(e) => {
@@ -443,13 +443,17 @@ function BatchCard({
             />
             <Button
               type="primary"
+              size="large"
               icon={<ThunderboltOutlined />}
               disabled={!goodInput || goodInput <= 0}
               onClick={() => goodInput && applyBatch(goodInput)}
+              style={{ minHeight: 44, fontWeight: 600, fontSize: 14 }}
             >
               Записать партию
             </Button>
             <Button
+              size="large"
+              style={{ minHeight: 44, fontSize: 14 }}
               onClick={() => {
                 if (batch.totalRemaining > 0) {
                   applyBatch(batch.totalRemaining);
@@ -461,9 +465,11 @@ function BatchCard({
           </div>
         </Space>
 
-        <Space>
+        <Space size="middle">
           <Button
             danger
+            size="large"
+            style={{ minHeight: 44, fontSize: 14 }}
             onClick={() => {
               if (batch.lines.length > 0) {
                 onDefect(batch.lines[0]);
@@ -475,6 +481,8 @@ function BatchCard({
           {currentDraftGood > 0 && (
             <Button
               type="link"
+              size="large"
+              style={{ minHeight: 44, fontSize: 14 }}
               onClick={() => {
                 batch.lines.forEach((fl) => r.clearEntry(fl.line.id));
               }}
@@ -494,12 +502,14 @@ function BatchCard({
           {
             key: "details",
             label: (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                Состав партии ({batch.lines.length} строк заданий) — нажмите, чтобы раскрыть
-              </Text>
+              <div style={{ padding: "6px 0", cursor: "pointer", display: "flex", alignItems: "center" }}>
+                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>
+                  Состав партии ({batch.lines.length} строк заданий) — нажмите, чтобы раскрыть
+                </Text>
+              </div>
             ),
             children: (
-              <div style={{ display: "grid", gap: 6 }}>
+              <div style={{ display: "grid", gap: 8 }}>
                 {batch.lines.map((fl) => {
                   const lineEntry = r.entryOf(fl.line);
                   const isLineDone = fl.line.remaining_pieces <= 0;
@@ -510,11 +520,14 @@ function BatchCard({
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
-                        padding: "6px 8px",
+                        padding: "8px 12px",
                         background: isFilled(lineEntry) ? "#f6ffed" : "#fff",
                         border: "1px solid #f0f0f0",
-                        borderRadius: 6,
+                        borderRadius: 8,
                         fontSize: 13,
+                        minHeight: 44,
+                        flexWrap: "wrap",
+                        gap: 8,
                       }}
                     >
                       <Space wrap>
@@ -571,7 +584,12 @@ function BatchCard({
                           </Tag>
                         )}
                         {onOpenLine && (
-                          <Button size="small" type="link" onClick={() => onOpenLine(fl)}>
+                          <Button
+                            size="middle"
+                            type="link"
+                            style={{ minHeight: 38, paddingInline: 12, fontWeight: 500 }}
+                            onClick={() => onOpenLine(fl)}
+                          >
                             Подробнее
                           </Button>
                         )}

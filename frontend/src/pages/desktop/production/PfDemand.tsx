@@ -724,9 +724,14 @@ export default function PfDemand() {
                           return (
                             <Space size={6} wrap>
                               <Button
-                                size="small"
+                                size="middle"
                                 type={hasStock && needToMove > 0 ? "primary" : "default"}
-                                style={hasStock && needToMove > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : undefined}
+                                style={{
+                                  minHeight: 38,
+                                  paddingInline: 12,
+                                  fontWeight: 600,
+                                  ...(hasStock && needToMove > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : {}),
+                                }}
                                 disabled={!canOperate || !hasStock}
                                 title={hasStock ? `Переместить на участок (доступно ${fmt(availableToMove)} шт)` : "Нет доступных деталей"}
                                 onClick={() =>
@@ -746,8 +751,9 @@ export default function PfDemand() {
                                 🚚 Переместить
                               </Button>
                               <Button
-                                size="small"
+                                size="middle"
                                 type={!hasStock || needToMove > availableToMove ? "primary" : "default"}
+                                style={{ minHeight: 38, paddingInline: 12, fontWeight: 600 }}
                                 disabled={!canOperate}
                                 onClick={() =>
                                   setProduceTarget({
@@ -1313,7 +1319,7 @@ export default function PfDemand() {
                   title: "Действия мастера",
                   key: "master_actions",
                   fixed: "right",
-                  width: 180,
+                  width: 250,
                   render: (_, r) => {
                     const totalStock = r.stock ?? 0;
                     const primaryTarget = primaryTargetNeed(r);
@@ -1324,9 +1330,14 @@ export default function PfDemand() {
                     return (
                       <Space size={6} wrap>
                         <Button
-                          size="small"
+                          size="middle"
                           type={hasStock && needOnArea > 0 ? "primary" : "default"}
-                          style={hasStock && needOnArea > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : undefined}
+                          style={{
+                            minHeight: 38,
+                            paddingInline: 12,
+                            fontWeight: 600,
+                            ...(hasStock && needOnArea > 0 ? { background: "#13c2c2", borderColor: "#13c2c2" } : {}),
+                          }}
                           disabled={!canOperate || !hasStock}
                           title={hasStock ? `Переместить на участок (доступно ${fmt(availableToMove)} шт)` : "Нет доступных деталей"}
                           onClick={() =>
@@ -1346,8 +1357,9 @@ export default function PfDemand() {
                           🚚 Переместить
                         </Button>
                         <Button
-                          size="small"
+                          size="middle"
                           type={!hasStock || needOnArea > availableToMove ? "primary" : "default"}
+                          style={{ minHeight: 38, paddingInline: 12, fontWeight: 600 }}
                           disabled={!canOperate}
                           onClick={() =>
                             setProduceTarget({

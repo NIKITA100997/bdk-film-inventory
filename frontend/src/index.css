@@ -221,6 +221,35 @@ h5 {
 .app-page {
   padding: 24px;
 }
+@media (max-width: 1200px) {
+  .app-shell .ant-layout-header {
+    height: 46px !important;
+    line-height: 46px !important;
+    padding: 0 8px !important;
+  }
+  .app-shell .ant-menu-horizontal {
+    height: 38px !important;
+    line-height: 38px !important;
+  }
+  .app-shell .ant-menu-horizontal > .ant-menu-item,
+  .app-shell .ant-menu-horizontal > .ant-menu-submenu {
+    height: 38px !important;
+    line-height: 38px !important;
+    min-height: 38px !important;
+    padding-inline: 8px !important;
+    font-size: 13px !important;
+  }
+}
+@media (max-width: 1200px) and (min-width: 576px) {
+  .app-page {
+    padding: 14px;
+  }
+  .ant-btn-circle.ant-btn-sm {
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 15px;
+  }
+}
 @media (max-width: 991px) {
   .app-page {
     padding: 12px;

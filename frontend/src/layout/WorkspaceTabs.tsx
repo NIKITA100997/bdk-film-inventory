@@ -226,7 +226,7 @@ export default function WorkspaceTabs({ pageRoutes }: { pageRoutes: ReactNode })
             </Button>
           ) : undefined
         }
-        tabBarStyle={{ margin: 0, padding: "6px 8px 0" }}
+        tabBarStyle={{ margin: 0, padding: isCompact ? "2px 6px 0" : "6px 8px 0" }}
         style={{ flexShrink: 0 }}
       />
       )}

@@ -22,12 +22,19 @@ export default function ActionIcon({
   danger?: boolean;
   children: ReactNode;
 }) {
-  const style =
-    tone === "outline"
+  const style: React.CSSProperties = {
+    ...(tone === "outline"
       ? { color: palette.orange, borderColor: palette.orange }
       : tone === "ghost"
         ? { color: palette.gray }
-        : undefined;
+        : undefined),
+    minWidth: 32,
+    minHeight: 32,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 14,
+  };
   return (
     <Tooltip title={tip}>
       <Button

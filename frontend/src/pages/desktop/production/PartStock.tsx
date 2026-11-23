@@ -181,18 +181,18 @@ export default function PartStock() {
     <Card
       title="Остатки п/ф"
       extra={
-        <Space size={8}>
+        <Space size={8} wrap>
           {canManage && (
-            <Button size="small" type="primary" onClick={() => setRegisterOpen(true)}>
+            <Button size="middle" type="primary" onClick={() => setRegisterOpen(true)} style={{ minHeight: 38 }}>
               + Оприходовать партию
             </Button>
           )}
           {canCount && (
-            <Button size="small" onClick={() => navigate("/inventory")}>
+            <Button size="middle" onClick={() => navigate("/inventory")} style={{ minHeight: 38 }}>
               Инвентаризация п/ф
             </Button>
           )}
-          <Button icon={<FileExcelOutlined />} size="small" onClick={exportRows}>
+          <Button icon={<FileExcelOutlined />} size="middle" onClick={exportRows} style={{ minHeight: 38 }}>
             Excel
           </Button>
         </Space>
@@ -315,9 +315,10 @@ export default function PartStock() {
                   width: 90,
                   render: (_: unknown, g: PartStockGroup) => (
                     <Button
-                      size="small"
+                      size="middle"
                       danger
                       type="text"
+                      style={{ minHeight: 36, paddingInline: 12 }}
                       onClick={(e) => {
                         e.stopPropagation();
                         setWriteOff({ id: g.partId, name: g.partName });
