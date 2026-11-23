@@ -78,18 +78,62 @@ def area_capacities(db: Session, with_fact: bool = False) -> dict[str, float]:
     return out
 
 
+def resolve_task_site(
+    task_area: str | None,
+    lam_area: str | None = None,
+    area_map: dict | None = None,
+    site_map: dict | None = None,
+    db: Session | None = None,
+) -> tuple[int, str]:
+    """Определяет площадку задания (Северный или Фабрика).
+    Если задание — панель под ламинацию (lam_area), целевой площадкой
+    становится площадка участка ламинации."""
+    target_area = lam_area or task_area
+    if target_area:
+        a = None
+        if area_map:
+            a = area_map.get(target_area)
+        elif db:
+            a = db.get(Area, target_area)
+        if a and a.site_id:
+            if site_map and a.site_id in site_map:
+                s = site_map[a.site_id]
+                return s.id, s.name
+            if db:
+                from app.models.sites import Site
+                s = db.get(Site, a.site_id)
+                if s:
+                    return s.id, s.name
+            if a.site_id == 2:
+                return 2, "Фабрика"
+            if a.site_id == 1:
+                return 1, "Северный"
+    if target_area in (
+        "fabrika",
+        "frezerovka_laminirovannykh_paneley",
+        "frezerovka_perimetra_shchitov",
+        "frezerovka_pod_zamok",
+    ):
+        return 2, "Фабрика"
+    return 1, "Северный"
+
+
 FACT_DAYS = 28
 
 
 def fact_capacities(db: Session, today: date | None = None) -> dict[str, float]:
     """Мощность по факту (28.10): годные + брак по отчётам за последние 4
     недели, делённые на рабочие дни — от начала окна или от первого отчёта
-    участка, если он позже (участок начал отчитываться недавно). Кэш на
-    запрос."""
+    участка, если он позже (участок начал отчитываться недавно). Для участков
+    производства п/ф (skleyka_mdf_s_zagotovkoy и др.) также учитывается
+    выпуск партий PartUnit по первому этапу детали (PartStage sequence_order=1).
+    Кэш на запрос."""
     if "fact_caps" in db.info:
         return db.info["fact_caps"]
     from sqlalchemy import func
 
+    from app.models.dictionaries import PartStage
+    from app.models.part_units import PartUnit
     from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
     from app.services.planning import load_calendar, workdays_between
 
@@ -112,5 +156,28 @@ def fact_capacities(db: Session, today: date | None = None) -> dict[str, float]:
             continue
         days = max(1, workdays_between(max(start, first.date()) - timedelta(days=1), today))
         out[area] = round(float(pieces) / days, 1)
+
+    # Участки полуфабрикатов (нарезка, склейка, каркасы) выпускают PartUnit:
+    stage1_sub = (
+        db.query(PartStage.part_id, PartStage.area.label("s1_area"))
+        .filter(PartStage.sequence_order == 1, PartStage.area.isnot(None))
+        .subquery()
+    )
+    for area, pieces, first in (
+        db.query(
+            stage1_sub.c.s1_area,
+            func.sum(PartUnit.quantity_pieces),
+            func.min(PartUnit.manufactured_at),
+        )
+        .join(stage1_sub, stage1_sub.c.part_id == PartUnit.part_id)
+        .filter(PartUnit.manufactured_at >= start)
+        .group_by(stage1_sub.c.s1_area)
+    ):
+        if not pieces:
+            continue
+        days = max(1, workdays_between(max(start, first) - timedelta(days=1), today))
+        part_cap = round(float(pieces) / days, 1)
+        out[area] = max(out.get(area, 0.0), part_cap)
+
     db.info["fact_caps"] = out
     return out

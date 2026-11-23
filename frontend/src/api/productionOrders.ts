@@ -229,6 +229,8 @@ export interface OrderTask {
   name: string;
   area: string;
   area_name: string | null;
+  site_id?: number | null;
+  site_name?: string | null;
   is_active: boolean;
   for_task_id: number | null;
   lines_count: number;

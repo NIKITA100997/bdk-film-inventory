@@ -17,6 +17,8 @@ export interface PfDemandSource {
   area?: string | null;
   area_stock?: number;
   is_pet?: boolean;
+  site_id?: number | null;
+  site_name?: string | null;
 }
 
 export interface PfDemandRow {
@@ -52,6 +54,7 @@ export interface PfDemandRow {
   area_stock?: number;
   stock_by_area?: Record<string, number>;
   target_areas?: string[];
+  sites?: string[];
   /** Ламинация панели: участок по маршруту (прессы), альтернатива — окутка на Фабрике. */
   lamination_area?: string | null;
   factory_area?: string | null;
@@ -63,13 +66,25 @@ export const suggestLaminationArea = (r: PfDemandRow, qty: number | null | undef
   !r.lamination_area ? undefined : r.factory_area && r.factory_min_pieces && (qty ?? 0) >= r.factory_min_pieces ? r.factory_area : r.lamination_area;
 
 // indexes: null — task_ids=1&task_ids=2, как ждёт FastAPI, а не task_ids[]=1.
-export const listPfDemand = async (taskIds: number[] = []): Promise<PfDemandRow[]> =>
-  (
+export const listPfDemand = async (options: { site?: string; task_ids?: number[] } | number[] = []): Promise<PfDemandRow[]> => {
+  let taskIds: number[] = [];
+  let site: string | undefined;
+  if (Array.isArray(options)) {
+    taskIds = options;
+  } else if (options) {
+    taskIds = options.task_ids || [];
+    site = options.site;
+  }
+  const params: Record<string, any> = {};
+  if (taskIds.length) params.task_ids = taskIds;
+  if (site) params.site = site;
+  return (
     await apiClient.get<PfDemandRow[]>("/pf-demand", {
-      params: taskIds.length ? { task_ids: taskIds } : undefined,
+      params: Object.keys(params).length ? params : undefined,
       paramsSerializer: { indexes: null },
     })
   ).data;
+};
 
 export interface PfPreviewItem {
   part_id?: number;

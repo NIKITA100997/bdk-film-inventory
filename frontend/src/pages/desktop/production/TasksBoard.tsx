@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Checkbox, Col, Empty, Grid, Input, Progress, Row, Select, Space, Tag, Typography } from "antd";
+import { Button, Card, Checkbox, Col, Empty, Grid, Input, Progress, Row, Select, Space, Tag, Typography, Segmented } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { listProductionTasks, type ProductionTask } from "../../../api/production";
@@ -36,6 +36,7 @@ export default function TasksBoard() {
   const screens = Grid.useBreakpoint();
   const [params] = useSearchParams();
   const [filter, setFilter] = useState<Filter>("all");
+  const [siteFilter, setSiteFilter] = useState<"all" | "Северный" | "Фабрика">("all");
   const [area, setArea] = useState<string | null>(user?.area ?? null);
   const [q, setQ] = useState("");
   const [archived, setArchived] = useState(false);
@@ -77,7 +78,10 @@ export default function TasksBoard() {
     ["late", "Не успевает", late],
   ];
   const base = all.filter(
-    (t) => (archived || t.is_active) && (!area || t.area === area || (area === user?.area && needsMine(t))),
+    (t) =>
+      (archived || t.is_active) &&
+      (!area || t.area === area || (area === user?.area && needsMine(t))) &&
+      (siteFilter === "all" || t.site_name === siteFilter),
   );
   const needle = q.trim().toLowerCase();
   const rows = base
@@ -104,6 +108,16 @@ export default function TasksBoard() {
       <Space orientation="vertical" style={{ width: "100%", padding: 12 }}>
         <Input.Search allowClear placeholder="Номер, деталь, заказ" value={q} onChange={(e) => setQ(e.target.value)} />
         <Space wrap size={[6, 6]}>
+          <Segmented<"all" | "Северный" | "Фабрика">
+            size="small"
+            value={siteFilter}
+            onChange={setSiteFilter}
+            options={[
+              { label: "Все", value: "all" },
+              { label: "Северный", value: "Северный" },
+              { label: "Фабрика", value: "Фабрика" },
+            ]}
+          />
           {!user?.area && (
             <Select
               allowClear
@@ -156,6 +170,11 @@ export default function TasksBoard() {
               >
                 <Typography.Text type="secondary" style={{ fontSize: 11, letterSpacing: ".05em", textTransform: "uppercase" }}>
                   {isPf(t) ? "П/ф" : isFilm(t) ? "С плёнкой" : isProduct(t) ? "Изделия" : "Операции"} · {areaName(t.area)}
+                  {t.site_name && (
+                    <Tag color={t.site_name === "Фабрика" ? "volcano" : "blue"} style={{ marginLeft: 6, fontSize: 10, lineHeight: "16px" }}>
+                      {t.site_name}
+                    </Tag>
+                  )}
                   {needsMine(t) && <Tag color="purple" style={{ marginLeft: 6, fontSize: 10, lineHeight: "16px" }}>нужен ваш п/ф</Tag>}
                 </Typography.Text>
                 <Space style={{ justifyContent: "space-between", width: "100%" }} align="start">

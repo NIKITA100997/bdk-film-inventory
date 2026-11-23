@@ -42,6 +42,8 @@ class PfDemandSourceOut(BaseModel):
     area: str | None = None
     area_stock: float = 0.0
     is_pet: bool = False
+    site_id: int | None = None
+    site_name: str | None = None
 
 
 class PfDemandOut(BaseModel):
@@ -74,6 +76,7 @@ class PfDemandOut(BaseModel):
     area_stock: float = 0.0
     stock_by_area: dict[str, float] = Field(default_factory=dict)
     target_areas: list[str] = Field(default_factory=list)
+    sites: list[str] = Field(default_factory=list)
     # Ламинация панели: участок по маршруту (прессы) и альтернатива — окутка
     # на Фабрике для крупной партии (от factory_min_pieces).
     lamination_area: str | None = None
@@ -153,10 +156,11 @@ class PfProduceOut(BaseModel):
 @router.get("", response_model=list[PfDemandOut])
 def list_pf_demand(
     task_ids: list[int] | None = Query(default=None),
+    site: str | None = Query(default=None, description="Площадка: 'Северный' | 'Фабрика'"),
     db: Session = Depends(get_db),
     user: User = Depends(view),
 ) -> list[PfDemandOut]:
-    return _outs(compute_pf_demand(db, task_ids), db, include_lamination=True)
+    return _outs(compute_pf_demand(db, task_ids, site=site), db, include_lamination=True)
 
 
 def _outs(

@@ -528,7 +528,12 @@ export function OrderView({
                 <Space wrap>
                   {(order.tasks ?? []).map((t) => (
                     <Button key={t.id} size="small" type="link" style={{ padding: 0 }} onClick={() => setCardTask(t.id)}>
-                      №{t.id} {t.area_name ?? t.area}: {t.planned} шт{t.done ? `, сделано ${t.done}` : ""}
+                      №{t.id} {t.area_name ?? t.area}
+                      {t.site_name && (
+                        <Tag color={t.site_name === "Фабрика" ? "volcano" : "blue"} style={{ marginInline: 4 }}>
+                          {t.site_name}
+                        </Tag>
+                      )}: {t.planned} шт{t.done ? `, сделано ${t.done}` : ""}
                     </Button>
                   ))}
                 </Space>

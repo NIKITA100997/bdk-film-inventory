@@ -3,7 +3,7 @@ import { useState } from "react";
 import OverProductionTag, { overExcess } from "../../../components/OverProductionTag";
 import { ItemChars } from "../../../components/ItemChars";
 import { UiBadge } from "../../../components/UiBadge";
-import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Tabs, Typography, message, Popconfirm, InputNumber, Input, Form, Select, Table } from "antd";
+import { Alert, Button, Drawer, Dropdown, Empty, Modal, Progress, Space, Tabs, Typography, message, Popconfirm, InputNumber, Input, Form, Select, Table, Tag } from "antd";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -310,6 +310,11 @@ function TaskCardBody({
               <Typography.Text type="secondary" style={{ fontSize: 12, letterSpacing: ".05em", textTransform: "uppercase" }}>
                 Задание участку · {areaName}
               </Typography.Text>
+              {t.site_name && (
+                <Tag color={t.site_name === "Фабрика" ? "volcano" : "blue"} style={{ fontWeight: 600 }}>
+                  {t.site_name === "Фабрика" ? "🏭 Фабрика" : "🏢 Северный"}
+                </Tag>
+              )}
             </Space>
             <Typography.Title level={4} style={{ margin: 0 }}>
               №{t.id} «{t.name ?? t.product_model_name ?? "Задание"}»

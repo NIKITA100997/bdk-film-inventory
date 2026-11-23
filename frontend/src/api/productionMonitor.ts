@@ -66,6 +66,7 @@ export interface MonitorRow {
   thickness_mm?: number | null;
   width_mm?: number | null;
   height_mm?: number | null;
+  site?: string | null;
 }
 
 export interface Monitor {

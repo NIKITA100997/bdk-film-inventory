@@ -204,6 +204,9 @@ export interface ProductionTask {
   // бракованных штук.
   produced_good_pieces: number;
   defect_pieces: number;
+  lam_area?: string | null;
+  site_id?: number | null;
+  site_name?: string | null;
 }
 
 export interface ProductionTaskLineManualCreate {

@@ -134,6 +134,7 @@ export default function PfDemand() {
     hasPerm(user, "part_storage.manage");
 
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
+  const [siteFilter, setSiteFilter] = useState<"all" | "Северный" | "Фабрика">("all");
   const [showAllCatalog, setShowAllCatalog] = useState(false);
   const [onlyTasks, setOnlyTasks] = useState(false);
   const [onlyMine, setOnlyMine] = useState(false);
@@ -154,8 +155,14 @@ export default function PfDemand() {
   const [pf, setPf] = usePfFilter();
   const { byPart: pfAttrs, groups: itemGroups } = usePfIndex();
 
-  const allQuery = useQuery({ queryKey: ["pf-demand", []], queryFn: () => listPfDemand([]) });
-  const demandQuery = useQuery({ queryKey: ["pf-demand", taskFilter], queryFn: () => listPfDemand(taskFilter) });
+  const allQuery = useQuery({
+    queryKey: ["pf-demand", [], siteFilter],
+    queryFn: () => listPfDemand({ site: siteFilter === "all" ? undefined : siteFilter }),
+  });
+  const demandQuery = useQuery({
+    queryKey: ["pf-demand", taskFilter, siteFilter],
+    queryFn: () => listPfDemand({ task_ids: taskFilter, site: siteFilter === "all" ? undefined : siteFilter }),
+  });
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts, enabled: !!user?.area });
 
@@ -228,11 +235,11 @@ export default function PfDemand() {
       pfAttrs,
       itemGroups,
     );
-    const by = new Map<number, { id: number; name: string; dueDate?: string | null; area?: string | null; parts: number; shortage: number }>();
+    const by = new Map<number, { id: number; name: string; dueDate?: string | null; area?: string | null; siteName?: string | null; parts: number; shortage: number }>();
     for (const r of base)
       for (const src of r.sources) {
         if (horizon !== "all" && !matchHorizon(src.due_date, horizon)) continue;
-        const t = by.get(src.task_id) ?? { id: src.task_id, name: src.task_name, dueDate: src.due_date, area: src.area, parts: 0, shortage: 0 };
+        const t = by.get(src.task_id) ?? { id: src.task_id, name: src.task_name, dueDate: src.due_date, area: src.area, siteName: src.site_name, parts: 0, shortage: 0 };
         t.parts += 1;
         t.shortage += src.shortage;
         by.set(src.task_id, t);
@@ -261,6 +268,8 @@ export default function PfDemand() {
     itemId?: number | null;
     targetAreas?: string[];
     isPet?: boolean;
+    siteId?: number | null;
+    siteName?: string | null;
   }
 
   interface TaskCardData {
@@ -268,6 +277,8 @@ export default function PfDemand() {
     taskName: string;
     dueDate: string | null;
     area: string | null;
+    siteId?: number | null;
+    siteName?: string | null;
     sources: TaskSourceItem[];
     totalRemaining: number;
     totalShortage: number;
@@ -289,6 +300,8 @@ export default function PfDemand() {
             taskName: src.task_name,
             dueDate: src.due_date ?? null,
             area: src.area ?? null,
+            siteId: src.site_id ?? null,
+            siteName: src.site_name ?? null,
             sources: [],
             totalRemaining: 0,
             totalShortage: 0,
@@ -318,6 +331,8 @@ export default function PfDemand() {
           itemId: r.item_id,
           targetAreas: r.target_areas,
           isPet: src.is_pet,
+          siteId: src.site_id,
+          siteName: src.site_name,
         });
         t.totalRemaining += src.remaining;
         t.totalShortage += src.shortage;
@@ -398,6 +413,15 @@ export default function PfDemand() {
         {/* Верхняя строка режимов и горизонтов */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
           <Space wrap size={[12, 12]}>
+            <Segmented<"all" | "Северный" | "Фабрика">
+              value={siteFilter}
+              onChange={setSiteFilter}
+              options={[
+                { label: "🏢 Все площадки", value: "all" },
+                { label: "🏢 Северный", value: "Северный" },
+                { label: "🏭 Фабрика", value: "Фабрика" },
+              ]}
+            />
             <Segmented<FilterStatus>
               value={filterStatus}
               onChange={setFilterStatus}
@@ -503,6 +527,11 @@ export default function PfDemand() {
                   style={{ fontSize: 13, padding: "3px 10px", border: "1px solid #E4E4DF" }}
                 >
                   №{t.id} {t.name.length > 28 ? t.name.slice(0, 27) + "…" : t.name}
+                  {t.siteName && (
+                    <span style={{ marginLeft: 4, color: t.siteName === "Фабрика" ? "#d4380d" : "#0958d9", fontSize: 11, fontWeight: 500 }}>
+                      [{t.siteName}]
+                    </span>
+                  )}
                   {t.shortage > 0 && <b style={{ color: taskFilter.includes(t.id) ? undefined : "#C0392B" }}> −{fmt(t.shortage)}</b>}
                 </Tag.CheckableTag>
               ))}
@@ -548,6 +577,11 @@ export default function PfDemand() {
                         <UiBadge>Срок не указан</UiBadge>
                       )}
                       {t.area && <UiBadge color="cyan">{areaName(t.area)}</UiBadge>}
+                      {t.siteName && (
+                        <Tag color={t.siteName === "Фабрика" ? "volcano" : "blue"} style={{ fontWeight: 600 }}>
+                          {t.siteName === "Фабрика" ? "🏭 Фабрика" : "🏢 Северный"}
+                        </Tag>
+                      )}
                       {t.totalShortage > 0 ? (
                         <UiBadge color="red" style={{ fontWeight: 600 }}>
                           Не хватает: {fmt(t.totalShortage)} шт
@@ -827,6 +861,9 @@ export default function PfDemand() {
                       <Space wrap align="center">
                         <Typography.Text strong>{r.part_name}</Typography.Text>
                         {(r.task_demand_pet ?? 0) > 0 && <Tag color="purple">ПЭТ</Tag>}
+                        {r.sites && r.sites.map((st) => (
+                          <Tag key={st} color={st === "Фабрика" ? "volcano" : "blue"}>{st}</Tag>
+                        ))}
                         {status}
                         {(r.shortage_pet ?? 0) > 0 && (
                           <UiBadge color="magenta">Нехватка ПЭТ: {fmt(r.shortage_pet ?? 0)} шт</UiBadge>
@@ -1001,6 +1038,11 @@ export default function PfDemand() {
                                   <Space wrap align="center">
                                     <Link to={`/production-tasks?task=${s.task_id}`}>Задание участка №{s.task_id} · {s.task_name}</Link>
                                     {s.is_pet && <Tag color="purple">ПЭТ</Tag>}
+                                    {s.site_name && (
+                                      <Tag color={s.site_name === "Фабрика" ? "volcano" : "blue"}>
+                                        {s.site_name}
+                                      </Tag>
+                                    )}
                                   </Space>
                                   <Space wrap size={[12, 4]}>
                                     <Typography.Text type="secondary">Срок: {due}</Typography.Text>
@@ -1086,6 +1128,11 @@ export default function PfDemand() {
                               <td style={{ padding: "4px 12px 4px 0" }}>
                                 №{s.task_id} · {s.task_name}
                                 {s.is_pet && <Tag color="purple" style={{ marginLeft: 6 }}>ПЭТ</Tag>}
+                                {s.site_name && (
+                                  <Tag color={s.site_name === "Фабрика" ? "volcano" : "blue"} style={{ marginLeft: 6 }}>
+                                    {s.site_name}
+                                  </Tag>
+                                )}
                               </td>
                               <td style={{ padding: "4px 12px 4px 0" }}>
                                 {s.due_date ? (
@@ -1198,6 +1245,11 @@ export default function PfDemand() {
                       <span style={{ fontWeight: 600 }}>
                         {name}
                         {(r.task_demand_pet ?? 0) > 0 && <Tag color="purple" style={{ marginLeft: 6 }}>ПЭТ</Tag>}
+                        {r.sites && r.sites.map((st) => (
+                          <Tag key={st} color={st === "Фабрика" ? "volcano" : "blue"} style={{ marginLeft: 6 }}>
+                            {st}
+                          </Tag>
+                        ))}
                       </span>
                       {r.target_areas && r.target_areas.length > 0 && (
                         <Space wrap size={4}>

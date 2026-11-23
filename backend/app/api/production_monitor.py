@@ -101,6 +101,7 @@ class MonitorRow(BaseModel):
     thickness_mm: float | None = None
     width_mm: float | None = None
     height_mm: float | None = None
+    site: str | None = None
 
 
 class MonitorOut(BaseModel):
@@ -184,8 +185,11 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
         return effective_direction(item, types.get(item.type_id)) if item else None
 
     from app.models.dictionaries import PartStage
+    from app.services.areas import resolve_task_site
+    from app.models.sites import Site
 
     area_by_code = {a.code: a for a in db.query(Area)}
+    site_map = {s.id: s for s in db.query(Site)}
     stage_ids = {ln.part_stage_id for ln, _ in lines if ln.part_stage_id}
     stages = {st.id: st for st in db.query(PartStage).filter(PartStage.id.in_(stage_ids or {-1}))}
     launched = {
@@ -344,6 +348,7 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
                 thickness_mm=ths.get(ln.thickness_id) if ln.thickness_id else None,
                 width_mm=float(ln.width_mm) if getattr(ln, "width_mm", None) else None,
                 height_mm=round(float(ln.length_m) * 1000.0, 1) if getattr(ln, "length_m", None) and float(ln.length_m) > 0 else None,
+                site=resolve_task_site(t.area, getattr(t, "lam_area", None), area_by_code, site_map)[1],
             )
         )
         area_codes.add(t.area)

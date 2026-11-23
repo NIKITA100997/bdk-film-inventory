@@ -211,6 +211,8 @@ class OrderTaskOut(BaseModel):
     name: str
     area: str
     area_name: str | None
+    site_id: int | None = None
+    site_name: str | None = None
     is_active: bool
     for_task_id: int | None
     lines_count: int
@@ -533,6 +535,10 @@ def _plan_fields(db: Session, order: ProductionOrder) -> dict:
 def _tasks_out(db: Session, tasks: list[ProductionTask], area_names: dict[str, str]) -> list[OrderTaskOut]:
     if not tasks:
         return []
+    from app.services.areas import resolve_task_site
+    from app.models.sites import Site
+    site_map = {s.id: s for s in db.query(Site).all()}
+    area_map = {a.code: a for a in db.query(Area).all()}
     line_ids = [ln.id for t in tasks for ln in t.lines]
     good = (
         dict(
@@ -551,19 +557,22 @@ def _tasks_out(db: Session, tasks: list[ProductionTask], area_names: dict[str, s
     if line_task:
         for s in db.query(PlanSlot).filter(PlanSlot.task_line_id.in_(list(line_task))):
             slot_days[line_task[s.task_line_id]].append(s.date)
-    return [
-        OrderTaskOut(
-            plan_from=min(slot_days[t.id]) if slot_days.get(t.id) else None,
-            plan_to=max(slot_days[t.id]) if slot_days.get(t.id) else None,
-            id=t.id, name=t.name or (t.product_model.name if t.product_model else f"Задание №{t.id}"), area=t.area,
-            area_name=area_names.get(t.area), is_active=t.is_active, for_task_id=t.for_task_id, lines_count=len(t.lines),
-            planned=round(sum(float(ln.quantity_pieces) for ln in t.lines), 2),
-            done=round(sum(min(float(good.get(ln.id, 0)), float(ln.quantity_pieces)) for ln in t.lines), 2),
-            with_film=any(ln.material_id is not None for ln in t.lines),
-            with_parts=any(ln.part_id is not None and ln.part_stage_id is None for ln in t.lines),
+    res = []
+    for t in tasks:
+        s_id, s_name = resolve_task_site(t.area, getattr(t, "lam_area", None), area_map, site_map)
+        res.append(
+            OrderTaskOut(
+                plan_from=min(slot_days[t.id]) if slot_days.get(t.id) else None,
+                plan_to=max(slot_days[t.id]) if slot_days.get(t.id) else None,
+                id=t.id, name=t.name or (t.product_model.name if t.product_model else f"Задание №{t.id}"), area=t.area,
+                area_name=area_names.get(t.area), site_id=s_id, site_name=s_name, is_active=t.is_active, for_task_id=t.for_task_id, lines_count=len(t.lines),
+                planned=round(sum(float(ln.quantity_pieces) for ln in t.lines), 2),
+                done=round(sum(min(float(good.get(ln.id, 0)), float(ln.quantity_pieces)) for ln in t.lines), 2),
+                with_film=any(ln.material_id is not None for ln in t.lines),
+                with_parts=any(ln.part_id is not None and ln.part_stage_id is None for ln in t.lines),
+            )
         )
-        for t in tasks
-    ]
+    return res
 
 
 def _get_order(db: Session, order_id: int) -> ProductionOrder:

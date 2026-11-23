@@ -494,6 +494,9 @@ class ProductionTaskOut(BaseModel):
     # produced_good_pieces/defect_pieces по всем строкам задания.
     produced_good_pieces: float = 0.0
     defect_pieces: float = 0.0
+    lam_area: str | None = None
+    site_id: int | None = None
+    site_name: str | None = None
 
 
 class TaskCardOrderOut(BaseModel):

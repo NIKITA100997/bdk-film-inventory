@@ -10,6 +10,7 @@ from app.core.constants import PART_UNIT_AUTO_WRITE_OFF_REASON_CODE
 from app.core.security import get_current_user, get_permission_codes, require_permission
 from app.db.session import get_db
 from app.models.areas import Area
+from app.models.sites import Site
 from app.models.dictionaries import Color, Material, MaterialSku, Part, PartStage, Thickness
 from app.models.units import MaterialUnit, UnitStatus
 from app.models.part_units import PartUnit, PartUnitStatus
@@ -75,7 +76,7 @@ from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_employees, find_or_create_material_color_thickness, task_lines_with_progress
 from app.services.blank_plan_import import enrich_blank_plan_blocks, parse_blank_plan_xlsx_bytes
 from app.services.naryad_import import enrich_naryad_lines, parse_naryad_xls_bytes
-from app.services.areas import cuts_film_on_site
+from app.services.areas import cuts_film_on_site, resolve_task_site
 from app.services.plan_fact import fetch_issued_length_by_task_line
 from app.services.part_units import (
     advance_part_unit,
@@ -1032,6 +1033,7 @@ def _task_out(db: Session, task: ProductionTask, pool_cache: dict | None = None)
                 area_strip_count=st_cnt,
             )
         )
+    site_id, site_name = resolve_task_site(task.area, getattr(task, "lam_area", None), db=db)
     return ProductionTaskOut(
         id=task.id,
         product_model_id=task.product_model_id,
@@ -1056,6 +1058,9 @@ def _task_out(db: Session, task: ProductionTask, pool_cache: dict | None = None)
         # produced_good_pieces/defect_pieces через _line_report_aggregates).
         produced_good_pieces=round(sum(l.produced_good_pieces for l in line_outs), 2),
         defect_pieces=round(sum(l.defect_pieces for l in line_outs), 2),
+        lam_area=getattr(task, "lam_area", None),
+        site_id=site_id,
+        site_name=site_name,
     )
 
 

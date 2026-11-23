@@ -25,10 +25,13 @@ from datetime import date
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.models.areas import Area
 from app.models.dictionaries import Part, PartStage
 from app.models.part_units import PartReservation, PartUnit, PartUnitStatus
 from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
+from app.models.sites import Site
 from app.services import normatives
+from app.services.areas import resolve_task_site
 from app.services.film_check import is_pet_film
 from app.services.part_units import reported_good_pieces_by_unit
 
@@ -50,6 +53,8 @@ class PfDemandSource:
     area: str | None = None
     area_stock: float = 0.0
     is_pet: bool = False
+    site_id: int | None = None
+    site_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +89,7 @@ class PfDemandRow:
     area_stock: float = 0.0
     stock_by_area: dict[str, float] = field(default_factory=dict)
     target_areas: list[str] = field(default_factory=list)
+    sites: list[str] = field(default_factory=list)
 
 
 def compute_suggestion(
@@ -161,6 +167,8 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
             (float(line.quantity_pieces), float(good.get(line.id, 0)), line.is_closed or line.production_closed, line_pet)
         )
     tasks = {line.task_id: line.task for line in lines}
+    area_map = {a.code: a for a in db.query(Area).all()}
+    site_map = {s.id: s for s in db.query(Site).all()}
     from app.models.production_orders import ProductionOrder
     order_ids = [t.production_order_id for t in tasks.values() if t.production_order_id]
     orders = {o.id: o for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()} if order_ids else {}
@@ -173,6 +181,7 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
         order = orders.get(task.production_order_id) if task.production_order_id else None
         due_date = (order.ship_date or order.promised_ready) if order else None
         is_pet = any(pet for _, _, _, pet in part_lines)
+        site_id, site_name = resolve_task_site(task.area, getattr(task, "lam_area", None), area_map, site_map)
         demand[part_id].append(
             PfDemandSource(
                 task_id=task_id,
@@ -183,6 +192,8 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
                 due_date=due_date,
                 area=task.area,
                 is_pet=is_pet,
+                site_id=site_id,
+                site_name=site_name,
             )
         )
     return demand
@@ -303,6 +314,8 @@ def _merge_by_task(sources: list[PfDemandSource]) -> list[PfDemandSource]:
                 due_date=cur.due_date or s.due_date,
                 area=cur.area or s.area,
                 is_pet=cur.is_pet or s.is_pet,
+                site_id=cur.site_id or s.site_id,
+                site_name=cur.site_name or s.site_name,
             )
         )
     return sorted(by_task.values(), key=lambda s: s.task_id)
@@ -396,6 +409,7 @@ def _row(st: _State, p: Part, *, sources, task_demand, stock, in_work, min_stock
         area_stock=round(st.area_stock.get(p.id, 0.0), 2),
         stock_by_area={area: round(qty, 2) for (pid, area), qty in st.area_part_stock.items() if pid == p.id},
         target_areas=list(dict.fromkeys(s.area for s in sources if s.area)),
+        sites=sorted({s.site_name for s in sources if s.site_name}),
     )
 
 
@@ -493,6 +507,9 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
         label = f"Заказ №{order.id} «{order.name}»" if order else (task.name or f"Задание №{task.id}")
         due_date = (order.ship_date or order.promised_ready) if order else None
         line_is_pet = is_pet_film(materials.get(line.material_id), colors.get(line.color_id))
+        area_map = {a.code: a for a in db.query(Area).all()}
+        site_map = {s.id: s for s in db.query(Site).all()}
+        site_id, site_name = resolve_task_site(task.area, getattr(task, "lam_area", None), area_map, site_map)
         for comp in comps:
             part = parts_by_item.get(comp.component_item_id)
             if part is None:
@@ -506,6 +523,8 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
                     due_date=due_date,
                     area=task.area,
                     is_pet=line_is_pet,
+                    site_id=site_id,
+                    site_name=site_name,
                 )
             )
     return out
@@ -569,7 +588,9 @@ def check_foreign_reserve(db: Session, *, part_id: int, quantity: float, task_id
         )
 
 
-def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[PfDemandRow]:
+def compute_pf_demand(
+    db: Session, task_ids: list[int] | None = None, site: str | None = None
+) -> list[PfDemandRow]:
     """Детали с этапами, у которых задан минимальный остаток, есть
     потребность по заданиям цеха или заказам на производство, или что-то в
     работе.
@@ -579,12 +600,18 @@ def compute_pf_demand(db: Session, task_ids: list[int] | None = None) -> list[Pf
     не про конкретное задание); «есть» — свободный остаток плюс резерв этих
     заданий (резервы других заданий не в счёт), «в работе» — производимое
     под эти задания плюс запущенное без привязки к заданию; в список
-    попадают только детали этих заданий."""
+    попадают только детали этих заданий.
+
+    site — площадка ('Северный' | 'Фабрика'): фильтрует потребность по площадке."""
     st = _state(db)
     selected = set(task_ids or [])
     rows = []
     for p in st.parts:
         sources = st.demand.get(p.id, [])
+        if site:
+            sources = [s for s in sources if s.site_name == site]
+            if not sources:
+                continue
         if selected:
             sources = [s for s in sources if s.task_id in selected]
             d = sum(s.remaining for s in sources)
