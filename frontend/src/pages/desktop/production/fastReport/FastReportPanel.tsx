@@ -569,10 +569,10 @@ export default function FastReportPanel({
               )}
 
               {/* Ширина штрипса для участков окутки или ширина деталей */}
-              {stripWidths.length > 1 && (
+              {isWrapping && stripWidths.length > 1 && (
                 <Space wrap size={[4, 4]} align="center">
                   <Typography.Text type="secondary" style={{ fontSize: 13, marginRight: 2 }}>
-                    {isWrapping ? "Штрипс:" : "Ширина:"}
+                    Штрипс:
                   </Typography.Text>
                   <Tag.CheckableTag
                     checked={selectedStripWidth === null}
@@ -584,9 +584,7 @@ export default function FastReportPanel({
                   {stripWidths.map((sw) => {
                     const count = r.lines
                       .filter((fl) => {
-                        const val = isWrapping
-                          ? Math.round(fl.line.strip_width_mm || 0)
-                          : Math.round(fl.line.width_mm || 0);
+                        const val = Math.round(fl.line.strip_width_mm || 0);
                         return val === sw && Math.max(0, fl.line.remaining_pieces) > 0;
                       })
                       .reduce((s, fl) => s + Math.max(0, fl.line.remaining_pieces), 0);
@@ -604,8 +602,41 @@ export default function FastReportPanel({
                 </Space>
               )}
 
-              {/* Декор плёнки */}
-              {films.length > 1 && (
+              {!isWrapping && r.showDimensions && stripWidths.length > 1 && (
+                <Space wrap size={[4, 4]} align="center">
+                  <Typography.Text type="secondary" style={{ fontSize: 13, marginRight: 2 }}>
+                    Ширина:
+                  </Typography.Text>
+                  <Tag.CheckableTag
+                    checked={selectedStripWidth === null}
+                    onChange={() => setSelectedStripWidth(null)}
+                    style={{ fontSize: 13, padding: "2px 8px" }}
+                  >
+                    Все
+                  </Tag.CheckableTag>
+                  {stripWidths.map((sw) => {
+                    const count = r.lines
+                      .filter((fl) => {
+                        const val = Math.round(fl.line.width_mm || fl.doorInfo.width || 0);
+                        return val === sw && Math.max(0, fl.line.remaining_pieces) > 0;
+                      })
+                      .reduce((s, fl) => s + Math.max(0, fl.line.remaining_pieces), 0);
+                    return (
+                      <Tag.CheckableTag
+                        key={sw}
+                        checked={selectedStripWidth === sw}
+                        onChange={(checked) => setSelectedStripWidth(checked ? sw : null)}
+                        style={{ fontSize: 13, padding: "2px 8px" }}
+                      >
+                        {sw} мм{count > 0 ? ` (${count})` : ""}
+                      </Tag.CheckableTag>
+                    );
+                  })}
+                </Space>
+              )}
+
+              {/* Декор плёнки (только для участков окутки) */}
+              {isWrapping && films.length > 1 && (
                 <Select
                   allowClear
                   placeholder="Фильтр по плёнке"
@@ -880,6 +911,11 @@ function Tiles({
                         Кромка: {fl.doorInfo.edge_label}
                       </Tag>
                     )}
+                    {fl.doorInfo.filler && (
+                      <Tag color="purple" style={{ fontWeight: 600, fontSize: 12, margin: 0 }}>
+                        🛡 {fl.doorInfo.filler}
+                      </Tag>
+                    )}
                     {fl.doorInfo.series && (
                       <Tag color="blue" style={{ fontSize: 12, margin: 0 }}>
                         {fl.doorInfo.series}
@@ -1016,9 +1052,11 @@ function TableView({
       ? "ЧПУ"
       : r.profile === "edgebanding" || r.showEdge
         ? "Кромка"
-        : isWrapping
-          ? "Штрипс"
-          : "Особенности";
+        : r.profile === "assembly"
+          ? "Наполнение / Серия"
+          : isWrapping
+            ? "Штрипс"
+            : "Особенности";
 
   const dims = useMemo<GroupDim<FastLine>[]>(() => {
     return [
@@ -1048,6 +1086,11 @@ function TableView({
         value: (fl) => fl.doorInfo.series || "Без серии",
       },
       {
+        key: "filler",
+        label: "Наполнение",
+        value: (fl) => fl.doorInfo.filler || "Без наполнителя",
+      },
+      {
         key: "size",
         label: "Размер",
         value: (fl) =>
@@ -1056,10 +1099,10 @@ function TableView({
       },
       {
         key: "color",
-        label: "Цвет / Декор",
+        label: isWrapping ? "Плёнка / Декор" : "Цвет / Декор",
         value: (fl) =>
           fl.doorInfo.color ||
-          (fl.line.material ? filmLabel(fl.line) : "Без декора"),
+          (isWrapping && fl.line.material ? filmLabel(fl.line) : "Без декора"),
       },
       {
         key: "edge",
@@ -1091,8 +1134,13 @@ function TableView({
   }, [isWrapping, hasGroups]);
 
   const defaultDims = useMemo(() => {
-    return hasGroups ? ["area_group"] : ["order", "invoice"];
-  }, [hasGroups]);
+    if (hasGroups) return ["area_group"];
+    if (r.profile === "milling") return ["program", "order"];
+    if (r.profile === "edgebanding") return ["edge", "order"];
+    if (r.profile === "assembly") return ["series", "size"];
+    if (isWrapping) return ["strip", "color"];
+    return ["order", "invoice"];
+  }, [hasGroups, r.profile, isWrapping]);
 
   const columns: GroupColumn<FastLine>[] = useMemo(() => {
     return [
@@ -1242,14 +1290,14 @@ function TableView({
       },
       {
         key: "color",
-        title: "Цвет / Декор",
+        title: isWrapping ? "Плёнка / Декор" : "Цвет / Декор",
         width: 140,
         ellipsis: true,
-        sortValue: (fl) => fl.doorInfo.color || filmLabel(fl.line),
+        sortValue: (fl) => fl.doorInfo.color || (isWrapping ? filmLabel(fl.line) : ""),
         render: (_: unknown, fl: FastLine) => {
           const c =
             fl.doorInfo.color ||
-            (fl.line.material ? filmLabel(fl.line) : "");
+            (isWrapping && fl.line.material ? filmLabel(fl.line) : "");
           return c ? (
             <span title={c}>{c}</span>
           ) : (
@@ -1260,7 +1308,7 @@ function TableView({
       {
         key: "feature",
         title: colFeatureTitle,
-        width: 130,
+        width: 140,
         ellipsis: true,
         render: (_: unknown, fl: FastLine) => (
           <Space wrap size={[2, 2]}>
@@ -1274,7 +1322,12 @@ function TableView({
                 ЧПУ: {fl.line.program}
               </UiBadge>
             )}
-            {fl.line.part_name && !fl.doorInfo.series && (
+            {fl.doorInfo.filler && (
+              <UiBadge color="cyan" style={{ fontSize: 11 }}>
+                🛡 {fl.doorInfo.filler}
+              </UiBadge>
+            )}
+            {fl.line.part_name && !fl.doorInfo.series && !fl.doorInfo.filler && (
               <span style={{ fontSize: 11.5 }} title={fl.line.part_name}>
                 {fl.line.part_name}
               </span>
@@ -1601,6 +1654,7 @@ function LineSheet({
   const e = r.entryOf(fl.line);
   const rolls = rollChoices(fl.line);
   const defect = e.defects.reduce((s, d) => s + d.qty, 0);
+  const isWrapping = r.profile === "wrapping" || r.requiresRoll;
   return (
     <Drawer
       open
@@ -1627,9 +1681,10 @@ function LineSheet({
                 </Typography.Text>
               )}
               {fl.doorInfo.series && <Tag color="blue">{fl.doorInfo.series}</Tag>}
+              {fl.doorInfo.filler && <Tag color="purple">🛡 {fl.doorInfo.filler}</Tag>}
               {fl.line.program && <Tag color="cyan">ЧПУ: {fl.line.program}</Tag>}
               {fl.doorInfo.edge_label && <Tag color="orange">Кромка: {fl.doorInfo.edge_label}</Tag>}
-              {fl.line.material && <Tag color="purple">{filmLabel(fl.line)}</Tag>}
+              {isWrapping && fl.line.material && <Tag color="purple">{filmLabel(fl.line)}</Tag>}
             </Space>
             {fl.line.instruction && (
               <div style={{ marginTop: 4, color: "#d48806", fontSize: 12 }}>
@@ -1649,13 +1704,13 @@ function LineSheet({
             {fmt(fl.line.quantity_pieces)}, сделано{" "}
             {fmt(fl.line.produced_good_pieces)}, осталось{" "}
             {fmt(fl.line.remaining_pieces)}
-            {fl.line.material ? ` · ${filmLabel(fl.line)}` : ""}
+            {isWrapping && fl.line.material ? ` · ${filmLabel(fl.line)}` : ""}
           </Typography.Text>
           <OverProductionTag line={fl.line} produced={fl.line.produced_good_pieces + (+e.good || 0)} planned={+e.good > 0} />
           {(fl.line.film_warnings ?? []).map((w) => (
             <Alert key={w} type="warning" showIcon message={w} />
           ))}
-          {!r.requiresRoll && fl.line.material !== null && (
+          {!r.requiresRoll && isWrapping && fl.line.material !== null && (
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", margin: "4px 0" }}>
               <Typography.Text type="secondary">
                 Штрипс {fl.line.strip_width_mm || fl.line.width_mm} мм:

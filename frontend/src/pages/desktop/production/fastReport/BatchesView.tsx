@@ -29,8 +29,16 @@ type R = ReturnType<typeof useFastReport>;
 
 export interface SetupBatch {
   key: string;
-  stripWidth: number;
-  film: string;
+  badgeType: "wrapping" | "milling" | "edgebanding" | "assembly" | "universal";
+  title: string;
+  subtitle?: string;
+  dimensions?: string;
+  stripWidth?: number;
+  film?: string;
+  program?: string;
+  edge?: string;
+  series?: string;
+  filler?: string;
   lines: FastLine[];
   totalPlan: number;
   totalProduced: number;
@@ -51,24 +59,105 @@ export default function BatchesView({
 }) {
   const [defectTarget, setDefectTarget] = useState<FastLine | null>(null);
 
-  // Группировка строк по связке [Ширина штрипса] + [Декор плёнки] (для окутки)
-  // или по [Размерам] (для сборки / остальных участков)
+  // Адаптивная группировка наладок в зависимости от технологического профиля участка:
+  // - wrapping: [Ширина штрипса] + [Декор плёнки]
+  // - milling: [Программа ЧПУ] / [Толщина МДФ]
+  // - edgebanding: [Кромка: тип, декор, стороны]
+  // - assembly: [Серия] + [Наполнитель] + [Габариты]
+  // - universal / packaging: [Габариты / Название]
   const isWrapping = r.profile === "wrapping" || r.requiresRoll;
+  const isMilling = r.profile === "milling";
+  const isEdgebanding = r.profile === "edgebanding";
+  const isAssembly = r.profile === "assembly";
+
   const batches = useMemo(() => {
     const map = new Map<string, SetupBatch>();
     for (const fl of lines) {
-      const sw = isWrapping
-        ? Math.round(fl.line.strip_width_mm || 0)
-        : Math.round(fl.line.width_mm || fl.doorInfo.width || 0);
-      const film = filmLabel(fl.line);
-      const dim = fl.doorInfo.dimensions_str || `${sw} мм`;
-      const key = isWrapping ? `${sw}|${film}` : dim;
+      let key = "";
+      let badgeType: SetupBatch["badgeType"] = "universal";
+      let title = "";
+      let subtitle: string | undefined = undefined;
+      let stripWidth: number | undefined = undefined;
+      let film: string | undefined = undefined;
+      let program: string | undefined = undefined;
+      let edge: string | undefined = undefined;
+      let series: string | undefined = undefined;
+      let filler: string | undefined = undefined;
+      const dimensions = fl.doorInfo.dimensions_str || undefined;
+
+      if (isWrapping) {
+        badgeType = "wrapping";
+        stripWidth = Math.round(fl.line.strip_width_mm || 0);
+        film = filmLabel(fl.line);
+        key = `${stripWidth}|${film}`;
+        title = `📏 Штрипс ${stripWidth} мм`;
+        subtitle = film !== "без плёнки" ? film : undefined;
+      } else if (isMilling) {
+        badgeType = "milling";
+        if (fl.line.program) {
+          program = fl.line.program;
+          key = `prog:${program}`;
+          title = `⚙ ЧПУ: ${program}`;
+          if (fl.doorInfo.thickness) {
+            subtitle = `МДФ ${fl.doorInfo.thickness} мм`;
+          }
+        } else if (fl.doorInfo.thickness) {
+          key = `th:${fl.doorInfo.thickness}`;
+          title = `МДФ ${fl.doorInfo.thickness} мм · Без программы`;
+        } else if (dimensions) {
+          key = `dim:${dimensions}`;
+          title = `📐 ${dimensions}`;
+        } else {
+          key = `part:${fl.line.part_name || "manual"}`;
+          title = fl.line.part_name || "Детали без программы";
+        }
+      } else if (isEdgebanding) {
+        badgeType = "edgebanding";
+        if (fl.doorInfo.edge_label) {
+          edge = fl.doorInfo.edge_label;
+          key = `edge:${edge}`;
+          title = `🎗 ${edge}`;
+        } else if (fl.doorInfo.edge_type) {
+          const el = `${fl.doorInfo.edge_type} ${fl.doorInfo.edge_color ?? ""}`.trim();
+          edge = el;
+          key = `edge:${el}`;
+          title = `🎗 Кромка: ${el}`;
+        } else {
+          key = "edge:none";
+          title = "Без кромки (внутренние детали)";
+        }
+      } else if (isAssembly) {
+        badgeType = "assembly";
+        series = fl.doorInfo.series ?? undefined;
+        filler = fl.doorInfo.filler ?? undefined;
+        const sPart = series ? `Серия ${series}` : "";
+        const fPart = filler ? filler : "";
+        const dimPart = dimensions || (fl.doorInfo.width ? `${fl.doorInfo.width} мм` : "");
+        const labelParts = [sPart, fPart, dimPart].filter(Boolean);
+        const label = labelParts.length > 0 ? labelParts.join(" · ") : (fl.line.part_name || "Детали");
+        key = `asm:${label}`;
+        title = `🔨 ${label}`;
+      } else {
+        badgeType = "universal";
+        const label = dimensions || fl.line.part_name || "Позиции";
+        key = `univ:${label}`;
+        title = `📦 ${label}`;
+      }
+
       let b = map.get(key);
       if (!b) {
         b = {
           key,
-          stripWidth: sw,
+          badgeType,
+          title,
+          subtitle,
+          dimensions,
+          stripWidth,
           film,
+          program,
+          edge,
+          series,
+          filler,
           lines: [],
           totalPlan: 0,
           totalProduced: 0,
@@ -109,7 +198,7 @@ export default function BatchesView({
 
     // Сортировка наладок: сначала те, где больше всего осталось сделать
     return [...map.values()].sort((a, b) => b.totalRemaining - a.totalRemaining);
-  }, [lines]);
+  }, [lines, isWrapping, isMilling, isEdgebanding, isAssembly]);
 
   if (!batches.length) {
     return <Empty description="Нет открытых позиций для текущего фильтра" />;
@@ -156,15 +245,18 @@ function BatchCard({
   onOpenLine?: (fl: FastLine) => void;
 }) {
   const [goodInput, setGoodInput] = useState<number | null>(null);
+  const isWrapping = r.profile === "wrapping" || r.requiresRoll;
 
-  // Все доступные рулоны для этой плёнки на участке
+  // Все доступные рулоны для этой плёнки на участке (только для участков окутки)
   const availableRolls = useMemo(() => {
+    if (!isWrapping) return [];
     const firstLine = batch.lines[0]?.line;
     if (!firstLine) return [];
     return rollChoices(firstLine);
-  }, [batch.lines]);
+  }, [batch.lines, isWrapping]);
 
   const [selectedRoll, setSelectedRoll] = useState<number | null>(() => {
+    if (!isWrapping) return null;
     const firstLine = batch.lines[0]?.line;
     return firstLine ? defaultRoll(firstLine) : null;
   });
@@ -198,7 +290,7 @@ function BatchCard({
       if (take > 0 || isLast) {
         r.setEntry(fl.line, {
           good: String(take),
-          rollId: selectedRoll ?? defaultRoll(fl.line),
+          rollId: isWrapping ? (selectedRoll ?? defaultRoll(fl.line)) : null,
         });
       }
     }
@@ -218,14 +310,38 @@ function BatchCard({
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
         <Space wrap align="center">
-          <Tag color="blue" style={{ fontSize: 14, padding: "3px 10px", fontWeight: 700 }}>
-            {r.profile === "wrapping" || r.requiresRoll
-              ? `📏 Штрипс ${batch.stripWidth} мм`
-              : `📐 ${batch.lines[0]?.doorInfo.dimensions_str || `${batch.stripWidth} мм`}`}
+          <Tag
+            color={
+              batch.badgeType === "wrapping"
+                ? "blue"
+                : batch.badgeType === "milling"
+                  ? "cyan"
+                  : batch.badgeType === "edgebanding"
+                    ? "orange"
+                    : batch.badgeType === "assembly"
+                      ? "blue"
+                      : "default"
+            }
+            style={{ fontSize: 14, padding: "3px 10px", fontWeight: 700 }}
+          >
+            {batch.title}
           </Tag>
-          {(r.profile === "wrapping" || r.requiresRoll) && batch.film !== "без плёнки" && (
-            <Tag color="geekblue" style={{ fontSize: 14, padding: "3px 10px" }}>
-              🎬 {batch.film}
+          {batch.subtitle && (
+            <Tag
+              color={batch.badgeType === "wrapping" ? "geekblue" : "default"}
+              style={{ fontSize: 13, padding: "2px 8px" }}
+            >
+              {batch.badgeType === "wrapping" ? `🎬 ${batch.subtitle}` : batch.subtitle}
+            </Tag>
+          )}
+          {batch.badgeType !== "wrapping" && batch.dimensions && (
+            <Tag color="default" style={{ fontSize: 13, padding: "2px 8px", fontWeight: 600 }}>
+              📐 {batch.dimensions}
+            </Tag>
+          )}
+          {batch.filler && (
+            <Tag color="purple" style={{ fontSize: 13, padding: "2px 8px", fontWeight: 600 }}>
+              🛡 {batch.filler}
             </Tag>
           )}
           <Text type="secondary" style={{ fontSize: 13 }}>
@@ -294,7 +410,7 @@ function BatchCard({
         }}
       >
         <Space wrap align="center">
-          {availableRolls.length > 0 && (
+          {isWrapping && availableRolls.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <Text style={{ fontSize: 12 }}>Штрипс на станке:</Text>
               <Select
@@ -408,13 +524,40 @@ function BatchCard({
                           </Tag>
                         )}
                         <Text strong>{fl.line.part_name || "Деталь"}</Text>
+                        {r.showDimensions && fl.doorInfo.dimensions_str && (
+                          <Tag color="default" style={{ fontWeight: 600, fontSize: 11, margin: 0 }}>
+                            📐 {fl.doorInfo.dimensions_str}
+                          </Tag>
+                        )}
+                        {r.showCnc && fl.line.program && (
+                          <Tag color="cyan" style={{ fontWeight: 600, fontSize: 11, margin: 0 }}>
+                            ЧПУ: {fl.line.program}
+                          </Tag>
+                        )}
+                        {r.showEdge && fl.doorInfo.edge_label && (
+                          <Tag color="orange" style={{ fontWeight: 600, fontSize: 11, margin: 0 }}>
+                            Кромка: {fl.doorInfo.edge_label}
+                          </Tag>
+                        )}
+                        {fl.doorInfo.filler && (
+                          <Tag color="purple" style={{ fontWeight: 600, fontSize: 11, margin: 0 }}>
+                            🛡 {fl.doorInfo.filler}
+                          </Tag>
+                        )}
+                        {fl.doorInfo.series && (
+                          <Tag color="blue" style={{ fontWeight: 600, fontSize: 11, margin: 0 }}>
+                            {fl.doorInfo.series}
+                          </Tag>
+                        )}
                         <Text type="secondary">
                           Задание №{fl.task.id}
                           {fl.task.production_order_name ? ` · Заказ ${fl.task.production_order_name}` : ""}
                         </Text>
-                        <Text type="secondary">
-                          ({fl.line.length_m} м/шт)
-                        </Text>
+                        {isWrapping && fl.line.length_m > 0 && (
+                          <Text type="secondary">
+                            ({fl.line.length_m} м/шт)
+                          </Text>
+                        )}
                       </Space>
 
                       <Space>

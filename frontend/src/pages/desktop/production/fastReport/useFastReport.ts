@@ -63,6 +63,38 @@ export function resolveAreaProfile(areaObj?: Area | null, areaCode?: string): Ma
   const code = (areaCode || areaObj?.code || "").toLowerCase();
   const name = (areaObj?.name || "").toLowerCase();
   const s = `${code} ${name}`;
+
+  // 1. Кромкооблицовка
+  if (s.includes("kromk") || s.includes("кромк") || s.includes("облицов")) {
+    return "edgebanding";
+  }
+  // 2. Упаковка, финишная обработка и шлифовка
+  if (
+    s.includes("upakov") ||
+    s.includes("упаков") ||
+    s.includes("отк") ||
+    s.includes("паллет") ||
+    s.includes("комплект") ||
+    s.includes("shlif") ||
+    s.includes("шлифов")
+  ) {
+    return "packaging";
+  }
+  // 3. Фрезеровка, ЧПУ, раскрой и распил
+  if (
+    s.includes("frez") ||
+    s.includes("фрез") ||
+    s.includes("чпу") ||
+    s.includes("raskroy") ||
+    s.includes("раскрой") ||
+    s.includes("порезк") ||
+    s.includes("raspil") ||
+    s.includes("распил")
+  ) {
+    return "milling";
+  }
+  // 4. Окутка и ламинация плёнки (исключаем слово 'полуфабрикат' из совпадения по 'фабрика')
+  const isFabrika = (s.includes("fabrika") || s.includes("фабрик")) && !s.includes("полуфабрикат");
   if (
     s.includes("okutka") ||
     s.includes("окутк") ||
@@ -70,41 +102,22 @@ export function resolveAreaProfile(areaObj?: Area | null, areaCode?: string): Ma
     s.includes("шпон") ||
     s.includes("пресс") ||
     s.includes("пленк") ||
-    s.includes("плёнк")
+    s.includes("плёнк") ||
+    isFabrika
   ) {
     return "wrapping";
   }
-  if (
-    s.includes("frez") ||
-    s.includes("фрез") ||
-    s.includes("чпу") ||
-    s.includes("raskroy") ||
-    s.includes("раскрой") ||
-    s.includes("порезк")
-  ) {
-    return "milling";
-  }
-  if (s.includes("kromk") || s.includes("кромк") || s.includes("облицов")) {
-    return "edgebanding";
-  }
+  // 5. Сборка, склейка, каркасы и производство ПФ
   if (
     s.includes("sbork") ||
     s.includes("сборк") ||
     s.includes("каркас") ||
     s.includes("полотен") ||
     s.includes("склейк") ||
-    s.includes("щит")
+    s.includes("щит") ||
+    s.includes("полуфабрикат")
   ) {
     return "assembly";
-  }
-  if (
-    s.includes("upakov") ||
-    s.includes("упаков") ||
-    s.includes("отк") ||
-    s.includes("паллет") ||
-    s.includes("комплект")
-  ) {
-    return "packaging";
   }
   return "universal";
 }
@@ -155,7 +168,19 @@ export function getLineGroup(
           label: `Программа ЧПУ: ${line.program}`,
         };
       }
-      return { key: "prog:manual", label: "Без программы (ручная обработка)" };
+      if (doorInfo.thickness) {
+        return {
+          key: `th:${doorInfo.thickness}`,
+          label: `МДФ ${doorInfo.thickness} мм · Без программы`,
+        };
+      }
+      if (doorInfo.dimensions_str) {
+        return {
+          key: `dim:${doorInfo.dimensions_str}`,
+          label: `Без программы · ${doorInfo.dimensions_str}`,
+        };
+      }
+      return { key: "prog:manual", label: line.part_name || "Без программы (ручная обработка)" };
 
     case "edge":
       if (doorInfo.edge_label) {
@@ -168,7 +193,7 @@ export function getLineGroup(
         const lbl = `Кромка: ${doorInfo.edge_type} ${doorInfo.edge_color ?? ""}`.trim();
         return { key: `edge:${lbl}`, label: lbl };
       }
-      return { key: "edge:none", label: "Без кромки" };
+      return { key: "edge:none", label: "Без кромки (внутренние детали)" };
 
     case "series":
       if (doorInfo.series) {
@@ -203,13 +228,13 @@ export function getLineGroup(
       const dim =
         doorInfo.dimensions_str ||
         (line.part_name?.match(/(\d+(?:[.,]\d+)?\s*[хxXХ*×]\s*\d+(?:\s*[хxXХ*×]\s*\d+)?)/)?.[1]?.replace(/\s+/g, "") ?? "");
-      if (dim) {
-        return {
-          key: `dim:${dim}`,
-          label: `Размер: ${dim}`,
-        };
-      }
-      return { key: "dim:other", label: line.part_name || "Различные размеры" };
+      const seriesPart = doorInfo.series ? `Серия ${doorInfo.series}` : "";
+      const fillerPart = doorInfo.filler ? ` · ${doorInfo.filler}` : "";
+      const label = [seriesPart + fillerPart, dim || line.part_name || "Различные размеры"].filter(Boolean).join(" · ");
+      return {
+        key: `dim:${label}`,
+        label: label || "Различные размеры",
+      };
     }
 
     case "order": {
@@ -319,10 +344,10 @@ export function useFastReport({ area, orderId, taskId }: { area: string; orderId
   const groupBy = resolveGroupBy(areaObj, profile);
 
   const showDimensions = areaObj?.show_dimensions ?? true;
-  const showCnc = areaObj?.show_cnc_program ?? (profile === "milling");
-  const showEdge = areaObj?.show_edge_specs ?? (profile === "edgebanding");
+  const showCnc = Boolean(areaObj?.show_cnc_program) || (profile === "milling");
+  const showEdge = Boolean(areaObj?.show_edge_specs) || (profile === "edgebanding");
   const hasPusk =
-    areaObj?.has_pusk_pieces ??
+    Boolean(areaObj?.has_pusk_pieces) ||
     (profile === "wrapping" && reasons.some((r) => r.code === PUSK_REASON));
   const requiresRoll = areaRequiresRoll(areasQuery.data, area);
   // Плёнку режут на участке (прессы): мастер вводит штуки и сколько метров

@@ -18,6 +18,7 @@ export interface DoorColsInfo extends DoorEdgeInfo {
   width: number | null;
   height: number | null;
   thickness: number | null;
+  filler?: string | null;
 }
 
 export function parseEdgeInfo(chars?: ItemChar[] | null, text?: string | null): DoorEdgeInfo {
@@ -172,6 +173,18 @@ export function extractDoorCols(
   const series = by["серия"] || (rawText.match(/([А-ЯA-Z]-\d+)/)?.[1] ?? null);
   const color = by["цвет"] || null;
 
+  let filler: string | null = null;
+  const fillerVal = by["наполнение"] || by["заполнитель"] || "";
+  if (/пенопласт\s*21[.,]5/i.test(rawText) || /пенопласт\s*21[.,]5/i.test(fillerVal)) {
+    filler = "Пенопласт 21.5 мм";
+  } else if (/пенопласт\s*24[.,]5/i.test(rawText) || /пенопласт\s*24[.,]5/i.test(fillerVal)) {
+    filler = "Пенопласт 24.5 мм";
+  } else if (/пенопласт/i.test(rawText) || /пенопласт/i.test(fillerVal)) {
+    filler = "Пенопласт";
+  } else if (/\bсот\w*/i.test(rawText) || /\bсот\w*/i.test(fillerVal)) {
+    filler = "Соты";
+  }
+
   return {
     ...edge,
     series: series || null,
@@ -181,5 +194,6 @@ export function extractDoorCols(
     width: w,
     height: h,
     thickness: th,
+    filler: filler || null,
   };
 }
