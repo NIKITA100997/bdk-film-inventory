@@ -13,8 +13,7 @@ def _num(v) -> str:
 
 
 def edge_label(by: dict, text: str = "") -> str:
-    """«ABS 2 мм, черная» / «алюминий Black»; ABS без толщины — «ABS —
-    толщина?» (видно, что надо уточнить)."""
+    """«ABS 2 мм, черная» / «алюминий Black»."""
     p = edge_parts(by, text)
     if not p.get("edge_type"):
         return ""
@@ -53,11 +52,11 @@ def edge_parts(by: dict, text: str) -> dict:
         if alum:
             edge_type = "алюминий"
         elif pet:
-            edge_type = f"ПЭТ {th_val} мм" if th_val else "ПЭТ"
+            edge_type = f"ПЭТ {th_val or '1'} мм"
         elif abs_kind or th_val:
-            edge_type = f"ABS {th_val} мм" if th_val else "ABS"
+            edge_type = f"ABS {th_val or '2'} мм"
         else:
-            edge_type = "ABS" if edge_raw else ""
+            edge_type = "ABS 2 мм" if edge_raw else ""
 
         color_clean = edge_raw
         color_clean = re.sub(r"(?i)\babs\b|\bабс\b|\bпэт\b|\bpet\b|алюмин\w*|alum\w*", "", color_clean)
@@ -73,13 +72,15 @@ def edge_parts(by: dict, text: str) -> dict:
 
     if "алюм" in kind or "alum" in kind:
         return {"edge_type": "алюминий", "edge_color": color, "edge_sides": sides}
-    th = _THICK.search(color)
-    pet = re.search(r"(?i)пэт|pet", color)
+    th = _THICK.search(color) or _THICK.search(text or "")
+    pet = bool(re.search(r"(?i)пэт|pet", color) or re.search(r"(?i)пэт|pet", kind) or re.search(r"(?i)пэт|pet", text or ""))
     rest = re.sub(r"(?i)\babs\b|пэт|\bpet\b", " ", _THICK.sub(" ", color))
     rest = " ".join(rest.split())
     base = "ПЭТ" if pet else "ABS"
+    default_th = "1" if pet else "2"
+    th_val = th.group(1).replace(".", ",") if th else default_th
     return {
-        "edge_type": f"{base} {th.group(1).replace('.', ',')} мм" if th else f"{base} — толщина?",
+        "edge_type": f"{base} {th_val} мм",
         "edge_color": rest,
         "edge_sides": sides,
     }

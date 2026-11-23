@@ -16,10 +16,20 @@ def test_edge_columns_pet_two_sides():
     assert (d["edge_type"], d["edge_color"], d["edge_sides"]) == ("ПЭТ 1 мм", "Бежевая", 2)
 
 
-def test_edge_columns_unknown_thickness_and_sides():
+def test_edge_columns_default_thickness_abs():
     d = door_cols(_chars("abs", "черная ABS"), "В-5 800х2000")
-    assert d["edge_type"] == "ABS — толщина?"
+    assert d["edge_type"] == "ABS 2 мм"
+    assert d["edge_color"] == "черная"
     assert d["edge_sides"] is None
+
+
+def test_edge_columns_b40_decor_color():
+    d = door_cols(
+        _chars("abs", "Эмалит Белый EVO"),
+        "В-40 кромка с 4-х сторон 700х2000 - Эмалит Белый EVO кромка Эмалит Белый EVO",
+    )
+    assert (d["edge_type"], d["edge_color"], d["edge_sides"]) == ("ABS 2 мм", "Эмалит Белый EVO", 4)
+    assert d["edge"] == "ABS 2 мм, Эмалит Белый EVO"
 
 
 def test_edge_columns_aluminium():

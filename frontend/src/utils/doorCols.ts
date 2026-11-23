@@ -49,10 +49,11 @@ export function parseEdgeInfo(chars?: ItemChar[] | null, text?: string | null): 
     const isAlum = /алюм|alum/i.test(edgeRaw);
     const isAbs = /\babs\b|\bабс\b/i.test(edgeRaw);
 
-    let edgeType = "ABS";
+    let edgeType = "ABS 2 мм";
     if (isAlum) edgeType = "алюминий";
-    else if (isPet) edgeType = thVal ? `ПЭТ ${thVal} мм` : "ПЭТ";
-    else if (isAbs || thVal) edgeType = thVal ? `ABS ${thVal} мм` : "ABS";
+    else if (isPet) edgeType = `ПЭТ ${thVal || "1"} мм`;
+    else if (isAbs || thVal) edgeType = `ABS ${thVal || "2"} мм`;
+    else if (edgeRaw) edgeType = "ABS 2 мм";
 
     let colorClean = edgeRaw
       .replace(/\babs\b|\bабс\b|\bпэт\b|\bpet\b|алюмин\w*|alum\w*/gi, "")
@@ -79,10 +80,12 @@ export function parseEdgeInfo(chars?: ItemChar[] | null, text?: string | null): 
     };
   }
 
-  const thMatch = color.match(THICK_RE);
-  const isPet = /пэт|pet/i.test(color);
+  const thMatch = color.match(THICK_RE) || rawText.match(THICK_RE);
+  const isPet = /пэт|pet/i.test(color) || /пэт|pet/i.test(kind) || /пэт|pet/i.test(rawText);
   const base = isPet ? "ПЭТ" : "ABS";
-  const edgeType = thMatch ? `${base} ${thMatch[1].replace(".", ",")} мм` : base;
+  const defaultTh = isPet ? "1" : "2";
+  const thVal = thMatch ? thMatch[1].replace(".", ",") : defaultTh;
+  const edgeType = `${base} ${thVal} мм`;
   const cleanColor = color
     .replace(/\babs\b|пэт|\bpet\b/gi, " ")
     .replace(THICK_RE, " ")
