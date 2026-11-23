@@ -101,7 +101,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   // на уже сделанной под него верхней навигации.
   const screens = Grid.useBreakpoint();
   const isPhone = !screens.sm;
-  const isTablet = !screens.xl;
+  const isTablet = !screens.xl || (typeof window !== "undefined" && window.innerWidth <= 1280);
 
   if (!user) return null;
 

@@ -133,7 +133,7 @@ export default function WorkspaceTabs({ pageRoutes }: { pageRoutes: ReactNode })
   const activeKey = tabKey(location);
   const prevKey = useRef<string | null>(null);
   const screens = Grid.useBreakpoint();
-  const isCompact = !screens.xl;
+  const isCompact = !screens.xl || (typeof window !== "undefined" && window.innerWidth <= 1280);
   const showTabBar = isCompact ? tabs.length > 1 : tabs.length > 0;
 
   // Адрес браузера — источник правды: активная вкладка — та, чей ключ у

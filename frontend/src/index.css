@@ -221,7 +221,7 @@ h5 {
 .app-page {
   padding: 24px;
 }
-@media (max-width: 1200px) {
+@media (max-width: 1280px) {
   .app-shell .ant-layout-header {
     height: 46px !important;
     line-height: 46px !important;
@@ -240,7 +240,7 @@ h5 {
     font-size: 13px !important;
   }
 }
-@media (max-width: 1200px) and (min-width: 576px) {
+@media (max-width: 1280px) and (min-width: 576px) {
   .app-page {
     padding: 14px;
   }
