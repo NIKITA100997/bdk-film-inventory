@@ -47,6 +47,7 @@ class AreaLoadOut(BaseModel):
     name: str
     by_day: list[float]
     capacity: list[float | None]
+    capacity_source: str | None = None
 
 
 class EventOut(BaseModel):
@@ -118,10 +119,16 @@ def get_week(week: date | None = Query(default=None), db: Session = Depends(get_
             load={k: round(v, 1) for k, v in load.by_order.get(key, {}).items()},
         )
 
+    from app.services.areas import area_capacities
+
+    set_caps = area_capacities(db)
     names = {a.code: a.name for a in db.query(Area)}
     areas = [
-        AreaLoadOut(area=a, name=names.get(a, a), by_day=[round(load.areas[a].get(d, 0.0), 1) for d in load.days],
-                    capacity=[load.capacity.get(a, {}).get(d) for d in load.days])
+        AreaLoadOut(
+            area=a, name=names.get(a, a), by_day=[round(load.areas[a].get(d, 0.0), 1) for d in load.days],
+            capacity=[load.capacity.get(a, {}).get(d) for d in load.days],
+            capacity_source="set" if a in set_caps else ("fact" if any(load.capacity.get(a, {}).values()) else None),
+        )
         for a in sorted(load.areas, key=lambda x: names.get(x, x))
     ]
     current = {k for o in all_orders for k in wp.covered_keys(db, o)}

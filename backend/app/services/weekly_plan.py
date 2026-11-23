@@ -192,7 +192,7 @@ def week_load(db: Session, ws: date, orders: list, user_id: int) -> Load:
         finally:
             sp.rollback()
 
-    caps = area_capacities(db)
+    caps = area_capacities(db, with_fact=True)
     for area in res.areas:
         per = caps.get(area)
         res.capacity[area] = {d: (per if is_workday(d, area) else 0.0) if per else (None if is_workday(d, area) else 0.0) for d in days}

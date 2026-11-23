@@ -244,7 +244,7 @@ export default function WeeklyPlan() {
                                 fontWeight: over ? 600 : 400,
                               }}
                             >
-                              <Tooltip title={off ? "нерабочий день" : cap ? `мощность ${cap}` : "мощность не задана"}>
+                              <Tooltip title={off ? "нерабочий день" : cap ? `мощность ${cap}${a.capacity_source === "fact" ? " (по факту)" : ""}` : "мощность не задана"}>
                                 {v ? v : off ? "вых" : "·"}
                                 {cap ? <span style={{ color: token.colorTextTertiary, fontWeight: 400 }}> /{cap}</span> : null}
                               </Tooltip>

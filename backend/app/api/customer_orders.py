@@ -842,6 +842,12 @@ def change_dates(order_id: int, payload: PromiseIn, db: Session = Depends(get_db
         if payload.ready_fact:
             _log(db, co, "ready_fact", co.ready_at, payload.ready_fact, user.id, payload.reason, payload.comment)
             co.ready_at = payload.ready_fact
+            try:
+                from app.services import bitrix_deals
+
+                bitrix_deals.notify_in_background(co.id, "ready", {})
+            except Exception:
+                pass
         db.flush()
         if changes and co.status == CO_ACCEPTED:
             # запуски этого заказа — к новой дате: срок запуска по самому раннему его заказу

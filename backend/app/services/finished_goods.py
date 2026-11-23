@@ -41,14 +41,19 @@ def receive_from_report(db: Session, *, line: ProductionTaskLine, stage: PartSta
         note=f"Упаковано: {line.task.name or f'задание №{line.task_id}'}",
     )
     db.add(move)
+    db.flush()
     if ol.customer_order_line_id:
         try:
-            from app.models.customer_orders import CustomerOrderLine
+            from app.models.customer_orders import CustomerOrder, CustomerOrderLine
             from app.services import bitrix_deals
+            from app.services.customer_orders import progress
 
             col = db.get(CustomerOrderLine, ol.customer_order_line_id)
             if col:
-                bitrix_deals.notify_in_background(col.order_id, "fg_receipt", {"qty": float(report.good_pieces)})
+                co = db.get(CustomerOrder, col.order_id)
+                p = progress(db, co) if co else None
+                event = "ready" if (p and p.stage == "ready") else "fg_receipt"
+                bitrix_deals.notify_in_background(col.order_id, event, {"qty": float(report.good_pieces)})
         except Exception:
             pass
     return move

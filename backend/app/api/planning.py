@@ -51,6 +51,7 @@ class AreaOut(BaseModel):
     site: str | None
     # Мощность в день (штук в смену × смен); None — не задана.
     capacity: float | None = None
+    capacity_source: str | None = None
 
 
 class CellOut(BaseModel):
@@ -143,11 +144,13 @@ def board(
     used = {a for a, _ in cells} | set(backlog)
     from app.services.areas import area_capacities
 
-    caps = area_capacities(db)
+    set_caps = area_capacities(db)
+    caps = area_capacities(db, with_fact=True)
     areas = [
         AreaOut(
             code=a.code, name=a.name, site=sites.get(a.site_id),
             capacity=caps.get(a.code),
+            capacity_source="set" if a.code in set_caps else ("fact" if a.code in caps else None),
         )
         for a in sorted(areas_all.values(), key=lambda a: (sites.get(a.site_id) or "я", a.name))
         if a.code in used and (site_id is None or a.site_id == site_id)

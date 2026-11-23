@@ -136,7 +136,7 @@ export default function Planner() {
                       <td style={tdStyle(token, true)}>
                         <div style={{ fontWeight: 500 }}>{a.name}</div>
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          {[a.site, a.capacity ? `мощн. ${fmt(a.capacity)} шт/день` : null].filter(Boolean).join(" · ")}
+                          {[a.site, a.capacity ? `мощн. ${fmt(a.capacity)} шт/день${a.capacity_source === "fact" ? " (по факту)" : ""}` : null].filter(Boolean).join(" · ")}
                         </Typography.Text>
                       </td>
                       <td style={tdStyle(token)}>

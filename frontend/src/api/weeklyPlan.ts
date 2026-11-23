@@ -34,7 +34,7 @@ export interface WeeklyPlan {
   orders: PlanOrder[];
   requests: PlanOrder[];
   removed: string[];
-  areas: { area: string; name: string; by_day: number[]; capacity: (number | null)[] }[];
+  areas: { area: string; name: string; by_day: number[]; capacity: (number | null)[]; capacity_source?: "set" | "fact" | null }[];
   events: { kind: string; text: string; user_name: string | null; created_at: string }[];
 }
 

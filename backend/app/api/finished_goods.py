@@ -276,6 +276,25 @@ def ship(payload: ShipmentIn, db: Session = Depends(get_db), user: User = Depend
             )
         )
     db.commit()
+
+    # Синхронизация стадий сделок с Битрикс24 при отгрузке
+    try:
+        from collections import defaultdict
+        from app.models.customer_orders import CustomerOrderLine
+        from app.services import bitrix_deals
+
+        co_qtys: dict[int, float] = defaultdict(float)
+        for ln in payload.lines:
+            ol_item = db.get(ProductionOrderLine, ln.order_line_id)
+            if ol_item and ol_item.customer_order_line_id:
+                col_item = db.get(CustomerOrderLine, ol_item.customer_order_line_id)
+                if col_item:
+                    co_qtys[col_item.order_id] += float(ln.qty)
+        for cid, shipped_qty in co_qtys.items():
+            bitrix_deals.notify_in_background(cid, "shipped", {"qty": shipped_qty})
+    except Exception:
+        pass
+
     return _shipment_out(db, sh)
 
 

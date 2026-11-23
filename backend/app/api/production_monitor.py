@@ -374,7 +374,7 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
     found.sort(key=lambda a: (sum(starts[a.code]) / len(starts[a.code]) if starts[a.code] else 10**9, a.name))
     from app.services.areas import area_capacities
 
-    caps = area_capacities(db)
+    caps = area_capacities(db, with_fact=True)
     areas = [
         MonitorArea(
             code=a.code, name=a.name, site=sites.get(a.site_id) if a.site_id else None, sort=i,

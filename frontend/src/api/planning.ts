@@ -9,6 +9,7 @@ export interface PlanArea {
   site: string | null;
   /** Мощность в день (штук в смену × смен); null — не задана. */
   capacity: number | null;
+  capacity_source?: "set" | "fact" | null;
 }
 
 export interface PlanCell {
