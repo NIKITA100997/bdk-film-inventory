@@ -1884,9 +1884,14 @@ def part_label_data_from_unit(unit, db=None) -> "PartLabelData":  # unit: app.mo
 
         a = db.get(Area, unit.area)
         area = a.name if a is not None else unit.area
+    part_name = unit.part.name
+    if getattr(unit, "film_restriction", None) == "pet":
+        part_name = f"{part_name} [ПЭТ]"
+    elif getattr(unit, "film_restriction", None):
+        part_name = f"{part_name} [{unit.film_restriction}]"
     return PartLabelData(
         batch_id=unit.id,
-        part_name=unit.part.name,
+        part_name=part_name,
         quantity_pieces=float(unit.quantity_pieces),
         stage_name=unit.stage.name,
         area=area,

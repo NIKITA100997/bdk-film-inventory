@@ -76,6 +76,7 @@ interface ProduceTarget {
   suggested_qty: number;
   target_area: string | null;
   stage_id?: number | null;
+  film_restriction?: string | null;
 }
 
 interface TargetAreaNeed {
@@ -259,6 +260,7 @@ export default function PfDemand() {
     firstStageName: string;
     itemId?: number | null;
     targetAreas?: string[];
+    isPet?: boolean;
   }
 
   interface TaskCardData {
@@ -315,6 +317,7 @@ export default function PfDemand() {
           firstStageName: r.first_stage_name,
           itemId: r.item_id,
           targetAreas: r.target_areas,
+          isPet: src.is_pet,
         });
         t.totalRemaining += src.remaining;
         t.totalShortage += src.shortage;
@@ -654,7 +657,10 @@ export default function PfDemand() {
                         dataIndex: "partName",
                         render: (name, s) => (
                           <Space orientation="vertical" size={0}>
-                            <span style={{ fontWeight: 500 }}>{name}</span>
+                            <span style={{ fontWeight: 500 }}>
+                              {name}
+                              {s.isPet && <Tag color="purple" style={{ marginLeft: 6 }}>ПЭТ</Tag>}
+                            </span>
                             {s.firstStageArea && (
                               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                                 {areaName(s.firstStageArea)} · {s.firstStageName}
@@ -1034,6 +1040,7 @@ export default function PfDemand() {
                             <tr key={s.task_id} style={{ borderBottom: "1px solid #f0f0f0" }}>
                               <td style={{ padding: "4px 12px 4px 0" }}>
                                 №{s.task_id} · {s.task_name}
+                                {s.is_pet && <Tag color="purple" style={{ marginLeft: 6 }}>ПЭТ</Tag>}
                               </td>
                               <td style={{ padding: "4px 12px 4px 0" }}>
                                 {s.due_date ? (
@@ -1105,6 +1112,7 @@ export default function PfDemand() {
                                         suggested_qty: s.shortage > 0 ? s.shortage : (needToMove > 0 ? needToMove : s.remaining),
                                         target_area: s.area || null,
                                         stage_id: null,
+                                        film_restriction: s.is_pet ? "pet" : null,
                                       })
                                     }
                                   >
@@ -1142,7 +1150,10 @@ export default function PfDemand() {
                   width: 220,
                   render: (name, r) => (
                     <Space orientation="vertical" size={2}>
-                      <span style={{ fontWeight: 600 }}>{name}</span>
+                      <span style={{ fontWeight: 600 }}>
+                        {name}
+                        {(r.task_demand_pet ?? 0) > 0 && <Tag color="purple" style={{ marginLeft: 6 }}>ПЭТ</Tag>}
+                      </span>
                       {r.target_areas && r.target_areas.length > 0 && (
                         <Space wrap size={4}>
                           <Typography.Text type="secondary" style={{ fontSize: 11 }}>Куда:</Typography.Text>
@@ -1191,11 +1202,18 @@ export default function PfDemand() {
                 {
                   title: "По заданиям",
                   key: "task_demand",
-                  width: 120,
+                  width: 130,
                   render: (_, r) => (
-                    <span style={{ fontWeight: r.task_demand > 0 ? 600 : 400 }}>
-                      {fmt(r.task_demand)} шт
-                    </span>
+                    <div>
+                      <span style={{ fontWeight: r.task_demand > 0 ? 600 : 400 }}>
+                        {fmt(r.task_demand)} шт
+                      </span>
+                      {(r.task_demand_pet ?? 0) > 0 && (
+                        <div style={{ fontSize: 11, color: "#722ed1", marginTop: 2 }}>
+                          ПЭТ: <b>{fmt(r.task_demand_pet ?? 0)}</b> шт
+                        </div>
+                      )}
+                    </div>
                   ),
                   align: "right",
                 },
@@ -1235,7 +1253,7 @@ export default function PfDemand() {
                 {
                   title: "В наличии (склад + цех)",
                   key: "stock",
-                  width: 175,
+                  width: 185,
                   render: (_, r) => {
                     const total = r.stock ?? 0;
                     const storage = r.storage_stock ?? 0;
@@ -1254,6 +1272,11 @@ export default function PfDemand() {
                         </div>
                         {total > 0 && (
                           <div style={{ fontSize: 11, color: "#8c8c8c", lineHeight: "13px", marginTop: 2 }}>
+                            {(r.stock_pet ?? 0) > 0 && (
+                              <div style={{ color: "#722ed1", fontWeight: 500 }}>
+                                станд: {fmt(r.stock_standard ?? (total - (r.stock_pet ?? 0)))} · <b>ПЭТ: {fmt(r.stock_pet ?? 0)}</b>
+                              </div>
+                            )}
                             <div>склад: {fmt(storage)} · участки: {fmt(areaSt)}</div>
                             {areasList.length > 0 && (
                               <div style={{ fontSize: 10, color: "#1677ff", marginTop: 2 }}>
@@ -1274,7 +1297,16 @@ export default function PfDemand() {
                 },
                 {
                   title: "Общий дефицит",
-                  render: (_, r) => <ShortageTags total={r.shortage} tasks={r.shortage_tasks} min={r.shortage_min} />,
+                  render: (_, r) => (
+                    <div>
+                      <ShortageTags total={r.shortage} tasks={r.shortage_tasks} min={r.shortage_min} />
+                      {(r.shortage_pet ?? 0) > 0 && (
+                        <div style={{ marginTop: 2 }}>
+                          <UiBadge color="magenta">Нехватка ПЭТ: {fmt(r.shortage_pet ?? 0)} шт</UiBadge>
+                        </div>
+                      )}
+                    </div>
+                  ),
                   align: "right",
                 },
                 {
@@ -1368,6 +1400,7 @@ export default function PfDemand() {
                               suggested_qty: r.shortage > 0 ? r.shortage : (needOnArea > 0 ? needOnArea : (r.suggested > 0 ? r.suggested : (r.min_batch || 100))),
                               target_area: defaultTargetArea || null,
                               stage_id: r.first_stage_id,
+                              film_restriction: (r.shortage_pet ?? 0) > 0 ? "pet" : null,
                             })
                           }
                         >
@@ -1599,6 +1632,7 @@ function ProduceModal({
     auto_transfer: boolean;
     transfer_to_area?: string;
     note?: string;
+    film_restriction?: string;
   }>();
   const autoTransfer = Form.useWatch("auto_transfer", form);
 
@@ -1608,6 +1642,7 @@ function ProduceModal({
       auto_transfer: boolean;
       transfer_to_area?: string;
       note?: string;
+      film_restriction?: string;
     }) =>
       producePfUnits({
         part_id: target.part_id,
@@ -1615,6 +1650,7 @@ function ProduceModal({
         stage_id: target.stage_id ?? null,
         transfer_to_area: vals.auto_transfer ? vals.transfer_to_area ?? null : null,
         note: vals.note,
+        film_restriction: vals.film_restriction || null,
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["pf-demand"] });
@@ -1651,6 +1687,7 @@ function ProduceModal({
           auto_transfer: !!target.target_area,
           transfer_to_area: target.target_area || (areas[0]?.code ?? ""),
           note: "Выпуск мастером ПФ",
+          film_restriction: target.film_restriction || "",
         }}
         onFinish={(vals) => mutation.mutate(vals)}
       >
@@ -1660,6 +1697,14 @@ function ProduceModal({
           rules={[{ required: true, message: "Укажите количество" }]}
         >
           <InputNumber min={1} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item name="film_restriction" label="Исполнение детали (под какую плёнку)">
+          <Select
+            options={[
+              { value: "", label: "Стандарт (для обычных плёнок / ПВХ)" },
+              { value: "pet", label: "ПЭТ (под плёнку ПЭТ)" },
+            ]}
+          />
         </Form.Item>
         <Form.Item name="auto_transfer" valuePropName="checked">
           <Checkbox>Сразу передать на участок цеха (минуя хранение на складе)</Checkbox>

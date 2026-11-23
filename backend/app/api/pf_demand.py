@@ -41,6 +41,7 @@ class PfDemandSourceOut(BaseModel):
     due_date: date | None = None
     area: str | None = None
     area_stock: float = 0.0
+    is_pet: bool = False
 
 
 class PfDemandOut(BaseModel):
@@ -51,7 +52,12 @@ class PfDemandOut(BaseModel):
     batch_multiple: float | None = None
     item_id: int | None = None
     task_demand: float
+    task_demand_pet: float = 0.0
+    task_demand_standard: float = 0.0
     stock: float
+    stock_pet: float = 0.0
+    stock_standard: float = 0.0
+    shortage_pet: float = 0.0
     in_work: float
     need: float
     shortage: float
@@ -134,6 +140,7 @@ class PfProduceIn(BaseModel):
     stage_id: int | None = None
     transfer_to_area: str | None = None
     note: str | None = None
+    film_restriction: str | None = None
 
 
 class PfProduceOut(BaseModel):
@@ -301,6 +308,7 @@ def produce_pf(
             stage_id=payload.stage_id,
             transfer_to_area=payload.transfer_to_area,
             note=payload.note,
+            film_restriction=payload.film_restriction,
         )
         db.commit()
     except ValueError as e:

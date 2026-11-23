@@ -59,7 +59,7 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.components import sync_bom_components
 from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
-from app.services.film_check import film_warnings, is_lamis_film
+from app.services.film_check import film_warnings, is_lamis_film, is_pet_film
 from app.services.laminated import can_laminate, laminated_excess
 from app.models.production import PlanSlot
 from app.models.production_orders import ProductionOrder
@@ -1809,9 +1809,15 @@ def _build_task_line_report(
     fifo_results: list[tuple[PartUnit, bool, float]] = []
     # Партии «после снятия плёнки» (пометка «Ламис») — только в строки с
     # плёнкой «Ламис» (всё, кроме ПЭТ и полипропилена, 14.10), и там первыми; у строки без плёнки — как раньше.
+    # Для ПЭТ-плёнок — мягкий приоритет партий с пометкой ПЭТ, для стандартных плёнок — стандартных партий.
     lamis_ok: bool | None = None
-    if line.color_id is not None:
-        lamis_ok = is_lamis_film(db.get(Material, line.material_id) if line.material_id else None, db.get(Color, line.color_id))
+    is_pet: bool | None = None
+    if line.color_id is not None or line.material_id is not None:
+        mat = db.get(Material, line.material_id) if line.material_id else None
+        col = db.get(Color, line.color_id) if line.color_id else None
+        if col is not None:
+            lamis_ok = is_lamis_film(mat, col)
+        is_pet = is_pet_film(mat.name if mat else None, col.name if col else None)
     if payload.defect_pieces > 0 and payload.defect_disposition == "snyat" and not has_part_unit_stock:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1829,7 +1835,7 @@ def _build_task_line_report(
         try:
             fifo_results = consume_part_units_fifo(
                 db, part_id=part.id, area=line.task.area, quantity_pieces=payload.good_pieces, user_id=user.id,
-                lamis_ok=lamis_ok,
+                lamis_ok=lamis_ok, is_pet=is_pet,
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
@@ -2013,6 +2019,7 @@ def _build_task_line_report(
                 reason=payload.defect_reason,
                 note=payload.note,
                 lamis_ok=lamis_ok,
+                is_pet=is_pet,
             )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e

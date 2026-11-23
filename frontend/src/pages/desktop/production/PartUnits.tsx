@@ -537,7 +537,14 @@ export default function PartUnits() {
               title: "Плёнка",
               width: 130,
               ellipsis: true,
-              render: (_, u) => (u.film_restriction ? <Tag color="orange">{restrictionName(u.film_restriction)}</Tag> : "—"),
+              render: (_, u) =>
+                u.film_restriction ? (
+                  <Tag color={u.film_restriction === "pet" ? "purple" : "orange"}>
+                    {restrictionName(u.film_restriction)}
+                  </Tag>
+                ) : (
+                  "—"
+                ),
             },
             { title: "Участок", width: 130, ellipsis: true, render: (_, u) => areaLabel(u.area) },
             { title: "Задание", width: 220, ellipsis: true, render: (_, u) => taskLineLabel(u.production_task_line_id) },
@@ -831,7 +838,9 @@ export default function PartUnits() {
                 <div style={{ gridColumn: "1 / -1" }}>
                   <Typography.Text type="secondary">Ограничение по плёнке</Typography.Text>
                   <div>
-                    <Tag color="orange" style={{ marginTop: 2 }}>{restrictionName(cardTarget.film_restriction)}</Tag>
+                    <Tag color={cardTarget.film_restriction === "pet" ? "purple" : "orange"} style={{ marginTop: 2 }}>
+                      {restrictionName(cardTarget.film_restriction)}
+                    </Tag>
                   </div>
                 </div>
               )}

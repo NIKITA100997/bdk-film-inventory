@@ -17,6 +17,13 @@ from app.models.production import ProductionTaskLine
 from app.services.part_units import LAMIS_COLLECTION, LAMIS_RESTRICTION
 
 PET_LABEL = {"2d": "ПЭТ 2Д", "3d": "ПЭТ 3Д"}
+PET_RESTRICTION = "pet"
+
+
+def is_pet_film(material_name: str | None, color_name: str | None = None) -> bool:
+    """«ПЭТ», «ПЭТ 2Д», «ПЭТ 3Д», «PET» в названии материала или цвета → True, иначе False."""
+    text = f"{material_name or ''} {color_name or ''}".lower()
+    return "пэт" in text or "pet" in text
 
 
 def pet_of_material(name: str | None) -> str | None:

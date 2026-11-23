@@ -16,6 +16,7 @@ export interface PfDemandSource {
   due_date?: string | null;
   area?: string | null;
   area_stock?: number;
+  is_pet?: boolean;
 }
 
 export interface PfDemandRow {
@@ -26,7 +27,12 @@ export interface PfDemandRow {
   batch_multiple?: number | null;
   item_id?: number | null;
   task_demand: number;
+  task_demand_pet?: number;
+  task_demand_standard?: number;
   stock: number;
+  stock_pet?: number;
+  stock_standard?: number;
+  shortage_pet?: number;
   in_work: number;
   need: number;
   shortage: number;
@@ -149,6 +155,7 @@ export interface PfProducePayload {
   stage_id?: number | null;
   transfer_to_area?: string | null;
   note?: string;
+  film_restriction?: string | null;
 }
 
 export interface PfProduceResponse {

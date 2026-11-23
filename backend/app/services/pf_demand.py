@@ -29,6 +29,7 @@ from app.models.dictionaries import Part, PartStage
 from app.models.part_units import PartReservation, PartUnit, PartUnitStatus
 from app.models.production import ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 from app.services import normatives
+from app.services.film_check import is_pet_film
 from app.services.part_units import reported_good_pieces_by_unit
 
 
@@ -48,6 +49,7 @@ class PfDemandSource:
     due_date: date | None = None
     area: str | None = None
     area_stock: float = 0.0
+    is_pet: bool = False
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,11 @@ class PfDemandRow:
     first_stage_name: str
     first_stage_area: str | None
     sources: list[PfDemandSource]
+    task_demand_pet: float = 0.0
+    task_demand_standard: float = 0.0
+    stock_pet: float = 0.0
+    stock_standard: float = 0.0
+    shortage_pet: float = 0.0
     reserved: float = 0.0  # остатка в резерве под задания
     free: float = 0.0  # остаток без резервов
     item_id: int | None = None  # позиция номенклатуры — у неё нормативы
@@ -127,6 +134,12 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     lines = query.all()
     if not lines:
         return {}
+    material_ids = {line.material_id for line in lines if line.material_id}
+    color_ids = {line.color_id for line in lines if line.color_id}
+    from app.models.dictionaries import Color, Material
+    materials = {m.id: m.name for m in db.query(Material).filter(Material.id.in_(material_ids)).all()} if material_ids else {}
+    colors = {c.id: c.name for c in db.query(Color).filter(Color.id.in_(color_ids)).all()} if color_ids else {}
+
     good = dict(
         db.query(ProductionTaskLineReport.task_line_id, func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0))
         .filter(
@@ -139,12 +152,13 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     # Раздел про единую номенклатуру — деталь строки по ссылке; строки без
     # ссылки (название не совпало ни с одной деталью) в потребность не идут,
     # они видны в «Номенклатура → Строки без детали».
-    by_task_part: dict[tuple[int, int], list[tuple[float, float, bool]]] = defaultdict(list)
+    by_task_part: dict[tuple[int, int], list[tuple[float, float, bool, bool]]] = defaultdict(list)
     for line in lines:
         if line.part_id is None:
             continue
+        line_pet = is_pet_film(materials.get(line.material_id), colors.get(line.color_id))
         by_task_part[(line.task_id, line.part_id)].append(
-            (float(line.quantity_pieces), float(good.get(line.id, 0)), line.is_closed or line.production_closed)
+            (float(line.quantity_pieces), float(good.get(line.id, 0)), line.is_closed or line.production_closed, line_pet)
         )
     tasks = {line.task_id: line.task for line in lines}
     from app.models.production_orders import ProductionOrder
@@ -152,21 +166,23 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     orders = {o.id: o for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()} if order_ids else {}
     demand: dict[int, list[PfDemandSource]] = defaultdict(list)
     for (task_id, part_id), part_lines in by_task_part.items():
-        remaining = task_part_remaining(part_lines)
+        remaining = task_part_remaining([(p, g, c) for p, g, c, _ in part_lines])
         if remaining <= 0:
             continue
         task = tasks[task_id]
         order = orders.get(task.production_order_id) if task.production_order_id else None
         due_date = (order.ship_date or order.promised_ready) if order else None
+        is_pet = any(pet for _, _, _, pet in part_lines)
         demand[part_id].append(
             PfDemandSource(
                 task_id=task_id,
                 task_name=(task.product_model.name if task.product_model else None) or task.name or f"Задание №{task_id}",
-                open_plan=sum(plan for plan, _, closed in part_lines if not closed),
-                done=sum(good for _, good, _ in part_lines),
+                open_plan=sum(plan for plan, _, closed, _ in part_lines if not closed),
+                done=sum(good for _, good, _, _ in part_lines),
                 remaining=remaining,
                 due_date=due_date,
                 area=task.area,
+                is_pet=is_pet,
             )
         )
     return demand
@@ -174,7 +190,7 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
 
 def _stock_by_part_details(
     db: Session,
-) -> tuple[dict[int, float], dict[int, float], dict[int, float], dict[tuple[int, str], float]]:
+) -> tuple[dict[int, float], dict[int, float], dict[int, float], dict[tuple[int, str], float], dict[int, float]]:
     units = (
         db.query(PartUnit)
         .filter(PartUnit.status.in_([PartUnitStatus.NA_KHRANENII, PartUnitStatus.VYDAN_UCHASTKU]))
@@ -185,11 +201,14 @@ def _stock_by_part_details(
     storage_stock: dict[int, float] = defaultdict(float)
     area_stock: dict[int, float] = defaultdict(float)
     area_part_stock: dict[tuple[int, str], float] = defaultdict(float)
+    pet_stock: dict[int, float] = defaultdict(float)
     for u in units:
         left = max(0.0, float(u.quantity_pieces) - reported.get(u.id, 0.0))
         if left <= 0:
             continue
         total_stock[u.part_id] += left
+        if getattr(u, "film_restriction", None) == "pet":
+            pet_stock[u.part_id] += left
         # A unit on storage with an area is in that area's home warehouse.
         # Treat it as local stock for demand coverage; only units without an
         # area belong to the central/unassigned warehouse balance.
@@ -199,11 +218,11 @@ def _stock_by_part_details(
             area_stock[u.part_id] += left
             if u.area:
                 area_part_stock[(u.part_id, u.area)] += left
-    return total_stock, storage_stock, area_stock, area_part_stock
+    return total_stock, storage_stock, area_stock, area_part_stock, pet_stock
 
 
 def _stock_by_part(db: Session) -> dict[int, float]:
-    total_stock, _, _, _ = _stock_by_part_details(db)
+    total_stock, _, _, _, _ = _stock_by_part_details(db)
     return total_stock
 
 
@@ -283,6 +302,7 @@ def _merge_by_task(sources: list[PfDemandSource]) -> list[PfDemandSource]:
                 remaining=cur.remaining + s.remaining,
                 due_date=cur.due_date or s.due_date,
                 area=cur.area or s.area,
+                is_pet=cur.is_pet or s.is_pet,
             )
         )
     return sorted(by_task.values(), key=lambda s: s.task_id)
@@ -300,6 +320,7 @@ class _State:
     storage_stock: dict[int, float] = field(default_factory=dict)
     area_stock: dict[int, float] = field(default_factory=dict)
     area_part_stock: dict[tuple[int, str], float] = field(default_factory=dict)
+    pet_stock: dict[int, float] = field(default_factory=dict)
 
 
 def _state(db: Session) -> _State:
@@ -311,7 +332,7 @@ def _state(db: Session) -> _State:
     raw = _task_demand_by_part(db)
     for part_id, sources in _operation_demand_by_part(db).items():
         raw.setdefault(part_id, []).extend(sources)
-    stock, storage_stock, area_stock_by_part, area_part_stock = _stock_by_part_details(db)
+    stock, storage_stock, area_stock_by_part, area_part_stock, pet_stock = _stock_by_part_details(db)
     in_work_by_stage, linked = _first_stage_work(db, {s.id for s in first_stage.values()})
     reserve_set = {(r.task_id, r.part_id): float(r.quantity_pieces) for r in db.query(PartReservation)}
 
@@ -340,7 +361,7 @@ def _state(db: Session) -> _State:
         w = in_work_by_stage.get(first_stage[p.id].id, 0.0)
         in_work[p.id] = w
         unlinked[p.id] = max(0.0, w - linked_work_by_part.get(p.id, 0.0))
-    return _State(parts, first_stage, demand, stock, reserved, in_work, unlinked, storage_stock, area_stock_by_part, area_part_stock)
+    return _State(parts, first_stage, demand, stock, reserved, in_work, unlinked, storage_stock, area_stock_by_part, area_part_stock, pet_stock)
 
 
 def _row(st: _State, p: Part, *, sources, task_demand, stock, in_work, min_stock) -> PfDemandRow:
@@ -353,10 +374,20 @@ def _row(st: _State, p: Part, *, sources, task_demand, stock, in_work, min_stock
     )
     total = st.stock.get(p.id, 0.0)
     reserved = st.reserved.get(p.id, 0.0)
+    stock_pet = round(st.pet_stock.get(p.id, 0.0), 2)
+    stock_standard = round(max(0.0, total - stock_pet), 2)
+    task_demand_pet = round(sum(s.remaining for s in sources if getattr(s, "is_pet", False)), 2)
+    task_demand_standard = round(max(0.0, task_demand - task_demand_pet), 2)
+    shortage_pet = round(max(0.0, task_demand_pet - stock_pet), 2)
     return PfDemandRow(
         part_id=p.id, part_name=p.name,
         min_stock=norms.min_stock, min_batch=min_batch, batch_multiple=norms.batch_multiple,
         task_demand=task_demand, stock=stock, in_work=in_work, need=need, shortage=shortage, suggested=suggested,
+        task_demand_pet=task_demand_pet,
+        task_demand_standard=task_demand_standard,
+        stock_pet=stock_pet,
+        stock_standard=stock_standard,
+        shortage_pet=shortage_pet,
         **dict(zip(("shortage_tasks", "shortage_min"),
                    normatives.split_shortage(demand=task_demand, have=stock + in_work, shortage=shortage))),
         first_stage_id=fs.id, first_stage_name=fs.name, first_stage_area=fs.area, sources=sources,
@@ -411,6 +442,11 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     orders = {
         o.id: o for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()
     } if order_ids else {}
+    material_ids = {line.material_id for line, _ in rows if line.material_id}
+    color_ids = {line.color_id for line, _ in rows if line.color_id}
+    from app.models.dictionaries import Color, Material
+    materials = {m.id: m.name for m in db.query(Material).filter(Material.id.in_(material_ids)).all()} if material_ids else {}
+    colors = {c.id: c.name for c in db.query(Color).filter(Color.id.in_(color_ids)).all()} if color_ids else {}
 
     # Маршруты и составы заранее загружаются для всех строк. Раньше цикл
     # делал отдельный запрос за этапом и за составом для каждой строки.
@@ -456,6 +492,7 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
         order = orders.get(task.production_order_id) if task.production_order_id else None
         label = f"Заказ №{order.id} «{order.name}»" if order else (task.name or f"Задание №{task.id}")
         due_date = (order.ship_date or order.promised_ready) if order else None
+        line_is_pet = is_pet_film(materials.get(line.material_id), colors.get(line.color_id))
         for comp in comps:
             part = parts_by_item.get(comp.component_item_id)
             if part is None:
@@ -468,6 +505,7 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
                     remaining=round(units_left * per, 2),
                     due_date=due_date,
                     area=task.area,
+                    is_pet=line_is_pet,
                 )
             )
     return out
