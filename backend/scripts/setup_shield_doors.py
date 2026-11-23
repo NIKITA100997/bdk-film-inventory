@@ -187,7 +187,7 @@ ok(c.put(f"/api/item-types/{lam['id']}/component-rules", json=[
 ok(c.put(f"/api/item-types/{milled['id']}/operations", json=[
     {"name": "Фрезеровка", "area": A["Фрезеровка панелей"]},
     {"name": "Шлифовка", "area": A["Шлифовка панелей"]},
-    {"name": "Готова к ламинации", "area": LAMINATION_AREA},
+    {"name": "Готова к ламинации", "area": READY},
 ]), "milled ops")
 ok(c.put(f"/api/item-types/{milled['id']}/component-rules", json=[
     {"name_template": "", "qty_expr": "1", "operation_name": "Фрезеровка", "component_type_id": raw["id"], "component_values": SIZE, **DIMS},

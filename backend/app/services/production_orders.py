@@ -449,9 +449,14 @@ def consume_components_at_operation(
             if final is not None:
                 q = q.filter(PartUnit.stage_id == final.id)
             # Последний этап без участка («Готово» — общий запас: заготовка МДФ
-            # щитовой панели идёт дальше то на ламинацию, то на фрезеровку) —
+            # щитовой панели идёт дальше то на ламинацию, то на фрезеровку) или
+            # этап готовности к ламинации (между Прессами и Фабрикой) —
             # партии берутся с любого участка; иначе — только с участка операции.
-            anywhere = final is not None and final.area is None
+            anywhere = final is not None and (
+                final.area is None
+                or final.name in ("Готово", "Готова к ламинации")
+                or (final.area in ("uchastok_membranno_vakuumnykh_pressov", "fabrika") and area in ("uchastok_membranno_vakuumnykh_pressov", "fabrika"))
+            )
             if not anywhere:
                 q = q.filter(PartUnit.area == area)
             units = q.order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc()).all()
