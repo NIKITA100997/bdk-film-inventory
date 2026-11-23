@@ -25,7 +25,7 @@ export default function ProductionTasks() {
   const navigate = useNavigate();
 
   const canManage = hasPerm(user, "production_tasks.manage");
-  const canMonitor = hasPerm(user, "production_tasks.manage", "production_tasks.view", "reports.view");
+  const canMonitor = hasPerm(user, "production_tasks.manage", "production_tasks.view", "production_tasks.report", "reports.view");
   const canDemand = hasPerm(user, "production_tasks.manage", "production_tasks.view", "part_units.manage", "part_units.view");
 
   const [creating, setCreating] = useState<"film" | "ops" | null>(null);
@@ -62,6 +62,12 @@ export default function ProductionTasks() {
     if (curTab === "orders" || curTab === "tasks") {
       const next = new URLSearchParams(params);
       next.set("tab", "monitor");
+      if (curTab === "orders") {
+        if (!next.has("view")) next.set("view", "orders");
+      } else if (curTab === "tasks") {
+        if (!next.has("view")) next.set("view", "areas");
+        if (user?.area && !next.has("area")) next.set("area", user.area);
+      }
       navigate(`/production-tasks?${next.toString()}`, { replace: true });
     } else if (curTab === "daily-sheet") {
       const next = new URLSearchParams(params);
@@ -72,7 +78,7 @@ export default function ProductionTasks() {
       next.set("tab", "demand");
       navigate(`/production-tasks?${next.toString()}`, { replace: true });
     }
-  }, [params, navigate]);
+  }, [params, navigate, user?.area]);
 
   const [newOpen, setNewOpen] = useState(wantNew);
   const tab = params.get("tab");
