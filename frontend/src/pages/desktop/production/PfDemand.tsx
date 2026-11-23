@@ -109,7 +109,12 @@ const primaryTargetNeed = (row: PfDemandRow): TargetAreaNeed | undefined => {
 
 const canMoveToTargetArea = (row: PfDemandRow): boolean => {
   const totalStock = row.stock ?? 0;
-  return targetAreaNeeds(row).some((target) => target.shortage > 0 && totalStock > target.stock);
+  if (totalStock <= 0) return false;
+  return (
+    row.task_demand > 0 ||
+    (row.shortage_tasks ?? 0) > 0 ||
+    targetAreaNeeds(row).some((target) => target.demand > 0)
+  );
 };
 
 /** Потребность п/ф — основной рабочий экран мастера по производству п/ф.
@@ -167,7 +172,7 @@ export default function PfDemand() {
     const minStockCount = all.filter((r) => (r.min_stock ?? 0) > 0).length;
     const areaShortageCount = all.filter((r) => targetAreaShortage(r) > 0).length;
     const readyTransferCount = all.filter(
-      (r) => canMoveToTargetArea(r) || ((r.stock ?? 0) > 0 && (r.shortage_tasks ?? 0) > 0),
+      (r) => canMoveToTargetArea(r) || ((r.stock ?? 0) > 0 && (r.task_demand > 0 || (r.shortage_tasks ?? 0) > 0)),
     ).length;
     const shortageCount = all.filter((r) => r.shortage > 0).length;
     const inWorkCount = all.filter((r) => r.in_work > 0).length;
@@ -193,7 +198,7 @@ export default function PfDemand() {
           .filter((r) => {
             if (filterStatus === "all") return true;
             if (filterStatus === "ready_transfer") {
-              return canMoveToTargetArea(r) || ((r.stock ?? 0) > 0 && (r.shortage_tasks ?? 0) > 0);
+              return canMoveToTargetArea(r) || ((r.stock ?? 0) > 0 && (r.task_demand > 0 || (r.shortage_tasks ?? 0) > 0));
             }
             if (filterStatus === "area_need") return targetAreaShortage(r) > 0;
             if (filterStatus === "shortage") return r.shortage > 0;
@@ -571,8 +576,7 @@ export default function PfDemand() {
                         const needToMove = Math.max(0, s.remaining - s.areaStock);
                         const areaDeficit = needToMove;
                         const totalStock = s.stock ?? 0;
-                        const onTarget = s.areaStock;
-                        const availableToMove = Math.max(0, totalStock - onTarget);
+                        const availableToMove = totalStock;
                         const hasStock = availableToMove > 0;
                         return (
                           <Card key={s.partId} size="small" styles={{ body: { padding: 12 } }}>
@@ -714,7 +718,7 @@ export default function PfDemand() {
                         render: (_, s) => {
                           const onTarget = s.areaStock ?? 0;
                           const totalStock = s.stock ?? 0;
-                          const availableToMove = Math.max(0, totalStock - onTarget);
+                          const availableToMove = totalStock;
                           const needToMove = Math.max(0, s.remaining - onTarget);
                           const hasStock = availableToMove > 0;
                           return (
@@ -786,18 +790,19 @@ export default function PfDemand() {
                 const primaryTarget = primaryTargetNeed(r);
                 const needOnArea = primaryTarget?.shortage ?? 0;
                 const defaultTargetArea = primaryTarget?.area ?? r.target_areas?.[0] ?? "";
-                const onTarget = defaultTargetArea && r.stock_by_area ? (r.stock_by_area[defaultTargetArea] ?? 0) : 0;
-                const availableToMove = defaultTargetArea ? Math.max(0, totalStock - onTarget) : totalStock;
+                const availableToMove = totalStock;
                 const hasStock = availableToMove > 0;
                 const status = totalStock > 0 && needOnArea > 0
                   ? <UiBadge color="cyan">Передать на участок · {fmt(Math.min(availableToMove, needOnArea))} шт</UiBadge>
-                  : r.shortage > 0
-                    ? <UiBadge color="error">К выпуску · {fmt(r.shortage)} шт</UiBadge>
-                    : targetAreaNeeds(r).length > 0 && areaDeficit === 0
-                      ? <UiBadge color="success">На участке достаточно</UiBadge>
-                      : r.in_work > 0
-                        ? <UiBadge color="geekblue">В работе · {fmt(r.in_work)} шт</UiBadge>
-                        : <UiBadge>В норме</UiBadge>;
+                  : totalStock > 0 && r.task_demand > 0
+                    ? <UiBadge color="cyan">В наличии · {fmt(totalStock)} шт</UiBadge>
+                    : r.shortage > 0
+                      ? <UiBadge color="error">К выпуску · {fmt(r.shortage)} шт</UiBadge>
+                      : targetAreaNeeds(r).length > 0 && areaDeficit === 0
+                        ? <UiBadge color="success">На участке достаточно</UiBadge>
+                        : r.in_work > 0
+                          ? <UiBadge color="geekblue">В работе · {fmt(r.in_work)} шт</UiBadge>
+                          : <UiBadge>В норме</UiBadge>;
                 return (
                   <Card
                     key={r.part_id}
@@ -866,7 +871,7 @@ export default function PfDemand() {
                               {fmt(totalStock)} шт
                             </Typography.Text>
                             <div style={{ fontSize: 11, color: "#8c8c8c" }}>
-                              склад без участка: {fmt(storage)} · участки и их склады: {fmt(areaStock)}
+                              склад: {fmt(storage)} · участки: {fmt(areaStock)}
                             </div>
                           </div>
                         </div>
@@ -934,8 +939,7 @@ export default function PfDemand() {
                             const sourceArea = s.area_stock ?? 0;
                             const sourceNeed = Math.max(0, s.remaining - sourceArea);
                             const due = s.due_date ? dayjs(s.due_date).format("DD.MM.YYYY") : "срок не указан";
-                            const onThisArea = s.area && r.stock_by_area ? (r.stock_by_area[s.area] ?? 0) : sourceArea;
-                            const availableForThisTask = Math.max(0, (r.stock ?? 0) - onThisArea);
+                            const availableForThisTask = r.stock ?? 0;
                             const hasThisStock = availableForThisTask > 0;
                             return (
                               <Card key={s.task_id} size="small" styles={{ body: { padding: 10 } }}>
@@ -1017,8 +1021,7 @@ export default function PfDemand() {
                         {r.sources.map((s) => {
                           const isOverdue = s.due_date && dayjs(s.due_date).isBefore(dayjs(), "day");
                           const isToday = s.due_date && dayjs(s.due_date).isSame(dayjs(), "day");
-                          const onThisArea = s.area && r.stock_by_area ? (r.stock_by_area[s.area] ?? 0) : (s.area_stock ?? 0);
-                          const availableForThisTask = Math.max(0, (r.stock ?? 0) - onThisArea);
+                          const availableForThisTask = r.stock ?? 0;
                           const hasThisStock = availableForThisTask > 0;
                           const needToMove = Math.max(0, s.remaining - (s.area_stock ?? 0));
                           return (
@@ -1245,7 +1248,7 @@ export default function PfDemand() {
                         </div>
                         {total > 0 && (
                           <div style={{ fontSize: 11, color: "#8c8c8c", lineHeight: "13px", marginTop: 2 }}>
-                            <div>склад без участка: {fmt(storage)} · участки и их склады: {fmt(areaSt)}</div>
+                            <div>склад: {fmt(storage)} · участки: {fmt(areaSt)}</div>
                             {areasList.length > 0 && (
                               <div style={{ fontSize: 10, color: "#1677ff", marginTop: 2 }}>
                                 {areasList.map(([a, q]) => `${areaName(a) ?? a}: ${fmt(q)}`).join(", ")}
@@ -1273,15 +1276,20 @@ export default function PfDemand() {
                   render: (_, r) => {
                     const totalStock = r.stock ?? 0;
                     const primaryTarget = primaryTargetNeed(r);
-                    const defaultTargetArea = primaryTarget?.area ?? r.target_areas?.[0] ?? "";
-                    const onTarget = defaultTargetArea && r.stock_by_area ? (r.stock_by_area[defaultTargetArea] ?? 0) : 0;
-                    const availableToMove = defaultTargetArea ? Math.max(0, totalStock - onTarget) : totalStock;
+                    const availableToMove = totalStock;
                     const needOnArea = primaryTarget?.shortage ?? 0;
                     const areaDeficit = targetAreaShortage(r);
                     if (availableToMove > 0 && needOnArea > 0) {
                       return (
                         <UiBadge color="cyan" style={{ fontWeight: 600 }}>
                           🚚 Передать ({fmt(Math.min(availableToMove, needOnArea))} шт)
+                        </UiBadge>
+                      );
+                    }
+                    if (availableToMove > 0 && r.task_demand > 0) {
+                      return (
+                        <UiBadge color="cyan" style={{ fontWeight: 600 }}>
+                          🚚 В наличии ({fmt(availableToMove)} шт)
                         </UiBadge>
                       );
                     }
@@ -1310,8 +1318,7 @@ export default function PfDemand() {
                     const totalStock = r.stock ?? 0;
                     const primaryTarget = primaryTargetNeed(r);
                     const defaultTargetArea = primaryTarget?.area ?? r.target_areas?.[0] ?? "";
-                    const onTarget = defaultTargetArea && r.stock_by_area ? (r.stock_by_area[defaultTargetArea] ?? 0) : 0;
-                    const availableToMove = defaultTargetArea ? Math.max(0, totalStock - onTarget) : totalStock;
+                    const availableToMove = totalStock;
                     const needOnArea = primaryTarget?.shortage ?? 0;
                     const hasStock = availableToMove > 0;
                     return (
@@ -1442,15 +1449,9 @@ function TransferModal({
 }) {
   const qc = useQueryClient();
   const [form] = Form.useForm<{ target_area: string; quantity_pieces: number; note?: string }>();
-  const currentTargetArea = Form.useWatch("target_area", form) ?? target.target_area;
 
-  // Динамически считаем доступный остаток для выбранного целевого участка:
-  // склад + все участки кроме целевого
-  const availableToMove = useMemo(() => {
-    if (!currentTargetArea) return target.total_stock;
-    const onTarget = target.stock_by_area?.[currentTargetArea] ?? 0;
-    return Math.max(0, target.total_stock - onTarget);
-  }, [currentTargetArea, target]);
+  // Склад + участки объединены в общий доступный пул для перемещения
+  const availableToMove = target.total_stock;
 
   const defaultQty = target.needed > 0 ? Math.min(availableToMove, target.needed) : availableToMove;
 

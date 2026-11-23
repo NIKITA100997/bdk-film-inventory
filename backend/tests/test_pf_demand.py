@@ -126,6 +126,21 @@ def test_produce_and_transfer_quick():
         for u in transferred:
             assert u.status == PartUnitStatus.VYDAN_UCHASTKU
             assert u.area == "okutka_tsargovykh"
+
+        # 3. Перемещение партии, которая уже на этапе целевого участка
+        transferred_same = transfer_part_units_to_area(
+            db,
+            part_id=part.id,
+            quantity_pieces=5.0,
+            target_area="okutka_tsargovykh",
+            user_id=user.id,
+            note="Повторное подтверждение перемещения",
+        )
+        assert len(transferred_same) >= 1
+        assert sum(float(u.quantity_pieces) for u in transferred_same) == 5.0
+        for u in transferred_same:
+            assert u.status == PartUnitStatus.VYDAN_UCHASTKU
+            assert u.area == "okutka_tsargovykh"
     finally:
         # Откатываем тестовую транзакцию, чтобы не оставлять мусор в БД
         db.rollback()

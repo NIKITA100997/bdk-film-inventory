@@ -10,7 +10,7 @@ import { listAreas } from "../../../api/areas";
 import { exportToExcel } from "../../../utils/excel";
 import { useAuth } from "../../../auth/AuthContext";
 import PartSelect from "../../../components/PartSelect";
-import type { Part } from "../../../api/dictionaries";
+import { listParts, type Part } from "../../../api/dictionaries";
 import PfReserveCell from "../../../components/PfReserveCell";
 import { usePfReserves } from "../../../components/usePfReserves";
 import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
@@ -67,10 +67,30 @@ export default function PartStock() {
   const { byPart: pfAttrs, groups: itemGroups } = usePfIndex();
 
   const unitsQuery = useQuery({ queryKey: ["part-units"], queryFn: () => listPartUnits() });
+  const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const reserves = usePfReserves();
   const areasQuery = useQuery({ queryKey: ["areas"], queryFn: listAreas });
   const areaLabel = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : "—");
-  const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
+  const areaOptions = useMemo(
+    () =>
+      (areasQuery.data ?? [])
+        .filter((a) => a.is_active)
+        .map((a) => ({
+          value: a.code,
+          label: a.code === "skleyka_mdf_s_zagotovkoy" ? `${a.name} (склад + участок)` : a.name,
+        })),
+    [areasQuery.data],
+  );
+
+  const myParts = useMemo(
+    () =>
+      new Set(
+        ((partsQuery.data as Part[] | undefined) ?? [])
+          .filter((p: Part) => p.stages.some((st) => st.area === areaFilter))
+          .map((p: Part) => p.id),
+      ),
+    [partsQuery.data, areaFilter],
+  );
 
   const groups = useMemo(() => {
     const units = unitsQuery.data ?? [];
@@ -110,7 +130,19 @@ export default function PartStock() {
   const filtered = filterPf(
     groups.filter((g) => {
       if (search.trim() && !g.partName.toLowerCase().includes(search.trim().toLowerCase())) return false;
-      if (areaFilter && !g.byArea.some((a) => a.area === areaFilter)) return false;
+      if (areaFilter) {
+        if (areaFilter === "skleyka_mdf_s_zagotovkoy") {
+          // Участок производства полуфабрикатов: объединяем склад и участок,
+          // включая партии на участке, на центральном складе ПФ (area === null)
+          // и детали, чьи этапы относятся к участку ПФ
+          const matches =
+            g.byArea.some((a) => a.area === areaFilter || a.area === null) ||
+            myParts.has(g.partId);
+          if (!matches) return false;
+        } else if (!g.byArea.some((a) => a.area === areaFilter)) {
+          return false;
+        }
+      }
       return true;
     }),
     (g) => g.partId,

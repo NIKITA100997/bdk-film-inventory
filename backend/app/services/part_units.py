@@ -960,20 +960,29 @@ def transfer_part_units_to_area(
 ) -> list[PartUnit]:
     """Переместить N шт деталей со склада (На_хранении) или участка ПФ на целевой участок цеха по FIFO."""
     db.flush()
-    # 1. Сначала берём партии со склада (На_хранении)
+    # 1. Сначала берём партии со склада (На_хранении) без привязки к участку или с других участков
     q_storage = (
         db.query(PartUnit)
         .filter(
             PartUnit.part_id == part_id,
             PartUnit.status == PartUnitStatus.NA_KHRANENII,
-            # A warehouse assigned to the destination area is part of its
-            # local balance; do not offer that stock to be transferred again.
             or_(PartUnit.area.is_(None), PartUnit.area != target_area),
         )
         .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
         .all()
     )
-    # 2. Если на хранении не хватает, берём с других участков (где area != target_area)
+    # 2. Если на центральном складе не хватает, берём партии на хранении целевого участка
+    q_storage_target = (
+        db.query(PartUnit)
+        .filter(
+            PartUnit.part_id == part_id,
+            PartUnit.status == PartUnitStatus.NA_KHRANENII,
+            PartUnit.area == target_area,
+        )
+        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+        .all()
+    )
+    # 3. Берём партии с участков производства ПФ и других участков (где area != target_area)
     q_other = (
         db.query(PartUnit)
         .filter(
@@ -984,7 +993,19 @@ def transfer_part_units_to_area(
         .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
         .all()
     )
-    candidate_units = q_storage + q_other
+    # 4. Если требуется подтвердить/оформить выдачу партий, переведённых на этап целевого участка
+    # (например, переведённых с участка склейки/производства ПФ через advance_part_unit)
+    q_same_area = (
+        db.query(PartUnit)
+        .filter(
+            PartUnit.part_id == part_id,
+            PartUnit.status == PartUnitStatus.VYDAN_UCHASTKU,
+            PartUnit.area == target_area,
+        )
+        .order_by(PartUnit.manufactured_at.asc(), PartUnit.id.asc())
+        .all()
+    )
+    candidate_units = q_storage + q_storage_target + q_other + q_same_area
     reported = reported_good_pieces_by_unit(db, [u.id for u in candidate_units])
     free = {u.id: round(float(u.quantity_pieces) - reported.get(u.id, 0.0), 2) for u in candidate_units}
     total_avail = round(sum(max(0.0, v) for v in free.values()), 2)

@@ -1,7 +1,7 @@
 import RegistrationStageField from "../../../components/RegistrationStageSelect";
 import { PfFilterBar, PfSections } from "../../../components/PfGrouping";
 import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../components/pfGroupingState";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { isAxiosError } from "axios";
 import { Card, Space, Typography, Form, InputNumber, Input, Select, Button, Checkbox, message, Modal, Tag, DatePicker } from "antd";
@@ -157,7 +157,21 @@ export default function PartUnits() {
   const partsQuery = useQuery({ queryKey: ["dict-autocomplete", "parts"], queryFn: listParts });
   const usersQuery = useQuery({ queryKey: ["users"], queryFn: listUsers });
   const areaLabel = (code: string | null) => (code ? (areasQuery.data?.find((a) => a.code === code)?.name ?? code) : "—");
-  const areaOptions = (areasQuery.data ?? []).filter((a) => a.is_active).map((a) => ({ value: a.code, label: a.name }));
+  const areaOptions = (areasQuery.data ?? [])
+    .filter((a) => a.is_active)
+    .map((a) => ({
+      value: a.code,
+      label: a.code === "skleyka_mdf_s_zagotovkoy" ? `${a.name} (склад + участок)` : a.name,
+    }));
+  const myParts = useMemo(
+    () =>
+      new Set(
+        ((partsQuery.data as Part[] | undefined) ?? [])
+          .filter((p: Part) => p.stages.some((st) => st.area === areaFilter))
+          .map((p: Part) => p.id),
+      ),
+    [partsQuery.data, areaFilter],
+  );
   const reasonsQuery = useQuery({ queryKey: ["write-off-reasons", "parts"], queryFn: () => listWriteOffReasons("parts") });
   const filmRestrictionsQuery = useQuery({ queryKey: ["part-film-restrictions"], queryFn: listPartFilmRestrictions });
   const userName = (id: number) => usersQuery.data?.find((u) => u.id === id)?.full_name ?? `#${id}`;
@@ -291,7 +305,16 @@ export default function PartUnits() {
       !(u.note ?? "").toLowerCase().includes(partFilter.trim().toLowerCase())
     )
       return false;
-    if (areaFilter && u.area !== areaFilter) return false;
+    if (areaFilter) {
+      if (areaFilter === "skleyka_mdf_s_zagotovkoy") {
+        // Участок производства полуфабрикатов: объединяем склад и участок,
+        // включая партии на участке, на складе (без участка) и партии деталей участка
+        const matchesArea = u.area === areaFilter || u.area === null || myParts.has(u.part_id);
+        if (!matchesArea) return false;
+      } else if (u.area !== areaFilter) {
+        return false;
+      }
+    }
     if (statusFilter && u.status !== statusFilter) return false;
     if (stageFilter && u.stage_name !== stageFilter) return false;
     if (hideFullyUsed && u.quantity_available <= 0 && u.status !== "Списан") return false;
