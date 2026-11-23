@@ -536,7 +536,7 @@ function RenderNode({
   );
 
   return (
-    <Popover content={content} trigger="click" placement="bottom">
+    <Popover content={content} trigger="click" placement="bottom" zIndex={1100}>
       <div
         role="button"
         tabIndex={0}

@@ -269,6 +269,7 @@ export function OpCell({ rs, ready, onOpenTask }: { rs: MonitorRow[] | undefined
       trigger="click"
       open={open}
       onOpenChange={setOpen}
+      zIndex={1100}
       title="Отчёт по операции"
       content={
         open ? (
@@ -325,6 +326,7 @@ export function OpGroupCell({ ls, op, onOpenTask }: { ls: LineRec[]; op: string;
           trigger="click"
           open={open}
           onOpenChange={setOpen}
+          zIndex={1100}
           title={`Группа: ${op}`}
           content={open ? <BatchQuickReport rows={quick} title={op} onDone={() => setOpen(false)} /> : null}
         >

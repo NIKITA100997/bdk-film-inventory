@@ -57,6 +57,17 @@ export default function ProductionMonitor() {
   const [orderCardId, setOrderCardId] = useState<number | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
 
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !taskId && !orderCardId && !printOpen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isFullscreen, taskId, orderCardId, printOpen]);
+
   const query = useQuery({
     queryKey: ["production-monitor", showDone],
     queryFn: () => getProductionMonitor(showDone),
@@ -261,7 +272,7 @@ export default function ProductionMonitor() {
     ? {
         position: "fixed",
         inset: 0,
-        zIndex: 1050,
+        zIndex: 100,
         backgroundColor: "#f5f5f5",
         padding: "10px 16px",
         overflowY: "auto",
