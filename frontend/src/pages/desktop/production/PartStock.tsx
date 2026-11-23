@@ -23,6 +23,7 @@ interface PartStockGroup {
   partId: number;
   partName: string;
   available: number;
+  petAvailable: number;
   byStage: { stageName: string; qty: number }[];
   byArea: { area: string | null; qty: number }[];
   unplacedCount: number;
@@ -105,6 +106,7 @@ export default function PartStock() {
     const result: PartStockGroup[] = [];
     for (const [partId, us] of byPart) {
       const available = us.reduce((sum, u) => sum + u.quantity_available, 0);
+      const petAvailable = us.filter((u) => u.film_restriction === "pet").reduce((sum, u) => sum + u.quantity_available, 0);
       if (available <= 0 && !showEmpty) continue;
       const stageMap = new Map<string, number>();
       const areaMap = new Map<string | null, number>();
@@ -119,6 +121,7 @@ export default function PartStock() {
         partId,
         partName: us[0].part_name,
         available,
+        petAvailable,
         byStage: [...stageMap.entries()].map(([stageName, qty]) => ({ stageName, qty })),
         byArea: [...areaMap.entries()].map(([area, qty]) => ({ area, qty })),
         unplacedCount,
@@ -266,8 +269,17 @@ export default function PartStock() {
           { title: "Деталь", dataIndex: "partName", width: 260, ellipsis: true },
           {
             title: "Доступно, шт",
-            width: 110,
-            render: (_, g) => <Typography.Text strong>{Math.round(g.available * 100) / 100}</Typography.Text>,
+            width: 120,
+            render: (_, g) => (
+              <div>
+                <Typography.Text strong>{Math.round(g.available * 100) / 100}</Typography.Text>
+                {g.petAvailable > 0 && (
+                  <div style={{ fontSize: 11, color: "#722ed1", fontWeight: 600 }}>
+                    ПЭТ: {Math.round(g.petAvailable * 100) / 100}
+                  </div>
+                )}
+              </div>
+            ),
             sorter: (a, b) => a.available - b.available,
           },
           {

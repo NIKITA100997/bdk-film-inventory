@@ -180,7 +180,11 @@ export default function PartUnitCard() {
           <Descriptions column={1} size="small" style={{ marginBottom: 16 }} bordered>
             <Descriptions.Item label="Номер">{pfNo(unit.id)}</Descriptions.Item>
             <Descriptions.Item label="Деталь">
-              <a onClick={() => navigate("/part-card", { state: { partId: unit.part_id } })}>{unit.part_name}</a>
+              <Space wrap align="center">
+                <a onClick={() => navigate("/part-card", { state: { partId: unit.part_id } })}>{unit.part_name}</a>
+                {unit.film_restriction === "pet" && <Tag color="purple">ПЭТ</Tag>}
+                {unit.film_restriction && unit.film_restriction !== "pet" && <Tag color="orange">{unit.film_restriction}</Tag>}
+              </Space>
             </Descriptions.Item>
             <Descriptions.Item label="Количество">
               {unit.quantity_available} шт

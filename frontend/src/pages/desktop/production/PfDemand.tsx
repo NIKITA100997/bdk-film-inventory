@@ -585,7 +585,10 @@ export default function PfDemand() {
                           <Card key={s.partId} size="small" styles={{ body: { padding: 12 } }}>
                             <Space orientation="vertical" size={8} style={{ width: "100%" }}>
                               <div>
-                                <Typography.Text strong>{s.partName}</Typography.Text>
+                                <Space wrap align="center">
+                                  <Typography.Text strong>{s.partName}</Typography.Text>
+                                  {s.isPet && <Tag color="purple">ПЭТ</Tag>}
+                                </Space>
                                 {s.firstStageArea && (
                                   <div><Typography.Text type="secondary">{areaName(s.firstStageArea)} · {s.firstStageName}</Typography.Text></div>
                                 )}
@@ -636,6 +639,7 @@ export default function PfDemand() {
                                     suggested_qty: s.shortage > 0 ? s.shortage : (needToMove > 0 ? needToMove : s.remaining),
                                     target_area: t.area || null,
                                     stage_id: null,
+                                    film_restriction: s.isPet ? "pet" : null,
                                   })}
                                 >
                                   Выпустить
@@ -819,7 +823,16 @@ export default function PfDemand() {
                   <Card
                     key={r.part_id}
                     size="small"
-                    title={<Space wrap><Typography.Text strong>{r.part_name}</Typography.Text>{status}</Space>}
+                    title={
+                      <Space wrap align="center">
+                        <Typography.Text strong>{r.part_name}</Typography.Text>
+                        {(r.task_demand_pet ?? 0) > 0 && <Tag color="purple">ПЭТ</Tag>}
+                        {status}
+                        {(r.shortage_pet ?? 0) > 0 && (
+                          <UiBadge color="magenta">Нехватка ПЭТ: {fmt(r.shortage_pet ?? 0)} шт</UiBadge>
+                        )}
+                      </Space>
+                    }
                     extra={canManage ? (
                       <Checkbox
                         checked={selected.includes(r.part_id)}
@@ -862,7 +875,14 @@ export default function PfDemand() {
                         </div>
                         <div>
                           <Typography.Text type="secondary">По заданиям (цех)</Typography.Text>
-                          <div><Typography.Text strong>{fmt(r.task_demand)} шт</Typography.Text></div>
+                          <div>
+                            <Typography.Text strong>{fmt(r.task_demand)} шт</Typography.Text>
+                            {(r.task_demand_pet ?? 0) > 0 && (
+                              <div style={{ fontSize: 12, color: "#722ed1", fontWeight: 600 }}>
+                                в т.ч. ПЭТ: <b>{fmt(r.task_demand_pet ?? 0)}</b> шт
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <div>
                           <Typography.Text type="secondary">С учетом мин. остатка</Typography.Text>
@@ -874,7 +894,14 @@ export default function PfDemand() {
                         </div>
                         <div>
                           <Typography.Text type="secondary">Дефицит на участке</Typography.Text>
-                          <div>{areaDeficit > 0 ? <UiBadge color="red">−{fmt(areaDeficit)} шт</UiBadge> : <UiBadge color="green">Нет</UiBadge>}</div>
+                          <div>
+                            {areaDeficit > 0 ? <UiBadge color="red">−{fmt(areaDeficit)} шт</UiBadge> : <UiBadge color="green">Нет</UiBadge>}
+                            {(r.shortage_pet ?? 0) > 0 && (
+                              <div style={{ marginTop: 2 }}>
+                                <UiBadge color="magenta">ПЭТ: −{fmt(r.shortage_pet ?? 0)} шт</UiBadge>
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <div>
                           <Typography.Text type="secondary">В наличии (склад + цех)</Typography.Text>
@@ -882,6 +909,11 @@ export default function PfDemand() {
                             <Typography.Text strong style={{ color: totalStock > 0 ? "#389e0d" : undefined, fontSize: 15 }}>
                               {fmt(totalStock)} шт
                             </Typography.Text>
+                            {(r.stock_pet ?? 0) > 0 && (
+                              <div style={{ fontSize: 12, color: "#722ed1", fontWeight: 500 }}>
+                                станд: {fmt(r.stock_standard ?? (totalStock - (r.stock_pet ?? 0)))} · <b>ПЭТ: {fmt(r.stock_pet ?? 0)}</b>
+                              </div>
+                            )}
                             <div style={{ fontSize: 11, color: "#8c8c8c" }}>
                               склад: {fmt(storage)} · участки: {fmt(areaStock)}
                             </div>
@@ -912,7 +944,14 @@ export default function PfDemand() {
                           type={!hasStock || needOnArea > availableToMove ? "primary" : "default"}
                           style={{ minHeight: 44 }}
                           disabled={!canOperate}
-                          onClick={() => setProduceTarget({ part_id: r.part_id, part_name: r.part_name, suggested_qty: r.shortage > 0 ? r.shortage : (needOnArea > 0 ? needOnArea : (r.suggested > 0 ? r.suggested : (r.min_batch || 100))), target_area: defaultTargetArea || null, stage_id: r.first_stage_id })}
+                          onClick={() => setProduceTarget({
+                            part_id: r.part_id,
+                            part_name: r.part_name,
+                            suggested_qty: r.shortage > 0 ? r.shortage : (needOnArea > 0 ? needOnArea : (r.suggested > 0 ? r.suggested : (r.min_batch || 100))),
+                            target_area: defaultTargetArea || null,
+                            stage_id: r.first_stage_id,
+                            film_restriction: (r.shortage_pet ?? 0) > 0 ? "pet" : null,
+                          })}
                         >Выпустить</Button>
                       </Space>
                       {canManage && (
@@ -946,6 +985,9 @@ export default function PfDemand() {
                           <Space wrap size={[12, 4]}>
                             <Typography.Text>В работе: {fmt(r.in_work)} шт</Typography.Text>
                             <Typography.Text>Общий дефицит: <ShortageTags total={r.shortage} tasks={r.shortage_tasks} min={r.shortage_min} /></Typography.Text>
+                            {(r.shortage_pet ?? 0) > 0 && (
+                              <UiBadge color="magenta">Нехватка ПЭТ: {fmt(r.shortage_pet ?? 0)} шт</UiBadge>
+                            )}
                           </Space>
                           {r.sources.map((s) => {
                             const sourceArea = s.area_stock ?? 0;
@@ -956,7 +998,10 @@ export default function PfDemand() {
                             return (
                               <Card key={s.task_id} size="small" styles={{ body: { padding: 10 } }}>
                                 <Space orientation="vertical" size={6} style={{ width: "100%" }}>
-                                  <Link to={`/production-tasks?task=${s.task_id}`}>Задание участка №{s.task_id} · {s.task_name}</Link>
+                                  <Space wrap align="center">
+                                    <Link to={`/production-tasks?task=${s.task_id}`}>Задание участка №{s.task_id} · {s.task_name}</Link>
+                                    {s.is_pet && <Tag color="purple">ПЭТ</Tag>}
+                                  </Space>
                                   <Space wrap size={[12, 4]}>
                                     <Typography.Text type="secondary">Срок: {due}</Typography.Text>
                                     <Typography.Text>Остаток: {fmt(s.remaining)} шт</Typography.Text>
@@ -983,7 +1028,7 @@ export default function PfDemand() {
                                     >
                                       Переместить на {areaName(s.area) ?? "участок"}
                                     </Button>
-                                    <Button size="middle" style={{ minHeight: 44 }} disabled={!canOperate} onClick={() => setProduceTarget({ part_id: r.part_id, part_name: r.part_name, suggested_qty: s.shortage > 0 ? s.shortage : (sourceNeed > 0 ? sourceNeed : s.remaining), target_area: s.area || null, stage_id: null })}>Выпустить под задание</Button>
+                                    <Button size="middle" style={{ minHeight: 44 }} disabled={!canOperate} onClick={() => setProduceTarget({ part_id: r.part_id, part_name: r.part_name, suggested_qty: s.shortage > 0 ? s.shortage : (sourceNeed > 0 ? sourceNeed : s.remaining), target_area: s.area || null, stage_id: null, film_restriction: s.is_pet ? "pet" : null })}>Выпустить под задание</Button>
                                   </Space>
                                 </Space>
                               </Card>

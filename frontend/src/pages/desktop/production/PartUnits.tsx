@@ -484,7 +484,17 @@ export default function PartUnits() {
           columns={[
             // номер партии — единая нумерация (ПФ-…), различать партии одной детали
             { title: "№", dataIndex: "id", width: 90, render: (v: number) => pfNo(v) },
-            { title: "Деталь", dataIndex: "part_name", width: 220 },
+            {
+              title: "Деталь",
+              dataIndex: "part_name",
+              width: 220,
+              render: (name: string, u: PartUnit) => (
+                <Space wrap align="center" size={4}>
+                  <span>{name}</span>
+                  {u.film_restriction === "pet" && <Tag color="purple">ПЭТ</Tag>}
+                </Space>
+              ),
+            },
             {
               title: "Кол-во, шт",
               dataIndex: "quantity_available",
