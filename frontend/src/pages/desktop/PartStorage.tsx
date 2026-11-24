@@ -7,6 +7,7 @@ import { listPartUnits, type PartUnit } from "../../api/partUnits";
 import { printPartRackLabel, printPartShelfLabelsBatch, printPartUnitLabelsBatch } from "../../api/partLabels";
 import PrintFormatButton from "../../components/PrintFormatButton";
 import CollapsibleWarningBanner from "../../components/CollapsibleWarningBanner";
+import { parseBaseAndDecor } from "./Nomenclature";
 import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
 import { apiErrorMessage } from "../../utils/apiError";
@@ -57,12 +58,25 @@ function UnplacedPartUnitRow({
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось разместить")),
   });
+  const { baseName, decorLabel } = parseBaseAndDecor(unit.part_name);
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
       <Typography.Text strong>{pfNo(unit.id)}</Typography.Text>
-      <Typography.Text>{unit.part_name}</Typography.Text>
+      <Typography.Text>{baseName}</Typography.Text>
+      {decorLabel ? (
+        <Tag color={decorLabel.includes("ПЭТ") ? "purple" : "geekblue"} style={{ margin: 0, fontWeight: 600 }}>
+          🎨 {decorLabel}
+        </Tag>
+      ) : (
+        <Tag style={{ margin: 0, color: "#8c8c8c" }}>без плёнки</Tag>
+      )}
       <Typography.Text type="secondary">{unit.quantity_pieces} шт</Typography.Text>
       <Tag style={{ margin: 0 }}>{unit.stage_name}</Tag>
+      {unit.film_restriction && (
+        <Tag color="cyan" style={{ margin: 0 }}>
+          {unit.film_restriction}
+        </Tag>
+      )}
       {unit.area && (
         <Tag color="blue" style={{ margin: 0 }}>
           {areaLabel(unit.area)}
@@ -287,23 +301,38 @@ export default function PartStorage() {
                         }}
                       >
                         {occupied ? (
-                          cell.units.map((u) => (
-                            <div key={u.id} style={{ display: "flex", flexWrap: "wrap", gap: "2px 10px", alignItems: "center" }}>
-                              <Typography.Text strong>{pfNo(u.id)}</Typography.Text>
-                              <Typography.Text>{u.part_name}</Typography.Text>
-                              <Typography.Text type="secondary">{u.quantity_pieces} шт</Typography.Text>
-                              <Tag style={{ margin: 0 }}>{u.stage_name}</Tag>
-                              {/* Раздел про совместимость area+location_code у п/ф — партия на
-                                  стеллаже может одновременно числиться выданной участку
-                                  (запас, из которого мастер расходует по отчётам), это
-                                  нужно видеть прямо на карте, не только в "Учёт п/ф". */}
-                              {u.area && (
-                                <Tag color="blue" style={{ margin: 0 }}>
-                                  {areaLabel(u.area)}
-                                </Tag>
-                              )}
-                            </div>
-                          ))
+                          cell.units.map((u) => {
+                            const { baseName, decorLabel } = parseBaseAndDecor(u.part_name);
+                            return (
+                              <div key={u.id} style={{ display: "flex", flexWrap: "wrap", gap: "2px 8px", alignItems: "center" }}>
+                                <Typography.Text strong>{pfNo(u.id)}</Typography.Text>
+                                <Typography.Text>{baseName}</Typography.Text>
+                                {decorLabel ? (
+                                  <Tag color={decorLabel.includes("ПЭТ") ? "purple" : "geekblue"} style={{ margin: 0, fontWeight: 600 }}>
+                                    🎨 {decorLabel}
+                                  </Tag>
+                                ) : (
+                                  <Tag style={{ margin: 0, color: "#8c8c8c" }}>без плёнки</Tag>
+                                )}
+                                <Typography.Text type="secondary">{u.quantity_pieces} шт</Typography.Text>
+                                <Tag style={{ margin: 0 }}>{u.stage_name}</Tag>
+                                {u.film_restriction && (
+                                  <Tag color="cyan" style={{ margin: 0 }}>
+                                    {u.film_restriction}
+                                  </Tag>
+                                )}
+                                {/* Раздел про совместимость area+location_code у п/ф — партия на
+                                    стеллаже может одновременно числиться выданной участку
+                                    (запас, из которого мастер расходует по отчётам), это
+                                    нужно видеть прямо на карте, не только в "Учёт п/ф". */}
+                                {u.area && (
+                                  <Tag color="blue" style={{ margin: 0 }}>
+                                    {areaLabel(u.area)}
+                                  </Tag>
+                                )}
+                              </div>
+                            );
+                          })
                         ) : (
                           <Typography.Text type="secondary">{cell.location_code} — свободно</Typography.Text>
                         )}
