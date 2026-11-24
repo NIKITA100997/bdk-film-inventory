@@ -60,7 +60,7 @@ from app.schemas.production import (
 from app.schemas.deletion_requests import DeleteResultOut
 from app.services.components import sync_bom_components
 from app.services.area_tasks import apply_report_to_part_units, validate_line_stage
-from app.services.film_check import film_warnings, is_lamis_film, is_pet_film
+from app.services.film_check import film_warnings, is_lamis_film, is_pet_film, is_stoevaya_mk
 from app.services.laminated import can_laminate, laminated_excess
 from app.models.production import PlanSlot
 from app.models.production_orders import ProductionOrder
@@ -1822,7 +1822,8 @@ def _build_task_line_report(
         col = db.get(Color, line.color_id) if line.color_id else None
         if col is not None:
             lamis_ok = is_lamis_film(mat, col)
-        is_pet = is_pet_film(mat.name if mat else None, col.name if col else None)
+        if part and is_stoevaya_mk(part.name):
+            is_pet = is_pet_film(mat.name if mat else None, col.name if col else None)
     if payload.defect_pieces > 0 and payload.defect_disposition == "snyat" and not has_part_unit_stock:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

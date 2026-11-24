@@ -26,6 +26,19 @@ def is_pet_film(material_name: str | None, color_name: str | None = None) -> boo
     return "пэт" in text or "pet" in text
 
 
+def is_stoevaya_mk(part_name: str | None) -> bool:
+    """Проверяет, является ли деталь стоевой МК (царговой двери).
+    Только для этих деталей применимо физическое разделение под ПЭТ / стандартную плёнку (паз/исполнение).
+    Стоевые панелей ('Стоевая (Панель)...'), планки, поперечные, филенки, щиты — не относятся к стоевым МК.
+    """
+    if not part_name:
+        return False
+    lower = part_name.lower().strip()
+    if "панел" in lower or "клин" in lower:
+        return False
+    return lower.startswith("стоевая") or "стоевая мк" in lower
+
+
 def pet_of_material(name: str | None) -> str | None:
     """«ПЭТ 3Д»/«ПЭТ 3D»/«PET 3D» → "3d", «ПЭТ 2Д»/«ПЭТ 2D»/«PET 2D» → "2d", не ПЭТ — None."""
     low = (name or "").lower().replace(" ", "").replace("d", "д").replace("pet", "пэт")

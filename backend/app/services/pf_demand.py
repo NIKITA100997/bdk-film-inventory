@@ -32,7 +32,7 @@ from app.models.production import ProductionTask, ProductionTaskLine, Production
 from app.models.sites import Site
 from app.services import normatives
 from app.services.areas import resolve_task_site
-from app.services.film_check import is_pet_film
+from app.services.film_check import is_pet_film, is_stoevaya_mk
 from app.services.part_units import reported_good_pieces_by_unit
 
 
@@ -155,15 +155,20 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
         .group_by(ProductionTaskLineReport.task_line_id)
         .all()
     )
+    part_ids = {line.part_id for line in lines if line.part_id}
+    part_names = {p.id: p.name for p in db.query(Part).filter(Part.id.in_(part_ids)).all()} if part_ids else {}
+
     # Раздел про единую номенклатуру — деталь строки по ссылке; строки без
     # ссылки (название не совпало ни с одной деталью) в потребность не идут,
     # они видны в «Номенклатура → Строки без детали».
-    by_task_part: dict[tuple[int, int], list[tuple[float, float, bool, bool]]] = defaultdict(list)
+    by_task_part: dict[tuple[int, int, bool], list[tuple[float, float, bool, bool]]] = defaultdict(list)
     for line in lines:
         if line.part_id is None:
             continue
-        line_pet = is_pet_film(materials.get(line.material_id), colors.get(line.color_id))
-        by_task_part[(line.task_id, line.part_id)].append(
+        pname = part_names.get(line.part_id, "")
+        is_mk = is_stoevaya_mk(pname)
+        line_pet = is_mk and is_pet_film(materials.get(line.material_id), colors.get(line.color_id))
+        by_task_part[(line.task_id, line.part_id, line_pet)].append(
             (float(line.quantity_pieces), float(good.get(line.id, 0)), line.is_closed or line.production_closed, line_pet)
         )
     tasks = {line.task_id: line.task for line in lines}
@@ -173,14 +178,13 @@ def _task_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
     order_ids = [t.production_order_id for t in tasks.values() if t.production_order_id]
     orders = {o.id: o for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).all()} if order_ids else {}
     demand: dict[int, list[PfDemandSource]] = defaultdict(list)
-    for (task_id, part_id), part_lines in by_task_part.items():
+    for (task_id, part_id, is_pet), part_lines in by_task_part.items():
         remaining = task_part_remaining([(p, g, c) for p, g, c, _ in part_lines])
         if remaining <= 0:
             continue
         task = tasks[task_id]
         order = orders.get(task.production_order_id) if task.production_order_id else None
         due_date = (order.ship_date or order.promised_ready) if order else None
-        is_pet = any(pet for _, _, _, pet in part_lines)
         site_id, site_name = resolve_task_site(task.area, getattr(task, "lam_area", None), area_map, site_map)
         demand[part_id].append(
             PfDemandSource(
@@ -208,6 +212,7 @@ def _stock_by_part_details(
         .all()
     )
     reported = reported_good_pieces_by_unit(db, [u.id for u in units])
+    part_names_all = {p.id: p.name for p in db.query(Part).filter(Part.id.in_([u.part_id for u in units])).all()} if units else {}
     total_stock: dict[int, float] = defaultdict(float)
     storage_stock: dict[int, float] = defaultdict(float)
     area_stock: dict[int, float] = defaultdict(float)
@@ -218,7 +223,7 @@ def _stock_by_part_details(
         if left <= 0:
             continue
         total_stock[u.part_id] += left
-        if getattr(u, "film_restriction", None) == "pet":
+        if getattr(u, "film_restriction", None) == "pet" and is_stoevaya_mk(part_names_all.get(u.part_id)):
             pet_stock[u.part_id] += left
         # A unit on storage with an area is in that area's home warehouse.
         # Treat it as local stock for demand coverage; only units without an
@@ -298,12 +303,15 @@ def allocate_reserves(
 
 
 def _merge_by_task(sources: list[PfDemandSource]) -> list[PfDemandSource]:
-    """Одна строка на задание: у задания может быть несколько операций с
-    той же деталью — резерв и нехватка считаются на задание целиком."""
-    by_task: dict[int, PfDemandSource] = {}
+    """Одна строка на задание (или пару задание + пометка ПЭТ для стоевых МК):
+    у задания может быть несколько операций с той же деталью — резерв и нехватка
+    считаются на задание, но если деталь идёт и под ПЭТ, и под стандартную
+    плёнку, разделение сохраняется."""
+    by_task: dict[tuple[int, bool], PfDemandSource] = {}
     for s in sources:
-        cur = by_task.get(s.task_id)
-        by_task[s.task_id] = (
+        key = (s.task_id, bool(s.is_pet))
+        cur = by_task.get(key)
+        by_task[key] = (
             s
             if cur is None
             else replace(
@@ -313,12 +321,11 @@ def _merge_by_task(sources: list[PfDemandSource]) -> list[PfDemandSource]:
                 remaining=cur.remaining + s.remaining,
                 due_date=cur.due_date or s.due_date,
                 area=cur.area or s.area,
-                is_pet=cur.is_pet or s.is_pet,
                 site_id=cur.site_id or s.site_id,
                 site_name=cur.site_name or s.site_name,
             )
         )
-    return sorted(by_task.values(), key=lambda s: s.task_id)
+    return sorted(by_task.values(), key=lambda s: (s.task_id, bool(s.is_pet)))
 
 
 @dataclass
@@ -387,11 +394,12 @@ def _row(st: _State, p: Part, *, sources, task_demand, stock, in_work, min_stock
     )
     total = st.stock.get(p.id, 0.0)
     reserved = st.reserved.get(p.id, 0.0)
-    stock_pet = round(st.pet_stock.get(p.id, 0.0), 2)
-    stock_standard = round(max(0.0, total - stock_pet), 2)
-    task_demand_pet = round(sum(s.remaining for s in sources if getattr(s, "is_pet", False)), 2)
-    task_demand_standard = round(max(0.0, task_demand - task_demand_pet), 2)
-    shortage_pet = round(max(0.0, task_demand_pet - stock_pet), 2)
+    is_mk = is_stoevaya_mk(p.name)
+    stock_pet = round(st.pet_stock.get(p.id, 0.0), 2) if is_mk else 0.0
+    stock_standard = round(max(0.0, total - stock_pet), 2) if is_mk else total
+    task_demand_pet = round(sum(s.remaining for s in sources if getattr(s, "is_pet", False)), 2) if is_mk else 0.0
+    task_demand_standard = round(max(0.0, task_demand - task_demand_pet), 2) if is_mk else task_demand
+    shortage_pet = round(max(0.0, task_demand_pet - stock_pet), 2) if is_mk else 0.0
     return PfDemandRow(
         part_id=p.id, part_name=p.name,
         min_stock=norms.min_stock, min_batch=min_batch, batch_multiple=norms.batch_multiple,
@@ -522,7 +530,7 @@ def _operation_demand_by_part(db: Session) -> dict[int, list[PfDemandSource]]:
                     remaining=round(units_left * per, 2),
                     due_date=due_date,
                     area=task.area,
-                    is_pet=line_is_pet,
+                    is_pet=line_is_pet and is_stoevaya_mk(part.name),
                     site_id=site_id,
                     site_name=site_name,
                 )

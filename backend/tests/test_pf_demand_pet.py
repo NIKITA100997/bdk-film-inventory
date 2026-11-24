@@ -5,7 +5,7 @@ from app.models.dictionaries import Color, Material, Part, PartStage
 from app.models.items import Item, ItemKind
 from app.models.part_units import PartUnit, PartUnitStatus
 from app.models.production import ProductionTask, ProductionTaskLine
-from app.services.film_check import is_pet_film
+from app.services.film_check import is_pet_film, is_stoevaya_mk
 from app.services.labels import part_label_data_from_unit
 from app.services.part_units import consume_part_units_fifo, mint_part_unit
 from app.services.pf_demand import compute_pf_demand
@@ -20,6 +20,22 @@ def test_is_pet_film():
     assert is_pet_film("ПВХ", "Дуб сонома") is False
     assert is_pet_film("Полипропилен") is False
     assert is_pet_film(None, None) is False
+
+
+def test_is_stoevaya_mk():
+    # Стоевые МК (царговые двери)
+    assert is_stoevaya_mk("Стоевая 36х108х2035 ПАЗ-11") is True
+    assert is_stoevaya_mk("Стоевая 40х120х2035 ПАЗ-8х27") is True
+    assert is_stoevaya_mk("Стоевая 36х100х2400 ПАЗ-11") is True
+    assert is_stoevaya_mk("Стоевая МК 36х108") is True
+    # Не стоевые МК
+    assert is_stoevaya_mk("Стоевая (Панель) 16х120х1976 под 12мм") is False
+    assert is_stoevaya_mk("Стоевая (Панель) 22х120х1976 под 6мм") is False
+    assert is_stoevaya_mk("Планка КЛИН стоевая 16х135х1770 ПАЗ-8") is False
+    assert is_stoevaya_mk("Поперечная 36х108х2035") is False
+    assert is_stoevaya_mk("Филенка 8х207х1800") is False
+    assert is_stoevaya_mk("Панель щитовой двери 6х810х2010 (фрезерованная)") is False
+    assert is_stoevaya_mk(None) is False
 
 
 def test_pf_demand_pet_breakdown():
@@ -208,6 +224,116 @@ def test_part_label_shows_pet_badge():
         )
         label_std = part_label_data_from_unit(unit_std, db=db)
         assert "[ПЭТ]" not in label_std.part_name
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_non_mk_part_pet_film_no_pet_demand():
+    """Панели и другие не-МК детали, даже если окутываются ПЭТ плёнкой, НЕ разделяются на ПЭТ потребность."""
+    db = SessionLocal()
+    try:
+        kind_pf = db.query(ItemKind).filter_by(code="pf").first()
+        item = Item(name="Стоевая (Панель) 22х120х1976 под 6мм Тест", kind_id=kind_pf.id)
+        db.add(item)
+        db.flush()
+
+        part = Part(name=item.name, item_id=item.id, width_mm=120.0, length_m=1.976, is_active=True)
+        db.add(part)
+        db.flush()
+
+        st1 = PartStage(part_id=part.id, code="okutka", name="Окутка", sequence_order=1, area="okutka_tsargovykh")
+        st2 = PartStage(part_id=part.id, code="gotovo", name="Готово", sequence_order=2, area=None)
+        db.add_all([st1, st2])
+        db.flush()
+
+        mat_pet = Material(name="ПЭТ Белый Панель Тест")
+        color = Color(name="Белый Тест")
+        db.add_all([mat_pet, color])
+        db.flush()
+
+        task = ProductionTask(name="Задание Панель", area="okutka_tsargovykh", is_active=True, created_by=1)
+        db.add(task)
+        db.flush()
+        line = ProductionTaskLine(
+            task_id=task.id, part_name=part.name, part_id=part.id,
+            material_id=mat_pet.id, color_id=color.id,
+            quantity_pieces=100, width_mm=120, length_m=1.976,
+        )
+        db.add(line)
+        db.flush()
+
+        rows = [r for r in compute_pf_demand(db) if r.part_id == part.id]
+        assert len(rows) == 1
+        r = rows[0]
+        # Для не-стоевых МК деталей task_demand_pet обязан быть 0!
+        assert r.task_demand == 100.0
+        assert r.task_demand_pet == 0.0
+        assert r.task_demand_standard == 100.0
+        assert r.shortage_pet == 0.0
+        assert r.sources[0].is_pet is False
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_single_task_split_pet_and_std_lines():
+    """Когда в одном задании есть строки и под ПЭТ, и под ПВХ для стоевой МК, они разделяются правильно."""
+    db = SessionLocal()
+    try:
+        kind_pf = db.query(ItemKind).filter_by(code="pf").first()
+        item = Item(name="Стоевая 36х108х2035 ПАЗ-11 СплитТест", kind_id=kind_pf.id)
+        db.add(item)
+        db.flush()
+
+        part = Part(name=item.name, item_id=item.id, width_mm=108.0, length_m=2.035, is_active=True)
+        db.add(part)
+        db.flush()
+
+        st1 = PartStage(part_id=part.id, code="okutka", name="Окутка", sequence_order=1, area="okutka_tsargovykh")
+        st2 = PartStage(part_id=part.id, code="gotovo", name="Готово", sequence_order=2, area=None)
+        db.add_all([st1, st2])
+        db.flush()
+
+        mat_pet = Material(name="ПЭТ Тест Сплит")
+        mat_pvc = Material(name="ПВХ Тест Сплит")
+        color = Color(name="Цвет Сплит")
+        db.add_all([mat_pet, mat_pvc, color])
+        db.flush()
+
+        task = ProductionTask(name="Задание МК Смешанное", area="okutka_tsargovykh", is_active=True, created_by=1)
+        db.add(task)
+        db.flush()
+
+        # 30 шт под ПЭТ
+        line_pet = ProductionTaskLine(
+            task_id=task.id, part_name=part.name, part_id=part.id,
+            material_id=mat_pet.id, color_id=color.id,
+            quantity_pieces=30, width_mm=108, length_m=2.035,
+        )
+        # 70 шт под ПВХ
+        line_pvc = ProductionTaskLine(
+            task_id=task.id, part_name=part.name, part_id=part.id,
+            material_id=mat_pvc.id, color_id=color.id,
+            quantity_pieces=70, width_mm=108, length_m=2.035,
+        )
+        db.add_all([line_pet, line_pvc])
+        db.flush()
+
+        rows = [r for r in compute_pf_demand(db) if r.part_id == part.id]
+        assert len(rows) == 1
+        r = rows[0]
+
+        assert r.task_demand == 100.0
+        assert r.task_demand_pet == 30.0
+        assert r.task_demand_standard == 70.0
+
+        # В источниках должно быть 2 записи: под ПЭТ и под стандарт
+        assert len(r.sources) == 2
+        s_pet = next(s for s in r.sources if s.is_pet)
+        s_std = next(s for s in r.sources if not s.is_pet)
+        assert s_pet.remaining == 30.0
+        assert s_std.remaining == 70.0
     finally:
         db.rollback()
         db.close()

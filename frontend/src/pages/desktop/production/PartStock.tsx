@@ -1,4 +1,5 @@
 import RegistrationStageField from "../../../components/RegistrationStageSelect";
+import FilmRestrictionPicker from "../../../components/FilmRestrictionPicker";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, Space, Typography, Input, Select, Segmented, Checkbox, Table, Tag, Button, Modal, Form, InputNumber, DatePicker, Dropdown, message } from "antd";
@@ -19,6 +20,13 @@ import { FileExcelOutlined } from "@ant-design/icons";
 import { hasPerm } from "../../../auth/permissions";
 import PartWriteOffModal from "../../../components/PartWriteOffModal";
 import { parseBaseAndDecor } from "../Nomenclature";
+
+export function isStoevayaMk(name?: string | null): boolean {
+  if (!name) return false;
+  const lower = name.toLowerCase().trim();
+  if (lower.includes("панел") || lower.includes("клин")) return false;
+  return lower.startsWith("стоевая") || lower.includes("стоевая мк");
+}
 
 export interface DecorStock {
   partId: number;
@@ -132,7 +140,7 @@ export default function PartStock() {
 
     for (const [partId, us] of byPart) {
       const available = us.reduce((sum, u) => sum + u.quantity_available, 0);
-      const petAvailable = us.filter((u) => u.film_restriction === "pet").reduce((sum, u) => sum + u.quantity_available, 0);
+      const petAvailable = us.filter((u) => u.film_restriction === "pet" && isStoevayaMk(u.part_name)).reduce((sum, u) => sum + u.quantity_available, 0);
       if (available <= 0 && !showEmpty) continue;
       const stageMap = new Map<string, number>();
       const areaMap = new Map<string | null, number>();
@@ -585,16 +593,24 @@ export function RegisterPartUnitForm({ onDone }: { onDone?: () => void }) {
     quantity_pieces: number;
     stage_id?: number;
     manufactured_at?: Dayjs;
+    film_restriction?: string | null;
     note?: string;
-    }>();
+  }>();
 
   const mintMutation = useMutation({
-    mutationFn: (v: { quantity_pieces: number; stage_id?: number; manufactured_at?: Dayjs; note?: string }) =>
+    mutationFn: (v: {
+      quantity_pieces: number;
+      stage_id?: number;
+      manufactured_at?: Dayjs;
+      film_restriction?: string | null;
+      note?: string;
+    }) =>
       createPartUnit({
         part_id: selectedPart!.id,
         quantity_pieces: v.quantity_pieces,
         stage_id: v.stage_id,
         manufactured_at: v.manufactured_at ? v.manufactured_at.format("YYYY-MM-DD") : undefined,
+        film_restriction: v.film_restriction,
         note: v.note,
       }),
     onSuccess: () => {
@@ -642,6 +658,17 @@ export function RegisterPartUnitForm({ onDone }: { onDone?: () => void }) {
           extra="Партии расходуются от самой старой при отчёте о готовых деталях. Не указано — сегодня."
         >
           <DatePicker style={{ width: "100%" }} format="DD.MM.YYYY" placeholder="Сегодня" disabledDate={(d) => d.isAfter(Date.now(), "day")} />
+        </Form.Item>
+        <Form.Item
+          name="film_restriction"
+          label="Пометка по плёнке (необязательно)"
+          extra={
+            selectedPart && isStoevayaMk(selectedPart.name)
+              ? "Для стоевых МК: укажите «ПЭТ», если паз выполнен специально под плёнку ПЭТ. Для остальных — без ограничений."
+              : "Например: ПЭТ, с кромкой, ламис — видна на партии полуфабриката."
+          }
+        >
+          <FilmRestrictionPicker />
         </Form.Item>
         <Form.Item name="note" label="Заметка (опционально)">
           <Input />
