@@ -350,6 +350,22 @@ def reconciliation_rows(
     report_aggs: dict[int, tuple[int, float, float]] = {}
     unit_ids = [u.id for u in units]
     if unit_ids:
+        # Для рулонов, находящихся сейчас на участке (status == VYDAN_UCHASTKU),
+        # отчётами текущей выдачи считаются только отчёты, поданные не раньше момента
+        # последней выдачи этого рулона участку. Отчёты прошлых выдач (по старым заданиям
+        # или закрытым строкам) не должны примешиваться к текущему состоянию рулона.
+        last_issue_subq = (
+            db.query(
+                MaterialEvent.unit_id.label("event_unit_id"),
+                func.max(MaterialEvent.timestamp).label("last_issued_at"),
+            )
+            .filter(
+                MaterialEvent.unit_id.in_(unit_ids),
+                MaterialEvent.event_type == EventType.VYDACHA_UCHASTKU,
+            )
+            .group_by(MaterialEvent.unit_id)
+            .subquery()
+        )
         agg_rows = (
             db.query(
                 ProductionTaskLineReport.material_unit_id,
@@ -358,12 +374,18 @@ def reconciliation_rows(
                 func.coalesce(func.sum(ProductionTaskLineReport.defect_pieces), 0),
             )
             .join(MaterialUnit, MaterialUnit.id == ProductionTaskLineReport.material_unit_id)
+            .outerjoin(last_issue_subq, last_issue_subq.c.event_unit_id == MaterialUnit.id)
             # «Отчёты по строке» — по строке, к которой рулон привязан
             # сейчас; отчёты прошлых выдач по другим заданиям сюда не
             # идут (08.10, штрипс №3264 показывал чужие 73 шт)
             .filter(
                 ProductionTaskLineReport.material_unit_id.in_(unit_ids),
                 ProductionTaskLineReport.task_line_id == MaterialUnit.production_task_line_id,
+                or_(
+                    MaterialUnit.status != UnitStatus.VYDAN_UCHASTKU,
+                    last_issue_subq.c.last_issued_at.is_(None),
+                    ProductionTaskLineReport.reported_at >= last_issue_subq.c.last_issued_at,
+                ),
             )
             .group_by(ProductionTaskLineReport.material_unit_id)
             .all()
@@ -992,6 +1014,7 @@ def batch_issue_to_area(
         u.status = UnitStatus.VYDAN_UCHASTKU
         u.area = payload.area
         u.location_code = None
+        u.production_task_line_id = None
         record_event(
             db,
             unit=u,
@@ -2115,6 +2138,8 @@ def return_unit(
                         note=f"Расход досчитан при возврате: остаток {payload.actual_length_m} м",
                     )
                 )
+    # Рулон вернулся на хранение — сбрасываем привязку к строке задания
+    unit.production_task_line_id = None
     if payload.write_off_reason is not None:
         # Раздел про сверку рулонов на окутке — "вернуть и сразу списать
         # остаток" одним действием: unit.length_m уже стоит на
@@ -2282,8 +2307,14 @@ def link_task_line(
 ) -> MaterialUnit:
     """Привязать уже выданную/возвращённую единицу к строке задания задним
     числом — в отличие от issue_unit_direct статус не трогаем, единица уже
-    где-то в процессе (Выдан_участку) или уже вернулась (На_хранении)."""
+    где-то в процессе (Выдан_участку) или уже вернулась (На_хранении).
+    При production_task_line_id = None — отвязываем единицу от задания."""
     unit = _get_storable_unit(db, unit_id)
+    if payload.production_task_line_id is None:
+        unit.production_task_line_id = None
+        db.commit()
+        return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
+
     can_override = user.is_superuser or "production_tasks.manage" in get_permission_codes(user)
     _validate_matches_task_line(
         db,

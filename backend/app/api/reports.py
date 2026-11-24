@@ -1293,5 +1293,6 @@ def quality_meeting_report_endpoint(
         for row in query.all()
     ]
 
+    from dataclasses import asdict
     report = compute_quality_meeting(raw_reports, date_from, date_to, area=area)
-    return QualityMeetingReportOut(**report.__dict__)
+    return QualityMeetingReportOut(**asdict(report))

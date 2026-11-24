@@ -16,6 +16,7 @@ import {
   Checkbox,
   Image,
   message,
+  Popconfirm,
 } from "antd";
 import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -223,6 +224,16 @@ export default function UnitCard() {
       message.success("Единица привязана к заданию");
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось привязать")),
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: () => linkTaskLine(unit!.id, null),
+    onSuccess: (u) => {
+      setUnit(u);
+      qc.invalidateQueries({ queryKey: ["unit-reconciliation", u.id] });
+      message.success("Задание отвязано от единицы");
+    },
+    onError: (e) => message.error(apiErrorMessage(e, "Не удалось отвязать")),
   });
 
   const legacyMutation = useMutation({
@@ -485,10 +496,23 @@ export default function UnitCard() {
               {reconciliationQuery.isLoading ? (
                 "…"
               ) : reconciliationQuery.data?.task_label ? (
-                <Space size={4} wrap>
+                <Space size={6} wrap align="center">
                   <span>{reconciliationQuery.data.task_label}</span>
                   {reconciliationQuery.data.task_line_id != null &&
                     findLine(reconciliationQuery.data.task_line_id)?.line.is_closed && <UiBadge>Закрыто</UiBadge>}
+                  {canLinkTask && (
+                    <Popconfirm
+                      title="Отвязать единицу от задания?"
+                      description="Рулон останется выданным участку / на складе, но связь со строкой задания будет снята."
+                      onConfirm={() => unlinkMutation.mutate()}
+                      okText="Да, отвязать"
+                      cancelText="Отмена"
+                    >
+                      <Button size="small" danger loading={unlinkMutation.isPending}>
+                        Отвязать
+                      </Button>
+                    </Popconfirm>
+                  )}
                 </Space>
               ) : unit.legacy_task_note ? (
                 <Space wrap>

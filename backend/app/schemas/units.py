@@ -229,9 +229,9 @@ class LinkTaskLineRequest(BaseModel):
     """Привязать УЖЕ выданную/возвращённую единицу к строке задания задним
     числом (раздел про сверку рулонов на окутке) — в отличие от
     IssueDirectRequest, статус единицы не меняется, только тег для
-    прослеживаемости."""
+    прослеживаемости. Передача production_task_line_id = None отвязывает единицу."""
 
-    production_task_line_id: int
+    production_task_line_id: int | None = None
     override_strip_width: bool = False
     override_material: bool = False
 

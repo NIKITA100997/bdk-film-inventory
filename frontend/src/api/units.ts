@@ -671,7 +671,7 @@ export async function getUnitReconciliation(unitId: number): Promise<Reconciliat
 
 export async function linkTaskLine(
   unitId: number,
-  productionTaskLineId: number,
+  productionTaskLineId: number | null,
   options?: { overrideStripWidth?: boolean; overrideMaterial?: boolean },
 ): Promise<MaterialUnit> {
   const { data } = await apiClient.patch<MaterialUnit>(`/units/${unitId}/task-line`, {
