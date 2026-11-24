@@ -212,17 +212,72 @@ export default function BatchQuickReport({
     },
     onSuccess: (_, gKey) => {
       message.success("Отчёт по параметру успешно сохранён");
-      setGroupInputs((prev) => {
-        const next = { ...prev };
-        delete next[gKey];
-        return next;
-      });
+      const nextInputs = { ...groupInputs };
+      delete nextInputs[gKey];
+      setGroupInputs(nextInputs);
       qc.invalidateQueries({ queryKey: ["production-monitor"] });
-      onDone?.();
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      // Если больше ничего не заполнено, закрываем форму
+      const remainingFilled = Object.values(nextInputs).filter((v) => (v.good ?? 0) > 0 || (v.defect ?? 0) > 0);
+      if (remainingFilled.length === 0) {
+        onDone?.();
+      }
     },
     onError: (e) => {
       if (e instanceof ReportCancelled) return;
       message.error(apiErrorMessage(e, "Отчёт не сохранён"));
+    },
+  });
+
+  // Заполненные группы и подсчет сумм для массовой сдачи одной кнопкой
+  const filledGroups = useMemo(() => {
+    return groups.filter((g) => {
+      const inp = groupInputs[g.key];
+      return (inp?.good ?? 0) > 0 || (inp?.defect ?? 0) > 0;
+    });
+  }, [groups, groupInputs]);
+
+  const totalFilledGood = useMemo(() => {
+    return r2(filledGroups.reduce((s, g) => s + (groupInputs[g.key]?.good ?? 0), 0));
+  }, [filledGroups, groupInputs]);
+
+  const totalFilledDefect = useMemo(() => {
+    return r2(filledGroups.reduce((s, g) => s + (groupInputs[g.key]?.defect ?? 0), 0));
+  }, [filledGroups, groupInputs]);
+
+  const isFilledValid = useMemo(() => {
+    if (filledGroups.length === 0) return false;
+    return filledGroups.every((g) => {
+      const inp = groupInputs[g.key] || {};
+      const d = inp.defect ?? 0;
+      if (d > 0 && !inp.reason && !reason) return false;
+      return true;
+    });
+  }, [filledGroups, groupInputs, reason]);
+
+  const saveAllGroups = useMutation({
+    mutationFn: async () => {
+      for (const g of filledGroups) {
+        const inp = groupInputs[g.key] || {};
+        const gGood = inp.good ?? 0;
+        const gDefect = inp.defect ?? 0;
+        if (gGood > 0 || gDefect > 0) {
+          await sendBatch(g.rows, gGood, gDefect, inp.reason || reason);
+        }
+      }
+    },
+    onSuccess: () => {
+      message.success(
+        `Сдано по ${filledGroups.length} группам: ${totalFilledGood} годных${totalFilledDefect ? `, брак: ${totalFilledDefect}` : ""}`
+      );
+      setGroupInputs({});
+      qc.invalidateQueries({ queryKey: ["production-monitor"] });
+      qc.invalidateQueries({ queryKey: ["production-tasks"] });
+      onDone?.();
+    },
+    onError: (e) => {
+      if (e instanceof ReportCancelled) return;
+      message.error(apiErrorMessage(e, "Отчёт по группам не сохранён"));
     },
   });
 
@@ -405,79 +460,197 @@ export default function BatchQuickReport({
         </Button>
 
         {showGroups && (
-          <div style={{ marginTop: 6, maxHeight: 300, overflowY: "auto", display: "grid", gap: 6 }}>
-            {groups.map((g) => {
-              const inp = groupInputs[g.key] || {};
-              const gValid = ((inp.good ?? 0) > 0 || (inp.defect ?? 0) > 0) && (!(inp.defect ?? 0) || !!inp.reason || !!reason);
-              return (
-                <div key={g.key} style={{ background: "#fafafa", border: "1px solid #e8e8e8", borderRadius: 6, padding: 8 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ fontWeight: 600, fontSize: 12 }}>{g.title}</span>
-                    <Tag color={g.left > 0 ? "orange" : "green"} style={{ margin: 0, fontSize: 11 }}>
-                      {g.good} / {g.plan} (ост. {g.left})
-                    </Tag>
-                  </div>
-                  {g.subtitle && (
-                    <Typography.Text type="secondary" style={{ fontSize: 11, display: "block", marginBottom: 6 }}>
-                      {g.subtitle}
-                    </Typography.Text>
+          <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+            {/* Панель массовой сдачи по параметрам участка */}
+            <div
+              style={{
+                background: filledGroups.length > 0 ? "#e6f7ff" : "#fafafa",
+                border: `1px solid ${filledGroups.length > 0 ? "#91d5ff" : "#e8e8e8"}`,
+                borderRadius: 6,
+                padding: "8px 10px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                <div style={{ fontSize: 12 }}>
+                  <b>Сдача по параметрам:</b>{" "}
+                  {filledGroups.length > 0 ? (
+                    <span style={{ color: "#096dd9" }}>
+                      заполнено {filledGroups.length} из {groups.length} групп ({totalFilledGood} годн.
+                      {totalFilledDefect ? `, брак: ${totalFilledDefect}` : ""})
+                    </span>
+                  ) : (
+                    <span style={{ color: "#8c8c8c" }}>введите количества в нужные группы ниже</span>
                   )}
-
-                  <Space size={6} wrap style={{ marginTop: 4 }}>
-                    <InputNumber
-                      size="small"
-                      min={0}
-                      placeholder={g.left > 0 ? `годно (ост. ${g.left})` : "годно"}
-                      value={inp.good}
-                      onChange={(v) =>
-                        setGroupInputs((prev) => ({
-                          ...prev,
-                          [g.key]: { ...(prev[g.key] || {}), good: v },
-                        }))
+                </div>
+                <Space size={6}>
+                  <Button
+                    size="small"
+                    type="link"
+                    style={{ padding: 0, fontSize: 11 }}
+                    onClick={() => {
+                      const allLeft: Record<string, { good: number | null; defect: number | null }> = {};
+                      for (const g of groups) {
+                        if (g.left > 0) {
+                          allLeft[g.key] = { good: g.left, defect: null };
+                        }
                       }
-                      style={{ width: 140 }}
-                    />
-                    <InputNumber
-                      size="small"
-                      min={0}
-                      placeholder="брак"
-                      value={inp.defect}
-                      onChange={(v) =>
-                        setGroupInputs((prev) => ({
-                          ...prev,
-                          [g.key]: { ...(prev[g.key] || {}), defect: v },
-                        }))
-                      }
-                      style={{ width: 70 }}
-                    />
+                      setGroupInputs(allLeft);
+                    }}
+                  >
+                    все остатки
+                  </Button>
+                  {filledGroups.length > 0 && (
                     <Button
                       size="small"
-                      type="default"
-                      disabled={!gValid}
-                      loading={saveGroup.isPending}
-                      onClick={() => saveGroup.mutate(g.key)}
+                      type="link"
+                      danger
+                      style={{ padding: 0, fontSize: 11 }}
+                      onClick={() => setGroupInputs({})}
                     >
-                      Сдать
+                      очистить
                     </Button>
-                    {g.left > 0 && (
-                      <Button
+                  )}
+                </Space>
+              </div>
+
+              <Button
+                size="middle"
+                type="primary"
+                disabled={!isFilledValid}
+                loading={saveAllGroups.isPending}
+                onClick={() => saveAllGroups.mutate()}
+                style={{
+                  width: "100%",
+                  fontWeight: 600,
+                }}
+              >
+                {filledGroups.length > 0
+                  ? `Сдать все заполненные (${filledGroups.length} групп · ${totalFilledGood} шт)`
+                  : "Сдать все заполненные группы"}
+              </Button>
+            </div>
+
+            <div style={{ maxHeight: 320, overflowY: "auto", display: "grid", gap: 6, paddingRight: 2 }}>
+              {groups.map((g) => {
+                const inp = groupInputs[g.key] || {};
+                const isGroupFilled = (inp.good ?? 0) > 0 || (inp.defect ?? 0) > 0;
+                const gValid = isGroupFilled && (!(inp.defect ?? 0) || !!inp.reason || !!reason);
+                return (
+                  <div
+                    key={g.key}
+                    style={{
+                      background: isGroupFilled ? "#f0f9ff" : "#fafafa",
+                      border: `1px solid ${isGroupFilled ? "#91d5ff" : "#e8e8e8"}`,
+                      borderRadius: 6,
+                      padding: 8,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                      <span style={{ fontWeight: 600, fontSize: 12 }}>{g.title}</span>
+                      <Tag color={g.left > 0 ? "orange" : "green"} style={{ margin: 0, fontSize: 11 }}>
+                        {g.good} / {g.plan} (ост. {g.left})
+                      </Tag>
+                    </div>
+                    {g.subtitle && (
+                      <Typography.Text type="secondary" style={{ fontSize: 11, display: "block", marginBottom: 6 }}>
+                        {g.subtitle}
+                      </Typography.Text>
+                    )}
+
+                    <Space size={6} wrap style={{ marginTop: 4 }}>
+                      <InputNumber
                         size="small"
-                        type="link"
-                        style={{ padding: 0, fontSize: 11 }}
-                        onClick={() =>
+                        min={0}
+                        placeholder={g.left > 0 ? `годно (ост. ${g.left})` : "годно"}
+                        value={inp.good}
+                        onChange={(v) =>
                           setGroupInputs((prev) => ({
                             ...prev,
-                            [g.key]: { ...(prev[g.key] || {}), good: g.left },
+                            [g.key]: { ...(prev[g.key] || {}), good: v },
                           }))
                         }
+                        style={{ width: 140 }}
+                      />
+                      <InputNumber
+                        size="small"
+                        min={0}
+                        placeholder="брак"
+                        value={inp.defect}
+                        onChange={(v) =>
+                          setGroupInputs((prev) => ({
+                            ...prev,
+                            [g.key]: { ...(prev[g.key] || {}), defect: v },
+                          }))
+                        }
+                        style={{ width: 70 }}
+                      />
+                      <Button
+                        size="small"
+                        type="default"
+                        disabled={!gValid}
+                        loading={saveGroup.isPending}
+                        onClick={() => saveGroup.mutate(g.key)}
                       >
-                        все {g.left}
+                        Сдать
                       </Button>
+                      {g.left > 0 && (
+                        <Button
+                          size="small"
+                          type="link"
+                          style={{ padding: 0, fontSize: 11 }}
+                          onClick={() =>
+                            setGroupInputs((prev) => ({
+                              ...prev,
+                              [g.key]: { ...(prev[g.key] || {}), good: g.left },
+                            }))
+                          }
+                        >
+                          все {g.left}
+                        </Button>
+                      )}
+                    </Space>
+
+                    {(inp.defect ?? 0) > 0 && (
+                      <div style={{ marginTop: 6 }}>
+                        <Select
+                          size="small"
+                          placeholder="причина брака для этой группы"
+                          style={{ width: "100%" }}
+                          value={inp.reason || reason}
+                          onChange={(v) =>
+                            setGroupInputs((prev) => ({
+                              ...prev,
+                              [g.key]: { ...(prev[g.key] || {}), reason: v },
+                            }))
+                          }
+                          options={reasons.map((r) => ({ value: r.code, label: r.name }))}
+                          showSearch
+                          optionFilterProp="label"
+                        />
+                      </div>
                     )}
-                  </Space>
-                </div>
-              );
-            })}
+                  </div>
+                );
+              })}
+
+              {groups.length > 3 && (
+                <Button
+                  size="middle"
+                  type="primary"
+                  disabled={!isFilledValid}
+                  loading={saveAllGroups.isPending}
+                  onClick={() => saveAllGroups.mutate()}
+                  style={{ width: "100%", marginTop: 4, fontWeight: 600 }}
+                >
+                  {filledGroups.length > 0
+                    ? `Сдать все заполненные (${filledGroups.length} групп · ${totalFilledGood} шт)`
+                    : "Сдать все заполненные группы"}
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </div>
