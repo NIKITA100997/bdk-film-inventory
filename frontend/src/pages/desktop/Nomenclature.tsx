@@ -36,6 +36,7 @@ import {
 import { apiErrorMessage } from "../../utils/apiError";
 import { getStockByItem, type ItemStock } from "../../api/unifiedStock";
 import { hasPerm } from "../../auth/permissions";
+import { DecorThumbnail } from "../../components/DecorThumbnail";
 
 const KIND_COLOR: Record<string, string> = { plenka: "blue", pf: "orange", izdelie: "green", material: "cyan" };
 
@@ -515,7 +516,8 @@ function ItemsTab() {
               }
               if (i.decor_label) {
                 return (
-                  <Space size={6} wrap>
+                  <Space size={6} wrap align="center">
+                    <DecorThumbnail decor={i.decor_label} size={14} />
                     <Tag color={i.decor_label === "— без плёнки —" ? "default" : "geekblue"} style={{ fontWeight: 600 }}>
                       {i.decor_label}
                     </Tag>

@@ -19,6 +19,7 @@ import { filterPf, sectionsPf, usePfFilter, usePfIndex } from "../../../componen
 import { FileExcelOutlined } from "@ant-design/icons";
 import { hasPerm } from "../../../auth/permissions";
 import PartWriteOffModal from "../../../components/PartWriteOffModal";
+import DecorThumbnail from "../../../components/DecorThumbnail";
 import { parseBaseAndDecor } from "../Nomenclature";
 
 export function isStoevayaMk(name?: string | null): boolean {
@@ -434,6 +435,9 @@ export default function PartStock() {
                             marginRight: 0,
                             fontWeight: isHighlighted || isBare ? 600 : 500,
                             border: isHighlighted ? "1px solid #d4b106" : undefined,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
                           }}
                           title={`Деталь #${d.partId}: клик — открыть карточку`}
                           onClick={(e) => {
@@ -441,15 +445,26 @@ export default function PartStock() {
                             navigate("/part-card", { state: { partId: d.partId } });
                           }}
                         >
-                          {d.decorLabel}: <b>{Math.round(d.available * 100) / 100}</b>
+                          {!isBare && <DecorThumbnail decor={d.decorLabel} size={13} />}
+                          <span>{d.decorLabel}: <b>{Math.round(d.available * 100) / 100}</b></span>
                         </Tag>
                       );
                     })}
                   </Space>
                 )}
                 {g.decors.length === 1 && g.decors[0].decorLabel !== "— без плёнки —" && (
-                  <Tag color="blue" style={{ fontSize: 11, width: "fit-content" }}>
-                    {g.decors[0].decorLabel}
+                  <Tag
+                    color="blue"
+                    style={{
+                      fontSize: 11,
+                      width: "fit-content",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <DecorThumbnail decor={g.decors[0].decorLabel} size={13} />
+                    <span>{g.decors[0].decorLabel}</span>
                   </Tag>
                 )}
               </Space>

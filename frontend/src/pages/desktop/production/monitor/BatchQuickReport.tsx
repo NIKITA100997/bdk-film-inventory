@@ -8,6 +8,7 @@ import { apiErrorMessage } from "../../../../utils/apiError";
 import { ReportCancelled, sendReportWithConfirm } from "../../../../utils/reportConfirm";
 import { newOpKey } from "../../../../utils/opKey";
 import QuickReport from "./QuickReport";
+import DecorThumbnail from "../../../../components/DecorThumbnail";
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -548,9 +549,12 @@ export default function BatchQuickReport({
                       padding: 8,
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                      <span style={{ fontWeight: 600, fontSize: 12 }}>{g.title}</span>
-                      <Tag color={g.left > 0 ? "orange" : "green"} style={{ margin: 0, fontSize: 11 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                        <DecorThumbnail decor={g.title} size={20} />
+                        <span style={{ fontWeight: 600, fontSize: 12 }}>{g.title}</span>
+                      </div>
+                      <Tag color={g.left > 0 ? "orange" : "green"} style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>
                         {g.good} / {g.plan} (ост. {g.left})
                       </Tag>
                     </div>

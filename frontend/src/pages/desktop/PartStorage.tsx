@@ -7,6 +7,7 @@ import { listPartUnits, type PartUnit } from "../../api/partUnits";
 import { printPartRackLabel, printPartShelfLabelsBatch, printPartUnitLabelsBatch } from "../../api/partLabels";
 import PrintFormatButton from "../../components/PrintFormatButton";
 import CollapsibleWarningBanner from "../../components/CollapsibleWarningBanner";
+import DecorThumbnail from "../../components/DecorThumbnail";
 import { parseBaseAndDecor } from "./Nomenclature";
 import { listAreas } from "../../api/areas";
 import { useAuth } from "../../auth/AuthContext";
@@ -64,8 +65,18 @@ function UnplacedPartUnitRow({
       <Typography.Text strong>{pfNo(unit.id)}</Typography.Text>
       <Typography.Text>{baseName}</Typography.Text>
       {decorLabel ? (
-        <Tag color={decorLabel.includes("ПЭТ") ? "purple" : "geekblue"} style={{ margin: 0, fontWeight: 600 }}>
-          🎨 {decorLabel}
+        <Tag
+          color={decorLabel.includes("ПЭТ") ? "purple" : "geekblue"}
+          style={{
+            margin: 0,
+            fontWeight: 600,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          <DecorThumbnail decor={decorLabel} size={14} />
+          {decorLabel}
         </Tag>
       ) : (
         <Tag style={{ margin: 0, color: "#8c8c8c" }}>без плёнки</Tag>
@@ -308,8 +319,18 @@ export default function PartStorage() {
                                 <Typography.Text strong>{pfNo(u.id)}</Typography.Text>
                                 <Typography.Text>{baseName}</Typography.Text>
                                 {decorLabel ? (
-                                  <Tag color={decorLabel.includes("ПЭТ") ? "purple" : "geekblue"} style={{ margin: 0, fontWeight: 600 }}>
-                                    🎨 {decorLabel}
+                                  <Tag
+                                    color={decorLabel.includes("ПЭТ") ? "purple" : "geekblue"}
+                                    style={{
+                                      margin: 0,
+                                      fontWeight: 600,
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 4,
+                                    }}
+                                  >
+                                    <DecorThumbnail decor={decorLabel} size={14} />
+                                    {decorLabel}
                                   </Tag>
                                 ) : (
                                   <Tag style={{ margin: 0, color: "#8c8c8c" }}>без плёнки</Tag>
