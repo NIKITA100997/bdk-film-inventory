@@ -56,6 +56,7 @@ class ItemOut(BaseModel):
     is_model: bool = False
     model_id: int | None = None
     type_id: int | None = None
+    base_item_id: int | None = None
     material: str | None = None
     color: str | None = None
     thickness: float | None = None
@@ -177,7 +178,7 @@ def list_items(
             ItemOut(
                 id=item.id, kind_code=kind.code, kind_name=kind.name, unit=item.unit or kind.unit, name=name,
                 code_1c=item.code_1c, is_active=active, source_type=source_type, source_id=source_id,
-                group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id, pet_type=item.pet_type, **_attrs(item, kind.code, types),
+                group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id, base_item_id=item.base_item_id, pet_type=item.pet_type, **_attrs(item, kind.code, types),
                 **_norm_fields(item, kind), **extra,
             )
         )
@@ -209,7 +210,7 @@ def list_items(
                     id=item.id, kind_code=item_kind.code, kind_name=item_kind.name, unit=item.unit or item_kind.unit, name=item.name,
                     code_1c=item.code_1c, is_active=item.is_active, source_type=None, source_id=None,
                     group_id=item.group_id, is_model=item.is_model, model_id=item.model_id, type_id=item.type_id,
-                    pet_type=item.pet_type, **_attrs(item, item_kind.code, types), **_norm_fields(item, item_kind),
+                    base_item_id=item.base_item_id, pet_type=item.pet_type, **_attrs(item, item_kind.code, types), **_norm_fields(item, item_kind),
                 )
             )
 

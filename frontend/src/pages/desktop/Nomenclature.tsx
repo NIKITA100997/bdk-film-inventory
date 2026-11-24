@@ -97,6 +97,7 @@ function ItemsTab() {
   const [includeInactive, setIncludeInactive] = useState(false);
   // Номенклатура = остатки (27.10): «Только с остатком» — бывшие «Остатки по позициям».
   const [onlyStock, setOnlyStock] = useState(urlParams.get("stock") === "1");
+  const [groupByProfile, setGroupByProfile] = useState(true);
   const [place, setPlace] = useState<string | undefined>(urlParams.get("place") ?? undefined);
   const [group, setGroup] = useState<number | undefined>();
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -121,8 +122,8 @@ function ItemsTab() {
     [stockQuery.data],
   );
 
-  // Модели — строками, их варианты — внутри (как характеристики в 1С).
-  // Поиск: подошла модель — все её варианты; подошёл вариант — модель с ним.
+  // Модели и профили деталей — строками, их варианты (цвета/декоры) — внутри (дерево).
+  // Поиск: подошла модель/профиль — все её варианты; подошёл вариант — родитель с ним.
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase().replace(/ё/g, "е");
     const inGroup = group != null && group !== NO_GROUP ? groupWithDescendants(groups, group) : null;
@@ -143,25 +144,149 @@ function ItemsTab() {
     const out: ItemRow[] = [];
     const inSelectedGroup = (x: Item) =>
       group == null || (group === NO_GROUP ? x.group_id == null : x.group_id != null && inGroup!.has(x.group_id));
+
+    // 1. Модели ГП (двери со спецификациями)
+    const nonModelCandidates: Item[] = [];
     for (const i of all) {
       if (i.model_id != null && models.has(i.model_id)) continue;
       if (kind !== "all" && i.kind_code !== kind) continue;
       if (direction && (direction === "__none" ? i.direction : i.direction !== direction)) continue;
       if (stage && i.stage !== stage) continue;
-      // Модель в группе, если в ней она сама или хоть один её вариант —
-      // у модели своей группы обычно нет, группы ведутся по вариантам.
-      if (!inSelectedGroup(i) && !(i.is_model && (variants.get(i.id) ?? []).some(inSelectedGroup))) continue;
+
       if (i.is_model) {
+        if (!inSelectedGroup(i) && !(variants.get(i.id) ?? []).some(inSelectedGroup)) continue;
         const own = variants.get(i.id) ?? [];
         const kids = (matches(i) ? own : own.filter(matches)).filter(stocked);
         if ((!matches(i) || ((onlyStock || place) && !stocked(i))) && kids.length === 0) continue;
         out.push({ ...i, variant_count: own.length, children: kids.length ? kids : undefined });
-      } else if (matches(i) && stocked(i)) {
-        out.push(i);
+      } else {
+        nonModelCandidates.push(i);
       }
     }
+
+    // 2. Если группировка профилей отключена — выводим плоский список
+    if (!groupByProfile) {
+      for (const i of nonModelCandidates) {
+        if (!inSelectedGroup(i)) continue;
+        if (matches(i) && stocked(i)) {
+          out.push(i);
+        }
+      }
+      return out;
+    }
+
+    // 3. Группировка полуфабрикатов и деталей по базовым профилям и декорам
+    const itemsById = new Map<number, Item>(all.map((x) => [x.id, x]));
+    const bareItemsByName = new Map<string, Item>();
+    for (const x of all) {
+      const { decorLabel } = parseBaseAndDecor(x.name);
+      if (!decorLabel && !x.base_item_id && !x.is_model) {
+        bareItemsByName.set(x.name.trim().toLowerCase().replace(/ё/g, "е"), x);
+      }
+    }
+
+    interface ProfileCluster {
+      baseItem?: Item;
+      baseName: string;
+      items: Array<{ item: Item; decorLabel: string | null }>;
+    }
+    const clusters = new Map<string, ProfileCluster>();
+
+    for (const item of nonModelCandidates) {
+      const { baseName, decorLabel } = parseBaseAndDecor(item.name);
+      const baseItem = item.base_item_id
+        ? itemsById.get(item.base_item_id)
+        : bareItemsByName.get(baseName.trim().toLowerCase().replace(/ё/g, "е"));
+
+      const normBaseName = baseItem ? baseItem.name : baseName;
+      const clusterKey = normBaseName.trim().toLowerCase().replace(/ё/g, "е");
+
+      if (!clusters.has(clusterKey)) {
+        clusters.set(clusterKey, {
+          baseItem,
+          baseName: normBaseName,
+          items: [],
+        });
+      }
+      clusters.get(clusterKey)!.items.push({ item, decorLabel });
+    }
+
+    let virtualIdx = 1;
+    for (const cluster of clusters.values()) {
+      // Одиночная деталь без декора и без привязки к базе — обычная отдельная строка
+      if (cluster.items.length === 1 && !cluster.items[0].decorLabel && !cluster.items[0].item.base_item_id) {
+        const solo = cluster.items[0].item;
+        if (inSelectedGroup(solo) && matches(solo) && stocked(solo)) {
+          out.push(solo);
+        }
+        continue;
+      }
+
+      // Фильтр по группе
+      const inGroupItems = cluster.items.filter((entry) => inSelectedGroup(entry.item));
+      if (group != null && inGroupItems.length === 0) continue;
+
+      // Поиск: если совпало базовое название — показываем все варианты группы, иначе только совпавшие
+      const matchesBase = !needle || cluster.baseName.toLowerCase().replace(/ё/g, "е").includes(needle);
+      const matchingEntries = matchesBase
+        ? inGroupItems
+        : inGroupItems.filter((entry) => matches(entry.item));
+      if (matchingEntries.length === 0) continue;
+
+      // Остаток
+      const stockedEntries = matchingEntries.filter((entry) => stocked(entry.item));
+      if ((onlyStock || place) && stockedEntries.length === 0) continue;
+
+      const effectiveEntries = onlyStock || place ? stockedEntries : matchingEntries;
+
+      // Если в кластере всего 1 позиция без базового профиля — оставляем как отдельную строку
+      if (cluster.items.length === 1 && !cluster.baseItem) {
+        const solo = effectiveEntries[0].item;
+        out.push({
+          ...solo,
+          decor_label: effectiveEntries[0].decorLabel,
+        });
+        continue;
+      }
+
+      // Формируем дочерние строки вариантов
+      const kids: ItemRow[] = effectiveEntries.map((entry) => ({
+        ...entry.item,
+        decor_label: entry.decorLabel ?? (cluster.baseItem?.id === entry.item.id ? "— без плёнки —" : null),
+      }));
+
+      // Мастер-строка профиля
+      const masterRow: ItemRow = {
+        ...(cluster.baseItem ?? {
+          id: -(100000 + virtualIdx++),
+          kind_code: cluster.items[0].item.kind_code,
+          kind_name: cluster.items[0].item.kind_name,
+          unit: cluster.items[0].item.unit,
+          name: cluster.baseName,
+          code_1c: null,
+          is_active: true,
+          source_type: null,
+          source_id: null,
+          group_id: cluster.items[0].item.group_id,
+          is_model: false,
+          model_id: null,
+          material: null,
+          color: null,
+          thickness: null,
+          direction: cluster.items[0].item.direction,
+          stage: cluster.items[0].item.stage,
+          make_mode: cluster.items[0].item.make_mode,
+        }),
+        name: cluster.baseName,
+        is_profile_group: true,
+        variant_count: cluster.items.length,
+        children: kids,
+      };
+      out.push(masterRow);
+    }
+
     return out;
-  }, [itemsQuery.data, kind, q, group, groups, direction, stage, onlyStock, place, stockOf]);
+  }, [itemsQuery.data, kind, q, group, groups, direction, stage, onlyStock, place, stockOf, groupByProfile]);
 
   const petMutation = useMutation({
     mutationFn: (pet: "2d" | "3d") => setItemsPet({ item_ids: selectedIds, pet_type: pet }),
@@ -241,6 +366,9 @@ function ItemsTab() {
           {kind === "pf" && (
             <Select allowClear placeholder="Стадия" style={{ width: 190 }} value={stage} onChange={setStage} options={toOptions(STAGES)} />
           )}
+          <Checkbox checked={groupByProfile} onChange={(e) => setGroupByProfile(e.target.checked)}>
+            Группировать профили
+          </Checkbox>
           <Checkbox checked={onlyStock} onChange={(e) => setOnlyStock(e.target.checked)}>
             Только с остатком
           </Checkbox>
@@ -345,24 +473,58 @@ function ItemsTab() {
         dataSource={rows}
         pagination={{ pageSize: 50 }}
         scroll={{ x: "max-content" }}
-        onRow={(i) => ({ onClick: () => navigate(`/item/${i.id}`), style: { cursor: "pointer" } })}
+        onRow={(i) => ({
+          onClick: () => {
+            if (i.id > 0 && !i.is_profile_group) {
+              navigate(`/item/${i.id}`);
+            }
+          },
+          style: { cursor: i.id > 0 && !i.is_profile_group ? "pointer" : "default" },
+        })}
         rowSelection={
           canGroup && kind !== "all"
-            ? { selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as number[]), columnWidth: 40 }
+            ? {
+                selectedRowKeys: selectedIds,
+                onChange: (keys) => setSelectedIds((keys as number[]).filter((k) => k > 0)),
+                columnWidth: 40,
+                getCheckboxProps: (record) => ({
+                  disabled: record.id < 0 || record.is_profile_group,
+                }),
+              }
             : undefined
         }
         columns={[
           {
             title: "Наименование",
-            render: (_, i: ItemRow) =>
-              i.is_model ? (
-                <Space size={6}>
-                  <b>{i.name}</b>
-                  <Tag color="gold">модель · вариантов: {i.variant_count ?? 0}</Tag>
-                </Space>
-              ) : (
-                i.name
-              ),
+            render: (_, i: ItemRow) => {
+              if (i.is_model) {
+                return (
+                  <Space size={6}>
+                    <b>{i.name}</b>
+                    <Tag color="gold">модель · вариантов: {i.variant_count ?? 0}</Tag>
+                  </Space>
+                );
+              }
+              if (i.is_profile_group) {
+                return (
+                  <Space size={6}>
+                    <b>{i.name}</b>
+                    <Tag color="cyan">профиль · вариантов: {i.variant_count ?? (i.children?.length ?? 0)}</Tag>
+                  </Space>
+                );
+              }
+              if (i.decor_label) {
+                return (
+                  <Space size={6} wrap>
+                    <Tag color={i.decor_label === "— без плёнки —" ? "default" : "geekblue"} style={{ fontWeight: 600 }}>
+                      {i.decor_label}
+                    </Tag>
+                    <span>{i.name}</span>
+                  </Space>
+                );
+              }
+              return i.name;
+            },
           },
           { title: "Вид", render: (_, i) => <Tag color={KIND_COLOR[i.kind_code]}>{i.kind_name}</Tag> },
           ...(kind === "all" || kind === "pf" || kind === "izdelie"
@@ -401,7 +563,7 @@ function ItemsTab() {
                 {
                   title: "ПЭТ",
                   render: (_: unknown, i: ItemRow) =>
-                    i.is_model ? null : i.pet_type === "3d" ? <Tag color="purple">3Д</Tag> : <Typography.Text type="secondary">2Д</Typography.Text>,
+                    i.is_model || i.is_profile_group ? null : i.pet_type === "3d" ? <Tag color="purple">3Д</Tag> : <Typography.Text type="secondary">2Д</Typography.Text>,
                 },
               ]
             : []),
@@ -446,14 +608,33 @@ function ItemsTab() {
   );
 }
 
-type ItemRow = Item & { variant_count?: number; children?: Item[] };
+export interface ItemRow extends Item {
+  variant_count?: number;
+  children?: ItemRow[];
+  is_profile_group?: boolean;
+  decor_label?: string | null;
+}
+
+export function parseBaseAndDecor(name: string): { baseName: string; decorLabel: string | null } {
+  const dotIdx = name.lastIndexOf(" · ");
+  if (dotIdx > 0) {
+    return { baseName: name.slice(0, dotIdx).trim(), decorLabel: name.slice(dotIdx + 3).trim() };
+  }
+  const match = name.match(/^(.*?)\s*\(([^()]+)\)$/);
+  if (match) {
+    return { baseName: match[1].trim(), decorLabel: match[2].trim() };
+  }
+  return { baseName: name, decorLabel: null };
+}
 
 const fmt = (v: number) => v.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
 
-/** Остаток позиции; у модели — сумма по её вариантам (единица у них одна). */
+/** Остаток позиции; у модели или группы профиля — сумма по её вариантам (единица у них одна). */
 function stockSum(i: ItemRow, stockOf: Map<number, ItemStock>): ItemStock | undefined {
-  if (!i.is_model) return stockOf.get(i.id);
-  const parts = [i, ...(i.children ?? [])].map((x) => stockOf.get(x.id)).filter((x): x is ItemStock => !!x);
+  if (!i.is_model && !i.is_profile_group) return stockOf.get(i.id);
+  const parts = (i.children && i.children.length > 0 ? i.children : [i])
+    .map((x) => stockOf.get(x.id))
+    .filter((x): x is ItemStock => !!x);
   if (!parts.length) return undefined;
   return parts.reduce((a, b) => ({
     ...a,

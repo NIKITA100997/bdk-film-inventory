@@ -19,6 +19,7 @@ export interface Item {
   source_type: "sku" | "part" | "model" | null;
   source_id: number | null;
   group_id: number | null;
+  base_item_id?: number | null;
   /** Синонимы (14.10) — поиск находит и по ним. */
   aliases?: string[];
   /** Модель (серия) — варианты ссылаются на неё через model_id. */
