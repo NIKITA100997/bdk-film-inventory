@@ -73,6 +73,7 @@ from app.services.dictionaries import (
     sync_part_to_task_lines,
     thickness_in_use,
 )
+from app.services.film_textures import apply_texture_to_sku, search_texture_candidates
 
 router = APIRouter(tags=["dictionaries"])
 
@@ -904,3 +905,60 @@ def delete_sku_photo(sku_id: int, db: Session = Depends(get_db), user=Depends(ma
         db.commit()
         db.refresh(sku)
     return _skus_query(db).filter(MaterialSku.id == sku_id).first()
+
+
+class TextureCandidateOut(BaseModel):
+    id: str
+    title: str
+    subtitle: str | None = None
+    texture_type: str
+    source_label: str
+    preview_url: str
+    data_base64: str | None = None
+    image_url: str | None = None
+
+
+class ApplyTextureRequest(BaseModel):
+    image_base64: str | None = None
+    image_url: str | None = None
+
+
+@router.get("/material-skus/{sku_id}/texture-candidates", response_model=list[TextureCandidateOut])
+def get_texture_candidates(
+    sku_id: int,
+    query: str | None = None,
+    texture_type: str = "all",
+    db: Session = Depends(get_db),
+    user=Depends(manage_dicts),
+) -> list[TextureCandidateOut]:
+    """Возвращает список образцов текстур (гладкие soft-touch и каталожные)."""
+    sku = _skus_query(db).filter(MaterialSku.id == sku_id).first()
+    if sku is None:
+        raise HTTPException(404, "Позиция не найдена")
+    return [TextureCandidateOut(**c) for c in search_texture_candidates(sku, query=query, texture_type=texture_type)]
+
+
+@router.post("/material-skus/{sku_id}/apply-texture", response_model=MaterialSkuOut)
+def apply_sku_texture_endpoint(
+    sku_id: int,
+    payload: ApplyTextureRequest,
+    db: Session = Depends(get_db),
+    user=Depends(manage_dicts),
+) -> MaterialSku:
+    """Применяет выбранный образец текстуры (base64 или url) к карточке плёнки."""
+    sku = db.get(MaterialSku, sku_id)
+    if sku is None:
+        raise HTTPException(404, "Позиция не найдена")
+    try:
+        apply_texture_to_sku(
+            sku,
+            upload_dir=Path(settings.upload_dir),
+            image_base64=payload.image_base64,
+            image_url=payload.image_url,
+        )
+        db.commit()
+        db.refresh(sku)
+        return _skus_query(db).filter(MaterialSku.id == sku_id).first()
+    except Exception as e:
+        raise HTTPException(400, f"Не удалось применить текстуру: {e}")
+

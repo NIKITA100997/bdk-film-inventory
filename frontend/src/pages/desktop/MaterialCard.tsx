@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, Select, Row, Col, Table, Space, Tag, Input, InputNumber, Button, Popconfirm, Modal, Form, Typography, Empty, Upload, Image, Checkbox, Radio, List, message } from "antd";
 import Statistic from "../../components/Statistic";
 import ResponsiveTable from "../../components/ResponsiveTable";
-import { UploadOutlined, PictureOutlined } from "@ant-design/icons";
+import { UploadOutlined, PictureOutlined, GlobalOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
+import TexturePickerModal from "../../components/TexturePickerModal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -59,18 +60,20 @@ export interface MaterialCardPrefill {
 
 function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku; allSkus: MaterialSku[]; onClose: () => void; canEdit: boolean }) {
   const qc = useQueryClient();
+  const currentSku = allSkus.find((s) => s.id === sku.id) ?? sku;
+  const [texturePickerOpen, setTexturePickerOpen] = useState(false);
   const [pickedAnalogId, setPickedAnalogId] = useState<number | undefined>();
   const [note, setNote] = useState("");
 
-  const analogsQuery = useQuery({ queryKey: ["sku-analogs", sku.id], queryFn: () => getSkuAnalogs(sku.id) });
+  const analogsQuery = useQuery({ queryKey: ["sku-analogs", currentSku.id], queryFn: () => getSkuAnalogs(currentSku.id) });
 
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["sku-analogs", sku.id] });
+    qc.invalidateQueries({ queryKey: ["sku-analogs", currentSku.id] });
     qc.invalidateQueries({ queryKey: ["material-skus"] });
   };
 
   const addMutation = useMutation({
-    mutationFn: () => addSkuAnalog(sku.id, { analog_sku_id: pickedAnalogId!, note: note || undefined }),
+    mutationFn: () => addSkuAnalog(currentSku.id, { analog_sku_id: pickedAnalogId!, note: note || undefined }),
     onSuccess: () => {
       invalidate();
       setPickedAnalogId(undefined);
@@ -81,7 +84,7 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
   });
 
   const removeMutation = useMutation({
-    mutationFn: (linkId: number) => removeSkuAnalog(sku.id, linkId),
+    mutationFn: (linkId: number) => removeSkuAnalog(currentSku.id, linkId),
     onSuccess: () => {
       invalidate();
       message.success("Связь удалена");
@@ -89,7 +92,7 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
   });
 
   const photoMutation = useMutation({
-    mutationFn: (file: File) => uploadSkuPhoto(sku.id, file),
+    mutationFn: (file: File) => uploadSkuPhoto(currentSku.id, file),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["material-skus"] });
       message.success("Фото загружено");
@@ -98,7 +101,7 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
   });
 
   const deletePhotoMutation = useMutation({
-    mutationFn: () => deleteSkuPhoto(sku.id),
+    mutationFn: () => deleteSkuPhoto(currentSku.id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["material-skus"] });
       message.success("Фото удалено");
@@ -106,8 +109,8 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
   });
 
   const linkedIds = new Set((analogsQuery.data?.analogs ?? []).map((a) => a.sku.id));
-  const candidateSkus = allSkus.filter((s) => s.id !== sku.id && s.is_active && !linkedIds.has(s.id));
-  const photoUrl = skuPhotoUrl(sku.photo_path);
+  const candidateSkus = allSkus.filter((s) => s.id !== currentSku.id && s.is_active && !linkedIds.has(s.id));
+  const photoUrl = skuPhotoUrl(currentSku.photo_path);
 
   const uploadProps: UploadProps = {
     accept: "image/jpeg,image/png,image/webp",
@@ -119,7 +122,7 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
   };
 
   return (
-    <Modal title={`Аналоги и фото: ${skuLabel(sku)}`} open onCancel={onClose} footer={null} width={640} destroyOnHidden>
+    <Modal title={`Аналоги и фото: ${skuLabel(currentSku)}`} open onCancel={onClose} footer={null} width={640} destroyOnHidden>
       <Space orientation="vertical" size="large" style={{ width: "100%" }}>
         <Card size="small" title="Фото плёнки">
           <Space align="start">
@@ -147,6 +150,9 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
                     {photoUrl ? "Заменить фото" : "Загрузить фото"}
                   </Button>
                 </Upload>
+                <Button icon={<GlobalOutlined />} onClick={() => setTexturePickerOpen(true)}>
+                  Подобрать текстуру онлайн
+                </Button>
                 {photoUrl && (
                   <Popconfirm title="Удалить фото?" onConfirm={() => deletePhotoMutation.mutate()}>
                     <Button danger size="small">
@@ -219,6 +225,17 @@ function SkuAnalogsModal({ sku, allSkus, onClose, canEdit }: { sku: MaterialSku;
           )}
         </Card>
       </Space>
+      {texturePickerOpen && (
+        <TexturePickerModal
+          open={texturePickerOpen}
+          onClose={() => setTexturePickerOpen(false)}
+          sku={currentSku}
+          onApplied={() => {
+            qc.invalidateQueries({ queryKey: ["material-skus"] });
+            qc.invalidateQueries({ queryKey: ["sku-analogs", currentSku.id] });
+          }}
+        />
+      )}
     </Modal>
   );
 }
@@ -551,6 +568,24 @@ export default function MaterialCard({ prefill: prefillProp }: { prefill?: Mater
               scroll={{ x: "max-content" }}
               columns={[
                 { title: "Производитель", render: (_, s) => s.manufacturer.name },
+                {
+                  title: "Фото",
+                  width: 54,
+                  render: (_, s) => {
+                    const u = skuPhotoUrl(s.photo_path);
+                    return u ? (
+                      <Image
+                        src={u}
+                        width={36}
+                        height={36}
+                        style={{ objectFit: "cover", borderRadius: 4, cursor: "pointer" }}
+                        preview={{ mask: null }}
+                      />
+                    ) : (
+                      <span style={{ color: "#bfbfbf", fontSize: 12 }}>—</span>
+                    );
+                  },
+                },
                 // Раздел про толщину внутри карточки материала (не
                 // отдельным измерением, тот же приём, что уже есть у
                 // производителя) — толщина больше не часть группы,

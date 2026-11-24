@@ -269,3 +269,30 @@ export function skuPhotoUrl(photoPath: string | null): string | null {
   if (!photoPath) return null;
   return `${apiClient.defaults.baseURL}/uploads/${photoPath}`;
 }
+
+export interface TextureCandidate {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  texture_type: string;
+  source_label: string;
+  preview_url: string;
+  data_base64?: string | null;
+  image_url?: string | null;
+}
+
+export const getTextureCandidates = async (
+  skuId: number,
+  params?: { query?: string; texture_type?: string }
+): Promise<TextureCandidate[]> => {
+  const { data } = await apiClient.get<TextureCandidate[]>(`/material-skus/${skuId}/texture-candidates`, { params });
+  return data;
+};
+
+export const applySkuTexture = async (
+  skuId: number,
+  payload: { image_base64?: string; image_url?: string }
+): Promise<MaterialSku> => {
+  const { data } = await apiClient.post<MaterialSku>(`/material-skus/${skuId}/apply-texture`, payload);
+  return data;
+};
