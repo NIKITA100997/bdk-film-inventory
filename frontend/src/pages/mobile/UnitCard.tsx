@@ -14,11 +14,13 @@ import {
   Modal,
   Select,
   Checkbox,
+  Image,
   message,
 } from "antd";
 import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
+import { skuPhotoUrl } from "../../api/dictionaries";
 import {
   getUnit,
   returnUnit,
@@ -427,19 +429,29 @@ export default function UnitCard() {
               </Space>
             </Descriptions.Item>
             <Descriptions.Item label="Материал">
-              <a
-                onClick={() =>
-                  navigate("/materials", {
-                    state: {
-                      material: unit.material_sku.material.name,
-                      color: unit.material_sku.color.name,
-                      thickness: unit.material_sku.thickness.value_mm,
-                    },
-                  })
-                }
-              >
-                {skuLabel(unit.material_sku)}
-              </a>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                {unit.material_sku.photo_path && (
+                  <Image
+                    src={skuPhotoUrl(unit.material_sku.photo_path) ?? undefined}
+                    width={54}
+                    height={54}
+                    style={{ objectFit: "cover", borderRadius: 6, border: "1px solid #d9d9d9", flexShrink: 0 }}
+                  />
+                )}
+                <a
+                  onClick={() =>
+                    navigate("/materials", {
+                      state: {
+                        material: unit.material_sku.material.name,
+                        color: unit.material_sku.color.name,
+                        thickness: unit.material_sku.thickness.value_mm,
+                      },
+                    })
+                  }
+                >
+                  {skuLabel(unit.material_sku)}
+                </a>
+              </div>
             </Descriptions.Item>
             <Descriptions.Item label="Ширина×длина">
               {unit.width_mm} мм × {unit.length_m} м
