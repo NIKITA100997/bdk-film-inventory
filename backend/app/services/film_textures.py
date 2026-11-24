@@ -11,25 +11,25 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFilter
 from app.models.dictionaries import MaterialSku
 
-# Базовые цветовые профили (RGB) для гладких soft-touch пленок
+# Базовые цветовые профили (RGB) для гладких soft-touch пленок (калиброваны по замечаниям производства)
 PALETTE = {
     "белый": (250, 251, 252),
-    "аляска": (252, 253, 254),
+    "аляска": (254, 255, 255),
     "арктик": (246, 248, 250),
     "снеж": (248, 250, 252),
     "бьянко": (248, 249, 250),
-    "светло-серый": (205, 209, 212),
+    "светло-серый": (214, 217, 220),
     "дымчат": (196, 200, 203),
-    "серый": (155, 160, 165),
-    "манхэттен": (136, 141, 146),
-    "темно-серый": (80, 85, 90),
-    "графит": (68, 72, 76),
+    "серый": (160, 165, 170),
+    "манхэттен": (142, 147, 152),
+    "темно-серый": (105, 110, 115),
+    "графит": (72, 76, 80),
     "антрацит": (55, 58, 62),
-    "бежевый": (226, 216, 200),
-    "крем": (234, 226, 212),
+    "бежевый": (228, 220, 208),
+    "крем": (236, 228, 216),
     "песочн": (218, 205, 185),
     "слонов": (238, 233, 220),
-    "капучино": (186, 169, 152),
+    "капучино": (188, 172, 156),
     "латте": (195, 178, 160),
     "мокко": (150, 130, 115),
     "венге": (45, 36, 32),
@@ -45,6 +45,27 @@ PALETTE = {
     "фисташк": (130, 145, 120),
     "зелен": (90, 115, 85),
 }
+
+def is_smooth_film(text: str) -> bool:
+    """Определяет, относится ли декор к гладким матовым плёнкам (ПЭТ / soft-touch / монохром)."""
+    lower = text.lower()
+    return any(k in lower for k in [
+        "пэт", "pet", "soft", "софт", "шелк", "шелковист", "мат", "гладк", "монохром",
+        "аляска", "бьянко", "манхэттен", "капучино"
+    ]) and not any(w in lower for w in ["дерево", "вуд", "wood", "дуб", "ясень", "орех", "венге"])
+
+
+def is_wood_film(text: str) -> bool:
+    """Определяет, относится ли декор к древесным фактурам."""
+    lower = text.lower()
+    return any(k in lower for k in ["дерево", "вуд", "wood", "дуб", "ясень", "орех", "венге", "сонома", "ривьера"])
+
+
+def is_concrete_film(text: str) -> bool:
+    """Определяет, относится ли декор к бетону/камню."""
+    lower = text.lower()
+    return any(k in lower for k in ["бетон", "камень", "цемент", "лофт"])
+
 
 def detect_base_color(text: str) -> tuple[int, int, int]:
     lower = text.lower()
@@ -65,7 +86,7 @@ def generate_soft_touch_swatch(base_rgb: tuple[int, int, int], shade_shift: floa
     
     # Мягкий рассеянный градиент освещения
     for y in range(height):
-        factor = 1.02 - (y / height) * 0.04
+        factor = 1.015 - (y / height) * 0.03
         r = int(min(255, max(0, adj_r * factor)))
         g = int(min(255, max(0, adj_g * factor)))
         b = int(min(255, max(0, adj_b * factor)))
@@ -74,71 +95,106 @@ def generate_soft_touch_swatch(base_rgb: tuple[int, int, int], shade_shift: floa
     pixels = img.load()
     for x in range(width):
         for y in range(height):
-            delta = random.randint(-2, 2)
+            delta = random.randint(-1, 1)
             r, g, b = pixels[x, y]
             pixels[x, y] = (
                 min(255, max(0, r + delta)),
                 min(255, max(0, g + delta)),
                 min(255, max(0, b + delta))
             )
-            
-    img = img.filter(ImageFilter.GaussianBlur(radius=0.4))
+        
+    img = img.filter(ImageFilter.GaussianBlur(radius=0.35))
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=95)
     return buf.getvalue()
 
 
+def generate_wood_grain_swatch(base_rgb: tuple[int, int, int], width: int = 400, height: int = 400) -> bytes:
+    """Генерирует текстуру древесных волокон с продольными порами."""
+    img = Image.new("RGB", (width, height), base_rgb)
+    draw = ImageDraw.Draw(img)
+    
+    # Продольные волокна древесины
+    for y in range(height):
+        # Волнистое отклонение волокна
+        band = int(30 * (1 + 0.3 * (random.random() - 0.5)))
+        dark_factor = 0.88 + 0.24 * (random.random())
+        r = int(min(255, max(0, base_rgb[0] * dark_factor)))
+        g = int(min(255, max(0, base_rgb[1] * dark_factor)))
+        b = int(min(255, max(0, base_rgb[2] * dark_factor)))
+        draw.line([(0, y), (width, y)], fill=(r, g, b))
+        
+    img = img.filter(ImageFilter.GaussianBlur(radius=1.2))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=92)
+    return buf.getvalue()
+
+
 def search_texture_candidates(sku: MaterialSku, query: str | None = None, texture_type: str = "all") -> list[dict[str, Any]]:
-    """Возвращает список подходящих образцов текстур (гладкие soft-touch и каталожные)."""
+    """Возвращает список подходящих образцов текстур (гладкие soft-touch, древесные и каталожные)."""
     color_name = sku.color.name if sku.color else ""
     mfg_name = sku.manufacturer.name if sku.manufacturer else ""
     mat_name = sku.material.name if sku.material else ""
     
+    combined_name = f"{mfg_name} {color_name} {mat_name}".strip()
     effective_query = (query or f"{mfg_name} {color_name}").strip()
     base_rgb = detect_base_color(color_name or effective_query)
+    
+    is_smooth = is_smooth_film(effective_query or combined_name)
+    is_wood = is_wood_film(effective_query or combined_name)
     
     candidates: list[dict[str, Any]] = []
     
     # 1. Гладкие однотонные варианты (Soft-touch / ПЭТ / мат)
-    if texture_type in ("all", "smooth"):
-        # Вариант 1: Точный базовый тон
+    if texture_type in ("all", "smooth") or (is_smooth and texture_type != "wood"):
         b1 = generate_soft_touch_swatch(base_rgb, shade_shift=1.0)
         candidates.append({
             "id": "smooth_exact",
             "title": f"Гладкий Soft-touch (Базовый тон)",
-            "subtitle": f"Чистый однотонный матовый {color_name}",
+            "subtitle": f"Чистый матовый {color_name} (без текстуры)",
             "texture_type": "smooth",
-            "source_label": "Калиброванный Soft-touch",
+            "source_label": "Гладкий ПЭТ / Soft-touch",
             "preview_url": f"data:image/jpeg;base64,{base64.b64encode(b1).decode('utf-8')}",
             "data_base64": base64.b64encode(b1).decode('utf-8'),
         })
         
-        # Вариант 2: Чуть светлее / мягче
         b2 = generate_soft_touch_swatch(base_rgb, shade_shift=1.06)
         candidates.append({
             "id": "smooth_light",
             "title": f"Гладкий Soft-touch (Светлый нюанс)",
             "subtitle": "Осветленный шелковистый оттенок",
             "texture_type": "smooth",
-            "source_label": "Калиброванный Soft-touch",
+            "source_label": "Гладкий ПЭТ / Soft-touch",
             "preview_url": f"data:image/jpeg;base64,{base64.b64encode(b2).decode('utf-8')}",
             "data_base64": base64.b64encode(b2).decode('utf-8'),
         })
         
-        # Вариант 3: Чуть глубже / насыщеннее
-        b3 = generate_soft_touch_swatch(base_rgb, shade_shift=0.92)
+        b3 = generate_soft_touch_swatch(base_rgb, shade_shift=0.93)
         candidates.append({
             "id": "smooth_deep",
-            "title": f"Гладкий Soft-touch (Глубокий нюанс)",
-            "subtitle": "Более насыщенный плотный оттенок",
+            "title": f"Гладкий Soft-touch (Плотный тон)",
+            "subtitle": "Насыщенный глубокий матовый оттенок",
             "texture_type": "smooth",
-            "source_label": "Калиброванный Soft-touch",
+            "source_label": "Гладкий ПЭТ / Soft-touch",
             "preview_url": f"data:image/jpeg;base64,{base64.b64encode(b3).decode('utf-8')}",
             "data_base64": base64.b64encode(b3).decode('utf-8'),
         })
 
-    # 2. Поиск в каталогах поставщиков (Greenwood / PVCStore)
-    if texture_type in ("all", "catalog", "wood"):
+    # 2. Древесные текстуры для древесных декоров
+    if texture_type in ("all", "wood") or is_wood:
+        w1 = generate_wood_grain_swatch(base_rgb)
+        candidates.append({
+            "id": "wood_grain",
+            "title": f"Древесная текстура ({color_name})",
+            "subtitle": "Продольные поры и волокна древесины",
+            "texture_type": "wood",
+            "source_label": "Древесная текстура",
+            "preview_url": f"data:image/jpeg;base64,{base64.b64encode(w1).decode('utf-8')}",
+            "data_base64": base64.b64encode(w1).decode('utf-8'),
+        })
+
+    # 3. Поиск в каталогах поставщиков
+    if texture_type in ("all", "catalog"):
         catalog_imgs = _lookup_online_catalog(effective_query)
         for idx, item in enumerate(catalog_imgs):
             candidates.append({
