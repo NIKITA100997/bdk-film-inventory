@@ -35,6 +35,9 @@ export interface DecorStock {
   decorLabel: string;
   available: number;
   petAvailable: number;
+  byStage?: { stageName: string; qty: number }[];
+  byArea?: { area: string | null; qty: number }[];
+  unplacedCount?: number;
 }
 
 export interface PartStockGroup {
@@ -185,6 +188,9 @@ export default function PartStock() {
               decorLabel: p.decorLabel,
               available: p.available,
               petAvailable: p.petAvailable,
+              byStage: [...p.stageMap.entries()].map(([stageName, qty]) => ({ stageName, qty })),
+              byArea: [...p.areaMap.entries()].map(([area, qty]) => ({ area, qty })),
+              unplacedCount: p.unplacedCount,
             },
           ],
         }))
@@ -219,6 +225,9 @@ export default function PartStock() {
         decorLabel: p.decorLabel,
         available: p.available,
         petAvailable: p.petAvailable,
+        byStage: [...p.stageMap.entries()].map(([stageName, qty]) => ({ stageName, qty })),
+        byArea: [...p.areaMap.entries()].map(([area, qty]) => ({ area, qty })),
+        unplacedCount: p.unplacedCount,
       }));
 
       result.push({
@@ -239,15 +248,42 @@ export default function PartStock() {
 
   const decorOptions = useMemo(() => {
     const set = new Set<string>();
+    let hasBare = false;
     for (const g of groups) {
       for (const d of g.decors) {
-        if (d.decorLabel && d.decorLabel !== "— без плёнки —") {
+        if (d.decorLabel === "— без плёнки —") {
+          hasBare = true;
+        } else if (d.decorLabel) {
           set.add(d.decorLabel);
         }
       }
     }
-    return [...set].sort().map((d) => ({ value: d, label: d }));
+    const list = [...set].sort().map((d) => ({ value: d, label: d }));
+    if (hasBare) {
+      return [{ value: "— без плёнки —", label: "🪵 Без плёнки (заготовка)" }, ...list];
+    }
+    return list;
   }, [groups]);
+
+  // Ходовые декоры фабрики для горизонтальной ленты в 1 тап (по убыванию остатка)
+  const popularDecors = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const g of groups) {
+      for (const d of g.decors) {
+        if (d.decorLabel) {
+          map.set(d.decorLabel, (map.get(d.decorLabel) ?? 0) + d.available);
+        }
+      }
+    }
+    return [...map.entries()]
+      .filter(([_, qty]) => qty > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([decor, qty]) => ({ decor, qty }));
+  }, [groups]);
+
+  const totalAllStock = useMemo(() => {
+    return popularDecors.reduce((sum, d) => sum + d.qty, 0);
+  }, [popularDecors]);
 
   const filtered = filterPf(
     groups.filter((g) => {
@@ -289,16 +325,28 @@ export default function PartStock() {
   const exportRows = () =>
     exportToExcel(
       "ostatki-pf.xlsx",
-      filtered.map((g) => ({
-        part: g.baseName,
-        decors: g.decors.length > 1 ? g.decors.map((d) => `${d.decorLabel}: ${Math.round(d.available * 100) / 100}`).join("; ") : (g.decors[0]?.decorLabel !== "— без плёнки —" ? g.decors[0]?.decorLabel : "—"),
-        available: Math.round(g.available * 100) / 100,
-        stages: g.byStage.map((s) => `${s.stageName}: ${Math.round(s.qty * 100) / 100}`).join(", "),
-        areas: g.byArea.map((a) => `${a.area ? areaLabel(a.area) : "склад"}: ${Math.round(a.qty * 100) / 100}`).join(", "),
-        unplaced: g.unplacedCount,
-        reserved: reserves.get(g.partId)?.reserved ?? 0,
-        free: reserves.get(g.partId)?.free ?? Math.round(g.available * 100) / 100,
-      })),
+      filtered.map((g) => {
+        const activeDecor = decorFilter ? g.decors.find((d) => d.decorLabel === decorFilter) : null;
+        const availableQty = activeDecor ? activeDecor.available : g.available;
+        const stages = activeDecor?.byStage && activeDecor.byStage.length > 0 ? activeDecor.byStage : g.byStage;
+        const areas = activeDecor?.byArea && activeDecor.byArea.length > 0 ? activeDecor.byArea : g.byArea;
+        const unplaced = activeDecor?.unplacedCount !== undefined ? activeDecor.unplacedCount : g.unplacedCount;
+        return {
+          part: g.baseName,
+          decors:
+            g.decors.length > 1
+              ? g.decors.map((d) => `${d.decorLabel}: ${Math.round(d.available * 100) / 100}`).join("; ")
+              : g.decors[0]?.decorLabel !== "— без плёнки —"
+              ? g.decors[0]?.decorLabel
+              : "—",
+          available: Math.round(availableQty * 100) / 100,
+          stages: stages.map((s) => `${s.stageName}: ${Math.round(s.qty * 100) / 100}`).join(", "),
+          areas: areas.map((a) => `${a.area ? areaLabel(a.area) : "склад"}: ${Math.round(a.qty * 100) / 100}`).join(", "),
+          unplaced,
+          reserved: reserves.get(g.partId)?.reserved ?? 0,
+          free: reserves.get(g.partId)?.free ?? Math.round(availableQty * 100) / 100,
+        };
+      }),
       [
         { key: "part", header: "Деталь / Профиль" },
         { key: "decors", header: "В разрезе декоров" },
@@ -335,6 +383,124 @@ export default function PartStock() {
       <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
         Сводка «сколько всего доступно» по каждой детали — отдельные партии и все действия с ними на вкладке «Партии».
       </Typography.Paragraph>
+
+      {/* Быстрый фильтр палитры в 1 клик (Tablet & Desktop) */}
+      {popularDecors.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Быстрый фильтр по декорам:
+            </Typography.Text>
+            {decorFilter && (
+              <Button
+                type="link"
+                size="small"
+                onClick={() => setDecorFilter(undefined)}
+                style={{ padding: 0, fontSize: 12 }}
+              >
+                ✕ Сбросить фильтр по декору ({decorFilter === "— без плёнки —" ? "без плёнки" : decorFilter})
+              </Button>
+            )}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              overflowX: "auto",
+              paddingBottom: 6,
+              paddingTop: 2,
+              WebkitOverflowScrolling: "touch",
+              scrollbarWidth: "thin",
+              width: "100%",
+            }}
+          >
+            <Tag.CheckableTag
+              checked={!decorFilter}
+              onChange={() => setDecorFilter(undefined)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "5px 12px",
+                borderRadius: 20,
+                fontSize: 13,
+                fontWeight: !decorFilter ? 700 : 500,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                border: !decorFilter ? "1.5px solid #1677ff" : "1px solid #d9d9d9",
+                background: !decorFilter ? "#e6f4ff" : "#fff",
+                color: !decorFilter ? "#0958d9" : "#262626",
+                boxShadow: !decorFilter ? "0 1px 3px rgba(22,119,255,0.2)" : undefined,
+                flexShrink: 0,
+              }}
+            >
+              <span>🌈 Все цвета</span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: "1px 6px",
+                  borderRadius: 10,
+                  background: !decorFilter ? "#1677ff" : "#f0f0f0",
+                  color: !decorFilter ? "#fff" : "#595959",
+                }}
+              >
+                {Math.round(totalAllStock)}
+              </span>
+            </Tag.CheckableTag>
+
+            {popularDecors.map((item) => {
+              const isSelected = decorFilter === item.decor;
+              const isBare = item.decor === "— без плёнки —";
+              const label = isBare ? "Без плёнки (голая)" : item.decor;
+              return (
+                <Tag.CheckableTag
+                  key={item.decor}
+                  checked={isSelected}
+                  onChange={(checked) => setDecorFilter(checked ? item.decor : undefined)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "5px 12px",
+                    borderRadius: 20,
+                    fontSize: 13,
+                    fontWeight: isSelected ? 700 : 500,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    border: isSelected ? "1.5px solid #1677ff" : "1px solid #d9d9d9",
+                    background: isSelected ? "#e6f4ff" : "#fff",
+                    color: isSelected ? "#0958d9" : "#262626",
+                    boxShadow: isSelected ? "0 1px 3px rgba(22,119,255,0.2)" : undefined,
+                    flexShrink: 0,
+                  }}
+                >
+                  {isBare ? (
+                    <span style={{ fontSize: 13 }}>🪵</span>
+                  ) : (
+                    <DecorThumbnail decor={item.decor} size={16} />
+                  )}
+                  <span>{label}</span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: "1px 6px",
+                      borderRadius: 10,
+                      background: isSelected ? "#1677ff" : "#f0f0f0",
+                      color: isSelected ? "#fff" : "#595959",
+                    }}
+                  >
+                    {Math.round(item.qty)}
+                  </span>
+                </Tag.CheckableTag>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <Space wrap size={[12, 12]} style={{ marginBottom: 16, width: "100%" }}>
         <Input.Search
           allowClear
@@ -385,7 +551,18 @@ export default function PartStock() {
 
       <PfSections
         sections={sections}
-        total={(rows) => `${Math.round(rows.reduce((s, g) => s + g.available, 0))} шт`}
+        total={(rows) => {
+          const totalPieces = Math.round(
+            rows.reduce((s, g) => {
+              if (decorFilter) {
+                const match = g.decors.find((d) => d.decorLabel === decorFilter);
+                return s + (match ? match.available : 0);
+              }
+              return s + g.available;
+            }, 0)
+          );
+          return `${totalPieces} шт${decorFilter ? ` (${decorFilter === "— без плёнки —" ? "без плёнки" : decorFilter})` : ""}`;
+        }}
         render={(rows, key) => (
       <ResponsiveTable<PartStockGroup>
         key={key}
@@ -399,17 +576,30 @@ export default function PartStock() {
         pagination={{ pageSize: 30, hideOnSinglePage: true }}
         scroll={{ x: "max-content" }}
         onRow={(g) => ({ onClick: () => navigate("/part-card", { state: { partId: g.partId } }), style: { cursor: "pointer" } })}
-        summary={() => (
-          <Table.Summary.Row>
-            <Table.Summary.Cell index={0}>
-              <Typography.Text strong>Итого позиций: {rows.length}</Typography.Text>
-            </Table.Summary.Cell>
-            <Table.Summary.Cell index={1}>
-              <Typography.Text strong>{Math.round(rows.reduce((s, g) => s + g.available, 0))} шт</Typography.Text>
-            </Table.Summary.Cell>
-            <Table.Summary.Cell index={2} colSpan={4} />
-          </Table.Summary.Row>
-        )}
+        summary={() => {
+          const totalPieces = Math.round(
+            rows.reduce((s, g) => {
+              if (decorFilter) {
+                const match = g.decors.find((d) => d.decorLabel === decorFilter);
+                return s + (match ? match.available : 0);
+              }
+              return s + g.available;
+            }, 0)
+          );
+          return (
+            <Table.Summary.Row>
+              <Table.Summary.Cell index={0}>
+                <Typography.Text strong>Итого позиций: {rows.length}</Typography.Text>
+              </Table.Summary.Cell>
+              <Table.Summary.Cell index={1}>
+                <Typography.Text strong style={{ color: decorFilter ? "#0958d9" : undefined }}>
+                  {totalPieces} шт
+                </Typography.Text>
+              </Table.Summary.Cell>
+              <Table.Summary.Cell index={2} colSpan={4} />
+            </Table.Summary.Row>
+          );
+        }}
         columns={[
           {
             title: "Деталь / Профиль",
@@ -424,47 +614,90 @@ export default function PartStock() {
                   <Space size={[4, 4]} wrap>
                     {g.decors.map((d) => {
                       const isBare = d.decorLabel === "— без плёнки —";
-                      const isHighlighted = decorFilter && d.decorLabel === decorFilter;
+                      const isMatch = decorFilter && d.decorLabel === decorFilter;
+                      const isDimmed = decorFilter && !isMatch;
                       return (
                         <Tag
                           key={d.partId}
-                          color={isHighlighted ? "gold" : isBare ? "default" : "blue"}
+                          color={isMatch ? "gold" : isBare ? "default" : "blue"}
                           style={{
                             cursor: "pointer",
                             fontSize: 11,
                             marginRight: 0,
-                            fontWeight: isHighlighted || isBare ? 600 : 500,
-                            border: isHighlighted ? "1px solid #d4b106" : undefined,
+                            fontWeight: isMatch || isBare ? 700 : 500,
+                            border: isMatch ? "2px solid #faad14" : undefined,
+                            boxShadow: isMatch ? "0 0 0 2px #fffbe6" : undefined,
+                            opacity: isDimmed ? 0.45 : 1,
                             display: "inline-flex",
                             alignItems: "center",
                             gap: 4,
+                            transition: "all 0.15s ease",
                           }}
-                          title={`Деталь #${d.partId}: клик — открыть карточку`}
+                          title={
+                            isMatch
+                              ? "Фильтр активен (клик — сбросить фильтр)"
+                              : `Клик — отфильтровать по «${isBare ? "без плёнки" : d.decorLabel}»`
+                          }
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate("/part-card", { state: { partId: d.partId } });
+                            setDecorFilter((cur) => (cur === d.decorLabel ? undefined : d.decorLabel));
                           }}
                         >
                           {!isBare && <DecorThumbnail decor={d.decorLabel} size={13} />}
-                          <span>{d.decorLabel}: <b>{Math.round(d.available * 100) / 100}</b></span>
+                          <span>
+                            {isBare ? "Голая" : d.decorLabel}: <b>{Math.round(d.available * 100) / 100}</b>
+                          </span>
+                          <span
+                            title="Открыть карточку этой детали"
+                            style={{ marginLeft: 3, opacity: 0.65, cursor: "pointer", fontWeight: "normal" }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate("/part-card", { state: { partId: d.partId } });
+                            }}
+                          >
+                            ↗
+                          </span>
                         </Tag>
                       );
                     })}
                   </Space>
                 )}
-                {g.decors.length === 1 && g.decors[0].decorLabel !== "— без плёнки —" && (
+                {g.decors.length === 1 && (
                   <Tag
-                    color="blue"
+                    color={decorFilter === g.decors[0].decorLabel ? "gold" : g.decors[0].decorLabel === "— без плёнки —" ? "default" : "blue"}
                     style={{
+                      cursor: "pointer",
                       fontSize: 11,
                       width: "fit-content",
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 4,
+                      border: decorFilter === g.decors[0].decorLabel ? "2px solid #faad14" : undefined,
+                    }}
+                    title={
+                      decorFilter === g.decors[0].decorLabel
+                        ? "Фильтр активен (клик — сбросить)"
+                        : "Клик — фильтровать по этому декору"
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDecorFilter((cur) => (cur === g.decors[0].decorLabel ? undefined : g.decors[0].decorLabel));
                     }}
                   >
-                    <DecorThumbnail decor={g.decors[0].decorLabel} size={13} />
-                    <span>{g.decors[0].decorLabel}</span>
+                    {g.decors[0].decorLabel !== "— без плёнки —" && (
+                      <DecorThumbnail decor={g.decors[0].decorLabel} size={13} />
+                    )}
+                    <span>{g.decors[0].decorLabel === "— без плёнки —" ? "Без плёнки" : g.decors[0].decorLabel}</span>
+                    <span
+                      title="Открыть карточку этой детали"
+                      style={{ marginLeft: 3, opacity: 0.65, cursor: "pointer", fontWeight: "normal" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate("/part-card", { state: { partId: g.decors[0].partId } });
+                      }}
+                    >
+                      ↗
+                    </span>
                   </Tag>
                 )}
               </Space>
@@ -472,18 +705,34 @@ export default function PartStock() {
           },
           {
             title: "Доступно, шт",
-            width: 120,
-            render: (_, g) => (
-              <div>
-                <Typography.Text strong>{Math.round(g.available * 100) / 100}</Typography.Text>
-                {g.petAvailable > 0 && (
-                  <div style={{ fontSize: 11, color: "#722ed1", fontWeight: 600 }}>
-                    ПЭТ: {Math.round(g.petAvailable * 100) / 100}
-                  </div>
-                )}
-              </div>
-            ),
-            sorter: (a, b) => a.available - b.available,
+            width: 130,
+            render: (_, g) => {
+              const activeDecor = decorFilter ? g.decors.find((d) => d.decorLabel === decorFilter) : null;
+              const displayQty = activeDecor ? activeDecor.available : g.available;
+              const displayPet = activeDecor ? activeDecor.petAvailable : g.petAvailable;
+              return (
+                <div>
+                  <Typography.Text strong style={{ fontSize: activeDecor ? 15 : 14, color: activeDecor ? "#0958d9" : undefined }}>
+                    {Math.round(displayQty * 100) / 100}
+                  </Typography.Text>
+                  {activeDecor && activeDecor.available !== g.available && (
+                    <div style={{ fontSize: 11, color: "#8c8c8c" }}>
+                      всего: {Math.round(g.available * 100) / 100}
+                    </div>
+                  )}
+                  {displayPet > 0 && (
+                    <div style={{ fontSize: 11, color: "#722ed1", fontWeight: 600 }}>
+                      ПЭТ: {Math.round(displayPet * 100) / 100}
+                    </div>
+                  )}
+                </div>
+              );
+            },
+            sorter: (a, b) => {
+              const aQty = decorFilter ? (a.decors.find((d) => d.decorLabel === decorFilter)?.available ?? 0) : a.available;
+              const bQty = decorFilter ? (b.decors.find((d) => d.decorLabel === decorFilter)?.available ?? 0) : b.available;
+              return aQty - bQty;
+            },
           },
           {
             title: "Резерв под задания",
@@ -492,36 +741,45 @@ export default function PartStock() {
           },
           {
             title: "По этапам",
-            render: (_, g) => (
-              <Space size={4} wrap>
-                {g.byStage.map((s) => (
-                  <Tag key={s.stageName} style={{ margin: 0 }}>
-                    {s.stageName}: {Math.round(s.qty * 100) / 100}
-                  </Tag>
-                ))}
-              </Space>
-            ),
+            render: (_, g) => {
+              const activeDecor = decorFilter ? g.decors.find((d) => d.decorLabel === decorFilter) : null;
+              const stages = activeDecor?.byStage && activeDecor.byStage.length > 0 ? activeDecor.byStage : g.byStage;
+              return (
+                <Space size={4} wrap>
+                  {stages.map((s) => (
+                    <Tag key={s.stageName} style={{ margin: 0 }}>
+                      {s.stageName}: {Math.round(s.qty * 100) / 100}
+                    </Tag>
+                  ))}
+                </Space>
+              );
+            },
           },
           {
             title: "По участкам",
-            render: (_, g) => (
-              <Space size={4} wrap>
-                {g.byArea.map((a) => (
-                  <Tag
-                    key={a.area ?? "none"}
-                    color={a.area && a.area === areaFilter ? "green" : a.area ? "blue" : undefined}
-                    style={{ margin: 0, fontWeight: a.area === areaFilter ? 700 : undefined }}
-                  >
-                    {a.area ? areaLabel(a.area) : "склад (не выдано)"}: {Math.round(a.qty * 100) / 100}
-                  </Tag>
-                ))}
-                {g.unplacedCount > 0 && (
-                  <Tag color="volcano" style={{ margin: 0 }}>
-                    без адреса: {g.unplacedCount}
-                  </Tag>
-                )}
-              </Space>
-            ),
+            render: (_, g) => {
+              const activeDecor = decorFilter ? g.decors.find((d) => d.decorLabel === decorFilter) : null;
+              const areas = activeDecor?.byArea && activeDecor.byArea.length > 0 ? activeDecor.byArea : g.byArea;
+              const unplaced = activeDecor?.unplacedCount !== undefined ? activeDecor.unplacedCount : g.unplacedCount;
+              return (
+                <Space size={4} wrap>
+                  {areas.map((a) => (
+                    <Tag
+                      key={a.area ?? "none"}
+                      color={a.area && a.area === areaFilter ? "green" : a.area ? "blue" : undefined}
+                      style={{ margin: 0, fontWeight: a.area === areaFilter ? 700 : undefined }}
+                    >
+                      {a.area ? areaLabel(a.area) : "склад (не выдано)"}: {Math.round(a.qty * 100) / 100}
+                    </Tag>
+                  ))}
+                  {unplaced > 0 && (
+                    <Tag color="volcano" style={{ margin: 0 }}>
+                      без адреса: {unplaced}
+                    </Tag>
+                  )}
+                </Space>
+              );
+            },
           },
           ...(canManage
             ? [

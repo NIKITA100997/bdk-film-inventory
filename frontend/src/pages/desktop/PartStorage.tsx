@@ -161,8 +161,32 @@ export default function PartStorage() {
   // и вручную, если под рукой нет сканера или номер партии не при себе).
   const searchNeedle = search.trim().toLowerCase();
   const cellMatchesSearch = (cell: PartRackOccupancyCell) =>
-    !!searchNeedle && cell.units.some((u) => String(u.id).includes(searchNeedle) || u.part_name.toLowerCase().includes(searchNeedle));
+    !!searchNeedle &&
+    cell.units.some(
+      (u) =>
+        String(u.id).includes(searchNeedle) ||
+        u.part_name.toLowerCase().includes(searchNeedle) ||
+        (searchNeedle === "без плёнки" && !parseBaseAndDecor(u.part_name).decorLabel)
+    );
   const rackHasMatch = (idx: number) => !searchNeedle || (occupancyByRack[idx]?.data ?? []).some(cellMatchesSearch);
+
+  // Сводка ходовых декоров на стеллажах для мгновенной подсветки полок в 1 клик/тап
+  const popularStorageDecors = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const q of occupancyByRack) {
+      for (const cell of q.data ?? []) {
+        for (const u of cell.units) {
+          const { decorLabel } = parseBaseAndDecor(u.part_name);
+          const label = decorLabel ?? "— без плёнки —";
+          map.set(label, (map.get(label) ?? 0) + u.quantity_pieces);
+        }
+      }
+    }
+    return [...map.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([decor, qty]) => ({ decor, qty }));
+  }, [occupancyByRack]);
 
   const createMutation = useMutation({
     mutationFn: createPartRack,
@@ -224,13 +248,57 @@ export default function PartStorage() {
         )}
       </Space>
 
-      <Input.Search
-        allowClear
-        placeholder="Поиск по всем стеллажам — № партии, деталь…"
-        style={{ width: 320, marginBottom: 16 }}
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <Input.Search
+          allowClear
+          placeholder="Поиск по всем стеллажам — № партии, деталь…"
+          style={{ width: 320 }}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {popularStorageDecors.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto", maxWidth: "100%", paddingBottom: 4 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>
+              Подсветить декор:
+            </Typography.Text>
+            {popularStorageDecors.map((item) => {
+              const isBare = item.decor === "— без плёнки —";
+              const tagText = isBare ? "без плёнки" : item.decor;
+              const isSelected = search.toLowerCase() === tagText.toLowerCase();
+              return (
+                <Tag.CheckableTag
+                  key={item.decor}
+                  checked={isSelected}
+                  onChange={(checked) => setSearch(checked ? tagText : "")}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: "3px 10px",
+                    borderRadius: 14,
+                    fontSize: 12,
+                    fontWeight: isSelected ? 700 : 500,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                    border: isSelected ? "1.5px solid #C97A2B" : "1px solid #d9d9d9",
+                    background: isSelected ? "#FBF0E3" : "#fff",
+                    color: isSelected ? "#A05A17" : "#262626",
+                  }}
+                >
+                  {isBare ? (
+                    <span style={{ fontSize: 12 }}>🪵</span>
+                  ) : (
+                    <DecorThumbnail decor={item.decor} size={14} />
+                  )}
+                  <span>{isBare ? "Без плёнки" : item.decor}</span>
+                  <span style={{ opacity: 0.65, fontSize: 11 }}>({item.qty})</span>
+                </Tag.CheckableTag>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 720, overflowY: "auto" }}>
