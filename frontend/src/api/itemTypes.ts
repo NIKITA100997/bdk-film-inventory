@@ -190,6 +190,8 @@ export interface RulesPreview {
     exists: boolean;
   }[];
   errors: string[];
+  existing_item_id?: number | null;
+  existing_item_name?: string | null;
 }
 
 export const previewTypeRules = async (

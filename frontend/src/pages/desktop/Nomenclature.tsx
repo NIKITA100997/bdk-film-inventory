@@ -8,6 +8,7 @@ import ResponsiveTable from "../../components/ResponsiveTable";
 import TypesTab from "./nomenclature/TypesTab";
 import GroupsModal from "./nomenclature/GroupsModal";
 import NewModelWizard from "./nomenclature/NewModelWizard";
+import QuickShieldDoorModal from "./nomenclature/QuickShieldDoorModal";
 import PartParamsModal from "./nomenclature/PartParamsModal";
 import { BulkStagesModal, PartDuplicatesModal } from "./nomenclature/PartBulkModals";
 import ProductModels from "./ProductModels";
@@ -105,6 +106,7 @@ function ItemsTab() {
   const [stage, setStage] = useState<string | undefined>();
   const [attrsOpen, setAttrsOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [quickShieldOpen, setQuickShieldOpen] = useState(false);
   const kindsQuery = useQuery({ queryKey: ["item-kinds"], queryFn: listItemKinds });
   const groupsQuery = useQuery({ queryKey: ["item-groups"], queryFn: listItemGroups });
   const groups = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data]);
@@ -257,7 +259,12 @@ function ItemsTab() {
           </Checkbox>
           {canGroup && kind !== "all" && <Button onClick={() => setGroupsOpen(true)}>Группы…</Button>}
           {canGroup && (
-            <Button type="primary" onClick={() => setWizardOpen(true)}>
+            <Button type="primary" onClick={() => setQuickShieldOpen(true)}>
+              + Щитовая дверь
+            </Button>
+          )}
+          {canGroup && (
+            <Button onClick={() => setWizardOpen(true)}>
               + Новая модель
             </Button>
           )}
@@ -301,6 +308,7 @@ function ItemsTab() {
         )}
       </Card>
       {wizardOpen && <NewModelWizard onClose={() => setWizardOpen(false)} />}
+      {quickShieldOpen && <QuickShieldDoorModal onClose={() => setQuickShieldOpen(false)} />}
       {newPartOpen && <PartParamsModal part={null} onClose={() => setNewPartOpen(false)} />}
       {dupOpen && <PartDuplicatesModal onClose={() => setDupOpen(false)} />}
       {bulkStagesOpen && (

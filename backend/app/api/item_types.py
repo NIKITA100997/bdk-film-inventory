@@ -762,6 +762,8 @@ class RulesPreviewOut(BaseModel):
     operations: list[TypeOperationIO]
     components: list[PlannedComponentOut]
     errors: list[str]
+    existing_item_id: int | None = None
+    existing_item_name: str | None = None
 
 
 class RulesPreviewIn(BaseModel):
@@ -769,7 +771,10 @@ class RulesPreviewIn(BaseModel):
     values: dict[int, float | str | bool | int | None] = Field(default_factory=dict)
 
 
-def _preview_out(db: Session, res: type_rules.RulesResult) -> RulesPreviewOut:
+def _preview_out(db: Session, res: type_rules.RulesResult, type_: ItemType | None = None) -> RulesPreviewOut:
+    existing = None
+    if res.name and type_ is not None:
+        existing = db.query(Item).filter(Item.kind_id == type_.kind_id, func.lower(Item.name) == res.name.lower()).first()
     return RulesPreviewOut(
         name=res.name,
         operations=[TypeOperationIO(name=n, area=a, role=res.op_roles.get(n)) for n, a in res.operations],
@@ -781,6 +786,8 @@ def _preview_out(db: Session, res: type_rules.RulesResult) -> RulesPreviewOut:
             for c in res.components
         ],
         errors=res.errors,
+        existing_item_id=existing.id if existing else None,
+        existing_item_name=existing.name if existing else None,
     )
 
 
@@ -798,7 +805,7 @@ def preview_type_rules(
         values = type_rules.item_values(db, item)
     else:
         values = {int(k): v for k, v in payload.values.items()}
-    return _preview_out(db, type_rules.compute(db, t, type_rules.context_from_values(db, t, values)))
+    return _preview_out(db, type_rules.compute(db, t, type_rules.context_from_values(db, t, values)), t)
 
 
 class ApplyResultOut(BaseModel):
