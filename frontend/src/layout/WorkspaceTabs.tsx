@@ -92,17 +92,17 @@ function TabPane({
   routes,
   location,
   active,
-  isCompact,
+  keepMounted,
 }: {
   routes: RouteObject[];
   location: Location;
   active: boolean;
-  isCompact: boolean;
+  keepMounted: boolean;
 }) {
-  // На планшетах и телефонах (isCompact) скрытые вкладки не должны оставаться
-  // смонтированными в DOM — иначе фоновые вкладки перехватывают лимит HTTP-соединений
-  // (макс 6 в HTTP/1.1) и шлют каскад запросов при инвалидации кэша.
-  if (isCompact && !active) return null;
+  // На планшетах и телефонах держим живыми только 2 последние вкладки
+  // (например, список остатков и открытая карточка), чтобы переключение между ними
+  // сохраняло фильтры/ввод, но 8 фоновых вкладок не забивали пул HTTP-соединений.
+  if (!keepMounted) return null;
   return (
     <UNSAFE_RouteContext.Provider value={ROOT_ROUTE_CONTEXT}>
       <TabPaneContent routes={routes} location={location} active={active} />
@@ -231,13 +231,29 @@ export default function WorkspaceTabs({ pageRoutes }: { pageRoutes: ReactNode })
       />
       )}
       <div style={{ flex: "1 1 auto", minHeight: 0, position: "relative" }}>
-        {tabs
-          .filter((t) => t.mounted)
-          .map((t) => (
-            <TabTitleContext.Provider key={t.key} value={titleSetters.get(t.key) ?? null}>
-              <TabPane routes={routes} location={t.location} active={t.key === activeKey} isCompact={isCompact} />
-            </TabTitleContext.Provider>
-          ))}
+        {(() => {
+          const compactKept = isCompact
+            ? new Set(
+                [...tabs]
+                  .filter((t) => t.mounted)
+                  .sort((a, b) => (a.key === activeKey ? -1 : b.key === activeKey ? 1 : b.lastUsed - a.lastUsed))
+                  .slice(0, 2)
+                  .map((t) => t.key),
+              )
+            : null;
+          return tabs
+            .filter((t) => t.mounted)
+            .map((t) => (
+              <TabTitleContext.Provider key={t.key} value={titleSetters.get(t.key) ?? null}>
+                <TabPane
+                  routes={routes}
+                  location={t.location}
+                  active={t.key === activeKey}
+                  keepMounted={compactKept ? compactKept.has(t.key) : true}
+                />
+              </TabTitleContext.Provider>
+            ));
+        })()}
       </div>
     </div>
   );

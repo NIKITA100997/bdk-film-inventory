@@ -177,11 +177,14 @@ export default function Stock() {
             gap: 8,
           }}
         >
-          <Space align="center" size={8}>
-            <span style={{ fontSize: 18 }}>📦</span>
-            <Typography.Title level={5} style={{ margin: 0, whiteSpace: "nowrap" }}>
-              Склад и Остатки
-            </Typography.Title>
+          <Space align="center" size={12} wrap>
+            <Space align="center" size={8}>
+              <span style={{ fontSize: 18 }}>📦</span>
+              <Typography.Title level={5} style={{ margin: 0, whiteSpace: "nowrap" }}>
+                Склад и Остатки
+              </Typography.Title>
+            </Space>
+            {!wide && kindSwitch}
           </Space>
           <Space wrap size={6}>
             {canInventory && (
@@ -217,8 +220,8 @@ export default function Stock() {
         </div>
       </Card>
 
-      {!wide && kindSwitch}
       <Tabs
+        size={wide ? "middle" : "small"}
         activeKey={tab}
         onChange={(k) => go(kind, k as StockTab)}
         items={mainTabs.map((t) => ({ key: t.key, label: t.label }))}

@@ -52,6 +52,22 @@ export default function Issue() {
       return false;
     }
   });
+  const [kpiExpanded, setKpiExpanded] = useState(() => {
+    try {
+      return localStorage.getItem("issue-kpi-expanded") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleKpi = () => {
+    const next = !kpiExpanded;
+    setKpiExpanded(next);
+    try {
+      localStorage.setItem("issue-kpi-expanded", next ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  };
   const toggleReturns = () => {
     const next = !returnsHidden;
     setReturnsHidden(next);
@@ -121,28 +137,62 @@ export default function Issue() {
           )}
         </div>
       )}
-      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={12} md={6}>
-          <Card size="small">
-            <Statistic title="Запрошено сегодня" value={todayCount} valueStyle={{ color: "#C97A2B" }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={12} md={6}>
-          <Card size="small" style={overdueCount > 0 ? { background: "#FBEAE7", borderColor: "#E3B5AC" } : undefined}>
-            <Statistic title="Просрочено" value={overdueCount} valueStyle={{ color: overdueCount > 0 ? "#B8483C" : undefined }} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={12} md={6}>
-          <Card size="small">
-            <Statistic title="Строк не распределено на сегодня" value={weekRowsNeedingMaterial.length} />
-          </Card>
-        </Col>
-        <Col xs={12} sm={12} md={6}>
-          <Card size="small">
-            <Statistic title="Участков ждут выдачи" value={areasWaiting} />
-          </Card>
-        </Col>
-      </Row>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 12,
+          padding: "6px 10px",
+          background: "#FAF9F6",
+          border: "1px solid #EAE8E2",
+          borderRadius: 8,
+        }}
+      >
+        <Space size={12} wrap>
+          <Typography.Text style={{ fontSize: 13 }}>
+            На сегодня: <b style={{ color: "#C97A2B" }}>{todayCount}</b>
+          </Typography.Text>
+          <Typography.Text style={{ fontSize: 13 }}>
+            Просрочено: <b style={{ color: overdueCount > 0 ? "#B8483C" : undefined }}>{overdueCount}</b>
+          </Typography.Text>
+          <Typography.Text style={{ fontSize: 13 }}>
+            На неделю: <b>{weekRowsNeedingMaterial.length}</b>
+          </Typography.Text>
+          <Typography.Text style={{ fontSize: 13 }}>
+            Участков ждут: <b>{areasWaiting}</b>
+          </Typography.Text>
+        </Space>
+        <a onClick={toggleKpi} style={{ fontSize: 12.5 }}>
+          {kpiExpanded ? "Скрыть карточки ▴" : "Подробнее ▾"}
+        </a>
+      </div>
+      {kpiExpanded && (
+        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+          <Col xs={12} sm={12} md={6}>
+            <Card size="small">
+              <Statistic title="Запрошено сегодня" value={todayCount} valueStyle={{ color: "#C97A2B" }} />
+            </Card>
+          </Col>
+          <Col xs={12} sm={12} md={6}>
+            <Card size="small" style={overdueCount > 0 ? { background: "#FBEAE7", borderColor: "#E3B5AC" } : undefined}>
+              <Statistic title="Просрочено" value={overdueCount} valueStyle={{ color: overdueCount > 0 ? "#B8483C" : undefined }} />
+            </Card>
+          </Col>
+          <Col xs={12} sm={12} md={6}>
+            <Card size="small">
+              <Statistic title="Строк не распределено на сегодня" value={weekRowsNeedingMaterial.length} />
+            </Card>
+          </Col>
+          <Col xs={12} sm={12} md={6}>
+            <Card size="small">
+              <Statistic title="Участков ждут выдачи" value={areasWaiting} />
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {pendingReturnByTask.length > 0 && (
         <Alert

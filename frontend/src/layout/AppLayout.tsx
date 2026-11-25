@@ -419,6 +419,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
       {!isPhone && (
         <Menu
           mode="horizontal"
+          overflowedIndicator={<span>Ещё ▾</span>}
           style={{
             flexShrink: 0,
             height: isTablet ? 38 : 46,
