@@ -611,6 +611,9 @@ def unit_events(
                 from_cell=None,
                 to_cell=None,
                 quantity_delta_m=-est_m if est_m > 0 else 0.0,
+                write_off_reason=None,
+                write_off_note=None,
+                expected_length_m=None,
                 comment=f"Отчёт по заданию: {good:g} годных / {defect:g} брака" + (f" (расчётный расход {est_m:g} м)" if est_m > 0 else ""),
             )
         )
