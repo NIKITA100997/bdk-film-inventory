@@ -3,7 +3,7 @@ import { isAxiosError } from "axios";
 import { apiClient } from "./client";
 import { suggestLocation } from "./storage";
 import type { DeleteResult } from "./deletionRequests";
-import { isMobileDevice, isVerticalPrint, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
+import { getSelectedPrinterIp, isMobileDevice, isVerticalPrint, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
 
 export interface MaterialSku {
   id: number;
@@ -623,8 +623,18 @@ function printErrorMessage(e: unknown): string {
 const PRINT_MESSAGE_KEY = "print-label";
 
 export function printLabel(unitId: number, options?: PrintLabelOptions): void {
+  const printerIp = getSelectedPrinterIp();
+  const vertical = isVerticalPrint();
+  if (printerIp) {
+    message.loading({ content: "Отправка на Godex G500…", key: PRINT_MESSAGE_KEY, duration: 0 });
+    apiClient
+      .post(`/labels/${unitId}/print-direct`, { printer_ip: printerIp, vertical, kind: options?.kind })
+      .then(() => message.success({ content: "Напечатано на Godex G500", key: PRINT_MESSAGE_KEY }))
+      .catch((e) => message.error({ content: printErrorMessage(e), key: PRINT_MESSAGE_KEY }));
+    return;
+  }
   message.loading({ content: "Готовим этикетку к печати…", key: PRINT_MESSAGE_KEY, duration: 0 });
-  const params = { vertical: isVerticalPrint(), kind: options?.kind };
+  const params = { vertical, kind: options?.kind };
   const request = isMobileDevice()
     ? apiClient.get(`/labels/${unitId}/html`, { params, responseType: "text" }).then(({ data }) => printHtmlDoc(data as string))
     : apiClient.get(`/labels/${unitId}`, { params, responseType: "blob" }).then(({ data }) => printPdfBlob(data as Blob));
@@ -692,8 +702,18 @@ export async function setLegacyTaskNote(unitId: number, note: string | null): Pr
 // N рулонов одна вкладка с N страницами вместо N открытых вкладок печати.
 export function printLabelsBatch(unitIds: number[], options?: PrintLabelOptions): void {
   if (unitIds.length === 0) return;
+  const printerIp = getSelectedPrinterIp();
+  const vertical = isVerticalPrint();
+  if (printerIp) {
+    message.loading({ content: `Печать ${unitIds.length} эт. на Godex G500…`, key: PRINT_MESSAGE_KEY, duration: 0 });
+    apiClient
+      .post("/labels/batch/print-direct", { unit_ids: unitIds, printer_ip: printerIp, vertical, kind: options?.kind })
+      .then(() => message.success({ content: `Напечатано ${unitIds.length} эт. на Godex G500`, key: PRINT_MESSAGE_KEY }))
+      .catch((e) => message.error({ content: printErrorMessage(e), key: PRINT_MESSAGE_KEY }));
+    return;
+  }
   message.loading({ content: "Готовим этикетки к печати…", key: PRINT_MESSAGE_KEY, duration: 0 });
-  const params = { vertical: isVerticalPrint(), kind: options?.kind };
+  const params = { vertical, kind: options?.kind };
   const request = isMobileDevice()
     ? apiClient
         .post("/labels/batch/html", { unit_ids: unitIds }, { params, responseType: "text" })

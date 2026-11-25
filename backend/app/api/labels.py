@@ -1,6 +1,7 @@
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_permission
@@ -327,6 +328,112 @@ def get_labels_batch_async(
         filename="labels-batch.pdf",
     )
     return {"job_id": job_id, "status": "pending"}
+
+
+class DirectPrintRequest(BaseModel):
+    printer_ip: str
+    vertical: bool = False
+    kind: str | None = None
+
+
+class BatchDirectPrintRequest(BaseModel):
+    unit_ids: list[int]
+    printer_ip: str
+    vertical: bool = False
+    kind: str | None = None
+
+
+class TestPrintRequest(BaseModel):
+    printer_ip: str
+    copies: int = Field(default=1, ge=1, le=20)
+    width_mm: int = Field(default=100, ge=20, le=120)
+    height_mm: int = Field(default=40, ge=15, le=200)
+
+
+@router.get("/labels/printers", dependencies=[Depends(get_current_user)])
+def get_network_printers() -> list[dict]:
+    """Список настроенных сетевых термопринтеров Godex G500."""
+    from app.services.godex_ezpl import list_network_printers
+
+    return list_network_printers()
+
+
+@router.post("/labels/printers/test", dependencies=[Depends(get_current_user)])
+def test_network_printer(payload: TestPrintRequest) -> dict:
+    """Отправляет 1..20 калибровочных этикеток напрямую на Godex G500 по TCP 9100."""
+    from app.services.godex_ezpl import (
+        build_ezpl_job,
+        is_allowed_printer_ip,
+        render_test_bitmap,
+        send_ezpl_to_printer,
+    )
+
+    if not is_allowed_printer_ip(payload.printer_ip):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Неизвестный IP-адрес принтера")
+    imgs = [
+        render_test_bitmap(index=i, total=payload.copies, width_mm=payload.width_mm, height_mm=payload.height_mm)
+        for i in range(1, payload.copies + 1)
+    ]
+    ezpl = build_ezpl_job(imgs, width_mm=payload.width_mm, height_mm=payload.height_mm)
+    try:
+        send_ezpl_to_printer(payload.printer_ip, ezpl)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return {"ok": True, "printer_ip": payload.printer_ip, "printed": payload.copies}
+
+
+@router.post("/labels/{unit_id}/print-direct", dependencies=[Depends(get_current_user)])
+def print_label_direct(unit_id: int, payload: DirectPrintRequest, db: Session = Depends(get_db)) -> dict:
+    """Тихая прямая печать 1 этикетки рулона/штрипса на Godex G500 (TCP 9100, без окна браузера)."""
+    from app.services.godex_ezpl import build_units_ezpl_job, is_allowed_printer_ip, send_ezpl_to_printer
+
+    if not is_allowed_printer_ip(payload.printer_ip):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Неизвестный IP-адрес принтера")
+    unit = db.get(MaterialUnit, unit_id)
+    if unit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
+    template = _get_template(db, payload.kind or _unit_label_kind(unit))
+    fields = list(template.fields) if isinstance(template.fields, list) else template.fields
+    ezpl = build_units_ezpl_job(
+        [label_data_from_unit(unit)],
+        fields=fields,
+        width_mm=template.width_mm,
+        height_mm=template.height_mm,
+        vertical=payload.vertical,
+    )
+    try:
+        send_ezpl_to_printer(payload.printer_ip, ezpl)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return {"ok": True, "printer_ip": payload.printer_ip, "printed": 1}
+
+
+@router.post("/labels/batch/print-direct", dependencies=[Depends(get_current_user)])
+def print_labels_batch_direct(payload: BatchDirectPrintRequest, db: Session = Depends(get_db)) -> dict:
+    """Тихая прямая печать пакета этикеток рулонов/штрипсов на Godex G500 (TCP 9100)."""
+    from app.services.godex_ezpl import build_units_ezpl_job, is_allowed_printer_ip, send_ezpl_to_printer
+
+    if not is_allowed_printer_ip(payload.printer_ip):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Неизвестный IP-адрес принтера")
+    units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
+    units_by_id = {u.id: u for u in units}
+    ordered_units = [units_by_id[uid] for uid in payload.unit_ids if uid in units_by_id]
+    if not ordered_units:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
+    template = _get_template(db, payload.kind or _unit_label_kind(ordered_units[0]))
+    fields = list(template.fields) if isinstance(template.fields, list) else template.fields
+    ezpl = build_units_ezpl_job(
+        [label_data_from_unit(u) for u in ordered_units],
+        fields=fields,
+        width_mm=template.width_mm,
+        height_mm=template.height_mm,
+        vertical=payload.vertical,
+    )
+    try:
+        send_ezpl_to_printer(payload.printer_ip, ezpl)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return {"ok": True, "printer_ip": payload.printer_ip, "printed": len(ordered_units)}
 
 
 def _rule_text(db: Session, rule: MacroZoneRule, *, with_range: bool) -> str:

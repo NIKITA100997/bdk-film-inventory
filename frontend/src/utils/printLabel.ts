@@ -40,6 +40,41 @@ export function setVerticalPrint(value: boolean): void {
   localStorage.setItem(VERTICAL_PRINT_KEY, value ? "1" : "0");
 }
 
+export interface NetworkPrinter {
+  id: string;
+  name: string;
+  ip: string;
+  port: number;
+}
+
+export const NETWORK_PRINTERS: NetworkPrinter[] = [
+  { id: "film_warehouse", name: "Godex G500 — Склад плёнки (192.168.1.49)", ip: "192.168.1.49", port: 9100 },
+  { id: "factory", name: "Godex G500 — Фабрика (192.168.1.37)", ip: "192.168.1.37", port: 9100 },
+];
+
+const PRINTER_IP_KEY = "bdk-printer-ip";
+
+export function getSelectedPrinterIp(): string | null {
+  try {
+    const val = localStorage.getItem(PRINTER_IP_KEY);
+    return val ? val : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSelectedPrinterIp(ip: string | null): void {
+  try {
+    if (ip) {
+      localStorage.setItem(PRINTER_IP_KEY, ip);
+    } else {
+      localStorage.removeItem(PRINTER_IP_KEY);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export function printPdfBlob(blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const iframe = document.createElement("iframe");

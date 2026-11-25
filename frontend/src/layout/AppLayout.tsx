@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch, Badge, Tooltip, Space, Tag, Tour, notification } from "antd";
+import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch, Select, Badge, Tooltip, Space, Tag, Tour, notification } from "antd";
 import type { TourProps } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import type { MenuProps } from "antd";
@@ -9,7 +9,13 @@ import { useAuth } from "../auth/AuthContext";
 import { navTree, isNavItemVisible, isMasterUser, masterNav, type NavItem } from "./navConfig";
 import { fontHeading } from "../theme";
 import { getRecentSearches, runUnitOrMaterialSearch } from "../utils/unitSearch";
-import { isVerticalPrint, setVerticalPrint } from "../utils/printLabel";
+import {
+  getSelectedPrinterIp,
+  isVerticalPrint,
+  NETWORK_PRINTERS,
+  setSelectedPrinterIp,
+  setVerticalPrint,
+} from "../utils/printLabel";
 import { useGlobalBarcodeScanner } from "../utils/useBarcodeScanner";
 import { useRealtimeSync } from "../hooks/useRealtimeSync";
 import QrScanButton from "../components/QrScanButton";
@@ -148,6 +154,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   // тапу на лупу и сворачивается обратно.
   const [searchOpen, setSearchOpen] = useState(false);
   const [verticalPrint, setVerticalPrintState] = useState(isVerticalPrint());
+  const [printerIp, setPrinterIpState] = useState<string | null>(getSelectedPrinterIp());
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [approvalsOpen, setApprovalsOpen] = useState(false);
   const [approvalsTab, setApprovalsTab] = useState<"approvals" | "inbox" | "signals">("approvals");
@@ -310,6 +317,30 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               setVerticalPrint(checked);
               setVerticalPrintState(checked);
             }}
+          />
+        </div>
+      ),
+    },
+    {
+      key: "printer-select",
+      label: (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 240 }}
+        >
+          <span style={{ fontSize: 12, color: "var(--bdk-ink-2)" }}>Принтер этикеток:</span>
+          <Select
+            size="small"
+            value={printerIp ?? "__browser__"}
+            onChange={(val) => {
+              const next = val === "__browser__" ? null : val;
+              setSelectedPrinterIp(next);
+              setPrinterIpState(next);
+            }}
+            options={[
+              { value: "__browser__", label: "Браузер / GoApp (по умолчанию)" },
+              ...NETWORK_PRINTERS.map((p) => ({ value: p.ip, label: p.name })),
+            ]}
           />
         </div>
       ),
