@@ -577,18 +577,43 @@ def unit_events(
     unit_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> list[MaterialEvent]:
+) -> list[UnitEventOut]:
     """История единицы (2.1 раздел бэклога доработок) — для карточки
-    единицы, "кто и когда с ней что делал"."""
+    единицы, "кто и когда с ней что делал", включая отчёты производства."""
     unit = db.get(MaterialUnit, unit_id)
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
-    return (
+    events = (
         db.query(MaterialEvent)
         .filter(MaterialEvent.unit_id == unit_id)
         .order_by(MaterialEvent.timestamp.desc())
         .all()
     )
+    out = [UnitEventOut.model_validate(e, from_attributes=True) for e in events]
+    reports = (
+        db.query(ProductionTaskLineReport)
+        .filter(ProductionTaskLineReport.material_unit_id == unit_id)
+        .all()
+    )
+    for r in reports:
+        good = float(r.good_pieces or 0)
+        defect = float(r.defect_pieces or 0)
+        piece_len = float(r.task_line.length_m or 0) if r.task_line else 0.0
+        est_m = round((good + defect) * piece_len, 3)
+        out.append(
+            UnitEventOut(
+                id=-r.id,
+                unit_id=unit_id,
+                event_type="PRODUCTION_REPORT",
+                delta_length=-est_m if est_m > 0 else 0.0,
+                area=r.task_line.task.area if r.task_line and r.task_line.task else None,
+                user_id=r.reported_by,
+                timestamp=r.reported_at,
+                comment=f"Отчёт по заданию: {good:g} годных / {defect:g} брака" + (f" (расчётный расход {est_m:g} м)" if est_m > 0 else ""),
+            )
+        )
+    out.sort(key=lambda x: x.timestamp, reverse=True)
+    return out
 
 
 def _apply_write_off(
