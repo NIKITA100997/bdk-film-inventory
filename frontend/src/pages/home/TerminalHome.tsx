@@ -1,15 +1,19 @@
-import { Card, Col, Row, Typography } from "antd";
+import { Card, Col, Row, Tag, Typography } from "antd";
 import {
   AppstoreOutlined,
   BarcodeOutlined,
   BuildOutlined,
   InboxOutlined,
+  PrinterOutlined,
   ScissorOutlined,
   SwapOutlined,
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import QrScanButton from "../../components/QrScanButton";
 import { fontHeading } from "../../theme";
+import { getSelectedPrinterIp, NETWORK_PRINTERS } from "../../utils/printLabel";
+import { runUnitOrMaterialSearch } from "../../utils/unitSearch";
 
 interface TerminalTile {
   key: string;
@@ -87,15 +91,34 @@ export default function TerminalHome() {
     (t) => !t.permissions || isAll || t.permissions.some((p) => perms.has(p)),
   );
 
+  const printerIp = getSelectedPrinterIp();
+  const printerName = NETWORK_PRINTERS.find((p) => p.ip === printerIp)?.name ?? "Браузер / GoApp";
+
   return (
     <div style={{ maxWidth: 980, margin: "0 auto", padding: "8px 4px" }}>
-      <div style={{ marginBottom: 18 }}>
-        <Typography.Title level={3} style={{ margin: 0, fontFamily: fontHeading }}>
-          Терминал цеха и склада
-        </Typography.Title>
-        <Typography.Text type="secondary">
-          {user?.full_name || user?.username} — выберите операцию
-        </Typography.Text>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        <div>
+          <Typography.Title level={3} style={{ margin: 0, fontFamily: fontHeading }}>
+            Терминал цеха и склада
+          </Typography.Title>
+          <Typography.Text type="secondary">
+            {user?.full_name || user?.username} — выберите операцию
+          </Typography.Text>
+        </div>
+        <Tag icon={<PrinterOutlined />} color={printerIp ? "blue" : "default"} style={{ margin: 0, padding: "4px 10px", fontSize: 13 }}>
+          {printerName}
+        </Tag>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <QrScanButton
+          type="primary"
+          size="large"
+          block
+          buttonText="Сканировать QR-код"
+          onScan={(code) => runUnitOrMaterialSearch(code, navigate)}
+          style={{ height: 54, fontSize: 17, fontWeight: 700, borderRadius: 12 }}
+        />
       </div>
 
       <Row gutter={[16, 16]}>
