@@ -241,7 +241,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   // то, что не влезло по ширине, в пункт "…").
   // Короткое меню мастера — по умолчанию включено, выключается в меню пользователя.
   const master = isMasterUser(user);
-  const shortMenu = master && !fullMenu;
+  const shortMenu = (master && !fullMenu) || uxMode === "terminal";
   const items = shortMenu
     ? masterNav.filter(isVisible).map((item) => ({ key: item.path, label: item.label }))
     : navTree
@@ -464,7 +464,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
     // style) — 100svh нужен запасной вариант 100vh на случай, если
     // конкретный WebView его не понимает (см. index.css), а inline style
     // не может держать две строки на одно и то же свойство.
-    <Layout className="app-shell" style={{ overflow: "hidden" }}>
+    <Layout className="app-shell" data-ux-mode={uxMode} style={{ overflow: "hidden" }}>
       {/* с клавиатуры — сразу к экрану, не проходя шапку и меню (16.10) */}
       <a
         href="#main"
@@ -640,6 +640,13 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
           вместо прокрутки в своих рамках. overflow: auto (не только X) —
           именно Content, а не вся страница, отвечает за вертикальную
           прокрутку экрана. */}
+      {uxMode === "terminal" && location.pathname !== "/" && (
+        <div style={{ background: "#fff", borderBottom: "1px solid #EAE8E2", padding: "6px 12px", flexShrink: 0 }}>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/")} size="middle">
+            На главный экран терминала
+          </Button>
+        </div>
+      )}
       {isPhone ? (
         <Content id="main" tabIndex={-1} className="app-page" style={{ minWidth: 0, overflow: "auto", flex: "1 1 auto", minHeight: 0, outline: "none" }}>
           <Outlet />
