@@ -87,63 +87,121 @@ def _render_unit_bitmap(
     height_mm: int = DEFAULT_HEIGHT_MM,
     vertical: bool = False,
 ) -> Image.Image:
-    """Рендерит этикетку единицы материала в чёрно-белое изображение ("L", 203 DPI)."""
+    """Рендерит этикетку единицы материала в чёрно-белое изображение ("L", 203 DPI),
+    повторяя эталонную раскладку _draw_label_page: полоса и QR слева, текст справа
+    с автоподбором максимально крупного кегля без пустых полей."""
     w_px = max(8, int(width_mm * DOTS_PER_MM))
     h_px = max(8, int(height_mm * DOTS_PER_MM))
-    # Если включена повёрнутая печать — рисуем на повёрнутом холсте и крутим обратно
-    # (или наоборот: рисуем в целевой ориентации и при vertical=True поворачиваем на 90°).
     canvas_w, canvas_h = (h_px, w_px) if vertical else (w_px, h_px)
 
     img = Image.new("L", (canvas_w, canvas_h), 255)
     draw = ImageDraw.Draw(img)
 
     pad = 12
+    is_landscape = canvas_w >= canvas_h
     has_qr = any(f.get("key") == "qr" for f in fields)
     has_stripe = any(f.get("key") == "status_stripe" for f in fields)
+    giant_field = next((f for f in fields if f.get("size") == "huge"), None)
 
-    x_left = pad
-    if has_stripe:
-        # На термопринтере вместо цветной полосы рисуем штриховую/тонкую метку
-        stripe_w = 14
-        if data.is_strip:
-            draw.rectangle([x_left, pad, x_left + stripe_w, canvas_h - pad], fill=0)
-        else:
-            draw.rectangle([x_left, pad, x_left + stripe_w, canvas_h - pad], outline=0, width=3)
-        x_left += stripe_w + 10
+    x_cursor = pad
+    y_text_top = pad
 
-    x_right = canvas_w - pad
-    if has_qr:
-        qr_box = min(canvas_h - pad * 2, max(120, int(min(canvas_w, canvas_h) * 0.68)))
-        qr = qrcode.QRCode(border=1, box_size=1)
-        qr.add_data(str(data.unit_id))
-        qr.make(fit=True)
-        qr_img = qr.make_image(fill_color="black", back_color="white").convert("L")
-        qr_img = qr_img.resize((qr_box, qr_box), Image.Resampling.NEAREST)
-        qr_x = x_right - qr_box
-        qr_y = (canvas_h - qr_box) // 2
-        img.paste(qr_img, (qr_x, qr_y))
-        x_right = qr_x - 12
+    if is_landscape:
+        if has_stripe:
+            stripe_w = 24
+            if data.is_strip:
+                draw.rectangle([4, 4, 4 + stripe_w, canvas_h - 5], fill=0)
+            else:
+                draw.rectangle([4, 4, 4 + stripe_w, canvas_h - 5], outline=0, width=4)
+            x_cursor = 4 + stripe_w + 12
 
-    text_max_w = max(40, x_right - x_left)
-    y_cursor = pad
+        if has_qr:
+            qr_box = min(canvas_h - 24, max(128, int(min(canvas_w, canvas_h) * 0.84)))
+            qr = qrcode.QRCode(border=1, box_size=1)
+            qr.add_data(str(data.unit_id))
+            qr.make(fit=True)
+            qr_img = qr.make_image(fill_color="black", back_color="white").convert("L")
+            qr_img = qr_img.resize((qr_box, qr_box), Image.Resampling.NEAREST)
+            qr_y = (canvas_h - qr_box) // 2
+            img.paste(qr_img, (x_cursor, qr_y))
+            x_cursor += qr_box + 16
+    else:
+        if has_stripe:
+            stripe_h = 20
+            if data.is_strip:
+                draw.rectangle([4, 4, canvas_w - 5, 4 + stripe_h], fill=0)
+            else:
+                draw.rectangle([4, 4, canvas_w - 5, 4 + stripe_h], outline=0, width=4)
+            y_text_top = 4 + stripe_h + 10
+        if has_qr:
+            qr_box = min(canvas_w - 24, max(128, int(canvas_w * 0.62)))
+            qr = qrcode.QRCode(border=1, box_size=1)
+            qr.add_data(str(data.unit_id))
+            qr.make(fit=True)
+            qr_img = qr.make_image(fill_color="black", back_color="white").convert("L")
+            qr_img = qr_img.resize((qr_box, qr_box), Image.Resampling.NEAREST)
+            qr_x = (canvas_w - qr_box) // 2
+            img.paste(qr_img, (qr_x, y_text_top))
+            y_text_top += qr_box + 12
 
-    size_map = {"sm": 22, "md": 26, "lg": 38, "huge": 56}
-    for f in fields:
-        key = f.get("key")
-        if key in ("qr", "status_stripe", None):
-            continue
-        val = render_field_value(data, key, show_label=bool(f.get("show_label", True)))
-        if not val:
-            continue
-        sz = size_map.get(str(f.get("size", "md")), 26)
-        bold = bool(f.get("bold", False))
-        font = _load_font(sz, bold=bold, serif=(key == "unit_id"))
-        wrapped = _wrap_text(draw, val, font, text_max_w)
-        for line in wrapped:
-            if y_cursor + sz > canvas_h - pad:
+    text_max_w = max(60, canvas_w - x_cursor - pad)
+    avail_h = max(40, canvas_h - y_text_top - pad)
+
+    if giant_field is not None:
+        val = render_field_value(data, giant_field["key"], show_label=bool(giant_field.get("show_label", True))) or ""
+        best_font = _load_font(48, bold=True, serif=True)
+        for sz in range(140, 24, -4):
+            fnt = _load_font(sz, bold=True, serif=True)
+            lines = _wrap_text(draw, val, fnt, text_max_w)
+            total_h = len(lines) * int(sz * 1.12)
+            max_line_w = max(((draw.textbbox((0, 0), ln, font=fnt)[2]) for ln in lines), default=0)
+            if total_h <= avail_h and max_line_w <= text_max_w:
+                best_font = fnt
+                y_start = y_text_top + max(0, (avail_h - total_h) // 2)
+                for ln in lines:
+                    draw.text((x_cursor, y_start), ln, fill=0, font=best_font)
+                    y_start += int(sz * 1.12)
                 break
-            draw.text((x_left, y_cursor), line, fill=0, font=font)
-            y_cursor += int(sz * 1.18)
+    else:
+        rendered: list[tuple[dict, str]] = []
+        for f in fields:
+            key = f.get("key")
+            if key in ("qr", "status_stripe", None):
+                continue
+            val = render_field_value(data, key, show_label=bool(f.get("show_label", True)))
+            if val:
+                rendered.append((f, val))
+
+        base_sizes = {"sm": 22, "md": 28, "lg": 42}
+        chosen_layout: list[tuple[str, ImageFont.ImageFont, int]] = []
+        chosen_h = 0
+
+        for step in range(20, 6, -1):
+            scale = step / 10.0
+            layout: list[tuple[str, ImageFont.ImageFont, int]] = []
+            total_h = 0
+            for f, val in rendered:
+                key = f.get("key")
+                base_sz = base_sizes.get(str(f.get("size", "md")), 28)
+                sz = max(16, int(base_sz * scale))
+                bold = bool(f.get("bold", False)) or key == "unit_id"
+                font = _load_font(sz, bold=bold, serif=(key == "unit_id"))
+                wrapped = _wrap_text(draw, val, font, text_max_w)
+                step_h = int(sz * 1.14)
+                for ln in wrapped:
+                    layout.append((ln, font, step_h))
+                    total_h += step_h
+            chosen_layout = layout
+            chosen_h = total_h
+            if total_h <= avail_h:
+                break
+
+        y_cursor = y_text_top + max(0, (avail_h - chosen_h) // 2)
+        for ln, font, step_h in chosen_layout:
+            if y_cursor + step_h > canvas_h - 4:
+                break
+            draw.text((x_cursor, y_cursor), ln, fill=0, font=font)
+            y_cursor += step_h
 
     if vertical:
         img = img.rotate(90, expand=True)
