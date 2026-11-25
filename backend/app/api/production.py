@@ -2278,6 +2278,9 @@ def create_task_line_report(
     db.commit()
     for r in reports:
         db.refresh(r)
+    from app.services.realtime import publish_event
+
+    publish_event("tasks", {"task_id": task_id, "line_id": line_id})
     return reports[-1]
 
 

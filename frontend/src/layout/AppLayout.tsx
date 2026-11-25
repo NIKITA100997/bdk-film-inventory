@@ -11,6 +11,7 @@ import { fontHeading } from "../theme";
 import { getRecentSearches, runUnitOrMaterialSearch } from "../utils/unitSearch";
 import { isVerticalPrint, setVerticalPrint } from "../utils/printLabel";
 import { useGlobalBarcodeScanner } from "../utils/useBarcodeScanner";
+import { useRealtimeSync } from "../hooks/useRealtimeSync";
 import QrScanButton from "../components/QrScanButton";
 import OfflineBanner from "../components/OfflineBanner";
 import { useInbox } from "../components/InboxList";
@@ -54,7 +55,7 @@ function HeaderNotificationsButton({
   soundEnabled: boolean;
   btnRef?: React.RefObject<HTMLSpanElement | null>;
 }) {
-  const summaryQuery = useQuery({ queryKey: ["action-requests-summary"], queryFn: actionRequestsSummary, refetchInterval: 30_000 });
+  const summaryQuery = useQuery({ queryKey: ["action-requests-summary"], queryFn: actionRequestsSummary, refetchInterval: 120_000 });
   const inboxQuery = useInbox();
   const toApprove = summaryQuery.data?.to_approve ?? 0;
   const inboxCount = (inboxQuery.data ?? []).length;
@@ -184,6 +185,7 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   const screens = Grid.useBreakpoint();
   const isPhone = !screens.sm;
   const isTablet = !screens.xl || (typeof window !== "undefined" && window.innerWidth <= 1280);
+  useRealtimeSync(!!user);
 
   if (!user) return null;
 

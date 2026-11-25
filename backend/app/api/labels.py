@@ -296,6 +296,39 @@ def get_labels_batch(
     )
 
 
+@router.post("/labels/batch/async", dependencies=[Depends(get_current_user)])
+def get_labels_batch_async(
+    payload: LabelBatchRequest, vertical: bool = False, kind: str | None = None, page_format: PageFormat = "sticker",
+    db: Session = Depends(get_db),
+) -> dict:
+    """Асинхронная генерация пакета этикеток в фоновом воркере (разгружает поток API)."""
+    from app.services.task_worker import submit_job
+
+    units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
+    units_by_id = {u.id: u for u in units}
+    ordered_units = [units_by_id[uid] for uid in payload.unit_ids if uid in units_by_id]
+    if not ordered_units:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ни одна из единиц не найдена")
+    template = _get_template(db, kind or _unit_label_kind(ordered_units[0]))
+    width_mm, height_mm = resolve_page_format_dims(template.width_mm, template.height_mm, page_format)
+    items_data = [label_data_from_unit(u) for u in ordered_units]
+    fields = list(template.fields) if isinstance(template.fields, list) else template.fields
+
+    job_id = submit_job(
+        "batch-labels-pdf",
+        render_labels_pdf_batch,
+        items_data,
+        fields=fields,
+        width_mm=width_mm,
+        height_mm=height_mm,
+        vertical=vertical,
+        page_format=page_format,
+        content_type="application/pdf",
+        filename="labels-batch.pdf",
+    )
+    return {"job_id": job_id, "status": "pending"}
+
+
 def _rule_text(db: Session, rule: MacroZoneRule, *, with_range: bool) -> str:
     """Тот же текст, что уже показывает пользователю StorageMap.tsx для
     правил зонирования (materialName/colorName/thicknessName/

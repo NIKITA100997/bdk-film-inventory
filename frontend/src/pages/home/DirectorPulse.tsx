@@ -284,6 +284,34 @@ export const DirectorPulse: React.FC = () => {
           })}
         </Row>
       </Card>
+
+      {/* Предиктивный «Пульс» — прогноз срывов на 2–3 дня вперёд */}
+      {(pulse.predictive_risks?.length ?? 0) > 0 && (
+        <Card
+          size="small"
+          title="🔮 Прогноз рисков на 2–3 дня"
+          style={{ borderRadius: 8 }}
+        >
+          <Space orientation="vertical" size={8} style={{ width: "100%" }}>
+            {pulse.predictive_risks!.map((risk, idx) => (
+              <Alert
+                key={idx}
+                type={risk.level === "danger" ? "error" : risk.level === "warning" ? "warning" : risk.level === "success" ? "success" : "info"}
+                showIcon
+                message={risk.title}
+                description={risk.text}
+                action={
+                  risk.action_link ? (
+                    <Button size="small" onClick={() => navigate(risk.action_link!)}>
+                      {risk.action_label || "Открыть"} <ArrowRightOutlined />
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ))}
+          </Space>
+        </Card>
+      )}
     </div>
   );
 };

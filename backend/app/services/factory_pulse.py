@@ -78,6 +78,8 @@ class FactoryPulse:
 
     # Actionable Insights
     insights: list[ActionInsight] = field(default_factory=list)
+    # Предиктивный «Пульс» (риски на 2–3 дня вперёд)
+    predictive_risks: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -91,6 +93,7 @@ class FactoryPulse:
             "overdue_pieces_total": round(self.overdue_pieces_total, 1),
             "area_balances": [a.to_dict() for a in self.area_balances],
             "insights": [i.to_dict() for i in self.insights],
+            "predictive_risks": self.predictive_risks,
         }
 
 
@@ -198,7 +201,7 @@ def compute_factory_pulse(db: Session, target_date: date | None = None) -> Facto
         queue_pcs = 0.0
         for t in area_tasks:
             planned = float(t.quantity or sum((l.quantity_pieces or 0) for l in (t.lines or [])) or 0.0)
-            done = float(sum(sum((r.produced_pieces or 0) for r in (l.reports or [])) for l in (t.lines or [])))
+            done = float(sum(sum((r.good_pieces or 0) for r in (l.reports or []) if r.counts_toward_line) for l in (t.lines or [])))
             queue_pcs += max(0.0, planned - done)
         queue_pcs = max(0.0, queue_pcs)
         cap = float(capacities.get(a.code, 100.0) or 100.0)
@@ -296,6 +299,10 @@ def compute_factory_pulse(db: Session, target_date: date | None = None) -> Facto
             )
         )
 
+    from app.services.predictive_pulse import compute_predictive_risks
+
+    predictive_risks = compute_predictive_risks(db, target_date=today, horizon_days=3)
+
     return FactoryPulse(
         output_pieces_today=output_pieces,
         output_rub_today=output_rub,
@@ -307,4 +314,5 @@ def compute_factory_pulse(db: Session, target_date: date | None = None) -> Facto
         overdue_pieces_total=overdue_pieces_total,
         area_balances=area_balances,
         insights=insights,
+        predictive_risks=predictive_risks,
     )

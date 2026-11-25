@@ -29,6 +29,7 @@ export interface FactoryPulse {
   overdue_pieces_total: number;
   area_balances: AreaCapacityMetric[];
   insights: ActionInsight[];
+  predictive_risks?: ActionInsight[];
 }
 
 /** «Общее» (28.10): набор модулей главной у пользователя; null — стандартный по ролям. */

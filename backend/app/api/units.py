@@ -64,6 +64,7 @@ from app.services.cutting_undo import check_undo_eligibility, has_undo_permissio
 from app.services.deletion_requests import request_deletion
 from app.services.dictionaries import find_or_create_sku, find_sku
 from app.services.events import record_event, unit_issued_since
+from app.services.realtime import publish_event
 from app.services.placement import rule_matches, rules_for_location
 from app.services.production import calc_default_strip_width, compute_expected_return_length_m
 from app.services.purchasing import auto_close_on_receipt
@@ -943,6 +944,7 @@ def batch_issue_to_area(
         total_m += float(u.length_m)
 
     db.commit()
+    publish_event("units", {"action": "batch_issue", "area": payload.area})
     return BatchIssueToAreaResult(
         ok=True,
         issued_count=len(issued),
@@ -2063,6 +2065,7 @@ def return_unit(
             user_id=user.id, occurred_at=payload.occurred_at,
         )
     db.commit()
+    publish_event("units", {"action": "return", "unit_id": unit_id})
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 
@@ -2227,6 +2230,7 @@ def link_task_line(
     if payload.production_task_line_id is None:
         unit.production_task_line_id = None
         db.commit()
+        publish_event("units", {"action": "unlink_task", "unit_id": unit_id})
         return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
     can_override = user.is_superuser or "production_tasks.manage" in get_permission_codes(user)
@@ -2240,6 +2244,7 @@ def link_task_line(
     )
     unit.production_task_line_id = payload.production_task_line_id
     db.commit()
+    publish_event("units", {"action": "link_task", "unit_id": unit_id})
     return _with_sku(db.query(MaterialUnit)).filter(MaterialUnit.id == unit_id).first()
 
 

@@ -29,7 +29,7 @@ def _guard(dependant):
         c = getattr(d.call, "permission_codes", None)
         if c is not None:
             codes |= set(c)
-        if d.call is get_current_user:
+        if d.call is get_current_user or getattr(d.call, "login_required", False):
             login = True
         stack.extend(d.dependencies)
     return codes, login
@@ -93,7 +93,7 @@ LOGIN_ONLY_MUTATIONS = {
     "PATCH /api/storage-places/{kind}/{place_id}",  # _get_place проверяет право
     "DELETE /api/storage-places/{kind}/{place_id}",  # _get_place проверяет право
     # печать этикеток — без записи
-    "POST /api/labels/batch", "POST /api/labels/batch/html",
+    "POST /api/labels/batch", "POST /api/labels/batch/html", "POST /api/labels/batch/async",
     "POST /api/racks/{rack_id}/rack-label", "POST /api/racks/{rack_id}/rack-label/html",
     "POST /api/racks/{rack_id}/shelf-labels/batch", "POST /api/racks/{rack_id}/shelf-labels/batch/html",
     "POST /api/part-labels/batch", "POST /api/part-labels/batch/html",

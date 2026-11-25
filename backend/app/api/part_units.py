@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.security import require_permission
+from app.services.realtime import publish_event
 from app.db.session import get_db
 from app.models.dictionaries import Part
 from app.models.items import ItemComponent
@@ -292,6 +293,7 @@ def issue_part_unit_endpoint(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
     db.refresh(target)
+    publish_event("part_units", {"action": "issue", "unit_id": unit_id})
     return _part_unit_out_single(db, target)
 
 
@@ -350,6 +352,7 @@ def advance_part_unit_endpoint(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     db.commit()
     db.refresh(target)
+    publish_event("part_units", {"action": "advance", "unit_id": unit_id})
     return _part_unit_out_single(db, target)
 
 
