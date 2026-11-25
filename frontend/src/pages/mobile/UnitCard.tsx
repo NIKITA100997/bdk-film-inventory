@@ -49,6 +49,7 @@ import { areaRequiresRoll, listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { listActiveProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../api/production";
 import QrScanButton from "../../components/QrScanButton";
+import UnitReturnReportsHint from "../../components/UnitReturnReportsHint";
 import ShopFloorHelpButton from "../../components/ShopFloorHelpButton";
 import LocationSelect from "../../components/LocationSelect";
 import LotOperationModal from "../../components/lotOps/LotOperationModal";
@@ -818,6 +819,7 @@ export default function UnitCard() {
                   }
                 />
               )}
+              <UnitReturnReportsHint unitId={unit.id} currentLengthM={unit.length_m} />
               <Form.Item name="actual_length_m" label="Фактическая текущая длина, м" rules={[{ required: true }]}>
                 <InputNumber min={0} step={0.01} style={{ width: "100%" }} />
               </Form.Item>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import UnitReturnReportsHint from "../../../components/UnitReturnReportsHint";
 import {
   Alert,
   Button,
@@ -240,6 +241,7 @@ export function AcceptReturnModal({ unit, onClose }: { unit: ProductionTaskLineI
 
   return (
     <Modal title={`Принять ${rollNo(unit.id)} на склад`} open onCancel={onClose} footer={null} destroyOnHidden>
+      <UnitReturnReportsHint unitId={unit.id} currentLengthM={unit.length_m} />
       {expected != null ? (
         <Alert
           style={{ marginBottom: 8 }}
