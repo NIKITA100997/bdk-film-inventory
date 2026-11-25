@@ -1,9 +1,22 @@
+import { useEffect, useState } from "react";
+import { useAuth } from "../auth/AuthContext";
+import { getEffectiveUxMode, type UxMode } from "../utils/uxMode";
 import ModularHome from "./home/ModularHome";
+import TerminalHome from "./home/TerminalHome";
 
-// «Общее» (28.10) — единая посадочная страница на "/" для всех ролей, теперь
-// модульная: рабочие модули сотрудника по его ролям, каждый настраивает свой.
-// Мастеру по умолчанию первым — «Мой участок» (раньше его сразу уводило в
-// «Задания цеха»: на прежнем «Обзоре» ему делать было нечего, 30.09).
 export default function Home() {
-  return <ModularHome />;
+  const { user } = useAuth();
+  const [mode, setMode] = useState<UxMode>(() => getEffectiveUxMode(user));
+
+  useEffect(() => {
+    setMode(getEffectiveUxMode(user));
+  }, [user]);
+
+  useEffect(() => {
+    const onChange = () => setMode(getEffectiveUxMode(user));
+    window.addEventListener("bdk-ux-mode-change", onChange);
+    return () => window.removeEventListener("bdk-ux-mode-change", onChange);
+  }, [user]);
+
+  return mode === "terminal" ? <TerminalHome /> : <ModularHome />;
 }

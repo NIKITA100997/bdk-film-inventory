@@ -16,6 +16,7 @@ import {
   setSelectedPrinterIp,
   setVerticalPrint,
 } from "../utils/printLabel";
+import { getEffectiveUxMode, setStoredUxMode, type UxMode } from "../utils/uxMode";
 import { useGlobalBarcodeScanner } from "../utils/useBarcodeScanner";
 import { useRealtimeSync } from "../hooks/useRealtimeSync";
 import QrScanButton from "../components/QrScanButton";
@@ -155,6 +156,11 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [verticalPrint, setVerticalPrintState] = useState(isVerticalPrint());
   const [printerIp, setPrinterIpState] = useState<string | null>(getSelectedPrinterIp());
+  const [uxMode, setUxMode] = useState<UxMode>(() => getEffectiveUxMode(user));
+
+  useEffect(() => {
+    setUxMode(getEffectiveUxMode(user));
+  }, [user]);
   const { data: printerStatus, refetch: refetchPrinterStatus, isFetching: printerChecking } = useQuery<{
     ok: boolean;
     code: string;
@@ -333,6 +339,27 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
             onChange={(checked) => {
               setVerticalPrint(checked);
               setVerticalPrintState(checked);
+            }}
+          />
+        </div>
+      ),
+    },
+    {
+      key: "ux-mode",
+      label: (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, minWidth: 220 }}
+        >
+          <span>Терминал цеха/склада</span>
+          <Switch
+            size="small"
+            checked={uxMode === "terminal"}
+            onChange={(checked) => {
+              const next: UxMode = checked ? "terminal" : "office";
+              setStoredUxMode(next);
+              setUxMode(next);
+              window.dispatchEvent(new Event("bdk-ux-mode-change"));
             }}
           />
         </div>

@@ -1,0 +1,132 @@
+import { Card, Col, Row, Typography } from "antd";
+import {
+  AppstoreOutlined,
+  BarcodeOutlined,
+  BuildOutlined,
+  InboxOutlined,
+  ScissorOutlined,
+  SwapOutlined,
+} from "@ant-design/icons";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../auth/AuthContext";
+import { fontHeading } from "../../theme";
+
+interface TerminalTile {
+  key: string;
+  title: string;
+  subtitle: string;
+  path: string;
+  icon: React.ReactNode;
+  accent: string;
+  permissions?: string[];
+}
+
+const TILES: TerminalTile[] = [
+  {
+    key: "film-ops",
+    title: "Операции с плёнкой",
+    subtitle: "Приёмка, резка, выдача на участок, возврат",
+    path: "/film-operations",
+    icon: <ScissorOutlined style={{ fontSize: 36 }} />,
+    accent: "#1677ff",
+    permissions: ["units.receive", "units.issue", "units.return"],
+  },
+  {
+    key: "tasks",
+    title: "Задания участка",
+    subtitle: "Сменные задания и отчёт по выпуску",
+    path: "/production-tasks",
+    icon: <BuildOutlined style={{ fontSize: 36 }} />,
+    accent: "#1D9E75",
+    permissions: ["production_tasks.report", "production_tasks.view", "production_tasks.manage"],
+  },
+  {
+    key: "stock",
+    title: "Склад и остатки",
+    subtitle: "Поиск рулонов, штрипсов и ПФ",
+    path: "/stock",
+    icon: <InboxOutlined style={{ fontSize: 36 }} />,
+    accent: "#722ed1",
+  },
+  {
+    key: "stock-ops",
+    title: "Перемещение и скан",
+    subtitle: "Быстрый терминал операций по QR",
+    path: "/stock-ops",
+    icon: <SwapOutlined style={{ fontSize: 36 }} />,
+    accent: "#fa8c16",
+    permissions: ["units.issue", "units.receive", "units.return", "part_units.manage"],
+  },
+  {
+    key: "nomenclature",
+    title: "Карточки ПФ и ГП",
+    subtitle: "Остатки полуфабрикатов и готовой продукции",
+    path: "/nomenclature",
+    icon: <AppstoreOutlined style={{ fontSize: 36 }} />,
+    accent: "#13c2c2",
+    permissions: ["part_units.view", "part_units.manage", "materials.manage"],
+  },
+  {
+    key: "orders",
+    title: "Заказы в работу",
+    subtitle: "Просмотр текущих заказов клиентов",
+    path: "/customer-orders",
+    icon: <BarcodeOutlined style={{ fontSize: 36 }} />,
+    accent: "#eb2f96",
+    permissions: ["production_tasks.report", "production_tasks.view", "production_tasks.manage"],
+  },
+];
+
+export default function TerminalHome() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const perms = new Set(user?.permissions ?? []);
+  const isAll = perms.has("*");
+
+  const visibleTiles = TILES.filter(
+    (t) => !t.permissions || isAll || t.permissions.some((p) => perms.has(p)),
+  );
+
+  return (
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: "8px 4px" }}>
+      <div style={{ marginBottom: 18 }}>
+        <Typography.Title level={3} style={{ margin: 0, fontFamily: fontHeading }}>
+          Терминал цеха и склада
+        </Typography.Title>
+        <Typography.Text type="secondary">
+          {user?.full_name || user?.username} — выберите операцию
+        </Typography.Text>
+      </div>
+
+      <Row gutter={[16, 16]}>
+        {visibleTiles.map((tile) => (
+          <Col key={tile.key} xs={24} sm={12} md={8}>
+            <Card
+              hoverable
+              onClick={() => navigate(tile.path)}
+              style={{
+                minHeight: 138,
+                borderRadius: 14,
+                borderTop: `4px solid ${tile.accent}`,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+              }}
+              styles={{ body: { padding: "20px 18px" } }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <div style={{ color: tile.accent, flexShrink: 0 }}>{tile.icon}</div>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.25, marginBottom: 4 }}>
+                    {tile.title}
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--bdk-ink-2)" }}>{tile.subtitle}</div>
+                </div>
+              </div>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+    </div>
+  );
+}
