@@ -376,9 +376,16 @@ function UnitHistoryPanel({ unitId, reasons }: { unitId: number; reasons: { code
         <List.Item>
           <Space orientation="vertical" size={0}>
             <span>
-              <Tag color={ev.event_type === "Списание" ? "red" : undefined}>{ev.event_type.replace(/_/g, " ")}</Tag>
+              <Tag color={ev.event_type === "Списание" ? "red" : ev.event_type === "PRODUCTION_REPORT" ? "orange" : undefined}>
+                {ev.event_type === "PRODUCTION_REPORT" ? "Отчёт производства" : ev.event_type.replace(/_/g, " ")}
+              </Tag>
               {fmtDateTime(ev.timestamp)} — <Typography.Text strong>{eventLengthChange(ev)}</Typography.Text>
             </span>
+            {ev.comment && (
+              <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+                {ev.comment}
+              </Typography.Text>
+            )}
             {(ev.from_cell || ev.to_cell) && (
               <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
                 {ev.from_cell ?? "—"} → {ev.to_cell ?? "—"}

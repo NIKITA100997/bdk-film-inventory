@@ -138,7 +138,11 @@ export default function LotOperationModal({
     queryFn: () => getUnitEvents(unitIdForEvents),
     enabled: op === "return" && film && unitIdForEvents > 0,
   });
-  const reportEvents = (eventsQuery.data ?? []).filter((e) => e.event_type === "PRODUCTION_REPORT");
+  const allEvents = eventsQuery.data ?? [];
+  const lastIssueIdx = allEvents.findIndex((e) => e.event_type === "VYDACHA_UCHASTKU");
+  const eventsSinceIssue = lastIssueIdx >= 0 ? allEvents.slice(0, lastIssueIdx) : allEvents;
+  const reportEvents = eventsSinceIssue.filter((e) => e.event_type === "PRODUCTION_REPORT");
+  const usedSinceIssue = reportEvents.reduce((acc, e) => acc + Math.abs(e.quantity_delta_m || 0), 0);
 
   const run = useMutation({
     mutationFn: async (v: Values) => {
@@ -272,7 +276,10 @@ export default function LotOperationModal({
 
         {op === "return" && film && reportEvents.length > 0 && (
           <div style={{ marginBottom: 12, padding: "8px 10px", background: "#fffbe6", border: "1px solid #ffe58f", borderRadius: 8, fontSize: 12 }}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>Расход по отчётам ({reportEvents.length}):</div>
+            <div style={{ fontWeight: 600, marginBottom: 4, display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <span>Расход по отчётам с последней выдачи ({reportEvents.length}):</span>
+              <span>Прогнозный остаток: ~{fmt(Math.max(0, Number((lot.qty - usedSinceIssue).toFixed(2))))} м</span>
+            </div>
             <div style={{ maxHeight: 130, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
               {reportEvents.map((e) => (
                 <div key={e.event_id}>
