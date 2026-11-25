@@ -139,7 +139,7 @@ export default function LotOperationModal({
     enabled: op === "return" && film && unitIdForEvents > 0,
   });
   const allEvents = eventsQuery.data ?? [];
-  const lastIssueIdx = allEvents.findIndex((e) => e.event_type === "VYDACHA_UCHASTKU");
+  const lastIssueIdx = allEvents.findIndex((e) => e.event_type === "Выдача_участку" || e.event_type === "VYDACHA_UCHASTKU");
   const eventsSinceIssue = lastIssueIdx >= 0 ? allEvents.slice(0, lastIssueIdx) : allEvents;
   const reportEvents = eventsSinceIssue.filter((e) => e.event_type === "PRODUCTION_REPORT");
   const usedSinceIssue = reportEvents.reduce((acc, e) => acc + Math.abs(e.quantity_delta_m || 0), 0);
