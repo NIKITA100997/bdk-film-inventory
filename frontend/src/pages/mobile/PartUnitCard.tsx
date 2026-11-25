@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Form, Input, InputNumber, Typography, Descriptions, Alert, Tag, List, Space, message } from "antd";
+import { Button, Card, Form, Grid, Input, InputNumber, Typography, Descriptions, Alert, Tag, List, Space, message } from "antd";
+import { ArrowLeftOutlined } from "@ant-design/icons";
 import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -45,6 +46,8 @@ const statusLabels: Record<string, string> = {
 export default function PartUnitCard() {
   const location = useLocation();
   const navigate = useNavigate();
+  const screens = Grid.useBreakpoint();
+  const isPhone = !screens.sm;
   const qc = useQueryClient();
   const { user } = useAuth();
   const canCorrect = hasPerm(user, "part_units.correct");
@@ -135,7 +138,20 @@ export default function PartUnitCard() {
 
   return (
     <Card>
-      <Typography.Title level={4}>Карточка партии п/ф</Typography.Title>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {isPhone && (
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/stock?kind=pf"))}
+            aria-label="Назад"
+          >
+            Назад
+          </Button>
+        )}
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Карточка партии п/ф
+        </Typography.Title>
+      </div>
 
       {!unit && (
         <Form form={scanForm} layout="vertical" onFinish={(v) => scanMutation.mutate(v.id)} style={{ marginTop: 16 }}>

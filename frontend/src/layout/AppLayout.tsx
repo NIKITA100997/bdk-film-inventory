@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch, Badge, Tooltip } from "antd";
+import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch, Badge, Tooltip, Space, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import type { MenuProps } from "antd";
 import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined, QuestionCircleOutlined, KeyOutlined, BellOutlined, ThunderboltFilled } from "@ant-design/icons";
@@ -7,7 +7,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { navTree, isNavItemVisible, isMasterUser, masterNav, type NavItem } from "./navConfig";
 import { fontHeading } from "../theme";
-import { runUnitOrMaterialSearch } from "../utils/unitSearch";
+import { getRecentSearches, runUnitOrMaterialSearch } from "../utils/unitSearch";
 import { isVerticalPrint, setVerticalPrint } from "../utils/printLabel";
 import { useGlobalBarcodeScanner } from "../utils/useBarcodeScanner";
 import QrScanButton from "../components/QrScanButton";
@@ -250,6 +250,12 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
     setSearchOpen(false);
     setHeaderQuery("");
   };
+  const submitHeaderSearch = () => {
+    if (!headerQuery.trim()) return;
+    runHeaderSearch();
+    closeSearch();
+  };
+  const recentSearches = searchOpen ? getRecentSearches() : [];
 
   return (
     // height: 100svh (а не 100vh) + overflow: hidden на внешнем Layout —
@@ -314,12 +320,17 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               placeholder="Номер или название: деталь, задание, заказ, счёт, плёнка…"
               value={headerQuery}
               onChange={(e) => setHeaderQuery(e.target.value)}
-              onPressEnter={() => {
-                runHeaderSearch();
-                closeSearch();
-              }}
+              onPressEnter={submitHeaderSearch}
               style={{ flex: "1 1 auto", minWidth: 0, height: isTablet ? 36 : 40 }}
             />
+            <Button
+              type="primary"
+              onClick={submitHeaderSearch}
+              disabled={!headerQuery.trim()}
+              style={{ height: isTablet ? 36 : 40, flexShrink: 0 }}
+            >
+              Найти
+            </Button>
           </>
         ) : (
           <>
@@ -366,6 +377,38 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
           </>
         )}
       </Header>
+      {searchOpen && recentSearches.length > 0 && (
+        <div
+          style={{
+            background: "#fff",
+            borderBottom: "1px solid #EAE8E2",
+            padding: "6px 12px",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flexWrap: "wrap",
+            flexShrink: 0,
+          }}
+        >
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Недавние:
+          </Typography.Text>
+          <Space size={4} wrap>
+            {recentSearches.map((item) => (
+              <Tag
+                key={item.query}
+                style={{ cursor: "pointer", margin: 0 }}
+                onClick={() => {
+                  runUnitOrMaterialSearch(item.query, navigate);
+                  closeSearch();
+                }}
+              >
+                {item.label}
+              </Tag>
+            ))}
+          </Space>
+        </div>
+      )}
       {/* Горизонтальное меню вместо боковой панели (раздел про адаптацию
           под планшет — боковая колонка отъедала до 240px ширины даже в
           свёрнутом с иконками виде, а на планшете каждый пиксель на счету).

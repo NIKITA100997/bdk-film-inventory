@@ -5,6 +5,39 @@ import { listRacks } from "../api/storage";
 import { listPartRacks } from "../api/partStorage";
 import { parseLotNo } from "./lotNo";
 
+const RECENT_SEARCHES_KEY = "bdk:recent-searches";
+const MAX_RECENT_SEARCHES = 5;
+
+export interface RecentSearchItem {
+  query: string;
+  label: string;
+}
+
+export function getRecentSearches(): RecentSearchItem[] {
+  try {
+    const raw = localStorage.getItem(RECENT_SEARCHES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, MAX_RECENT_SEARCHES) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function pushRecentSearch(item: RecentSearchItem): void {
+  const q = item.query.trim();
+  if (!q) return;
+  try {
+    const prev = getRecentSearches().filter((x) => x.query.toLowerCase() !== q.toLowerCase());
+    localStorage.setItem(
+      RECENT_SEARCHES_KEY,
+      JSON.stringify([{ query: q, label: item.label.trim() || q }, ...prev].slice(0, MAX_RECENT_SEARCHES)),
+    );
+  } catch {
+    /* хранилище недоступно */
+  }
+}
+
 interface IdHit {
   kind: "film_unit" | "part_unit" | "task" | "order";
   id: number;
@@ -20,6 +53,7 @@ const HIT_PATH: Record<IdHit["kind"], (id: number) => [string, unknown?]> = {
 };
 
 function openHit(hit: IdHit, navigate: NavigateFunction) {
+  pushRecentSearch({ query: String(hit.id), label: hit.title });
   const [path, state] = HIT_PATH[hit.kind](hit.id);
   navigate(path, state ? { state } : undefined);
 }
@@ -111,8 +145,10 @@ export async function runUnitOrMaterialSearch(
   // номерам: рулон, партия п/ф, задание, заказ («№123» — тоже).
   const numberMatch = trimmed.match(/^№?\s*(\d+)$/);
   if (numberMatch) {
-    if (mode === "scan") navigate("/m/unit-card", { state: { unitId: Number(numberMatch[1]) } });
-    else await searchById(Number(numberMatch[1]), navigate);
+    if (mode === "scan") {
+      pushRecentSearch({ query: numberMatch[1], label: `ПЛ-${numberMatch[1]}` });
+      navigate("/m/unit-card", { state: { unitId: Number(numberMatch[1]) } });
+    } else await searchById(Number(numberMatch[1]), navigate);
     return;
   }
 
@@ -128,6 +164,7 @@ export async function runUnitOrMaterialSearch(
   // партии («ПФ193») — тот же разбор.
   const lot = parseLotNo(trimmed);
   if (lot) {
+    pushRecentSearch({ query: trimmed, label: `${lot.kind === "plenka" ? "ПЛ" : "ПФ"}-${lot.id}` });
     navigate(lot.kind === "plenka" ? "/m/unit-card" : "/m/part-unit-card", { state: { unitId: lot.id } });
     return;
   }
@@ -165,6 +202,7 @@ export async function runUnitOrMaterialSearch(
 
   // Скан — как раньше, в остатки плёнки; набранный текст — общий поиск
   // по названию (09.10): детали, позиции, задания, заказы, счета.
+  pushRecentSearch({ query: trimmed, label: trimmed });
   if (mode === "scan") navigate("/stock", { state: { globalQuery: trimmed } });
   else navigate(`/search?q=${encodeURIComponent(trimmed)}`);
 }

@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Form,
+  Grid,
   Input,
   InputNumber,
   Typography,
@@ -18,6 +19,7 @@ import {
   message,
   Popconfirm,
 } from "antd";
+import { ArrowLeftOutlined } from "@ant-design/icons";
 import type { Dayjs } from "dayjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -33,6 +35,7 @@ import {
   getUnitReconciliation,
   linkTaskLine,
   setLegacyTaskNote,
+  restoreWriteOffUnit,
   printLabel,
   skuLabel,
   type MaterialUnit,
@@ -119,6 +122,8 @@ export default function UnitCard() {
   const navigate = useNavigate();
   const location = useLocation();
   const qc = useQueryClient();
+  const screens = Grid.useBreakpoint();
+  const isPhone = !screens.sm;
   const { user } = useAuth();
   const hasPermission = (code: string) => !!user?.is_superuser || !!user?.permissions.includes(code);
   const canIssue = hasPermission("units.issue");
@@ -215,23 +220,74 @@ export default function UnitCard() {
   const taskOrderRef = (t: ProductionTask) => (t.external_order_ref ? `№${t.external_order_ref}` : t.name || `#${t.id}`);
   const openTasks = (tasksQuery.data ?? []).filter((t) => t.is_active);
 
+  const showUndoToast = (text: string, onUndo: () => Promise<void>) => {
+    const key = `undo-${Date.now()}`;
+    message.open({
+      key,
+      type: "success",
+      duration: 8,
+      content: (
+        <Space size={8}>
+          <span>{text}</span>
+          <Button
+            size="small"
+            type="link"
+            style={{ padding: 0, height: "auto", fontWeight: 600 }}
+            onClick={async () => {
+              message.destroy(key);
+              try {
+                await onUndo();
+              } catch (e) {
+                message.error(apiErrorMessage(e, "Не удалось отменить"));
+              }
+            }}
+          >
+            Отменить
+          </Button>
+        </Space>
+      ),
+    });
+  };
+
   const linkMutation = useMutation({
-    mutationFn: (productionTaskLineId: number) => linkTaskLine(unit!.id, productionTaskLineId),
-    onSuccess: (u) => {
+    mutationFn: async (productionTaskLineId: number) => {
+      const prevLineId = unit?.production_task_line_id ?? null;
+      const updated = await linkTaskLine(unit!.id, productionTaskLineId);
+      return { updated, prevLineId };
+    },
+    onSuccess: ({ updated: u, prevLineId }) => {
       setUnit(u);
       setLinkOpen(false);
       qc.invalidateQueries({ queryKey: ["unit-reconciliation", u.id] });
-      message.success("Единица привязана к заданию");
+      showUndoToast("Единица привязана к заданию", async () => {
+        const restored = await linkTaskLine(u.id, prevLineId);
+        setUnit(restored);
+        qc.invalidateQueries({ queryKey: ["unit-reconciliation", u.id] });
+        message.info("Привязка отменена");
+      });
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось привязать")),
   });
 
   const unlinkMutation = useMutation({
-    mutationFn: () => linkTaskLine(unit!.id, null),
-    onSuccess: (u) => {
+    mutationFn: async () => {
+      const prevLineId = unit?.production_task_line_id ?? null;
+      const updated = await linkTaskLine(unit!.id, null);
+      return { updated, prevLineId };
+    },
+    onSuccess: ({ updated: u, prevLineId }) => {
       setUnit(u);
       qc.invalidateQueries({ queryKey: ["unit-reconciliation", u.id] });
-      message.success("Задание отвязано от единицы");
+      if (prevLineId != null) {
+        showUndoToast("Задание отвязано от единицы", async () => {
+          const restored = await linkTaskLine(u.id, prevLineId);
+          setUnit(restored);
+          qc.invalidateQueries({ queryKey: ["unit-reconciliation", u.id] });
+          message.info("Привязка восстановлена");
+        });
+      } else {
+        message.success("Задание отвязано от единицы");
+      }
     },
     onError: (e) => message.error(apiErrorMessage(e, "Не удалось отвязать")),
   });
@@ -263,8 +319,12 @@ export default function UnitCard() {
   }, [location.state]);
 
   const placeMutation = useMutation({
-    mutationFn: (values: { location_code: string }) => placeUnit(unit!.id, values.location_code),
-    onSuccess: (u) => {
+    mutationFn: async (values: { location_code: string }) => {
+      const prevLocation = unit?.location_code ?? null;
+      const updated = await placeUnit(unit!.id, values.location_code);
+      return { updated, prevLocation };
+    },
+    onSuccess: ({ updated: u, prevLocation }) => {
       placeForm.resetFields();
       // Раздел про единую форму резки — если после резки в очереди ещё
       // есть неразмещённые куски, переходим к следующему вместо закрытия
@@ -278,7 +338,15 @@ export default function UnitCard() {
       } else {
         setUnit(u);
         setAction(null);
-        message.success("Адрес сохранён");
+        if (prevLocation && prevLocation !== u.location_code) {
+          showUndoToast(`Адрес ${u.location_code} сохранён`, async () => {
+            const restored = await placeUnit(u.id, prevLocation);
+            setUnit(restored);
+            message.info(`Возвращено в ${prevLocation}`);
+          });
+        } else {
+          message.success("Адрес сохранён");
+        }
       }
     },
     onError: () => message.error("Не удалось разместить"),
@@ -382,7 +450,20 @@ export default function UnitCard() {
 
   return (
     <Card>
-      <Typography.Title level={4}>Карточка единицы</Typography.Title>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {isPhone && (
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/stock"))}
+            aria-label="Назад"
+          >
+            Назад
+          </Button>
+        )}
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Карточка единицы
+        </Typography.Title>
+      </div>
 
       {!unit && (
         <Form
@@ -808,9 +889,25 @@ export default function UnitCard() {
           op={lotOp}
           onClose={() => setLotOp(null)}
           onDone={(u) => {
-            setUnit(u as MaterialUnit);
+            const prevOp = lotOp;
+            const prevLength = Number(unit.length_m);
+            const prevLocation = unit.location_code ?? undefined;
+            const updated = u as MaterialUnit;
+            setUnit(updated);
             setAction(null);
-            qc.invalidateQueries({ queryKey: ["unit-events", u.id] });
+            qc.invalidateQueries({ queryKey: ["unit-events", updated.id] });
+            if (prevOp === "writeoff" && updated.status === "Списан" && (hasPermission("units.writeoff") || hasPermission("units.correct"))) {
+              showUndoToast("Единица списана", async () => {
+                const restored = await restoreWriteOffUnit(updated.id, {
+                  actual_length_m: prevLength,
+                  location_code: prevLocation,
+                  note: "Быстрая отмена списания",
+                });
+                setUnit(restored);
+                qc.invalidateQueries({ queryKey: ["unit-events", updated.id] });
+                message.info("Списание отменено");
+              });
+            }
           }}
         />
       )}
