@@ -813,8 +813,11 @@ def delete_unit(
     return DeleteResultOut(deleted=True, requested=False)
 
 
-def _get_storable_unit(db: Session, unit_id: int) -> MaterialUnit:
-    unit = db.get(MaterialUnit, unit_id)
+def _get_storable_unit(db: Session, unit_id: int, *, for_update: bool = True) -> MaterialUnit:
+    q = db.query(MaterialUnit).filter(MaterialUnit.id == unit_id)
+    if for_update:
+        q = q.with_for_update()
+    unit = q.first()
     if unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Единица не найдена")
     return unit
@@ -1003,7 +1006,7 @@ def batch_issue_to_area(
     if not payload.unit_ids:
         return BatchIssueToAreaResult(ok=True, issued_count=0, total_meters=0.0, area=payload.area, unit_ids=[])
 
-    units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).all()
+    units = db.query(MaterialUnit).filter(MaterialUnit.id.in_(payload.unit_ids)).with_for_update().all()
     issued: list[MaterialUnit] = []
     total_m = 0.0
 
@@ -1986,7 +1989,7 @@ def return_preview(
     """Подсказка перед возвратом (раздел про возврат остатка) — сколько
     плёнки должно остаться по расчёту, до того как оператор физически
     обмерит и введёт фактическую длину в /units/{id}/return."""
-    unit = _get_storable_unit(db, unit_id)
+    unit = _get_storable_unit(db, unit_id, for_update=False)
     if not unit.production_task_line_id:
         return ReturnPreviewOut(expected_return_length_m=None, good_pieces=0.0, defect_pieces=0.0)
     line = db.get(ProductionTaskLine, unit.production_task_line_id)

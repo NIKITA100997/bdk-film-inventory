@@ -68,6 +68,9 @@ from app.services import lot_cost  # noqa: F401 — цена у рулона и 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from app.core.config import settings
+from app.core.logging import request_id_var, request_logging_middleware, setup_logging
+
+setup_logging()
 
 app = FastAPI(
     title="БДК — учёт плёнки",
@@ -82,6 +85,17 @@ def _period_closed(request: Request, exc: PeriodClosedError) -> JSONResponse:
     """Закрытый период (07.10): 423 с понятной причиной — фронт предложит
     «Попросить администратора»."""
     return JSONResponse(status_code=423, content={"detail": str(exc), "code": "period_closed"})
+
+
+@app.exception_handler(Exception)
+def _unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+    """Единый обработчик неперехваченных ошибок: возвращает request_id для отладки."""
+    req_id = getattr(request.state, "request_id", None) or request_id_var.get()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Внутренняя ошибка сервера", "request_id": req_id},
+        headers={"X-Request-ID": req_id},
+    )
 
 Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
 # Под /api вместе с остальным бэкендом — frontend/src/api/dictionaries.ts
@@ -121,6 +135,7 @@ app.middleware("http")(price_visibility_middleware)
 from app.core.idempotency import idempotency_middleware  # noqa: E402
 
 app.middleware("http")(idempotency_middleware)
+app.middleware("http")(request_logging_middleware)
 
 
 # Заголовки безопасности (14.10, проверка качества): не угадывать тип файла

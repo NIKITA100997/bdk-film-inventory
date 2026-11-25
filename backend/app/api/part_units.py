@@ -186,6 +186,16 @@ def make_source_parts(db: Session = Depends(get_db), user: User = Depends(view_p
     return [r[0] for r in rows]
 
 
+def _get_part_unit(db: Session, unit_id: int, *, for_update: bool = True) -> PartUnit:
+    q = db.query(PartUnit).filter(PartUnit.id == unit_id)
+    if for_update:
+        q = q.with_for_update()
+    unit = q.first()
+    if unit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    return unit
+
+
 @router.get("/{unit_id}", response_model=PartUnitOut)
 def get_part_unit(
     unit_id: int, db: Session = Depends(get_db), user: User = Depends(view_part_units)
@@ -193,9 +203,7 @@ def get_part_unit(
     """Одна партия по ID (раздел про мобильный скан-сценарий по этапам) —
     зеркалит GET /units/{unit_id} у плёнки: карточка партии открывается
     сканом QR-этикетки, искать в целом списке ради одной партии незачем."""
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id, for_update=False)
     return _part_unit_out_single(db, unit)
 
 
@@ -203,9 +211,7 @@ def get_part_unit(
 def place_part_unit_endpoint(
     unit_id: int, payload: PartUnitPlace, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
 ) -> PartUnitOut:
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     try:
         place_part_unit(db, unit=unit, location_code=payload.location_code, user_id=user.id, occurred_at=payload.occurred_at)
     except ValueError as e:
@@ -259,9 +265,7 @@ def make_from_unit(
 ) -> PartUnitOut:
     """«Сделать деталь из заготовки» — заготовка списывается в производство,
     партия детали рождается уже после операции (см. make_detail_from_unit)."""
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     try:
         new_unit = make_detail_from_unit(
             db, unit=unit, target_part_id=payload.target_part_id, quantity_pieces=payload.quantity_pieces,
@@ -279,9 +283,7 @@ def issue_part_unit_endpoint(
     unit_id: int, payload: PartUnitIssue, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
 ) -> PartUnitOut:
     """«Передать на участок» — партию «На хранении» на участок её этапа."""
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     try:
         target = issue_part_unit(
             db, unit=unit, user_id=user.id, quantity_pieces=payload.quantity_pieces, occurred_at=payload.occurred_at
@@ -300,9 +302,7 @@ def restore_write_off_part_unit_endpoint(
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("part_units.manage", "part_units.correct")),
 ) -> PartUnitOut:
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     if unit.status != PartUnitStatus.SPISAN:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -341,9 +341,7 @@ def advance_part_unit_endpoint(
     производственное задание заводить незачем. Тот же advance_part_unit,
     что уже вызывает create_task_line_report при good_pieces > 0 —
     здесь просто прямой доступ к нему."""
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     try:
         target, _ = advance_part_unit(
             db, unit=unit, quantity_pieces=payload.quantity_pieces, user_id=user.id, occurred_at=payload.occurred_at
@@ -399,9 +397,7 @@ def write_off_part_fifo_endpoint(
 def write_off_part_unit_endpoint(
     unit_id: int, payload: PartUnitWriteOff, db: Session = Depends(get_db), user: User = Depends(manage_part_units)
 ) -> PartUnitOut:
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     try:
         target = write_off_part_unit(
             db,
@@ -426,9 +422,7 @@ def return_part_unit_endpoint(
     """Раздел про ревизию путей п/ф — зеркалит POST /units/{id}/return у
     плёнки: партия физически возвращается на склад, не использовав (или
     использовав частично) свой остаток."""
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     try:
         return_part_unit(
             db, unit=unit, actual_quantity_pieces=payload.actual_quantity_pieces, user_id=user.id, occurred_at=payload.occurred_at
@@ -448,9 +442,7 @@ def adjust_part_unit_endpoint(
     quantity_pieces вместо правки истории напрямую в БД. Всегда
     добавляет событие (PartEventType.KORREKTIROVKA), не завязана на
     статус партии."""
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     adjust_part_unit(
         db, unit=unit, actual_quantity_pieces=payload.actual_quantity_pieces,
         reason=payload.reason, user_id=user.id, note=payload.note,
@@ -573,9 +565,7 @@ def credit_to_line(unit_id: int, payload: CreditIn, db: Session = Depends(get_db
     from app.api.production import _line_report_aggregates
     from app.models.production import REPORT_CLOSE, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
 
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     if unit.production_task_line_id is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Партия уже привязана к заданию")
     if unit.status not in _ALIVE:
@@ -612,9 +602,7 @@ def regrade(unit_id: int, payload: RegradeIn, db: Session = Depends(get_db), use
     """Пересорт: партия заведена не той деталью (14.10)."""
     from app.services.part_units import regrade_part_unit
 
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     try:
         regrade_part_unit(db, unit=unit, part_id=payload.part_id, user_id=user.id, reason=payload.reason, stage_id=payload.stage_id)
     except ValueError as e:
@@ -652,9 +640,7 @@ def delete_part_unit(unit_id: int, db: Session = Depends(get_db), user: User = D
     """Администратор удаляет сразу, остальные — заявкой на удаление."""
     from app.services.deletion_requests import request_deletion
 
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     if not user.is_superuser:
         request_deletion(db, entity_type="part_unit", entity_id=unit.id,
                          entity_label=f"Партия п/ф №{unit.id} — {unit.part.name}, {float(unit.quantity_pieces):g} шт", requested_by=user.id)
@@ -678,9 +664,7 @@ def split_part_unit(unit_id: int, payload: SplitIn, db: Session = Depends(get_db
     from app.models.part_units import PartEventType
     from app.services.part_units import _split_or_reuse, record_part_event
 
-    unit = db.get(PartUnit, unit_id)
-    if unit is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+    unit = _get_part_unit(db, unit_id)
     if unit.status not in (PartUnitStatus.NA_KHRANENII, PartUnitStatus.VYDAN_UCHASTKU):
         raise HTTPException(status.HTTP_409_CONFLICT, "Делить можно партию на хранении или на участке")
     free = float(unit.quantity_pieces) - reported_good_pieces_by_unit(db, [unit.id]).get(unit.id, 0.0)
