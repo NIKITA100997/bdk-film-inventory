@@ -9,7 +9,9 @@ from app.services.godex_ezpl import (
     build_units_ezpl_job,
     is_allowed_printer_ip,
     list_network_printers,
+    parse_godex_status,
     render_test_bitmap,
+    send_ezpl_to_printer,
 )
 from app.services.labels import DEFAULT_FIELDS, LabelData
 
@@ -58,3 +60,22 @@ def test_printers_endpoint_requires_auth():
     client = TestClient(app)
     res = client.get("/api/labels/printers")
     assert res.status_code in (401, 403)
+
+
+def test_parse_godex_status_and_preprint_block(monkeypatch):
+    assert parse_godex_status("00,00000\r\n")["ok"] is True
+    empty = parse_godex_status("01,00000\r\n")
+    assert empty["ok"] is False
+    assert "лента" in empty["message"].lower()
+    head = parse_godex_status("04,00000\r\n")
+    assert head["ok"] is False
+    assert "крышка" in head["message"].lower()
+
+    monkeypatch.setattr(
+        "app.services.godex_ezpl.query_printer_status",
+        lambda ip, port=9100, timeout=2.0: {"ok": False, "code": "01", "message": "Godex G500: Закончилась лента (этикетки)"},
+    )
+    import pytest
+
+    with pytest.raises(RuntimeError, match="Закончилась лента"):
+        send_ezpl_to_printer("192.168.1.49", b"^L\r\nE\r\n")

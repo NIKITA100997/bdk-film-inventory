@@ -299,10 +299,53 @@ def build_units_ezpl_job(
     return build_ezpl_job(imgs, width_mm=width_mm, height_mm=height_mm)
 
 
+_GODEX_STATUS_MESSAGES: dict[str, str] = {
+    "00": "Готов к печати",
+    "01": "Закончилась лента (этикетки)",
+    "02": "Замятие или обрыв ленты",
+    "03": "Закончился риббон",
+    "04": "Открыта крышка принтера",
+    "05": "Принтер на паузе",
+    "06": "Ошибка смотчика или переполнение",
+    "07": "Синтаксическая ошибка команды",
+    "08": "Переполнение памяти",
+    "09": "Идёт печать (занят)",
+    "10": "Ошибка резака",
+    "11": "Перегрев термоголовки",
+}
+
+
+def parse_godex_status(raw: str) -> dict:
+    """Разбирает ответ Godex G500 на команду `~S,STATUS` (например, `00,00000`)."""
+    cleaned = raw.strip()
+    if not cleaned:
+        return {"ok": False, "code": "NO_RESPONSE", "message": "Принтер не ответил на запрос статуса"}
+    code = cleaned.split(",", 1)[0].strip().zfill(2)
+    if code in ("00", "09"):
+        return {"ok": True, "code": code, "message": _GODEX_STATUS_MESSAGES[code]}
+    msg = _GODEX_STATUS_MESSAGES.get(code, f"Ошибка принтера (код {cleaned})")
+    return {"ok": False, "code": code, "message": f"Godex G500: {msg}"}
+
+
+def query_printer_status(ip: str, *, port: int = 9100, timeout: float = 2.0) -> dict:
+    """Запрашивает текущее состояние принтера по `~S,STATUS` без печати этикетки."""
+    try:
+        with socket.create_connection((ip, port), timeout=timeout) as sock:
+            sock.settimeout(timeout)
+            sock.sendall(b"~S,STATUS\r\n")
+            raw = sock.recv(64).decode("ascii", errors="replace")
+        return parse_godex_status(raw)
+    except OSError as exc:
+        return {"ok": False, "code": "OFFLINE", "message": f"Принтер {ip} не в сети или выключен ({exc})"}
+
+
 def send_ezpl_to_printer(ip: str, payload: bytes, *, port: int = 9100, timeout: float = 5.0) -> None:
-    """Отправляет байты EZPL напрямую на сетевой термопринтер по TCP."""
+    """Проверяет состояние принтера и отправляет байты EZPL напрямую по TCP."""
     if not payload:
         return
+    status_info = query_printer_status(ip, port=port, timeout=min(timeout, 2.0))
+    if not status_info["ok"]:
+        raise RuntimeError(status_info["message"])
     try:
         with socket.create_connection((ip, port), timeout=timeout) as sock:
             sock.settimeout(timeout)

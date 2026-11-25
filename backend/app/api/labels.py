@@ -358,6 +358,16 @@ def get_network_printers() -> list[dict]:
     return list_network_printers()
 
 
+@router.get("/labels/printers/status", dependencies=[Depends(get_current_user)])
+def get_network_printer_status(ip: str) -> dict:
+    """Проверяет статус выбранного Godex G500 (`~S,STATUS`)."""
+    from app.services.godex_ezpl import is_allowed_printer_ip, query_printer_status
+
+    if not is_allowed_printer_ip(ip):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Неизвестный IP-адрес принтера")
+    return query_printer_status(ip)
+
+
 @router.post("/labels/printers/test", dependencies=[Depends(get_current_user)])
 def test_network_printer(payload: TestPrintRequest) -> dict:
     """Отправляет 1..20 калибровочных этикеток напрямую на Godex G500 по TCP 9100."""

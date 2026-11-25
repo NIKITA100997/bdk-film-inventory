@@ -155,6 +155,23 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [verticalPrint, setVerticalPrintState] = useState(isVerticalPrint());
   const [printerIp, setPrinterIpState] = useState<string | null>(getSelectedPrinterIp());
+  const { data: printerStatus, refetch: refetchPrinterStatus, isFetching: printerChecking } = useQuery<{
+    ok: boolean;
+    code: string;
+    message: string;
+  }>({
+    queryKey: ["printer-status", printerIp],
+    queryFn: async () => {
+      const { apiClient } = await import("../api/client");
+      const { data } = await apiClient.get("/labels/printers/status", { params: { ip: printerIp } });
+      return data;
+    },
+    enabled: !!user && !!printerIp,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: false,
+  });
+
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [approvalsOpen, setApprovalsOpen] = useState(false);
   const [approvalsTab, setApprovalsTab] = useState<"approvals" | "inbox" | "signals">("approvals");
@@ -342,6 +359,16 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
               ...NETWORK_PRINTERS.map((p) => ({ value: p.ip, label: p.name })),
             ]}
           />
+          {printerIp && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <Tag color={printerStatus?.ok ? "green" : "red"} style={{ margin: 0, fontSize: 11, whiteSpace: "normal" }}>
+                {printerChecking ? "Проверка…" : (printerStatus?.message ?? "Нет данных")}
+              </Tag>
+              <Button size="small" type="link" style={{ padding: 0, height: "auto", fontSize: 11 }} onClick={() => refetchPrinterStatus()}>
+                Проверить
+              </Button>
+            </div>
+          )}
         </div>
       ),
     },
