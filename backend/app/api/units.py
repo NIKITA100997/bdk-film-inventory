@@ -602,13 +602,15 @@ def unit_events(
         est_m = round((good + defect) * piece_len, 3)
         out.append(
             UnitEventOut(
-                id=-r.id,
-                unit_id=unit_id,
+                event_id=-r.id,
                 event_type="PRODUCTION_REPORT",
-                delta_length=-est_m if est_m > 0 else 0.0,
-                area=r.task_line.task.area if r.task_line and r.task_line.task else None,
-                user_id=r.reported_by,
                 timestamp=r.reported_at,
+                user_id=r.reported_by,
+                from_length=None,
+                to_length=None,
+                from_cell=None,
+                to_cell=None,
+                quantity_delta_m=-est_m if est_m > 0 else 0.0,
                 comment=f"Отчёт по заданию: {good:g} годных / {defect:g} брака" + (f" (расчётный расход {est_m:g} м)" if est_m > 0 else ""),
             )
         )

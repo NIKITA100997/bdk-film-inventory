@@ -562,14 +562,15 @@ class UnitEventOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
     event_id: int
-    event_type: EventType
+    event_type: EventType | str
     timestamp: datetime
-    user_id: int
-    from_length: float | None
-    to_length: float | None
-    from_cell: str | None
-    to_cell: str | None
+    user_id: int | None = None
+    from_length: float | None = None
+    to_length: float | None = None
+    from_cell: str | None = None
+    to_cell: str | None = None
     quantity_delta_m: float
+    comment: str | None = None
     amount_rub: float | None = None  # сумма движения, ₽ (08.10)
     write_off_reason: str | None
     write_off_note: str | None
