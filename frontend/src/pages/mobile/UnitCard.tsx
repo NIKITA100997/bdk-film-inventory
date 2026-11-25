@@ -49,6 +49,7 @@ import { areaRequiresRoll, listAreas } from "../../api/areas";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
 import { listActiveProductionTasks, type ProductionTask, type ProductionTaskLine } from "../../api/production";
 import QrScanButton from "../../components/QrScanButton";
+import ShopFloorHelpButton from "../../components/ShopFloorHelpButton";
 import LocationSelect from "../../components/LocationSelect";
 import LotOperationModal from "../../components/lotOps/LotOperationModal";
 import { lotFromUnit, type LotOp } from "../../components/lotOps/lotOps";
@@ -450,19 +451,22 @@ export default function UnitCard() {
 
   return (
     <Card>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {isPhone && (
-          <Button
-            icon={<ArrowLeftOutlined />}
-            onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/stock"))}
-            aria-label="Назад"
-          >
-            Назад
-          </Button>
-        )}
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          Карточка единицы
-        </Typography.Title>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {isPhone && (
+            <Button
+              icon={<ArrowLeftOutlined />}
+              onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/stock"))}
+              aria-label="Назад"
+            >
+              Назад
+            </Button>
+          )}
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            Карточка единицы
+          </Typography.Title>
+        </div>
+        <ShopFloorHelpButton />
       </div>
 
       {!unit && (

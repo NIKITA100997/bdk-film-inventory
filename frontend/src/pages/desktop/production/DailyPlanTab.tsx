@@ -3,6 +3,7 @@ import SmartBatchingModal from "./SmartBatchingModal";
 import { ThunderboltOutlined } from "@ant-design/icons";
 import { useState } from "react";
 import NextStep, { scrollToId } from "../../../components/NextStep";
+import ShopFloorHelpButton from "../../../components/ShopFloorHelpButton";
 import { apiClient } from "../../../api/client";
 import { Card, Collapse, Space, Typography, DatePicker, Button, Empty, Select, Progress, Table, Segmented } from "antd";
 import dayjs from "dayjs";
@@ -83,14 +84,17 @@ export default function DailyPlanTab() {
           />
         )}
       </Space>
-      {effectiveArea && (
-        <Button
-          icon={<ThunderboltOutlined style={{ color: "#faad14" }} />}
-          onClick={() => setSmartBatchingOpen(true)}
-        >
-          🎯 Оптимизация (Smart Batching)
-        </Button>
-      )}
+      <Space wrap align="center">
+        {effectiveArea && (
+          <Button
+            icon={<ThunderboltOutlined style={{ color: "#faad14" }} />}
+            onClick={() => setSmartBatchingOpen(true)}
+          >
+            🎯 Оптимизация (Smart Batching)
+          </Button>
+        )}
+        <ShopFloorHelpButton size="middle" />
+      </Space>
     </Space>
   );
 

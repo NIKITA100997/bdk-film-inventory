@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from "react";
-import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch, Badge, Tooltip, Space, Tag } from "antd";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Layout, Menu, Grid, Typography, Button, Input, Avatar, Dropdown, Switch, Badge, Tooltip, Space, Tag, Tour, notification } from "antd";
+import type { TourProps } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import type { MenuProps } from "antd";
 import { SearchOutlined, ArrowLeftOutlined, UserOutlined, LogoutOutlined, QuestionCircleOutlined, KeyOutlined, BellOutlined, ThunderboltFilled } from "@ant-design/icons";
@@ -22,13 +23,71 @@ import ChangePasswordModal from "../components/ChangePasswordModal";
 
 const { Header, Content } = Layout;
 
-function HeaderNotificationsButton({ onOpen }: { onOpen: (tab: "approvals" | "inbox" | "signals") => void }) {
+function playNotificationChime() {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(587.33, now);
+    osc.frequency.setValueAtTime(880, now + 0.12);
+    gain.gain.setValueAtTime(0.08, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.36);
+  } catch {
+    /* браузер заблокировал автовоспроизведение звука — игнорируем */
+  }
+}
+
+function HeaderNotificationsButton({
+  onOpen,
+  soundEnabled,
+  btnRef,
+}: {
+  onOpen: (tab: "approvals" | "inbox" | "signals") => void;
+  soundEnabled: boolean;
+  btnRef?: React.RefObject<HTMLSpanElement | null>;
+}) {
   const summaryQuery = useQuery({ queryKey: ["action-requests-summary"], queryFn: actionRequestsSummary, refetchInterval: 30_000 });
   const inboxQuery = useInbox();
   const toApprove = summaryQuery.data?.to_approve ?? 0;
   const inboxCount = (inboxQuery.data ?? []).length;
   const urgent = (inboxQuery.data ?? []).some((i) => i.level === "urgent");
   const totalCount = toApprove + inboxCount;
+  const prevCountRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (summaryQuery.isLoading || inboxQuery.isLoading) return;
+    if (prevCountRef.current !== null && totalCount > prevCountRef.current) {
+      const diff = totalCount - prevCountRef.current;
+      if (soundEnabled) playNotificationChime();
+      notification.info({
+        message: `Новые задачи или согласования (+${diff})`,
+        description: urgent ? "Есть срочные уведомления — проверьте центр согласований." : "Появились новые уведомления для вашего участка.",
+        placement: "topRight",
+        duration: 6,
+        btn: (
+          <Button
+            type="primary"
+            size="small"
+            onClick={() => {
+              notification.destroy();
+              onOpen(toApprove > 0 ? "approvals" : "inbox");
+            }}
+          >
+            Открыть
+          </Button>
+        ),
+      });
+    }
+    prevCountRef.current = totalCount;
+  }, [totalCount, summaryQuery.isLoading, inboxQuery.isLoading, soundEnabled, urgent, toApprove, onOpen]);
 
   const btnStyle: React.CSSProperties = {
     minWidth: 40,
@@ -41,32 +100,36 @@ function HeaderNotificationsButton({ onOpen }: { onOpen: (tab: "approvals" | "in
 
   if (totalCount === 0) {
     return (
-      <Tooltip title="Центр согласований и задач">
-        <Button
-          type="text"
-          style={btnStyle}
-          icon={<BellOutlined style={{ color: "#fff", fontSize: 18 }} />}
-          onClick={() => onOpen(toApprove > 0 ? "approvals" : "inbox")}
-          aria-label="Уведомления и согласования"
-        />
-      </Tooltip>
+      <span ref={btnRef} style={{ display: "inline-flex" }}>
+        <Tooltip title="Центр согласований и задач">
+          <Button
+            type="text"
+            style={btnStyle}
+            icon={<BellOutlined style={{ color: "#fff", fontSize: 18 }} />}
+            onClick={() => onOpen(toApprove > 0 ? "approvals" : "inbox")}
+            aria-label="Уведомления и согласования"
+          />
+        </Tooltip>
+      </span>
     );
   }
 
   const badgeColor = toApprove > 0 || urgent ? "#d4380d" : "#1677ff";
 
   return (
-    <Tooltip title={`Согласований: ${toApprove}, задач: ${inboxCount}`}>
-      <Badge count={totalCount} color={badgeColor} size="small" offset={[-4, 4]}>
-        <Button
-          type="text"
-          style={btnStyle}
-          icon={toApprove > 0 ? <ThunderboltFilled style={{ color: "#FFD666", fontSize: 18 }} /> : <BellOutlined style={{ color: "#fff", fontSize: 18 }} />}
-          onClick={() => onOpen(toApprove > 0 ? "approvals" : "inbox")}
-          aria-label="Уведомления и согласования"
-        />
-      </Badge>
-    </Tooltip>
+    <span ref={btnRef} style={{ display: "inline-flex" }}>
+      <Tooltip title={`Согласований: ${toApprove}, задач: ${inboxCount}`}>
+        <Badge count={totalCount} color={badgeColor} size="small" offset={[-4, 4]}>
+          <Button
+            type="text"
+            style={btnStyle}
+            icon={toApprove > 0 ? <ThunderboltFilled style={{ color: "#FFD666", fontSize: 18 }} /> : <BellOutlined style={{ color: "#fff", fontSize: 18 }} />}
+            onClick={() => onOpen(toApprove > 0 ? "approvals" : "inbox")}
+            aria-label="Уведомления и согласования"
+          />
+        </Badge>
+      </Tooltip>
+    </span>
   );
 }
 
@@ -95,6 +158,25 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
       return false;
     }
   });
+  const [soundAlerts, setSoundAlerts] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("bdk:sound-alerts") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const [tourOpen, setTourOpen] = useState(false);
+  const searchBtnRef = useRef<HTMLButtonElement | null>(null);
+  const qrWrapRef = useRef<HTMLSpanElement | null>(null);
+  const bellWrapRef = useRef<HTMLSpanElement | null>(null);
+  const profileBtnRef = useRef<HTMLButtonElement | null>(null);
+  const menuWrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const startTour = () => setTourOpen(true);
+    window.addEventListener("bdk:start-tour", startTour);
+    return () => window.removeEventListener("bdk:start-tour", startTour);
+  }, []);
   // Раздел про телефонную версию — единственная уже используемая в
   // проекте конвенция "мобильный/десктоп" (ResponsiveTable.tsx). !sm —
   // именно телефон (<576px), не портретный планшет — тот должен остаться
@@ -169,15 +251,40 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
       onClick: () => navigate("/requests?section=actions"),
     },
     {
-      // Повторное открытие приветственной карточки (раздел 16 бэклога
-      // доработок — онбординг) — не отдельная иконка в шапке, там и так
-      // тесно на планшете (см. комментарий про searchOpen ниже), а пункт
-      // в уже существующем меню пользователя, тем же паттерном
-      // navigate(path,{state}), что и runUnitOrMaterialSearch.
       key: "help",
       label: "Что мне тут делать? (подсказка)",
       icon: <QuestionCircleOutlined />,
       onClick: () => navigate("/", { state: { showOnboarding: true } }),
+    },
+    {
+      key: "tour",
+      label: "Пройти короткий тур по экрану",
+      icon: <QuestionCircleOutlined />,
+      onClick: () => setTourOpen(true),
+    },
+    { type: "divider" },
+    {
+      key: "sound-alerts",
+      label: (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, minWidth: 220 }}
+        >
+          <span>Звук уведомлений</span>
+          <Switch
+            size="small"
+            checked={soundAlerts}
+            onChange={(checked) => {
+              setSoundAlerts(checked);
+              try {
+                localStorage.setItem("bdk:sound-alerts", checked ? "1" : "0");
+              } catch {
+                /* ignore */
+              }
+            }}
+          />
+        </div>
+      ),
     },
     { type: "divider" },
     {
@@ -351,22 +458,30 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
             </Typography.Title>
             <div style={{ flex: "1 1 auto" }} />
             <Button
+              ref={searchBtnRef}
               type="text"
               style={{ minWidth: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}
               icon={<SearchOutlined style={{ color: "#fff", fontSize: 18 }} />}
               onClick={() => setSearchOpen(true)}
               aria-label="Поиск"
             />
-            <QrScanButton
-              onScan={(code) => runUnitOrMaterialSearch(code, navigate, "scan")}
-              tooltip="Сканировать QR камерой"
-              type="primary"
-              style={{ minWidth: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+            <span ref={qrWrapRef} style={{ display: "inline-flex" }}>
+              <QrScanButton
+                onScan={(code) => runUnitOrMaterialSearch(code, navigate, "scan")}
+                tooltip="Сканировать QR камерой"
+                type="primary"
+                style={{ minWidth: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+              />
+            </span>
+            <HeaderNotificationsButton
+              btnRef={bellWrapRef}
+              soundEnabled={soundAlerts}
+              onOpen={(tab) => { setApprovalsTab(tab); setApprovalsOpen(true); }}
             />
-            <HeaderNotificationsButton onOpen={(tab) => { setApprovalsTab(tab); setApprovalsOpen(true); }} />
             <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
               {/* кнопка, а не картинка — доступна с клавиатуры и скринридеру (14.10) */}
               <Button
+                ref={profileBtnRef}
                 type="text"
                 aria-label="Профиль и выход"
                 style={{ minWidth: 40, height: 40, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
@@ -417,19 +532,20 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
           На телефоне (isPhone) вместо этого — нижняя панель вкладок ниже
           Content, верхнее меню туда физически не помещается. */}
       {!isPhone && (
-        <Menu
-          mode="horizontal"
-          overflowedIndicator={<span>Ещё ▾</span>}
-          style={{
-            flexShrink: 0,
-            height: isTablet ? 38 : 46,
-            lineHeight: isTablet ? "38px" : "46px",
-            fontSize: isTablet ? 13 : 14,
-          }}
-          selectedKeys={[navPaths.has(location.pathname + location.search) ? location.pathname + location.search : location.pathname]}
-          items={items}
-          onClick={(e) => navigate(e.key)}
-        />
+        <div ref={menuWrapRef} style={{ flexShrink: 0 }}>
+          <Menu
+            mode="horizontal"
+            overflowedIndicator={<span>Ещё ▾</span>}
+            style={{
+              height: isTablet ? 38 : 46,
+              lineHeight: isTablet ? "38px" : "46px",
+              fontSize: isTablet ? 13 : 14,
+            }}
+            selectedKeys={[navPaths.has(location.pathname + location.search) ? location.pathname + location.search : location.pathname]}
+            items={items}
+            onClick={(e) => navigate(e.key)}
+          />
+        </div>
       )}
       <OfflineBanner />
       {/* minWidth: 0 — без этого antd Layout не даёт Content сжаться уже
@@ -461,6 +577,41 @@ export default function AppLayout({ pageRoutes }: { pageRoutes: ReactNode }) {
       {/* «Попросить администратора» на любое запрещённое действие (07.10) */}
       <ActionRequestPrompt />
       <ApprovalsDrawer open={approvalsOpen} onClose={() => setApprovalsOpen(false)} defaultTab={approvalsTab} />
+      <Tour
+        open={tourOpen}
+        onClose={() => setTourOpen(false)}
+        steps={[
+          ...(!isPhone
+            ? [
+                {
+                  title: "Разделы программы",
+                  description: "Основные рабочие центры всегда перед глазами. Если пункты не помещаются на планшете, откройте «Ещё ▾».",
+                  target: () => menuWrapRef.current!,
+                },
+              ]
+            : []),
+          {
+            title: "Быстрый поиск",
+            description: "Введите номер рулона, партии, заказа или название материала — и нажмите «Найти». Здесь же сохраняются 5 последних поисков.",
+            target: () => searchBtnRef.current!,
+          },
+          {
+            title: "Сканер QR",
+            description: "Наведите камеру на этикетку рулона, партии или стеллажа, чтобы мгновенно открыть нужную карточку.",
+            target: () => qrWrapRef.current!,
+          },
+          {
+            title: "Уведомления и согласования",
+            description: "Здесь появляются новые задания, срочные сигналы и заявки на согласование.",
+            target: () => bellWrapRef.current!,
+          },
+          {
+            title: "Профиль и настройки устройства",
+            description: "Смена пароля, ориентация этикеток, звук уведомлений и повторный запуск подсказки.",
+            target: () => profileBtnRef.current!,
+          },
+        ] as TourProps["steps"]}
+      />
     </Layout>
   );
 }

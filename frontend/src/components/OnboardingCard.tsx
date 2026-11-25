@@ -118,7 +118,18 @@ export default function OnboardingCard({ onClose }: Props) {
             открывает карточку отсканированной единицы.
           </Typography.Paragraph>
         </div>
-        <Button onClick={hide}>Понятно, скрыть</Button>
+        <Space wrap>
+          <Button
+            type="primary"
+            onClick={() => {
+              hide();
+              window.dispatchEvent(new CustomEvent("bdk:start-tour"));
+            }}
+          >
+            Показать на экране (короткий тур)
+          </Button>
+          <Button onClick={hide}>Понятно, скрыть</Button>
+        </Space>
       </Space>
     </Card>
   );
