@@ -268,6 +268,7 @@ class ReconciliationRowOut(BaseModel):
     defect_pieces_sum: float = 0.0
     history_reports_count: int = 0
     history_good_pieces_sum: float = 0.0
+    estimated_remaining_m: float | None = None
 
 
 class DonorSuggestion(BaseModel):

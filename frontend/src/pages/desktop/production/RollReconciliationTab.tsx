@@ -182,7 +182,16 @@ export default function RollReconciliationTab() {
           {
             title: "Ширина / остаток",
             key: "size",
-            render: (_, r) => `${r.width_mm} × ${r.length_m} м`,
+            render: (_, r) => (
+              <span>
+                {r.width_mm} × {r.length_m} м
+                {r.estimated_remaining_m != null && (
+                  <Typography.Text type="secondary" style={{ display: "block", fontSize: 12 }}>
+                    ~{r.estimated_remaining_m} м ост.
+                  </Typography.Text>
+                )}
+              </span>
+            ),
           },
           {
             title: "Расход",

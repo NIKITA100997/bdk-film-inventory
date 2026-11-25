@@ -82,7 +82,15 @@ def list_reconciliation_rows(
                 ProductionTaskLineReport.material_unit_id,
                 func.count(ProductionTaskLineReport.id),
                 func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
+                func.coalesce(
+                    func.sum(
+                        (ProductionTaskLineReport.good_pieces + ProductionTaskLineReport.defect_pieces)
+                        * func.coalesce(ProductionTaskLine.length_m, 0)
+                    ),
+                    0,
+                ),
             )
+            .outerjoin(ProductionTaskLine, ProductionTaskLine.id == ProductionTaskLineReport.task_line_id)
             .outerjoin(last_issue_subq, last_issue_subq.c.event_unit_id == ProductionTaskLineReport.material_unit_id)
             .filter(
                 ProductionTaskLineReport.material_unit_id.in_(unit_ids),
@@ -94,7 +102,7 @@ def list_reconciliation_rows(
             .group_by(ProductionTaskLineReport.material_unit_id)
             .all()
         )
-        hist_aggs = {uid: (cnt, float(good)) for uid, cnt, good in hist_rows}
+        hist_aggs = {uid: (cnt, float(good), float(used_m)) for uid, cnt, good, used_m in hist_rows}
     else:
         hist_aggs = {}
 
@@ -113,7 +121,12 @@ def list_reconciliation_rows(
             )
             task_label = f"{order_ref} — {line.part_name or ''} {color.name if color else ''}".strip()
         cnt, good, defect = report_aggs.get(u.id, (0, 0.0, 0.0))
-        h_cnt, h_good = hist_aggs.get(u.id, (0, 0.0))
+        h_cnt, h_good, h_used_m = hist_aggs.get(u.id, (0, 0.0, 0.0))
+        est_rem = (
+            round(max(0.0, float(u.length_m) - h_used_m), 2)
+            if u.status == UnitStatus.VYDAN_UCHASTKU and h_cnt > 0 and h_used_m > 0
+            else None
+        )
         if only_attention:
             needs_attention = (line is None and not u.legacy_task_note) or (line is not None and cnt == 0)
             if not needs_attention:
@@ -137,6 +150,7 @@ def list_reconciliation_rows(
                 defect_pieces_sum=defect,
                 history_reports_count=h_cnt,
                 history_good_pieces_sum=h_good,
+                estimated_remaining_m=est_rem,
             )
         )
     return out
